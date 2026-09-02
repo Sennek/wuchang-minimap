@@ -109,7 +109,11 @@ namespace mdb
     struct ParseReport
     {
         std::string schema;      // the file's own "schema" string
-        int chapter = 0;         // the file's "chapter" field
+        // The file's "chapter" field. It is normally a number, but the DLC manifest
+        // spells it "DLC" - so the numeric form is 0 there and `chapter_label` carries
+        // whatever was actually written, for the log and the F2 counters.
+        int chapter = 0;
+        std::string chapter_label;
         std::size_t added = 0;   // markers appended to `out`
         std::size_t skipped = 0; // entries rejected (bad id / coords)
         std::size_t unknown_cat = 0; // entries whose "cat" was not a known name -> Other

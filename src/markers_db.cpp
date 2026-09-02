@@ -203,7 +203,18 @@ namespace mdb
         }
 
         const mjson::JValue* chapter = root.find("chapter");
-        report.chapter = chapter != nullptr ? static_cast<int>(chapter->number_or(0.0)) : 0;
+        if (chapter != nullptr && chapter->kind == mjson::JValue::Kind::Number)
+        {
+            report.chapter = static_cast<int>(chapter->num);
+            report.chapter_label = std::to_string(report.chapter);
+        }
+        else if (chapter != nullptr && chapter->kind == mjson::JValue::Kind::String)
+        {
+            // "DLC" and anything else non-numeric: chapter 0, which the runtime groups
+            // under a single "other" row rather than dropping.
+            report.chapter = 0;
+            report.chapter_label = chapter->str;
+        }
 
         const mjson::JValue* markers = root.find("markers");
         if (markers == nullptr || markers->kind != mjson::JValue::Kind::Array || !markers->arr)

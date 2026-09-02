@@ -2145,7 +2145,9 @@ namespace overlay
                             ImGui::Text("%d / %d", s.found, s.total);
                         }
                     };
-                    for (int ch = 1; ch <= 8; ++ch)
+                    // Row 0 is the bucket for a manifest whose "chapter" is not a
+                    // number - the DLC one spells it "DLC".
+                    for (int ch = 0; ch <= 8; ++ch)
                     {
                         int any = 0;
                         for (int i = 0; i < mdb::kCatCount; ++i)
@@ -2158,7 +2160,14 @@ namespace overlay
                         }
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
-                        ImGui::Text("%d", ch);
+                        if (ch == 0)
+                        {
+                            ImGui::Text("DLC");
+                        }
+                        else
+                        {
+                            ImGui::Text("%d", ch);
+                        }
                         cell(st.chapter[ch][static_cast<int>(mdb::Cat::Shrine)]);
                         cell(st.chapter[ch][static_cast<int>(mdb::Cat::Chest)]);
                         cell(st.chapter[ch][static_cast<int>(mdb::Cat::Pickup)]);

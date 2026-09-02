@@ -129,6 +129,7 @@ namespace
         CHECK_STR(rep.error, "");
         CHECK_STR(rep.schema, "wuchang-minimap-markers/1");
         CHECK_EQ(rep.chapter, 1);
+        CHECK_STR(rep.chapter_label, "1");
         CHECK_EQ(rep.added, 5);       // two entries are rejected
         CHECK_EQ(rep.skipped, 2);     // empty id, and the one with no coordinates
         CHECK_EQ(rep.unknown_cat, 1); // "totally_made_up"
@@ -186,6 +187,21 @@ namespace
                                           out, r));
             CHECK_EQ(out.size(), 0);
             CHECK_EQ(r.chapter, 2);
+        }
+
+        // The DLC manifest spells its chapter "DLC", not a number. That must load, with
+        // chapter 0 as the numeric bucket and the label carried through - not be
+        // rejected, and not silently claim to be chapter 1.
+        {
+            std::vector<mdb::StaticMarker> out;
+            mdb::ParseReport r{};
+            CHECK(mdb::parse_markers_json(R"({"schema":"wuchang-minimap-markers/1","chapter":"DLC",)"
+                                          R"("markers":[{"id":"L/a","cat":"chest","x":1,"y":2,"z":3}]})",
+                                          out, r));
+            CHECK_EQ(out.size(), 1);
+            CHECK_EQ(r.chapter, 0);
+            CHECK_STR(r.chapter_label, "DLC");
+            CHECK_EQ(out[0].chapter, 0);
         }
 
         // A UTF-8 BOM (which is what PowerShell's Set-Content -Encoding utf8 writes)
@@ -249,6 +265,7 @@ namespace
         CHECK_STR(rep.error, "");
         CHECK_STR(rep.schema, "wuchang-minimap-markers/1");
         CHECK_EQ(rep.chapter, 1);
+        CHECK_STR(rep.chapter_label, "1");
         CHECK_EQ(rep.skipped, 0);
         // An unknown category name means the extractor and the runtime have drifted
         // apart - those markers would still draw, but as anonymous grey dots.
@@ -287,6 +304,35 @@ namespace
             {
                 std::printf("    %-10s %d\n", mdb::cat_name(static_cast<mdb::Cat>(i)), per_cat[i]);
             }
+        }
+
+        // The rest of the generated set, if it is there. The runtime enumerates the
+        // markers directory rather than probing chapter1..8, so every one of these is
+        // loaded in-game and every one of them has to parse - including the DLC
+        // manifest, whose "chapter" is the string "DLC" rather than a number.
+        static const char* const kRest[] = {"chapter2", "chapter3", "chapter4", "chapter5",
+                                            "chapter6", "chapter7", "chapter8", "chapterdlc"};
+        for (const char* name : kRest)
+        {
+            const std::string other = markers_dir + "/" + name + ".json";
+            std::string other_text;
+            if (!read_file(other, other_text))
+            {
+                continue;
+            }
+            std::vector<mdb::StaticMarker> other_db;
+            mdb::ParseReport other_rep{};
+            CHECK(mdb::parse_markers_json(other_text, other_db, other_rep));
+            CHECK_STR(other_rep.error, "");
+            CHECK_EQ(other_rep.skipped, 0);
+            CHECK_EQ(other_rep.unknown_cat, 0);
+            CHECK(!other_rep.chapter_label.empty());
+            for (const mdb::StaticMarker& m : other_db)
+            {
+                CHECK(!m.id.empty());
+            }
+            std::printf("  %s: %zu marker(s), chapter \"%s\"\n", name, other_db.size(),
+                        other_rep.chapter_label.c_str());
         }
     }
 

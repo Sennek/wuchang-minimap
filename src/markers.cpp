@@ -14,7 +14,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "mapdata.hpp"
 #include "mem.hpp"
 #include "mmstate.hpp"
 #include "ue_min.hpp"
@@ -783,7 +782,10 @@ namespace markers
                     const bool found = g_found_master.contains(m.id);
                     ++s.cat[ci].total;
                     s.cat[ci].found += found ? 1 : 0;
-                    if (m.chapter >= 1 && m.chapter <= 8)
+                    // Chapter 0 is the bucket for a manifest whose "chapter" is not a
+                    // number - the DLC one spells it "DLC". Those markers are counted,
+                    // not dropped.
+                    if (m.chapter >= 0 && m.chapter <= 8)
                     {
                         chapters.insert(m.chapter);
                         ++s.chapter[m.chapter][ci].total;
@@ -806,32 +808,38 @@ namespace markers
         {
             const std::wstring dir = markers_dir();
 
-            // The chapter keys maps.json already named, plus chapter1..8 so the marker
-            // DB can arrive before (or without) a map asset.
-            std::vector<std::string> keys;
-            for (const mapdata::Chapter& c : mapdata::chapters())
+            // Enumerate the directory rather than probing chapter1..8: the offline
+            // extractor also emits chapterdlc.json, and it will emit whatever the game
+            // adds next. `*.sample.json` is documentation, not data, and is skipped.
+            std::vector<std::wstring> files_found;
+            WIN32_FIND_DATAW find{};
+            const HANDLE h = ::FindFirstFileW((dir + L"\\*.json").c_str(), &find);
+            if (h != INVALID_HANDLE_VALUE)
             {
-                if (!c.key.empty())
+                do
                 {
-                    keys.push_back(c.key);
-                }
+                    if ((find.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                    {
+                        continue;
+                    }
+                    const std::wstring name = find.cFileName;
+                    if (name.find(L".sample.") != std::wstring::npos)
+                    {
+                        continue;
+                    }
+                    files_found.push_back(name);
+                } while (::FindNextFileW(h, &find) != 0 && files_found.size() < 64);
+                ::FindClose(h);
             }
-            for (int i = 1; i <= 8; ++i)
-            {
-                keys.push_back("chapter" + std::to_string(i));
-            }
+            // Deterministic order, so the "first duplicate id wins" rule is stable
+            // across runs.
+            std::sort(files_found.begin(), files_found.end());
 
             auto db = std::make_unique<StaticDb>();
-            std::vector<std::string> seen;
             int files = 0;
-            for (const std::string& key : keys)
+            for (const std::wstring& name : files_found)
             {
-                if (std::find(seen.begin(), seen.end(), key) != seen.end())
-                {
-                    continue;
-                }
-                seen.push_back(key);
-                const std::wstring path = dir + L"\\" + widen(key) + L".json";
+                const std::wstring path = dir + L"\\" + name;
                 std::string text;
                 if (!read_whole_file(path, text))
                 {
@@ -849,7 +857,7 @@ namespace markers
                 mm::logf(L"markers: {} -> {} marker(s) (chapter {}, schema {}{}{})",
                          path,
                          report.added,
-                         report.chapter,
+                         widen(report.chapter_label.empty() ? std::string{"?"} : report.chapter_label),
                          widen(report.schema),
                          report.skipped != 0 ? std::format(L", {} skipped", report.skipped) : std::wstring{},
                          report.unknown_cat != 0 ? std::format(L", {} unknown category", report.unknown_cat)

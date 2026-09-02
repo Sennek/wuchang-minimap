@@ -103,7 +103,7 @@ third_party/minhook/       MinHook v1.3.4
 third_party/fmt/           fmt 11.2.0, headers only (FMT_HEADER_ONLY)
 tools/gen_ue4ss_importlib.ps1
 tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
-tools/navmesh/build_map.py tile JSON -> maps/<chapter>/<agent>.png + maps/maps.json
+tools/navmesh/build_map.py tile JSON -> composite + per-floor layers + maps/maps.json
 maps/                      the shipped map assets (deployed into the mod folder)
 tools/lua-recon/           WuchangRecon Lua recon mod + its offline mock harness
 deploy/ue4ss/Mods/WuchangMinimap/
@@ -298,13 +298,34 @@ cd tools\navmesh
 python build_map.py --input dumps_offline --chapter chapter1 --out ..\..\maps
 ```
 
-`build_map.py` imports `render.py`, so the loader, the richest-copy dedupe and the
-flat-plane filter are shared. It writes **RGBA with a fully transparent background** (light
-desaturated Z-shaded walkable fill, thin polygon edges) plus `maps/maps.json`
-(`wuchang-minimap-maps/1`): per chapter the image path, pixel size, world `min_x/min_y/max_x/max_y`,
-`px_per_uu`, the mapping formula and the global Z bands. `--px-per-uu` is a request - the scale
-halves until neither dimension exceeds `--max-dim` (8192). Chapter 1 at the default 0.06 px/uu is
-**4947 x 4333 px, 3.2 MB PNG, 82 MB as an RGBA8 texture**.
+`build_map.py` imports `render.py`, so the loader, the richest-copy dedupe and the flat-plane filter are
+shared. It writes three things (schema `wuchang-minimap-maps/2`):
+
+1. **`chapter1/small.png`** - the Z-shaded RGBA composite of every storey, transparent background.
+   Chapter 1 at 0.06 px/uu is 4947 x 4333 px, 3.2 MB PNG, 82 MB as RGBA8. It is now only the *fallback*
+   and is not even loaded unless `fallback_use_composite = 1`.
+2. **`chapter1/small_f0.png` .. `_f7.png`** - one 8-bit grayscale coverage mask per **surface ordinal**:
+   layer k holds, at every pixel, the k-th walkable surface counted from the bottom
+   (`rasterize_ordinals()` draws the polygons low Z first and keeps a per-pixel count of how many
+   surfaces are already there). A roof and the corridor beneath it are therefore never in the same layer,
+   and there are no grid-shaped seams. Each layer is cropped to its own footprint with an 8 px
+   transparent margin (ImGui's DX12 sampler is CLAMP) and carries **its own bounds and its own
+   `px_per_uu`**; `plan_layer_scales()` coarsens the deepest ordinals until the whole set fits
+   `--max-layer-mb`. Chapter 1: **8 layers, 4.2 MB of PNG, 109 MB of `R8_UNORM`** (f0-f4 at 0.06, f5 at
+   0.03, f6/f7 at 0.015). Anything deeper than `--max-levels` (8) folds into the last layer - 0.7 % of
+   the polygons.
+3. **`maps.json`** - per chapter the composite's bounds/scale/mapping, the per-layer entries, and the
+   **surface-band grid**: for each 640-uu XY cell, the walkable surfaces at that spot as
+   `[gx, gy, band_count, (zmin, zmax, layer_count, layer...)...]`, low Z first, each band naming its
+   layers dominant-first. That table is how the runtime answers "which storey is the player on?".
+   Chapter 1: 7 894 cells, 23 838 bands, 586 kB.
+
+Why per-pixel ordinals and not floor ranks: measured on Chapter 1, `render.py`'s global floor clustering
+leaves 62 % of the 640-uu cells with two or more surfaces in the same rank, and union-find over
+"neighbouring cells' Z ranges overlap" merges the chapter into one 231 k-polygon surface. Details in the
+script's docstring and in `.workspace/wuchang-minimap/lessons.md`.
+
+`--px-per-uu` is a request - the scale halves until neither dimension exceeds `--max-dim` (8192).
 
 `deploy.ps1` copies `maps\` into the mod folder every time (add `-NoMaps` to skip).
 
@@ -352,7 +373,10 @@ render thread never touches a UObject.
 `ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`: `enabled`,
 `show_minimap`, `minimap_size`, `minimap_zoom`, `minimap_shape`, `minimap_anchor`,
 `minimap_offset_x/y`, `rotate_with_player`, `opacity`, `hide_in_menus`, `require_pawn_view`,
-`state_stale_ms`, `min_visible_after_state_ok_ms`, `debug_readout`, `debug_show_panel_on_start`, `panel_key`, `reload_key`.
+`state_stale_ms`, `min_visible_after_state_ok_ms`, `menu_close_show_delay_ms`, `debug_readout`,
+`debug_show_panel_on_start`, `panel_key`, `reload_key`, plus the floor block: `show_adjacent_floors`,
+`adjacent_floor_opacity`, `floor_z_tolerance`, `floor_hysteresis`, `player_z_offset`,
+`floor_fallback_hold_ms`, `fallback_use_composite`.
 **F2** opens the panel, **F5** reloads the file and the maps. Only F1-F5, F7 and F8 are accepted as
 hotkeys; F6 (RenoDX DLSS 5), F9/F11 (engine binds), F10 (game console) and F12 (Steam) are rejected in
 code.
@@ -361,7 +385,10 @@ code.
 
 - [ ] Markers: shrines, chests, pickups, fog gates, enemies, with auto-mark.
 - [ ] Full-screen pannable map, compass, waypoints, category filters.
-- [ ] Per-floor map selection from the player's Z (the Z bands are already in `maps.json`).
+- [x] Per-floor map selection from the player's Z (per-pixel surface-ordinal layers + the surface-band
+      grid; tolerance 150 uu, hysteresis 100 uu, adjacent storeys dimmed).
+- [ ] If the residual multi-layer draw reads as clutter in-world: the height-encoded texture + custom
+      pixel shader (`|Z - playerZ| < window`, one ~86 MB RGBA texture, no floors at all).
 - [ ] Build the other four chapters' maps and load/unload them by area.
 - [ ] Sweep all streaming cells so the runtime navmesh dumps cover a whole region, not just the
       4-6 cells resident around the player.

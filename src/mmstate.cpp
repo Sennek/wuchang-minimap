@@ -473,6 +473,38 @@ namespace mm
             {
                 cfg.min_visible_after_state_ok_ms = parse_int(value, cfg.min_visible_after_state_ok_ms);
             }
+            else if (key == "menu_close_show_delay_ms")
+            {
+                cfg.menu_close_show_delay_ms = parse_int(value, cfg.menu_close_show_delay_ms);
+            }
+            else if (key == "show_adjacent_floors")
+            {
+                cfg.show_adjacent_floors = parse_bool(value, cfg.show_adjacent_floors);
+            }
+            else if (key == "adjacent_floor_opacity")
+            {
+                cfg.adjacent_floor_opacity = parse_float(value, cfg.adjacent_floor_opacity);
+            }
+            else if (key == "floor_z_tolerance")
+            {
+                cfg.floor_z_tolerance = parse_float(value, cfg.floor_z_tolerance);
+            }
+            else if (key == "floor_hysteresis")
+            {
+                cfg.floor_hysteresis = parse_float(value, cfg.floor_hysteresis);
+            }
+            else if (key == "player_z_offset")
+            {
+                cfg.player_z_offset = parse_float(value, cfg.player_z_offset);
+            }
+            else if (key == "floor_fallback_hold_ms")
+            {
+                cfg.floor_fallback_hold_ms = parse_int(value, cfg.floor_fallback_hold_ms);
+            }
+            else if (key == "fallback_use_composite")
+            {
+                cfg.fallback_use_composite = parse_bool(value, cfg.fallback_use_composite);
+            }
             else if (key == "debug_readout")
             {
                 cfg.debug_readout = parse_bool(value, cfg.debug_readout);
@@ -500,6 +532,12 @@ namespace mm
         cfg.offset_y = (std::max)(0.0f, (std::min)(4000.0f, cfg.offset_y));
         cfg.state_stale_ms = (std::max)(100, (std::min)(60000, cfg.state_stale_ms));
         cfg.min_visible_after_state_ok_ms = (std::max)(0, (std::min)(10000, cfg.min_visible_after_state_ok_ms));
+        cfg.menu_close_show_delay_ms = (std::max)(0, (std::min)(3000, cfg.menu_close_show_delay_ms));
+        cfg.adjacent_floor_opacity = (std::max)(0.0f, (std::min)(1.0f, cfg.adjacent_floor_opacity));
+        cfg.floor_z_tolerance = (std::max)(0.0f, (std::min)(2000.0f, cfg.floor_z_tolerance));
+        cfg.floor_hysteresis = (std::max)(0.0f, (std::min)(2000.0f, cfg.floor_hysteresis));
+        cfg.player_z_offset = (std::max)(-500.0f, (std::min)(500.0f, cfg.player_z_offset));
+        cfg.floor_fallback_hold_ms = (std::max)(0, (std::min)(60000, cfg.floor_fallback_hold_ms));
 
         set_config(cfg);
         logf(L"config: loaded {} setting(s) from {}", lines, path);
@@ -526,6 +564,15 @@ namespace mm
         out += "require_pawn_view = " + std::string(cfg.require_pawn_view ? "1" : "0") + "\n";
         out += "state_stale_ms = " + std::to_string(cfg.state_stale_ms) + "\n";
         out += "min_visible_after_state_ok_ms = " + std::to_string(cfg.min_visible_after_state_ok_ms) + "\n";
+        out += "menu_close_show_delay_ms = " + std::to_string(cfg.menu_close_show_delay_ms) + "\n";
+        out += "\n; Floor (Z) awareness - which pre-rendered floor layer the minimap shows.\n";
+        out += "show_adjacent_floors = " + std::string(cfg.show_adjacent_floors ? "1" : "0") + "\n";
+        out += "adjacent_floor_opacity = " + std::format("{:.2f}", cfg.adjacent_floor_opacity) + "\n";
+        out += "floor_z_tolerance = " + std::format("{:.0f}", cfg.floor_z_tolerance) + "\n";
+        out += "floor_hysteresis = " + std::format("{:.0f}", cfg.floor_hysteresis) + "\n";
+        out += "player_z_offset = " + std::format("{:.0f}", cfg.player_z_offset) + "\n";
+        out += "floor_fallback_hold_ms = " + std::to_string(cfg.floor_fallback_hold_ms) + "\n";
+        out += "fallback_use_composite = " + std::string(cfg.fallback_use_composite ? "1" : "0") + "\n\n";
         out += "debug_readout = " + std::string(cfg.debug_readout ? "1" : "0") + "\n";
         out += "debug_show_panel_on_start = " + std::string(cfg.debug_show_panel_on_start ? "1" : "0") + "\n";
         out += "panel_key = " + vk_name(cfg.panel_key) + "\n";

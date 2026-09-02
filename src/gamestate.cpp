@@ -26,8 +26,19 @@ namespace gamestate
 
         constexpr std::uint64_t kPositionPeriodMs = 100; // 10 Hz: pawn location + yaw
         constexpr std::uint64_t kResolvePeriodMs = 500;  // 2 Hz: FindAllOf for pawn / controller
-        constexpr std::uint64_t kWidgetPeriodMs = 500;   // 2 Hz: the menu test
-        constexpr std::size_t kMaxWidgets = 6000;        // sanity cap on one FindAllOf pass
+        // The menu test runs at two rates, because "the minimap hides 2-3 s after I
+        // open the inventory" was traced straight to it running at 2 Hz:
+        //   * EVERY pump (10 Hz): re-read the reflected Visibility byte of the handful
+        //     of root widgets we have already seen in the viewport. That is a few
+        //     GUObjectArray checks and a few byte reads - no FindAllOf, no allocation,
+        //     no ProcessEvent - and it is what makes hiding immediate.
+        //   * every kWidgetFullPeriodMs: the full FindAllOf("UserWidget") sweep, which
+        //     is the only thing that can DISCOVER a root the first time a given menu is
+        //     opened in a session (a widget that has never been Visible has never been
+        //     IsInViewport()-tested, so it cannot be in the cache yet).
+        constexpr std::uint64_t kWidgetFullPeriodMs = 250;
+        constexpr std::size_t kMaxWidgets = 6000;  // sanity cap on one FindAllOf pass
+        constexpr std::size_t kMaxMenuRoots = 32;  // cache cap; the game only ever has 5-6
 
         // After ANY pawn / world change, no UFunction is called for this long. A level
         // transition destroys the old pawn, its world and everything cached off them;
@@ -76,8 +87,13 @@ namespace gamestate
         std::wstring g_rejected_class;
 
         bool g_menu_open = true; // safe default: "a menu is up" hides the minimap
+        std::uint64_t g_menu_change_ms = 0;
         std::uint32_t g_widgets_seen = 0;
         std::uint32_t g_widgets_visible = 0;
+
+        // Root widgets that were once confirmed `IsInViewport()`. Re-tested every pump
+        // by reading their Visibility byte only.
+        std::vector<uer::ObjRef> g_menu_roots;
 
         std::wstring g_pawn_class_name;
         std::wstring g_pawn_full_name;
@@ -124,6 +140,8 @@ namespace gamestate
             g_pawn_short_name.clear();
             g_state_ok_since = 0;
             g_menu_open = true;
+            g_menu_change_ms = now;
+            g_menu_roots.clear(); // the widgets belonged to the world that just went
             g_funcs.clear();
             g_layouts.clear();
             if (had_pawn)
@@ -368,7 +386,75 @@ namespace gamestate
         // ProcessEvent calls in here are as dangerous during a level transition as the
         // location read was.
 
-        void update_widgets()
+        void set_menu_open(bool open, std::uint64_t now)
+        {
+            if (open != g_menu_open)
+            {
+                g_menu_open = open;
+                g_menu_change_ms = now;
+            }
+        }
+
+        // Is this widget's reflected Visibility byte ESlateVisibility::Visible (0)?
+        // Raw read at a cached offset: no ProcessEvent, so this is safe and cheap
+        // enough to do on every pump.
+        bool widget_is_visible_byte(UObject* w, bool& has_byte)
+        {
+            const uer::ClassLayout* layout = g_layouts.get(w);
+            std::uint8_t vis = 0xFF;
+            has_byte = uer::read_prop(layout, w, L"Visibility", vis, 1);
+            return has_byte && vis == 0;
+        }
+
+        void remember_menu_root(UObject* w)
+        {
+            for (const uer::ObjRef& ref : g_menu_roots)
+            {
+                if (ref.obj == w)
+                {
+                    return;
+                }
+            }
+            if (g_menu_roots.size() >= kMaxMenuRoots)
+            {
+                return;
+            }
+            uer::ObjRef ref{};
+            if (uer::capture(w, ref))
+            {
+                g_menu_roots.push_back(ref);
+                mm::logf(L"menu root cached: {} (now {} cached root(s); the menu test is 10 Hz on these)",
+                         w->GetName(),
+                         g_menu_roots.size());
+            }
+        }
+
+        // THE PER-PUMP TEST (10 Hz). Only the cached in-viewport roots, only their
+        // Visibility byte. Dead roots are pruned. Returns "a menu is up".
+        bool menu_from_cached_roots(std::uint32_t& visible_count)
+        {
+            bool menu = false;
+            visible_count = 0;
+            for (std::size_t i = 0; i < g_menu_roots.size();)
+            {
+                if (!uer::alive(g_menu_roots[i]))
+                {
+                    g_menu_roots.erase(g_menu_roots.begin() + static_cast<std::ptrdiff_t>(i));
+                    continue;
+                }
+                bool has_byte = false;
+                if (widget_is_visible_byte(g_menu_roots[i].obj, has_byte))
+                {
+                    ++visible_count;
+                    menu = true;
+                }
+                ++i;
+            }
+            return menu;
+        }
+
+        // THE FULL SWEEP. Also returns "a menu is up", and refreshes the root cache.
+        bool update_widgets()
         {
             std::vector<UObject*> widgets;
             UObjectGlobals::FindAllOf(L"UserWidget", widgets);
@@ -386,11 +472,11 @@ namespace gamestate
                     continue;
                 }
                 ++seen;
-                const uer::ClassLayout* layout = g_layouts.get(w);
-                std::uint8_t vis = 0xFF;
-                if (uer::read_prop(layout, w, L"Visibility", vis, 1))
+                bool has_byte = false;
+                const bool byte_visible = widget_is_visible_byte(w, has_byte);
+                if (has_byte)
                 {
-                    if (vis != 0)
+                    if (!byte_visible)
                     {
                         continue; // not ESlateVisibility::Visible
                     }
@@ -416,12 +502,15 @@ namespace gamestate
                 {
                     ++visible_in_viewport;
                     menu = true;
+                    // Cache it: from now on this root is re-tested every pump, so the
+                    // NEXT time this menu opens the minimap hides within ~100 ms.
+                    remember_menu_root(w);
                 }
             }
 
             g_widgets_seen = seen;
             g_widgets_visible = visible_in_viewport;
-            g_menu_open = menu;
+            return menu;
         }
 
         //==============================================================================
@@ -447,6 +536,7 @@ namespace gamestate
             snap.stamp_ms = now;
             snap.transition = transition;
             snap.widgets_seen = g_widgets_seen;
+            snap.menu_change_ms = g_menu_change_ms;
             mm::publish(snap);
             g_publishes.fetch_add(1, std::memory_order_relaxed);
             g_report_pending.store(true, std::memory_order_relaxed);
@@ -559,17 +649,27 @@ namespace gamestate
             }
 
             // ---- 4. from here on the pawn is validated: UFunctions are allowed -------
-            if (now - g_last_widgets >= kWidgetPeriodMs)
+            //
+            // The menu test: the cheap cached-root pass runs on EVERY pump, and the
+            // full sweep only every kWidgetFullPeriodMs. Either one saying "a menu is
+            // up" is enough, and the answer is published in this same snapshot - so
+            // the overlay hides on the next frame, not seconds later.
+            std::uint32_t roots_visible = 0;
+            bool menu = menu_from_cached_roots(roots_visible);
+            if (now - g_last_widgets >= kWidgetFullPeriodMs)
             {
                 g_last_widgets = now;
-                update_widgets();
+                menu = update_widgets() || menu;
             }
+            set_menu_open(menu, now);
 
             mm::Snapshot snap{};
             snap.stamp_ms = now;
             snap.menu_open = g_menu_open;
             snap.widgets_seen = g_widgets_seen;
             snap.widgets_visible_in_viewport = g_widgets_visible;
+            snap.menu_roots_cached = static_cast<std::uint32_t>(g_menu_roots.size());
+            snap.menu_change_ms = g_menu_change_ms;
             snap.pawn_is_gameplay = true;
 
             UObject* pawn = g_pawn.obj;
@@ -623,8 +723,9 @@ namespace gamestate
         RC::Unreal::Hook::RegisterProcessEventPreCallback(
             [](UObject*, RC::Unreal::UFunction*, void*) { pump(); });
         mm::log(L"game-state reader registered on the ProcessEvent game-thread pump "
-                L"(position 10 Hz, pawn/controller resolve 2 Hz, widgets 2 Hz; pawn validated "
-                L"through GUObjectArray every pump, class gate 'BP_CombatCharacter_Player')");
+                L"(position 10 Hz, pawn/controller resolve 2 Hz, menu test EVERY pump on the cached "
+                L"in-viewport roots + a full widget sweep at 4 Hz; pawn validated through "
+                L"GUObjectArray every pump, class gate 'BP_CombatCharacter_Player')");
     }
 
     void on_update()
@@ -648,8 +749,8 @@ namespace gamestate
         {
             return;
         }
-        mm::logf(L"state: pawn {} pos {:.0f} {:.0f} {:.0f} yaw {:.0f} ({}) | pawn-view {} | menu {} | "
-                 L"widgets {}/{} | {}{} publishes",
+        mm::logf(L"state: pawn {} pos {:.0f} {:.0f} {:.0f} yaw {:.0f} ({}) | pawn-view {} | menu {} "
+                 L"(last change {} ms ago, {} cached root(s)) | widgets {}/{} | {}{} publishes",
                  snap.has_pawn ? L"yes" : L"NO",
                  snap.x,
                  snap.y,
@@ -658,6 +759,8 @@ namespace gamestate
                  snap.loc_from_function ? L"K2_GetActorLocation" : L"RootComponent",
                  snap.is_pawn_view ? L"yes" : L"no",
                  snap.menu_open ? L"OPEN" : L"no",
+                 snap.menu_change_ms == 0 ? 0ull : ::GetTickCount64() - snap.menu_change_ms,
+                 snap.menu_roots_cached,
                  snap.widgets_visible_in_viewport,
                  snap.widgets_seen,
                  snap.transition ? L"TRANSITION | " : L"",

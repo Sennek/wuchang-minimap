@@ -56,7 +56,48 @@ state_stale_ms = 1000
 ; allowed to appear. Stops it flashing during a level load / right after Continue.
 min_visible_after_state_ok_ms = 600
 
-; Show the world position / uv / chapter readout in the F2 panel.
+; A menu closing is not a level transition, so showing the minimap again waits only
+; this long (hiding is immediate - the game thread re-tests the cached in-viewport
+; menu roots on every 10 Hz pump).
+menu_close_show_delay_ms = 150
+
+; ---------------------------------------------------------------------------------
+; Floor (Z) awareness
+; ---------------------------------------------------------------------------------
+; The map ships one pre-rendered layer per floor (maps\chapter1\small_f<i>.png) plus
+; a per-cell table of walkable surface bands (maps.json "floor_grid"). Every frame the
+; overlay looks up the band the player is standing in and draws that band's layer, so
+; standing in the dungeon under a temple shows the dungeon, not the roof.
+
+; Also draw the storey below (dimmed, cool) and above (dimmer, warm).
+show_adjacent_floors = 1
+
+; Opacity of the storey below, as a multiple of `opacity`. The storey above uses 60 %
+; of this. 0 = draw only the floor you are on.
+adjacent_floor_opacity = 0.25
+
+; Slack around a band's Z range, in uu (1 uu = 1 cm), before the player counts as
+; "between floors". 150 = 1.5 m.
+floor_z_tolerance = 150
+
+; How much closer another band has to be before the minimap switches to it. Stops the
+; picture flickering between two layers halfway up a staircase.
+floor_hysteresis = 100
+
+; The pawn's reported location is its capsule centre, about 90 uu above the navmesh it
+; stands on; this is subtracted before the band lookup.
+player_z_offset = 90
+
+; If the player is off the floor grid (off-navmesh, an unmapped area), the last floor
+; is kept for this long before the fallback takes over.
+floor_fallback_hold_ms = 3000
+
+; The fallback: 0 = draw every floor layer at once (free - the layers are already
+; resident). 1 = load and draw the Z-shaded composite small.png instead, which costs
+; another 82 MB of VRAM on top of the layers' ~104 MB for Chapter 1.
+fallback_use_composite = 0
+
+; Show the world position / uv / chapter / floor readout in the F2 panel.
 debug_readout = 1
 
 ; Open the settings panel as soon as the mod starts. Development aid only - it is how

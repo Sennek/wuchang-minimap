@@ -52,6 +52,11 @@ namespace mm
 
         std::uint32_t widgets_seen = 0;
         std::uint32_t widgets_visible_in_viewport = 0;
+        std::uint32_t menu_roots_cached = 0; // in-viewport roots re-tested every pump
+        // GetTickCount64() when menu_open last CHANGED, and the number of pumps since.
+        // The overlay uses it for the short "menu just closed" delay, and the F2 debug
+        // block prints the age so the hide/show latency is measurable in one screenshot.
+        std::uint64_t menu_change_ms = 0;
         std::uint64_t stamp_ms = 0; // GetTickCount64() when this snapshot was published
         // GetTickCount64() at which the reader last STARTED to have a validated
         // gameplay pawn continuously. 0 = right now it does not. The overlay requires
@@ -96,6 +101,30 @@ namespace mm
         bool require_pawn_view = true;
         int state_stale_ms = 1000;
         int min_visible_after_state_ok_ms = 600; // grace after the state becomes good
+        // A menu closing is NOT a level transition: showing the minimap again waits
+        // only this long, not min_visible_after_state_ok_ms. Hiding is immediate.
+        int menu_close_show_delay_ms = 150;
+
+        //==============================================================================
+        // Floor (Z) awareness
+        //==============================================================================
+        //
+        // The map ships one pre-rendered layer per floor plus a per-cell table of
+        // walkable surface bands (maps.json `floor_grid`). Every frame the overlay
+        // picks the band the player is standing in and draws that band's layer(s).
+
+        bool show_adjacent_floors = true;     // dim the storey below / above
+        float adjacent_floor_opacity = 0.25f; // below; above uses 0.6 x this
+        float floor_z_tolerance = 150.0f;     // uu of slack around a band's Z range
+        float floor_hysteresis = 100.0f;      // uu the new band must win by, on stairs
+        // The pawn's location is its capsule centre, ~90 uu above the navmesh it is
+        // standing on. Subtracted before the band lookup.
+        float player_z_offset = 90.0f;
+        int floor_fallback_hold_ms = 3000; // keep the last floor this long when off-grid
+        // After that: draw every layer at once (0, the default - costs no extra VRAM)
+        // or the Z-shaded composite texture (1, +82 MB of VRAM for Chapter 1).
+        bool fallback_use_composite = false;
+
         bool debug_readout = true;
         bool debug_show_panel_on_start = false; // main-menu verification aid
         int panel_key = 0x71;                   // VK_F2

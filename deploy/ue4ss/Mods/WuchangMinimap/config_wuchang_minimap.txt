@@ -159,6 +159,17 @@ markers_enabled = 1
 ; static database (positions, but no collected / opened state).
 markers_live = 1
 
+; Draw only the markers of the chapter you are actually in.
+;
+; The static database is one flat set of all six chapters' 3601 markers, and the
+; chapters' world extents overlap badly - chapter 4's bounds cover nearly all of
+; chapter 1's - so with this off you get other chapters' shrines and chests painted
+; on top of the current map. The chapter is named by the streamed level packages, not
+; by your position (a position cannot tell chapter 1 from chapter 4). Until it has
+; been recognised, nothing is filtered. Live actors are in the current world by
+; definition and are never filtered. Set to 0 only to debug the marker database.
+markers_filter_chapter = 1
+
 ; How the live sweep works, and its three dials.
 ;
 ; The sweep walks the engine's object array ONCE per full pass, a slice at a time, and

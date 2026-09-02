@@ -787,6 +787,10 @@ namespace mm
             {
                 cfg.markers_live = parse_bool(value, cfg.markers_live);
             }
+            else if (key == "markers_filter_chapter")
+            {
+                cfg.markers_filter_chapter = parse_bool(value, cfg.markers_filter_chapter);
+            }
             else if (key == "markers_rounds_per_sec")
             {
                 cfg.markers_rounds_per_sec = parse_int(value, cfg.markers_rounds_per_sec);
@@ -1123,6 +1127,7 @@ namespace mm
         out += "; (or `all` / `none`). The same list drives the F2 filter checkboxes.\n";
         out += "markers_enabled = " + std::string(cfg.markers_enabled ? "1" : "0") + "\n";
         out += "markers_live = " + std::string(cfg.markers_live ? "1" : "0") + "\n";
+        out += "markers_filter_chapter = " + std::string(cfg.markers_filter_chapter ? "1" : "0") + "\n";
         out += "markers_rounds_per_sec = " + std::to_string(cfg.markers_rounds_per_sec) + "\n";
         out += "markers_scan_chunk = " + std::to_string(cfg.markers_scan_chunk) + "\n";
         out += "markers_scan_period_ms = " + std::to_string(cfg.markers_scan_period_ms) + "\n";

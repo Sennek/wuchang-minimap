@@ -78,6 +78,10 @@ namespace markers
         int static_markers = 0;                     // entries loaded from JSON
         int chapters_loaded = 0;
         int found_ids = 0;                          // lines in wuchang_minimap_found.txt
+        // The chapter the published buffer and the per-chapter counters below are
+        // filtered to, or chid::kNone when nothing is filtered (detection has not
+        // answered yet, or markers_filter_chapter = 0).
+        int filter_chapter = chid::kNone;
         int published = 0;                          // markers in the last draw buffer
         int live_entries = 0;                       // live actors currently tracked
         std::uint64_t rounds = 0;                   // completed live sweep rounds

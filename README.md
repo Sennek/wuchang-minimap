@@ -470,6 +470,7 @@ The marker block:
 |---|---|---|
 | `markers_enabled` | 1 | draw markers at all |
 | `markers_live` | 1 | run the game-thread class sweep (off = static positions, no state) |
+| `markers_filter_chapter` | 1 | draw only the current chapter's static markers - the DB holds all six chapters and their world bounds overlap (chapter 4 covers nearly all of chapter 1); nothing is filtered until the chapter is recognised, and live actors are never filtered |
 | `markers_rounds_per_sec` | 1 | ceiling on how often a full pass over the object array may **start** (1..10); a pass that finishes early idles |
 | `markers_scan_chunk` | 8192 | object slots the sweep visits per game-thread pump (512..131072) - the frame-cost dial |
 | `markers_scan_period_ms` | 8 | minimum milliseconds between pumps (1..500) |

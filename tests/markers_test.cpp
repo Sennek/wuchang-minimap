@@ -1041,6 +1041,64 @@ namespace
     // just quietly loads the wrong map. The fixtures below are real names taken from
     // the pak index and from the WuchangRecon world dumps.
 
+    //==================================================================================
+    // The chapter filter for the static marker DB (mdb::marker_in_chapter)
+    //==================================================================================
+    //
+    // The predicate publish_round() uses to cut the flat 3 601-marker DB down to the
+    // chapter the player is actually in. The whole point is that chapter 4's bounds
+    // cover nearly all of chapter 1, so a position test cannot do this job.
+
+    void test_marker_chapter_filter()
+    {
+        std::printf("markers: the static DB's chapter filter\n");
+
+        // --- a numbered chapter keeps its own markers and nothing else ---------------
+        CHECK(mdb::marker_in_chapter(1, 1));
+        CHECK(!mdb::marker_in_chapter(4, 1));
+        CHECK(!mdb::marker_in_chapter(1, 4));
+        CHECK(mdb::marker_in_chapter(5, 5));
+        for (int ch = 1; ch <= 5; ++ch)
+        {
+            for (int det = 1; det <= 5; ++det)
+            {
+                CHECK(mdb::marker_in_chapter(ch, det) == (ch == det));
+            }
+        }
+
+        // --- the DLC is bucket 0, which is what the DLC manifest's "chapter":"DLC"
+        //     parses to, and it must NOT collide with any numbered chapter ------------
+        CHECK(mdb::marker_in_chapter(chid::kDlc, chid::kDlc));
+        CHECK(!mdb::marker_in_chapter(3, chid::kDlc));
+        CHECK(!mdb::marker_in_chapter(chid::kDlc, 3));
+        // The DLC's marker range overlaps chapter 3's - hence the explicit pair above.
+
+        // --- kNone means "not detected": show everything, never hide ----------------
+        CHECK(mdb::marker_in_chapter(1, chid::kNone));
+        CHECK(mdb::marker_in_chapter(4, chid::kNone));
+        CHECK(mdb::marker_in_chapter(chid::kDlc, chid::kNone));
+        for (int ch = 0; ch <= 8; ++ch)
+        {
+            CHECK(mdb::marker_in_chapter(ch, chid::kNone));
+        }
+
+        // --- and the join with the parser: a real manifest's chapter number is what
+        //     goes into the predicate, DLC included ------------------------------------
+        {
+            std::vector<mdb::StaticMarker> db;
+            mdb::ParseReport rep{};
+            CHECK(mdb::parse_markers_json(
+                R"({"schema":"wuchang-minimap-markers/1","chapter":"DLC","markers":[)"
+                R"({"id":"a/b","cat":"chest","x":1,"y":2,"z":3}]})",
+                db, rep));
+            CHECK(rep.chapter == chid::kDlc);
+            CHECK(rep.chapter_label == "DLC");
+            CHECK(db.size() == 1 && db[0].chapter == chid::kDlc);
+            CHECK(mdb::marker_in_chapter(db[0].chapter, chid::kDlc));
+            CHECK(!mdb::marker_in_chapter(db[0].chapter, 1));
+        }
+    }
+
     void test_chapter_id()
     {
         std::printf("chapterid: cell packages, logic levels and the tiered vote\n");
@@ -1373,6 +1431,7 @@ int main(int argc, char** argv)
     test_projection();
     test_compass();
     test_chapter_id();
+    test_marker_chapter_filter();
     test_map_manifest(markers_dir);
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);

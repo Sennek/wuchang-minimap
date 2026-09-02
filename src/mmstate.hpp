@@ -172,6 +172,11 @@ namespace mm
 
         bool markers_enabled = true;  // draw markers at all
         bool markers_live = true;     // run the game-thread class sweep
+        // Draw only the markers of the chapter the player is in. The static DB is one
+        // flat set of all six chapters and their world bounds overlap heavily (chapter
+        // 4 covers nearly all of chapter 1), so with this off the map paints other
+        // chapters' markers on top of the current one. Off is a debugging setting.
+        bool markers_filter_chapter = true;
         // The live sweep walks GUObjectArray in slices, one slice per game-thread pump
         // (src/scan_sched.hpp). `markers_rounds_per_sec` caps how often a FULL pass is
         // started; `markers_scan_chunk` and `markers_scan_period_ms` decide how finely

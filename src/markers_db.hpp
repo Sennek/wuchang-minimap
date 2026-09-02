@@ -33,6 +33,8 @@
 #include <string_view>
 #include <vector>
 
+#include "chapterid.hpp"
+
 namespace mdb
 {
     //==================================================================================
@@ -105,6 +107,27 @@ namespace mdb
         int chapter = 0; // 1..8, from the file's "chapter" field
         Cat cat = Cat::Other;
     };
+
+    // Does a static marker belong to the chapter the player is currently in?
+    //
+    // WHY THIS EXISTS: the DB is one flat set of all 3 601 markers of all six chapters,
+    // and the chapters' world bounds overlap badly (chapter 4 covers nearly all of
+    // chapter 1). Without this test the minimap, the full map, the compass and the
+    // x-ray highlight all paint foreign chapters' markers over the current one.
+    //
+    // `detected` is `mapdata::detected_chapter()`:
+    //   chid::kNone (-1)  nothing recognised yet -> do NOT filter, show everything
+    //                     (a wrong hide is worse than a stale extra marker, and the
+    //                     detector answers within a pump of the level streaming in);
+    //   chid::kDlc  (0)   the DLC, which is exactly the bucket the DLC manifest's
+    //                     non-numeric "chapter": "DLC" parses to;
+    //   1..9              a numbered chapter.
+    //
+    // Pure and total - no clamping, no special cases beyond kNone.
+    constexpr bool marker_in_chapter(int marker_chapter, int detected)
+    {
+        return detected == chid::kNone || marker_chapter == detected;
+    }
 
     struct ParseReport
     {

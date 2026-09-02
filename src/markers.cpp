@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "highlight.hpp"
+#include "mapdata.hpp"
 #include "mem.hpp"
 #include "mmstate.hpp"
 #include "scan_sched.hpp"
@@ -776,6 +777,19 @@ namespace markers
         // Publishing the draw buffer (game thread, once per round)
         //==============================================================================
 
+        // The chapter the static DB is filtered to, or chid::kNone for "show
+        // everything". Recomputed on EVERY publish and deliberately NOT latched: a
+        // chapter change must switch the visible set on the next round, and
+        // `mapdata` already logs the switch itself.
+        int filter_chapter_now()
+        {
+            if (!mm::config().markers_filter_chapter)
+            {
+                return chid::kNone;
+            }
+            return mapdata::detected_chapter();
+        }
+
         void publish_round()
         {
             // Drop live actors that have not answered for two rounds: their level was
@@ -796,12 +810,24 @@ namespace markers
             std::vector<DrawMarker>& dst = g_slot[g_slot_next];
             dst.clear();
 
+            // The static DB holds ALL six chapters' markers in one flat set, and the
+            // chapters' world bounds overlap (chapter 4 covers nearly all of chapter
+            // 1), so an unfiltered publish paints foreign markers over the current
+            // map. This is the single point where that is decided - the minimap, the
+            // full map, the compass pips and the x-ray highlight all read the buffer
+            // published here, so none of them needs a filter of its own.
+            const int filter_chapter = filter_chapter_now();
+
             const StaticDb* db = g_db.load(std::memory_order_acquire);
             if (db != nullptr)
             {
                 dst.reserve(db->markers.size() + g_live.size());
                 for (const mdb::StaticMarker& sm : db->markers)
                 {
+                    if (!mdb::marker_in_chapter(sm.chapter, filter_chapter))
+                    {
+                        continue;
+                    }
                     DrawMarker d{};
                     d.x = sm.x;
                     d.y = sm.y;
@@ -842,9 +868,20 @@ namespace markers
                 {
                     continue; // no usable position and no static entry to fall back on
                 }
-                if (db != nullptr && db->by_id.contains(kv.first))
+                if (db != nullptr)
                 {
-                    continue;
+                    // Only skip the live actor when its static twin was actually
+                    // drawn above. A live actor is by definition in the current
+                    // world, so it is never filtered out itself - but its static
+                    // entry may carry another chapter's number.
+                    const auto sit = db->by_id.find(kv.first);
+                    if (sit != db->by_id.end() && sit->second >= 0 &&
+                        sit->second < static_cast<int>(db->markers.size()) &&
+                        mdb::marker_in_chapter(db->markers[static_cast<std::size_t>(sit->second)].chapter,
+                                               filter_chapter))
+                    {
+                        continue;
+                    }
                 }
                 DrawMarker d{};
                 d.x = kv.second.x;
@@ -979,6 +1016,7 @@ namespace markers
                 s.chapters_loaded = static_cast<int>(chapters.size());
             }
             s.found_ids = static_cast<int>(g_found_master.size());
+            s.filter_chapter = filter_chapter_now();
             s.published = g_published_count.load(std::memory_order_relaxed);
             s.live_entries = g_live_count.load(std::memory_order_relaxed);
             s.rounds = g_rounds.load(std::memory_order_relaxed);

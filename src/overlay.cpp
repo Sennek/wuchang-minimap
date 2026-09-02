@@ -3581,6 +3581,30 @@ namespace overlay
                 ImGui::Checkbox("Live actor sweep", &cfg.markers_live);
                 ImGui::SameLine();
                 ImGui::Checkbox("Hide found", &cfg.markers_hide_found);
+                // The chapters' world bounds overlap (chapter 4 covers nearly all of
+                // chapter 1), so the static DB has to be cut down to the chapter the
+                // player is actually in - otherwise foreign markers paint over the map.
+                ImGui::Checkbox("Only this chapter's markers", &cfg.markers_filter_chapter);
+                ImGui::SameLine();
+                {
+                    const markers::Stats fs = markers::stats();
+                    if (!cfg.markers_filter_chapter)
+                    {
+                        ImGui::TextDisabled("(off - all chapters drawn)");
+                    }
+                    else if (fs.filter_chapter == chid::kNone)
+                    {
+                        ImGui::TextDisabled("(chapter not detected yet - all drawn)");
+                    }
+                    else if (fs.filter_chapter == chid::kDlc)
+                    {
+                        ImGui::TextDisabled("(showing DLC)");
+                    }
+                    else
+                    {
+                        ImGui::Text("(showing chapter %d)", fs.filter_chapter);
+                    }
+                }
 
                 ImGui::SliderFloat("Marker size (px)", &cfg.markers_size, 2.0f, 16.0f, "%.1f");
                 ImGui::SliderFloat("Found marker opacity", &cfg.markers_found_alpha, 0.0f, 1.0f, "%.2f");
@@ -3688,12 +3712,26 @@ namespace overlay
                         cell(st.chapter[ch][static_cast<int>(mdb::Cat::Chest)]);
                         cell(st.chapter[ch][static_cast<int>(mdb::Cat::Pickup)]);
                     }
+                    // The summary row follows the filter: when only one chapter is
+                    // drawn, a whole-DB total would count five chapters the player
+                    // cannot see and can never collect from here.
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
-                    ImGui::TextDisabled("all");
-                    cell(st.cat[static_cast<int>(mdb::Cat::Shrine)]);
-                    cell(st.cat[static_cast<int>(mdb::Cat::Chest)]);
-                    cell(st.cat[static_cast<int>(mdb::Cat::Pickup)]);
+                    const int fch = st.filter_chapter;
+                    if (fch >= 0 && fch <= 8)
+                    {
+                        ImGui::TextDisabled("current");
+                        cell(st.chapter[fch][static_cast<int>(mdb::Cat::Shrine)]);
+                        cell(st.chapter[fch][static_cast<int>(mdb::Cat::Chest)]);
+                        cell(st.chapter[fch][static_cast<int>(mdb::Cat::Pickup)]);
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("all");
+                        cell(st.cat[static_cast<int>(mdb::Cat::Shrine)]);
+                        cell(st.cat[static_cast<int>(mdb::Cat::Chest)]);
+                        cell(st.cat[static_cast<int>(mdb::Cat::Pickup)]);
+                    }
                     ImGui::EndTable();
                 }
                 ImGui::Text("db %d marker(s) / %d chapter(s)   found file %d id(s)   published %d   live %d",

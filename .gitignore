@@ -49,3 +49,7 @@ tools/navmesh/out_offline/*
 !tools/navmesh/out_offline/alignment.json
 !tools/navmesh/out_offline/_spot1_zslice.png
 !tools/navmesh/out_offline/_spot2_zslice.png
+
+# The deploy\ mirror is a copy of what goes into the game; the map assets there are
+# byte-identical to maps\ and only exist so the repo shows the installed layout.
+/deploy/**/maps/

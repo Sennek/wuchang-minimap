@@ -98,6 +98,11 @@ namespace markers
 
         constexpr int kClassCount = static_cast<int>(std::size(kClasses));
 
+        // What a file in the markers directory must declare to be treated as a marker
+        // manifest. Anything else in there (items.json, whatever comes next) is skipped
+        // quietly rather than reported as broken.
+        constexpr std::string_view kMarkerSchemaPrefix = "wuchang-minimap-markers";
+
         // BP_RebornFire_C's game-authored shrine id - the CJK-named "sitting-Buddha
         // point ID" property (U+5750 U+4F5B U+70B9 + "ID"), spelled with escapes so the
         // symbol survives any source-encoding accident. It is the ONLY property that
@@ -869,7 +874,14 @@ namespace markers
                         }
                     }
                     copy_id(d.id, sizeof(d.id), sm.id);
-                    copy_id(d.label, sizeof(d.label), sm.cls.empty() ? sm.name : sm.cls);
+                    // NAME FIRST. `cls` is always non-empty ("BP_PickupActor_C"), so the
+                    // old `cls.empty() ? name : cls` meant every pickup's tooltip read
+                    // "pickup_actor" while the DB carried a real display name for 1 050
+                    // of them. markers/chapter*.json now carries a name for every entry
+                    // (a real item name where the extractor could resolve one, the
+                    // category label otherwise), so preferring it never makes a label
+                    // worse. Longest shipped name is 31 ASCII chars; `label` is 40.
+                    copy_id(d.label, sizeof(d.label), sm.name.empty() ? sm.cls : sm.name);
                     dst.push_back(d);
                 }
             }
@@ -1094,8 +1106,25 @@ namespace markers
                 const std::size_t before = db->markers.size();
                 if (!mdb::parse_markers_json(text, db->markers, report))
                 {
-                    mm::logf(L"markers: {} rejected - {}", path, widen(report.error));
                     db->markers.resize(before);
+                    // A sibling manifest of a DIFFERENT schema is not an error: the
+                    // offline extractor also writes markers/items.json (the item
+                    // display-name database, schema wuchang-minimap-items/1) into this
+                    // directory, and the enumeration above deliberately takes every
+                    // *.json so a chapter file the game adds later is picked up without
+                    // a code change. Only a file that claims to BE a marker manifest is
+                    // reported as broken.
+                    if (!report.schema.empty() &&
+                        report.schema.compare(0, kMarkerSchemaPrefix.size(), kMarkerSchemaPrefix) != 0)
+                    {
+                        mm::logf(L"markers: {} is not a marker manifest (schema {}) - skipped",
+                                 path,
+                                 widen(report.schema));
+                    }
+                    else
+                    {
+                        mm::logf(L"markers: {} rejected - {}", path, widen(report.error));
+                    }
                     continue;
                 }
                 ++files;

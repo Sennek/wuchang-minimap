@@ -24,6 +24,7 @@
             dlls\main.dll
             maps\maps.json, maps\chapter<1..5>\*.png
             markers\chapter*.json          (the hand-written *.sample.json is excluded)
+            markers\items.json             (item display names, when it has been built)
             config_wuchang_minimap.txt
             config.ini
             enabled.txt
@@ -146,6 +147,14 @@ try {
                      Where-Object { $_.Name -notlike '*.sample.json' })
     if ($markerFiles.Count -eq 0) { throw "No markers\chapter*.json - build them with tools\markers." }
     foreach ($f in $markerFiles) { Copy-Item -LiteralPath $f.FullName -Destination $markersDst -Force }
+
+    #     items.json (the item display-name database, schema wuchang-minimap-items/1) is
+    #     shipped alongside them when it exists. The runtime does not need it - the names
+    #     are already baked into chapter*.json - but it is what a later tooltip/search
+    #     feature reads, and the loader skips any file whose schema is not a marker
+    #     manifest, so shipping it is free.
+    $itemsSrc = Join-Path $repo 'markers\items.json'
+    if (Test-Path $itemsSrc) { Copy-Item -LiteralPath $itemsSrc -Destination $markersDst -Force }
 
     # 3d. the two shipped config files, and the enabled.txt opt-in UE4SS looks for.
     foreach ($cfg in @('config_wuchang_minimap.txt', 'config.ini')) {

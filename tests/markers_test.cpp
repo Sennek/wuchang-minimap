@@ -32,8 +32,10 @@
 #include <string>
 #include <vector>
 
+#include "compass.hpp"
 #include "mapview.hpp"
 #include "markers_db.hpp"
+#include "projection.hpp"
 #include "scan_sched.hpp"
 
 namespace
@@ -760,6 +762,271 @@ namespace
             CHECK_NEAR(r.avg_ms(), 0.75, 1e-12);
         }
     }
+    //======================================================================================
+    // src/projection.hpp - world -> screen
+    //======================================================================================
+    //
+    // The x-ray highlight is only as good as this, and a wrong basis row or FOV axis
+    // would only ever show up in a play session. Every expectation below is computed by
+    // hand from the conventions documented at the top of projection.hpp.
+
+    void test_projection()
+    {
+        std::printf("projection (world -> screen)\n");
+
+        constexpr double kW = 1920.0;
+        constexpr double kH = 1080.0;
+        const double aspect = kW / kH; // 1.7778
+
+        proj::Camera cam{};
+        cam.x = 0.0;
+        cam.y = 0.0;
+        cam.z = 0.0;
+        cam.pitch = 0.0;
+        cam.yaw = 0.0; // looking north (+X)
+        cam.roll = 0.0;
+        cam.fov_deg = 90.0; // tan(45) == 1
+
+        // --- dead centre -------------------------------------------------------------
+        {
+            const proj::Result r = proj::project(cam, 1000.0, 0.0, 0.0, kW, kH);
+            CHECK(r.valid);
+            CHECK(!r.behind);
+            CHECK(r.on_screen);
+            CHECK_NEAR(r.depth, 1000.0, 1e-9);
+            CHECK_NEAR(r.dist, 1000.0, 1e-9);
+            CHECK_NEAR(r.ndc_x, 0.0, 1e-12);
+            CHECK_NEAR(r.ndc_y, 0.0, 1e-12);
+            CHECK_NEAR(r.sx, 960.0, 1e-6);
+            CHECK_NEAR(r.sy, 540.0, 1e-6);
+        }
+
+        // --- the horizontal FOV edges: 45 deg off axis at fov 90 is exactly the rim ----
+        {
+            const proj::Result right = proj::project(cam, 1000.0, 1000.0, 0.0, kW, kH);
+            CHECK(right.on_screen);
+            CHECK_NEAR(right.ndc_x, 1.0, 1e-12);
+            CHECK_NEAR(right.sx, 1920.0, 1e-6);
+            CHECK_NEAR(right.sy, 540.0, 1e-6);
+
+            const proj::Result left = proj::project(cam, 1000.0, -1000.0, 0.0, kW, kH);
+            CHECK(left.on_screen);
+            CHECK_NEAR(left.sx, 0.0, 1e-6);
+        }
+
+        // --- the vertical FOV is the horizontal one divided by the aspect --------------
+        // tan(vfov/2) = tan(hfov/2) / aspect, so the top of the screen is at
+        // up/forward == 1/aspect == 0.5625, NOT at 1.0.
+        {
+            const proj::Result top = proj::project(cam, 1000.0, 0.0, 1000.0 / aspect, kW, kH);
+            CHECK(top.on_screen);
+            CHECK_NEAR(top.ndc_y, 1.0, 1e-12);
+            CHECK_NEAR(top.sy, 0.0, 1e-6);
+
+            // A point at 45 degrees up is well off the top of a 16:9 screen.
+            const proj::Result high = proj::project(cam, 1000.0, 0.0, 1000.0, kW, kH);
+            CHECK(!high.on_screen);
+            CHECK(!high.behind);
+            CHECK_NEAR(high.ndc_y, aspect, 1e-12);
+        }
+
+        // --- yaw and pitch ------------------------------------------------------------
+        {
+            proj::Camera east = cam;
+            east.yaw = 90.0; // looking east (+Y)
+            const proj::Result r = proj::project(east, 0.0, 1000.0, 0.0, kW, kH);
+            CHECK(r.on_screen);
+            CHECK_NEAR(r.sx, 960.0, 1e-6);
+            CHECK_NEAR(r.sy, 540.0, 1e-6);
+            // 45 degrees to the left of the new forward axis is the left rim.
+            const proj::Result left45 = proj::project(east, 1000.0, 1000.0, 0.0, kW, kH);
+            CHECK(!left45.behind);
+            CHECK(left45.on_screen);
+            CHECK_NEAR(left45.ndc_x, -1.0, 1e-9);
+            // What used to be straight ahead is now exactly 90 degrees off, i.e. ON the
+            // camera plane - which is the behind case, not a screen position.
+            const proj::Result north = proj::project(east, 1000.0, 0.0, 0.0, kW, kH);
+            CHECK(north.behind);
+            CHECK(north.ndc_x < 0.0);
+
+            proj::Camera down = cam;
+            down.pitch = -45.0; // looking down 45 degrees
+            const proj::Result below = proj::project(down, 1000.0, 0.0, -1000.0, kW, kH);
+            CHECK(below.on_screen);
+            CHECK_NEAR(below.sx, 960.0, 1e-6);
+            CHECK_NEAR(below.sy, 540.0, 1e-6);
+        }
+
+        // --- behind the camera: never a screen position, always a direction ------------
+        {
+            const proj::Result back = proj::project(cam, -1000.0, 0.0, 0.0, kW, kH);
+            CHECK(back.valid);
+            CHECK(back.behind);
+            CHECK(!back.on_screen);
+            CHECK(back.depth < 0.0);
+            // Straight behind: the "turn around" convention is the bottom edge.
+            CHECK_NEAR(back.ndc_x, 0.0, 1e-12);
+            CHECK_NEAR(back.ndc_y, -2.0, 1e-12);
+
+            // Behind AND to the right: the arrow must point RIGHT (the short way round),
+            // which is exactly what a naive divide by a negative depth gets wrong.
+            const proj::Result back_right = proj::project(cam, -1000.0, 500.0, 0.0, kW, kH);
+            CHECK(back_right.behind);
+            CHECK(back_right.ndc_x > 0.0);
+            CHECK_NEAR(back_right.ndc_x, 2.0, 1e-12);
+
+            const proj::Result back_left = proj::project(cam, -1000.0, -500.0, 0.0, kW, kH);
+            CHECK(back_left.behind);
+            CHECK(back_left.ndc_x < 0.0);
+
+            // On the camera plane counts as behind (the divide is meaningless there).
+            const proj::Result plane = proj::project(cam, 0.0, 300.0, 0.0, kW, kH);
+            CHECK(plane.behind);
+        }
+
+        // --- FOV changes the scale, and only the scale ---------------------------------
+        {
+            proj::Camera narrow = cam;
+            narrow.fov_deg = 60.0; // tan(30) = 0.5774
+            const proj::Result r = proj::project(narrow, 1000.0, 1000.0, 0.0, kW, kH);
+            CHECK(!r.on_screen); // 45 deg off axis no longer fits in a 60 deg view
+            CHECK_NEAR(r.ndc_x, 1.0 / std::tan(30.0 * proj::kPi / 180.0), 1e-9);
+        }
+
+        // --- a garbage camera must produce nothing, never a screenful of labels --------
+        {
+            proj::Camera bad = cam;
+            bad.x = 1.0e18;
+            CHECK(!proj::camera_sane(bad));
+            CHECK(!proj::project(bad, 1.0, 2.0, 3.0, kW, kH).valid);
+
+            bad = cam;
+            bad.fov_deg = 0.0;
+            CHECK(!proj::camera_sane(bad));
+            bad.fov_deg = 179.0;
+            CHECK(!proj::camera_sane(bad));
+
+            bad = cam;
+            bad.pitch = 120.0; // UE clamps camera pitch to +-90
+            CHECK(!proj::camera_sane(bad));
+
+            bad = cam;
+            bad.yaw = 447.0; // legal: UE does not wrap yaw
+            CHECK(proj::camera_sane(bad));
+
+            // A zero-size screen (the frame a swapchain is resized) is not a crash.
+            CHECK(!proj::project(cam, 1000.0, 0.0, 0.0, 0.0, 0.0).valid);
+        }
+    }
+
+    //======================================================================================
+    // src/compass.cpp - the heading strip
+    //======================================================================================
+
+    void test_compass()
+    {
+        std::printf("compass (headings and bearings)\n");
+
+        // --- wrapping -----------------------------------------------------------------
+        CHECK_NEAR(cmp::wrap180(0.0), 0.0, 1e-12);
+        CHECK_NEAR(cmp::wrap180(190.0), -170.0, 1e-12);
+        CHECK_NEAR(cmp::wrap180(-190.0), 170.0, 1e-12);
+        CHECK_NEAR(cmp::wrap180(180.0), 180.0, 1e-12);
+        CHECK_NEAR(cmp::wrap180(-180.0), 180.0, 1e-12);
+        CHECK_NEAR(cmp::wrap180(750.0), 30.0, 1e-9);
+        // UE does not wrap yaw on save; a 447 degree heading must still work.
+        CHECK_NEAR(cmp::wrap180(447.0), 87.0, 1e-9);
+        CHECK_NEAR(cmp::wrap360(-90.0), 270.0, 1e-12);
+        CHECK_NEAR(cmp::wrap360(360.0), 0.0, 1e-12);
+
+        // --- bearings: +X is north, +Y is east -----------------------------------------
+        CHECK_NEAR(cmp::bearing_deg(0.0, 0.0, 100.0, 0.0), 0.0, 1e-9);
+        CHECK_NEAR(cmp::bearing_deg(0.0, 0.0, 0.0, 100.0), 90.0, 1e-9);
+        CHECK_NEAR(cmp::bearing_deg(0.0, 0.0, -100.0, 0.0), 180.0, 1e-9);
+        CHECK_NEAR(cmp::bearing_deg(0.0, 0.0, 0.0, -100.0), 270.0, 1e-9);
+        CHECK_NEAR(cmp::bearing_deg(500.0, 500.0, 600.0, 600.0), 45.0, 1e-9);
+        CHECK_NEAR(cmp::bearing_deg(7.0, 7.0, 7.0, 7.0), 0.0, 1e-12); // no delta, no NaN
+
+        // --- the strip -----------------------------------------------------------------
+        cmp::Strip s{};
+        s.x0 = 0.0;
+        s.width = 600.0;
+        s.heading = 0.0;
+        s.span = 120.0;
+        {
+            double x = 0.0;
+            double rel = 0.0;
+            CHECK(cmp::strip_x(s, 0.0, x, rel));
+            CHECK_NEAR(x, 300.0, 1e-9);
+            CHECK_NEAR(rel, 0.0, 1e-12);
+
+            CHECK(cmp::strip_x(s, 30.0, x, rel));
+            CHECK_NEAR(x, 450.0, 1e-9); // half a half-span to the right
+            CHECK(cmp::strip_x(s, 60.0, x, rel));
+            CHECK_NEAR(x, 600.0, 1e-9); // exactly the right edge is still on the strip
+            CHECK(cmp::strip_x(s, 300.0, x, rel));
+            CHECK_NEAR(x, 0.0, 1e-9);
+            CHECK_NEAR(rel, -60.0, 1e-9);
+
+            // Outside: false, and clamped to the side it is on.
+            CHECK(!cmp::strip_x(s, 61.0, x, rel));
+            CHECK_NEAR(x, 600.0, 1e-9);
+            CHECK(!cmp::strip_x(s, 180.0, x, rel));
+            CHECK(!cmp::strip_x(s, 299.0, x, rel));
+            CHECK_NEAR(x, 0.0, 1e-9);
+        }
+
+        // A rotated heading moves the same bearing across the strip.
+        {
+            cmp::Strip east = s;
+            east.heading = 90.0;
+            double x = 0.0;
+            double rel = 0.0;
+            CHECK(cmp::strip_x(east, 90.0, x, rel));
+            CHECK_NEAR(x, 300.0, 1e-9);
+            CHECK(!cmp::strip_x(east, 0.0, x, rel)); // north is 90 deg off, span is 120
+            CHECK_NEAR(rel, -90.0, 1e-9);
+            CHECK(cmp::strip_x(east, 45.0, x, rel));
+            CHECK_NEAR(rel, -45.0, 1e-9);
+        }
+
+        // --- ticks ---------------------------------------------------------------------
+        {
+            cmp::Tick t[64]{};
+            const int n = cmp::ticks(s, t, 64, 15.0);
+            CHECK_EQ(n, 9); // -60 .. +60 inclusive, every 15 degrees
+            CHECK_NEAR(t[0].bearing, 300.0, 1e-9);
+            CHECK_NEAR(t[8].bearing, 60.0, 1e-9);
+            CHECK_NEAR(t[4].bearing, 0.0, 1e-9);
+            CHECK_EQ(t[4].rank, 2); // north is a cardinal
+            CHECK_STR(std::string(t[4].label), std::string("N"));
+            CHECK_EQ(t[7].rank, 1); // 45 = NE, intercardinal
+            CHECK_STR(std::string(t[7].label), std::string("NE"));
+            CHECK_EQ(t[1].rank, 1);
+            CHECK_STR(std::string(t[1].label), std::string("NW")); // 315
+            CHECK_EQ(t[8].rank, 0);                                // 60 is a minor tick
+            CHECK_STR(std::string(t[8].label), std::string(""));
+            // Left to right, and every tick inside the strip.
+            for (int i = 1; i < n; ++i)
+            {
+                CHECK(t[i].x >= t[i - 1].x);
+                CHECK(t[i].x >= s.x0 - 1e-9 && t[i].x <= s.x0 + s.width + 1e-9);
+            }
+            // A cap smaller than the tick count truncates instead of overflowing.
+            cmp::Tick few[3]{};
+            CHECK_EQ(cmp::ticks(s, few, 3, 15.0), 3);
+            CHECK_EQ(cmp::ticks(s, nullptr, 0, 15.0), 0);
+            // A silly step or span falls back to the defaults rather than looping.
+            CHECK_EQ(cmp::ticks(s, t, 64, 0.0), 9);
+            cmp::Strip wide = s;
+            wide.span = 360.0;
+            CHECK_EQ(cmp::ticks(wide, t, 64, 90.0), 5); // -180 .. 180 in 90s
+        }
+
+        CHECK_STR(std::string(cmp::cardinal_label(270.0)), std::string("W"));
+        CHECK_STR(std::string(cmp::cardinal_label(-90.0)), std::string("W"));
+        CHECK_STR(std::string(cmp::cardinal_label(10.0)), std::string(""));
+    }
 } // namespace
 
 int main(int argc, char** argv)
@@ -775,6 +1042,8 @@ int main(int argc, char** argv)
     test_ids();
     test_mapview();
     test_scan_sched();
+    test_projection();
+    test_compass();
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

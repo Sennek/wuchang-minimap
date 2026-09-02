@@ -172,6 +172,49 @@ def clamp_scale(bounds: render.Bounds, max_dim: int) -> render.Bounds:
     return bounds
 
 
+def fit_ram_budget(bounds: render.Bounds, max_surfaces: int, budget_mb: float) -> render.Bounds:
+    """
+    Scale `px_per_uu` down until the height planes fit `budget_mb` of RAM.
+
+    THE BUDGET IS THE REASON THIS EXISTS. The runtime keeps the whole height-plane set
+    of ONE chapter in ordinary RAM (`max_surfaces` planes x width x height x 2 B) and
+    slices a window out of it on the CPU. Chapter 1 at 0.06 px/uu is 4947x4333 -> 327 MB,
+    which is what the first shipped build cost. The other chapters are not that size:
+    at the same scale Chapter 5 is 6099x13755 = 84 Mpx = **1 280 MB**, Chapter 3 528 MB,
+    Chapter 4 451 MB, Chapter 2 408 MB. Loading any of those unbounded is not an option,
+    and neither is the alternative bound - fewer surface slots - because the slot count
+    is what keeps a multi-storey interior readable (see the module docstring).
+
+    So resolution is the lever, and it is applied CONTINUOUSLY rather than by halving:
+    halving quarters the pixel count and would drop Chapter 5 to 0.015 px/uu (67 uu per
+    pixel) when 0.031 fits. `px_per_uu *= sqrt(budget_px / current_px)` lands on the
+    budget in one step.
+
+    A chapter's scale therefore differs per chapter - which the manifest and the runtime
+    already support, because `px_per_uu` was always a per-chapter field.
+    """
+    if budget_mb <= 0.0 or max_surfaces <= 0:
+        return bounds
+    budget_px = budget_mb * 1024.0 * 1024.0 / (2.0 * max_surfaces)
+    have = float(bounds.width) * float(bounds.height)
+    if have <= budget_px:
+        return bounds
+    factor = math.sqrt(budget_px / have)
+    new = bounds.px_per_uu * factor
+    print(
+        f"  ! {bounds.width}x{bounds.height} px x {max_surfaces} planes x 2 B = "
+        f"{have * 2 * max_surfaces / (1024 * 1024):.0f} MB exceeds the --max-ram-mb budget of "
+        f"{budget_mb:g} MB; scaling {bounds.px_per_uu:g} -> {new:g} px/uu"
+    )
+    bounds.px_per_uu = new
+    # The ceil() in Bounds.width/height can put us a pixel over; nudge until it fits.
+    guard = 0
+    while float(bounds.width) * float(bounds.height) > budget_px and guard < 32:
+        bounds.px_per_uu *= 0.999
+        guard += 1
+    return bounds
+
+
 def draw_map(polys: list[dict], bounds: render.Bounds, edges: bool = True) -> Image.Image:
     """Transparent-background RGBA render, low Z first, Z-shaded, thin edges."""
     img = Image.new("RGBA", (bounds.width, bounds.height), (0, 0, 0, 0))
@@ -674,6 +717,17 @@ def build_legacy_layers(args: argparse.Namespace, polys: list[dict], bounds: ren
 # =================================================================================
 
 
+def chapter_number(key: str) -> int:
+    """`"chapter3"` -> 3. 0 for a key with no digits (e.g. `"chapterdlc"`).
+
+    The runtime detects a chapter NUMBER from the streamed `B<N>EX0_...` cell packages,
+    so the manifest states the number explicitly instead of making the key's spelling
+    load-bearing.
+    """
+    digits = "".join(c for c in key if c.isdigit())
+    return int(digits) if digits else 0
+
+
 def build_chapter(args: argparse.Namespace) -> dict:
     root = args.input if args.input.is_absolute() else Path(__file__).resolve().parent / args.input
     agents = render.discover_agents(root)
@@ -699,6 +753,7 @@ def build_chapter(args: argparse.Namespace) -> dict:
 
     bounds = render.compute_bounds(polys, args.px_per_uu, margin_uu=args.margin)
     bounds = clamp_scale(bounds, args.max_dim)
+    bounds = fit_ram_budget(bounds, args.max_surfaces, args.max_ram_mb)
     print(
         f"[{args.chapter}] world X {bounds.min_x:.0f}..{bounds.max_x:.0f}  "
         f"Y {bounds.min_y:.0f}..{bounds.max_y:.0f}  -> {bounds.width}x{bounds.height} px "
@@ -751,9 +806,21 @@ def build_chapter(args: argparse.Namespace) -> dict:
         + f"  ({lit} lit px, {100.0 * lit / (bounds.width * bounds.height):.1f} % of the image)"
     )
 
+    # Trailing planes that no pixel ever reached cost RAM at runtime for nothing (the
+    # slicer walks `count` planes), so they are not shipped. `hist[k]` counts pixels
+    # with EXACTLY k surfaces, so plane k is lit iff some pixel has more than k.
+    used = args.max_surfaces
+    while used > 1 and sum(hist[used:]) == 0:
+        used -= 1
+    if used < args.max_surfaces:
+        print(
+            f"[{args.chapter}] planes z{used}..z{args.max_surfaces - 1} are empty on this chapter "
+            f"- shipping {used} plane(s)"
+        )
+
     height_maps: list[str] = []
     height_bytes: list[int] = []
-    for k in range(args.max_surfaces):
+    for k in range(used):
         rel = f"{args.chapter}/{stem}_z{k}.png"
         code = quantize_heights(zbuf[k], z_min, z_max)
         nb = write_height_png(code, out_root / rel)
@@ -765,11 +832,11 @@ def build_chapter(args: argparse.Namespace) -> dict:
         print(
             f"  z{k}: {nz:9d} px  {rng}   {nb / (1024 * 1024):5.2f} MB PNG  (round-trip verified)"
         )
-    raw = bounds.width * bounds.height * 2 * args.max_surfaces
+    raw = bounds.width * bounds.height * 2 * used
     print(
-        f"[{args.chapter}] {args.max_surfaces} height map(s): "
+        f"[{args.chapter}] {used} height map(s): "
         f"{sum(height_bytes) / (1024 * 1024):.2f} MB of PNG, "
-        f"{bounds.width}x{bounds.height}x2Bx{args.max_surfaces} = {raw} B "
+        f"{bounds.width}x{bounds.height}x2Bx{used} = {raw} B "
         f"({raw / (1024 * 1024):.1f} MB) of R16_UNORM texture"
     )
 
@@ -794,7 +861,9 @@ def build_chapter(args: argparse.Namespace) -> dict:
         "z_step_uu": z_step,
         "z_code_no_surface": 0,
         "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 65534) ; 0 = no surface",
-        "max_surfaces": args.max_surfaces,
+        "chapter": chapter_number(args.chapter),
+        "max_surfaces": used,
+        "max_surfaces_requested": args.max_surfaces,
         "surface_merge_tol_uu": args.merge_tol,
         "height_maps": height_maps,
         "height_map_bytes": height_bytes,
@@ -850,6 +919,13 @@ def main(argv: list[str] | None = None) -> int:
         help="coverage is expanded by this many px past the polygon boundary, to close seams (default 0.5)",
     )
     ap.add_argument("--max-dim", type=int, default=8192, help="hard texture-size cap in px (default 8192)")
+    ap.add_argument(
+        "--max-ram-mb",
+        type=float,
+        default=340.0,
+        help="RAM budget for the chapter's height planes; px_per_uu is scaled down to fit "
+        "(default 340, which is what Chapter 1 already costs). 0 disables the budget.",
+    )
     ap.add_argument("--max-mb", type=float, default=10.0, help="warn if the composite PNG exceeds this (MB)")
     ap.add_argument("--margin", type=float, default=256.0, help="world-space margin around the geometry, uu")
     ap.add_argument("--no-edges", action="store_true", help="do not draw polygon edges in the composite")

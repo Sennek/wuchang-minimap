@@ -170,5 +170,5 @@ target("markers_test")
     set_default(false) -- built explicitly (and by build.ps1), not by a bare `xmake`
     common_settings()
     add_includedirs("src")
-    add_files("src/markers_db.cpp", "src/mapview.cpp", "tests/markers_test.cpp")
+    add_files("src/markers_db.cpp", "src/mapview.cpp", "src/compass.cpp", "tests/markers_test.cpp")
 target_end()

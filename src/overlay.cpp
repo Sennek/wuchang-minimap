@@ -56,7 +56,9 @@
 
 #include <MinHook.h>
 
+#include "gamepad.hpp"
 #include "mapdata.hpp"
+#include "mapview.hpp"
 #include "markers.hpp"
 #include "mmstate.hpp"
 
@@ -322,10 +324,42 @@ namespace overlay
             D3D12_GPU_DESCRIPTOR_HANDLE srv_gpu{};
             D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
             UINT rows = 0;
-            int size = 0;                 // side, px
+            // The minimap's buffers are square (w == h); the full map's match the map
+            // rectangle's aspect, so nothing is cut that is never sampled.
+            int w = 0;
+            int h = 0;
             bool needs_copy = false;      // filled by the CPU, copy not recorded yet
             bool in_copy_dest = true;     // resource state tracking for the barriers
             UINT64 in_flight_fence = 0;   // last frame that sampled it
+        };
+
+        // Per-pixel scratch for the PLANE-MAJOR slice pass, plus the destination ->
+        // source index tables. One set per slicer (the minimap and the full map run at
+        // different sizes and must not resize each other's buffers every frame).
+        struct SliceScratch
+        {
+            std::vector<std::uint8_t> state;
+            std::vector<float> best_ad;
+            std::vector<float> best_d;
+            std::vector<int> col_x;
+            std::vector<int> row_y;
+
+            void clear()
+            {
+                state.clear();
+                best_ad.clear();
+                best_d.clear();
+                col_x.clear();
+                row_y.clear();
+            }
+        };
+
+        struct SliceCounts
+        {
+            std::uint32_t opaque = 0;
+            std::uint32_t dim = 0;
+            std::uint32_t faint = 0;
+            int surfaces = 0;
         };
 
         Spinlock g_render_lock;
@@ -379,10 +413,59 @@ namespace overlay
         std::uint32_t g_slice_dim = 0;
         std::uint32_t g_slice_faint = 0;
         int g_slice_surfaces = 0; // height planes the slicer is reading
-        // Per-pixel scratch for the PLANE-MAJOR slice pass (see slice_window).
-        std::vector<std::uint8_t> g_slice_state;
-        std::vector<float> g_slice_best_ad;
-        std::vector<float> g_slice_best_d;
+        SliceScratch g_slice_scratch;
+
+        //==============================================================================
+        // The full map (step C1)
+        //==============================================================================
+        //
+        // The same height-sliced asset the minimap draws, at map scale: north-up,
+        // pannable, zoomable, with every marker on it. It has its own pair of dynamic
+        // textures because its window is both bigger and DECIMATED - one texture pixel
+        // covers `step` source pixels - and its own update policy: the minimap re-cuts
+        // 12 times a second because the player is always moving, while the map only
+        // re-cuts when something actually changed (pan out of the cut region, zoom,
+        // floor slice, a big player move), capped at map_slice_hz.
+
+        constexpr int kMapSliceBufs = 2;
+        SliceBuf g_mslice[kMapSliceBufs];
+        int g_mslice_next = 0;
+        int g_mslice_shown = -1;
+        SliceScratch g_mslice_scratch;
+        SliceCounts g_mslice_counts{};
+        double g_mslice_ms = 0.0;
+        double g_mslice_ms_peak = 0.0;
+        std::uint64_t g_mslice_updates = 0;
+        std::uint64_t g_mslice_skipped = 0;
+        std::uint64_t g_mslice_last_ms = 0;
+        // The WORLD rectangle the shown buffer covers. X is north/south (screen up is
+        // +X), Y is west/east - the same axes as everywhere else in this mod.
+        double g_mr_x0 = 0.0; // south edge
+        double g_mr_x1 = 0.0; // north edge
+        double g_mr_y0 = 0.0; // west edge
+        double g_mr_y1 = 0.0; // east edge
+        bool g_mr_valid = false;
+        double g_mr_zoom = 0.0;
+        float g_mr_feet = 0.0f;
+        double g_mr_px = 0.0; // the player position the cut was made at
+        double g_mr_py = 0.0;
+        std::string g_mr_chapter;
+
+        // The view itself. Render thread only.
+        mv::View g_mv{};
+        bool g_mv_init = false;
+        float g_map_floor_off = 0.0f; // uu added to feet Z by the floor adjustment
+        bool g_map_was_open = false;
+        // Set by the loop thread when the recentre key is pressed; consumed by the map.
+        std::atomic<bool> g_map_recenter{false};
+        // Manual found toggles are applied by the LOOP thread (it owns the master set
+        // and the file), so the draw buffer only agrees a round later. These overrides
+        // make the click feel instant and are dropped the moment the published buffer
+        // says the same thing.
+        std::vector<std::pair<std::string, bool>> g_found_override;
+        // What the map is doing, for the F2 debug block and the map's own footer.
+        int g_map_markers_drawn = 0;
+        int g_map_markers_total = 0;
 
         // The swapchain we render on. Present can be called for more than one
         // swapchain (ReShade wraps its own, DLSS frame generation adds another), so the
@@ -570,9 +653,25 @@ namespace overlay
             {
                 ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam);
 
-                // Input is only ever taken away from the game while the F2 panel is up.
-                // With the panel closed the minimap is a pure overlay and every message
-                // goes straight through, so gameplay input is untouched.
+                // Input is only ever taken away from the game while the F2 panel or
+                // the full map is up. With both closed the minimap is a pure overlay
+                // and every message goes straight through, so gameplay input is
+                // untouched - and because the test is a plain read of the two flags,
+                // closing either one hands the input back on the very next message.
+                // NOTHING IS LATCHED HERE (lessons.md).
+                if (mm::g_map_open.load(std::memory_order_relaxed))
+                {
+                    // The map owns the whole keyboard and mouse: WASD pans it, and a
+                    // click on a marker must not also swing the camera. io.WantCapture*
+                    // is not enough - it is only true over an ImGui window, and the
+                    // canvas deliberately reads raw keys rather than focusing a widget.
+                    // The map's own toggle key is sampled with GetAsyncKeyState on the
+                    // loop thread, so it still closes the map from here.
+                    if (is_mouse_message(msg) || is_keyboard_message(msg))
+                    {
+                        return 1;
+                    }
+                }
                 if (mm::g_panel_open.load(std::memory_order_relaxed))
                 {
                     const ImGuiIO& io = ImGui::GetIO();
@@ -606,10 +705,11 @@ namespace overlay
             t = MapTexture{};
         }
 
-        void destroy_slice_buffers()
+        void destroy_slice_set(SliceBuf* bufs, int count)
         {
-            for (SliceBuf& b : g_slice)
+            for (int i = 0; i < count; ++i)
             {
+                SliceBuf& b = bufs[i];
                 if (b.upload != nullptr && b.mapped != nullptr)
                 {
                     b.upload->Unmap(0, nullptr);
@@ -622,20 +722,34 @@ namespace overlay
                 safe_release(b.upload);
                 b = SliceBuf{};
             }
+        }
+
+        void destroy_slice_buffers()
+        {
+            destroy_slice_set(g_slice, kSliceBufs);
             g_slice_size = 0;
             g_slice_next = 0;
             g_slice_shown = -1;
             g_slice_last_ms = 0;
         }
 
+        void destroy_map_slice_buffers()
+        {
+            destroy_slice_set(g_mslice, kMapSliceBufs);
+            g_mslice_next = 0;
+            g_mslice_shown = -1;
+            g_mslice_last_ms = 0;
+            g_mr_valid = false;
+        }
+
         void destroy_all_map_textures()
         {
             destroy_texture(g_map);
             destroy_slice_buffers();
+            destroy_map_slice_buffers();
             g_feet_z_valid = false;
-            g_slice_state.clear();
-            g_slice_best_ad.clear();
-            g_slice_best_d.clear();
+            g_slice_scratch.clear();
+            g_mslice_scratch.clear();
         }
 
         // An upload buffer only has to live until the GPU has run the copy. Releasing
@@ -935,10 +1049,14 @@ namespace overlay
 
         void slice_selftest();
 
-        bool create_slice_buffers(int size)
+        // Creates `count` dynamic RGBA textures of w x h with a persistently mapped
+        // upload heap each. Shared by the minimap (square) and the full map
+        // (rectangular): the resources, the barriers and the copy are identical, only
+        // the size and the update policy differ.
+        bool create_slice_set(SliceBuf* bufs, int count, int w, int h, const wchar_t* what)
         {
-            destroy_slice_buffers();
-            if (g_device == nullptr || size <= 0)
+            destroy_slice_set(bufs, count);
+            if (g_device == nullptr || w <= 0 || h <= 0)
             {
                 return false;
             }
@@ -948,8 +1066,8 @@ namespace overlay
 
             D3D12_RESOURCE_DESC desc{};
             desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-            desc.Width = static_cast<UINT64>(size);
-            desc.Height = static_cast<UINT>(size);
+            desc.Width = static_cast<UINT64>(w);
+            desc.Height = static_cast<UINT>(h);
             desc.DepthOrArraySize = 1;
             desc.MipLevels = 1;
             desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -974,37 +1092,38 @@ namespace overlay
             buffer.SampleDesc.Count = 1;
             buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
-            for (SliceBuf& b : g_slice)
+            for (int i = 0; i < count; ++i)
             {
+                SliceBuf& b = bufs[i];
                 if (FAILED(g_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
                                                              D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                              IID_PPV_ARGS(&b.tex))))
                 {
-                    mm::logf(L"slice: CreateCommittedResource({}x{} RGBA) failed", size, size);
-                    destroy_slice_buffers();
+                    mm::logf(L"slice ({}): CreateCommittedResource({}x{} RGBA) failed", what, w, h);
+                    destroy_slice_set(bufs, count);
                     return false;
                 }
                 if (FAILED(g_device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                              D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                              IID_PPV_ARGS(&b.upload))))
                 {
-                    mm::logf(L"slice: upload buffer of {} KB failed", total / 1024);
-                    destroy_slice_buffers();
+                    mm::logf(L"slice ({}): upload buffer of {} KB failed", what, total / 1024);
+                    destroy_slice_set(bufs, count);
                     return false;
                 }
                 void* mapped = nullptr;
                 D3D12_RANGE none{0, 0};
                 if (FAILED(b.upload->Map(0, &none, &mapped)) || mapped == nullptr)
                 {
-                    mm::log(L"slice: Map() of the upload buffer failed");
-                    destroy_slice_buffers();
+                    mm::logf(L"slice ({}): Map() of the upload buffer failed", what);
+                    destroy_slice_set(bufs, count);
                     return false;
                 }
                 b.mapped = static_cast<std::uint8_t*>(mapped);
                 if (!g_srv_heap.alloc(b.srv_cpu, b.srv_gpu))
                 {
-                    mm::log(L"slice: no free SRV descriptor");
-                    destroy_slice_buffers();
+                    mm::logf(L"slice ({}): no free SRV descriptor", what);
+                    destroy_slice_set(bufs, count);
                     return false;
                 }
                 D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -1016,21 +1135,33 @@ namespace overlay
 
                 b.footprint = layout;
                 b.rows = num_rows;
-                b.size = size;
+                b.w = w;
+                b.h = h;
                 b.in_copy_dest = true;
                 b.in_flight_fence = 0;
                 b.needs_copy = false;
             }
+            mm::logf(L"slice ({}): {} dynamic texture(s) of {}x{} RGBA created ({} KB each, {} KB of "
+                     L"mapped upload memory)",
+                     what,
+                     count,
+                     w,
+                     h,
+                     total / 1024,
+                     (total * static_cast<UINT64>(count)) / 1024);
+            return true;
+        }
+
+        bool create_slice_buffers(int size)
+        {
+            if (!create_slice_set(g_slice, kSliceBufs, size, size, L"minimap"))
+            {
+                destroy_slice_buffers();
+                return false;
+            }
             g_slice_size = size;
             g_slice_next = 0;
             g_slice_shown = -1;
-            mm::logf(L"slice: {} dynamic texture(s) of {}x{} RGBA created ({} KB each, {} KB of "
-                     L"mapped upload memory)",
-                     kSliceBufs,
-                     size,
-                     size,
-                     total / 1024,
-                     (total * kSliceBufs) / 1024);
             return true;
         }
 
@@ -1083,39 +1214,62 @@ namespace overlay
         // row, so the whole pass is ~65 k cache lines: the same arithmetic, ~30x fewer
         // misses. The per-pixel decision state lives in ~1.3 MB of scratch, which fits
         // in L2/L3.
-        void slice_window(const mapdata::HeightMaps& hm, int x0, int y0, int size, std::uint8_t* dst,
-                          UINT pitch, float feet, const SliceStyle& st)
+        // `sx0` / `sy0` are the source pixel of the destination's top-left CORNER and
+        // `src_step` is how many source pixels one destination pixel advances - 1.0 for
+        // the minimap (which shows the asset at its own resolution) and > 1 for the full
+        // map, which decimates. Sampling is nearest, at the destination pixel's centre;
+        // at a decimating step a 1-px corridor can drop out, but at that zoom it is
+        // sub-pixel anyway, and the alternative (scanning every source pixel of the
+        // region) is ~30x the work for a picture nobody can resolve.
+        void slice_region(const mapdata::HeightMaps& hm, double sx0, double sy0, double src_step, int w, int h,
+                          std::uint8_t* dst, UINT pitch, float feet, const SliceStyle& st, SliceScratch& sc,
+                          SliceCounts& counts)
         {
-            g_slice_opaque = 0;
-            g_slice_dim = 0;
-            g_slice_faint = 0;
+            counts = SliceCounts{};
 
-            const std::size_t n = static_cast<std::size_t>(size) * static_cast<std::size_t>(size);
-            if (g_slice_state.size() != n)
+            const std::size_t n = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+            if (sc.state.size() != n)
             {
-                g_slice_state.assign(n, 0);
-                g_slice_best_ad.assign(n, 0.0f);
-                g_slice_best_d.assign(n, 0.0f);
+                sc.state.assign(n, 0);
+                sc.best_ad.assign(n, 0.0f);
+                sc.best_d.assign(n, 0.0f);
             }
             else
             {
-                std::memset(g_slice_state.data(), 0, n);
+                std::memset(sc.state.data(), 0, n);
             }
-            std::uint8_t* state = g_slice_state.data();
-            float* best_ad = g_slice_best_ad.data();
-            float* best_d = g_slice_best_d.data();
+            std::uint8_t* state = sc.state.data();
+            float* best_ad = sc.best_ad.data();
+            float* best_d = sc.best_d.data();
+
+            // Destination -> source index, computed once instead of once per plane. It
+            // is also where the bounds check lives: -1 means "outside the asset", which
+            // comes out transparent.
+            if (sc.col_x.size() != static_cast<std::size_t>(w))
+            {
+                sc.col_x.resize(static_cast<std::size_t>(w));
+            }
+            if (sc.row_y.size() != static_cast<std::size_t>(h))
+            {
+                sc.row_y.resize(static_cast<std::size_t>(h));
+            }
+            int* col_x = sc.col_x.data();
+            int* row_y = sc.row_y.data();
+            for (int col = 0; col < w; ++col)
+            {
+                const int i = static_cast<int>(std::floor(sx0 + (static_cast<double>(col) + 0.5) * src_step));
+                col_x[col] = (i >= 0 && i < hm.width) ? i : -1;
+            }
+            for (int row = 0; row < h; ++row)
+            {
+                const int i = static_cast<int>(std::floor(sy0 + (static_cast<double>(row) + 0.5) * src_step));
+                row_y[row] = (i >= 0 && i < hm.height) ? i : -1;
+            }
 
             const float z0 = hm.z_min;
             const float step = hm.z_step();
             const int planes = hm.count < mapdata::kMaxSurfaces ? hm.count : mapdata::kMaxSurfaces;
-            g_slice_surfaces = planes;
-
-            // Rows and columns of the window that exist in the source at all; the rest
-            // stay state 0 and come out transparent.
-            const int row_lo = y0 < 0 ? -y0 : 0;
-            const int row_hi = (y0 + size) > hm.height ? hm.height - y0 : size;
-            const int col_lo = x0 < 0 ? -x0 : 0;
-            const int col_hi = (x0 + size) > hm.width ? hm.width - x0 : size;
+            counts.surfaces = planes;
 
             for (int k = 0; k < planes; ++k)
             {
@@ -1124,17 +1278,24 @@ namespace overlay
                 {
                     continue;
                 }
-                const std::uint8_t cand_state_none = 0;
-                (void)cand_state_none;
-                for (int row = row_lo; row < row_hi; ++row)
+                for (int row = 0; row < h; ++row)
                 {
-                    const std::uint16_t* src = plane + static_cast<std::size_t>(y0 + row) *
-                                                           static_cast<std::size_t>(hm.width) +
-                                               static_cast<std::size_t>(x0);
-                    const std::size_t out_base = static_cast<std::size_t>(row) * static_cast<std::size_t>(size);
-                    for (int col = col_lo; col < col_hi; ++col)
+                    const int sy = row_y[row];
+                    if (sy < 0)
                     {
-                        const std::uint16_t code = src[col];
+                        continue;
+                    }
+                    const std::uint16_t* src =
+                        plane + static_cast<std::size_t>(sy) * static_cast<std::size_t>(hm.width);
+                    const std::size_t out_base = static_cast<std::size_t>(row) * static_cast<std::size_t>(w);
+                    for (int col = 0; col < w; ++col)
+                    {
+                        const int sx = col_x[col];
+                        if (sx < 0)
+                        {
+                            continue;
+                        }
+                        const std::uint16_t code = src[sx];
                         if (code == 0)
                         {
                             continue; // no surface in this slot here
@@ -1170,11 +1331,11 @@ namespace overlay
 
             const std::uint8_t a_dim = static_cast<std::uint8_t>(st.a_dim * 255.0f + 0.5f);
             const std::uint8_t a_faint = static_cast<std::uint8_t>(st.a_faint * 255.0f + 0.5f);
-            for (int row = 0; row < size; ++row)
+            for (int row = 0; row < h; ++row)
             {
                 std::uint8_t* out = dst + static_cast<std::size_t>(row) * pitch;
-                const std::size_t base = static_cast<std::size_t>(row) * static_cast<std::size_t>(size);
-                for (int col = 0; col < size; ++col)
+                const std::size_t base = static_cast<std::size_t>(row) * static_cast<std::size_t>(w);
+                for (int col = 0; col < w; ++col)
                 {
                     std::uint8_t* px = out + static_cast<std::size_t>(col) * 4;
                     const std::size_t i = base + static_cast<std::size_t>(col);
@@ -1202,20 +1363,33 @@ namespace overlay
                     if (cls == 3)
                     {
                         px[3] = 255;
-                        ++g_slice_opaque;
+                        ++counts.opaque;
                     }
                     else if (cls == 2)
                     {
                         px[3] = a_dim;
-                        ++g_slice_dim;
+                        ++counts.dim;
                     }
                     else
                     {
                         px[3] = a_faint;
-                        ++g_slice_faint;
+                        ++counts.faint;
                     }
                 }
             }
+        }
+
+        // The minimap's window: the asset at 1:1, at an integral source origin.
+        void slice_window(const mapdata::HeightMaps& hm, int x0, int y0, int size, std::uint8_t* dst, UINT pitch,
+                          float feet, const SliceStyle& st)
+        {
+            SliceCounts counts{};
+            slice_region(hm, static_cast<double>(x0), static_cast<double>(y0), 1.0, size, size, dst, pitch, feet,
+                         st, g_slice_scratch, counts);
+            g_slice_opaque = counts.opaque;
+            g_slice_dim = counts.dim;
+            g_slice_faint = counts.faint;
+            g_slice_surfaces = counts.surfaces;
         }
 
         // Re-slices into the next buffer if it is time and that buffer is free.
@@ -1270,7 +1444,7 @@ namespace overlay
             }
 
             SliceBuf& b = g_slice[g_slice_next];
-            if (b.tex == nullptr || b.mapped == nullptr)
+            if (b.tex == nullptr || b.mapped == nullptr || b.w <= 0)
             {
                 return g_slice_shown >= 0;
             }
@@ -1286,8 +1460,8 @@ namespace overlay
             double pxc = 0.0;
             double pyc = 0.0;
             hm.to_px(snap.x, snap.y, pxc, pyc);
-            const int x0 = static_cast<int>(std::lround(pxc)) - b.size / 2;
-            const int y0 = static_cast<int>(std::lround(pyc)) - b.size / 2;
+            const int x0 = static_cast<int>(std::lround(pxc)) - b.w / 2;
+            const int y0 = static_cast<int>(std::lround(pyc)) - b.w / 2;
 
             SliceStyle st{};
             st.base_r = cfg.floor_base_r;
@@ -1304,7 +1478,7 @@ namespace overlay
             LARGE_INTEGER freq{};
             ::QueryPerformanceFrequency(&freq);
             ::QueryPerformanceCounter(&t0);
-            slice_window(hm, x0, y0, b.size, b.mapped + b.footprint.Offset, b.footprint.Footprint.RowPitch,
+            slice_window(hm, x0, y0, b.w, b.mapped + b.footprint.Offset, b.footprint.Footprint.RowPitch,
                          g_feet_z, st);
             ::QueryPerformanceCounter(&t1);
             if (freq.QuadPart > 0)
@@ -1385,8 +1559,8 @@ namespace overlay
             // Slice a window that actually HAS geometry in it, at a feet Z taken from
             // that geometry - a window over empty map at the mid-Z of the chapter comes
             // out fully transparent and proves nothing about the colour path.
-            const int wx0 = (hm.width - b.size) / 2;
-            const int wy0 = (hm.height - b.size) / 2;
+            const int wx0 = (hm.width - b.w) / 2;
+            const int wy0 = (hm.height - b.w) / 2;
             float probe_z = (hm.z_min + hm.z_max) * 0.5f;
             int sx0 = wx0;
             int sy0 = wy0;
@@ -1399,13 +1573,13 @@ namespace overlay
                         const int px = static_cast<int>(i % static_cast<std::size_t>(hm.width));
                         const int py = static_cast<int>(i / static_cast<std::size_t>(hm.width));
                         probe_z = hm.decode(p0[i]);
-                        sx0 = px - b.size / 2;
-                        sy0 = py - b.size / 2;
+                        sx0 = px - b.w / 2;
+                        sy0 = py - b.w / 2;
                         break;
                     }
                 }
             }
-            slice_window(hm, sx0, sy0, b.size, b.mapped + b.footprint.Offset,
+            slice_window(hm, sx0, sy0, b.w, b.mapped + b.footprint.Offset,
                          b.footprint.Footprint.RowPitch, probe_z, st);
             ::QueryPerformanceCounter(&t1);
             const double ms = freq.QuadPart > 0 ? 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) /
@@ -1415,11 +1589,11 @@ namespace overlay
             mm::logf(L"slice: self-test sliced a {}x{} window of \"{}\" at source ({}, {}), feet Z "
                      L"{:.0f}, over {} surface(s) in {:.2f} ms (opaque {}, dim {}, faint {}) - the CPU "
                      L"path and the dynamic texture both work",
-                     b.size,
-                     b.size,
+                     b.w,
+                     b.w,
                      std::wstring(ch->key.begin(), ch->key.end()),
-                     sx0 + b.size / 2,
-                     sy0 + b.size / 2,
+                     sx0 + b.w / 2,
+                     sy0 + b.w / 2,
                      static_cast<double>(probe_z),
                      hm.count,
                      ms,
@@ -1433,10 +1607,11 @@ namespace overlay
 
         // Render thread, inside a frame, after the command list has been reset: record
         // the copy for whichever buffer the CPU just filled.
-        void record_slice_copy(ID3D12GraphicsCommandList* list)
+        void record_slice_copies(ID3D12GraphicsCommandList* list, SliceBuf* bufs, int count)
         {
-            for (SliceBuf& b : g_slice)
+            for (int i = 0; i < count; ++i)
             {
+                SliceBuf& b = bufs[i];
                 if (!b.needs_copy || b.tex == nullptr)
                 {
                     continue;
@@ -1468,6 +1643,12 @@ namespace overlay
                 b.in_copy_dest = false;
                 b.needs_copy = false;
             }
+        }
+
+        void record_slice_copy(ID3D12GraphicsCommandList* list)
+        {
+            record_slice_copies(list, g_slice, kSliceBufs);
+            record_slice_copies(list, g_mslice, kMapSliceBufs);
         }
 
         //==============================================================================
@@ -1547,6 +1728,10 @@ namespace overlay
         //     dy = (-c*wdx - s*wdy) / z
         // At yaw 0 that is dx = wdy/z (east to the right) and dy = -wdx/z (north up),
         // i.e. exactly build_map.py's north-up convention.
+
+        // Defined with the rest of the full map, below - the minimap draws the same
+        // glyph, edge-clamped, so the two views agree on what a waypoint looks like.
+        void draw_waypoint_glyph(ImDrawList* dl, ImVec2 p, float r, int alpha);
 
         ImU32 marker_color(mdb::Cat cat, int alpha)
         {
@@ -1954,7 +2139,7 @@ namespace overlay
             if (slice_ok && g_slice_shown >= 0)
             {
                 const SliceBuf& b = g_slice[g_slice_shown];
-                const UvMap window{g_slice_min_y, g_slice_max_x, g_slice_px_per_uu, b.size, b.size};
+                const UvMap window{g_slice_min_y, g_slice_max_x, g_slice_px_per_uu, b.w, b.h};
                 draw_srv(dl, b.srv_gpu, window, g, tint_slice, cfg.round, x0, y0, side);
             }
             else if (composite_ready)
@@ -1991,6 +2176,51 @@ namespace overlay
                 dl->AddCircleFilled(np, 3.5f, IM_COL32(230, 90, 80, 235), 12);
             }
 
+            // The waypoint, edge-clamped with its distance. It is the one marker that
+            // must never be culled: the whole point of setting one is to be told which
+            // way to walk while it is off the map.
+            {
+                const mv::Waypoint wp = mm::waypoint();
+                if (wp.set)
+                {
+                    const double wdx = wp.x - g.px;
+                    const double wdy = wp.y - g.py;
+                    const double zz = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
+                    double dx = (-g.sin_yaw * wdx + g.cos_yaw * wdy) / zz;
+                    double dy = (-g.cos_yaw * wdx - g.sin_yaw * wdy) / zz;
+                    const float wr = (std::max)(5.0f, cfg.markers_size * 1.05f);
+                    const float lim = (std::max)(4.0f, g.half - wr - 3.0f);
+                    bool clamped = false;
+                    if (cfg.round)
+                    {
+                        const double d = std::sqrt(dx * dx + dy * dy);
+                        if (d > lim && d > 0.0001)
+                        {
+                            dx = dx * lim / d;
+                            dy = dy * lim / d;
+                            clamped = true;
+                        }
+                    }
+                    else if (std::abs(dx) > lim || std::abs(dy) > lim)
+                    {
+                        const double sc = lim / (std::max)(std::abs(dx), std::abs(dy));
+                        dx *= sc;
+                        dy *= sc;
+                        clamped = true;
+                    }
+                    const ImVec2 wp_pos{g.center.x + static_cast<float>(dx), g.center.y + static_cast<float>(dy)};
+                    draw_waypoint_glyph(dl, wp_pos, clamped ? wr * 0.85f : wr, alpha(1.0f));
+                    const double dist_m = std::sqrt(wdx * wdx + wdy * wdy) / 100.0;
+                    const std::string label =
+                        dist_m >= 1000.0 ? std::format("{:.1f} km", dist_m / 1000.0) : std::format("{:.0f} m", dist_m);
+                    const ImVec2 ts = ImGui::CalcTextSize(label.c_str());
+                    const ImVec2 tp{wp_pos.x - ts.x * 0.5f, wp_pos.y + wr * 1.6f};
+                    dl->AddRectFilled(ImVec2{tp.x - 3.0f, tp.y - 1.0f}, ImVec2{tp.x + ts.x + 3.0f, tp.y + ts.y + 1.0f},
+                                      IM_COL32(8, 10, 14, alpha(0.7f)), 3.0f);
+                    dl->AddText(tp, IM_COL32(255, 190, 235, alpha(1.0f)), label.c_str());
+                }
+            }
+
             add_player_arrow(dl, g.center, snap.yaw - eff_yaw, (std::max)(8.0f, side * 0.055f));
 
             set_hide_reason(L"visible");
@@ -2001,6 +2231,795 @@ namespace overlay
             g_last_mini.v = uv.y;
             g_last_mini.chapter = chapter.key;
             g_last_mini.side = side;
+        }
+
+        //==============================================================================
+        // Drawing: the FULL MAP (step C1)
+        //==============================================================================
+        //
+        // Toggled by `map_key` (M). While it is open the minimap is hidden, a dark
+        // backdrop covers the scene and one ImGui window holds the map: north-up,
+        // pannable and zoomable, drawn from the SAME height-sliced asset the minimap
+        // uses, with every marker on it.
+        //
+        // WHAT IS SHARED WITH THE MINIMAP, DELIBERATELY
+        //   * the asset (mapdata::HeightMaps) - one copy in RAM, ~327 MB, and the map
+        //     adds nothing to it: it cuts a second small dynamic texture out of the same
+        //     planes rather than keeping a picture of its own;
+        //   * the height-slice rule and its config (floor_z_tolerance / floor_fade_uu /
+        //     the gradient / the base colour), so the two never disagree about what a
+        //     floor is - the only addition is a floor OFFSET the player can nudge;
+        //   * the marker draw buffer, the category filter mask and the glyphs.
+        //
+        // WHAT IS DIFFERENT
+        //   * the cut is DECIMATED (one texture pixel covers `step` source pixels) and
+        //     covers the visible viewport plus a 30 % margin, not the whole chapter;
+        //   * it only re-cuts when something changed - a pan that leaves the cut region,
+        //     a zoom, a floor change, or a big player move - capped at map_slice_hz. An
+        //     idle open map costs nothing per frame beyond the draw;
+        //   * it is always north-up. A rotating full map is unreadable and every
+        //     reference implementation avoids it.
+        //
+        // NO LATCHES (lessons.md). The map closes itself the moment the state that
+        // allows it stops being true - a menu opening, the pawn going away, a level
+        // transition - and closing gives the mouse and the keyboard straight back to the
+        // game on the same frame, because the swallow condition IS `g_map_open`.
+
+        // The published found flag with the render side's own pending toggle applied.
+        // An override is dropped as soon as the published buffer says the same thing,
+        // so this can never latch: at worst it holds for one marker round (~1 s).
+        bool marker_found_now(const markers::DrawMarker& m)
+        {
+            const bool published = (m.flags & markers::kFlagFound) != 0;
+            for (std::size_t i = 0; i < g_found_override.size(); ++i)
+            {
+                if (g_found_override[i].first != m.id)
+                {
+                    continue;
+                }
+                if (g_found_override[i].second == published)
+                {
+                    g_found_override.erase(g_found_override.begin() + static_cast<std::ptrdiff_t>(i));
+                    return published;
+                }
+                return g_found_override[i].second;
+            }
+            return published;
+        }
+
+        void toggle_found(const markers::DrawMarker& m)
+        {
+            if (m.id[0] == '\0')
+            {
+                return;
+            }
+            const bool want = !marker_found_now(m);
+            for (auto& kv : g_found_override)
+            {
+                if (kv.first == m.id)
+                {
+                    kv.second = want;
+                    markers::request_toggle_found(m.id, want);
+                    return;
+                }
+            }
+            if (g_found_override.size() < 512)
+            {
+                g_found_override.emplace_back(std::string{m.id}, want);
+            }
+            markers::request_toggle_found(m.id, want);
+        }
+
+        // Cuts the visible region (plus a margin) into the map's own dynamic texture,
+        // if anything changed and the next buffer is free. Returns true while a buffer
+        // is available to draw.
+        bool update_map_slice(const mm::Config& cfg, const mapdata::Chapter& ch, const mv::Rect& canvas,
+                              float feet, std::uint64_t now)
+        {
+            if (!ch.has_heights() || canvas.w() < 8.0f || canvas.h() < 8.0f)
+            {
+                return false;
+            }
+            const mapdata::HeightMaps& hm = *ch.heights;
+            if (hm.px_per_uu <= 0.0)
+            {
+                return false;
+            }
+
+            // 30 % of margin around the viewport: a drag can move ~15 % of the canvas
+            // in either direction before the cut has to be redone, which at 6 Hz is
+            // most of a fast drag.
+            constexpr double kMargin = 1.30;
+            const double zoom = g_mv.uu_per_px;
+            const double want_w_uu = static_cast<double>(canvas.w()) * zoom * kMargin;
+            const double want_h_uu = static_cast<double>(canvas.h()) * zoom * kMargin;
+
+            int tw = static_cast<int>(std::lround(static_cast<double>(canvas.w()) * kMargin));
+            if (tw > cfg.map_slice_px)
+            {
+                tw = cfg.map_slice_px;
+            }
+            tw = (tw / 8) * 8;
+            if (tw < 64)
+            {
+                tw = 64;
+            }
+            // One step for both axes (a non-square pixel would shear the picture), so
+            // the height follows from it rather than from the aspect ratio directly.
+            const double step = (want_w_uu * hm.px_per_uu) / static_cast<double>(tw);
+            int th = static_cast<int>(std::lround(want_h_uu * hm.px_per_uu / step));
+            th = (th / 8) * 8;
+            if (th < 64)
+            {
+                th = 64;
+            }
+            if (th > cfg.map_slice_px * 2)
+            {
+                th = (cfg.map_slice_px * 2 / 8) * 8;
+            }
+
+            const bool resized = g_mslice[0].w != tw || g_mslice[0].h != th || g_mslice[0].tex == nullptr;
+            if (resized)
+            {
+                // A failing allocation must not retry (and log) once per frame - the
+                // same "back a failing blind path off" rule the navmesh scan learned.
+                static std::uint64_t create_failed_ms = 0;
+                if (create_failed_ms != 0 && now - create_failed_ms < 5000)
+                {
+                    return false;
+                }
+                wait_for_gpu(); // the old buffers may still be in flight
+                if (!create_slice_set(g_mslice, kMapSliceBufs, tw, th, L"full map"))
+                {
+                    destroy_map_slice_buffers();
+                    create_failed_ms = now;
+                    return false;
+                }
+                create_failed_ms = 0;
+                g_mslice_next = 0;
+                g_mslice_shown = -1;
+                g_mr_valid = false;
+            }
+
+            // The world rectangle this cut will cover, derived from the texture so the
+            // drawn quad matches the pixels exactly.
+            const double half_w = static_cast<double>(tw) * step / hm.px_per_uu * 0.5;
+            const double half_h = static_cast<double>(th) * step / hm.px_per_uu * 0.5;
+
+            // Does the visible viewport still sit inside the region we already cut?
+            const double view_half_x = static_cast<double>(canvas.h()) * zoom * 0.5;
+            const double view_half_y = static_cast<double>(canvas.w()) * zoom * 0.5;
+            const bool inside = g_mr_valid && g_mv.cx - view_half_x >= g_mr_x0 && g_mv.cx + view_half_x <= g_mr_x1 &&
+                                g_mv.cy - view_half_y >= g_mr_y0 && g_mv.cy + view_half_y <= g_mr_y1;
+            const bool feet_moved = !g_mr_valid || std::abs(feet - g_mr_feet) > 20.0f;
+            const bool zoomed = !g_mr_valid || zoom != g_mr_zoom;
+            const bool chapter_changed = g_mr_chapter != ch.key;
+            const bool urgent = !inside || zoomed || chapter_changed;
+            if (!urgent && !feet_moved && !resized)
+            {
+                return g_mslice_shown >= 0;
+            }
+
+            // The rate cap. An urgent cut (the view has left the region, or the zoom
+            // changed) still has to wait for the buffer, but not for the clock: showing
+            // an empty edge is worse than one extra cut.
+            const int period = cfg.map_slice_hz > 0 ? 1000 / cfg.map_slice_hz : 166;
+            if (!urgent && g_mslice_shown >= 0 &&
+                now - g_mslice_last_ms < static_cast<std::uint64_t>(period))
+            {
+                return true;
+            }
+
+            SliceBuf& b = g_mslice[g_mslice_next];
+            if (b.tex == nullptr || b.mapped == nullptr)
+            {
+                return g_mslice_shown >= 0;
+            }
+            if (b.in_flight_fence != 0 && g_fence != nullptr && g_fence->GetCompletedValue() < b.in_flight_fence)
+            {
+                ++g_mslice_skipped;
+                return g_mslice_shown >= 0; // never stall Present for the map
+            }
+
+            SliceStyle st{};
+            st.base_r = cfg.floor_base_r;
+            st.base_g = cfg.floor_base_g;
+            st.base_b = cfg.floor_base_b;
+            st.strength = cfg.floor_gradient_strength;
+            st.tol = cfg.floor_z_tolerance;
+            st.fade = cfg.floor_fade_uu;
+            st.a_dim = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity : 0.0f;
+            st.a_faint = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity * 0.6f : 0.0f;
+            if (cfg.map_show_all_floors)
+            {
+                // "Show everything": no surface is ever out of range, so the whole
+                // chapter's walkable area is on screen with the current storey still
+                // picked out at full opacity.
+                st.fade = 1.0e9f;
+                st.a_dim = 0.34f;
+                st.a_faint = 0.24f;
+            }
+
+            const double x1 = g_mv.cx + half_h; // north edge
+            const double y0 = g_mv.cy - half_w; // west edge
+            const double src_x0 = (y0 - hm.min_y) * hm.px_per_uu;
+            const double src_y0 = (hm.max_x - x1) * hm.px_per_uu;
+
+            LARGE_INTEGER t0{};
+            LARGE_INTEGER t1{};
+            LARGE_INTEGER freq{};
+            ::QueryPerformanceFrequency(&freq);
+            ::QueryPerformanceCounter(&t0);
+            slice_region(hm, src_x0, src_y0, step, b.w, b.h, b.mapped + b.footprint.Offset,
+                         b.footprint.Footprint.RowPitch, feet, st, g_mslice_scratch, g_mslice_counts);
+            ::QueryPerformanceCounter(&t1);
+            if (freq.QuadPart > 0)
+            {
+                const double ms =
+                    1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) / static_cast<double>(freq.QuadPart);
+                g_mslice_ms = g_mslice_ms == 0.0 ? ms : g_mslice_ms * 0.7 + ms * 0.3;
+                if (ms > g_mslice_ms_peak)
+                {
+                    g_mslice_ms_peak = ms;
+                }
+            }
+
+            b.needs_copy = true;
+            g_mslice_shown = g_mslice_next;
+            g_mslice_next = (g_mslice_next + 1) % kMapSliceBufs;
+            g_mslice_last_ms = now;
+            ++g_mslice_updates;
+            g_mr_x0 = g_mv.cx - half_h;
+            g_mr_x1 = x1;
+            g_mr_y0 = y0;
+            g_mr_y1 = g_mv.cy + half_w;
+            g_mr_zoom = zoom;
+            g_mr_feet = feet;
+            g_mr_chapter = ch.key;
+            g_mr_valid = true;
+            return true;
+        }
+
+        void draw_waypoint_glyph(ImDrawList* dl, ImVec2 p, float r, int alpha)
+        {
+            const ImU32 col = IM_COL32(255, 92, 210, alpha);
+            const ImU32 edge = IM_COL32(20, 8, 18, static_cast<int>(alpha * 0.9f));
+            const ImVec2 tip{p.x, p.y + r * 1.5f};
+            const ImVec2 l{p.x - r * 0.75f, p.y + r * 0.25f};
+            const ImVec2 rr{p.x + r * 0.75f, p.y + r * 0.25f};
+            dl->AddTriangleFilled(l, rr, tip, col);
+            dl->AddCircleFilled(ImVec2{p.x, p.y - r * 0.15f}, r * 0.85f, col, 14);
+            dl->AddCircle(ImVec2{p.x, p.y - r * 0.15f}, r * 0.85f, edge, 14, 1.4f);
+            dl->AddCircleFilled(ImVec2{p.x, p.y - r * 0.15f}, r * 0.3f, edge, 8);
+        }
+
+        // Closes the map and says why, exactly once per transition.
+        void close_map(const wchar_t* why)
+        {
+            if (!mm::g_map_open.exchange(false))
+            {
+                return;
+            }
+            mm::logf(L"full map closed: {}", why);
+        }
+
+        void draw_full_map(mm::Config cfg, const mm::Snapshot& snap, bool have_state)
+        {
+            const mm::Config before = cfg;
+            const std::uint64_t now = ::GetTickCount64();
+            ImGuiIO& io = ImGui::GetIO();
+            const ImGuiViewport* vp = ImGui::GetMainViewport();
+
+            //--------------------------------------------------------------------------
+            // The gate. Every condition is re-evaluated from the live snapshot on every
+            // frame and closes the map outright - there is nothing here that can latch.
+            //--------------------------------------------------------------------------
+            if (!have_state || snap.stamp_ms == 0 ||
+                now - snap.stamp_ms > static_cast<std::uint64_t>(cfg.state_stale_ms))
+            {
+                close_map(L"no fresh game-state snapshot");
+                return;
+            }
+            if (snap.transition)
+            {
+                close_map(L"a level transition started");
+                return;
+            }
+            if (!snap.has_pawn || !snap.pawn_is_gameplay)
+            {
+                close_map(L"there is no gameplay pawn");
+                return;
+            }
+            if (cfg.hide_in_menus && snap.menu_open)
+            {
+                close_map(L"a game menu opened");
+                return;
+            }
+
+            //--------------------------------------------------------------------------
+            // Geometry and the backdrop
+            //--------------------------------------------------------------------------
+            const float margin = cfg.map_margin * vp->Size.y;
+            const mv::Rect frame{vp->Pos.x + margin,
+                                 vp->Pos.y + margin,
+                                 vp->Pos.x + vp->Size.x - margin,
+                                 vp->Pos.y + vp->Size.y - margin};
+
+            ImDrawList* back = ImGui::GetBackgroundDrawList();
+            back->AddRectFilled(vp->Pos,
+                                ImVec2{vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y},
+                                IM_COL32(3, 5, 8, static_cast<int>(cfg.map_backdrop * 255.0f + 0.5f)));
+
+            const mapdata::Chapter* chapter_ptr = mapdata::chapter_ptr_for(snap.x, snap.y);
+
+            //--------------------------------------------------------------------------
+            // First frame after opening: centre on the player, reset the zoom and the
+            // floor offset, and drop any gamepad edges from while it was closed.
+            //--------------------------------------------------------------------------
+            if (!g_mv_init)
+            {
+                g_mv.cx = snap.x;
+                g_mv.cy = snap.y;
+                g_mv.uu_per_px = mv::clamp_zoom(static_cast<double>(cfg.map_zoom),
+                                                static_cast<double>(cfg.map_zoom_min),
+                                                static_cast<double>(cfg.map_zoom_max));
+                g_map_floor_off = 0.0f;
+                g_mr_valid = false;
+                g_mv_init = true;
+                pad::clear_pressed();
+                g_map_recenter.store(false, std::memory_order_relaxed);
+            }
+
+            ImGui::SetNextWindowPos(ImVec2{frame.x0, frame.y0}, ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2{frame.w(), frame.h()}, ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.97f);
+            constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                                                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+                                                ImGuiWindowFlags_NoSavedSettings;
+            if (!ImGui::Begin("##wuchang_full_map", nullptr, kFlags))
+            {
+                ImGui::End();
+                return;
+            }
+
+            //--------------------------------------------------------------------------
+            // Header + the category filter (the SAME mask the minimap and the F2 panel
+            // use, so a filter toggled here is toggled everywhere)
+            //--------------------------------------------------------------------------
+            ImGui::Text("Wuchang map");
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s   |   %.0f uu/px   |   floor %+0.0f uu   |   X %.0f  Y %.0f",
+                                chapter_ptr != nullptr ? chapter_ptr->key.c_str() : "no chapter here",
+                                g_mv.uu_per_px,
+                                static_cast<double>(g_map_floor_off),
+                                snap.x,
+                                snap.y);
+            ImGui::SameLine((std::max)(200.0f, ImGui::GetWindowWidth() - 170.0f));
+            if (ImGui::SmallButton("Recentre"))
+            {
+                g_map_recenter.store(true, std::memory_order_relaxed);
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Close"))
+            {
+                close_map(L"the Close button");
+            }
+
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                const bool on = mdb::cat_enabled(cfg.markers_categories, cat);
+                const ImU32 col = marker_color(cat, on ? 210 : 60);
+                ImGui::PushID(i);
+                ImGui::PushStyleColor(ImGuiCol_Button, col);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, marker_color(cat, 255));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, marker_color(cat, 255));
+                ImGui::PushStyleColor(ImGuiCol_Text, on ? IM_COL32(12, 12, 12, 255) : IM_COL32(220, 220, 220, 190));
+                if (ImGui::SmallButton(mdb::cat_label(cat)))
+                {
+                    cfg.markers_categories ^= mdb::cat_bit(cat);
+                }
+                ImGui::PopStyleColor(4);
+                ImGui::PopID();
+                if (i + 1 < mdb::kCatCount)
+                {
+                    ImGui::SameLine();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("all"))
+            {
+                cfg.markers_categories = mdb::kAllCats;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("none"))
+            {
+                cfg.markers_categories = 0u;
+            }
+
+            //--------------------------------------------------------------------------
+            // The canvas
+            //--------------------------------------------------------------------------
+            const float footer_h = ImGui::GetTextLineHeightWithSpacing() * 2.2f;
+            const ImVec2 avail = ImGui::GetContentRegionAvail();
+            const ImVec2 csize{(std::max)(64.0f, avail.x), (std::max)(64.0f, avail.y - footer_h)};
+            const ImVec2 cpos = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton("##canvas", csize, ImGuiButtonFlags_MouseButtonLeft);
+            const bool canvas_hovered = ImGui::IsItemHovered();
+            const bool canvas_active = ImGui::IsItemActive();
+            const mv::Rect canvas{cpos.x, cpos.y, cpos.x + csize.x, cpos.y + csize.y};
+
+            const double zmin = static_cast<double>(cfg.map_zoom_min);
+            const double zmax = static_cast<double>(cfg.map_zoom_max);
+            g_mv.uu_per_px = mv::clamp_zoom(g_mv.uu_per_px, zmin, zmax);
+
+            //--------------------------------------------------------------------------
+            // Input: mouse
+            //--------------------------------------------------------------------------
+            static float drag_px = 0.0f;
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && canvas_hovered)
+            {
+                drag_px = 0.0f;
+            }
+            if (canvas_active && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            {
+                const ImVec2 d = io.MouseDelta;
+                drag_px += std::abs(d.x) + std::abs(d.y);
+                // Keep the world point under the cursor under the cursor.
+                g_mv.cx += static_cast<double>(d.y) * g_mv.uu_per_px;
+                g_mv.cy -= static_cast<double>(d.x) * g_mv.uu_per_px;
+            }
+
+            const auto zoom_about = [&](float sx, float sy, double notches) {
+                double wx = 0.0;
+                double wy = 0.0;
+                mv::screen_to_world(g_mv, canvas, sx, sy, wx, wy);
+                g_mv.uu_per_px =
+                    mv::zoom_by(g_mv.uu_per_px, notches, static_cast<double>(cfg.map_zoom_factor), zmin, zmax);
+                // Solve the inverse for the centre so that (wx, wy) lands on (sx, sy)
+                // again: it is the same transform, read the other way round.
+                g_mv.cx = wx + (static_cast<double>(sy) - static_cast<double>(canvas.cy())) * g_mv.uu_per_px;
+                g_mv.cy = wy - (static_cast<double>(sx) - static_cast<double>(canvas.cx())) * g_mv.uu_per_px;
+            };
+
+            if (canvas_hovered && io.MouseWheel != 0.0f)
+            {
+                if (io.KeyCtrl)
+                {
+                    g_map_floor_off += io.MouseWheel * cfg.map_floor_step;
+                }
+                else
+                {
+                    zoom_about(io.MousePos.x, io.MousePos.y, static_cast<double>(io.MouseWheel));
+                }
+            }
+
+            //--------------------------------------------------------------------------
+            // Input: keyboard. ImGui sees these because the WndProc hook feeds it every
+            // message BEFORE deciding to swallow it.
+            //--------------------------------------------------------------------------
+            const float dt = io.DeltaTime > 0.0f && io.DeltaTime < 0.25f ? io.DeltaTime : 1.0f / 60.0f;
+            const double pan_uu = static_cast<double>(cfg.map_pan_speed) * static_cast<double>(dt) * g_mv.uu_per_px;
+            const auto down = [](ImGuiKey a, ImGuiKey b) { return ImGui::IsKeyDown(a) || ImGui::IsKeyDown(b); };
+            if (down(ImGuiKey_W, ImGuiKey_UpArrow))
+            {
+                g_mv.cx += pan_uu; // screen up is world +X (north)
+            }
+            if (down(ImGuiKey_S, ImGuiKey_DownArrow))
+            {
+                g_mv.cx -= pan_uu;
+            }
+            if (down(ImGuiKey_D, ImGuiKey_RightArrow))
+            {
+                g_mv.cy += pan_uu; // screen right is world +Y (east)
+            }
+            if (down(ImGuiKey_A, ImGuiKey_LeftArrow))
+            {
+                g_mv.cy -= pan_uu;
+            }
+            if (down(ImGuiKey_Equal, ImGuiKey_KeypadAdd))
+            {
+                zoom_about(canvas.cx(), canvas.cy(), static_cast<double>(dt) * 6.0);
+            }
+            if (down(ImGuiKey_Minus, ImGuiKey_KeypadSubtract))
+            {
+                zoom_about(canvas.cx(), canvas.cy(), -static_cast<double>(dt) * 6.0);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_E, true) || ImGui::IsKeyPressed(ImGuiKey_PageUp, true))
+            {
+                g_map_floor_off += cfg.map_floor_step;
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Q, true) || ImGui::IsKeyPressed(ImGuiKey_PageDown, true))
+            {
+                g_map_floor_off -= cfg.map_floor_step;
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+            {
+                close_map(L"Escape");
+            }
+            // Keyboard equivalents of the two mouse actions, at the view centre. They
+            // exist because the mouse cursor is the one part of this that depends on
+            // what the game does with the cursor while we hold the input - with these
+            // (and the gamepad) the map is fully usable if it turns out the cursor
+            // cannot be moved freely.
+            bool key_waypoint = ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
+                                ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                                ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+            bool key_toggle = ImGui::IsKeyPressed(ImGuiKey_F, false);
+
+            //--------------------------------------------------------------------------
+            // Input: gamepad. The state is polled on the LOOP thread (gamepad.cpp) - as
+            // with the keyboard, nothing here touches XInput or the game thread.
+            //--------------------------------------------------------------------------
+            bool pad_waypoint = false;
+            bool pad_toggle = false;
+            const pad::State gp = pad::state();
+            if (cfg.map_gamepad && gp.connected)
+            {
+                if (gp.lx != 0.0f || gp.ly != 0.0f)
+                {
+                    g_mv.cx += static_cast<double>(gp.ly) * pan_uu;
+                    g_mv.cy += static_cast<double>(gp.lx) * pan_uu;
+                }
+                const float trig = gp.rt - gp.lt;
+                if (trig > 0.02f || trig < -0.02f)
+                {
+                    zoom_about(canvas.cx(), canvas.cy(), static_cast<double>(trig * dt) * 8.0);
+                }
+                if (gp.ry > 0.02f || gp.ry < -0.02f)
+                {
+                    zoom_about(canvas.cx(), canvas.cy(), static_cast<double>(gp.ry * dt) * 6.0);
+                }
+                const std::uint16_t pressed = pad::take_pressed();
+                if ((pressed & pad::kRightShoulder) != 0)
+                {
+                    g_map_floor_off += cfg.map_floor_step;
+                }
+                if ((pressed & pad::kLeftShoulder) != 0)
+                {
+                    g_map_floor_off -= cfg.map_floor_step;
+                }
+                if ((pressed & pad::kY) != 0)
+                {
+                    g_map_recenter.store(true, std::memory_order_relaxed);
+                }
+                if ((pressed & pad::kA) != 0)
+                {
+                    pad_waypoint = true;
+                }
+                if ((pressed & pad::kX) != 0)
+                {
+                    pad_toggle = true;
+                }
+                if ((pressed & pad::kB) != 0)
+                {
+                    close_map(L"the gamepad B button");
+                }
+            }
+
+            if (g_map_recenter.exchange(false, std::memory_order_relaxed))
+            {
+                g_mv.cx = snap.x;
+                g_mv.cy = snap.y;
+                g_map_floor_off = 0.0f;
+            }
+            g_map_floor_off = (std::max)(-20000.0f, (std::min)(20000.0f, g_map_floor_off));
+
+            //--------------------------------------------------------------------------
+            // The map picture
+            //--------------------------------------------------------------------------
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->PushClipRect(ImVec2{canvas.x0, canvas.y0}, ImVec2{canvas.x1, canvas.y1}, true);
+            dl->AddRectFilled(ImVec2{canvas.x0, canvas.y0}, ImVec2{canvas.x1, canvas.y1},
+                              IM_COL32(9, 12, 16, 255));
+
+            const float feet = static_cast<float>(snap.z) - cfg.player_z_offset + g_map_floor_off;
+            bool have_picture = false;
+            if (chapter_ptr != nullptr && update_map_slice(cfg, *chapter_ptr, canvas, feet, now) &&
+                g_mslice_shown >= 0)
+            {
+                const SliceBuf& b = g_mslice[g_mslice_shown];
+                float sx0 = 0.0f;
+                float sy0 = 0.0f;
+                float sx1 = 0.0f;
+                float sy1 = 0.0f;
+                // Top-left of the cut region is its NORTH-WEST corner (max X, min Y).
+                mv::world_to_screen(g_mv, canvas, g_mr_x1, g_mr_y0, sx0, sy0);
+                mv::world_to_screen(g_mv, canvas, g_mr_x0, g_mr_y1, sx1, sy1);
+                const ImTextureRef tex{static_cast<ImTextureID>(b.srv_gpu.ptr)};
+                dl->AddImage(tex, ImVec2{sx0, sy0}, ImVec2{sx1, sy1}, ImVec2{0.0f, 0.0f}, ImVec2{1.0f, 1.0f},
+                             IM_COL32(255, 255, 255, 255));
+                have_picture = true;
+            }
+
+            //--------------------------------------------------------------------------
+            // Markers
+            //--------------------------------------------------------------------------
+            const markers::View mv_all = markers::view();
+            g_map_markers_drawn = 0;
+            g_map_markers_total = static_cast<int>(mv_all.count);
+            const markers::DrawMarker* hover = nullptr;
+            const markers::DrawMarker* centre_marker = nullptr;
+            float hover_d2 = 0.0f;
+            float centre_d2 = 0.0f;
+            const float mr = cfg.map_marker_size;
+            const float pick_r = (std::max)(8.0f, mr * 1.6f);
+            const float kCentrePickR = (std::max)(48.0f, mr * 5.0f);
+
+            if (cfg.markers_enabled && mv_all.data != nullptr)
+            {
+                const int cap = cfg.map_markers_max_draw > 0 ? cfg.map_markers_max_draw
+                                                            : static_cast<int>(mv_all.count);
+                for (std::size_t i = 0; i < mv_all.count && g_map_markers_drawn < cap; ++i)
+                {
+                    const markers::DrawMarker& m = mv_all.data[i];
+                    const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
+                    if (static_cast<int>(m.cat) >= mdb::kCatCount ||
+                        !mdb::cat_enabled(cfg.markers_categories, cat))
+                    {
+                        continue;
+                    }
+                    const bool found = marker_found_now(m);
+                    if (found && cfg.markers_hide_found)
+                    {
+                        continue;
+                    }
+                    float sx = 0.0f;
+                    float sy = 0.0f;
+                    mv::world_to_screen(g_mv, canvas, m.x, m.y, sx, sy);
+                    if (sx < canvas.x0 - mr || sx > canvas.x1 + mr || sy < canvas.y0 - mr || sy > canvas.y1 + mr)
+                    {
+                        continue;
+                    }
+                    const int alpha = static_cast<int>((found ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
+                    draw_marker_glyph(dl, cat, ImVec2{sx, sy}, mr, marker_color(cat, alpha),
+                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)));
+                    ++g_map_markers_drawn;
+
+                    const float mdx = sx - io.MousePos.x;
+                    const float mdy = sy - io.MousePos.y;
+                    const float d2 = mdx * mdx + mdy * mdy;
+                    if (canvas_hovered && d2 <= pick_r * pick_r && (hover == nullptr || d2 < hover_d2))
+                    {
+                        hover = &m;
+                        hover_d2 = d2;
+                    }
+                    // The keyboard / gamepad "toggle found" acts on the marker
+                    // nearest the CENTRE of the view - but only within the same radius
+                    // a mouse would have to be in, so it can never reach a marker on
+                    // the far side of the screen.
+                    const float cdx = sx - canvas.cx();
+                    const float cdy = sy - canvas.cy();
+                    const float cd2 = cdx * cdx + cdy * cdy;
+                    if (cd2 <= kCentrePickR * kCentrePickR && (centre_marker == nullptr || cd2 < centre_d2))
+                    {
+                        centre_marker = &m;
+                        centre_d2 = cd2;
+                    }
+                }
+            }
+
+            //--------------------------------------------------------------------------
+            // The waypoint and the player
+            //--------------------------------------------------------------------------
+            const mv::Waypoint wp = mm::waypoint();
+            if (wp.set)
+            {
+                float sx = 0.0f;
+                float sy = 0.0f;
+                mv::world_to_screen(g_mv, canvas, wp.x, wp.y, sx, sy);
+                if (canvas.contains(sx, sy))
+                {
+                    draw_waypoint_glyph(dl, ImVec2{sx, sy}, mr * 1.1f, 255);
+                }
+            }
+            {
+                float sx = 0.0f;
+                float sy = 0.0f;
+                mv::world_to_screen(g_mv, canvas, snap.x, snap.y, sx, sy);
+                if (canvas.contains(sx, sy))
+                {
+                    // The view cone first, so the arrow sits on top of it.
+                    const float a = snap.yaw * kPi / 180.0f;
+                    const float len = 46.0f;
+                    const float half = 32.0f * kPi / 180.0f;
+                    const ImVec2 c{sx, sy};
+                    const auto dir = [&](float ang) {
+                        return ImVec2{c.x + std::sin(ang) * len, c.y - std::cos(ang) * len};
+                    };
+                    dl->AddTriangleFilled(c, dir(a - half), dir(a + half), IM_COL32(255, 226, 92, 46));
+                    add_player_arrow(dl, c, snap.yaw, 11.0f);
+                }
+            }
+
+            dl->PopClipRect();
+            dl->AddRect(ImVec2{canvas.x0, canvas.y0}, ImVec2{canvas.x1, canvas.y1},
+                        IM_COL32(120, 130, 145, 160), 0.0f, 0, 1.5f);
+
+            //--------------------------------------------------------------------------
+            // Clicks (after the draw, so `hover` is known)
+            //--------------------------------------------------------------------------
+            if (canvas_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && drag_px < 5.0f &&
+                hover != nullptr)
+            {
+                toggle_found(*hover);
+            }
+            if (canvas_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+            {
+                mv::Waypoint set{};
+                set.set = true;
+                mv::screen_to_world(g_mv, canvas, io.MousePos.x, io.MousePos.y, set.x, set.y);
+                set.z = static_cast<double>(feet);
+                mm::set_waypoint(set);
+            }
+            if (pad_waypoint || key_waypoint)
+            {
+                mv::Waypoint set{};
+                set.set = true;
+                set.x = g_mv.cx;
+                set.y = g_mv.cy;
+                set.z = static_cast<double>(feet);
+                mm::set_waypoint(set);
+            }
+            if ((pad_toggle || key_toggle) && centre_marker != nullptr)
+            {
+                toggle_found(*centre_marker);
+            }
+
+            //--------------------------------------------------------------------------
+            // Hover tooltip
+            //--------------------------------------------------------------------------
+            if (hover != nullptr)
+            {
+                ImGui::BeginTooltip();
+                const mdb::Cat cat = static_cast<mdb::Cat>(hover->cat);
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(marker_color(cat, 255)), "%s",
+                                   hover->label[0] != '\0' ? hover->label : mdb::cat_label(cat));
+                ImGui::Text("category: %s", mdb::cat_name(cat));
+                ImGui::TextDisabled("%s", hover->id);
+                const double ddx = hover->x - snap.x;
+                const double ddy = hover->y - snap.y;
+                const double ddz = hover->z - snap.z;
+                ImGui::Text("%s   %.0f m away, %+0.0f m up",
+                            marker_found_now(*hover) ? "FOUND" : "not found",
+                            std::sqrt(ddx * ddx + ddy * ddy) / 100.0,
+                            ddz / 100.0);
+                ImGui::TextDisabled("left-click toggles found");
+                ImGui::EndTooltip();
+            }
+
+            //--------------------------------------------------------------------------
+            // Footer
+            //--------------------------------------------------------------------------
+            if (!have_picture)
+            {
+                ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f},
+                                   chapter_ptr == nullptr
+                                       ? "no chapter covers this position - markers only"
+                                       : "no height maps for this chapter - markers only");
+            }
+            else
+            {
+                ImGui::TextDisabled("drag / WASD / arrows pan   wheel or +- zoom   ctrl+wheel or Q/E floor   "
+                                    "%s recentre   right-click or Space waypoint   click a marker or F "
+                                    "toggles found   %s or Esc closes",
+                                    key_name_ascii(cfg.map_recenter_key).c_str(),
+                                    key_name_ascii(cfg.map_key).c_str());
+            }
+            ImGui::TextDisabled("%d of %d marker(s)   cut %dx%d @ %.2f ms%s", g_map_markers_drawn,
+                                g_map_markers_total, g_mslice[0].w, g_mslice[0].h, g_mslice_ms,
+                                cfg.map_gamepad && gp.connected
+                                    ? "   pad: stick pan, triggers zoom, LB/RB floor, A waypoint, X found, "
+                                      "Y recentre, B close"
+                                    : "");
+
+            ImGui::End();
+
+            if (std::memcmp(&before, &cfg, sizeof(mm::Config)) != 0)
+            {
+                mm::set_config(cfg);
+            }
         }
 
         //==============================================================================
@@ -2201,6 +3220,70 @@ namespace overlay
                 }
             }
 
+            //--------------------------------------------------------------------------
+            // The full map
+            //--------------------------------------------------------------------------
+            if (ImGui::CollapsingHeader("Full map"))
+            {
+                ImGui::TextDisabled("Press %s in-world. The minimap hides while it is open.",
+                                    key_name_ascii(cfg.map_key).c_str());
+                ImGui::SliderFloat("Zoom on open (uu per screen px)", &cfg.map_zoom, cfg.map_zoom_min,
+                                   cfg.map_zoom_max, "%.0f");
+                ImGui::SliderFloat("Zoom limit - closest", &cfg.map_zoom_min, 1.0f, 200.0f, "%.0f");
+                ImGui::SliderFloat("Zoom limit - furthest", &cfg.map_zoom_max, 100.0f, 4000.0f, "%.0f");
+                ImGui::SliderFloat("Zoom per wheel notch", &cfg.map_zoom_factor, 1.02f, 1.6f, "%.2f");
+                ImGui::SliderFloat("Pan speed (screen px per second)", &cfg.map_pan_speed, 100.0f, 4000.0f,
+                                   "%.0f");
+                ImGui::SliderFloat("Floor step (uu)", &cfg.map_floor_step, 20.0f, 2000.0f, "%.0f");
+                ImGui::SliderFloat("Marker size (px)", &cfg.map_marker_size, 3.0f, 24.0f, "%.1f");
+                ImGui::Checkbox("Show every floor (ignore the height slice)", &cfg.map_show_all_floors);
+                ImGui::SliderInt("Slice texture width (px)", &cfg.map_slice_px, 256, 2048);
+                ImGui::SliderInt("Slice rate cap (Hz)", &cfg.map_slice_hz, 1, 30);
+                ImGui::Checkbox("Gamepad (XInput)", &cfg.map_gamepad);
+                ImGui::SameLine();
+                ImGui::Checkbox("Remember the waypoint", &cfg.map_waypoint_persist);
+                ImGui::SliderFloat("Gamepad deadzone", &cfg.map_gamepad_deadzone, 0.05f, 0.6f, "%.2f");
+
+                const pad::State gp = pad::state();
+                char padmod[64]{};
+                ::WideCharToMultiByte(CP_UTF8, 0, pad::module_name(), -1, padmod, sizeof(padmod) - 1, nullptr,
+                                      nullptr);
+                ImGui::Text("pad: %s (%s)   sticks %.2f,%.2f / %.2f,%.2f   triggers %.2f/%.2f",
+                            gp.connected ? "connected" : "none",
+                            padmod,
+                            static_cast<double>(gp.lx),
+                            static_cast<double>(gp.ly),
+                            static_cast<double>(gp.rx),
+                            static_cast<double>(gp.ry),
+                            static_cast<double>(gp.lt),
+                            static_cast<double>(gp.rt));
+                ImGui::Text("map slice %dx%d   %.2f ms (peak %.2f)   %llu cut(s), %llu skipped   "
+                            "opaque %u / dim %u / faint %u",
+                            g_mslice[0].w,
+                            g_mslice[0].h,
+                            g_mslice_ms,
+                            g_mslice_ms_peak,
+                            static_cast<unsigned long long>(g_mslice_updates),
+                            static_cast<unsigned long long>(g_mslice_skipped),
+                            g_mslice_counts.opaque,
+                            g_mslice_counts.dim,
+                            g_mslice_counts.faint);
+                const mv::Waypoint wp = mm::waypoint();
+                if (wp.set)
+                {
+                    ImGui::Text("waypoint  X %.0f  Y %.0f  Z %.0f", wp.x, wp.y, wp.z);
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear waypoint"))
+                    {
+                        mm::set_waypoint(mv::Waypoint{});
+                    }
+                }
+                else
+                {
+                    ImGui::TextDisabled("no waypoint (right-click on the full map sets one)");
+                }
+            }
+
             if (ImGui::Button("Save settings"))
             {
                 mm::g_save_config = true;
@@ -2212,9 +3295,10 @@ namespace overlay
             }
             ImGui::SameLine();
             {
-                const std::string hint = std::format("{} panel  |  {} full map (reserved)  |  {} reload",
+                const std::string hint = std::format("{} panel  |  {} full map ({} recentres)  |  {} reload",
                                                      key_name_ascii(cfg.panel_key),
                                                      key_name_ascii(cfg.map_key),
+                                                     key_name_ascii(cfg.map_recenter_key),
                                                      key_name_ascii(cfg.reload_key));
                 ImGui::TextDisabled("%s", hint.c_str());
             }
@@ -2343,43 +3427,46 @@ namespace overlay
             mm::Snapshot snap{};
             const bool have = mm::read_snapshot(snap);
 
+            const bool map_open = mm::g_map_open.load(std::memory_order_relaxed);
+
+            // The mouse cursor belongs to whoever is taking the input. Both conditions
+            // are plain reads of the live flags - nothing here is remembered, so the
+            // frame the map or the panel closes is the frame the game gets the cursor
+            // back.
+            ImGui::GetIO().MouseDrawCursor = map_open || mm::g_panel_open.load(std::memory_order_relaxed);
+
             if (mm::g_panel_open.load(std::memory_order_relaxed))
             {
-                ImGui::GetIO().MouseDrawCursor = true;
                 draw_panel(cfg, snap, have);
                 mm::g_panel_drew_frame.store(true, std::memory_order_relaxed);
             }
-            else
-            {
-                ImGui::GetIO().MouseDrawCursor = false;
-            }
 
-            if (mm::g_map_open.load(std::memory_order_relaxed))
+            if (map_open)
             {
-                // The full map is step C of the plan. Until it exists the key answers
-                // with one line, so the bind is verifiable in-world without pretending
-                // a feature is there.
-                const ImGuiViewport* vp = ImGui::GetMainViewport();
-                ImDrawList* dl = ImGui::GetForegroundDrawList();
-                const std::string text =
-                    std::format("Full map ({}) is not implemented yet - press it again to dismiss",
-                                key_name_ascii(cfg.map_key));
-                const ImVec2 size = ImGui::CalcTextSize(text.c_str());
-                const ImVec2 p{vp->Pos.x + (vp->Size.x - size.x) * 0.5f, vp->Pos.y + vp->Size.y * 0.16f};
-                dl->AddRectFilled(ImVec2{p.x - 12.0f, p.y - 8.0f},
-                                  ImVec2{p.x + size.x + 12.0f, p.y + size.y + 8.0f},
-                                  IM_COL32(8, 10, 14, 210),
-                                  5.0f);
-                dl->AddText(p, IM_COL32(232, 226, 210, 245), text.c_str());
+                draw_full_map(cfg, snap, have);
             }
+            if (g_map_was_open && !mm::g_map_open.load(std::memory_order_relaxed))
+            {
+                // Closed (by the key, by the gate, or from inside the map): the next
+                // open starts centred on the player again.
+                g_mv_init = false;
+            }
+            g_map_was_open = mm::g_map_open.load(std::memory_order_relaxed);
 
-            if (cfg.enabled && cfg.show_minimap)
-            {
-                draw_minimap(cfg, snap, have);
-            }
-            else
+            if (!cfg.enabled || !cfg.show_minimap)
             {
                 set_hide_reason(L"disabled in the config");
+            }
+            else if (mm::g_map_open.load(std::memory_order_relaxed))
+            {
+                // The full map replaces the minimap while it is up - two views of the
+                // same thing on one screen is just clutter, and the slicer would then be
+                // cutting two windows a frame.
+                set_hide_reason(L"the full map is open");
+            }
+            else
+            {
+                draw_minimap(cfg, snap, have);
             }
         }
 
@@ -2689,6 +3776,10 @@ namespace overlay
             {
                 g_slice[g_slice_shown].in_flight_fence = g_fence_value;
             }
+            if (g_mslice_shown >= 0)
+            {
+                g_mslice[g_mslice_shown].in_flight_fence = g_fence_value;
+            }
 
             if (g_map.upload != nullptr && g_map.upload_fence == 0)
             {
@@ -2932,6 +4023,7 @@ namespace overlay
     {
         mm::set_loop_thread();
         mm::load_config_file();
+        mm::load_waypoint_file();
         mapdata::load(mm::mod_dir());
 
         const mm::Config cfg = mm::config();
@@ -2949,10 +4041,11 @@ namespace overlay
             mm::g_panel_open = true;
             mm::log(L"debug_show_panel_on_start = 1: the F2 panel starts open (turn it off for normal play)");
         }
-        mm::logf(L"hotkeys: {} settings panel, {} full map (reserved - not built yet), {} reload "
+        mm::logf(L"hotkeys: {} settings panel, {} full map ({} recentres it), {} reload "
                  L"config + maps + markers",
                  mm::key_name(cfg.panel_key),
                  mm::key_name(cfg.map_key),
+                 mm::key_name(cfg.map_recenter_key),
                  mm::key_name(cfg.reload_key));
         mm::drain_log();
     }
@@ -2994,9 +4087,9 @@ namespace overlay
         }
         reload_down = reload_now;
 
-        // The full map key. The map itself is a later step; the bind exists now so it
-        // can be verified in-world (and so the default is nailed down outside the
-        // F6/F9-F12 minefield) - pressing it puts one line on screen and one in the log.
+        // The full map. GetAsyncKeyState rather than a WndProc test on purpose: while
+        // the map is open the WndProc hook swallows every key, so the message-based
+        // route could not close it again.
         static bool map_down = false;
         const bool map_now = (::GetAsyncKeyState(cfg.map_key) & 0x8000) != 0;
         if (map_now && !map_down && foreground && now - last_key > 250)
@@ -3004,15 +4097,38 @@ namespace overlay
             last_key = now;
             const bool open = !mm::g_map_open.load();
             mm::g_map_open = open;
-            mm::logf(L"full map {} (reserved - the full map itself is not implemented yet)",
-                     open ? L"requested" : L"dismissed");
+            mm::logf(L"full map {}", open ? L"opened" : L"closed");
         }
         map_down = map_now;
+
+        static bool recenter_down = false;
+        const bool recenter_now = (::GetAsyncKeyState(cfg.map_recenter_key) & 0x8000) != 0;
+        if (recenter_now && !recenter_down && foreground && mm::g_map_open.load())
+        {
+            g_map_recenter.store(true, std::memory_order_relaxed);
+        }
+        recenter_down = recenter_now;
+
+        // XInput, on THIS thread - the same place the keyboard is sampled, and never on
+        // the game thread (lessons.md). Polling a disconnected pad is expensive, so it
+        // only runs while the map is actually open.
+        pad::poll(cfg.map_gamepad && mm::g_map_open.load(), cfg.map_gamepad_deadzone);
+
+        // The waypoint is set on the render thread and written here, because the loop
+        // thread is the only one allowed to touch a file.
+        if (mm::g_waypoint_dirty.exchange(false))
+        {
+            if (cfg.map_waypoint_persist)
+            {
+                mm::save_waypoint_file();
+            }
+        }
 
         if (mm::g_reload_config.exchange(false))
         {
             mm::log(L"reloading config + maps + markers");
             mm::load_config_file();
+            mm::load_waypoint_file();
             g_drop_textures.store(true, std::memory_order_release);
             mapdata::load(mm::mod_dir());
             markers::reload();

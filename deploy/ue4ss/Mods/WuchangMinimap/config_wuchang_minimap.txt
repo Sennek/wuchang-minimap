@@ -4,14 +4,16 @@
 ; panel ("Save settings") and re-read by F5 or "Reload settings + maps", so the game
 ; does not have to be restarted for a change here.
 ;
-; HOTKEYS: F1..F5, F7, F8, any single letter (A..Z) or digit (0..9), or TAB.
+; HOTKEYS: F1..F5, F7, F8, any single letter (A..Z) or digit (0..9), TAB, SPACE, or
+; one of LALT / RALT / ALT / LSHIFT / RSHIFT / SHIFT / LCTRL / RCTRL / CTRL.
 ; F6 and F9..F12 are REJECTED and fall back to the default, because on this machine
 ;   F6  toggles RenoDX / DLSS 5 Neural Rendering (it ignores modifiers, and pressing
 ;       it in-world hung the GPU on 2026-09-02)
 ;   F9  / F11 are engine screenshot / fullscreen binds
 ;   F10 opens the game console (UE4SS ConsoleEnablerMod)
 ;   F12 is the Steam screenshot key
-; Shipped defaults: F2 settings panel, M full map, R recentre the map, F5 reload.
+; Shipped defaults: F2 settings panel, M full map, R recentre the map, F5 reload,
+; and LALT HELD for the x-ray highlight.
 
 ; Master switch. 0 = install no DX12 hooks at all.
 enabled = 1
@@ -283,6 +285,94 @@ map_gamepad_deadzone = 0.22
 ; Remember the waypoint across sessions in wuchang_minimap_waypoint.txt (next to this
 ; file). It is three plain `key = value` lines and is hand-editable.
 map_waypoint_persist = 1
+
+; ---------------------------------------------------------------------------------
+; Hold-key x-ray highlight
+; ---------------------------------------------------------------------------------
+; HOLD highlight_key (or the gamepad chord) in-world: every marker of the categories
+; below that is still uncollected and within highlight_radius is drawn at its position
+; ON SCREEN - category glyph, name and distance in metres - through walls, fading with
+; distance. It is a HOLD, not a toggle, so there is no state that can get stuck, and it
+; hides with the minimap in menus and cutscenes.
+;
+; It needs the camera, which is read on the game thread from the PlayerCameraManager's
+; camera cache. The F2 panel's "X-ray highlight" block prints which route is in use and
+; where the POV block was found - screenshot that block if the labels are misplaced.
+
+highlight_enabled = 1
+
+; Any hotkey name (see the list at the top of this file). LALT is the shipped default:
+; it is a hold, so it wants a key the hand is already resting on.
+highlight_key = LALT
+
+; The second route, for a controller. Join buttons with `+`; known names are
+; LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, RS, UP, DOWN, LEFT, RIGHT.
+; `none` disables the chord. XInput is only polled while a chord is configured.
+highlight_gamepad = 1
+highlight_pad_chord = LB+RB
+
+; How far a marker may be from the PLAYER (not the camera) to be highlighted, in uu.
+; 1 uu = 1 cm, so 3000 = 30 m.
+highlight_radius = 3000
+
+; Which categories. Same names as markers_categories: shrine, chest, pickup, boss,
+; elite, enemy, npc, merchant, door, ladder, lift, fog_gate, hidden, other (or
+; `all` / `none`). Chests and pickups is the "loot I have not taken yet" set.
+highlight_categories = chest,pickup
+
+; 1 = also highlight things already collected / opened (dimmed).
+highlight_show_found = 0
+
+; Hard cap per frame, nearest first.
+highlight_max_draw = 60
+
+; Alpha at the camera and at the radius; the fade between them is linear.
+highlight_alpha_near = 1.00
+highlight_alpha_far = 0.25
+
+; Glyph radius on screen, in pixels, and whether the name + distance is drawn.
+highlight_size = 7.0
+highlight_labels = 1
+
+; 1 = anything off screen or behind the camera gets an arrow on the screen edge
+; pointing the way to turn.
+highlight_edge_arrows = 1
+
+; How often the game thread re-reads the camera WHILE THE KEY IS HELD. The read is a
+; few dozen bytes at a cached offset, so this is cheap; it only has to keep up with how
+; fast the camera can swing. Nothing is read at all when the key is up and the compass
+; is off.
+highlight_camera_hz = 60
+
+; ---------------------------------------------------------------------------------
+; The compass strip
+; ---------------------------------------------------------------------------------
+; A heading strip across the top of the screen: N / NE / E ... plus 15-degree ticks,
+; with bearing pips for the waypoint and for nearby markers of the categories below.
+; The heading is the camera's yaw (the player's yaw while the camera reader is warming
+; up). It is hidden by exactly the same rules as the minimap and disappears while the
+; full map is open.
+
+compass_enabled = 1
+
+; Strip width as a fraction of the screen width, distance from the top of the screen
+; in pixels, and the strip's height in pixels.
+compass_width = 0.420
+compass_offset_y = 18
+compass_height = 26
+
+; How many degrees the whole strip covers. 120 is a comfortable "what is in front of
+; me"; 360 turns it into a full ring.
+compass_span_deg = 120
+
+compass_opacity = 0.90
+
+; Which markers get a bearing pip, and how far away they may be (uu).
+compass_categories = shrine,boss,elite,fog_gate
+compass_marker_distance = 15000
+
+; The waypoint is never culled: off the strip it clamps to the edge with an arrow.
+compass_show_waypoint = 1
 
 ; Settings panel, full map, recentre the full map, and config + map + marker reload.
 panel_key = F2

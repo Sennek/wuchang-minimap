@@ -75,8 +75,12 @@ the file can be wrong), the category-name <-> bitmask mapping the config file an
 checkboxes share, the `wuchang_minimap_found.txt` round-trip, and the full map's pure layer: the
 world <-> screen transform round-tripped over the whole viewport at five zooms (plus north-is-up and
 east-is-right asserted directly), the zoom clamp and per-notch step, and the waypoint file's exact
-round-trip and its rejection of anything without a usable x and y. Anything that can be checked without
-launching the game is checked there - a play session is the expensive resource in this project.
+round-trip and its rejection of anything without a usable x and y. They also pin the x-ray highlight's
+**world-to-screen projection** against hand-computed screen coordinates (screen centre, both FOV edges,
+the vertical FOV that follows from the aspect, yaw and pitch, the behind-the-camera direction, and a
+garbage camera producing nothing) and the **compass** arithmetic (wrap, bearings, strip positions, tick
+ranks). Anything that can be checked without launching the game is checked there - a play session is the
+expensive resource in this project.
 
 ## Install
 
@@ -121,6 +125,16 @@ src/mapview.{hpp,cpp}      PURE full-map layer: the north-up viewport transform 
                            round-trip. Same "no Windows, no UE4SS" rule as markers_db,
                            so markers_test links it too
 src/gamepad.{hpp,cpp}      XInput, dynamically loaded, polled on the LOOP thread only
+src/projection.hpp         PURE world -> camera -> NDC -> screen math for the x-ray
+                           highlight (UE basis, horizontal FOV, behind-camera case).
+                           No engine types, so markers_test pins it against
+                           hand-computed screen coordinates
+src/compass.{hpp,cpp}      PURE compass arithmetic: yaw wrap, bearings, strip positions,
+                           cardinal ticks. Same rule, same test binary
+src/highlight.{hpp,cpp}    the x-ray highlight's game-thread half: finds the
+                           PlayerCameraManager, calibrates the POV offset inside
+                           CameraCachePrivate against the camera getters, then publishes
+                           the pose through its own seqlock
 src/json.hpp               the one JSON reader, shared by mapdata and markers
 src/uereflect.hpp          cached property offsets and UFunction calls
 src/navmesh_dump.{hpp,cpp} dtNavMesh discovery + tile walker + JSON writer
@@ -430,7 +444,9 @@ render thread never touches a UObject.
 `show_minimap`, `minimap_size`, `minimap_zoom`, `minimap_shape`, `minimap_anchor`,
 `minimap_offset_x/y`, `rotate_with_player`, `opacity`, `hide_in_menus`, `require_pawn_view`,
 `state_stale_ms`, `min_visible_after_state_ok_ms`, `menu_close_show_delay_ms`, `debug_readout`,
-`debug_show_panel_on_start`, `panel_key`, `reload_key`, plus the height-slicing block:
+`debug_show_panel_on_start`, `panel_key`, `reload_key`, the `highlight_*` block (14 keys - see
+[the x-ray highlight](#the-x-ray-highlight-hold-lalt)) and the `compass_*` block (9 keys - see
+[the compass strip](#the-compass-strip)), plus the height-slicing block:
 
 | key | default | meaning |
 |---|---|---|
@@ -555,9 +571,68 @@ with how long that state has held, and every transition is written to `UE4SS.log
 `minimap HIDDEN: <reason> (previous state held N ms)`, rate-limited to one line per 2 s. When the reason
 is a menu, the block also names the in-viewport widget holding it open.
 **F2** opens the panel, **M** opens the full map (**R** recentres it), **F5** reloads the config, the
-maps and the markers. Accepted hotkey
-names are F1-F5, F7, F8, any single letter or digit, and TAB; F6 (RenoDX DLSS 5), F9/F11 (engine binds),
-F10 (game console) and F12 (Steam) are rejected in code, not merely discouraged in a comment.
+maps and the markers, and **holding LALT** turns on the x-ray highlight. Accepted hotkey names are
+F1-F5, F7, F8, any single letter or digit, TAB, SPACE and the L/R modifier keys
+(`LALT`/`ALT`/`LSHIFT`/`LCTRL`/...); F6 (RenoDX DLSS 5), F9/F11 (engine binds), F10 (game console) and
+F12 (Steam) are rejected in code, not merely discouraged in a comment. The panel and the full map both
+print the live binding list, built from the config - so a rebound key is what you are told.
+
+## The x-ray highlight (hold `LALT`)
+
+Hold the key (or the gamepad chord, `LB+RB` by default) and every marker of the enabled categories that
+is still uncollected and within `highlight_radius` of the player is drawn **at its position on screen** -
+category glyph, name, distance in metres - fading with distance, over the scene. "Through walls" is free
+here: the overlay is composited on the finished frame, so there is no occlusion test, no CustomDepth and
+no material - nothing that can disagree with the game's render state. Anything off screen or behind the
+camera gets an arrow on the screen edge pointing the way to turn (`highlight_edge_arrows`).
+
+It is a **hold, not a toggle**, so there is no visibility state to unstick, and it is gated by exactly
+the same evaluation as the minimap (`hud_gate()` in `overlay.cpp` - one function, asked by the minimap,
+the compass and the highlight; the minimap keeps ownership of the `hidden because:` readout).
+
+**The projection.** `src/projection.hpp` is dependency-free math with hand-computed tests in
+`markers_test`: UE's `FRotationMatrix` basis written out row by row, the horizontal FOV with the aspect
+applied to the vertical axis exactly as `FSceneView` does it (`tan(vfov/2) = tan(hfov/2) / aspect`
+whenever the viewport is wider than tall), and a behind-the-camera case that never produces a screen
+position - a naive divide by a negative depth mirrors the point onto the opposite side of the screen,
+which is the classic "the chest behind me is labelled on the wall ahead" bug - but does produce the
+direction an edge arrow must point.
+
+**The camera.** `src/highlight.cpp` reads it on the game thread from the local `APlayerCameraManager`
+and publishes it through its own seqlock. `CameraCachePrivate` is an `FCameraCacheEntry` whose
+`FMinimalViewInfo` starts with Location (3 doubles), Rotation (3 doubles) and FOV (float) - documented,
+but *not verified on this build*, and `lessons.md` is unambiguous about recognising a non-reflected
+engine struct by an assumed field order. So the offset is **discovered**:
+
+1. call `GetCameraLocation` / `GetCameraRotation` / `GetFOVAngle` once (one SEH-guarded `ProcessEvent`
+   each);
+2. scan the first bytes of `CameraCachePrivate` for the offset whose six doubles and following float
+   match what the getters just said, to 2 uu / 0.5 degrees / 0.5 degrees of FOV;
+3. pin it. Every read after that is 56 bytes at a cached offset - cheap enough for `highlight_camera_hz`
+   (60 by default) while the key is held, and **nothing at all** while it is up and the compass is off.
+
+If the getters are unavailable the offset is accepted on sanity ranges alone, and if the pinned offset
+ever produces eight insane reads in a row it is dropped and re-discovered. The F2 panel's *X-ray
+highlight* block names the route, the two offsets, the live pose and the read/reject counts - that block
+is the screenshot to take if the labels are ever in the wrong place.
+
+The camera reader is driven from **one clearly-marked hook** inside `markers::game_thread_pump()`, which
+already runs only while `gamestate` has a validated gameplay pawn outside the transition cooldown; its
+caches are dropped from `markers::drop_caches()`, which is what "the world that owned that object is
+gone" already means.
+
+## The compass strip
+
+A heading strip across the top of the screen: N / NE / E ... with 15-degree ticks, a centre reticle, and
+bearing pips for nearby markers of `compass_categories` plus the waypoint (which clamps to the strip's
+edge with an arrow rather than being culled - being told which way to walk while it is off the strip is
+the point). `compass_span_deg` decides how much of the world the strip covers; 360 turns it into a full
+ring.
+
+The heading is the **camera's** yaw when a pose is fresh and the pawn's yaw otherwise, so the compass
+works with `highlight_enabled = 0` and during the camera reader's warm-up; the F2 panel says which one
+is in use. The arithmetic - wrap into `(-180, 180]`, bearings in the mod's `+X` north / `+Y` east frame,
+strip positions, tick ranks - is pure and lives in `src/compass.cpp`, which `markers_test` links.
 
 ## Markers
 
@@ -644,6 +719,17 @@ last change. A deploy never touches it.
       in-world, so round 3 replaced them with a **multi-surface height map sliced on the CPU** into a
       small double-buffered dynamic texture (`|Z - feetZ| <= 200 uu` opaque with a height gradient,
       +/-800 uu dimmed, nothing else drawn).
+- [x] X-ray highlight v1 (hold **LALT** / pad **LB+RB**): world-to-screen projection of every nearby
+      uncollected marker, with names, distances, distance fade and edge arrows, over the scene. The
+      camera pose is read on the game thread from a **self-calibrated** offset inside
+      `CameraCachePrivate`. **Not yet verified in-game.**
+- [x] Compass strip with cardinal headings, ticks and bearing pips for the waypoint and nearby shrines /
+      bosses, hidden by the same gate as the minimap. **Not yet verified in-game.**
+- [x] Key hints in the F2 panel and along the bottom of the full map, built from the config so they stay
+      truthful after a rebind.
+- [ ] X-ray highlight v2 (optional): true silhouettes through `SetRenderCustomDepth` plus a
+      post-process material shipped in a tiny pak. Only if v1 is not enough - the game ships no outline
+      material we can reuse.
 - [ ] Optimisation, not a fix: move the same slicing loop into a **pixel shader**. It needs its own root
       signature, PSO, `D3DCompile` and `ImDrawList::AddCallback` juggling on a ReShade-wrapped
       swapchain, and it would only save the few ms per update and the ~1 MB upload - the CPU slicer

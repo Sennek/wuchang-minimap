@@ -14,6 +14,9 @@
 //   * the stable-id helpers that join the offline DB to the live actors;
 //   * the full map's viewport transform and its exact inverse, the zoom clamp, and the
 //     waypoint file round-trip (src/mapview.cpp - same "pure half" idea).
+//   * the chapter detection's string logic and its tiered vote (src/chapterid.hpp),
+//     and the maps/maps.json parse (src/mapmanifest.hpp) - including the shipped
+//     five-chapter file and the one-chapter file the same schema used to ship;
 //   * the chunked GUObjectArray scan scheduler (src/scan_sched.hpp): slice
 //     planning, round wrap, the clamps and the rate gates. That walk replaced the
 //     per-class FindAllOf sweep that cost 28.30 ms mean / 51.05 ms peak per
@@ -32,7 +35,9 @@
 #include <string>
 #include <vector>
 
+#include "chapterid.hpp"
 #include "compass.hpp"
+#include "mapmanifest.hpp"
 #include "mapview.hpp"
 #include "markers_db.hpp"
 #include "projection.hpp"
@@ -1027,6 +1032,329 @@ namespace
         CHECK_STR(std::string(cmp::cardinal_label(-90.0)), std::string("W"));
         CHECK_STR(std::string(cmp::cardinal_label(10.0)), std::string(""));
     }
+    //==================================================================================
+    // chapterid.hpp - "which chapter is the player in?", from the streamed level names
+    //==================================================================================
+    //
+    // This is the whole of the runtime's chapter detection except the enumeration, and
+    // it is the part that can be wrong in a way no log line would reveal: a bad parse
+    // just quietly loads the wrong map. The fixtures below are real names taken from
+    // the pak index and from the WuchangRecon world dumps.
+
+    void test_chapter_id()
+    {
+        std::printf("chapterid: cell packages, logic levels and the tiered vote\n");
+
+        // --- tier 3: the streaming cell package, bare name and full object path ------
+        CHECK_EQ(chid::classify("B1EX0_L0_X1_Y0_DL0_WP").chapter, 1);
+        CHECK_EQ(chid::classify("B1EX0_L0_X1_Y0_DL0_WP").tier, chid::kTierCell);
+        CHECK_EQ(chid::classify("B3EX0_L0_X-8_Y-17_DL0_WP").chapter, 3);
+        CHECK_EQ(chid::classify("B5EX0_L0_X-19_Y2_DL0_WP").chapter, 5);
+        // The name the engine actually hands back from UObject::GetFullName().
+        CHECK_EQ(chid::classify("Level /Game/Maps/Generate/Chapter2/EX0/"
+                                "B2EX0_L0_X4_Y-3_DL0_WP.B2EX0_L0_X4_Y-3_DL0_WP:PersistentLevel")
+                     .chapter,
+                 2);
+        // ... and the same thing as wchar_t, which is what the mod really passes.
+        CHECK_EQ(chid::classify(L"Level /Game/Maps/Generate/Chapter4/EX0/"
+                                L"B4EX0_L0_X0_Y0_DL0_WP.B4EX0_L0_X0_Y0_DL0_WP:PersistentLevel")
+                     .chapter,
+                 4);
+        CHECK_EQ(chid::classify(L"B4EX0_L0_X0_Y0_DL0_WP").tier, chid::kTierCell);
+        // The cell wins over the "Chapter2" that is also in the same path - the two
+        // always agree here, but the tier must come from the cell.
+        CHECK_EQ(chid::classify("/Game/Maps/Generate/Chapter2/EX0/B2EX0_L0_X4_Y-3_DL0_WP").tier,
+                 chid::kTierCell);
+
+        // --- the DLC has no cell package anywhere in the paks ------------------------
+        CHECK_EQ(chid::classify("ChapterDLC_LiuHuangKK_logic").chapter, chid::kDlc);
+        CHECK_EQ(chid::classify("ChapterDLC_LiuHuangKK_logic").tier, chid::kTierLogic);
+        CHECK_EQ(chid::classify("ChapterDLC_BOSS_ZhuoJinEL_AI").tier, chid::kTierLogic);
+        CHECK_EQ(chid::classify("ChapterDLC_Area").chapter, chid::kDlc);
+        CHECK_EQ(chid::classify("ChapterDLC_Area").tier, chid::kTierArt);
+
+        // --- tier 2 / 1: logic levels beat art levels --------------------------------
+        CHECK_EQ(chid::classify("Chapter1_Digong_logic").chapter, 1);
+        CHECK_EQ(chid::classify("Chapter1_Digong_logic").tier, chid::kTierLogic);
+        CHECK_EQ(chid::classify("Chapter3_BOSS_NvWu_AI").tier, chid::kTierLogic);
+        CHECK_EQ(chid::classify("Chapter1_DaFo_Base").tier, chid::kTierArt);
+        CHECK_EQ(chid::classify("Chapter2_Area").tier, chid::kTierArt);
+        CHECK_EQ(chid::classify("Chapter4_Land").chapter, 4);
+
+        // --- nothing to say ----------------------------------------------------------
+        CHECK_EQ(chid::classify("").tier, 0);
+        CHECK_EQ(chid::classify("").chapter, chid::kNone);
+        CHECK_EQ(chid::classify("Lobby").chapter, chid::kNone);
+        CHECK_EQ(chid::classify("/Game/Maps/ProjectMain.ProjectMain:PersistentLevel").chapter, chid::kNone);
+        CHECK_EQ(chid::classify("program/DebugCommand").chapter, chid::kNone);
+        // Not a chapter: a two-digit run is an index, and chapter 0 does not exist.
+        CHECK_EQ(chid::classify("Chapter12_Whatever").chapter, chid::kNone);
+        CHECK_EQ(chid::classify("Chapter0_Whatever").chapter, chid::kNone);
+        // A malformed cell name must not be read as a cell.
+        CHECK_EQ(chid::classify("EX0_L0_X1_Y0_DL0_WP").chapter, chid::kNone);
+        CHECK_EQ(chid::classify("X1EX0_L0_X1_Y0_DL0_WP").chapter, chid::kNone);
+
+        // --- chapter_from_key, the manifest fallback ---------------------------------
+        CHECK_EQ(chid::chapter_from_key("chapter1"), 1);
+        CHECK_EQ(chid::chapter_from_key("chapter5"), 5);
+        CHECK_EQ(chid::chapter_from_key("chapterdlc"), chid::kDlc);
+        CHECK_EQ(chid::chapter_from_key("nonsense"), chid::kNone);
+        CHECK_EQ(chid::chapter_from_key(""), chid::kNone);
+
+        // --- the tiered vote ---------------------------------------------------------
+        //
+        // THE CASE THIS EXISTS FOR (context/common.md, run 3): at one spot 49 levels
+        // were visible, including eight different Chapter-1 `_Base` levels AND both
+        // `Chapter1_Area` and `Chapter2_Area`. A plain sum over "Chapter<N> appears"
+        // would be decided by how much art each chapter happens to stream; the cells
+        // under the player's feet must win outright.
+        {
+            chid::Vote v{};
+            v.add("B1EX0_L0_X1_Y0_DL0_WP");
+            v.add("B1EX0_L0_X2_Y0_DL0_WP");
+            v.add("B1EX0_L0_X1_Y-1_DL0_WP");
+            v.add("B1EX0_L0_X2_Y-1_DL0_WP");
+            v.add("Chapter1_Digong_logic");
+            v.add("Chapter1_DaFo_Base");
+            v.add("Chapter1_Cave_Base");
+            v.add("Chapter1_Area");
+            v.add("Chapter2_Area"); // the stray one that must not matter
+            v.add("Chapter2_Land");
+            v.add("Chapter2_Something_Base");
+            v.add("Lobby");
+            CHECK_EQ(v.best(), 1);
+            CHECK_EQ(v.best_tier(), chid::kTierCell);
+            CHECK_EQ(v.best_count(), 4);
+            CHECK_EQ(v.count(1, chid::kTierCell), 4);
+            CHECK_EQ(v.count(2, chid::kTierCell), 0);
+            CHECK_EQ(v.count(2, chid::kTierArt), 3);
+            CHECK_EQ(v.seen(), 12);
+            CHECK_EQ(v.classified(), 11); // "Lobby" says nothing
+        }
+
+        // The DLC: no cell package exists anywhere in the paks, so tier 2 decides - and
+        // it still has to beat any chapter art that happens to be resident.
+        {
+            chid::Vote v{};
+            v.add("ChapterDLC_LiuHuangKK_logic");
+            v.add("ChapterDLC_BOSS_ChongZhen_AI");
+            v.add("Chapter3_Land");
+            v.add("Chapter3_Something_Base");
+            v.add("Chapter3_Area");
+            CHECK_EQ(v.best(), chid::kDlc);
+            CHECK_EQ(v.best_tier(), chid::kTierLogic);
+            CHECK_EQ(v.best_count(), 2);
+        }
+
+        // Nothing recognisable at all - e.g. the Lobby - must answer kNone, which the
+        // runtime treats as "keep whatever you had" rather than "unload the map".
+        {
+            chid::Vote v{};
+            v.add("Lobby");
+            v.add("/Game/Maps/ProjectMain.ProjectMain:PersistentLevel");
+            CHECK_EQ(v.best(), chid::kNone);
+            CHECK_EQ(v.best_tier(), 0);
+            CHECK_EQ(v.best_count(), 0);
+        }
+
+        // Two chapters' cells at once cannot normally happen (the streaming window
+        // follows the player), but if it did the answer must be deterministic and the
+        // majority must win.
+        {
+            chid::Vote v{};
+            v.add("B4EX0_L0_X0_Y0_DL0_WP");
+            v.add("B1EX0_L0_X0_Y0_DL0_WP");
+            v.add("B4EX0_L0_X1_Y0_DL0_WP");
+            CHECK_EQ(v.best(), 4);
+            chid::Vote tie{};
+            tie.add("B4EX0_L0_X0_Y0_DL0_WP");
+            tie.add("B1EX0_L0_X0_Y0_DL0_WP");
+            CHECK_EQ(tie.best(), 1); // ties go to the lower chapter number
+            tie.reset();
+            CHECK_EQ(tie.best(), chid::kNone);
+        }
+    }
+
+    //==================================================================================
+    // mapmanifest.hpp - maps/maps.json
+    //==================================================================================
+
+    void test_map_manifest(const std::string& markers_dir)
+    {
+        std::printf("mapmanifest: schema /3, five chapters, and the ways it can be wrong\n");
+
+        // --- the minimal well-formed document ----------------------------------------
+        {
+            const char* text = R"({
+              "schema": "wuchang-minimap-maps/3",
+              "chapters": {
+                "chapter1": { "chapter": 1, "image": "chapter1/small.png",
+                              "image_width": 100, "image_height": 200,
+                              "min_x": -10, "min_y": -20, "max_x": 30, "max_y": 40,
+                              "px_per_uu": 0.06, "z_min": -5, "z_max": 15,
+                              "max_surfaces": 2,
+                              "height_maps": ["chapter1/small_z0.png", "chapter1/small_z1.png"] },
+                "chapterdlc": { "chapter": 0, "image": "dlc/small.png",
+                                "image_width": 10, "image_height": 10,
+                                "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1,
+                                "px_per_uu": 0.5, "z_min": 0, "z_max": 1,
+                                "max_surfaces": 1, "height_maps": ["dlc/small_z0.png"] }
+              } })";
+            mapmanifest::Manifest m{};
+            std::vector<std::string> problems;
+            CHECK(mapmanifest::parse(text, m, problems));
+            CHECK_EQ(static_cast<long long>(problems.size()), 0);
+            CHECK_STR(m.schema, std::string(mapmanifest::kSchema));
+            CHECK_EQ(static_cast<long long>(m.chapters.size()), 2);
+            CHECK_STR(m.chapters[0].key, std::string("chapter1"));
+            CHECK_EQ(m.chapters[0].chapter, 1);
+            CHECK_EQ(m.chapters[0].max_surfaces, 2);
+            CHECK(m.chapters[0].geometry_ok());
+            CHECK(m.chapters[0].heights_ok());
+            CHECK(!m.chapters[0].height_maps_guessed);
+            CHECK_EQ(m.index_of_number(1), 0);
+            CHECK_EQ(m.index_of_number(chid::kDlc), 1);
+            CHECK_EQ(m.index_of_number(4), -1);
+            CHECK_EQ(m.index_of_key("chapterdlc"), 1);
+            CHECK_EQ(m.index_of_key("chapter9"), -1);
+            // The DLC is not a numbered chapter, so it is never the start-up default.
+            CHECK_EQ(m.default_index(), 0);
+        }
+
+        // --- backward compatibility: the ONE-CHAPTER file this schema shipped with ---
+        //
+        // No "chapter" field and no "height_maps" array existed then. Both have to be
+        // recovered, or a mod update silently loses the map of an unchanged install.
+        {
+            const char* text = R"({
+              "schema": "wuchang-minimap-maps/3",
+              "chapters": {
+                "chapter1": { "image": "chapter1/small.png",
+                              "image_width": 4947, "image_height": 4333,
+                              "min_x": -20736, "min_y": -41216, "max_x": 51456, "max_y": 41216,
+                              "px_per_uu": 0.06, "z_min": -15089, "z_max": 38871,
+                              "max_surfaces": 8 }
+              } })";
+            mapmanifest::Manifest m{};
+            std::vector<std::string> problems;
+            CHECK(mapmanifest::parse(text, m, problems));
+            CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
+            CHECK_EQ(m.chapters[0].chapter, 1); // derived from the key
+            CHECK(m.chapters[0].height_maps_guessed);
+            CHECK_EQ(static_cast<long long>(m.chapters[0].height_maps.size()), 8);
+            CHECK_STR(m.chapters[0].height_maps[0], std::string("chapter1/small_z0.png"));
+            CHECK_STR(m.chapters[0].height_maps[7], std::string("chapter1/small_z7.png"));
+            CHECK(m.chapters[0].heights_ok());
+        }
+
+        // --- the ways it can be wrong -------------------------------------------------
+        {
+            mapmanifest::Manifest m{};
+            std::vector<std::string> problems;
+            CHECK(!mapmanifest::parse("not json at all", m, problems));
+            CHECK(!problems.empty());
+
+            problems.clear();
+            CHECK(!mapmanifest::parse(R"({"schema":"wuchang-minimap-maps/3"})", m, problems));
+            CHECK(!problems.empty());
+
+            problems.clear();
+            CHECK(!mapmanifest::parse(R"({"chapters": []})", m, problems)); // array, not object
+
+            // A broken chapter is skipped and REPORTED, and its siblings still load.
+            problems.clear();
+            const char* mixed = R"({
+              "chapters": {
+                "broken_no_image": { "chapter": 2, "image_width": 4, "image_height": 4,
+                                     "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1,
+                                     "px_per_uu": 0.5 },
+                "broken_bounds":   { "chapter": 3, "image": "a.png", "image_width": 4,
+                                     "image_height": 4, "min_x": 5, "min_y": 0,
+                                     "max_x": 1, "max_y": 1, "px_per_uu": 0.5 },
+                "chapter4":        { "chapter": 4, "image": "chapter4/small.png",
+                                     "image_width": 4, "image_height": 4,
+                                     "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1,
+                                     "px_per_uu": 0.5, "z_min": 0, "z_max": 1,
+                                     "height_maps": ["chapter4/small_z0.png"] }
+              } })";
+            CHECK(mapmanifest::parse(mixed, m, problems));
+            CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
+            CHECK_EQ(static_cast<long long>(problems.size()), 2);
+            CHECK_STR(m.chapters[0].key, std::string("chapter4"));
+            CHECK_EQ(m.default_index(), 0);
+            // No schema string at all is not fatal - the mod logs and reads on.
+            CHECK_STR(m.schema, std::string(""));
+        }
+
+        // --- a chapter with no z range has geometry but no usable height maps ---------
+        {
+            const char* text = R"({"chapters": {"chapter1": {
+                "chapter": 1, "image": "c/s.png", "image_width": 4, "image_height": 4,
+                "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1, "px_per_uu": 0.5,
+                "height_maps": ["c/s_z0.png"] }}})";
+            mapmanifest::Manifest m{};
+            std::vector<std::string> problems;
+            CHECK(mapmanifest::parse(text, m, problems));
+            CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
+            CHECK(m.chapters[0].geometry_ok());
+            CHECK(!m.chapters[0].heights_ok()); // z_max == z_min == 0
+        }
+
+        // --- the SHIPPED file --------------------------------------------------------
+        //
+        // Same idea as test_real_db: the manifest that is actually in the repo has to
+        // parse, name five chapters, and have every chapter number and every height
+        // plane the runtime is going to look for.
+        {
+            const std::string path = markers_dir + "/../maps/maps.json";
+            std::string text;
+            if (!read_file(path, text))
+            {
+                std::printf("  (skipped: %s not readable)\n", path.c_str());
+            }
+            else
+            {
+                mapmanifest::Manifest m{};
+                std::vector<std::string> problems;
+                CHECK(mapmanifest::parse(text, m, problems));
+                CHECK_EQ(static_cast<long long>(problems.size()), 0);
+                CHECK_STR(m.schema, std::string(mapmanifest::kSchema));
+                CHECK_EQ(static_cast<long long>(m.chapters.size()), 5);
+                CHECK_EQ(m.default_index(), m.index_of_number(1));
+                std::size_t total_ram = 0;
+                for (int n = 1; n <= 5; ++n)
+                {
+                    const int i = m.index_of_number(n);
+                    CHECK(i >= 0);
+                    if (i < 0)
+                    {
+                        continue;
+                    }
+                    const mapmanifest::Entry& e = m.chapters[static_cast<std::size_t>(i)];
+                    CHECK_STR(e.key, std::string("chapter") + std::to_string(n));
+                    CHECK(e.geometry_ok());
+                    CHECK(e.heights_ok());
+                    CHECK(!e.height_maps_guessed);
+                    CHECK_EQ(static_cast<long long>(e.height_maps.size()), 8);
+                    CHECK(e.px_per_uu > 0.02 && e.px_per_uu <= 0.06);
+                    // Every plane is 16-bit and the whole set has to fit the RAM budget
+                    // build_map.py enforced (--max-ram-mb 340).
+                    const std::size_t bytes = static_cast<std::size_t>(e.image_width) *
+                                              static_cast<std::size_t>(e.image_height) * 2u *
+                                              e.height_maps.size();
+                    CHECK(bytes <= 340u * 1024u * 1024u);
+                    total_ram = bytes > total_ram ? bytes : total_ram;
+                }
+                std::printf("  shipped manifest: %d chapters, worst chapter %llu MB resident\n",
+                            static_cast<int>(m.chapters.size()),
+                            static_cast<unsigned long long>(total_ram / (1024 * 1024)));
+                // The DLC deliberately has NO map asset: the paks carry no
+                // Maps/Generate/ChapterDLC cells, so there is no cooked navmesh for it.
+                CHECK_EQ(m.index_of_number(chid::kDlc), -1);
+            }
+        }
+    }
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1044,6 +1372,8 @@ int main(int argc, char** argv)
     test_scan_sched();
     test_projection();
     test_compass();
+    test_chapter_id();
+    test_map_manifest(markers_dir);
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

@@ -17,6 +17,7 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 
 #include "gamestate.hpp"
+#include "mapdata.hpp"
 #include "markers.hpp"
 #include "navmesh_dump.hpp"
 #include "overlay.hpp"
@@ -77,6 +78,10 @@ class WuchangMinimap : public CppUserModBase
         // samples the hotkey and hands the work to a game-thread pump.
         navmesh::on_update();
         overlay::on_update();
+        // The chapter's map asset is loaded and unloaded here, on the loop thread:
+        // gamestate names the chapter from the game thread with one atomic store, and
+        // mapdata does the (multi-second, allocating) PNG work off it. See mapdata.hpp.
+        mapdata::on_update();
         gamestate::on_update();
         markers::on_update();
     }

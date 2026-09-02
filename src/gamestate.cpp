@@ -191,6 +191,7 @@ namespace gamestate
             g_menu_holder.clear();
             g_force_widget_sweep = true;
             g_have_last_pos = false;
+            g_last_chapter = 0; // re-detect the chapter as soon as a pawn is back
             g_funcs.clear();
             g_layouts.clear();
             // The marker sweep caches class layouts, class classifications, per-object
@@ -645,6 +646,193 @@ namespace gamestate
         }
 
         //==============================================================================
+        // Which chapter is the player in?
+        //==============================================================================
+        //
+        // From the STREAMED LEVEL SET, never from the position: the five chapters'
+        // world bounds overlap (chapter 4 covers nearly all of chapter 1), which is the
+        // "chapter identification by bounds only" hole the overlay MVP left open.
+        // chapterid.hpp holds the string logic and the tiered vote; this is only the
+        // enumeration, and it is raw reads plus one GetFullName() per LOADED level.
+        //
+        // Three routes, tried in order, because none of the three property names can be
+        // verified without launching the game and a wrong guess must degrade rather
+        // than fail:
+        //
+        //   1. `UWorld::Levels`         - TArray<ULevel*> of the levels currently in
+        //                                 the world. Exactly the question, ~50 entries.
+        //   2. `UWorld::StreamingLevels`- TArray<ULevelStreaming*>, ~834 entries, of
+        //                                 which the loaded ones have a `LoadedLevel`.
+        //   3. `FindAllOf(L"Level")`    - a whole GUObjectArray walk (28-51 ms,
+        //                                 lessons.md), so it is the last resort and it
+        //                                 still only runs at kChapterPeriodMs.
+        //
+        // The route that worked is remembered and logged once.
+
+        // TArray<T> is { T* Data; int32 Num; int32 Max; } - 16 bytes, which is also what
+        // FArrayProperty reports as its element size, so the read is size-checked.
+        struct TArrayRaw
+        {
+            void* data = nullptr;
+            std::int32_t num = 0;
+            std::int32_t max = 0;
+        };
+
+        bool read_array_prop(const uer::ClassLayout* layout, const void* obj, const wchar_t* name,
+                             TArrayRaw& out)
+        {
+            if (!uer::read_prop(layout, obj, name, out, static_cast<int>(sizeof(TArrayRaw))))
+            {
+                return false;
+            }
+            if (out.num < 0 || out.num > kMaxLevelsScanned || out.max < out.num)
+            {
+                return false;
+            }
+            if (out.num > 0 && (!mem::plausible_ptr(out.data) ||
+                                !mem::readable(out.data, static_cast<std::size_t>(out.num) * sizeof(void*))))
+            {
+                return false;
+            }
+            return true;
+        }
+
+        // Validates `obj` as a live UObject and feeds its full name to the vote. The
+        // capture() call is the same GUObjectArray liveness test the pawn uses, so a
+        // level that is being torn down as we walk the array cannot be dereferenced.
+        void vote_on_object(UObject* obj, chid::Vote& vote, int& counted)
+        {
+            if (obj == nullptr || !mem::plausible_ptr(obj))
+            {
+                return;
+            }
+            uer::ObjRef ref{};
+            if (!uer::capture(obj, ref))
+            {
+                return;
+            }
+            const std::wstring full = obj->GetFullName();
+            if (full.empty())
+            {
+                return;
+            }
+            vote.add(std::wstring_view{full});
+            ++counted;
+        }
+
+        // Routes 1 and 2 differ only in whether the array element IS the level or has
+        // to be dereferenced through `LoadedLevel`.
+        bool vote_from_array(UObject* world, const uer::ClassLayout* layout, const wchar_t* prop,
+                             bool via_loaded_level, chid::Vote& vote, int& counted)
+        {
+            TArrayRaw arr{};
+            if (!read_array_prop(layout, world, prop, arr) || arr.num == 0)
+            {
+                return false;
+            }
+            for (std::int32_t i = 0; i < arr.num; ++i)
+            {
+                void* raw = nullptr;
+                if (!mem::read_at(arr.data, static_cast<std::size_t>(i) * sizeof(void*), raw))
+                {
+                    break;
+                }
+                if (!mem::plausible_ptr(raw))
+                {
+                    continue;
+                }
+                UObject* level = static_cast<UObject*>(raw);
+                if (via_loaded_level)
+                {
+                    // ULevelStreaming::LoadedLevel is null for the ~780 sublevels that
+                    // are not streamed in, which is exactly the filter we want.
+                    const uer::ClassLayout* sl = g_layouts.get(level);
+                    level = uer::read_object_prop(sl, level, L"LoadedLevel");
+                    if (level == nullptr)
+                    {
+                        continue;
+                    }
+                }
+                vote_on_object(level, vote, counted);
+            }
+            return counted > 0;
+        }
+
+        void refresh_chapter(std::uint64_t now)
+        {
+            if (g_world == nullptr)
+            {
+                return;
+            }
+            UObject* world = static_cast<UObject*>(const_cast<void*>(g_world));
+            if (!mem::readable(world, 0x40))
+            {
+                return;
+            }
+
+            chid::Vote vote{};
+            int counted = 0;
+            int route = 0;
+            const uer::ClassLayout* layout = g_layouts.get(world);
+            if (vote_from_array(world, layout, L"Levels", false, vote, counted))
+            {
+                route = 1;
+            }
+            else if (vote_from_array(world, layout, L"StreamingLevels", true, vote, counted))
+            {
+                route = 2;
+            }
+            else
+            {
+                // Last resort: a full GUObjectArray walk. It is the expensive one, so it
+                // only ever runs when neither UWorld array could be read at all.
+                std::vector<UObject*> levels;
+                UObjectGlobals::FindAllOf(L"Level", levels);
+                for (UObject* level : levels)
+                {
+                    if (counted >= kMaxLevelsScanned)
+                    {
+                        break;
+                    }
+                    vote_on_object(level, vote, counted);
+                }
+                route = counted > 0 ? 3 : 0;
+            }
+
+            if (route != g_chapter_route)
+            {
+                static const wchar_t* const kRouteName[] = {L"(none)", L"UWorld::Levels",
+                                                            L"UWorld::StreamingLevels -> LoadedLevel",
+                                                            L"FindAllOf(\"Level\")"};
+                mm::logf(L"chapter: enumerating the streamed levels through {} ({} level(s) named)",
+                         kRouteName[route < 0 || route > 3 ? 0 : route],
+                         counted);
+                g_chapter_route = route;
+            }
+
+            g_chapter_levels = counted;
+            const int detected = vote.best();
+            if (detected == chid::kNone)
+            {
+                return; // never overwrite a good answer with "I could not tell"
+            }
+            if (detected != g_chapter)
+            {
+                mm::logf(L"chapter: {} -> {} (tier {}, {} of {} named level(s) agree)",
+                         g_chapter == chid::kNone  ? std::wstring{L"?"}
+                         : g_chapter == chid::kDlc ? std::wstring{L"DLC"}
+                                                   : std::to_wstring(g_chapter),
+                         detected == chid::kDlc ? std::wstring{L"DLC"} : std::to_wstring(detected),
+                         vote.best_tier(),
+                         vote.best_count(),
+                         counted);
+                g_chapter = detected;
+            }
+            mapdata::set_detected_chapter(detected);
+            (void)now;
+        }
+
+        //==============================================================================
         // The pump
         //==============================================================================
 
@@ -832,6 +1020,14 @@ namespace gamestate
                                : (swept ? L"the full sweep found no in-viewport Visible root"
                                         : L"no cached root is in the viewport and Visible"));
 
+            // Which chapter's map asset should be resident. Slow (1 Hz) and cheap, and
+            // it runs on the same validated state the rest of the pump uses.
+            if (now - g_last_chapter >= kChapterPeriodMs)
+            {
+                g_last_chapter = now;
+                refresh_chapter(now);
+            }
+
             mm::Snapshot snap{};
             snap.stamp_ms = now;
             snap.menu_open = g_menu_open;
@@ -978,7 +1174,8 @@ namespace gamestate
         {
             return;
         }
-        mm::logf(L"state: pawn {} pos {:.0f} {:.0f} {:.0f} yaw {:.0f} ({}) | pawn-view {} | menu {} "
+        mm::logf(L"state: pawn {} pos {:.0f} {:.0f} {:.0f} yaw {:.0f} ({}) | chapter {} ({} level(s), "
+                 L"map \"{}\") | pawn-view {} | menu {} "
                  L"(last change {} ms ago, {} cached root(s)) | widgets {}/{} | {}{} publishes",
                  snap.has_pawn ? L"yes" : L"NO",
                  snap.x,
@@ -986,6 +1183,14 @@ namespace gamestate
                  snap.z,
                  static_cast<double>(snap.yaw),
                  snap.loc_from_function ? L"K2_GetActorLocation" : L"RootComponent",
+                 g_chapter == chid::kNone  ? std::wstring{L"?"}
+                 : g_chapter == chid::kDlc ? std::wstring{L"DLC"}
+                                           : std::to_wstring(g_chapter),
+                 g_chapter_levels,
+                 [] {
+                     const std::string key = mapdata::active_chapter_key();
+                     return std::wstring{key.begin(), key.end()};
+                 }(),
                  snap.is_pawn_view ? L"yes" : L"no",
                  snap.menu_open ? L"OPEN" : L"no",
                  snap.menu_change_ms == 0 ? 0ull : ::GetTickCount64() - snap.menu_change_ms,

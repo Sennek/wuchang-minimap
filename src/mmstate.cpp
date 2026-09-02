@@ -922,6 +922,25 @@ namespace mm
             {
                 cfg.found_save_debounce_ms = parse_int(value, cfg.found_save_debounce_ms);
             }
+            else if (key == "markers_absence_marks")
+            {
+                cfg.markers_absence_marks = parse_bool(value, cfg.markers_absence_marks);
+            }
+            else if (key == "markers_absence_rounds")
+            {
+                cfg.markers_absence_rounds = parse_int(value, cfg.markers_absence_rounds);
+            }
+            else if (key == "markers_absence_categories")
+            {
+                std::string rejected;
+                cfg.markers_absence_categories =
+                    mdb::parse_category_mask(value, cfg.markers_absence_categories, &rejected);
+                if (!rejected.empty())
+                {
+                    logf(L"config: markers_absence_categories - unknown name(s) '{}' ignored",
+                         std::wstring(rejected.begin(), rejected.end()));
+                }
+            }
             else
             {
                 return false;
@@ -1324,6 +1343,8 @@ namespace mm
         cfg.markers_size = (std::max)(2.0f, (std::min)(24.0f, cfg.markers_size));
         cfg.markers_max_draw = (std::max)(0, (std::min)(4000, cfg.markers_max_draw));
         cfg.found_save_debounce_ms = (std::max)(200, (std::min)(60000, cfg.found_save_debounce_ms));
+        cfg.markers_absence_rounds = (std::max)(1, (std::min)(30, cfg.markers_absence_rounds));
+        cfg.markers_absence_categories &= mdb::kAllCats;
         // The full map. Same hand-edit discipline as everything above: without a clamp
         // a typo could ask for a 1 uu/px view of a 500 m chapter, a zero-size slice
         // texture, or a zoom factor of 1.0 (which never changes the zoom at all).
@@ -1469,7 +1490,14 @@ namespace mm
         out += "markers_clamp_to_edge = " + std::string(cfg.markers_clamp_to_edge ? "1" : "0") + "\n";
         out += "markers_max_draw = " + std::to_string(cfg.markers_max_draw) + "\n";
         out += "found_tracker = " + std::string(cfg.found_tracker ? "1" : "0") + "\n";
-        out += "found_save_debounce_ms = " + std::to_string(cfg.found_save_debounce_ms) + "\n\n";
+        out += "found_save_debounce_ms = " + std::to_string(cfg.found_save_debounce_ms) + "\n";
+        out += "\n; Absence as evidence of a collect: a marker whose owning level is loaded and that a\n";
+        out += "; full object-array round has not seen is marked collected after this many\n";
+        out += "; consecutive confirming rounds. A marker whose level cannot be matched is never\n";
+        out += "; marked. Same category names as markers_categories.\n";
+        out += "markers_absence_marks = " + std::string(cfg.markers_absence_marks ? "1" : "0") + "\n";
+        out += "markers_absence_rounds = " + std::to_string(cfg.markers_absence_rounds) + "\n";
+        out += "markers_absence_categories = " + mdb::format_category_mask(cfg.markers_absence_categories) + "\n\n";
         out += "\n";
         out += "; ---------------------------------------------------------------------------------\n";
         out += "; Minimap look\n";

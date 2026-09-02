@@ -369,10 +369,43 @@ namespace markers
         // already copies, because process_marker() / publish_round() run per actor and
         // must not each take the config spinlock.
         std::uint64_t g_grace_rounds = 2;
+        bool g_absence_on = true;
+        int g_absence_rounds = 2;
+        std::uint32_t g_absence_cats =
+            mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup);
         std::size_t g_live_max = 8192;
         std::size_t g_id_cache_max = 8192;
         std::size_t g_class_cache_max = 262144;
         std::size_t g_fallback_max_per_class = 4096;
+
+        //==============================================================================
+        // Absence as evidence of a collect (game thread)
+        //==============================================================================
+        //
+        // `g_levels` maps a loaded level's short name (lower-cased, because the marker
+        // DB and UObject::GetFullName() need not agree on case) to the sweep round at
+        // which it was FIRST seen loaded. A marker may only be auto-marked once a full
+        // round has completed after that, so "not seen" cannot mean "its level had not
+        // finished streaming when I looked".
+        //
+        // `g_absent_streak` is the debounce: consecutive confirming rounds per marker
+        // id. An entry is erased the moment a round does not confirm, so the map only
+        // ever holds markers that are on their way to being marked.
+        std::unordered_map<std::string, std::uint64_t> g_levels;
+        std::unordered_map<std::string, int> g_absent_streak;
+        std::atomic<int> g_absence_marks{0};
+        std::atomic<int> g_levels_loaded{0};
+
+        std::string lower_ascii(std::string_view v)
+        {
+            std::string out;
+            out.reserve(v.size());
+            for (const char c : v)
+            {
+                out.push_back((c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c);
+            }
+            return out;
+        }
 
         // The chunked object-array walk (game thread only).
         scan::Cursor g_cursor{};
@@ -873,6 +906,49 @@ namespace markers
                             d.flags |= kFlagFound;
                         }
                     }
+
+                    // ---- ABSENCE AS EVIDENCE OF A COLLECT -------------------------
+                    //
+                    // Everything the pure predicate needs is here: this round has just
+                    // walked the whole object array, `live` is what it found for this
+                    // id, and g_levels says whether the marker's level is loaded and
+                    // for how long. See mdb::absence_marks() for the rule and the
+                    // reason absence is normally NOT evidence.
+                    mdb::AbsenceFacts facts{};
+                    facts.feature_on = g_absence_on;
+                    facts.cat_selected = mdb::cat_enabled(g_absence_cats, sm.cat);
+                    facts.already_found = (d.flags & kFlagFound) != 0;
+                    if (!sm.level.empty())
+                    {
+                        const auto lit = g_levels.find(lower_ascii(sm.level));
+                        if (lit != g_levels.end())
+                        {
+                            facts.level_known = true;
+                            facts.full_round_since_level_load = g_round > lit->second;
+                        }
+                    }
+                    facts.twin_alive = live != g_live.end() && live->second.round == g_round &&
+                                       live->second.pos_valid && !live->second.found;
+
+                    if (!mdb::absence_round_confirms(facts))
+                    {
+                        g_absent_streak.erase(sm.id);
+                    }
+                    else
+                    {
+                        int& streak = g_absent_streak[sm.id];
+                        if (streak < 1000000)
+                        {
+                            ++streak;
+                        }
+                        if (mdb::absence_marks(facts, streak, g_absence_rounds))
+                        {
+                            d.flags |= kFlagFound;
+                            g_absent_streak.erase(sm.id);
+                            g_absence_marks.fetch_add(1, std::memory_order_relaxed);
+                            note_found(sm.id);
+                        }
+                    }
                     copy_id(d.id, sizeof(d.id), sm.id);
                     // NAME FIRST. `cls` is always non-empty ("BP_PickupActor_C"), so the
                     // old `cls.empty() ? name : cls` meant every pickup's tooltip read
@@ -1043,6 +1119,8 @@ namespace markers
                 s.chapters_loaded = static_cast<int>(chapters.size());
             }
             s.found_ids = static_cast<int>(g_found_master.size());
+        s.absence_marks = g_absence_marks.load(std::memory_order_relaxed);
+        s.levels_loaded = g_levels_loaded.load(std::memory_order_relaxed);
             s.filter_chapter = filter_chapter_now();
             s.published = g_published_count.load(std::memory_order_relaxed);
             s.live_entries = g_live_count.load(std::memory_order_relaxed);
@@ -1361,6 +1439,8 @@ namespace markers
             last_light = now;
             Guard guard(g_stats_lock);
             g_stats.published = g_published_count.load(std::memory_order_relaxed);
+            g_stats.absence_marks = g_absence_marks.load(std::memory_order_relaxed);
+            g_stats.levels_loaded = g_levels_loaded.load(std::memory_order_relaxed);
             g_stats.live_entries = g_live_count.load(std::memory_order_relaxed);
             g_stats.rounds = g_rounds.load(std::memory_order_relaxed);
             g_stats.scan_slice_ms = g_scan_slice_ms.load(std::memory_order_relaxed);
@@ -1376,6 +1456,26 @@ namespace markers
         }
     }
 
+    void set_loaded_levels(const std::vector<std::string>& short_names)
+    {
+        // Replace the set, keeping the round each surviving level was first seen at -
+        // that timestamp is the whole point (see the block next to g_levels).
+        std::unordered_map<std::string, std::uint64_t> next;
+        next.reserve(short_names.size());
+        for (const std::string& name : short_names)
+        {
+            if (name.empty() || next.size() >= 4096)
+            {
+                continue;
+            }
+            std::string key = lower_ascii(name);
+            const auto old = g_levels.find(key);
+            next.emplace(std::move(key), old != g_levels.end() ? old->second : g_round);
+        }
+        g_levels.swap(next);
+        g_levels_loaded.store(static_cast<int>(g_levels.size()), std::memory_order_relaxed);
+    }
+
     void drop_caches()
     {
         // HOOK: the highlight's camera manager belonged to the world that just went, and
@@ -1386,6 +1486,11 @@ namespace markers
         g_class_spec.clear();
         g_id_cache.clear();
         g_live.clear();
+        // Both are keyed to the world that just went: a level name means nothing in the
+        // next one, and a half-finished absence streak must not survive a load.
+        g_levels.clear();
+        g_absent_streak.clear();
+        g_levels_loaded.store(0, std::memory_order_relaxed);
         g_world = nullptr;
         g_next_class = 0;
         g_cursor = scan::Cursor{};
@@ -1432,6 +1537,9 @@ namespace markers
         // 2.
         const mm::Config cfg = mm::config();
         g_grace_rounds = static_cast<std::uint64_t>(cfg.markers_live_grace_rounds);
+        g_absence_on = cfg.markers_absence_marks;
+        g_absence_rounds = cfg.markers_absence_rounds;
+        g_absence_cats = cfg.markers_absence_categories;
         g_live_max = static_cast<std::size_t>(cfg.markers_live_max);
         g_id_cache_max = static_cast<std::size_t>(cfg.markers_id_cache_max);
         g_class_cache_max = static_cast<std::size_t>(cfg.markers_class_cache_max);

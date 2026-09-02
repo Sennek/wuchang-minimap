@@ -213,6 +213,14 @@ edits the same settings and its <em>Save settings</em> button writes them back.<
   <tr><td><code>markers_*</code></td>
       <td>Which marker categories are drawn, their size, whether found ones are hidden, and the
           cost dials for the live actor sweep.</td></tr>
+  <tr><td><code>markers_absence_marks</code>, <code>markers_absence_rounds</code>,
+          <code>markers_absence_categories</code></td>
+      <td>Ticks off chests and pickups you looted <em>before</em> installing the mod. The game keeps
+          nothing behind for those, so the mod infers it: the marker's level is loaded, the mod has
+          searched the whole game for the item twice over, and it is not there. If it cannot tell
+          which level a marker belongs to it never marks it. Set
+          <code>markers_absence_marks = 0</code> to turn the inference off; a wrong mark can always
+          be undone by clicking the marker on the full map.</td></tr>
   <tr><td><code>map_*</code></td>
       <td>The full map: opening zoom and limits, pan speed, margins, gamepad, waypoint persistence.</td></tr>
   <tr><td><code>highlight_*</code></td>

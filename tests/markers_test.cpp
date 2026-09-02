@@ -1533,6 +1533,123 @@ namespace
         }
     }
 
+    //==================================================================================
+    // Absence as evidence of a collect
+    //==================================================================================
+    //
+    // The whole truth table, because this is the one auto-mark that fires on something
+    // NOT being there - and lessons.md is unambiguous that absence is normally not
+    // evidence at all. Every condition is checked on its own, in both directions, and
+    // the debounce is walked round by round.
+
+    mdb::AbsenceFacts all_true()
+    {
+        mdb::AbsenceFacts f{};
+        f.feature_on = true;
+        f.cat_selected = true;
+        f.already_found = false;
+        f.level_known = true;
+        f.full_round_since_level_load = true;
+        f.twin_alive = false;
+        return f;
+    }
+
+    void test_absence()
+    {
+        section("absence as evidence of a collect");
+
+        // The one combination that confirms.
+        CHECK(mdb::absence_round_confirms(all_true()));
+
+        // Each condition alone is enough to refuse. The level tests are the safety
+        // rails: an unmatched level, or a level that streamed in mid-round, must never
+        // mark anything - that is exactly the "an unloaded level and a collected pickup
+        // look identical" trap.
+        {
+            mdb::AbsenceFacts f = all_true();
+            f.feature_on = false;
+            CHECK(!mdb::absence_round_confirms(f));
+        }
+        {
+            mdb::AbsenceFacts f = all_true();
+            f.cat_selected = false;
+            CHECK(!mdb::absence_round_confirms(f));
+        }
+        {
+            mdb::AbsenceFacts f = all_true();
+            f.already_found = true;
+            CHECK(!mdb::absence_round_confirms(f));
+        }
+        {
+            mdb::AbsenceFacts f = all_true();
+            f.level_known = false;
+            CHECK(!mdb::absence_round_confirms(f));
+            CHECK(!mdb::absence_marks(f, 1000, 2)); // no streak can rescue it
+        }
+        {
+            mdb::AbsenceFacts f = all_true();
+            f.full_round_since_level_load = false;
+            CHECK(!mdb::absence_round_confirms(f));
+            CHECK(!mdb::absence_marks(f, 1000, 2));
+        }
+        {
+            mdb::AbsenceFacts f = all_true();
+            f.twin_alive = true;
+            CHECK(!mdb::absence_round_confirms(f));
+            CHECK(!mdb::absence_marks(f, 1000, 2));
+        }
+
+        // The debounce. `streak` counts the confirming rounds including this one.
+        const mdb::AbsenceFacts ok = all_true();
+        CHECK(!mdb::absence_marks(ok, 1, 2));
+        CHECK(mdb::absence_marks(ok, 2, 2));
+        CHECK(mdb::absence_marks(ok, 3, 2));
+        CHECK(mdb::absence_marks(ok, 1, 1));
+        CHECK(!mdb::absence_marks(ok, 4, 5));
+        CHECK(mdb::absence_marks(ok, 5, 5));
+        // A nonsensical requirement never marks (the config clamp keeps it >= 1, but
+        // the predicate must not depend on that).
+        CHECK(!mdb::absence_marks(ok, 1, 0));
+        CHECK(!mdb::absence_marks(ok, 1, -3));
+
+        // The runtime's own state machine, simulated: a marker whose level loads at
+        // round 4, is unseen from round 5 on, and is marked on the second confirming
+        // round - then a live twin appears and the streak has to reset.
+        {
+            const std::uint64_t level_round = 4;
+            int streak = 0;
+            int marks = 0;
+            bool twin[] = {false, false, false, true, false, false, false};
+            for (std::uint64_t round = 4; round <= 10; ++round)
+            {
+                mdb::AbsenceFacts f = all_true();
+                f.full_round_since_level_load = round > level_round;
+                f.twin_alive = twin[round - 4];
+                if (!mdb::absence_round_confirms(f))
+                {
+                    streak = 0;
+                    continue;
+                }
+                ++streak;
+                if (mdb::absence_marks(f, streak, 2))
+                {
+                    ++marks;
+                    streak = 0;
+                }
+            }
+            // round 4: same round the level loaded -> no. 5: streak 1. 6: MARK.
+            // 7: a twin is alive -> reset. 8: streak 1. 9: MARK. 10: streak 1.
+            CHECK_EQ(marks, 2);
+            CHECK_EQ(streak, 1);
+        }
+
+        // The join key the rule uses: the level short name out of a ULevel's full name,
+        // which is the same helper the marker ids are built with.
+        CHECK_STR(mdb::level_from_full_name(
+                      "Level /Game/Maps/Chapter1/Chapter1_DGong_logic.Chapter1_DGong_logic:PersistentLevel"),
+                  "Chapter1_DGong_logic");
+    }
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1554,6 +1671,7 @@ int main(int argc, char** argv)
     test_marker_chapter_filter();
     test_map_manifest(markers_dir);
     test_config_keys(markers_dir);
+    test_absence();
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

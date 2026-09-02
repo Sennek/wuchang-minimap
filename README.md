@@ -566,8 +566,34 @@ The marker block:
 | `markers_size` | 6.5 | glyph radius in minimap pixels |
 | `markers_clamp_to_edge` | 0 | keep out-of-range markers on the rim, drawn smaller |
 | `markers_max_draw` | 400 | hard cap per frame, nearest first (safety valve) |
+| `markers_absence_marks` | 1 | mark a chest / pickup collected when its level is loaded and a full object-array round has not seen it (see below) |
+| `markers_absence_rounds` | 2 | consecutive confirming rounds before that mark |
+| `markers_absence_categories` | `chest,pickup` | which categories the absence rule may mark |
 | `found_tracker` | 1 | write `wuchang_minimap_found.txt` |
 | `found_save_debounce_ms` | 2000 | how long after the last change the file is written |
+
+#### Absence as evidence of a collect
+
+An item picked up **before the mod was installed** leaves nothing to read: the game parks a collected
+pickup at `(0, 0, 0)` when its level loads and frees it at the next GC, so neither `dying` nor the
+`(0,0,0)` test has an actor to speak for, and the marker stayed on the map for ever. Absence on its own
+is famously *not* evidence here - an unloaded level and a collected pickup are indistinguishable from
+the object array - so the rule adds the two facts that make it one:
+
+1. the marker's owning level (its `level` field) is in the set `gamestate` currently reports as
+   loaded. **A marker whose level cannot be matched is never marked** - that is the safety rail;
+2. at least one **full** pass over the object array has completed since that level was first seen
+   loaded, so "I did not see it" means "I looked at every object in the game while its level was
+   streamed in";
+3. that pass found no live twin with a usable position and no collected flag (a twin at the origin or
+   flagged `dying` is itself collected, so it does not block the rule);
+4. and the same held for `markers_absence_rounds` passes in a row.
+
+The mark goes through the normal found tracker, so it persists and can be undone by clicking the
+marker on the full map. The F2 panel shows `absence marks N   levels loaded M` - `M = 0` means the
+rule can never fire, which is the failure worth seeing. The predicate itself
+(`mdb::absence_round_confirms` / `mdb::absence_marks`) is pure and its truth table is in
+`tests/markers_test.cpp`.
 
 ### Tuning - everything that used to be hard-coded
 

@@ -246,6 +246,30 @@ found_tracker = 1
 found_save_debounce_ms = 2000
 
 ; ---------------------------------------------------------------------------------
+; Absence as evidence of a collect
+; ---------------------------------------------------------------------------------
+; An item you picked up before installing the mod leaves no live actor behind at all -
+; the game parks a collected pickup at the world origin when the level loads and frees
+; it at the next garbage collection - so nothing the mod can read says "taken", and the
+; marker used to stay on the map for ever.
+;
+; With this on, a marker is marked collected when ALL of these hold:
+;   * its owning level is one the game currently reports as loaded (a marker whose
+;     level cannot be matched is NEVER marked - that is the safety rail);
+;   * at least one full pass over the game's object array has completed since that
+;     level was first seen loaded;
+;   * that pass found no live twin for it (a twin parked at the origin, or flagged
+;     dying, does not count as alive - those are collected too);
+;   * and the same has been true for markers_absence_rounds passes in a row.
+;
+; The mark is written to wuchang_minimap_found.txt like any other, and can be undone by
+; clicking the marker on the full map. Set markers_absence_marks = 0 to switch the whole
+; rule off. The F2 panel counts how many marks came from it.
+markers_absence_marks = 1
+markers_absence_rounds = 2
+markers_absence_categories = chest,pickup
+
+; ---------------------------------------------------------------------------------
 ; The full map (press map_key - shipped default M)
 ; ---------------------------------------------------------------------------------
 ; The same height-sliced asset the minimap draws, at map scale: a north-up window over

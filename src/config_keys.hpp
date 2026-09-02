@@ -82,6 +82,10 @@ namespace cfgkeys
         "markers_max_draw",
         "found_tracker",
         "found_save_debounce_ms",
+        // absence as evidence of a collect
+        "markers_absence_marks",
+        "markers_absence_rounds",
+        "markers_absence_categories",
         // minimap look
         "minimap_backdrop",
         "minimap_backdrop_color",

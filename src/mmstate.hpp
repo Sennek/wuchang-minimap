@@ -210,6 +210,26 @@ namespace mm
         bool markers_clamp_to_edge = false; // keep out-of-range markers on the rim
         int markers_max_draw = 400;         // hard cap per frame, nearest first
 
+        //==============================================================================
+        // Absence as evidence of a collect
+        //==============================================================================
+        //
+        // An item collected before the mod was installed leaves a static DB entry and no
+        // live actor at all (the level saver parked it at (0,0,0) at load time and a GC
+        // freed it), so neither `dying` nor the (0,0,0) test can speak for it and the
+        // marker stayed drawn for ever. With this on, a marker whose OWNING LEVEL the
+        // game reports as loaded, that no full object-array round has seen since that
+        // level streamed in, is marked collected after `markers_absence_rounds`
+        // consecutive confirming rounds. A marker whose level cannot be matched is never
+        // marked. The predicate is pure and tested - mdb::absence_marks().
+        bool markers_absence_marks = true;
+        int markers_absence_rounds = 2;
+        // Chests keep their `Used` flag and pickups their `dying`, so those two are the
+        // categories where absence really does mean "already taken". Shrines, doors and
+        // fog gates are deliberately not in the default set.
+        std::uint32_t markers_absence_categories =
+            mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup);
+
         // The found tracker: wuchang_minimap_found.txt, one stable id per line.
         bool found_tracker = true;
         int found_save_debounce_ms = 2000;

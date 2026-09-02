@@ -12,6 +12,7 @@
 #include "chapterid.hpp"
 #include "mapdata.hpp"
 #include "markers.hpp"
+#include "markers_db.hpp"
 #include "mem.hpp"
 #include "mmstate.hpp"
 #include "ue_min.hpp"
@@ -752,7 +753,11 @@ namespace gamestate
         // Validates `obj` as a live UObject and feeds its full name to the vote. The
         // capture() call is the same GUObjectArray liveness test the pawn uses, so a
         // level that is being torn down as we walk the array cannot be dereferenced.
-        void vote_on_object(UObject* obj, chid::Vote& vote, int& counted)
+        // The enumeration has the level's full name in hand anyway, so it also collects
+        // the SHORT name ("Chapter1_DGong_logic") for markers::set_loaded_levels(). That
+        // set is what lets the marker sweep treat absence as evidence of a collect - see
+        // markers.hpp. Every name we parse is ASCII.
+        void vote_on_object(UObject* obj, chid::Vote& vote, int& counted, std::vector<std::string>* levels)
         {
             if (obj == nullptr || !mem::plausible_ptr(obj))
             {
@@ -770,12 +775,27 @@ namespace gamestate
             }
             vote.add(std::wstring_view{full});
             ++counted;
+            if (levels != nullptr && levels->size() < 4096)
+            {
+                std::string narrow;
+                narrow.reserve(full.size());
+                for (const wchar_t c : full)
+                {
+                    narrow.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
+                }
+                std::string level = mdb::level_from_full_name(narrow);
+                if (!level.empty())
+                {
+                    levels->push_back(std::move(level));
+                }
+            }
         }
 
         // Routes 1 and 2 differ only in whether the array element IS the level or has
         // to be dereferenced through `LoadedLevel`.
         bool vote_from_array(UObject* world, const uer::ClassLayout* layout, const wchar_t* prop,
-                             bool via_loaded_level, chid::Vote& vote, int& counted)
+                             bool via_loaded_level, chid::Vote& vote, int& counted,
+                             std::vector<std::string>* levels)
         {
             TArrayRaw arr{};
             if (!read_array_prop(layout, world, prop, arr) || arr.num == 0)
@@ -805,7 +825,7 @@ namespace gamestate
                         continue;
                     }
                 }
-                vote_on_object(level, vote, counted);
+                vote_on_object(level, vote, counted, levels);
             }
             return counted > 0;
         }
@@ -825,12 +845,16 @@ namespace gamestate
             chid::Vote vote{};
             int counted = 0;
             int route = 0;
+            // The short names of every level this walk sees, for the marker sweep's
+            // absence rule (markers.hpp). Built here because this is the one place that
+            // already pays for the enumeration and the GetFullName() calls.
+            std::vector<std::string> levels;
             const uer::ClassLayout* layout = g_layouts.get(world);
-            if (vote_from_array(world, layout, L"Levels", false, vote, counted))
+            if (vote_from_array(world, layout, L"Levels", false, vote, counted, &levels))
             {
                 route = 1;
             }
-            else if (vote_from_array(world, layout, L"StreamingLevels", true, vote, counted))
+            else if (vote_from_array(world, layout, L"StreamingLevels", true, vote, counted, &levels))
             {
                 route = 2;
             }
@@ -838,15 +862,15 @@ namespace gamestate
             {
                 // Last resort: a full GUObjectArray walk. It is the expensive one, so it
                 // only ever runs when neither UWorld array could be read at all.
-                std::vector<UObject*> levels;
-                UObjectGlobals::FindAllOf(L"Level", levels);
-                for (UObject* level : levels)
+                std::vector<UObject*> found;
+                UObjectGlobals::FindAllOf(L"Level", found);
+                for (UObject* level : found)
                 {
                     if (counted >= g_tune.max_levels)
                     {
                         break;
                     }
-                    vote_on_object(level, vote, counted);
+                    vote_on_object(level, vote, counted, &levels);
                 }
                 route = counted > 0 ? 3 : 0;
             }
@@ -861,6 +885,11 @@ namespace gamestate
                          counted);
                 g_chapter_route = route;
             }
+
+            // Publish the loaded-level set even when the chapter vote came out
+            // undecided: the two answers are independent, and the absence rule must not
+            // go blind just because a level name did not name a chapter.
+            markers::set_loaded_levels(levels);
 
             g_chapter_levels = counted;
             const int detected = vote.best();

@@ -129,6 +129,62 @@ namespace mdb
         return detected == chid::kNone || marker_chapter == detected;
     }
 
+    //==================================================================================
+    // Absence as evidence of a collect
+    //==================================================================================
+    //
+    // THE PROBLEM. An item collected before the mod existed leaves a static DB entry
+    // and no live actor at all: the level saver parked the actor at (0,0,0) at load
+    // time and a GC later freed it. `dying` and the (0,0,0) test can only speak for an
+    // actor that still exists, so those markers stayed drawn for ever.
+    //
+    // WHY ABSENCE IS NORMALLY NOT EVIDENCE (lessons.md): an unloaded level and a
+    // collected pickup are indistinguishable from the object array. The rule below is
+    // what closes that gap - it only ever looks at a marker whose OWNING LEVEL the game
+    // says is loaded right now, and only after a full pass over the object array has
+    // completed since that level became loaded, so "I have not seen it" means "I looked
+    // at every object in the game while its level was streamed in and it was not there".
+    //
+    // Five conditions, all required, plus a debounce:
+    //   a) the feature is on and the marker's category is selected;
+    //   b) it is not already marked found (nothing to do);
+    //   c) its `level` matched one of the levels gamestate currently reports as loaded -
+    //      an unmatched level NEVER marks;
+    //   d) at least one full object-array round completed since that level was first
+    //      seen loaded;
+    //   e) no live twin answered in that round with a usable position and no collected
+    //      flag. A twin that IS at (0,0,0) or `dying` is already handled by the normal
+    //      rule, so it does not block this one.
+    // and then `markers_absence_rounds` consecutive confirming rounds before the mark.
+    //
+    // Pure and total, so tests/markers_test.cpp can enumerate the whole truth table.
+
+    struct AbsenceFacts
+    {
+        bool feature_on = false;               // markers_absence_marks
+        bool cat_selected = false;             // markers_absence_categories
+        bool already_found = false;
+        bool level_known = false;              // the marker's level is in the loaded set
+        bool full_round_since_level_load = false;
+        // A live actor answered for this id in the round that just ended, had a usable
+        // position (not the (0,0,0) parking spot) and carried no collected flag.
+        bool twin_alive = false;
+    };
+
+    // Does the round that just ended CONFIRM the absence? (One tick of the debounce.)
+    constexpr bool absence_round_confirms(const AbsenceFacts& f)
+    {
+        return f.feature_on && f.cat_selected && !f.already_found && f.level_known &&
+               f.full_round_since_level_load && !f.twin_alive;
+    }
+
+    // Should the marker be auto-marked collected now? `streak` counts the consecutive
+    // confirming rounds INCLUDING this one; `required_rounds` is markers_absence_rounds.
+    constexpr bool absence_marks(const AbsenceFacts& f, int streak, int required_rounds)
+    {
+        return absence_round_confirms(f) && required_rounds >= 1 && streak >= required_rounds;
+    }
+
     struct ParseReport
     {
         std::string schema;      // the file's own "schema" string

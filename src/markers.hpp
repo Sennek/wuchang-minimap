@@ -21,6 +21,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 #include "markers_db.hpp"
 
@@ -78,6 +80,11 @@ namespace markers
         int static_markers = 0;                     // entries loaded from JSON
         int chapters_loaded = 0;
         int found_ids = 0;                          // lines in wuchang_minimap_found.txt
+        // Marks that came from the absence rule rather than from a state flag, and how
+        // many levels the loaded-level set currently holds. Both are F2 diagnostics:
+        // "0 levels" means the rule can never fire, which is the failure worth seeing.
+        int absence_marks = 0;
+        int levels_loaded = 0;
         // The chapter the published buffer and the per-chapter counters below are
         // filtered to, or chid::kNone when nothing is filtered (detection has not
         // answered yet, or markers_filter_chapter = 0).
@@ -132,6 +139,20 @@ namespace markers
     // gameplay pawn exists outside the transition cooldown. `world` is the pawn's
     // UWorld* - a change means every cached pointer is dead.
     void game_thread_pump(std::uint64_t now, const void* world);
+
+    // GAME THREAD ONLY, from gamestate's chapter refresh (1 Hz): the short names of the
+    // levels the game currently reports as loaded, e.g. "Chapter1_DGong_logic".
+    //
+    // This is what makes ABSENCE usable as evidence of a collect. On its own, "no live
+    // actor answered" is meaningless - an unloaded level and a collected pickup look
+    // identical from the object array (lessons.md). Knowing which levels are loaded, and
+    // since which sweep round, turns it into "I walked the whole object array while this
+    // marker's level was streamed in and it was not there". A marker whose level is not
+    // in this set is never auto-marked.
+    //
+    // The set is replaced wholesale on every call; a level that stays loaded keeps the
+    // round number it was first seen at.
+    void set_loaded_levels(const std::vector<std::string>& short_names);
 
     // GAME THREAD ONLY. Drops every cached class layout, class classification and live
     // actor. Called by gamestate whenever it drops the pawn.

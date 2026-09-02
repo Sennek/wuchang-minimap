@@ -3787,6 +3787,15 @@ namespace overlay
                             st.found_ids,
                             st.published,
                             st.live_entries);
+                // The absence rule (markers_absence_*). Both numbers are diagnostics:
+                // `levels loaded` at 0 means the rule can NEVER fire (nothing to match a
+                // marker's level against), which is the failure worth seeing at a glance.
+                ImGui::Text("absence marks %d   levels loaded %d   (rule %s, %d round(s), %s)",
+                            st.absence_marks,
+                            st.levels_loaded,
+                            cfg.markers_absence_marks ? "on" : "off",
+                            cfg.markers_absence_rounds,
+                            mdb::format_category_mask(cfg.markers_absence_categories).c_str());
                 // Two independent numbers, and they answer different questions.
                 //   PUMP  - what one game-thread pump costs. This is the frame-hitch
                 //           number; the target is well under 1 ms, and `max` is the

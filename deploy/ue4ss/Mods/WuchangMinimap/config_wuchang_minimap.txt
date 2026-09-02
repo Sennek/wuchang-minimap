@@ -11,7 +11,7 @@
 ;   F9  / F11 are engine screenshot / fullscreen binds
 ;   F10 opens the game console (UE4SS ConsoleEnablerMod)
 ;   F12 is the Steam screenshot key
-; Shipped defaults: F2 settings panel, M full map, F5 reload.
+; Shipped defaults: F2 settings panel, M full map, R recentre the map, F5 reload.
 
 ; Master switch. 0 = install no DX12 hooks at all.
 enabled = 1
@@ -199,8 +199,77 @@ found_tracker = 1
 ; full of pickups is one write, not thirty.
 found_save_debounce_ms = 2000
 
-; Settings panel, full map (reserved - the full map itself is not built yet), and
-; config + map + marker reload.
+; ---------------------------------------------------------------------------------
+; The full map (press map_key - shipped default M)
+; ---------------------------------------------------------------------------------
+; The same height-sliced asset the minimap draws, at map scale: a north-up window over
+; the chapter, pannable and zoomable, with every marker on it. While it is open the
+; minimap is hidden and the mod takes the mouse and the keyboard; closing it gives both
+; back on the same frame.
+;
+;   drag, WASD or the arrows        pan
+;   mouse wheel, + / -              zoom
+;   ctrl+wheel, Q / E, PageUp/Down  move the height slice up / down a floor
+;   map_recenter_key (R)            back to the player, floor offset cleared
+;   left-click a marker, or F       toggle "found" by hand (writes the tracker)
+;   right-click, or Space           set the waypoint (also shown on the minimap)
+;   map_key or Esc                  close
+;   gamepad                         left stick pan, triggers / right stick zoom,
+;                                   LB/RB floor, A waypoint, X found, Y recentre,
+;                                   B close
+;
+; Zoom is world units per SCREEN pixel - the same unit as minimap_zoom above, so the
+; numbers are directly comparable (26 is the minimap's default). Chapter 1 is about
+; 450 m across, so ~55 fits the whole chapter on a 900 px canvas.
+
+; Zoom the map opens at, and the limits it can be taken to.
+map_zoom = 30
+map_zoom_min = 4
+map_zoom_max = 240
+
+; Zoom multiplier per wheel notch (1.01 .. 2.0).
+map_zoom_factor = 1.15
+
+; Keyboard / stick pan speed, in SCREEN pixels per second (so it feels the same at
+; every zoom).
+map_pan_speed = 900
+
+; Border left around the map, as a fraction of the screen height, and how dark the
+; backdrop behind it is.
+map_margin = 0.045
+map_backdrop = 0.86
+
+; Marker glyph radius on the full map, in screen pixels, and the hard cap on how many
+; are drawn per frame.
+map_marker_size = 8.0
+map_markers_max_draw = 4000
+
+; How far one press of the floor adjustment moves the height slice, in uu. The slice
+; itself uses floor_z_tolerance / floor_fade_uu, exactly like the minimap.
+map_floor_step = 200
+
+; 1 = ignore the height slice and draw every walkable surface (the current storey stays
+; opaque, everything else is dimmed). Useful for route planning, noisy in a temple.
+map_show_all_floors = 0
+
+; The dynamic texture the map is cut into. The cut costs roughly
+; (width x height x surfaces) reads, so 768 lands around 5-10 ms - which is why it only
+; runs when the view actually changed (pan out of the cut region, zoom, floor, or a big
+; player move), never more than map_slice_hz times a second.
+map_slice_px = 768
+map_slice_hz = 6
+
+; Gamepad (XInput). Only polled while the map is open, so a controller costs nothing
+; during play. The deadzone is a fraction of full stick deflection.
+map_gamepad = 1
+map_gamepad_deadzone = 0.22
+
+; Remember the waypoint across sessions in wuchang_minimap_waypoint.txt (next to this
+; file). It is three plain `key = value` lines and is hand-editable.
+map_waypoint_persist = 1
+
+; Settings panel, full map, recentre the full map, and config + map + marker reload.
 panel_key = F2
 map_key = M
+map_recenter_key = R
 reload_key = F5

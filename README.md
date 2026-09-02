@@ -62,7 +62,8 @@ A clean build takes about 4 seconds. Our own target is built with `set_warnings(
 and is warning-free; `third_party/` is left at the default warning level.
 
 `build.ps1` also builds and runs the **offline tests** (`-NoTests` skips them). They link only
-`src/markers_db.cpp`, so they need neither UE4SS nor Direct3D and run with the game closed:
+`src/markers_db.cpp` and `src/mapview.cpp`, so they need neither UE4SS nor Direct3D and run with the
+game closed:
 
 ```
 xmake build markers_test
@@ -71,7 +72,10 @@ xmake run   markers_test markers      # the repo's markers\ dir, for the sample 
 
 They cover the `markers/<chapter>.json` loader (happy path against the shipped sample, plus every way
 the file can be wrong), the category-name <-> bitmask mapping the config file and the F2 filter
-checkboxes share, and the `wuchang_minimap_found.txt` round-trip. Anything that can be checked without
+checkboxes share, the `wuchang_minimap_found.txt` round-trip, and the full map's pure layer: the
+world <-> screen transform round-tripped over the whole viewport at five zooms (plus north-is-up and
+east-is-right asserted directly), the zoom clamp and per-notch step, and the waypoint file's exact
+round-trip and its rejection of anything without a usable x and y. Anything that can be checked without
 launching the game is checked there - a play session is the expensive resource in this project.
 
 ## Install
@@ -100,7 +104,7 @@ present.
 
 ```
 src/dllmain.cpp            RC::CppUserModBase subclass, start_mod/uninstall_mod
-src/overlay.{hpp,cpp}      DX12 hooks + ImGui + the minimap and the F2 panel
+src/overlay.{hpp,cpp}      DX12 hooks + ImGui + the minimap, the full map and the F2 panel
 src/gamestate.{hpp,cpp}    game-thread reader (pawn, view target, widgets)
 src/mmstate.{hpp,cpp}      snapshot seqlock, config file, cross-thread log queue
 src/mapdata.{hpp,cpp}      maps.json parser + WIC PNG decode
@@ -109,6 +113,11 @@ src/markers_db.{hpp,cpp}   PURE marker model: markers/<chapter>.json, category m
                            what lets tests/markers_test.cpp link it
 src/markers.{hpp,cpp}      the runtime half: the game-thread class sweep, the merge
                            with the static DB, the found tracker's file I/O
+src/mapview.{hpp,cpp}      PURE full-map layer: the north-up viewport transform and its
+                           exact inverse, the zoom clamp / step, the waypoint file
+                           round-trip. Same "no Windows, no UE4SS" rule as markers_db,
+                           so markers_test links it too
+src/gamepad.{hpp,cpp}      XInput, dynamically loaded, polled on the LOOP thread only
 src/json.hpp               the one JSON reader, shared by mapdata and markers
 src/uereflect.hpp          cached property offsets and UFunction calls
 src/navmesh_dump.{hpp,cpp} dtNavMesh discovery + tile walker + JSON writer
@@ -399,7 +408,8 @@ callbacks), one command allocator per back buffer fenced against reuse, and RTVs
 `ResizeBuffers`. The map texture is created and uploaded by us (`CopyTextureRegion` + a barrier to
 `PIXEL_SHADER_RESOURCE`), and its GPU descriptor handle is passed to ImGui as the `ImTextureID`.
 
-The minimap is drawn on the foreground draw list: player-centred crop, north-up by default or
+The **full map** (`M`) is described in its own section below; the minimap is drawn on the foreground
+draw list: player-centred crop, north-up by default or
 rotate-with-player, round (a UV'd triangle fan - no mask needed) or square, configurable zoom, size,
 anchor, offsets and opacity, with a yellow player arrow. It hides itself when a menu is open, when the
 camera's view target is not the pawn, when the state snapshot is stale, or when the player is outside
@@ -450,7 +460,86 @@ The marker block:
 | `markers_max_draw` | 400 | hard cap per frame, nearest first (safety valve) |
 | `found_tracker` | 1 | write `wuchang_minimap_found.txt` |
 | `found_save_debounce_ms` | 2000 | how long after the last change the file is written |
-| `map_key` | `M` | full map (reserved - the map itself is a later step) |
+
+The full map block:
+
+| key | default | meaning |
+|---|---|---|
+| `map_key` | `M` | open / close the full map |
+| `map_recenter_key` | `R` | recentre it on the player and clear the floor offset |
+| `map_zoom` | 30 | zoom the map opens at, in world uu per **screen** pixel (same unit as `minimap_zoom`) |
+| `map_zoom_min` / `map_zoom_max` | 4 / 240 | zoom limits (min = most zoomed in) |
+| `map_zoom_factor` | 1.15 | zoom multiplier per wheel notch |
+| `map_pan_speed` | 900 | keyboard / stick pan, screen px per second (so it feels the same at every zoom) |
+| `map_margin` | 0.045 | border around the map, as a fraction of the screen height |
+| `map_backdrop` | 0.86 | opacity of the dark backdrop behind it |
+| `map_marker_size` | 8.0 | glyph radius on the map, in screen px |
+| `map_markers_max_draw` | 4000 | hard cap per frame |
+| `map_floor_step` | 200 | uu the height slice moves per floor-adjust press |
+| `map_show_all_floors` | 0 | 1 = draw every walkable surface, current storey still opaque |
+| `map_slice_px` | 768 | width of the map's own dynamic slice texture |
+| `map_slice_hz` | 6 | cap on re-cuts per second (it only cuts when the view changed at all) |
+| `map_gamepad` | 1 | poll XInput while the map is open |
+| `map_gamepad_deadzone` | 0.22 | fraction of full stick deflection |
+| `map_waypoint_persist` | 1 | remember the waypoint in `wuchang_minimap_waypoint.txt` |
+
+### The full map (`M`)
+
+The same asset, the same slicing rule and the same markers as the minimap, at map scale: a north-up
+window over the chapter with a dark backdrop, pannable and zoomable. While it is open **the minimap is
+hidden** (two views of the same thing is clutter, and the slicer would be cutting two windows a frame)
+and the mod takes the mouse and the keyboard.
+
+| input | mouse / keyboard | gamepad |
+|---|---|---|
+| pan | drag, `WASD`, arrows | left stick |
+| zoom | wheel, `+` / `-` | triggers, right stick Y |
+| floor slice up / down | `ctrl`+wheel, `E` / `Q`, PageUp / PageDown | RB / LB |
+| recentre on the player | `R` (`map_recenter_key`), the Recentre button | Y |
+| set the waypoint | right-click, `Space` / `Enter` | A (at the view centre) |
+| toggle "found" by hand | left-click a marker, `F` (nearest to the centre) | X |
+| close | `M`, `Esc`, the Close button | B |
+
+Every control has a keyboard **and** a gamepad route on purpose: the mouse cursor is the one part of
+this that depends on what the game does with the OS cursor while we hold the input, so the map stays
+fully usable if the cursor turns out to be locked.
+
+**Memory: the map adds no copy of the asset.** The height planes (~327 MB of RAM for Chapter 1) are
+read in place; the map cuts its own small dynamic RGBA texture (768 x ~430 x 2 buffers, ~2.6 MB) out of
+the same planes the minimap slices. The cut is *decimated* - one texture pixel covers `step` source
+pixels - and covers the visible viewport plus a 30 % margin, so a small pan needs no new cut at all.
+Unlike the minimap (which re-cuts 12 times a second because the player is always moving) the map only
+re-cuts when something changed: the view left the cut region, the zoom changed, the floor slice moved,
+or the player moved far enough to be on another storey - capped at `map_slice_hz`. An idle open map
+costs nothing per frame beyond the draw, and the buffer being written is never one the GPU is still
+sampling (the same fence rule as the minimap; a busy buffer skips the update instead of stalling
+Present).
+
+**Height slicing at map scale** is the minimap's rule plus an offset: `|Z - (feetZ + floor offset)| <=
+floor_z_tolerance` is opaque, the nearest surface below / above within `floor_fade_uu` is dimmed, and
+the floor adjustment nudges the offset so you can look at the storey above or the dungeon below without
+walking there. `map_show_all_floors` widens the fade to infinity for a route-planning view.
+
+**Markers** are the same published draw buffer, the same glyphs and the same category mask the minimap
+uses - the row of coloured buttons along the top of the map toggles the *same* `markers_categories`
+setting the F2 checkboxes and the config file drive. Hovering a marker shows its class, category, stable
+id, found state and distance; a left-click toggles found by hand, which goes through the existing
+tracker mailbox to the loop thread and into `wuchang_minimap_found.txt`. Note the live sweep still owns
+the truth - un-marking a chest the game reports as `Used` is undone on the next sweep round, which is
+correct: the tracker follows the save, not the mod.
+
+**The waypoint** is a single position set with a right-click (or `Space`, or gamepad A). It is drawn on
+the map and, edge-clamped with its distance in metres, on the minimap - so it is a compass to it while
+you walk. It persists in `wuchang_minimap_waypoint.txt` next to the config: three plain `key = value`
+lines, hand-editable, written by the loop thread (the render thread only sets the value). It is
+deliberately **not** part of `config_wuchang_minimap.txt`, because that file is rewritten wholesale by
+the panel's Save button and a waypoint set during play must survive without anybody pressing Save.
+
+**Nothing latches.** The map closes itself the moment the state that allows it stops being true - a
+menu opening, the pawn going away, a level transition, a stale snapshot - and the input swallow
+condition *is* `g_map_open`, so closing hands the mouse and the keyboard back to the game on the very
+next message. The map key itself is sampled with `GetAsyncKeyState` on the loop thread precisely
+because the WndProc hook is swallowing every key while the map is up.
 
 ### Why the minimap is (not) on screen
 
@@ -460,8 +549,8 @@ F2 debug block prints the current reason as `hidden because: <reason>` (or `mini
 with how long that state has held, and every transition is written to `UE4SS.log` as
 `minimap HIDDEN: <reason> (previous state held N ms)`, rate-limited to one line per 2 s. When the reason
 is a menu, the block also names the in-viewport widget holding it open.
-**F2** opens the panel, **M** is reserved for the full map (the bind exists and answers with one line;
-the map itself is a later step), **F5** reloads the config, the maps and the markers. Accepted hotkey
+**F2** opens the panel, **M** opens the full map (**R** recentres it), **F5** reloads the config, the
+maps and the markers. Accepted hotkey
 names are F1-F5, F7, F8, any single letter or digit, and TAB; F6 (RenoDX DLSS 5), F9/F11 (engine binds),
 F10 (game console) and F12 (Steam) are rejected in code, not merely discouraged in a comment.
 
@@ -517,7 +606,10 @@ last change. A deploy never touches it.
       auto-marking collection tracker. **Not yet verified in-game.**
 - [ ] `tools/markers`: the offline extraction that fills `markers/<chapter>.json` from the cooked
       `.umap` cells (the runtime already loads it; only the hand-written sample exists so far).
-- [ ] Full-screen pannable map (the **M** bind is reserved and wired), compass, waypoints.
+- [x] Full-screen pannable map (**M**): the same height-sliced asset at map scale with a floor
+      adjustment, mouse + keyboard + XInput pan/zoom, the shared marker glyphs and category filter,
+      hover tooltips, manual found toggling, and a persistent waypoint that is also drawn edge-clamped
+      on the minimap. **Not yet verified in-game.**
 - [x] Per-floor map selection from the player's Z. Round 2's surface-ordinal layers read as clutter
       in-world, so round 3 replaced them with a **multi-surface height map sliced on the CPU** into a
       small double-buffered dynamic texture (`|Z - feetZ| <= 200 uu` opaque with a height gradient,

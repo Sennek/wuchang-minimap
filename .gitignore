@@ -53,3 +53,8 @@ tools/navmesh/out_offline/*
 # The deploy\ mirror is a copy of what goes into the game; the map assets there are
 # byte-identical to maps\ and only exist so the repo shows the installed layout.
 /deploy/**/maps/
+/deploy/**/markers/
+
+# The player's collection tracker. Written by the mod at runtime and specific to one
+# save - never committed, and deploy.ps1 never overwrites it either.
+wuchang_minimap_found.txt

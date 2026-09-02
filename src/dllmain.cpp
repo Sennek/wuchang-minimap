@@ -17,6 +17,7 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 
 #include "gamestate.hpp"
+#include "markers.hpp"
 #include "navmesh_dump.hpp"
 #include "overlay.hpp"
 
@@ -54,6 +55,11 @@ class WuchangMinimap : public CppUserModBase
         // hooks go in. It never touches a UObject.
         overlay::on_unreal_init();
 
+        // Markers: the static markers/<chapter>.json database and the found tracker
+        // are read here on the loop thread. The live half runs inside gamestate's
+        // ProcessEvent pump, so this must come before it.
+        markers::on_unreal_init();
+
         // The game-state reader: registers the ProcessEvent game-thread pump.
         gamestate::on_unreal_init();
 
@@ -72,6 +78,7 @@ class WuchangMinimap : public CppUserModBase
         navmesh::on_update();
         overlay::on_update();
         gamestate::on_update();
+        markers::on_update();
     }
 };
 

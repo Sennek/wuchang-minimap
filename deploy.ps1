@@ -135,6 +135,29 @@ foreach ($modDir in $targets) {
         }
     }
 
+    # The static marker database: markers\<chapter>.json, produced offline by
+    # tools\markers. Generated, so it is wiped and re-copied like maps\ - but
+    # wuchang_minimap_found.txt lives in the mod root, NOT in here, so the player's
+    # collection tracker is never touched by a deploy.
+    $markersSrc = Join-Path $PSScriptRoot 'markers'
+    if (Test-Path $markersSrc) {
+        $markersDst = Join-Path $modDir 'markers'
+        if ((Test-Path $markersDst) -and ($markersSrc -ne $markersDst)) {
+            Remove-Item -Recurse -Force $markersDst
+        }
+        New-Item -ItemType Directory -Force -Path $markersDst | Out-Null
+        if ($markersSrc -ne $markersDst) {
+            Copy-Item -Path (Join-Path $markersSrc '*') -Destination $markersDst -Recurse -Force
+        }
+        $json = @(Get-ChildItem -Path $markersDst -Filter '*.json' -File)
+        $real = @($json | Where-Object { $_.Name -notlike '*.sample.json' })
+        Write-Host ("Deployed markers -> {0} ({1} file(s), {2} chapter manifest(s))" -f
+                    $markersDst, $json.Count, $real.Count)
+        if ($real.Count -eq 0) {
+            Write-Warning "markers\ holds only the hand-written sample - the minimap will show LIVE markers only. Build the static database with tools\markers."
+        }
+    }
+
     Write-Host "Deployed -> $dllsDir\main.dll"
 }
 

@@ -4,13 +4,14 @@
 ; panel ("Save settings") and re-read by F5 or "Reload settings + maps", so the game
 ; does not have to be restarted for a change here.
 ;
-; HOTKEYS: only F1..F5, F7 and F8 are accepted. Anything else falls back to the
-; default, because on this machine
+; HOTKEYS: F1..F5, F7, F8, any single letter (A..Z) or digit (0..9), or TAB.
+; F6 and F9..F12 are REJECTED and fall back to the default, because on this machine
 ;   F6  toggles RenoDX / DLSS 5 Neural Rendering (it ignores modifiers, and pressing
 ;       it in-world hung the GPU on 2026-09-02)
 ;   F9  / F11 are engine screenshot / fullscreen binds
 ;   F10 opens the game console (UE4SS ConsoleEnablerMod)
 ;   F12 is the Steam screenshot key
+; Shipped defaults: F2 settings panel, M full map, F5 reload.
 
 ; Master switch. 0 = install no DX12 hooks at all.
 enabled = 1
@@ -134,6 +135,72 @@ debug_readout = 1
 ; the panel is verified without a keypress. Leave at 0 for normal play.
 debug_show_panel_on_start = 0
 
-; Settings panel toggle, and config+map reload.
+; ---------------------------------------------------------------------------------
+; Markers
+; ---------------------------------------------------------------------------------
+; Markers come from two places and are merged by a stable id:
+;
+;   the STATIC database  markers\<chapter>.json, produced offline from the cooked
+;                        levels, so markers show up in areas you have never visited;
+;   the LIVE sweep       one FindAllOf per game-thread tick, cycling through the
+;                        marker classes, which supplies the actual state of every
+;                        actor that is currently streamed in - a chest's `Used`, a
+;                        door's `DoorOpen`, a pickup's `dying` / parked-at-origin,
+;                        and the shrine's own game id.
+;
+; Enemies are live only and are never written to the collection tracker.
+
+; Draw markers at all.
+markers_enabled = 1
+
+; Run the live actor sweep on the game thread. Turning this off leaves only the
+; static database (positions, but no collected / opened state).
+markers_live = 1
+
+; Complete sweeps of the marker class table per second (1..10). Each sweep is one
+; FindAllOf per game-thread tick, so 1 is roughly one object-array walk per 100 ms -
+; the same order of cost the menu test already pays. Raise it only if markers feel
+; stale; enemies are the only thing that actually moves.
+markers_rounds_per_sec = 1
+
+; Which categories to draw. A comma-separated list of
+;   shrine, chest, pickup, boss, elite, enemy, npc, merchant, door, ladder, lift,
+;   fog_gate, hidden, other
+; or `all` / `none`. The F2 panel edits the same setting. Enemies are off by default
+; because the sweep only refreshes them once a second, so they lag while they move.
+markers_categories = shrine,chest,pickup,boss,elite,npc,merchant,door,ladder,lift,fog_gate,hidden,other
+
+; Found (collected / opened) markers: 0 = draw them dimmed, 1 = hide them entirely.
+markers_hide_found = 0
+
+; How dim a found marker is, as a multiple of `opacity`.
+markers_found_alpha = 0.30
+
+; Glyph radius in minimap pixels.
+markers_size = 6.5
+
+; Keep markers that are outside the minimap on its rim, drawn smaller, instead of
+; dropping them.
+markers_clamp_to_edge = 0
+
+; Hard cap on markers drawn per frame, nearest first. Safety valve only.
+markers_max_draw = 400
+
+; ---------------------------------------------------------------------------------
+; Collection tracker
+; ---------------------------------------------------------------------------------
+; wuchang_minimap_found.txt (next to this file) holds one stable id per line and is
+; rewritten whenever the live sweep auto-marks something new. It is plain text and
+; hand-editable; edits are picked up on the next reload.
+
+found_tracker = 1
+
+; How long after the last change the file is written, in ms. Debounced so a room
+; full of pickups is one write, not thirty.
+found_save_debounce_ms = 2000
+
+; Settings panel, full map (reserved - the full map itself is not built yet), and
+; config + map + marker reload.
 panel_key = F2
+map_key = M
 reload_key = F5

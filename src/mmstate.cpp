@@ -224,34 +224,71 @@ namespace mm
             }
         }
 
-        // F-key name -> virtual key. F6 / F9..F12 are rejected outright: on this machine
-        // F6 is the RenoDX DLSS5 toggle (it ignores modifiers and has already caused one
-        // GPU crash), F10 the game console, F11 the engine fullscreen bind and F12 the
-        // Steam screenshot key. See lessons.md.
+        // Hotkey name -> virtual key.
+        //
+        // Accepted: F1..F5, F7, F8; a single letter A..Z or digit 0..9; TAB. F6 and
+        // F9..F12 are REJECTED outright rather than trusted to whoever edits the file:
+        // on this machine F6 is the RenoDX DLSS5 toggle (it ignores modifiers and has
+        // already caused one GPU crash), F10 the game console, F11 the engine
+        // fullscreen bind and F12 the Steam screenshot key. See lessons.md.
         int vk_from_name(const std::string& name, int fallback, const char* key_label)
         {
-            if (name.size() < 2 || (name[0] != 'F' && name[0] != 'f'))
+            const std::wstring label(key_label, key_label + std::strlen(key_label));
+            const std::wstring shown(name.begin(), name.end());
+
+            const auto reject = [&](const wchar_t* why) {
+                logf(L"config: {} = '{}' rejected ({}) - keeping the default. Allowed: F1..F5, F7, F8, "
+                     L"a single letter or digit, or TAB.",
+                     label,
+                     shown,
+                     std::wstring{why});
+                return fallback;
+            };
+
+            if (name.empty())
             {
                 return fallback;
             }
-            int n = 0;
-            for (std::size_t i = 1; i < name.size(); ++i)
+
+            // F-keys first, so the single letter "F" cannot swallow "F6".
+            if ((name[0] == 'F' || name[0] == 'f') && name.size() >= 2)
             {
-                if (name[i] < '0' || name[i] > '9')
+                int n = 0;
+                for (std::size_t i = 1; i < name.size(); ++i)
                 {
-                    return fallback;
+                    if (name[i] < '0' || name[i] > '9')
+                    {
+                        return reject(L"not a recognised key name");
+                    }
+                    n = n * 10 + (name[i] - '0');
                 }
-                n = n * 10 + (name[i] - '0');
+                if (n < 1 || n > 8 || n == 6)
+                {
+                    return reject(L"F6 is the RenoDX DLSS5 toggle, F9/F11 engine binds, F10 the game "
+                                  L"console and F12 the Steam screenshot key");
+                }
+                return VK_F1 + (n - 1);
             }
-            if (n < 1 || n > 8 || n == 6)
+
+            if (name.size() == 1)
             {
-                logf(L"config: {} = '{}' rejected - only F1..F5, F7, F8 are safe here (F6 is the RenoDX DLSS5 "
-                     L"toggle, F9/F11 engine binds, F10 the game console, F12 the Steam screenshot key)",
-                     std::wstring(key_label, key_label + std::strlen(key_label)),
-                     std::wstring(name.begin(), name.end()));
-                return fallback;
+                const char c = name[0];
+                if (c >= 'a' && c <= 'z')
+                {
+                    return static_cast<int>(c - 'a' + 'A');
+                }
+                if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+                {
+                    return static_cast<int>(c);
+                }
+                return reject(L"not a letter or a digit");
             }
-            return VK_F1 + (n - 1);
+
+            if (name == "TAB" || name == "Tab" || name == "tab")
+            {
+                return VK_TAB;
+            }
+            return reject(L"not a recognised key name");
         }
 
         std::string vk_name(int vk)
@@ -259,6 +296,14 @@ namespace mm
             if (vk >= VK_F1 && vk <= VK_F24)
             {
                 return "F" + std::to_string(vk - VK_F1 + 1);
+            }
+            if (vk == VK_TAB)
+            {
+                return "TAB";
+            }
+            if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9'))
+            {
+                return std::string(1, static_cast<char>(vk));
             }
             return "F2";
         }
@@ -302,6 +347,7 @@ namespace mm
     } // namespace
 
     std::atomic<bool> g_panel_open{false};
+    std::atomic<bool> g_map_open{false};
     std::atomic<bool> g_reload_config{false};
     std::atomic<bool> g_save_config{false};
     std::atomic<bool> g_panel_drew_frame{false};
@@ -364,6 +410,12 @@ namespace mm
             g_mod_dir = resolve_mod_dir();
         }
         return g_mod_dir;
+    }
+
+    std::wstring key_name(int vk)
+    {
+        const std::string n = vk_name(vk);
+        return std::wstring(n.begin(), n.end());
     }
 
     std::wstring config_path()
@@ -556,6 +608,62 @@ namespace mm
             {
                 cfg.reload_key = vk_from_name(value, cfg.reload_key, "reload_key");
             }
+            else if (key == "map_key")
+            {
+                cfg.map_key = vk_from_name(value, cfg.map_key, "map_key");
+            }
+            else if (key == "markers_enabled")
+            {
+                cfg.markers_enabled = parse_bool(value, cfg.markers_enabled);
+            }
+            else if (key == "markers_live")
+            {
+                cfg.markers_live = parse_bool(value, cfg.markers_live);
+            }
+            else if (key == "markers_rounds_per_sec")
+            {
+                cfg.markers_rounds_per_sec = parse_int(value, cfg.markers_rounds_per_sec);
+            }
+            else if (key == "markers_categories")
+            {
+                std::string rejected;
+                cfg.markers_categories = mdb::parse_category_mask(value, cfg.markers_categories, &rejected);
+                if (!rejected.empty())
+                {
+                    const std::string known = mdb::format_category_mask(mdb::kAllCats);
+                    logf(L"config: markers_categories - unknown name(s) '{}' ignored. Known: {}",
+                         std::wstring(rejected.begin(), rejected.end()),
+                         std::wstring(known.begin(), known.end()));
+                }
+            }
+            else if (key == "markers_hide_found")
+            {
+                cfg.markers_hide_found = parse_bool(value, cfg.markers_hide_found);
+            }
+            else if (key == "markers_found_alpha")
+            {
+                cfg.markers_found_alpha = parse_float(value, cfg.markers_found_alpha);
+            }
+            else if (key == "markers_size")
+            {
+                cfg.markers_size = parse_float(value, cfg.markers_size);
+            }
+            else if (key == "markers_clamp_to_edge")
+            {
+                cfg.markers_clamp_to_edge = parse_bool(value, cfg.markers_clamp_to_edge);
+            }
+            else if (key == "markers_max_draw")
+            {
+                cfg.markers_max_draw = parse_int(value, cfg.markers_max_draw);
+            }
+            else if (key == "found_tracker")
+            {
+                cfg.found_tracker = parse_bool(value, cfg.found_tracker);
+            }
+            else if (key == "found_save_debounce_ms")
+            {
+                cfg.found_save_debounce_ms = parse_int(value, cfg.found_save_debounce_ms);
+            }
         }
 
         // Clamp everything: a hand-edited file must not be able to produce a 40 000 px
@@ -578,6 +686,12 @@ namespace mm
         cfg.slice_hz = (std::max)(2, (std::min)(30, cfg.slice_hz));
         cfg.feet_z_smooth_ms = (std::max)(1, (std::min)(2000, cfg.feet_z_smooth_ms));
         cfg.player_z_offset = (std::max)(-500.0f, (std::min)(500.0f, cfg.player_z_offset));
+        cfg.markers_rounds_per_sec = (std::max)(1, (std::min)(10, cfg.markers_rounds_per_sec));
+        cfg.markers_found_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.markers_found_alpha));
+        cfg.markers_size = (std::max)(2.0f, (std::min)(24.0f, cfg.markers_size));
+        cfg.markers_max_draw = (std::max)(0, (std::min)(4000, cfg.markers_max_draw));
+        cfg.found_save_debounce_ms = (std::max)(200, (std::min)(60000, cfg.found_save_debounce_ms));
+        cfg.markers_categories &= mdb::kAllCats;
 
         set_config(cfg);
         logf(L"config: loaded {} setting(s) from {}", lines, path);
@@ -620,8 +734,24 @@ namespace mm
         out += "fallback_use_composite = " + std::string(cfg.fallback_use_composite ? "1" : "0") + "\n\n";
         out += "debug_readout = " + std::string(cfg.debug_readout ? "1" : "0") + "\n";
         out += "debug_show_panel_on_start = " + std::string(cfg.debug_show_panel_on_start ? "1" : "0") + "\n";
+        out += "\n; Markers. markers_categories is a comma-separated list of\n";
+        out += ";   shrine, chest, pickup, boss, elite, enemy, npc, merchant, door, ladder, lift,\n";
+        out += ";   fog_gate, hidden, other\n";
+        out += "; (or `all` / `none`). The same list drives the F2 filter checkboxes.\n";
+        out += "markers_enabled = " + std::string(cfg.markers_enabled ? "1" : "0") + "\n";
+        out += "markers_live = " + std::string(cfg.markers_live ? "1" : "0") + "\n";
+        out += "markers_rounds_per_sec = " + std::to_string(cfg.markers_rounds_per_sec) + "\n";
+        out += "markers_categories = " + mdb::format_category_mask(cfg.markers_categories) + "\n";
+        out += "markers_hide_found = " + std::string(cfg.markers_hide_found ? "1" : "0") + "\n";
+        out += "markers_found_alpha = " + std::format("{:.2f}", cfg.markers_found_alpha) + "\n";
+        out += "markers_size = " + std::format("{:.1f}", cfg.markers_size) + "\n";
+        out += "markers_clamp_to_edge = " + std::string(cfg.markers_clamp_to_edge ? "1" : "0") + "\n";
+        out += "markers_max_draw = " + std::to_string(cfg.markers_max_draw) + "\n";
+        out += "found_tracker = " + std::string(cfg.found_tracker ? "1" : "0") + "\n";
+        out += "found_save_debounce_ms = " + std::to_string(cfg.found_save_debounce_ms) + "\n\n";
         out += "panel_key = " + vk_name(cfg.panel_key) + "\n";
         out += "reload_key = " + vk_name(cfg.reload_key) + "\n";
+        out += "map_key = " + vk_name(cfg.map_key) + "\n";
 
         const std::wstring path = config_path();
         if (write_whole_file(path, out))

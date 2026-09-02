@@ -25,6 +25,8 @@
 #include <string>
 #include <utility>
 
+#include "markers_db.hpp"
+
 namespace mm
 {
     //==================================================================================
@@ -156,10 +158,35 @@ namespace mm
         // maps are missing - which the runtime loads on its own anyway.
         bool fallback_use_composite = false;
 
+        //==============================================================================
+        // Markers
+        //==============================================================================
+        //
+        // The static database is markers/<chapter>.json (schema
+        // `wuchang-minimap-markers/1`); the live half is a class sweep on the game
+        // thread that reads each marker actor's own state flag. `markers_categories`
+        // is the same name list the F2 filter checkboxes drive, so a filter toggled in
+        // the panel and one written into the config file are the same setting.
+
+        bool markers_enabled = true;  // draw markers at all
+        bool markers_live = true;     // run the game-thread class sweep
+        int markers_rounds_per_sec = 1; // full sweeps of the class table per second
+        std::uint32_t markers_categories = mdb::kAllCats & ~mdb::cat_bit(mdb::Cat::Enemy);
+        bool markers_hide_found = false; // hide instead of dimming a found marker
+        float markers_found_alpha = 0.3f;
+        float markers_size = 6.5f;         // glyph radius in minimap pixels
+        bool markers_clamp_to_edge = false; // keep out-of-range markers on the rim
+        int markers_max_draw = 400;         // hard cap per frame, nearest first
+
+        // The found tracker: wuchang_minimap_found.txt, one stable id per line.
+        bool found_tracker = true;
+        int found_save_debounce_ms = 2000;
+
         bool debug_readout = true;
         bool debug_show_panel_on_start = false; // main-menu verification aid
         int panel_key = 0x71;                   // VK_F2
         int reload_key = 0x74;                  // VK_F5
+        int map_key = 0x4D;                     // 'M' - full map (reserved, not built yet)
     };
 
     // The config lives here and is copied under a spinlock. The loop thread writes it
@@ -173,11 +200,15 @@ namespace mm
     std::wstring config_path();
     std::wstring mod_dir();
 
+    // "F2", "M", "TAB", ... - the same spelling the config file uses. Any thread.
+    std::wstring key_name(int vk);
+
     //==================================================================================
     // Cross-thread flags
     //==================================================================================
 
     extern std::atomic<bool> g_panel_open;      // F2
+    extern std::atomic<bool> g_map_open;        // M - full map (reserved)
     extern std::atomic<bool> g_reload_config;   // F5 -> loop thread reloads
     extern std::atomic<bool> g_save_config;     // panel -> loop thread saves
     extern std::atomic<bool> g_panel_drew_frame; // set by the render thread, for the log

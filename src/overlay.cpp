@@ -57,6 +57,7 @@
 #include <MinHook.h>
 
 #include "mapdata.hpp"
+#include "markers.hpp"
 #include "mmstate.hpp"
 
 // imgui_impl_win32.h deliberately hides this behind `#if 0` so the header does not
@@ -1511,6 +1512,308 @@ namespace overlay
             draw_srv(dl, t.srv_gpu, uv, g, col, round, x0, y0, side);
         }
 
+        // mm::key_name is wide (the log is wide); ImGui is UTF-8. Key names are pure
+        // ASCII, so this is a cast per character - but it has to be an EXPLICIT one:
+        // std::string(w.begin(), w.end()) compiles and warns (C4244), and this mod
+        // ships warning-free.
+        std::string key_name_ascii(int vk)
+        {
+            const std::wstring wide = mm::key_name(vk);
+            std::string out;
+            out.reserve(wide.size());
+            for (const wchar_t c : wide)
+            {
+                out.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
+            }
+            return out;
+        }
+
+        //==============================================================================
+        // Drawing: markers
+        //==============================================================================
+        //
+        // Glyphs are drawn with ImDrawList primitives, not from an image atlas: the mod
+        // ships no marker art, there is no texture to keep in sync with the categories,
+        // and a vector glyph stays sharp at any minimap size. Each category gets a
+        // shape AND a colour, because a dimmed "found" marker loses most of its colour
+        // contrast and the shape is what still tells it apart.
+        //
+        // World -> minimap pixels is the inverse of uv_at(): for yaw a,
+        // forward = (cos a, sin a) and right = (-sin a, cos a), so
+        //     wdx = -s*(dx*z) - c*(dy*z)
+        //     wdy =  c*(dx*z) - s*(dy*z)
+        // whose inverse (the matrix is a rotation, det = 1) is
+        //     dx = (-s*wdx + c*wdy) / z
+        //     dy = (-c*wdx - s*wdy) / z
+        // At yaw 0 that is dx = wdy/z (east to the right) and dy = -wdx/z (north up),
+        // i.e. exactly build_map.py's north-up convention.
+
+        ImU32 marker_color(mdb::Cat cat, int alpha)
+        {
+            switch (cat)
+            {
+            case mdb::Cat::Shrine:
+                return IM_COL32(255, 186, 72, alpha);
+            case mdb::Cat::Chest:
+                return IM_COL32(255, 226, 120, alpha);
+            case mdb::Cat::Pickup:
+                return IM_COL32(120, 220, 255, alpha);
+            case mdb::Cat::Boss:
+                return IM_COL32(255, 86, 86, alpha);
+            case mdb::Cat::Elite:
+                return IM_COL32(255, 140, 80, alpha);
+            case mdb::Cat::Enemy:
+                return IM_COL32(232, 96, 96, alpha);
+            case mdb::Cat::Npc:
+                return IM_COL32(140, 235, 140, alpha);
+            case mdb::Cat::Merchant:
+                return IM_COL32(120, 230, 210, alpha);
+            case mdb::Cat::Door:
+                return IM_COL32(172, 194, 224, alpha);
+            case mdb::Cat::Ladder:
+            case mdb::Cat::Lift:
+                return IM_COL32(206, 184, 142, alpha);
+            case mdb::Cat::FogGate:
+                return IM_COL32(198, 150, 255, alpha);
+            case mdb::Cat::Hidden:
+                return IM_COL32(255, 130, 220, alpha);
+            case mdb::Cat::Other:
+            default:
+                return IM_COL32(196, 196, 196, alpha);
+            }
+        }
+
+        void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge)
+        {
+            const auto tri = [&](float scale) {
+                const ImVec2 a{p.x, p.y - r * scale};
+                const ImVec2 b{p.x - r * scale * 0.92f, p.y + r * scale * 0.72f};
+                const ImVec2 c{p.x + r * scale * 0.92f, p.y + r * scale * 0.72f};
+                dl->AddTriangleFilled(a, b, c, col);
+                dl->AddTriangle(a, b, c, edge, 1.2f);
+            };
+            const auto rect = [&](float w, float h) {
+                const ImVec2 a{p.x - r * w, p.y - r * h};
+                const ImVec2 b{p.x + r * w, p.y + r * h};
+                dl->AddRectFilled(a, b, col, 1.5f);
+                dl->AddRect(a, b, edge, 1.5f, 0, 1.2f);
+            };
+
+            switch (cat)
+            {
+            case mdb::Cat::Shrine:
+                // A diamond: AddNgon starts at angle 0, so a 4-gon has its vertices on
+                // the axes.
+                dl->AddNgonFilled(p, r * 1.15f, col, 4);
+                dl->AddNgon(p, r * 1.15f, edge, 4, 1.4f);
+                dl->AddCircleFilled(p, r * 0.32f, edge, 8);
+                break;
+            case mdb::Cat::Chest:
+                rect(0.95f, 0.75f);
+                dl->AddLine(ImVec2{p.x - r * 0.95f, p.y}, ImVec2{p.x + r * 0.95f, p.y}, edge, 1.2f);
+                break;
+            case mdb::Cat::Pickup:
+                dl->AddCircleFilled(p, r * 0.72f, col, 10);
+                dl->AddCircle(p, r * 0.72f, edge, 10, 1.2f);
+                break;
+            case mdb::Cat::Boss:
+                tri(1.5f);
+                break;
+            case mdb::Cat::Elite:
+                tri(1.15f);
+                break;
+            case mdb::Cat::Enemy:
+                tri(0.85f);
+                break;
+            case mdb::Cat::Npc:
+                dl->AddCircleFilled(p, r * 0.7f, col, 12);
+                dl->AddCircle(p, r * 0.95f, col, 12, 1.3f);
+                break;
+            case mdb::Cat::Merchant:
+                dl->AddCircleFilled(p, r * 0.8f, col, 12);
+                dl->AddCircleFilled(p, r * 0.3f, edge, 8);
+                break;
+            case mdb::Cat::Door:
+                rect(0.55f, 0.95f);
+                break;
+            case mdb::Cat::Ladder:
+                dl->AddLine(ImVec2{p.x - r * 0.5f, p.y - r}, ImVec2{p.x - r * 0.5f, p.y + r}, col, 1.6f);
+                dl->AddLine(ImVec2{p.x + r * 0.5f, p.y - r}, ImVec2{p.x + r * 0.5f, p.y + r}, col, 1.6f);
+                for (int i = -1; i <= 1; ++i)
+                {
+                    const float y = p.y + static_cast<float>(i) * r * 0.55f;
+                    dl->AddLine(ImVec2{p.x - r * 0.5f, y}, ImVec2{p.x + r * 0.5f, y}, col, 1.2f);
+                }
+                break;
+            case mdb::Cat::Lift:
+                rect(0.85f, 0.5f);
+                dl->AddTriangleFilled(ImVec2{p.x, p.y - r * 1.35f},
+                                      ImVec2{p.x - r * 0.5f, p.y - r * 0.6f},
+                                      ImVec2{p.x + r * 0.5f, p.y - r * 0.6f},
+                                      col);
+                break;
+            case mdb::Cat::FogGate:
+                dl->AddCircle(p, r, col, 14, 2.0f);
+                dl->AddLine(ImVec2{p.x - r * 0.7f, p.y}, ImVec2{p.x + r * 0.7f, p.y}, col, 1.4f);
+                break;
+            case mdb::Cat::Hidden:
+                dl->AddNgon(p, r * 1.1f, col, 4, 1.8f);
+                break;
+            case mdb::Cat::Other:
+            default:
+                dl->AddCircleFilled(p, r * 0.5f, col, 8);
+                break;
+            }
+        }
+
+        struct MarkerDrawStats
+        {
+            int total = 0;
+            int drawn = 0;
+            int clamped = 0;
+            int filtered = 0;
+            std::string nearest;
+            float nearest_uu = 0.0f;
+        };
+
+        MarkerDrawStats g_marker_draw{};
+
+        void draw_markers(const mm::Config& cfg, const MiniGeom& g, bool round, float x0, float y0, float side,
+                          ImDrawList* dl)
+        {
+            g_marker_draw = MarkerDrawStats{};
+            if (!cfg.markers_enabled)
+            {
+                return;
+            }
+            const markers::View v = markers::view();
+            g_marker_draw.total = static_cast<int>(v.count);
+            if (v.data == nullptr || v.count == 0)
+            {
+                return;
+            }
+
+            const double c = g.cos_yaw;
+            const double s = g.sin_yaw;
+            const double z = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
+            const float r = cfg.markers_size;
+            const float limit = (std::max)(4.0f, g.half - r - 2.0f);
+
+            struct Cand
+            {
+                float dx = 0.0f;
+                float dy = 0.0f;
+                float d2 = 0.0f;
+                std::uint8_t cat = 0;
+                bool found = false;
+                bool clamped = false;
+                const char* id = nullptr;
+            };
+            // Render thread only, and reused frame to frame so a full minimap never
+            // allocates during Present.
+            static std::vector<Cand> cands;
+            cands.clear();
+
+            for (std::size_t i = 0; i < v.count; ++i)
+            {
+                const markers::DrawMarker& m = v.data[i];
+                const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
+                if (static_cast<int>(m.cat) >= mdb::kCatCount || !mdb::cat_enabled(cfg.markers_categories, cat))
+                {
+                    ++g_marker_draw.filtered;
+                    continue;
+                }
+                const bool found = (m.flags & markers::kFlagFound) != 0;
+                if (found && cfg.markers_hide_found)
+                {
+                    ++g_marker_draw.filtered;
+                    continue;
+                }
+
+                const double wdx = m.x - g.px;
+                const double wdy = m.y - g.py;
+                double dx = (-s * wdx + c * wdy) / z;
+                double dy = (-c * wdx - s * wdy) / z;
+
+                bool clamped = false;
+                if (round)
+                {
+                    const double d = std::sqrt(dx * dx + dy * dy);
+                    if (d > limit)
+                    {
+                        if (!cfg.markers_clamp_to_edge || d <= 0.0001)
+                        {
+                            continue;
+                        }
+                        dx = dx * limit / d;
+                        dy = dy * limit / d;
+                        clamped = true;
+                    }
+                }
+                else if (std::abs(dx) > limit || std::abs(dy) > limit)
+                {
+                    if (!cfg.markers_clamp_to_edge)
+                    {
+                        continue;
+                    }
+                    const double scale = limit / (std::max)(std::abs(dx), std::abs(dy));
+                    dx *= scale;
+                    dy *= scale;
+                    clamped = true;
+                }
+
+                Cand cand{};
+                cand.dx = static_cast<float>(dx);
+                cand.dy = static_cast<float>(dy);
+                cand.d2 = static_cast<float>(wdx * wdx + wdy * wdy);
+                cand.cat = m.cat;
+                cand.found = found;
+                cand.clamped = clamped;
+                cand.id = m.id;
+                cands.push_back(cand);
+            }
+
+            // Nearest first, so the cap drops the far ones and the near ones draw last
+            // (on top).
+            const std::size_t cap = cfg.markers_max_draw > 0
+                                        ? static_cast<std::size_t>(cfg.markers_max_draw)
+                                        : cands.size();
+            if (cands.size() > cap)
+            {
+                std::partial_sort(cands.begin(), cands.begin() + static_cast<std::ptrdiff_t>(cap), cands.end(),
+                                  [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+                cands.resize(cap);
+            }
+            std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d2 > b.d2; });
+
+            const float op = cfg.opacity;
+            for (const Cand& cand : cands)
+            {
+                const float a = op * (cand.found ? cfg.markers_found_alpha : 1.0f);
+                if (a <= 0.01f)
+                {
+                    continue;
+                }
+                const int alpha = static_cast<int>((std::min)(1.0f, a) * 255.0f + 0.5f);
+                const ImU32 col = marker_color(static_cast<mdb::Cat>(cand.cat), alpha);
+                const ImU32 edge = IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f));
+                const ImVec2 p{g.center.x + cand.dx, g.center.y + cand.dy};
+                draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, cand.clamped ? r * 0.72f : r, col, edge);
+                ++g_marker_draw.drawn;
+                g_marker_draw.clamped += cand.clamped ? 1 : 0;
+            }
+            if (!cands.empty())
+            {
+                // cands is sorted far -> near, so the last one is the nearest.
+                const Cand& near_one = cands.back();
+                g_marker_draw.nearest = near_one.id != nullptr ? near_one.id : "";
+                g_marker_draw.nearest_uu = std::sqrt(near_one.d2);
+            }
+            (void)x0;
+            (void)y0;
+            (void)side;
+        }
+
         void draw_minimap(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
         {
             g_last_mini = MiniDebug{};
@@ -1675,6 +1978,10 @@ namespace overlay
                 dl->AddRect(ImVec2{x0, y0}, ImVec2{x0 + side, y0 + side}, frame, 4.0f, 0, 2.0f);
             }
 
+            // Markers go over the map and under the frame ring's highlight and the
+            // player arrow, so the arrow is never hidden by a glyph standing on it.
+            draw_markers(cfg, g, cfg.round, x0, y0, side, dl);
+
             // North marker, only meaningful when the map itself is rotating.
             if (cfg.rotate_with_player)
             {
@@ -1756,6 +2063,135 @@ namespace overlay
             ImGui::Checkbox("Only when the camera follows the pawn", &cfg.require_pawn_view);
             ImGui::Checkbox("Debug readout", &cfg.debug_readout);
 
+            //--------------------------------------------------------------------------
+            // Markers
+            //--------------------------------------------------------------------------
+            if (ImGui::CollapsingHeader("Markers", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::Checkbox("Show markers", &cfg.markers_enabled);
+                ImGui::SameLine();
+                ImGui::Checkbox("Live actor sweep", &cfg.markers_live);
+                ImGui::SameLine();
+                ImGui::Checkbox("Hide found", &cfg.markers_hide_found);
+
+                ImGui::SliderFloat("Marker size (px)", &cfg.markers_size, 2.0f, 16.0f, "%.1f");
+                ImGui::SliderFloat("Found marker opacity", &cfg.markers_found_alpha, 0.0f, 1.0f, "%.2f");
+                ImGui::Checkbox("Keep out-of-range markers on the rim", &cfg.markers_clamp_to_edge);
+
+                // The category filter. Exactly the same set of names the config file's
+                // `markers_categories` list uses, so a filter set here and one written
+                // into the file are one setting, not two.
+                ImGui::SeparatorText("Categories");
+                if (ImGui::SmallButton("All"))
+                {
+                    cfg.markers_categories = mdb::kAllCats;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("None"))
+                {
+                    cfg.markers_categories = 0u;
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("(config key: markers_categories)");
+
+                const markers::Stats st = markers::stats();
+                for (int i = 0; i < mdb::kCatCount; ++i)
+                {
+                    const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                    bool on = mdb::cat_enabled(cfg.markers_categories, cat);
+                    ImGui::PushID(i);
+                    if (ImGui::Checkbox(mdb::cat_label(cat), &on))
+                    {
+                        if (on)
+                        {
+                            cfg.markers_categories |= mdb::cat_bit(cat);
+                        }
+                        else
+                        {
+                            cfg.markers_categories &= ~mdb::cat_bit(cat);
+                        }
+                    }
+                    ImGui::PopID();
+                    if ((i % 3) != 2 && i + 1 < mdb::kCatCount)
+                    {
+                        ImGui::SameLine(static_cast<float>(((i % 3) + 1) * 150));
+                    }
+                }
+
+                //----------------------------------------------------------------------
+                // The collection tracker
+                //----------------------------------------------------------------------
+                ImGui::SeparatorText("Collection tracker");
+                ImGui::Checkbox("Write wuchang_minimap_found.txt", &cfg.found_tracker);
+                if (!st.db_loaded || st.static_markers == 0)
+                {
+                    ImGui::TextDisabled("no markers\\<chapter>.json loaded - live markers only");
+                }
+                else if (ImGui::BeginTable("found", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg))
+                {
+                    ImGui::TableSetupColumn("Chapter");
+                    ImGui::TableSetupColumn("Shrines");
+                    ImGui::TableSetupColumn("Chests");
+                    ImGui::TableSetupColumn("Pickups");
+                    ImGui::TableHeadersRow();
+                    const auto cell = [](const markers::CatStat& s) {
+                        ImGui::TableNextColumn();
+                        if (s.total == 0)
+                        {
+                            ImGui::TextDisabled("-");
+                        }
+                        else
+                        {
+                            ImGui::Text("%d / %d", s.found, s.total);
+                        }
+                    };
+                    for (int ch = 1; ch <= 8; ++ch)
+                    {
+                        int any = 0;
+                        for (int i = 0; i < mdb::kCatCount; ++i)
+                        {
+                            any += st.chapter[ch][i].total;
+                        }
+                        if (any == 0)
+                        {
+                            continue;
+                        }
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%d", ch);
+                        cell(st.chapter[ch][static_cast<int>(mdb::Cat::Shrine)]);
+                        cell(st.chapter[ch][static_cast<int>(mdb::Cat::Chest)]);
+                        cell(st.chapter[ch][static_cast<int>(mdb::Cat::Pickup)]);
+                    }
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("all");
+                    cell(st.cat[static_cast<int>(mdb::Cat::Shrine)]);
+                    cell(st.cat[static_cast<int>(mdb::Cat::Chest)]);
+                    cell(st.cat[static_cast<int>(mdb::Cat::Pickup)]);
+                    ImGui::EndTable();
+                }
+                ImGui::Text("db %d marker(s) / %d chapter(s)   found file %d id(s)   published %d   live %d",
+                            st.static_markers,
+                            st.chapters_loaded,
+                            st.found_ids,
+                            st.published,
+                            st.live_entries);
+                ImGui::Text("sweep %.2f ms (peak %.2f) over %llu round(s)   drawn %d of %d (%d clamped, "
+                            "%d filtered)",
+                            st.sweep_ms,
+                            st.sweep_ms_peak,
+                            static_cast<unsigned long long>(st.rounds),
+                            g_marker_draw.drawn,
+                            g_marker_draw.total,
+                            g_marker_draw.clamped,
+                            g_marker_draw.filtered);
+                if (!g_marker_draw.nearest.empty())
+                {
+                    ImGui::Text("nearest: %s (%.0f uu)", g_marker_draw.nearest.c_str(), g_marker_draw.nearest_uu);
+                }
+            }
+
             if (ImGui::Button("Save settings"))
             {
                 mm::g_save_config = true;
@@ -1766,7 +2202,13 @@ namespace overlay
                 mm::g_reload_config = true;
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("F2 panel  |  F5 reload");
+            {
+                const std::string hint = std::format("{} panel  |  {} full map (reserved)  |  {} reload",
+                                                     key_name_ascii(cfg.panel_key),
+                                                     key_name_ascii(cfg.map_key),
+                                                     key_name_ascii(cfg.reload_key));
+                ImGui::TextDisabled("%s", hint.c_str());
+            }
 
             if (cfg.debug_readout)
             {
@@ -1901,6 +2343,25 @@ namespace overlay
             else
             {
                 ImGui::GetIO().MouseDrawCursor = false;
+            }
+
+            if (mm::g_map_open.load(std::memory_order_relaxed))
+            {
+                // The full map is step C of the plan. Until it exists the key answers
+                // with one line, so the bind is verifiable in-world without pretending
+                // a feature is there.
+                const ImGuiViewport* vp = ImGui::GetMainViewport();
+                ImDrawList* dl = ImGui::GetForegroundDrawList();
+                const std::string text =
+                    std::format("Full map ({}) is not implemented yet - press it again to dismiss",
+                                key_name_ascii(cfg.map_key));
+                const ImVec2 size = ImGui::CalcTextSize(text.c_str());
+                const ImVec2 p{vp->Pos.x + (vp->Size.x - size.x) * 0.5f, vp->Pos.y + vp->Size.y * 0.16f};
+                dl->AddRectFilled(ImVec2{p.x - 12.0f, p.y - 8.0f},
+                                  ImVec2{p.x + size.x + 12.0f, p.y + size.y + 8.0f},
+                                  IM_COL32(8, 10, 14, 210),
+                                  5.0f);
+                dl->AddText(p, IM_COL32(232, 226, 210, 245), text.c_str());
             }
 
             if (cfg.enabled && cfg.show_minimap)
@@ -2479,9 +2940,11 @@ namespace overlay
             mm::g_panel_open = true;
             mm::log(L"debug_show_panel_on_start = 1: the F2 panel starts open (turn it off for normal play)");
         }
-        mm::logf(L"hotkeys: F{} settings panel, F{} reload config + maps",
-                 cfg.panel_key - VK_F1 + 1,
-                 cfg.reload_key - VK_F1 + 1);
+        mm::logf(L"hotkeys: {} settings panel, {} full map (reserved - not built yet), {} reload "
+                 L"config + maps + markers",
+                 mm::key_name(cfg.panel_key),
+                 mm::key_name(cfg.map_key),
+                 mm::key_name(cfg.reload_key));
         mm::drain_log();
     }
 
@@ -2522,12 +2985,28 @@ namespace overlay
         }
         reload_down = reload_now;
 
+        // The full map key. The map itself is a later step; the bind exists now so it
+        // can be verified in-world (and so the default is nailed down outside the
+        // F6/F9-F12 minefield) - pressing it puts one line on screen and one in the log.
+        static bool map_down = false;
+        const bool map_now = (::GetAsyncKeyState(cfg.map_key) & 0x8000) != 0;
+        if (map_now && !map_down && foreground && now - last_key > 250)
+        {
+            last_key = now;
+            const bool open = !mm::g_map_open.load();
+            mm::g_map_open = open;
+            mm::logf(L"full map {} (reserved - the full map itself is not implemented yet)",
+                     open ? L"requested" : L"dismissed");
+        }
+        map_down = map_now;
+
         if (mm::g_reload_config.exchange(false))
         {
-            mm::log(L"reloading config + maps");
+            mm::log(L"reloading config + maps + markers");
             mm::load_config_file();
             g_drop_textures.store(true, std::memory_order_release);
             mapdata::load(mm::mod_dir());
+            markers::reload();
         }
         if (mm::g_save_config.exchange(false))
         {

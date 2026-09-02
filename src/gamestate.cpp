@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "markers.hpp"
 #include "mmstate.hpp"
 #include "ue_min.hpp"
 #include "uereflect.hpp"
@@ -172,6 +173,9 @@ namespace gamestate
             g_have_last_pos = false;
             g_funcs.clear();
             g_layouts.clear();
+            // The marker sweep caches class layouts, class classifications, per-object
+            // ids and live actors - all of it keyed to the world that just went.
+            markers::drop_caches();
             if (had_pawn)
             {
                 g_cooldown_until = now + kTransitionCooldownMs;
@@ -892,6 +896,12 @@ namespace gamestate
             mm::publish(snap);
             g_publishes.fetch_add(1, std::memory_order_relaxed);
             g_report_pending.store(true, std::memory_order_relaxed);
+
+            // The marker sweep runs LAST, on the same validated state and inside the
+            // same re-entrancy guard: one FindAllOf per pump, cycling through the
+            // marker class table. Putting it after the publish means a slow sweep can
+            // never delay the position the overlay draws with.
+            markers::game_thread_pump(now, g_world);
         }
     } // namespace
 

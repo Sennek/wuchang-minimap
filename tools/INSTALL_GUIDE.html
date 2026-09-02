@@ -145,7 +145,8 @@ HookInitGameState = 0</pre>
   <tr><td><kbd>F5</kbd></td><td>Reload the config file, the map assets and the marker database</td></tr>
   <tr><td><kbd>LALT</kbd> <em>held</em></td>
       <td>X-ray highlight: nearby uncollected chests and pickups are drawn through walls,
-          with name and distance. It is a <strong>hold</strong>, not a toggle.</td></tr>
+          with name and distance, coloured by item quality. It is a <strong>hold</strong>, not a
+          toggle.</td></tr>
   <tr><td><kbd>LB</kbd>+<kbd>RB</kbd> <em>held</em></td><td>The same, on a controller</td></tr>
 </table>
 
@@ -226,6 +227,16 @@ edits the same settings and its <em>Save settings</em> button writes them back.<
   <tr><td><code>highlight_*</code></td>
       <td>The x-ray highlight: key, radius (default 3000&nbsp;uu = 30&nbsp;m), categories, labels,
           edge arrows.</td></tr>
+  <tr><td><code>xray_rarity_colors_enabled</code>, <code>xray_rarity_colors</code>,
+          <code>markers_rarity_tint</code></td>
+      <td>Item quality colours in the x-ray highlight. Wuchang has no rarity ladder, so these are the
+          game's own pickup-beam groups: <strong>Common</strong> (tools and consumables, blue),
+          <strong>Equipment</strong> (weapons, armour, accessories, gems, spells, pink) and
+          <strong>Key</strong> (quest items and upgrade materials, gold). The palette is three
+          <code>RRGGBB</code> values in tier order and defaults to the game's own beam colours; Common
+          keeps its category colour, so only the interesting ~12&nbsp;% of pickups change.
+          <code>markers_rarity_tint = 1</code> puts the same tint on the minimap, the full map and the
+          compass.</td></tr>
   <tr><td><code>compass_*</code></td>
       <td>The compass strip: width, height, how many degrees it spans, which markers get a pip.</td></tr>
   <tr><td><code>minimap_backdrop*</code>, <code>minimap_frame*</code>,

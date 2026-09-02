@@ -858,6 +858,26 @@ namespace mm
             {
                 cfg.highlight_edge_arrows = parse_bool(value, cfg.highlight_edge_arrows);
             }
+            else if (key == "xray_rarity_colors_enabled")
+            {
+                cfg.xray_rarity_colors_enabled = parse_bool(value, cfg.xray_rarity_colors_enabled);
+            }
+            else if (key == "xray_rarity_colors")
+            {
+                std::string rejected;
+                mdb::parse_rarity_colors(value, cfg.xray_rarity_colors, &rejected);
+                if (!rejected.empty())
+                {
+                    logf(L"config: xray_rarity_colors - bad entr(ies) '{}' ignored. Expected "
+                         L"{} hex colours, e.g. {}",
+                         std::wstring(rejected.begin(), rejected.end()), mdb::kRarityCount,
+                         L"ADAFDA, DAADC5, DAD6AD");
+                }
+            }
+            else if (key == "markers_rarity_tint")
+            {
+                cfg.markers_rarity_tint = parse_bool(value, cfg.markers_rarity_tint);
+            }
             else if (key == "highlight_camera_hz")
             {
                 cfg.highlight_camera_hz = parse_int(value, cfg.highlight_camera_hz);
@@ -1606,6 +1626,9 @@ namespace mm
         out += "highlight_size = " + std::format("{:.1f}", cfg.highlight_size) + "\n";
         out += "highlight_labels = " + std::string(cfg.highlight_labels ? "1" : "0") + "\n";
         out += "highlight_edge_arrows = " + std::string(cfg.highlight_edge_arrows ? "1" : "0") + "\n";
+        out += "xray_rarity_colors_enabled = " + std::string(cfg.xray_rarity_colors_enabled ? "1" : "0") + "\n";
+        out += "xray_rarity_colors = " + mdb::format_rarity_colors(cfg.xray_rarity_colors) + "\n";
+        out += "markers_rarity_tint = " + std::string(cfg.markers_rarity_tint ? "1" : "0") + "\n";
         out += "highlight_camera_hz = " + std::to_string(cfg.highlight_camera_hz) + "\n";
         out += "; The camera reader: how often the camera manager is re-found, the slower rate used\n";
         out += "; when only the compass wants a heading, the ProcessEvent fallback rate, and the two\n";

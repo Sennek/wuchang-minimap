@@ -3400,7 +3400,8 @@
    "level": "Chapter5_HaiBbaiHJS_logic",
    "items": [
     21269
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_17",
@@ -3565,7 +3566,8 @@
    "level": "Chapter5_HaiBbaiHJS_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_27",
@@ -3700,7 +3702,8 @@
    "level": "Chapter5_HaiBbaiHJS_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_0",
@@ -3790,7 +3793,8 @@
    "level": "Chapter5_YuRenJT_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_15",
@@ -3970,7 +3974,8 @@
    "level": "Chapter5_YuRenJT_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_36",
@@ -4270,7 +4275,8 @@
    "level": "Chapter5_YuRenJT_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_64",
@@ -4390,7 +4396,8 @@
    "level": "Chapter5_YuRenJT_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_9",
@@ -4420,7 +4427,8 @@
    "level": "Chapter5_ZhenLiZM_logic",
    "items": [
     21285
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "borenshendian",

@@ -530,7 +530,8 @@ The other keys: `enabled`,
 `show_minimap`, `minimap_size`, `minimap_zoom`, `minimap_shape`, `minimap_anchor`,
 `minimap_offset_x/y`, `rotate_with_player`, `opacity`, `hide_in_menus`, `require_pawn_view`,
 `state_stale_ms`, `min_visible_after_state_ok_ms`, `menu_close_show_delay_ms`, `debug_readout`,
-`debug_show_panel_on_start`, `panel_key`, `reload_key`, the `highlight_*` block (14 keys - see
+`debug_show_panel_on_start`, `panel_key`, `reload_key`, the `highlight_*` block (14 keys) plus
+`xray_rarity_colors_enabled` / `xray_rarity_colors` / `markers_rarity_tint` (see
 [the x-ray highlight](#the-x-ray-highlight-hold-lalt)) and the `compass_*` block (9 keys - see
 [the compass strip](#the-compass-strip)), plus the height-slicing block:
 
@@ -739,6 +740,34 @@ category glyph, name, distance in metres - fading with distance, over the scene.
 here: the overlay is composited on the finished frame, so there is no occlusion test, no CustomDepth and
 no material - nothing that can disagree with the game's render state. Anything off screen or behind the
 camera gets an arrow on the screen edge pointing the way to turn (`highlight_edge_arrows`).
+
+**Item quality colours.** Wuchang has **no rarity ladder** - there is no `E_ItemQuality` / `Rarity` /
+`Grade` enum anywhere in the paks, no quality word in `MMGame.locres`, and none of the six item row
+structs declares such a field. What it *does* have is the colour of the beam a pickup gives off:
+`BP_PickupActor_C` picks a `DT_Particle` row (`PickupEffect`, `PickupEffect4..6`, `PickupEffect7..9`)
+whose `LightColor` is blue, pink or gold, and which row it picks follows the item's `ItemType`
+(`E_ItemType`). `tools/markers/build_items.py` decodes that enum out of the cooked item DataTables and
+`extract_markers.py` bakes the resulting tier into every pickup marker as `"rarity"`:
+
+| tier | name | items | default colour (the game's own beam colour, sRGB) |
+|---|---|---|---|
+| 0 | Common | tools, consumables, arrows, enchanting materials | `ADAFDA` blue |
+| 1 | Equipment | weapons, armour, accessories, gems, spells, skills | `DAADC5` pink |
+| 2 | Key | quest items and red-mercury upgrade materials | `DAD6AD` gold |
+
+While the key is held, a marker with a tier above 0 is drawn - glyph, label and edge arrow - in that
+tier's colour instead of its category colour (`xray_rarity_colors_enabled = 1`,
+`xray_rarity_colors = ADAFDA, DAADC5, DAD6AD`). **Tier 0 deliberately keeps its category colour**: it is
+every chest, every live actor the offline database does not know and every ordinary consumable, so a
+palette that repainted it would recolour most of the screen to say nothing. `markers_rarity_tint = 1`
+extends the same tint to the minimap, the full map and the compass pips; it is off by default because
+those views are read as a category map. Of chapter 1's 287 pickups, 18 are Equipment and 21 are Key; over all six chapters 47 of 1 086 are
+Equipment and 85 are Key.
+
+The derivation was checked against the game's own behaviour, not just asserted: every
+`BP_PickupActor_C` whose live `PickupEffectName` was captured in the WuchangRecon world dumps agrees -
+11/11 non-default beams (pink for the greataxe, the pendant, the blades, two gems and two armour sets;
+gold for `Faint Red Feather`, `Lost Remains`, `Broken Token`) and 7/7 default ones.
 
 It is a **hold, not a toggle**, so there is no visibility state to unstick, and it is gated by exactly
 the same evaluation as the minimap (`hud_gate()` in `overlay.cpp` - one function, asked by the minimap,

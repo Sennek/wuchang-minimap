@@ -170,6 +170,143 @@ namespace mdb
     }
 
     //======================================================================================
+    // Item quality ("rarity")
+    //======================================================================================
+
+    const char* rarity_name(int rarity)
+    {
+        switch (static_cast<Rarity>(rarity_clamp(rarity)))
+        {
+        case Rarity::Equipment:
+            return "Equipment";
+        case Rarity::Key:
+            return "Key";
+        case Rarity::Common:
+        default:
+            return "Common";
+        }
+    }
+
+    namespace
+    {
+        bool is_list_sep(char c)
+        {
+            return c == ',' || c == ';' || is_space(c);
+        }
+
+        // -1 when `c` is not a hex digit.
+        int hex_digit(char c)
+        {
+            if (c >= '0' && c <= '9')
+            {
+                return c - '0';
+            }
+            if (c >= 'a' && c <= 'f')
+            {
+                return c - 'a' + 10;
+            }
+            if (c >= 'A' && c <= 'F')
+            {
+                return c - 'A' + 10;
+            }
+            return -1;
+        }
+
+        bool parse_hex_rgb(std::string_view token, Rgb& out)
+        {
+            if (!token.empty() && token.front() == '#')
+            {
+                token.remove_prefix(1);
+            }
+            if (token.size() != 3 && token.size() != 6)
+            {
+                return false;
+            }
+            int d[6]{};
+            for (std::size_t i = 0; i < token.size(); ++i)
+            {
+                d[i] = hex_digit(token[i]);
+                if (d[i] < 0)
+                {
+                    return false;
+                }
+            }
+            if (token.size() == 3)
+            {
+                // CSS shorthand: "ABC" == "AABBCC".
+                out.r = static_cast<std::uint8_t>(d[0] * 17);
+                out.g = static_cast<std::uint8_t>(d[1] * 17);
+                out.b = static_cast<std::uint8_t>(d[2] * 17);
+                return true;
+            }
+            out.r = static_cast<std::uint8_t>(d[0] * 16 + d[1]);
+            out.g = static_cast<std::uint8_t>(d[2] * 16 + d[3]);
+            out.b = static_cast<std::uint8_t>(d[4] * 16 + d[5]);
+            return true;
+        }
+    } // namespace
+
+    int parse_rarity_colors(std::string_view text, Rgb out[kRarityCount], std::string* rejected)
+    {
+        int set = 0;
+        int slot = 0;
+        std::size_t pos = 0;
+        while (pos < text.size() && slot < kRarityCount)
+        {
+            while (pos < text.size() && is_list_sep(text[pos]))
+            {
+                ++pos;
+            }
+            const std::size_t start = pos;
+            while (pos < text.size() && !is_list_sep(text[pos]))
+            {
+                ++pos;
+            }
+            if (pos == start)
+            {
+                break;
+            }
+            const std::string_view token = text.substr(start, pos - start);
+            Rgb parsed{};
+            if (parse_hex_rgb(token, parsed))
+            {
+                out[slot] = parsed;
+                ++set;
+            }
+            else if (rejected != nullptr)
+            {
+                if (!rejected->empty())
+                {
+                    *rejected += ",";
+                }
+                rejected->append(token);
+            }
+            ++slot;
+        }
+        return set;
+    }
+
+    std::string format_rarity_colors(const Rgb in[kRarityCount])
+    {
+        static constexpr char kHex[] = "0123456789ABCDEF";
+        std::string out;
+        for (int i = 0; i < kRarityCount; ++i)
+        {
+            if (i != 0)
+            {
+                out += ", ";
+            }
+            const std::uint8_t channels[3] = {in[i].r, in[i].g, in[i].b};
+            for (const std::uint8_t v : channels)
+            {
+                out += kHex[(v >> 4) & 0x0F];
+                out += kHex[v & 0x0F];
+            }
+        }
+        return out;
+    }
+
+    //======================================================================================
     // markers/<chapter>.json
     //======================================================================================
 
@@ -266,6 +403,12 @@ namespace mdb
                 m.cat = Cat::Other;
                 ++report.unknown_cat;
             }
+
+            // Item quality tier. Optional and additive: extract_markers.py omits it when
+            // it is 0, so a file written before rarity existed reads as all-Common.
+            const mjson::JValue* rv = entry.find("rarity");
+            m.rarity = static_cast<std::uint8_t>(
+                rv != nullptr ? rarity_clamp(static_cast<int>(rv->number_or(0.0))) : 0);
 
             // A per-marker "chapter" overrides the file's, so one file could in
             // principle carry several chapters.

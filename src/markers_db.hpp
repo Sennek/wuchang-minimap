@@ -92,6 +92,74 @@ namespace mdb
     std::string format_category_mask(std::uint32_t mask);
 
     //==================================================================================
+    // Item quality ("rarity")
+    //==================================================================================
+    //
+    // Wuchang has NO rarity ladder. There is no `E_ItemQuality` / `Rarity` / `Grade`
+    // enum anywhere in the paks, no quality word in `MMGame.locres`, and not one of the
+    // six item row structs declares such a field (the offline hunt is written up in
+    // `context/item-names-research.md`). What the game DOES have is the pickup beam:
+    // `BP_PickupActor_C` picks a `DT_Particle` row whose `LightColor` is blue, pink or
+    // gold, and which row it picks follows the item's `ItemType` (`E_ItemType`).
+    //
+    // So "rarity" here is the game's own three-way pickup grouping, produced offline by
+    // `tools/markers/build_items.py` and baked into `markers/chapter*.json` as an
+    // optional `"rarity"` field. Anything without one - every chest, every live-only
+    // actor, every pickup whose item ids could not be resolved - is tier 0, which is
+    // drawn exactly the way it was before this existed.
+
+    enum class Rarity : std::uint8_t
+    {
+        Common = 0, // Tool / Arrows / EnchantingMaterial - the blue beam
+        Equipment,  // weapons, armour, accessories, gems, spells - the pink beam
+        Key,        // Material / SpecialItem (quest and upgrade items) - the gold beam
+        Count
+    };
+
+    constexpr int kRarityCount = static_cast<int>(Rarity::Count);
+
+    // Display name of a tier ("Common"); anything out of range reads as "Common".
+    const char* rarity_name(int rarity);
+
+    // Clamp an untrusted tier (a JSON field, a config index) into range.
+    constexpr int rarity_clamp(int rarity)
+    {
+        return (rarity < 0 || rarity >= kRarityCount) ? 0 : rarity;
+    }
+
+    struct Rgb
+    {
+        std::uint8_t r = 255;
+        std::uint8_t g = 255;
+        std::uint8_t b = 255;
+    };
+
+    constexpr bool operator==(const Rgb& a, const Rgb& b)
+    {
+        return a.r == b.r && a.g == b.g && a.b == b.b;
+    }
+
+    // The GAME's own palette: the `LightColor` of `DT_Particle`'s `PickupEffect`,
+    // `PickupEffect4` and `PickupEffect7` rows, converted from linear to sRGB
+    // (0.420, 0.428, 0.700) / (0.700, 0.420, 0.560) / (0.701, 0.672, 0.418).
+    inline constexpr Rgb kDefaultRarityColors[kRarityCount] = {
+        Rgb{0xAD, 0xAF, 0xDA}, // Common    - blue
+        Rgb{0xDA, 0xAD, 0xC5}, // Equipment - pink
+        Rgb{0xDA, 0xD6, 0xAD}, // Key       - gold
+    };
+
+    // "ADAFDA, DAADC5, DAD6AD" -> `out`. Accepts a `#` prefix, either case, and comma /
+    // semicolon / whitespace separators; the 3-digit form ("ABC") expands the way CSS
+    // does. Entries beyond kRarityCount are ignored and missing ones keep whatever `out`
+    // already held (so the caller seeds it with the defaults), while a malformed entry
+    // still consumes its tier - otherwise one typo would shift every later colour onto
+    // the wrong tier - and is appended to `rejected`. Returns how many tiers were set.
+    int parse_rarity_colors(std::string_view text, Rgb out[kRarityCount], std::string* rejected = nullptr);
+
+    // The inverse, for save_config_file(): "ADAFDA, DAADC5, DAD6AD".
+    std::string format_rarity_colors(const Rgb in[kRarityCount]);
+
+    //==================================================================================
     // The static marker database
     //==================================================================================
 
@@ -106,6 +174,9 @@ namespace mdb
         double z = 0.0;
         int chapter = 0; // 1..8, from the file's "chapter" field
         Cat cat = Cat::Other;
+        // Item quality tier of what a pickup grants (see Rarity above). Absent from the
+        // JSON == 0 == Common, which is what every non-pickup marker is.
+        std::uint8_t rarity = 0;
     };
 
     // Does a static marker belong to the chapter the player is currently in?

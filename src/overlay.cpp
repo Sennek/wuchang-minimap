@@ -1820,6 +1820,25 @@ namespace overlay
             }
         }
 
+        // Category colour, or the ITEM QUALITY colour when the caller has quality
+        // colouring switched on and this marker actually has a tier.
+        //
+        // Tier 0 deliberately falls through to the category colour: it is what every
+        // chest, every live-only actor and every ordinary consumable is, so a palette
+        // that repainted it would recolour most of the screen to say nothing. See
+        // mdb::Rarity for where the tiers and the default palette come from.
+        ImU32 marker_color_q(mdb::Cat cat, std::uint8_t rarity, int alpha, bool use_rarity,
+                             const mdb::Rgb* palette)
+        {
+            const int tier = mdb::rarity_clamp(static_cast<int>(rarity));
+            if (!use_rarity || tier == 0 || palette == nullptr)
+            {
+                return marker_color(cat, alpha);
+            }
+            const mdb::Rgb& c = palette[tier];
+            return IM_COL32(c.r, c.g, c.b, alpha);
+        }
+
         void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge)
         {
             const auto tri = [&](float scale) {
@@ -1942,6 +1961,7 @@ namespace overlay
                 float dy = 0.0f;
                 float d2 = 0.0f;
                 std::uint8_t cat = 0;
+                std::uint8_t rarity = 0;
                 bool found = false;
                 bool clamped = false;
                 const char* id = nullptr;
@@ -2004,6 +2024,7 @@ namespace overlay
                 cand.dy = static_cast<float>(dy);
                 cand.d2 = static_cast<float>(wdx * wdx + wdy * wdy);
                 cand.cat = m.cat;
+                cand.rarity = m.rarity;
                 cand.found = found;
                 cand.clamped = clamped;
                 cand.id = m.id;
@@ -2032,7 +2053,8 @@ namespace overlay
                     continue;
                 }
                 const int alpha = static_cast<int>((std::min)(1.0f, a) * 255.0f + 0.5f);
-                const ImU32 col = marker_color(static_cast<mdb::Cat>(cand.cat), alpha);
+                const ImU32 col = marker_color_q(static_cast<mdb::Cat>(cand.cat), cand.rarity, alpha,
+                                                 cfg.markers_rarity_tint, cfg.xray_rarity_colors);
                 const ImU32 edge = IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f));
                 const ImVec2 p{g.center.x + cand.dx, g.center.y + cand.dy};
                 draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, cand.clamped ? r * 0.72f : r, col, edge);
@@ -2499,7 +2521,10 @@ namespace overlay
                     continue;
                 }
                 const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
-                const ImU32 col = marker_color(cat, alpha);
+                // THE POINT OF THE FEATURE: while the key is held, quality wins over
+                // category, so a weapon and a key item stand out from the consumables.
+                const ImU32 col = marker_color_q(cat, m.rarity, alpha, cfg.xray_rarity_colors_enabled,
+                                                 cfg.xray_rarity_colors);
                 const ImU32 edge = IM_COL32(10, 12, 16, static_cast<int>(alpha * 0.9f));
                 const bool found = (m.flags & markers::kFlagFound) != 0;
 
@@ -2542,7 +2567,9 @@ namespace overlay
                 const ImVec2 p{vp->Pos.x + sx, vp->Pos.y + sy};
                 const int dim = static_cast<int>(alpha * 0.8f);
                 add_edge_arrow(dl, p, static_cast<float>(nx), static_cast<float>(-ny), r * 1.15f,
-                               marker_color(cat, dim), IM_COL32(10, 12, 16, dim));
+                               marker_color_q(cat, m.rarity, dim, cfg.xray_rarity_colors_enabled,
+                                              cfg.xray_rarity_colors),
+                               IM_COL32(10, 12, 16, dim));
                 ++g_hl_debug.edge;
                 ++g_hl_debug.drawn;
             }
@@ -2658,6 +2685,7 @@ namespace overlay
                     double dist = 0.0;
                     double bearing = 0.0;
                     std::uint8_t cat = 0;
+                    std::uint8_t rarity = 0;
                     bool found = false;
                 };
                 static std::vector<Pip> pips; // render thread only
@@ -2682,6 +2710,7 @@ namespace overlay
                     p.dist = d;
                     p.bearing = cmp::bearing_deg(snap.x, snap.y, m.x, m.y);
                     p.cat = m.cat;
+                    p.rarity = m.rarity;
                     p.found = (m.flags & markers::kFlagFound) != 0;
                     pips.push_back(p);
                 }
@@ -2702,7 +2731,8 @@ namespace overlay
                         continue;
                     }
                     const int a = p.found ? alpha(0.35f) : alpha(1.0f);
-                    const ImU32 col = marker_color(static_cast<mdb::Cat>(p.cat), a);
+                    const ImU32 col = marker_color_q(static_cast<mdb::Cat>(p.cat), p.rarity, a,
+                                                     cfg.markers_rarity_tint, cfg.xray_rarity_colors);
                     const ImVec2 at{static_cast<float>(x), y1 - height * 0.30f};
                     draw_marker_glyph(dl, static_cast<mdb::Cat>(p.cat), at, height * 0.22f, col,
                                       IM_COL32(10, 12, 16, a));
@@ -3379,7 +3409,9 @@ namespace overlay
                         continue;
                     }
                     const int alpha = static_cast<int>((found ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
-                    draw_marker_glyph(dl, cat, ImVec2{sx, sy}, mr, marker_color(cat, alpha),
+                    draw_marker_glyph(dl, cat, ImVec2{sx, sy}, mr,
+                                      marker_color_q(cat, m.rarity, alpha, cfg.markers_rarity_tint,
+                                                     cfg.xray_rarity_colors),
                                       IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)));
                     ++g_map_markers_drawn;
 
@@ -3924,6 +3956,37 @@ namespace overlay
                 ImGui::SliderFloat("Alpha at the radius", &cfg.highlight_alpha_far, 0.0f, 1.0f, "%.2f");
                 ImGui::SliderInt("Max drawn (nearest first)", &cfg.highlight_max_draw, 1, 400);
                 ImGui::SliderInt("Camera read rate (Hz)", &cfg.highlight_camera_hz, 5, 240);
+
+                // ---- ITEM QUALITY COLOURS ------------------------------------------
+                ImGui::Separator();
+                ImGui::Checkbox("Colour by item quality", &cfg.xray_rarity_colors_enabled);
+                ImGui::SameLine();
+                ImGui::Checkbox("Also tint the minimap / map / compass", &cfg.markers_rarity_tint);
+                ImGui::TextDisabled("Wuchang has no rarity ladder - these are the game's own pickup-beam "
+                                    "groups (E_ItemType). Tier 0 keeps its category colour.");
+                for (int i = 1; i < mdb::kRarityCount; ++i)
+                {
+                    mdb::Rgb& c = cfg.xray_rarity_colors[i];
+                    float rgb[3] = {static_cast<float>(c.r) / 255.0f, static_cast<float>(c.g) / 255.0f,
+                                    static_cast<float>(c.b) / 255.0f};
+                    ImGui::PushID(i + 700);
+                    if (ImGui::ColorEdit3(mdb::rarity_name(i), rgb,
+                                          ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha))
+                    {
+                        const auto to_byte = [](float v) {
+                            const float clamped = (v < 0.0f) ? 0.0f : ((v > 1.0f) ? 1.0f : v);
+                            return static_cast<std::uint8_t>(clamped * 255.0f + 0.5f);
+                        };
+                        c.r = to_byte(rgb[0]);
+                        c.g = to_byte(rgb[1]);
+                        c.b = to_byte(rgb[2]);
+                    }
+                    ImGui::PopID();
+                    if (i + 1 < mdb::kRarityCount)
+                    {
+                        ImGui::SameLine();
+                    }
+                }
 
                 // The category filter: the same names the config file uses.
                 std::uint32_t hcats = cfg.highlight_categories;

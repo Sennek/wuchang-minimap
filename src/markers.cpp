@@ -886,6 +886,7 @@ namespace markers
                     d.y = sm.y;
                     d.z = sm.z;
                     d.cat = static_cast<std::uint8_t>(sm.cat);
+                    d.rarity = sm.rarity;
                     d.flags = kFlagStatic;
                     if (g_found_gt.contains(sm.id))
                     {

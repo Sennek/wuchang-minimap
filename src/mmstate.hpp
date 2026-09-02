@@ -302,6 +302,21 @@ namespace mm
         float highlight_size = 7.0f;       // glyph radius, screen px
         bool highlight_labels = true;      // name + distance next to the glyph
         bool highlight_edge_arrows = true; // off-screen / behind: an arrow on the rim
+        // ITEM QUALITY COLOURS. While the x-ray key is held, a marker whose static DB
+        // entry carries a rarity tier above 0 is drawn - glyph, label and edge arrow -
+        // in that tier's colour instead of its category colour, so "there is a weapon
+        // in that room" reads at a glance. Tier 0 (every chest, every live-only actor,
+        // every ordinary consumable) keeps the category colour it has always had, so
+        // turning this on never repaints the things the palette has nothing to say
+        // about. Defaults are the game's own pickup-beam palette
+        // (mdb::kDefaultRarityColors).
+        bool xray_rarity_colors_enabled = true;
+        mdb::Rgb xray_rarity_colors[mdb::kRarityCount] = {
+            mdb::kDefaultRarityColors[0], mdb::kDefaultRarityColors[1], mdb::kDefaultRarityColors[2]};
+        // The same tint on the minimap / full-map / compass glyphs. Off by default:
+        // those views are read as a category map, and recolouring a third of the pickups
+        // there costs more legibility than it buys.
+        bool markers_rarity_tint = false;
         // How often the game thread re-reads the camera while the key is held. The read
         // is a handful of raw doubles at a cached offset, so this is cheap; it only has
         // to keep up with how fast the player can swing the camera.

@@ -24,6 +24,11 @@ export for the inline `Items` array and `markers/items.json` (built by
 `build_items.py`) turns the first id into a display name, so a pickup marker
 reads "Purple Camellia" instead of "Pickup".  See `item_ids()` and
 `context/item-names-research.md`.
+
+The same join gives each pickup a `rarity` tier (0 Common / 1 Equipment / 2 Key)
+-- Wuchang has no rarity ladder, so this is the grouping the game itself colours
+the pickup beam by; `itemdb.ITEM_TYPE_RARITY` documents the derivation.  The
+field is omitted when it is 0, so an older reader sees no change.
 """
 
 from __future__ import annotations
@@ -579,12 +584,18 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
             if cat == "chest":
                 stats["chest-mark" if mark else "chest-no-mark"] += 1
             ids = item_ids(lvl.pkg, actor, items) if cat == "pickup" else []
+            rarity = 0
             if cat == "pickup":
                 stats["pickup-items" if ids else "pickup-no-items"] += 1
                 iname = item_name(ids, items)
                 if iname:
                     name = iname
                     stats["pickup-named"] += 1
+                # Quality tier of what the pickup grants, from the first item
+                # (`itemdb.rarity_of_type`).  A pickup whose ids are unknown is
+                # Common, which is exactly what the runtime draws by default.
+                rarity = items.rarity(ids[0]) if ids else 0
+                stats[f"pickup-rarity{rarity}"] += 1
             markers.append({
                 "id": mid,
                 "cat": cat,
@@ -597,6 +608,7 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                 "cell": cell_of(loc[0], loc[1], chapter),
                 "level": lvl.short,
                 **({"items": ids} if ids else {}),
+                **({"rarity": rarity} if rarity else {}),
                 **({"mark": mark} if mark else {}),
             })
             stats["cat:" + cat] += 1

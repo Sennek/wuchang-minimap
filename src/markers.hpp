@@ -45,6 +45,10 @@ namespace markers
         double z = 0.0;
         std::uint8_t cat = static_cast<std::uint8_t>(mdb::Cat::Other);
         std::uint8_t flags = 0;
+        // Item quality tier (mdb::Rarity) of what a pickup grants, straight from the
+        // static DB. 0 for everything else, including every live-only actor - a live
+        // enemy or an unlisted chest has no item to be a tier of.
+        std::uint8_t rarity = 0;
         char id[54]{}; // truncated stable id, for the F2 "nearest marker" readout
         // The blueprint class ("BP_ItemRedBox_C"), or the manifest's display name when
         // there is no class. Only the full map's hover tooltip uses it - the id alone

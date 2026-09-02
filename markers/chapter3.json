@@ -5670,7 +5670,8 @@
    "level": "Chapter3_DaXiJYD_logic",
    "items": [
     22108
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_DaXiJYD_logic/BP_PickupActor_C_2",
@@ -5805,7 +5806,8 @@
    "level": "Chapter3_GuanAi_logic",
    "items": [
     24035
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_GuanAi_logic/BP_PickupActor_C_0",
@@ -5940,7 +5942,8 @@
    "level": "Chapter3_GuanAi_logic",
    "items": [
     22108
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_GuanAi_logic/BP_PickupActor_C_3",
@@ -6045,7 +6048,8 @@
    "level": "Chapter3_JiangWangDK_logic",
    "items": [
     10060
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_JiangWangDK_logic/BP_PickupActor_C_11",
@@ -6153,7 +6157,8 @@
     18202,
     18203,
     18204
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_JiangWangDK_logic/BP_PickupActor_C_5",
@@ -6168,7 +6173,8 @@
    "level": "Chapter3_JiangWangDK_logic",
    "items": [
     19042
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_JiangWangDK_logic/BP_PickupActor_C_6",
@@ -6183,7 +6189,8 @@
    "level": "Chapter3_JiangWangDK_logic",
    "items": [
     18301
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_JiangWangDK_logic/BP_PickupActor_C_7",
@@ -6228,7 +6235,8 @@
    "level": "Chapter3_MuDi_logic",
    "items": [
     22108
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_MuDi_logic/BP_PickupActor_C_1",
@@ -6619,7 +6627,8 @@
    "level": "Chapter3_NanMinYD_logic",
    "items": [
     21179
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_NanMinYD_logic/BP_PickupActor_C_6",
@@ -6637,7 +6646,8 @@
     18202,
     18203,
     18204
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_NanMinYD_logic/BP_PickupActor_C_7",
@@ -6679,7 +6689,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     24061
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_0",
@@ -6709,7 +6720,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_10",
@@ -6799,7 +6811,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     21181
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_16",
@@ -6814,7 +6827,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     23265
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_17",
@@ -6904,7 +6918,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     22108
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_22",
@@ -6919,7 +6934,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     19032
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_23",
@@ -7099,7 +7115,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     21111
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_42",
@@ -7114,7 +7131,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     21112
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_44",
@@ -7144,7 +7162,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     22108
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_46",
@@ -7249,7 +7268,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     21176
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_54",
@@ -7489,7 +7509,8 @@
    "level": "Chapter3_NiaoRenJL_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_79",
@@ -7654,7 +7675,8 @@
    "level": "Chapter3_P2P3_logic",
    "items": [
     22108
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_P2P3_logic/BP_PickupActor_C_6",
@@ -7714,7 +7736,8 @@
    "level": "Chapter3_P3P4_logic",
    "items": [
     24016
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_P3P4_logic/BP_PickupActor_C_0",
@@ -7954,7 +7977,8 @@
    "level": "Chapter3_WuChangJZ_logic",
    "items": [
     24049
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_WuChangJZ_logic/BP_PickupActor_C_0",
@@ -7969,7 +7993,8 @@
    "level": "Chapter3_WuChangJZ_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_WuChangJZ_logic/BP_PickupActor_C_12",
@@ -8029,7 +8054,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     24019
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_0",
@@ -8074,7 +8100,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     21113
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_101",
@@ -8299,7 +8326,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_23",
@@ -8344,7 +8372,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     21170
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_26",
@@ -8479,7 +8508,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     22108
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_34",
@@ -8779,7 +8809,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_52",
@@ -8899,7 +8930,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     21178
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_6",
@@ -8929,7 +8961,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     22108
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_61",
@@ -8944,7 +8977,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_62",
@@ -8974,7 +9008,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_64",
@@ -9064,7 +9099,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     22109
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_7",
@@ -9154,7 +9190,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     22108
-   ]
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_76",
@@ -9199,7 +9236,8 @@
    "level": "Chapter3_ZhenWuG_logic",
    "items": [
     19025
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_8",
@@ -9217,7 +9255,8 @@
     18273,
     18274,
     20038
-   ]
+   ],
+   "rarity": 1
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_80",

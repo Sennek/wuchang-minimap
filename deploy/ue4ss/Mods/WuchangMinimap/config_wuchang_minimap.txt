@@ -390,6 +390,32 @@ highlight_labels = 1
 ; pointing the way to turn.
 highlight_edge_arrows = 1
 
+; ITEM QUALITY COLOURS ------------------------------------------------------------
+; Wuchang has no rarity ladder - no quality enum exists anywhere in the game's data.
+; What it does have is the colour of the beam a pickup gives off, which follows the
+; item's type (E_ItemType), and that is what these three tiers are:
+;
+;   0 Common     tools, consumables, arrows, enchanting materials   (blue beam)
+;   1 Equipment  weapons, armour, accessories, gems, spells, skills (pink beam)
+;   2 Key        quest items and red-mercury upgrade materials      (gold beam)
+;
+; 1 = while the x-ray key is held, a marker with a tier above 0 is drawn in that
+; tier's colour instead of its category colour. Tier 0 - which is every chest, every
+; live actor the offline database does not know, and every ordinary consumable - keeps
+; the category colour it always had.
+xray_rarity_colors_enabled = 1
+
+; The palette, one RRGGBB per tier, in tier order (0, 1, 2). The defaults are the
+; game's own pickup-beam colours (DT_Particle LightColor, converted to sRGB). Tier 0's
+; entry is only used if you switch a tier-0 marker on somewhere else; a `#` prefix and
+; the 3-digit short form are both accepted.
+xray_rarity_colors = ADAFDA, DAADC5, DAD6AD
+
+; 1 = use the same quality colours on the MINIMAP, the full map and the compass pips
+; too. Off by default: those views are read as a category map, and recolouring part of
+; the pickups there costs more than it buys.
+markers_rarity_tint = 0
+
 ; How often the game thread re-reads the camera WHILE THE KEY IS HELD. The read is a
 ; few dozen bytes at a cached offset, so this is cheap; it only has to keep up with how
 ; fast the camera can swing. Nothing is read at all when the key is up and the compass

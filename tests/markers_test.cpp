@@ -1542,6 +1542,166 @@ namespace
     // evidence at all. Every condition is checked on its own, in both directions, and
     // the debounce is walked round by round.
 
+    //==================================================================================
+    // Item quality ("rarity")
+    //==================================================================================
+    //
+    // Three things can go wrong independently and each is cheap to pin here: the JSON
+    // field is optional and must default to 0 (a marker file written before rarity
+    // existed has to keep working), the palette parser has to survive whatever a player
+    // types into the config, and the palette round-trip has to be exact or the F2
+    // panel's Save silently rewrites the colours.
+
+    void test_rarity()
+    {
+        section("item quality (rarity) tiers and palette");
+
+        CHECK_STR(mdb::rarity_name(0), "Common");
+        CHECK_STR(mdb::rarity_name(1), "Equipment");
+        CHECK_STR(mdb::rarity_name(2), "Key");
+        // Out of range must not read off the end of anything.
+        CHECK_STR(mdb::rarity_name(-1), "Common");
+        CHECK_STR(mdb::rarity_name(99), "Common");
+        CHECK_EQ(mdb::rarity_clamp(-3), 0);
+        CHECK_EQ(mdb::rarity_clamp(0), 0);
+        CHECK_EQ(mdb::rarity_clamp(mdb::kRarityCount - 1), mdb::kRarityCount - 1);
+        CHECK_EQ(mdb::rarity_clamp(mdb::kRarityCount), 0);
+        CHECK_EQ(mdb::kRarityCount, 3);
+
+        // ---- the JSON field ---------------------------------------------------------
+        {
+            std::vector<mdb::StaticMarker> db;
+            mdb::ParseReport rep{};
+            CHECK(mdb::parse_markers_json(
+                R"({"schema":"wuchang-minimap-markers/1","chapter":1,"markers":[)"
+                R"({"id":"a/1","cat":"pickup","x":1,"y":2,"z":3,"rarity":2},)"
+                R"({"id":"a/2","cat":"pickup","x":1,"y":2,"z":3,"rarity":1},)"
+                R"({"id":"a/3","cat":"pickup","x":1,"y":2,"z":3},)"
+                R"({"id":"a/4","cat":"chest","x":1,"y":2,"z":3,"rarity":47},)"
+                R"({"id":"a/5","cat":"pickup","x":1,"y":2,"z":3,"rarity":-2}]})",
+                db, rep));
+            CHECK_EQ(db.size(), 5);
+            CHECK_EQ(db[0].rarity, 2);
+            CHECK_EQ(db[1].rarity, 1);
+            CHECK_EQ(db[2].rarity, 0); // absent == Common, so an old file still loads
+            CHECK_EQ(db[3].rarity, 0); // out of range is clamped, never propagated
+            CHECK_EQ(db[4].rarity, 0);
+        }
+
+        // ---- the palette parser -----------------------------------------------------
+        const auto defaults = [](mdb::Rgb (&out)[mdb::kRarityCount]) {
+            for (int i = 0; i < mdb::kRarityCount; ++i)
+            {
+                out[i] = mdb::kDefaultRarityColors[i];
+            }
+        };
+
+        mdb::Rgb pal[mdb::kRarityCount]{};
+        defaults(pal);
+        std::string rejected;
+        CHECK_EQ(mdb::parse_rarity_colors("112233, #445566, 789abc", pal, &rejected), 3);
+        CHECK_STR(rejected, "");
+        CHECK(pal[0] == (mdb::Rgb{0x11, 0x22, 0x33}));
+        CHECK(pal[1] == (mdb::Rgb{0x44, 0x55, 0x66}));
+        CHECK(pal[2] == (mdb::Rgb{0x78, 0x9A, 0xBC})); // lower case is accepted
+
+        // The 3-digit CSS short form, and semicolon / whitespace separators.
+        defaults(pal);
+        CHECK_EQ(mdb::parse_rarity_colors("F00; 0f0\t00F", pal, nullptr), 3);
+        CHECK(pal[0] == (mdb::Rgb{0xFF, 0x00, 0x00}));
+        CHECK(pal[1] == (mdb::Rgb{0x00, 0xFF, 0x00}));
+        CHECK(pal[2] == (mdb::Rgb{0x00, 0x00, 0xFF}));
+
+        // A short list leaves the remaining tiers at whatever the caller seeded.
+        defaults(pal);
+        CHECK_EQ(mdb::parse_rarity_colors("000000", pal, nullptr), 1);
+        CHECK(pal[0] == (mdb::Rgb{0, 0, 0}));
+        CHECK(pal[1] == mdb::kDefaultRarityColors[1]);
+        CHECK(pal[2] == mdb::kDefaultRarityColors[2]);
+
+        // A bad entry is reported, keeps its own tier's old value, and - the point of
+        // the rule - does NOT shift the later colours onto the wrong tiers.
+        defaults(pal);
+        rejected.clear();
+        CHECK_EQ(mdb::parse_rarity_colors("112233, nope, 445566", pal, &rejected), 2);
+        CHECK_STR(rejected, "nope");
+        CHECK(pal[0] == (mdb::Rgb{0x11, 0x22, 0x33}));
+        CHECK(pal[1] == mdb::kDefaultRarityColors[1]);
+        CHECK(pal[2] == (mdb::Rgb{0x44, 0x55, 0x66}));
+
+        // Empty text, and more entries than there are tiers, both change nothing beyond
+        // what fits.
+        defaults(pal);
+        CHECK_EQ(mdb::parse_rarity_colors("", pal, nullptr), 0);
+        CHECK(pal[1] == mdb::kDefaultRarityColors[1]);
+        CHECK_EQ(mdb::parse_rarity_colors("000, 111, 222, 333, 444", pal, nullptr), 3);
+        CHECK(pal[2] == (mdb::Rgb{0x22, 0x22, 0x22}));
+
+        // Wrong lengths are rejected rather than half-read.
+        defaults(pal);
+        rejected.clear();
+        CHECK_EQ(mdb::parse_rarity_colors("1234, 12345678, ABCDE", pal, &rejected), 0);
+        CHECK_STR(rejected, "1234,12345678,ABCDE");
+        for (int i = 0; i < mdb::kRarityCount; ++i)
+        {
+            CHECK(pal[i] == mdb::kDefaultRarityColors[i]);
+        }
+
+        // ---- round trip -------------------------------------------------------------
+        defaults(pal);
+        CHECK_STR(mdb::format_rarity_colors(pal), "ADAFDA, DAADC5, DAD6AD");
+        mdb::Rgb back[mdb::kRarityCount]{};
+        CHECK_EQ(mdb::parse_rarity_colors(mdb::format_rarity_colors(pal), back, nullptr),
+                 mdb::kRarityCount);
+        for (int i = 0; i < mdb::kRarityCount; ++i)
+        {
+            CHECK(back[i] == pal[i]);
+        }
+
+        // ---- the shipped default palette IS the game's own pickup-beam palette -------
+        // DT_Particle LightColor of PickupEffect / PickupEffect4 / PickupEffect7,
+        // linear -> sRGB. If these ever change, the config file's comment is wrong too.
+        CHECK(mdb::kDefaultRarityColors[0] == (mdb::Rgb{0xAD, 0xAF, 0xDA}));
+        CHECK(mdb::kDefaultRarityColors[1] == (mdb::Rgb{0xDA, 0xAD, 0xC5}));
+        CHECK(mdb::kDefaultRarityColors[2] == (mdb::Rgb{0xDA, 0xD6, 0xAD}));
+    }
+
+    // The real database must actually carry tiers - a pipeline that silently stopped
+    // emitting `rarity` would leave every x-ray label one flat colour and nothing else
+    // would fail.
+    void test_rarity_db(const std::string& markers_dir)
+    {
+        section("item quality in the generated database");
+        std::string text;
+        if (!read_file(markers_dir + "/chapter1.json", text))
+        {
+            std::printf("  SKIP  %s/chapter1.json does not exist yet\n", markers_dir.c_str());
+            return;
+        }
+        std::vector<mdb::StaticMarker> db;
+        mdb::ParseReport rep{};
+        CHECK(mdb::parse_markers_json(text, db, rep));
+
+        int per_tier[mdb::kRarityCount]{};
+        int non_pickup_with_tier = 0;
+        for (const mdb::StaticMarker& m : db)
+        {
+            CHECK(m.rarity < mdb::kRarityCount);
+            per_tier[m.rarity] += 1;
+            if (m.cat != mdb::Cat::Pickup && m.rarity != 0)
+            {
+                ++non_pickup_with_tier;
+            }
+        }
+        // Only pickups have items, so only pickups may carry a tier.
+        CHECK_EQ(non_pickup_with_tier, 0);
+        // Both non-default tiers occur in chapter 1 (measured: 18 Equipment, 21 Key of its
+        // 287 pickups). Exact counts would be brittle; "some of each" is the invariant.
+        CHECK(per_tier[1] > 0);
+        CHECK(per_tier[2] > 0);
+        CHECK(per_tier[0] > per_tier[1] + per_tier[2]);
+    }
+
     mdb::AbsenceFacts all_true()
     {
         mdb::AbsenceFacts f{};
@@ -1672,6 +1832,8 @@ int main(int argc, char** argv)
     test_map_manifest(markers_dir);
     test_config_keys(markers_dir);
     test_absence();
+    test_rarity();
+    test_rarity_db(markers_dir);
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

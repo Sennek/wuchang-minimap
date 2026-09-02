@@ -184,11 +184,43 @@ ue4ss\Mods\WuchangMinimap\navmesh\<agent>\tiles_<yyyymmdd_hhmmss>.json
 ```
 
 one directory per `ARecastNavMesh` actor (`Small` / `Big` / `BitFat` / `Giant`, agent radii
-34 / 60 / 90 / 120). `Small` is the one the map will use. A dump happens automatically 3 s
-after the set of live tiles stops changing — i.e. once per area as you walk — and on demand
-on **F6** (or `CTRL+F6`), which also writes a `probe_<ts>.json` diagnostics file when it
-found nothing. Only 4-6 of the game's 12 800-uu streaming cells are ever resident, so a full
+34 / 60 / 90 / 120).
+
+> **The runtime dumper is OFF by default.** The map background is built **offline, out of the
+> paks** (`tools/navmesh/offline`) — the whole game in ~2 minutes, with 0 % false positives
+> against the game's own navigation probes — so the runtime path only matters for cells the
+> paks do not carry and for navmesh carved at runtime. Turn it on for a session with
+> `ue4ss\Mods\WuchangMinimap\config.ini`:
+>
+> ```ini
+> [navmesh]
+> navmesh_dump = 1
+> navmesh_dump_key = F3
+> ```
+>
+> `F6`, `F10` and `F12` are **rejected** as hotkeys: F6 is the RenoDX DLSS 5 toggle (pressing
+> it in-world GPU-crashed the game on 2026-09-02), F10 the game console, F12 the Steam
+> screenshot key.
+
+When enabled, a dump happens automatically 3 s after the set of live tiles stops changing —
+i.e. once per area as you walk — and on demand on **F3** (or `CTRL+F3`), which also writes a
+`probe_<ts>.json` diagnostics file when it found nothing. `navmesh\last_stage.txt` records the
+stage the dumper is in, rewritten and closed at every stage so it survives a crash that eats
+the log buffer. Only 4-6 of the game's 10 240-uu streaming cells are ever resident, so a full
 map is the union of many dumps; the renderer merges them.
+
+### Threading rules (these bind the overlay too)
+
+`CppUserModBase::on_update` runs on **UE4SS's event-loop thread**, not the game thread. So:
+
+* every UObject traversal (`FindAllOf`, reflection) and every raw read of an engine allocation
+  happens in a game-thread pump registered with `RC::Unreal::Hook::RegisterProcessEventPreCallback`;
+* that pump does **raw memory work only** — it queues log text and parks results, because C++
+  iostreams and the C++ locale fault when touched from this game's game thread;
+* `on_update` drains the log queue and does all file/JSON writing;
+* there is **no `std::mutex`** anywhere in the mod — `std::mutex::try_lock` faults against the
+  MSVCP140 loaded in this process. Locking is a header-only `std::atomic_flag` spinlock plus a
+  non-blocking `std::atomic<bool>` single-flight exchange.
 
 ### Nothing is hardcoded, everything is validated
 

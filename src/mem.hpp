@@ -53,6 +53,18 @@ namespace mem
     // misidentified field produces (null, low addresses, non-canonical, unaligned).
     bool read_ptr(const void* p, void*& out) noexcept;
 
+    // Stronger than readable(): the target must sit in a committed, readable,
+    // *writable and private* region (i.e. a heap allocation, not an image section,
+    // not a mapped file, not read-only data) whose remaining size from `p` is inside
+    // [min_size, max_size].
+    //
+    // This is what bounds the depth-2 pointer chase in the navmesh discovery scan.
+    // readable() alone accepts thousands of pointers into loaded images, mapped paks
+    // and thread stacks; following those is pure waste and it is exactly where a
+    // guard page or a concurrently-freed block would be met. An engine struct such as
+    // FPImplRecastNavMesh / dtNavMesh is always a private RW heap block.
+    bool region_ok(const void* p, std::size_t min_size, std::size_t max_size) noexcept;
+
     inline bool plausible_ptr(const void* p) noexcept
     {
         const auto v = reinterpret_cast<std::uintptr_t>(p);

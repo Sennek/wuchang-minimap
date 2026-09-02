@@ -5,10 +5,12 @@
 // (Dear ImGui + a DX12 Present hook installed with MinHook) lives in overlay.cpp
 // and is *not* wired up yet - see overlay::selftest().
 //
-// The navmesh dumper (navmesh_dump.cpp) IS live: it locates the game's Recast/Detour
-// navmesh and writes the streamed-in tiles to
-//     ue4ss/Mods/WuchangMinimap/navmesh/<agent>/tiles_<timestamp>.json
-// automatically and on F6. See navmesh_dump.hpp.
+// The navmesh dumper (navmesh_dump.cpp) is present but OPT-IN and off by default:
+// the map background is built offline from the paks (tools/navmesh/offline), so the
+// runtime dumper only matters for cells the paks do not carry. Turn it on with
+//     ue4ss/Mods/WuchangMinimap/config.ini  ->  [navmesh] navmesh_dump = 1
+// and it then writes navmesh/<agent>/tiles_<timestamp>.json on F3 and automatically.
+// See navmesh_dump.hpp.
 //
 
 #include <Mod/CppUserModBase.hpp>
@@ -54,8 +56,11 @@ class WuchangMinimap : public CppUserModBase
 
     auto on_update() -> void override
     {
-        // Per-frame UE4SS tick. The overlay is not wired up yet; the navmesh dumper
-        // throttles itself internally (actor poll every 2 s, hotkey edge-detected).
+        // NOTE: UE4SS calls this on its own EVENT-LOOP thread, not on the game thread
+        // (proven 2026-09-02: our poll kept logging while the game thread was blocked in
+        // WaitForSingleObject during a GPU crash dump). So nothing called from here may
+        // traverse UObjects or read engine allocations - navmesh::on_update() only
+        // samples the hotkey and hands the work to a game-thread pump.
         navmesh::on_update();
     }
 };

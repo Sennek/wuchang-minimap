@@ -30,6 +30,7 @@
 //    that reaches it.
 //
 
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -123,4 +124,29 @@ namespace RC::Unreal
         // exactly what happens at the main menu for "RecastNavMesh".
         void FindAllOf(std::wstring_view class_name, std::vector<UObject*>& out);
     } // namespace UObjectGlobals
+
+    class UFunction;
+
+    namespace Hook
+    {
+        // ?RegisterProcessEventPreCallback@Hook@Unreal@RC@@YAXV?$function@$$A6AXPEAVUObject@Unreal@RC@@
+        //   PEAVUFunction@23@PEAX@Z@std@@@Z
+        //
+        // WHY WE NEED THIS
+        // ----------------
+        // `CppUserModBase::on_update` is called from UE4SS's own event-loop thread, NOT
+        // from the game thread. That was proven on 2026-09-02: while the game thread sat
+        // blocked in WaitForSingleObject during a GPU crash dump, our [navmesh] poll kept
+        // logging every 300 ms. So anything that traverses UObjects (FindAllOf walks the
+        // FUObjectHashTables) or reads engine allocations races with level streaming and
+        // with the GC.
+        //
+        // UE4SS's ProcessEvent pre-callback, by contrast, fires *inside*
+        // UObject::ProcessEvent - i.e. always on the thread that is executing the script
+        // VM, which for gameplay is the game thread. It is therefore usable as a
+        // game-thread pump: register once, throttle inside, and do all traversal there.
+        // (`UE4SSProgram::queue_event` is NOT an alternative - it queues onto the same
+        // event-loop thread.)
+        void RegisterProcessEventPreCallback(std::function<void(UObject*, UFunction*, void*)> callback);
+    } // namespace Hook
 } // namespace RC::Unreal

@@ -90,6 +90,45 @@ namespace mem
         return true;
     }
 
+    bool region_ok(const void* p, std::size_t min_size, std::size_t max_size) noexcept
+    {
+        if (!plausible_ptr(p))
+        {
+            return false;
+        }
+
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (::VirtualQuery(p, &mbi, sizeof(mbi)) != sizeof(mbi))
+        {
+            return false;
+        }
+        if (mbi.State != MEM_COMMIT || mbi.Type != MEM_PRIVATE)
+        {
+            return false;
+        }
+
+        // Read/write data only. Anything executable, no-access or guarded is either
+        // code or a page the allocator is using as a tripwire.
+        constexpr DWORD writable = PAGE_READWRITE | PAGE_WRITECOPY;
+        if ((mbi.Protect & writable) == 0)
+        {
+            return false;
+        }
+        if ((mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0)
+        {
+            return false;
+        }
+
+        const auto base = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress);
+        const auto here = reinterpret_cast<std::uintptr_t>(p);
+        if (here < base)
+        {
+            return false;
+        }
+        const std::size_t remaining = mbi.RegionSize - static_cast<std::size_t>(here - base);
+        return remaining >= min_size && mbi.RegionSize <= max_size;
+    }
+
     bool read_ptr(const void* p, void*& out) noexcept
     {
         void* v = nullptr;

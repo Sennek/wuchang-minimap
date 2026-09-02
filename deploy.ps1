@@ -42,7 +42,7 @@ $ModName  = 'WuchangMinimap'
 if ($Pull) {
     $srcNav = Join-Path $GameRoot "Project_Plague\Binaries\Win64\ue4ss\Mods\$ModName\navmesh"
     if (-not (Test-Path $srcNav)) {
-        throw "No navmesh dumps yet: '$srcNav' does not exist. Run the game and press F6 (or just walk around) first."
+        throw "No navmesh dumps yet: '$srcNav' does not exist. Enable navmesh_dump in config.ini, run the game and press F3 first."
     }
     $dstNav = Join-Path $PSScriptRoot 'tools\navmesh\dumps'
     New-Item -ItemType Directory -Force -Path $dstNav | Out-Null
@@ -94,6 +94,15 @@ foreach ($modDir in $targets) {
     # An empty enabled.txt is the "no mods.txt editing required" opt-in.
     $enabled = Join-Path $modDir 'enabled.txt'
     if (-not (Test-Path $enabled)) { New-Item -ItemType File -Path $enabled | Out-Null }
+
+    # config.ini gates the runtime navmesh dumper (off by default). Never overwrite the
+    # installed copy - the user may have turned the dumper on for a capture session.
+    $cfgSrc = Join-Path $PSScriptRoot 'deploy\ue4ss\Mods\WuchangMinimap\config.ini'
+    $cfgDst = Join-Path $modDir 'config.ini'
+    if ((Test-Path $cfgSrc) -and -not (Test-Path $cfgDst)) {
+        Copy-Item -Path $cfgSrc -Destination $cfgDst -Force
+        Write-Host "Installed default config.ini -> $cfgDst"
+    }
 
     Write-Host "Deployed -> $dllsDir\main.dll"
 }

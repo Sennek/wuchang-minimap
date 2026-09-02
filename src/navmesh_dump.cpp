@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cwctype>
@@ -100,13 +101,210 @@ namespace navmesh
         constexpr int kMaxVertsPerTile = 262144;
         constexpr double kBoundsSlackUU = 8.0;
 
+        // How long the tile-array scan is allowed to be re-attempted after it has
+        // failed. The scan is 24 KiB of guarded pointer reads per candidate slot and it
+        // stays hopeless for as long as the mesh holds no live tiles, so it must not run
+        // on every poll. (The 2026-09-02 CTRL+F6 session logged the same
+        // "dtMeshTile array NOT found" line 84 times in 50 s - 4 agents x 2 s forever.)
+        constexpr std::uint64_t kTileScanRetryMs = 15000;
+
+        // A candidate impl / dtNavMesh is a private RW heap block. Anything outside this
+        // envelope is an image section, a mapped pak, a thread stack or a huge reservation
+        // and must not be chased at depth 2.
+        constexpr std::size_t kCandMinRegion = 0x40;
+        constexpr std::size_t kCandMaxRegion = 64u * 1024u * 1024u;
+        // Hard cap on how many depth-1 targets the depth-2 chase will look inside.
+        constexpr int kMaxDeepHops = 4096;
+
+        //==============================================================================
+        // Config: the runtime dumper is OFF unless the user turns it on
+        //==============================================================================
+        //
+        // The map background now comes from the offline pak extraction
+        // (tools/navmesh/offline, see context/navmesh-offline.md), so this module is only
+        // needed for DLC cells missing from the paks and for checking runtime-carved
+        // tiles. It scans engine memory and it binds a hotkey, neither of which has any
+        // business happening during normal play - so it ships disabled and is enabled
+        // per-session from
+        //     ue4ss\Mods\WuchangMinimap\config.ini
+        //         [navmesh]
+        //         navmesh_dump = 1
+        //         navmesh_dump_key = F3
+        struct Config
+        {
+            bool enabled = false;
+            int hotkey_vk = VK_F3;
+            std::wstring hotkey_name = L"F3";
+        };
+
+        Config g_cfg;
+
+        //==============================================================================
+        // Crash breadcrumb
+        //==============================================================================
+        //
+        // Every stage writes its name here before doing anything. If the process dies
+        // mid-scan the log buffer may be lost, but this one-line file is closed after
+        // each write and therefore always survives. navmesh/last_stage.txt.
+        std::filesystem::path g_stage_path;
+
+        // Deliberately Win32-only: no iostreams, no std::locale, no allocation beyond a
+        // stack buffer. This is called from the game thread, where the C++ locale is not
+        // safe to touch (see the comment on emit()), and it must also survive being the
+        // last thing that happens before the process dies - so the handle is opened,
+        // written and closed on every call.
+        void set_stage(const wchar_t* stage, const wchar_t* detail = nullptr) noexcept
+        {
+            if (g_stage_path.empty() || stage == nullptr)
+            {
+                return;
+            }
+
+            wchar_t line[256]{};
+            std::size_t n = 0;
+            const auto put = [&](const wchar_t* s2) {
+                for (; s2 != nullptr && *s2 != L'\0' && n + 1 < std::size(line); ++s2)
+                {
+                    line[n++] = *s2;
+                }
+            };
+            const auto put2 = [&](unsigned v, wchar_t sep) {
+                if (n + 3 < std::size(line))
+                {
+                    line[n++] = static_cast<wchar_t>(L'0' + (v / 10) % 10);
+                    line[n++] = static_cast<wchar_t>(L'0' + v % 10);
+                    line[n++] = sep;
+                }
+            };
+
+            SYSTEMTIME t{};
+            ::GetLocalTime(&t);
+            put2(t.wHour, L':');
+            put2(t.wMinute, L':');
+            put2(t.wSecond, L' ');
+            put(stage);
+            if (detail != nullptr)
+            {
+                put(L" ");
+                put(detail);
+            }
+            line[n++] = L'\n';
+
+            char bytes[512]{};
+            const int len = ::WideCharToMultiByte(
+                CP_UTF8, 0, line, static_cast<int>(n), bytes, static_cast<int>(std::size(bytes)), nullptr, nullptr);
+            if (len <= 0)
+            {
+                return;
+            }
+
+            const HANDLE h = ::CreateFileW(g_stage_path.c_str(),
+                                           GENERIC_WRITE,
+                                           FILE_SHARE_READ,
+                                           nullptr,
+                                           CREATE_ALWAYS,
+                                           FILE_ATTRIBUTE_NORMAL,
+                                           nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return;
+            }
+            DWORD written = 0;
+            ::WriteFile(h, bytes, static_cast<DWORD>(len), &written, nullptr);
+            ::FlushFileBuffers(h);
+            ::CloseHandle(h);
+        }
+
         //==============================================================================
         // Logging
         //==============================================================================
 
+        // WHY LOGGING IS QUEUED
+        // ---------------------
+        // UE4SS's Output goes through C++ iostreams, and the C++ *locale* machinery is
+        // not safe to touch from the game thread of this game: the game links the
+        // dynamic UCRT, is localised, and its game thread runs with a per-thread locale,
+        // so a `std::wofstream` / `operator<<` issued from there faults inside
+        // MSVCP140's basic_ios/num_put block (EXCEPTION_ACCESS_VIOLATION reading 0x8,
+        // reproduced 2026-09-02 14:30 - the crash frame was our ProcessEvent callback
+        // calling straight into MSVCP140). So the game-thread pump only ever *queues*
+        // text; on_update, which runs on UE4SS's own event-loop thread where logging has
+        // always worked, drains the queue. Same rule for file writes: see set_stage()
+        // (Win32 only) and flush_pending() (JSON writing happens on the loop thread).
+        // NO std::mutex ANYWHERE IN THIS FILE. `std::mutex::try_lock` compiled against
+        // MSVC 14.40's STL faulted (EXCEPTION_ACCESS_VIOLATION reading 0x8) the instant it
+        // was called from this game's game thread, against the MSVCP140 that is already
+        // loaded in the process - symbolised to
+        // `std::_Mutex_base::try_lock <- std::unique_lock<std::mutex>::{ctor} <-
+        // game_thread_pump`. Whatever the exact mismatch, a mod DLL has no business
+        // depending on the host's C++ runtime for locking: everything here is
+        // header-only <atomic>, which compiles to plain interlocked instructions.
+        class Spinlock
+        {
+          public:
+            void lock() noexcept
+            {
+                while (flag_.test_and_set(std::memory_order_acquire))
+                {
+                    ::YieldProcessor();
+                }
+            }
+            void unlock() noexcept
+            {
+                flag_.clear(std::memory_order_release);
+            }
+
+          private:
+            std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+        };
+
+        class SpinGuard
+        {
+          public:
+            explicit SpinGuard(Spinlock& l) noexcept : lock_(l)
+            {
+                lock_.lock();
+            }
+            ~SpinGuard()
+            {
+                lock_.unlock();
+            }
+            SpinGuard(const SpinGuard&) = delete;
+            SpinGuard& operator=(const SpinGuard&) = delete;
+
+          private:
+            Spinlock& lock_;
+        };
+
+        Spinlock g_log_lock;
+        std::vector<std::wstring> g_log_queue;
+        DWORD g_loop_thread = 0;
+
         void emit(const std::wstring& line)
         {
+            if (g_loop_thread != 0 && ::GetCurrentThreadId() != g_loop_thread)
+            {
+                SpinGuard guard(g_log_lock);
+                if (g_log_queue.size() < 4096)
+                {
+                    g_log_queue.push_back(line);
+                }
+                return;
+            }
             Output::send<LogLevel::Verbose>(STR("[navmesh] {}\n"), line);
+        }
+
+        void drain_log()
+        {
+            std::vector<std::wstring> lines;
+            {
+                SpinGuard guard(g_log_lock);
+                lines.swap(g_log_queue);
+            }
+            for (const std::wstring& l : lines)
+            {
+                Output::send<LogLevel::Verbose>(STR("[navmesh] {}\n"), l);
+            }
         }
 
         template <typename... Args>
@@ -480,11 +678,78 @@ namespace navmesh
             return {};
         }
 
+        // Offsets pinned by the successful 2026-09-02 14:16 in-game discovery, identical
+        // on all four agents:
+        //     actor + 0x5E8 -> FPImplRecastNavMesh
+        //     impl  + 0x000 -> ARecastNavMesh (the owner back-pointer)
+        //     impl  + 0x008 -> dtNavMesh
+        //     dtNavMesh + 0x20 -> dtNavMeshParams, dtReal = double (UE5 LWC)
+        // Trying them first turns discovery into three guarded reads instead of a
+        // ~16 000-read blind scan. The blind scan is still there as the fallback, so a
+        // game patch that moves the field costs performance, not correctness.
+        constexpr std::size_t kPinImplInActor = 0x5E8;
+        constexpr std::size_t kPinDetourInImpl = 0x8;
+        constexpr std::size_t kPinOwnerInImpl = 0x0;
+        constexpr std::size_t kPinParamsInMesh = 0x20;
+
+        std::optional<MeshLayout> try_pinned_layout(const void* actor, double expected_tile_size)
+        {
+            void* impl = nullptr;
+            if (!mem::read_at(actor, kPinImplInActor, impl) ||
+                !mem::region_ok(impl, kCandMinRegion, kCandMaxRegion))
+            {
+                return std::nullopt;
+            }
+            void* detour = nullptr;
+            if (!mem::read_at(impl, kPinDetourInImpl, detour) ||
+                !mem::region_ok(detour, kPinParamsInMesh + 64, kCandMaxRegion))
+            {
+                return std::nullopt;
+            }
+            NavParams p{};
+            if (!read_params_as<double>(detour, kPinParamsInMesh, p) || !params_plausible(p, expected_tile_size))
+            {
+                return std::nullopt;
+            }
+
+            MeshLayout out{};
+            out.impl_found = true;
+            out.detour_found = true;
+            out.impl_offset = kPinImplInActor;
+            out.detour_in_impl = kPinDetourInImpl;
+            out.params_offset = kPinParamsInMesh;
+            out.params_double = true;
+
+            void* owner = nullptr;
+            if (mem::read_at(impl, kPinOwnerInImpl, owner) && owner == actor)
+            {
+                out.owner_in_impl = kPinOwnerInImpl;
+            }
+            out.note = std::format(L"pinned layout accepted: actor+{} -> impl {} + {} -> dtNavMesh {}, params+{} f64",
+                                   hex(kPinImplInActor),
+                                   hex_ptr(impl),
+                                   hex(kPinDetourInImpl),
+                                   hex_ptr(detour),
+                                   hex(kPinParamsInMesh));
+            return out;
+        }
+
         MeshLayout find_impl_and_detour(const void* actor,
                                         const ClassProps& props,
                                         double expected_tile_size,
                                         bool verbose)
         {
+            set_stage(L"discovery: pinned layout");
+            if (auto pinned = try_pinned_layout(actor, expected_tile_size))
+            {
+                if (verbose)
+                {
+                    logf(L"  {}", pinned->note);
+                }
+                return *pinned;
+            }
+
+            set_stage(L"discovery: blind two-level pointer scan");
             MeshLayout out{};
 
             std::size_t scan_end = static_cast<std::size_t>((std::max)(props.structure_size, props.properties_size));
@@ -534,6 +799,7 @@ namespace navmesh
 
             std::vector<std::uint8_t> impl_buf(kImplSnapBytes);
             std::vector<std::uint8_t> mesh_buf(kMeshSnapBytes);
+            int deep_hops = 0;
 
             for (std::size_t off = scan_begin; off + 8 <= scan_end; off += 8)
             {
@@ -576,6 +842,20 @@ namespace navmesh
                     {
                         continue;
                     }
+                    // Bounded depth-2 chase. Without this the scan follows every
+                    // pointer-shaped qword inside ~250 candidate structs - thousands of
+                    // targets, most of them into loaded images, mapped paks or thread
+                    // stacks. A dtNavMesh is always a private RW heap block of a sane
+                    // size, so anything else is skipped before it is ever dereferenced.
+                    if (deep_hops >= kMaxDeepHops)
+                    {
+                        break;
+                    }
+                    if (!mem::region_ok(q, kCandMinRegion, kCandMaxRegion))
+                    {
+                        continue;
+                    }
+                    ++deep_hops;
                     const std::size_t mesh_n = snapshot(q, mesh_buf.data(), kMeshSnapBytes);
                     if (mesh_n == 0)
                     {
@@ -1168,15 +1448,46 @@ namespace navmesh
             // Discovery throttling (see reach_mesh).
             int discovery_attempts = 0;
             std::uint64_t last_discovery = 0;
+
+            // Tile-array scan throttling (see reach_mesh): the 24 KiB-per-slot scan is
+            // pointless until tiles actually stream in, so a failure backs it off.
+            std::uint64_t last_tile_scan = 0;
+            int tile_scan_attempts = 0;
+
+            // Handoff from the game thread (which reads the tiles) to the event-loop
+            // thread (which writes the JSON) - see the comment on emit().
+            bool dump_pending = false;
+            std::vector<Tile> pending_tiles;
+            std::wstring pending_reason;
+            int pending_skipped = 0;
         };
 
         std::unordered_map<const void*, AgentState> g_agents;
         bool g_initialised = false;
         std::uint64_t g_last_poll = 0;
         std::uint64_t g_last_hotkey = 0;
-        bool g_f6_was_down = false;
+        bool g_hotkey_was_down = false;
         int g_last_actor_count = -1;
         std::filesystem::path g_out_root;
+
+        //==============================================================================
+        // Threading
+        //==============================================================================
+        //
+        // `g_agents` and every byte it points at are touched ONLY from the game thread
+        // (the ProcessEvent pre-callback, see ue_min.hpp). `on_update`, which UE4SS calls
+        // on its own event-loop thread, is allowed to do exactly two things: sample the
+        // keyboard and raise g_force_requested. `g_worker` then makes forced and automatic
+        // dumps mutually exclusive even if the pump were ever re-entered.
+        std::atomic<bool> g_force_requested{false};
+        std::atomic<bool> g_pump_registered{false};
+        std::atomic<bool> g_dump_ready{false};
+        // Single-flight, non-blocking: whoever wins the exchange owns g_agents until it
+        // clears the flag. A loser never waits - it just comes back next tick. That is
+        // exactly the behaviour wanted inside the engine's own call stack, and it is what
+        // makes a forced dump and an automatic dump mutually exclusive.
+        std::atomic<bool> g_busy{false};
+        std::uint64_t g_last_pump = 0;
 
         //==============================================================================
         // Output directory
@@ -1808,7 +2119,27 @@ namespace navmesh
                 st.mesh.tiles_found = false;
             }
 
+            // The scan below is the expensive one. Back it off after a few failures: an
+            // agent whose mesh currently holds zero live tiles would otherwise re-run it
+            // on every poll, forever, for every agent.
+            {
+                const std::uint64_t tnow = ::GetTickCount64();
+                if (!force_discovery && st.tile_scan_attempts >= 3 &&
+                    tnow - st.last_tile_scan < kTileScanRetryMs)
+                {
+                    h.reason = L"dtNavMesh holds zero live tiles (scan backed off)";
+                    return h;
+                }
+                st.last_tile_scan = tnow;
+                ++st.tile_scan_attempts;
+            }
+
+            set_stage(L"tile array scan: agent", st.agent.c_str());
             const TileArray array = find_tile_array(detour, st.mesh.params_offset, st.mesh.params_double, p.max_tiles);
+            if (array.found)
+            {
+                st.tile_scan_attempts = 0;
+            }
             if (!array.found || array.stride == 0)
             {
                 st.mesh.tiles_found = false;
@@ -1938,7 +2269,9 @@ namespace navmesh
                  opt_i(st.poly_ref_salt_bits));
         }
 
-        void dump_agent(AgentState& st, bool forced)
+        // GAME THREAD. Reads the mesh and the tiles - raw memory only, no iostreams and
+        // no file I/O - and parks the result on the AgentState for the loop thread.
+        void collect_for_dump(AgentState& st, bool forced)
         {
             const MeshHandle h = reach_mesh(st, forced);
 
@@ -1946,15 +2279,8 @@ namespace navmesh
             int skipped = 0;
             if (h.ok)
             {
+                set_stage(L"collect tiles: agent", st.agent.c_str());
                 tiles = collect_tiles(st, h, skipped);
-            }
-
-            std::size_t total_polys = 0;
-            std::size_t total_verts = 0;
-            for (const Tile& t : tiles)
-            {
-                total_polys += t.polys.size();
-                total_verts += t.verts.size();
             }
 
             std::wstring reason = h.reason;
@@ -1974,6 +2300,34 @@ namespace navmesh
                 return;
             }
 
+            st.pending_tiles = std::move(tiles);
+            st.pending_reason = std::move(reason);
+            st.pending_skipped = skipped;
+            st.dump_pending = true;
+        }
+
+        // EVENT-LOOP THREAD. Everything that touches iostreams or the C++ locale.
+        void flush_pending(AgentState& st)
+        {
+            if (!st.dump_pending)
+            {
+                return;
+            }
+            st.dump_pending = false;
+
+            std::vector<Tile> tiles = std::move(st.pending_tiles);
+            st.pending_tiles.clear();
+            const std::wstring reason = st.pending_reason;
+            const int skipped = st.pending_skipped;
+
+            std::size_t total_polys = 0;
+            std::size_t total_verts = 0;
+            for (const Tile& t : tiles)
+            {
+                total_polys += t.polys.size();
+                total_verts += t.verts.size();
+            }
+
             const std::wstring file = (tiles.empty() ? L"probe_" : L"tiles_") + timestamp() + L".json";
             const std::filesystem::path path = g_out_root / st.agent / file;
 
@@ -1984,7 +2338,8 @@ namespace navmesh
                      static_cast<int>(tiles.size()),
                      static_cast<int>(total_polys),
                      static_cast<int>(total_verts),
-                     skipped > 0 ? std::format(L", {} tile(s) skipped after failing validation", skipped) : std::wstring{},
+                     skipped > 0 ? std::format(L", {} tile(s) skipped after failing validation", skipped)
+                                 : std::wstring{},
                      path.wstring(),
                      reason.empty() ? std::wstring{} : (L"   [" + reason + L"]"));
             }
@@ -2100,6 +2455,205 @@ namespace navmesh
             ::GetWindowThreadProcessId(fg, &pid);
             return pid == ::GetCurrentProcessId();
         }
+
+        //==============================================================================
+        // Config file
+        //==============================================================================
+
+        int vk_from_name(std::wstring_view name)
+        {
+            if (name.size() >= 2 && (name[0] == L'F' || name[0] == L'f'))
+            {
+                int n = 0;
+                for (std::size_t i = 1; i < name.size(); ++i)
+                {
+                    if (name[i] < L'0' || name[i] > L'9')
+                    {
+                        return 0;
+                    }
+                    n = n * 10 + (name[i] - L'0');
+                }
+                if (n >= 1 && n <= 24)
+                {
+                    return VK_F1 + (n - 1);
+                }
+            }
+            return 0;
+        }
+
+        Config load_config()
+        {
+            Config cfg{};
+            const std::filesystem::path ini = g_out_root.parent_path() / L"config.ini";
+            std::wifstream f(ini);
+            if (!f)
+            {
+                return cfg;
+            }
+            const auto trim = [](std::wstring v) {
+                while (!v.empty() && std::iswspace(static_cast<wint_t>(v.front())))
+                {
+                    v.erase(v.begin());
+                }
+                while (!v.empty() && std::iswspace(static_cast<wint_t>(v.back())))
+                {
+                    v.pop_back();
+                }
+                return v;
+            };
+            std::wstring line;
+            while (std::getline(f, line))
+            {
+                const auto comment = line.find_first_of(L";#");
+                if (comment != std::wstring::npos)
+                {
+                    line.erase(comment);
+                }
+                const auto eq = line.find(L'=');
+                if (eq == std::wstring::npos)
+                {
+                    continue;
+                }
+                const std::wstring key = trim(line.substr(0, eq));
+                const std::wstring value = trim(line.substr(eq + 1));
+                if (key == L"navmesh_dump")
+                {
+                    cfg.enabled = (value == L"1" || value == L"true" || value == L"yes" || value == L"on");
+                }
+                else if (key == L"navmesh_dump_key")
+                {
+                    const int vk = vk_from_name(value);
+                    if (vk != 0 && vk != VK_F6 && vk != VK_F10 && vk != VK_F12)
+                    {
+                        cfg.hotkey_vk = vk;
+                        cfg.hotkey_name = value;
+                    }
+                    else
+                    {
+                        logf(L"config.ini: navmesh_dump_key '{}' rejected - F6 is the RenoDX DLSS5 toggle, F10 the "
+                             L"game console, F12 the Steam screenshot key. Keeping {}",
+                             value,
+                             cfg.hotkey_name);
+                    }
+                }
+            }
+            return cfg;
+        }
+
+        //==============================================================================
+        // The game-thread pump
+        //==============================================================================
+        //
+        // Called from UE4SS's ProcessEvent pre-callback, i.e. from whatever thread is
+        // running the script VM - the game thread for all gameplay. This is the ONLY
+        // place that touches g_agents, walks UObjects or reads engine allocations.
+        // ProcessEvent fires thousands of times a second, so the first thing it does is
+        // throttle; a non-blocking atomic single-flight flag (g_busy) makes a forced and an
+        // automatic dump mutually exclusive without ever waiting.
+
+        void run_forced_dump();
+        void run_poll(std::uint64_t now);
+
+        void game_thread_pump()
+        {
+            if (!g_initialised)
+            {
+                return;
+            }
+
+            const bool forced = g_force_requested.exchange(false);
+            const std::uint64_t now = ::GetTickCount64();
+            if (!forced && now - g_last_pump < kActorPollMs)
+            {
+                return;
+            }
+
+            // Never block: this runs inside the engine's own call stack. A missed pump
+            // costs at most kActorPollMs.
+            if (g_busy.exchange(true))
+            {
+                if (forced)
+                {
+                    g_force_requested = true; // retry on the next tick
+                }
+                return;
+            }
+
+            g_last_pump = now;
+
+            if (forced)
+            {
+                set_stage(L"forced dump: refresh actors");
+                refresh_actors();
+                run_forced_dump();
+            }
+            else
+            {
+                run_poll(now);
+            }
+            set_stage(L"idle");
+            g_dump_ready = true;
+            g_busy = false;
+        }
+
+        void run_forced_dump()
+        {
+            logf(L"{} pressed - forcing a dump of {} agent(s)", g_cfg.hotkey_name, static_cast<int>(g_agents.size()));
+            if (g_agents.empty())
+            {
+                logf(L"  nothing to dump: no RecastNavMesh actor is loaded. At the main menu this is expected - "
+                     L"load a save first");
+                return;
+            }
+            for (auto& entry : g_agents)
+            {
+                set_stage(L"forced dump: agent", entry.second.agent.c_str());
+                collect_for_dump(entry.second, true);
+                entry.second.dumped_current_signature = true;
+            }
+        }
+
+        void run_poll(std::uint64_t now)
+        {
+            set_stage(L"poll: FindAllOf(RecastNavMesh)");
+            refresh_actors();
+
+            for (auto& entry : g_agents)
+            {
+                AgentState& st = entry.second;
+                set_stage(L"poll: reach_mesh agent", st.agent.c_str());
+                const MeshHandle h = reach_mesh(st, false);
+                if (!h.ok)
+                {
+                    continue;
+                }
+                set_stage(L"poll: tile signature agent", st.agent.c_str());
+                int live = 0;
+                const std::uint64_t sig = tile_set_signature(h, live);
+                if (live == 0)
+                {
+                    continue;
+                }
+                if (!st.signature_seen || sig != st.tile_signature)
+                {
+                    st.signature_seen = true;
+                    st.tile_signature = sig;
+                    st.signature_changed_at = now;
+                    st.dumped_current_signature = false;
+                    logf(L"{}: live tile set changed - {} tiles; auto dump in {} ms unless it changes again",
+                         st.agent,
+                         live,
+                         static_cast<int>(kDebounceMs));
+                    continue;
+                }
+                if (!st.dumped_current_signature && now - st.signature_changed_at >= kDebounceMs)
+                {
+                    st.dumped_current_signature = true;
+                    set_stage(L"auto dump: agent", st.agent.c_str());
+                    collect_for_dump(st, false);
+                }
+            }
+        }
     } // namespace
 
     //==================================================================================
@@ -2109,84 +2663,73 @@ namespace navmesh
     void on_unreal_init()
     {
         g_out_root = resolve_out_root();
+        g_stage_path = g_out_root / L"last_stage.txt";
+        g_cfg = load_config();
+
+        if (!g_cfg.enabled)
+        {
+            logf(L"runtime dtNavMesh dumper is DISABLED (the default). The map background comes from the offline "
+                 L"pak extraction (tools/navmesh/offline), so this module is only needed for cells missing from "
+                 L"the paks. No hotkey is bound and no memory is scanned.");
+            logf(L"to enable it, put   [navmesh]  navmesh_dump = 1   in {}",
+                 (g_out_root.parent_path() / L"config.ini").wstring());
+            return;
+        }
+
         g_initialised = true;
-        logf(L"module up. Output root: {}", g_out_root.wstring());
-        logf(L"F6 / CTRL+F6 forces a dump of every agent; an automatic dump follows {} ms after the set of live "
+        g_loop_thread = ::GetCurrentThreadId();
+        set_stage(L"module up (enabled)");
+        logf(L"module up, ENABLED by config.ini. Output root: {}", g_out_root.wstring());
+        logf(L"{} / CTRL+{} forces a dump of every agent; an automatic dump follows {} ms after the set of live "
              L"tiles changes; the primary agent for the map is \"{}\"",
+             g_cfg.hotkey_name,
+             g_cfg.hotkey_name,
              static_cast<int>(kDebounceMs),
              kPrimaryAgent);
+
+        // Everything that touches UObjects or engine allocations runs from here, on the
+        // game thread. See the comment on RegisterProcessEventPreCallback in ue_min.hpp:
+        // CppUserModBase::on_update is called on UE4SS's own event-loop thread, so doing
+        // FindAllOf / pointer chasing from there races level streaming and the GC.
+        RC::Unreal::Hook::RegisterProcessEventPreCallback(
+            [](RC::Unreal::UObject*, RC::Unreal::UFunction*, void*) { game_thread_pump(); });
+        g_pump_registered = true;
+        logf(L"UObject traversal is pumped from the game thread via the UE4SS ProcessEvent pre-callback");
     }
 
     void on_update()
     {
+        // UE4SS EVENT-LOOP THREAD. Nothing here may touch g_agents, UObjects or engine
+        // memory - it only samples the keyboard and raises a flag for the game thread.
         if (!g_initialised)
         {
             return;
         }
 
         const std::uint64_t now = ::GetTickCount64();
-
-        // ---- hotkey -----------------------------------------------------------------
-        const bool f6_down = (::GetAsyncKeyState(VK_F6) & 0x8000) != 0;
-        const bool ctrl_down = (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        if (f6_down && !g_f6_was_down && now - g_last_hotkey > kHotkeyGuardMs && this_process_is_foreground())
+        const bool down = (::GetAsyncKeyState(g_cfg.hotkey_vk) & 0x8000) != 0;
+        if (down && !g_hotkey_was_down && now - g_last_hotkey > kHotkeyGuardMs && this_process_is_foreground())
         {
             g_last_hotkey = now;
-            logf(L"{}F6 pressed - forcing a dump of {} agent(s)",
-                 ctrl_down ? L"CTRL+" : L"",
-                 static_cast<int>(g_agents.size()));
-            if (g_agents.empty())
-            {
-                logf(L"  nothing to dump: no RecastNavMesh actor is loaded. At the main menu this is expected - "
-                     L"load a save first");
-            }
-            for (auto& entry : g_agents)
-            {
-                dump_agent(entry.second, true);
-                entry.second.dumped_current_signature = true;
-            }
+            g_force_requested = true;
         }
-        g_f6_was_down = f6_down;
+        g_hotkey_was_down = down;
 
-        // ---- periodic actor + tile-set poll ------------------------------------------
-        if (now - g_last_poll < kActorPollMs)
+        // Everything the game thread produced comes out here, where iostreams are safe.
+        drain_log();
+        if (g_dump_ready.exchange(false))
         {
-            return;
-        }
-        g_last_poll = now;
-
-        refresh_actors();
-
-        for (auto& entry : g_agents)
-        {
-            AgentState& st = entry.second;
-            const MeshHandle h = reach_mesh(st, false);
-            if (!h.ok)
+            if (!g_busy.exchange(true))
             {
-                continue;
+                for (auto& entry : g_agents)
+                {
+                    flush_pending(entry.second);
+                }
+                g_busy = false;
             }
-            int live = 0;
-            const std::uint64_t sig = tile_set_signature(h, live);
-            if (live == 0)
+            else
             {
-                continue;
-            }
-            if (!st.signature_seen || sig != st.tile_signature)
-            {
-                st.signature_seen = true;
-                st.tile_signature = sig;
-                st.signature_changed_at = now;
-                st.dumped_current_signature = false;
-                logf(L"{}: live tile set changed - {} tiles; auto dump in {} ms unless it changes again",
-                     st.agent,
-                     live,
-                     static_cast<int>(kDebounceMs));
-                continue;
-            }
-            if (!st.dumped_current_signature && now - st.signature_changed_at >= kDebounceMs)
-            {
-                st.dumped_current_signature = true;
-                dump_agent(st, false);
+                g_dump_ready = true; // the pump is mid-scan; try again next tick
             }
         }
     }

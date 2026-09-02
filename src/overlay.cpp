@@ -64,6 +64,7 @@
 #include "markers.hpp"
 #include "mmstate.hpp"
 #include "projection.hpp"
+#include "version.hpp"
 
 // imgui_impl_win32.h deliberately hides this behind `#if 0` so the header does not
 // depend on <windows.h>; the backend expects you to copy the declaration yourself.
@@ -3522,7 +3523,9 @@ namespace overlay
             ImGui::SetNextWindowPos(ImVec2{ImGui::GetMainViewport()->Pos.x + 60.0f,
                                            ImGui::GetMainViewport()->Pos.y + 60.0f},
                                     ImGuiCond_FirstUseEver);
-            if (!ImGui::Begin("Wuchang Minimap", &open, ImGuiWindowFlags_NoCollapse))
+            if (!ImGui::Begin("Wuchang Minimap  v" WUCHANG_MINIMAP_VERSION
+                              "###wuchang_minimap_panel",
+                              &open, ImGuiWindowFlags_NoCollapse))
             {
                 ImGui::End();
                 if (!open)
@@ -3534,6 +3537,10 @@ namespace overlay
 
             const mm::Config before = cfg;
 
+            ImGui::TextColored(ImVec4{0.62f, 0.68f, 0.78f, 1.0f},
+                               "WuchangMinimap v" WUCHANG_MINIMAP_VERSION
+                               "  -  beta: chapters 2-5 maps and the x-ray highlight are not yet verified in-game");
+            ImGui::Spacing();
             ImGui::Checkbox("Overlay enabled", &cfg.enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Show minimap", &cfg.show_minimap);

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WuchangMinimap v@@VERSION@@ - Install Guide</title>
+<style>
+  :root{
+    --bg:#f7f5f1; --panel:#ffffff; --ink:#23201c; --muted:#6b645b; --line:#ddd6cb;
+    --accent:#8a5a2b; --accent-soft:#f3e9dc; --warn-bg:#fdf3e3; --warn-line:#d8a24a;
+    --danger-bg:#fdeceb; --danger-line:#c0503f; --code-bg:#f0ece5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#191714; --panel:#221f1b; --ink:#ece7df; --muted:#a49b8e; --line:#3a352e;
+      --accent:#d9a163; --accent-soft:#2e271f; --warn-bg:#302716; --warn-line:#a97f2e;
+      --danger-bg:#331d1a; --danger-line:#b45443; --code-bg:#141210;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.6 "Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:900px;margin:0 auto;padding:40px 24px 80px}
+  header{border-bottom:2px solid var(--accent);padding-bottom:18px;margin-bottom:8px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:15px}
+  h2{font-size:21px;margin:38px 0 10px;padding-top:10px;border-top:1px solid var(--line)}
+  h3{font-size:16px;margin:24px 0 6px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  p,li{max-width:74ch}
+  code,kbd,pre{font-family:"Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+  code{background:var(--code-bg);padding:1px 5px;border-radius:4px;font-size:.9em}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+      padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+  kbd{background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;
+      border-radius:5px;padding:1px 6px;font-size:.85em;white-space:nowrap}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--accent-soft);font-weight:600}
+  .box{border-radius:8px;padding:14px 16px;margin:16px 0;border-left:5px solid}
+  .warn{background:var(--warn-bg);border-color:var(--warn-line)}
+  .danger{background:var(--danger-bg);border-color:var(--danger-line)}
+  .box h4{margin:0 0 6px;font-size:15px}
+  .box p:last-child,.box ul:last-child{margin-bottom:0}
+  ol,ul{padding-left:22px}
+  li{margin:4px 0}
+  footer{margin-top:48px;border-top:1px solid var(--line);padding-top:14px;
+         color:var(--muted);font-size:13px}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:20px 0}
+  .toc ul{margin:0;columns:2;column-gap:28px}
+  .toc a{color:var(--accent)}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>WuchangMinimap <span style="color:var(--muted);font-weight:400">v@@VERSION@@</span></h1>
+  <div class="sub">An interactive minimap, full map, compass and collection tracker for
+  <strong>Wuchang: Fallen Feathers</strong>. Built @@DATE@@.</div>
+</header>
+
+<div class="box warn">
+  <h4>This is a beta</h4>
+  <p>The <strong>Chapter&nbsp;1</strong> map, the markers, the minimap, the full map and the
+  collection tracker have been tested in-game. The <strong>Chapter&nbsp;2&ndash;5 maps</strong> and the
+  <strong>x-ray highlight</strong> have <strong>not yet been verified in-game</strong> &mdash; they are
+  built from the same pipeline and should work, but expect rough edges. The
+  <strong>DLC has no map at all</strong>: the game ships no navigation data for it (markers still work).</p>
+</div>
+
+<div class="toc">
+  <ul>
+    <li><a href="#prereq">1. Prerequisites</a></li>
+    <li><a href="#install">2. Install</a></li>
+    <li><a href="#hotkeys">3. Hotkeys</a></li>
+    <li><a href="#config">4. Configuration</a></li>
+    <li><a href="#files">5. Your files</a></li>
+    <li><a href="#uninstall">6. Uninstall</a></li>
+    <li><a href="#trouble">7. Troubleshooting</a></li>
+  </ul>
+</div>
+
+<h2 id="prereq">1. Prerequisites</h2>
+
+<p>The mod is a UE4SS C++ mod. You need <strong>UE4SS installed for Wuchang</strong> first &mdash; use the
+build packaged for this game, <em>UE4SS for Wuchang: Fallen Feathers</em>,
+<strong>Nexus Mods mod&nbsp;384</strong> for Wuchang. Install it into the game's binaries folder:</p>
+
+<pre>&lt;Steam&gt;\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\</pre>
+
+<p>After that folder contains <code>dwmapi.dll</code> (UE4SS's loader &mdash; the game loads it at start-up)
+and a <code>ue4ss\</code> subfolder, UE4SS is installed.</p>
+
+<div class="box danger">
+  <h4>Mandatory: <code>HookInitGameState = 0</code></h4>
+  <p>Open <code>Project_Plague\Binaries\Win64\ue4ss\UE4SS-settings.ini</code>, find the
+  <code>[Hooks]</code> section, and set:</p>
+  <pre>[Hooks]
+HookInitGameState = 0</pre>
+  <p><strong>Without this the game crashes about a third of a second into loading</strong>, with or
+  without this mod &mdash; UE4SS's hook on <code>AGameModeBase::InitGameState</code> breaks Wuchang's custom
+  game mode and a blueprint then reads a null game state. Every other hook can stay on.
+  This is a UE4SS-plus-Wuchang problem, not a bug in this mod.</p>
+</div>
+
+<h2 id="install">2. Install</h2>
+
+<ol>
+  <li>Make sure the game is <strong>closed</strong>.</li>
+  <li>Open the folder this guide is in. It contains a single <code>ue4ss\</code> folder.</li>
+  <li>Copy that <code>ue4ss\</code> folder into
+      <pre>&lt;Steam&gt;\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\</pre>
+      and merge when Windows asks. Nothing of UE4SS's own is overwritten &mdash; everything in the
+      package lives under <code>ue4ss\Mods\WuchangMinimap\</code>.</li>
+  <li>Check <code>[Hooks] HookInitGameState = 0</code> as described above.</li>
+  <li>Launch the game. Load a save (the mod deliberately shows nothing on the main menu),
+      then press <kbd>F2</kbd>.</li>
+</ol>
+
+<p>The installed layout, for reference:</p>
+
+<pre>Project_Plague\Binaries\Win64\
+  dwmapi.dll                     &lt;- UE4SS's loader (from UE4SS, not from this package)
+  ue4ss\
+    UE4SS-settings.ini           &lt;- must have [Hooks] HookInitGameState = 0
+    Mods\
+      WuchangMinimap\
+        dlls\main.dll            &lt;- the mod
+        maps\                    &lt;- the map assets, one folder per chapter
+        markers\                 &lt;- the marker database, one file per chapter
+        config_wuchang_minimap.txt   &lt;- all overlay settings
+        config.ini                   &lt;- the developer navmesh dumper (off)
+        enabled.txt              &lt;- empty; this is what tells UE4SS to load the mod</pre>
+
+<p>There is no <code>mods.txt</code> to edit: the empty <code>enabled.txt</code> is the opt-in.</p>
+
+<h2 id="hotkeys">3. Hotkeys</h2>
+
+<h3>Anywhere in the game</h3>
+<table>
+  <tr><th style="width:180px">Key</th><th>Action</th></tr>
+  <tr><td><kbd>F2</kbd></td><td>Open / close the settings panel (takes the mouse while it is open)</td></tr>
+  <tr><td><kbd>M</kbd></td><td>Open / close the full map</td></tr>
+  <tr><td><kbd>F5</kbd></td><td>Reload the config file, the map assets and the marker database</td></tr>
+  <tr><td><kbd>LALT</kbd> <em>held</em></td>
+      <td>X-ray highlight: nearby uncollected chests and pickups are drawn through walls,
+          with name and distance. It is a <strong>hold</strong>, not a toggle.</td></tr>
+  <tr><td><kbd>LB</kbd>+<kbd>RB</kbd> <em>held</em></td><td>The same, on a controller</td></tr>
+</table>
+
+<h3>While the full map is open</h3>
+<table>
+  <tr><th style="width:180px">Input</th><th>Action</th></tr>
+  <tr><td>Drag, <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, arrows</td><td>Pan</td></tr>
+  <tr><td>Mouse wheel, <kbd>+</kbd> / <kbd>-</kbd></td><td>Zoom</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+wheel, <kbd>Q</kbd> / <kbd>E</kbd>, <kbd>PgUp</kbd> / <kbd>PgDn</kbd></td>
+      <td>Move the height slice down / up a floor</td></tr>
+  <tr><td><kbd>R</kbd></td><td>Recentre on the player, clear the floor offset</td></tr>
+  <tr><td>Left-click a marker, or <kbd>F</kbd></td><td>Toggle "found" by hand (writes the tracker)</td></tr>
+  <tr><td>Right-click, or <kbd>Space</kbd></td><td>Set the waypoint (it also shows on the minimap and compass)</td></tr>
+  <tr><td><kbd>M</kbd> or <kbd>Esc</kbd></td><td>Close</td></tr>
+  <tr><td>Gamepad</td><td>Left stick pan &middot; triggers or right stick zoom &middot;
+      <kbd>LB</kbd>/<kbd>RB</kbd> floor &middot; <kbd>A</kbd> waypoint &middot;
+      <kbd>X</kbd> found &middot; <kbd>Y</kbd> recentre &middot; <kbd>B</kbd> close</td></tr>
+</table>
+
+<div class="box warn">
+  <h4>Keys the mod refuses to bind</h4>
+  <p><kbd>F6</kbd> and <kbd>F9</kbd>&ndash;<kbd>F12</kbd> are <strong>rejected in code</strong>: if you put
+  one of them in the config file the mod ignores it and falls back to the default. They belong to
+  other things &mdash; <kbd>F6</kbd> toggles RenoDX / DLSS&nbsp;5 Neural Rendering (which hung the GPU when
+  pressed in-world during development), <kbd>F10</kbd> opens the game console, <kbd>F12</kbd> is the
+  Steam screenshot key, and <kbd>F9</kbd> / <kbd>F11</kbd> are engine screenshot and fullscreen binds.
+  Everything else is fair game: <kbd>F1</kbd>&ndash;<kbd>F5</kbd>, <kbd>F7</kbd>, <kbd>F8</kbd>, any
+  letter or digit, <kbd>Tab</kbd>, <kbd>Space</kbd>, and the modifier keys
+  (<code>LALT</code>, <code>LSHIFT</code>, <code>LCTRL</code>, &hellip;).</p>
+</div>
+
+<h2 id="config">4. Configuration</h2>
+
+<p>Everything lives in one plain-text file,
+<code>ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt</code>. Lines are
+<code>key = value</code>; <code>;</code> and <code>#</code> start a comment. The file itself documents
+every key. Edit it and press <kbd>F5</kbd> in-game &mdash; no restart needed. The <kbd>F2</kbd> panel
+edits the same settings and its <em>Save settings</em> button writes them back.</p>
+
+<table>
+  <tr><th style="width:210px">Group</th><th>What it controls</th></tr>
+  <tr><td><code>enabled</code>, <code>show_minimap</code></td>
+      <td>Master switch (<code>0</code> installs no graphics hooks at all) and the minimap itself.</td></tr>
+  <tr><td><code>minimap_size</code>, <code>minimap_zoom</code>, <code>minimap_shape</code>,
+          <code>minimap_anchor</code>, <code>opacity</code>, <code>rotate_with_player</code></td>
+      <td>Shape, size, placement and zoom of the minimap. <code>minimap_zoom</code> is world units
+          per pixel &mdash; smaller is more zoomed in.</td></tr>
+  <tr><td><code>hide_in_menus</code>, <code>require_pawn_view</code>, <code>state_stale_ms</code>,
+          <code>min_visible_after_state_ok_ms</code></td>
+      <td>When the overlay is allowed on screen. The defaults keep it off the main menu, out of
+          cutscenes and out of loading screens.</td></tr>
+  <tr><td><code>floor_z_tolerance</code>, <code>floor_fade_uu</code>,
+          <code>show_adjacent_floors</code>, <code>adjacent_floor_opacity</code>,
+          <code>floor_gradient_strength</code>, <code>floor_base_color</code></td>
+      <td>Height slicing &mdash; how the mod decides which storey you are on and how the ones above
+          and below are dimmed. This is the group worth tuning in a multi-storey temple.</td></tr>
+  <tr><td><code>markers_*</code></td>
+      <td>Which marker categories are drawn, their size, whether found ones are hidden, and the
+          cost dials for the live actor sweep.</td></tr>
+  <tr><td><code>map_*</code></td>
+      <td>The full map: opening zoom and limits, pan speed, margins, gamepad, waypoint persistence.</td></tr>
+  <tr><td><code>highlight_*</code></td>
+      <td>The x-ray highlight: key, radius (default 3000&nbsp;uu = 30&nbsp;m), categories, labels,
+          edge arrows.</td></tr>
+  <tr><td><code>compass_*</code></td>
+      <td>The compass strip: width, height, how many degrees it spans, which markers get a pip.</td></tr>
+  <tr><td><code>panel_key</code>, <code>map_key</code>, <code>map_recenter_key</code>,
+          <code>reload_key</code>, <code>highlight_key</code></td>
+      <td>Rebinding. The <kbd>F2</kbd> panel and the full map's footer read the key hints straight
+          out of this file, so they cannot go stale after a rebind.</td></tr>
+</table>
+
+<p>The second file, <code>config.ini</code>, controls a <strong>developer tool only</strong>: a runtime
+navigation-mesh dumper, off by default (<code>navmesh_dump = 0</code>). Leave it alone. It has nothing
+to do with the maps you see &mdash; those were extracted offline from the game's own data.</p>
+
+<h2 id="files">5. Your files</h2>
+
+<p>Two files are <strong>yours</strong>, written by the mod as you play. They live next to the config,
+in <code>ue4ss\Mods\WuchangMinimap\</code>, and no install or update ever overwrites them:</p>
+
+<table>
+  <tr><th style="width:280px">File</th><th>What it is</th></tr>
+  <tr><td><code>wuchang_minimap_found.txt</code></td>
+      <td>The collection tracker: one marker id per line. The mod adds a line when it sees you
+          open a chest or take a pickup, and you can toggle one by hand by clicking it on the full
+          map. Plain text, hand-editable; delete the file to reset your tracking.</td></tr>
+  <tr><td><code>wuchang_minimap_waypoint.txt</code></td>
+      <td>Your waypoint, so it survives a restart. Three <code>key = value</code> lines.</td></tr>
+</table>
+
+<p>They are tied to a save, not to the game &mdash; if you start a new character, delete
+<code>wuchang_minimap_found.txt</code>.</p>
+
+<h2 id="uninstall">6. Uninstall</h2>
+
+<ol>
+  <li>Close the game.</li>
+  <li>Delete <code>Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangMinimap\</code>.</li>
+</ol>
+
+<p>That is the whole mod &mdash; it writes nothing anywhere else, touches no save file and modifies no
+game data. To keep it installed but switched off, either delete just
+<code>WuchangMinimap\enabled.txt</code>, or set <code>enabled = 0</code> in the config. To remove
+UE4SS as well, delete <code>dwmapi.dll</code> and the <code>ue4ss\</code> folder.</p>
+
+<h2 id="trouble">7. Troubleshooting</h2>
+
+<h3>Start here: the log</h3>
+<p>UE4SS writes <code>Project_Plague\Binaries\Win64\ue4ss\UE4SS.log</code>. Search it for
+<code>WuchangMinimap</code>: the first line reports the version
+(<code>WuchangMinimap v@@VERSION@@ loaded</code>), and every line the mod writes is prefixed
+<code>[minimap]</code>, <code>[markers]</code> or <code>[navmesh]</code>. That file is the first thing to
+attach to a bug report.</p>
+
+<h3>The game crashes on start-up</h3>
+<p>Almost always <code>HookInitGameState</code>. Set <code>[Hooks] HookInitGameState = 0</code> in
+<code>ue4ss\UE4SS-settings.ini</code> (see section&nbsp;1). To confirm UE4SS is the cause at all, rename
+<code>dwmapi.dll</code> temporarily: if the game still crashes, it is not UE4SS and not this mod.</p>
+
+<h3>Nothing appears in-game</h3>
+<ul>
+  <li>Are you actually in the world? The overlay is deliberately hidden on the main menu, in
+      cutscenes, in menus, and for a moment after a load.</li>
+  <li>Press <kbd>F2</kbd>. If the panel opens, the mod is running and the graphics hooks are in;
+      the minimap is just being suppressed.</li>
+  <li>With <code>debug_readout = 1</code> (the default) the panel prints one line
+      <strong><code>hidden because: &lt;reason&gt;</code></strong> that names the exact condition holding
+      it back &mdash; a stale snapshot, no gameplay pawn, an open menu (it even names the widget), the
+      grace period, or the camera not looking through the player. Read that line before anything
+      else; it is there specifically so "the minimap vanished" has an answer.</li>
+  <li>If <kbd>F2</kbd> does nothing either, check <code>enabled.txt</code> exists and look for
+      <code>WuchangMinimap v@@VERSION@@ loaded</code> in <code>UE4SS.log</code>.</li>
+</ul>
+
+<h3>A hotkey does nothing</h3>
+<p>Check it is not one of the rejected keys (<kbd>F6</kbd>, <kbd>F9</kbd>&ndash;<kbd>F12</kbd> &mdash; the
+mod silently falls back to the default), and check the <em>Keys</em> block at the bottom of the
+<kbd>F2</kbd> panel, which prints the bindings actually in force.</p>
+
+<h3>ReShade / RenoDX / DLSS 5 installed</h3>
+<p>They coexist. The mod draws <em>before</em> ReShade's effects, so a strong preset will tint the
+overlay &mdash; that is cosmetic and expected. One real caution: RenoDX's DLSS&nbsp;5 add-on binds
+<kbd>F6</kbd> and <strong>ignores modifiers</strong>, and toggling it mid-game hung the GPU during
+development. That is why this mod refuses to bind <kbd>F6</kbd> at all.</p>
+
+<h3>The map looks wrong or empty</h3>
+<ul>
+  <li>The map is drawn from the game's <em>walkable</em> navigation data, so unreachable geometry
+      (rooftops, cliffs, scenery) is genuinely not on it.</li>
+  <li>Only the storey you are on is drawn solid. In a multi-storey building, raise
+      <code>floor_z_tolerance</code> or <code>adjacent_floor_opacity</code> to see more of it, or
+      open the full map and step the slice with <kbd>Q</kbd> / <kbd>E</kbd>.</li>
+  <li>In the DLC there is no map at all &mdash; the game ships no navigation data for it. Markers
+      still work.</li>
+  <li>The chapter is identified from the levels the game has streamed in, which can take a couple
+      of seconds after a transition. The <kbd>F2</kbd> panel shows the chapter currently in force.</li>
+</ul>
+
+<h3>Frame time</h3>
+<p>The <kbd>F2</kbd> panel's debug block prints <code>scan pump</code> (what one marker-sweep step
+costs the game thread &mdash; keep it under about 1&nbsp;ms) and <code>round</code> (how long a full pass
+took). If pumps are expensive, halve <code>markers_scan_chunk</code>; a full pass simply takes
+proportionally longer. One chapter's map assets need roughly 340&nbsp;MB of RAM, and only one chapter
+is ever resident.</p>
+
+<footer>
+  WuchangMinimap v@@VERSION@@ &middot; built @@DATE@@ &middot; UI language: English.
+  This mod is not affiliated with the developers or publisher of Wuchang: Fallen Feathers.
+  It reads the game's memory and its packaged data; it never modifies game files or save data.
+</footer>
+
+</div>
+</body>
+</html>

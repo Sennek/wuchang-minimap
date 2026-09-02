@@ -2,11 +2,17 @@
 
 A UE4SS C++ mod for **Wuchang: Fallen Feathers** (Unreal Engine 5.1.1, Windows x64, DX12).
 
-Current state: **navmesh dumper works, overlay is still a skeleton.** The mod loads under
-UE4SS, logs `WuchangMinimap loaded`, has Dear ImGui (DX12 + Win32 backends) and MinHook
-compiled and linked into `main.dll` — no hooks installed, nothing rendered yet — and
-contains a live [`navmesh_dump`](#navmesh-dumper) module that locates the game's
-Recast/Detour navmesh in memory and writes the streamed-in tiles out as JSON.
+Current state: **v0.9.0, feature-complete beta.** Minimap, [full map](#the-full-map-m),
+[markers](#markers), collection tracker, [compass](#the-compass-strip) and
+[x-ray highlight](#the-x-ray-highlight-hold-lalt) all ship; the map background is built
+offline from the game's own navmesh. The mod loads under UE4SS and logs
+`WuchangMinimap v0.9.0 loaded`. Also in here: the opt-in [`navmesh_dump`](#navmesh-dumper)
+module that locates the game's Recast/Detour navmesh in memory and writes the streamed-in
+tiles out as JSON.
+
+The version is one `#define` in **`src/version.hpp`** — the DLL's `ModVersion`, the
+start-up log line, the F2 panel header and `tools/package.ps1` all read it, and
+`package.ps1 -Version x.y.z` is the only thing that should ever change it.
 
 ---
 
@@ -52,7 +58,7 @@ Full rebuild: `.\build.ps1 -Rebuild`.
 ### Output
 
 ```
-build\windows\x64\Game__Shipping__Win64\main.dll     (~1.7 MB)
+build\windows\x64\Game__Shipping__Win64\main.dll     (~2.9 MB)
 build\windows\x64\Game__Shipping__Win64\main.pdb
 ```
 
@@ -82,7 +88,18 @@ garbage camera producing nothing) and the **compass** arithmetic (wrap, bearings
 ranks). Anything that can be checked without launching the game is checked there - a play session is the
 expensive resource in this project.
 
-## Install
+## Install (development)
+
+There are two install paths and they are not interchangeable:
+
+| | `deploy.ps1` | `tools\package.ps1` |
+|---|---|---|
+| For | this machine, while developing | a release a player downloads |
+| Writes | straight into the Steam folder | `dist\` only — never near the game |
+| Ships | `main.dll` **and `main.pdb`** (crash dumps stay readable) | `main.dll` only |
+| Configs | never overwrites one you have edited (`-ForceConfig` to force) | always the pristine shipped defaults |
+| Extras | leaves the mod's runtime output (`navmesh\` dumps, your `wuchang_minimap_found.txt`) alone | asserts none of that is in the package |
+| Checks | none | full smoke check + zip round-trip (below) |
 
 ```powershell
 .\deploy.ps1
@@ -101,6 +118,55 @@ and creates an empty `enabled.txt` in `...\Mods\WuchangMinimap\`, which is UE4SS
 
 Point it elsewhere with `-GameRoot`. Pass `-Force` to install before UE4SS itself is
 present.
+
+---
+
+## Release packaging
+
+```powershell
+.\tools\package.ps1                  # package whatever src\version.hpp says
+.\tools\package.ps1 -Version 0.9.1   # stamp a new version first, then package
+```
+
+It runs `build.ps1` (so a release always compiles and passes the offline tests), then
+assembles `dist\WuchangMinimap-<version>\` — a tree that mirrors **exactly** what a player
+copies into `...\Project_Plague\Binaries\Win64\` — and zips it:
+
+```
+WuchangMinimap-0.9.0\
+  INSTALL_GUIDE.html                   from tools\INSTALL_GUIDE.html, @@VERSION@@/@@DATE@@ substituted
+  CHANGELOG.md                         from tools\CHANGELOG.template.md
+  ue4ss\Mods\WuchangMinimap\
+    dlls\main.dll                      no .pdb
+    maps\maps.json, maps\chapter1..5\*.png
+    markers\chapter{1..5,dlc}.json     chapter1.sample.json is excluded
+    config_wuchang_minimap.txt
+    config.ini
+    enabled.txt                        empty; UE4SS's "load me" opt-in
+```
+
+Nothing else ships: no `main.pdb`, no `navmesh\` dumps, and none of the player-state files
+(`wuchang_minimap_found.txt`, `wuchang_minimap_waypoint.txt`) — the script fails the build
+if any of them turn up in the tree.
+
+**Smoke check**, run before the zip is created, because the alternative is a player
+discovering a missing PNG:
+
+* `maps.json` parses, is schema `wuchang-minimap-maps/3`, and lists five chapters;
+* every `image` and every `height_maps` entry it names exists and is non-empty — this is
+  literally the list `mapdata.cpp` walks at start-up (45 PNG at 0.9.0), and a PNG in
+  `maps\` that the manifest does *not* name is warned about as dead download weight;
+* the five chapter marker manifests are present and are schema `wuchang-minimap-markers/1`;
+* `main.dll`, both config files and `enabled.txt` are present.
+
+**Zip round-trip**: entry count and every entry's uncompressed length are compared against
+the tree on disk, and `maps.json` is actually decompressed and re-parsed, so a corrupt
+stream cannot pass on metadata alone.
+
+`-Version x.y.z` rewrites `src/version.hpp` (the source of truth) and `xmake.lua`'s
+`set_version` together; without it the script reads the header and warns if the two have
+drifted apart. `-NoBuild` packages the existing `build\` output — for iterating on the
+packaging script itself, never for a release. `dist\` is gitignored.
 
 ---
 
@@ -135,6 +201,8 @@ src/highlight.{hpp,cpp}    the x-ray highlight's game-thread half: finds the
                            PlayerCameraManager, calibrates the POV offset inside
                            CameraCachePrivate against the camera getters, then publishes
                            the pose through its own seqlock
+src/version.hpp            the single WUCHANG_MINIMAP_VERSION define - the DLL's ModVersion,
+                           the start-up log line, the F2 panel header and package.ps1
 src/json.hpp               the one JSON reader, shared by mapdata and markers
 src/uereflect.hpp          cached property offsets and UFunction calls
 src/navmesh_dump.{hpp,cpp} dtNavMesh discovery + tile walker + JSON writer
@@ -147,6 +215,9 @@ third_party/imgui/         Dear ImGui v1.92.9b + backends/{dx12,win32} + misc/cp
 third_party/minhook/       MinHook v1.3.4
 third_party/fmt/           fmt 11.2.0, headers only (FMT_HEADER_ONLY)
 tools/gen_ue4ss_importlib.ps1
+tools/package.ps1          the RELEASE packager: build + assemble + smoke check + zip
+tools/INSTALL_GUIDE.html   the player-facing guide; @@VERSION@@ / @@DATE@@ are substituted
+tools/CHANGELOG.template.md the changelog stub dropped at the package root
 tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
 tools/navmesh/build_map.py tile JSON -> composite + multi-surface height maps + maps/maps.json
 tools/navmesh/slice_preview.py the runtime's height-slicing rule, offline, for any (x, y, z)

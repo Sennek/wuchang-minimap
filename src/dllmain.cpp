@@ -21,6 +21,7 @@
 #include "markers.hpp"
 #include "navmesh_dump.hpp"
 #include "overlay.hpp"
+#include "version.hpp"
 
 using namespace RC;
 
@@ -35,11 +36,12 @@ class WuchangMinimap : public CppUserModBase
     WuchangMinimap() : CppUserModBase()
     {
         ModName = ModNameLiteral;
-        ModVersion = STR("0.1.0");
+        ModVersion = WUCHANG_MINIMAP_VERSION_W;
         ModDescription = STR("In-game minimap overlay for Wuchang: Fallen Feathers");
         ModAuthors = STR("commcp");
 
-        Output::send<LogLevel::Verbose>(STR("WuchangMinimap loaded\n"));
+        Output::send<LogLevel::Verbose>(STR("WuchangMinimap v") WUCHANG_MINIMAP_VERSION_W
+                                         STR(" loaded\n"));
     }
 
     ~WuchangMinimap() override = default;

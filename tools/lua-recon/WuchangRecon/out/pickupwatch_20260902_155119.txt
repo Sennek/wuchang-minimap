@@ -1,0 +1,9 @@
+# WuchangRecon pickup watch
+# started 2026-09-02 15:51:19  level ProjectMain  period 2000 ms
+# classes: BP_PickupActor_C, BP_PickUpPT_C, BP_AutoPickUp_C, ItemCollectionBox_C, BP_treasurebox_C, BP_ItemRedBox_C, BP_RebornFire_C, BP_Wumen_C, BP_NewPuzzlesDoor_C, BP_Door_C, BP_DoorBase_C
+baseline: 86 watched actors
+CHANGED    BP_DropItem_C /Game/Maps/Chapter1_logic/Chapter1_DGong_AI.Chapter1_DGong_AI:PersistentLevel.BP_DropItem_C_2147471053  [BP_PickupActor_C]  Timeline_0_NewTrack_0_5000F5E14F733E4F746B5395E5035864: 0.0 -> 0.94646310806274
+CHANGED    BP_DropItem_C /Game/Maps/Chapter1_logic/Chapter1_DGong_AI.Chapter1_DGong_AI:PersistentLevel.BP_DropItem_C_2147471053  [BP_PickupActor_C]  Temp: 0.0 -> 15.0
+CHANGED    BP_DropItem_C /Game/Maps/Chapter1_logic/Chapter1_DGong_AI.Chapter1_DGong_AI:PersistentLevel.BP_DropItem_C_2147471053  [BP_PickupActor_C]  dying: false -> true
+CHANGED    BP_DropItem_C /Game/Maps/Chapter1_logic/Chapter1_DGong_AI.Chapter1_DGong_AI:PersistentLevel.BP_DropItem_C_2147471053  [BP_PickupActor_C]  Timeline_0_NewTrack_0_5000F5E14F733E4F746B5395E5035864: 0.94646310806274 -> 0.0
+MOVED      BP_DropItem_C /Game/Maps/Chapter1_logic/Chapter1_DGong_AI.Chapter1_DGong_AI:PersistentLevel.BP_DropItem_C_2147471053  [BP_PickupActor_C]  16847.70 6373.64 -2264.26 -> 0.00 0.00 0.00

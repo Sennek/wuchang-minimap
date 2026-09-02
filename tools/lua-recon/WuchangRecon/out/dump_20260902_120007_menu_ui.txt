@@ -1,0 +1,1088 @@
+WuchangRecon UI dump
+kind    : menu_ui
+time    : 2026-09-02 12:00:07
+level   : Lobby
+UserWidget instances: 327  (CDOs skipped: 0)
+
+-- widget class histogram --
+     2  SpcialTipsText_C
+    12  WB_AnimationSlot_Fade_C
+     1  WB_AnomalousResistance_C
+     1  WB_CursorHidden_C
+     3  WB_Cursor_C
+     1  WB_Damagereduction_C
+     2  WB_EditionType_C
+     3  WB_GemInfoUnit_C
+     6  WB_GemSuitDes_C
+    10  WB_Grid_AJ_C
+     2  WB_HelpTitleButton_C
+     1  WB_KeyBoardInput_C
+     2  WB_LoginFlow_C
+     1  WB_Login_C
+     1  WB_LoopScrollView_C
+     1  WB_MouseInput_C
+     1  WB_Options_C
+     2  WB_PlumeTransit_TransitPointItem_C
+     1  WB_PlumeTransit_TransitPointItem_NpcIconList_C
+     5  WB_PlumeTransit_TransitPointItem_NpcIcon_C
+     7  WB_SavingTips_C
+     6  WB_ScrollItemButtonList_C
+     2  WB_ScrollItemTextRoot_C
+    34  WB_SecondaryWindow1_C
+     7  WB_SelectBestIPItem_C
+     1  WB_SelectItem_C
+    13  WB_SetControllerInputMouseButton_C
+    14  WB_SetGamepadInputButton_C
+    32  WB_SetInput_LightIcon_C
+     8  WB_SetKeyboardInputButton_C
+     9  WB_SetModuleButton_C
+    19  WB_SetOptionButton_C
+     1  WB_SetUp_C
+     2  WB_Set_InputTypeShowPanel_C
+    36  WB_Set_InputTypeShow_Button2_C
+    21  WB_Set_InputTypeShow_Button3_C
+    20  WB_Set_InputTypeShow_Button_C
+     3  WB_Set_InputTypeShow_Icon_C
+     7  WB_Set_PopwindowButton_C
+     2  WB_Setting_C
+     1  WB_WarehouseInfoPanel_C
+     1  WB_Weaponproperties_C
+    17  WGI_InputHelpVis_C
+     6  WGI_InputHelpVis_ItemKey_C
+
+-- widget instances (sorted by class) --
+  SpcialTipsText_C                                     inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : SpcialTipsText_C /Game/Assets/FX/UI/dongxiao/XinMoDeath/WB_XinMoDeath.WB_XinMoDeath_C:WidgetTree.SpcialTipsText
+      outer : WidgetTree /Game/Assets/FX/UI/dongxiao/XinMoDeath/WB_XinMoDeath.WB_XinMoDeath_C:WidgetTree
+  SpcialTipsText_C                                     inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=CanvasPanel                     
+      full  : SpcialTipsText_C /Game/DynamicCombatSystem/Widgets/WB_Death.WB_Death_C:WidgetTree.SpcialTipsText
+      outer : WidgetTree /Game/DynamicCombatSystem/Widgets/WB_Death.WB_Death_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/DynamicCombatSystem/Widgets/WB_LongNotice.WB_LongNotice_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/DynamicCombatSystem/Widgets/WB_LongNotice.WB_LongNotice_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/GemSystem/WB_GemMain.WB_GemMain_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_GemMain.WB_GemMain_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/Login/WB_BossRoomFirePoint.WB_BossRoomFirePoint_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_BossRoomFirePoint.WB_BossRoomFirePoint_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/Login/WB_HardDiskTips.WB_HardDiskTips_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_HardDiskTips.WB_HardDiskTips_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/Login/WB_SaveCrashTip.WB_SaveCrashTip_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SaveCrashTip.WB_SaveCrashTip_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/Login/WB_SaveErrorTips.WB_SaveErrorTips_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SaveErrorTips.WB_SaveErrorTips_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit.WB_PlumeTransit_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit.WB_PlumeTransit_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/WB_SecondaryWindow1.WB_SecondaryWindow1_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/WB_SecondaryWindow1.WB_SecondaryWindow1_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/WB_SelectItem.WB_SelectItem_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/WB_SelectItem.WB_SelectItem_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/Login/WB_FirstSetting.WB_FirstSetting_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_FirstSetting.WB_FirstSetting_C:WidgetTree
+  WB_AnimationSlot_Fade_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_AnimationSlot_Fade_C /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree.WB_AnimationSlot_Fade
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree
+  WB_AnomalousResistance_C                             inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=SizeBox                         
+      full  : WB_AnomalousResistance_C /Game/Game/WidgetsNew/Characterinterface/WB_Characterinterface.WB_Characterinterface_C:WidgetTree.WB_AnomalousResistance
+      outer : WidgetTree /Game/Game/WidgetsNew/Characterinterface/WB_Characterinterface.WB_Characterinterface_C:WidgetTree
+  WB_CursorHidden_C                                    inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_CursorHidden_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_CursorHidden_C_2147482284
+      outer : DCSGameInstance_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580
+  WB_Cursor_C                                          inViewport=false isVisible=true  visibility=HitTestInvisible     parent=<none>                          
+      full  : WB_Cursor_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Cursor_C_2147482289
+      outer : DCSGameInstance_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580
+  WB_Cursor_C                                          inViewport=false isVisible=true  visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_Cursor_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Cursor_C_2147482526
+      outer : DCSGameInstance_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580
+  WB_Cursor_C                                          inViewport=false isVisible=true  visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_Cursor_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Cursor_C_2147482528
+      outer : DCSGameInstance_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580
+  WB_Damagereduction_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=SizeBox                         
+      full  : WB_Damagereduction_C /Game/Game/WidgetsNew/Characterinterface/WB_Characterinterface.WB_Characterinterface_C:WidgetTree.WB_Damagereduction
+      outer : WidgetTree /Game/Game/WidgetsNew/Characterinterface/WB_Characterinterface.WB_Characterinterface_C:WidgetTree
+  WB_EditionType_C                                     inViewport=false isVisible=false visibility=HitTestInvisible     parent=Overlay                         
+      full  : WB_EditionType_C /Game/Game/WidgetsNew/Login/WB_Login.WB_Login_C:WidgetTree.WB_EditionType
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_Login.WB_Login_C:WidgetTree
+  WB_EditionType_C                                     inViewport=false isVisible=true  visibility=HitTestInvisible     parent=Overlay                         
+      full  : WB_EditionType_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371.WB_EditionType
+      outer : WidgetTree /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371
+  WB_GemInfoUnit_C                                     inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_GemInfoUnit_C /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree.WB_GemInfoUnit
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree
+  WB_GemInfoUnit_C                                     inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_GemInfoUnit_C /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree.WB_GemInfoUnit_1
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree
+  WB_GemInfoUnit_C                                     inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_GemInfoUnit_C /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree.WB_GemInfoUnit_2
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree
+  WB_GemSuitDes_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_GemSuitDes_C /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree.WB_GemSuitDes
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree
+  WB_GemSuitDes_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_GemSuitDes_C /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree.WB_GemSuitDes_1
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree
+  WB_GemSuitDes_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_GemSuitDes_C /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree.WB_GemSuitDes_2
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_WeaponGemInfo.WB_WeaponGemInfo_C:WidgetTree
+  WB_GemSuitDes_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_GemSuitDes_C /Game/Game/WidgetsNew/WBWeapon/WB_WeaponUsed.WB_WeaponUsed_C:WidgetTree.WB_GemSuitDes
+      outer : WidgetTree /Game/Game/WidgetsNew/WBWeapon/WB_WeaponUsed.WB_WeaponUsed_C:WidgetTree
+  WB_GemSuitDes_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_GemSuitDes_C /Game/Game/WidgetsNew/WBWeapon/WB_WeaponUsed.WB_WeaponUsed_C:WidgetTree.WB_GemSuitDes_1
+      outer : WidgetTree /Game/Game/WidgetsNew/WBWeapon/WB_WeaponUsed.WB_WeaponUsed_C:WidgetTree
+  WB_GemSuitDes_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_GemSuitDes_C /Game/Game/WidgetsNew/WBWeapon/WB_WeaponUsed.WB_WeaponUsed_C:WidgetTree.WB_GemSuitDes_2
+      outer : WidgetTree /Game/Game/WidgetsNew/WBWeapon/WB_WeaponUsed.WB_WeaponUsed_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/Arrmor/WB_ArrmorEquipmentPack.WB_ArrmorEquipmentPack_C:WidgetTree.WB_Grid_AJ
+      outer : WidgetTree /Game/Game/WidgetsNew/Arrmor/WB_ArrmorEquipmentPack.WB_ArrmorEquipmentPack_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/Pack/PackSelectItem/WB_PackSelectItem.WB_PackSelectItem_C:WidgetTree.WB_Grid_AJ
+      outer : WidgetTree /Game/Game/WidgetsNew/Pack/PackSelectItem/WB_PackSelectItem.WB_PackSelectItem_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseItemPanel.WB_WarehouseItemPanel_C:WidgetTree.Grid
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseItemPanel.WB_WarehouseItemPanel_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/Shop/WB_ShopAllItem.WB_ShopAllItem_C:WidgetTree.WB_Grid_AJ
+      outer : WidgetTree /Game/Game/WidgetsNew/Shop/WB_ShopAllItem.WB_ShopAllItem_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/WBWeapon/WB_WeaponSelect.WB_WeaponSelect_C:WidgetTree.WB_Grid_AJ
+      outer : WidgetTree /Game/Game/WidgetsNew/WBWeapon/WB_WeaponSelect.WB_WeaponSelect_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree.CateList
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/Pack/PackItemShow/WB_PackItemShow.WB_PackItemShow_C:WidgetTree.WB_Grid_AJ
+      outer : WidgetTree /Game/Game/WidgetsNew/Pack/PackItemShow/WB_PackItemShow.WB_PackItemShow_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/StyleSkill/selectWeapon/selectweapon/WB_StyleSkill_SelectWeapon.WB_StyleSkill_SelectWeapon_C:WidgetTree.WB_Grid_AJ
+      outer : WidgetTree /Game/Game/WidgetsNew/StyleSkill/selectWeapon/selectweapon/WB_StyleSkill_SelectWeapon.WB_StyleSkill_SelectWeapon_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=Visible              parent=CanvasPanel                     
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/GemSystem/WB_GemSelect.WB_GemSelect_C:WidgetTree.WB_Grid_AJ
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_GemSelect.WB_GemSelect_C:WidgetTree
+  WB_Grid_AJ_C                                         inViewport=false isVisible=false visibility=Visible              parent=CanvasPanel                     
+      full  : WB_Grid_AJ_C /Game/Game/WidgetsNew/InjectMagic/WB_InjectMagicSelect.WB_InjectMagicSelect_C:WidgetTree.WB_Grid_AJ
+      outer : WidgetTree /Game/Game/WidgetsNew/InjectMagic/WB_InjectMagicSelect.WB_InjectMagicSelect_C:WidgetTree
+  WB_HelpTitleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WB_HelpTitleButton_C /Game/Game/WidgetsNew/Help/WB_HelpLeftPanel.WB_HelpLeftPanel_C:WidgetTree.CallSheet
+      outer : WidgetTree /Game/Game/WidgetsNew/Help/WB_HelpLeftPanel.WB_HelpLeftPanel_C:WidgetTree
+  WB_HelpTitleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WB_HelpTitleButton_C /Game/Game/WidgetsNew/Help/WB_HelpLeftPanel.WB_HelpLeftPanel_C:WidgetTree.Guide
+      outer : WidgetTree /Game/Game/WidgetsNew/Help/WB_HelpLeftPanel.WB_HelpLeftPanel_C:WidgetTree
+  WB_KeyBoardInput_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=WidgetSwitcher                  
+      full  : WB_KeyBoardInput_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_KeyBoardInput
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_LoginFlow_C                                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_LoginFlow_C /Game/Game/WidgetsNew/Login/WB_Login.WB_Login_C:WidgetTree.WB_LoginFlow
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_Login.WB_Login_C:WidgetTree
+  WB_LoginFlow_C                                       inViewport=false isVisible=true  visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_LoginFlow_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371.WB_LoginFlow
+      outer : WidgetTree /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371
+  WB_Login_C                                           inViewport=true  isVisible=true  visibility=Visible              parent=<none>                          
+      full  : WB_Login_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372
+      outer : DCSGameInstance_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580
+  WB_LoopScrollView_C                                  inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=SizeBox                         
+      full  : WB_LoopScrollView_C /Game/Game/WidgetsNew/MainWB/ShowAddItem/New/WB_ShowAddItemMain_New.WB_ShowAddItemMain_New_C:WidgetTree.WB_LoopScrollView
+      outer : WidgetTree /Game/Game/WidgetsNew/MainWB/ShowAddItem/New/WB_ShowAddItemMain_New.WB_ShowAddItemMain_New_C:WidgetTree
+  WB_MouseInput_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WB_MouseInput_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_MouseInput
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_Options_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Options_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_Options
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_PlumeTransit_TransitPointItem_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_PlumeTransit_TransitPointItem_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit.WB_PlumeTransit_C:WidgetTree.WB_PlumeTransit_TransitPointItem
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit.WB_PlumeTransit_C:WidgetTree
+  WB_PlumeTransit_TransitPointItem_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_PlumeTransit_TransitPointItem_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit.WB_PlumeTransit_C:WidgetTree.WB_PlumeTransit_TransitPointItem_1
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit.WB_PlumeTransit_C:WidgetTree
+  WB_PlumeTransit_TransitPointItem_NpcIconList_C       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_PlumeTransit_TransitPointItem_NpcIconList_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem.WB_PlumeTransit_TransitPointItem_C:WidgetTree.WB_PlumeTransit_TransitPointItem_NpcIconList
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem.WB_PlumeTransit_TransitPointItem_C:WidgetTree
+  WB_PlumeTransit_TransitPointItem_NpcIcon_C           inViewport=false isVisible=false visibility=Collapsed            parent=HorizontalBox                   
+      full  : WB_PlumeTransit_TransitPointItem_NpcIcon_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree.WB_PlumeTransit_TransitPointItem_NpcIcon_5
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree
+  WB_PlumeTransit_TransitPointItem_NpcIcon_C           inViewport=false isVisible=false visibility=Collapsed            parent=HorizontalBox                   
+      full  : WB_PlumeTransit_TransitPointItem_NpcIcon_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree.WB_PlumeTransit_TransitPointItem_NpcIcon_6
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree
+  WB_PlumeTransit_TransitPointItem_NpcIcon_C           inViewport=false isVisible=false visibility=Collapsed            parent=HorizontalBox                   
+      full  : WB_PlumeTransit_TransitPointItem_NpcIcon_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree.WB_PlumeTransit_TransitPointItem_NpcIcon_7
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree
+  WB_PlumeTransit_TransitPointItem_NpcIcon_C           inViewport=false isVisible=false visibility=Collapsed            parent=HorizontalBox                   
+      full  : WB_PlumeTransit_TransitPointItem_NpcIcon_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree.WB_PlumeTransit_TransitPointItem_NpcIcon_8
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree
+  WB_PlumeTransit_TransitPointItem_NpcIcon_C           inViewport=false isVisible=false visibility=Collapsed            parent=HorizontalBox                   
+      full  : WB_PlumeTransit_TransitPointItem_NpcIcon_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree.WB_PlumeTransit_TransitPointItem_NpcIcon_9
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit_TransitPointItem_NpcIconList.WB_PlumeTransit_TransitPointItem_NpcIconList_C:WidgetTree
+  WB_SavingTips_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScaleBox                        
+      full  : WB_SavingTips_C /Game/Game/Widgets/WB_GameSaving.WB_GameSaving_C:WidgetTree.WB_SavingTips
+      outer : WidgetTree /Game/Game/Widgets/WB_GameSaving.WB_GameSaving_C:WidgetTree
+  WB_SavingTips_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_SavingTips_C /Game/Game/WidgetsNew/Login/WB_ConfigCheck.WB_ConfigCheck_C:WidgetTree.WB_SavingTips
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_ConfigCheck.WB_ConfigCheck_C:WidgetTree
+  WB_SavingTips_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_SavingTips_C /Game/Game/WidgetsNew/Login/WB_Login.WB_Login_C:WidgetTree.WaitTips
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_Login.WB_Login_C:WidgetTree
+  WB_SavingTips_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_SavingTips_C /Game/Game/WidgetsNew/Login/WB_LoginFlow.WB_LoginFlow_C:WidgetTree.WB_SavingTips
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_LoginFlow.WB_LoginFlow_C:WidgetTree
+  WB_SavingTips_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_SavingTips_C /Game/Game/WidgetsNew/SettingSystem/BackGame/WB_BackGameCheck.WB_BackGameCheck_C:WidgetTree.WB_SavingTips
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/BackGame/WB_BackGameCheck.WB_BackGameCheck_C:WidgetTree
+  WB_SavingTips_C                                      inViewport=false isVisible=true  visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_SavingTips_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371.WB_LoginFlow.WidgetTree_2147482367.WB_SavingTips
+      outer : WidgetTree /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371.WB_LoginFlow.WidgetTree_2147482367
+  WB_SavingTips_C                                      inViewport=false isVisible=true  visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_SavingTips_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371.WaitTips
+      outer : WidgetTree /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371
+  WB_ScrollItemButtonList_C                            inViewport=false isVisible=false visibility=Collapsed            parent=VerticalBox                     
+      full  : WB_ScrollItemButtonList_C /Game/Game/WidgetsNew/LeaveMessage/WB_LeaveMessageMain.WB_LeaveMessageMain_C:WidgetTree.WB_ScrollItemButtonList
+      outer : WidgetTree /Game/Game/WidgetsNew/LeaveMessage/WB_LeaveMessageMain.WB_LeaveMessageMain_C:WidgetTree
+  WB_ScrollItemButtonList_C                            inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_ScrollItemButtonList_C /Game/Game/WidgetsNew/Pack/PackSelectItem/WB_PackSelectItem.WB_PackSelectItem_C:WidgetTree.WB_ScrollItemButtonList
+      outer : WidgetTree /Game/Game/WidgetsNew/Pack/PackSelectItem/WB_PackSelectItem.WB_PackSelectItem_C:WidgetTree
+  WB_ScrollItemButtonList_C                            inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_ScrollItemButtonList_C /Game/Game/WidgetsNew/Shop/WB_ShopAllItem.WB_ShopAllItem_C:WidgetTree.TagList
+      outer : WidgetTree /Game/Game/WidgetsNew/Shop/WB_ShopAllItem.WB_ShopAllItem_C:WidgetTree
+  WB_ScrollItemButtonList_C                            inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_ScrollItemButtonList_C /Game/Game/WidgetsNew/WBWeapon/WB_WeaponSelect.WB_WeaponSelect_C:WidgetTree.WB_ScrollItemButtonList
+      outer : WidgetTree /Game/Game/WidgetsNew/WBWeapon/WB_WeaponSelect.WB_WeaponSelect_C:WidgetTree
+  WB_ScrollItemButtonList_C                            inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_ScrollItemButtonList_C /Game/Game/WidgetsNew/GemSystem/WB_GemSelect.WB_GemSelect_C:WidgetTree.WB_ScrollItemButtonList
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_GemSelect.WB_GemSelect_C:WidgetTree
+  WB_ScrollItemButtonList_C                            inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_ScrollItemButtonList_C /Game/Game/WidgetsNew/StyleSkill/selectWeapon/selectweapon/WB_StyleSkill_SelectWeapon.WB_StyleSkill_SelectWeapon_C:WidgetTree.WB_ScrollItemButtonList
+      outer : WidgetTree /Game/Game/WidgetsNew/StyleSkill/selectWeapon/selectweapon/WB_StyleSkill_SelectWeapon.WB_StyleSkill_SelectWeapon_C:WidgetTree
+  WB_ScrollItemTextRoot_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_ScrollItemTextRoot_C /Game/Game/WidgetsNew/Pack/reusable/WB_ScrollItemButtonList.WB_ScrollItemButtonList_C:WidgetTree.WB_ScrollItemTextRoot
+      outer : WidgetTree /Game/Game/WidgetsNew/Pack/reusable/WB_ScrollItemButtonList.WB_ScrollItemButtonList_C:WidgetTree
+  WB_ScrollItemTextRoot_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_ScrollItemTextRoot_C /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree.WB_ScrollItemTextRoot
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/Arrmor/WB_CantEquipSameRingWindow.WB_CantEquipSameRingWindow_C:WidgetTree.WB_SecondaryWindow1_C_1
+      outer : WidgetTree /Game/Game/WidgetsNew/Arrmor/WB_CantEquipSameRingWindow.WB_CantEquipSameRingWindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/Arrmor/WB_CantMagicChange.WB_CantMagicChange_C:WidgetTree.WB_SecondaryWindow1_C_1
+      outer : WidgetTree /Game/Game/WidgetsNew/Arrmor/WB_CantMagicChange.WB_CantMagicChange_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/GemSystem/WB_GemConfirm.WB_GemConfirm_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_GemConfirm.WB_GemConfirm_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/LeaveMessage/WB_LeaveMessageConfirmationPanel.WB_LeaveMessageConfirmationPanel_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/LeaveMessage/WB_LeaveMessageConfirmationPanel.WB_LeaveMessageConfirmationPanel_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/LeaveMessage/WB_LeaveMessageDeletePanel.WB_LeaveMessageDeletePanel_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/LeaveMessage/WB_LeaveMessageDeletePanel.WB_LeaveMessageDeletePanel_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/LeaveMessage/WB_LeaveMessageGoodOrBadPanel.WB_LeaveMessageGoodOrBadPanel_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/LeaveMessage/WB_LeaveMessageGoodOrBadPanel.WB_LeaveMessageGoodOrBadPanel_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/Login/WB_LoginTips.WB_LoginTips_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_LoginTips.WB_LoginTips_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/Login/WB_NetWorkDes.WB_NetWorkDes_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_NetWorkDes.WB_NetWorkDes_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/MarkMessage/WB_LeaveMessageShow.WB_LeaveMessageShow_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/MarkMessage/WB_LeaveMessageShow.WB_LeaveMessageShow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/MarkMessage/WB_NetworkNotice.WB_NetworkNotice_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/MarkMessage/WB_NetworkNotice.WB_NetworkNotice_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/MarkMessage/WB_TransmitMessageShow.WB_TransmitMessageShow_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/MarkMessage/WB_TransmitMessageShow.WB_TransmitMessageShow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/PlumeArchive/StarGraph/WB_OpenStyleSkillPanel.WB_OpenStyleSkillPanel_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/StarGraph/WB_OpenStyleSkillPanel.WB_OpenStyleSkillPanel_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/PlumeArchive/StarGraph/WB_StarGraph_KeyItemWindow.WB_StarGraph_KeyItemWindow_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/StarGraph/WB_StarGraph_KeyItemWindow.WB_StarGraph_KeyItemWindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/PlumeArchive/StarGraph/WB_TipOpenInject.WB_TipOpenInject_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/StarGraph/WB_TipOpenInject.WB_TipOpenInject_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/PlumeArchive/StarGraph/WB_TipOpenInjectMagicPanel.WB_TipOpenInjectMagicPanel_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/StarGraph/WB_TipOpenInjectMagicPanel.WB_TipOpenInjectMagicPanel_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseActionWindow.WB_WarehouseActionWindow_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseActionWindow.WB_WarehouseActionWindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/Pose/WB_PosePanel.WB_PosePanel_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/Pose/WB_PosePanel.WB_PosePanel_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/BackGame/WB_SetBackTipsWindow.WB_SetBackTipsWindow_C:WidgetTree.WB_SecondaryWindow1_C_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/BackGame/WB_SetBackTipsWindow.WB_SetBackTipsWindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree.WB_SecondaryWindow1_C_2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/WB_FGOr_TipsWindow.WB_FGOr_TipsWindow_C:WidgetTree.WB_SecondaryWindow1_C_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_FGOr_TipsWindow.WB_FGOr_TipsWindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/WB_FG_TipsWindow.WB_FG_TipsWindow_C:WidgetTree.WB_SecondaryWindow1_C_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_FG_TipsWindow.WB_FG_TipsWindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/WB_InitSettingWindow.WB_InitSettingWindow_C:WidgetTree.WB_SecondaryWindow1_C_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_InitSettingWindow.WB_InitSettingWindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/WB_WaitApplyFinished.WB_WaitApplyFinished_C:WidgetTree.WB_SecondaryWindow1_C_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_WaitApplyFinished.WB_WaitApplyFinished_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/Shop/WB_BeyondTipWindow.WB_BeyondTipWindow_C:WidgetTree.WB_SecondaryWindow1_C_1
+      outer : WidgetTree /Game/Game/WidgetsNew/Shop/WB_BeyondTipWindow.WB_BeyondTipWindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/Shop/WB_ShopConfirm.WB_ShopConfirm_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/Shop/WB_ShopConfirm.WB_ShopConfirm_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/UseItemWindow/WB_UseItem20001.WB_UseItem20001_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/UseItemWindow/WB_UseItem20001.WB_UseItem20001_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/WBWeapon/WB_EquipTip.WB_EquipTip_C:WidgetTree.WB_SecondaryWindow1_C_1
+      outer : WidgetTree /Game/Game/WidgetsNew/WBWeapon/WB_EquipTip.WB_EquipTip_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=CanvasPanel                     
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/WBWeapon/WB_ShowWeaponInfo.WB_ShowWeaponInfo_C:WidgetTree.WB_SecondaryWindow1
+      outer : WidgetTree /Game/Game/WidgetsNew/WBWeapon/WB_ShowWeaponInfo.WB_ShowWeaponInfo_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/Pack/PackSelectItem/Test/WB_PackSelectItemBodyButton3_New.WB_PackSelectItemBodyButton3_New_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/Pack/PackSelectItem/Test/WB_PackSelectItemBodyButton3_New.WB_PackSelectItemBodyButton3_New_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=SizeBox                         
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeybardInput_CloseInputSetPanel.WB_KeybardInput_CloseInputSetPanel_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeybardInput_CloseInputSetPanel.WB_KeybardInput_CloseInputSetPanel_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=SizeBox                         
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeybardInput_Conflict.WB_KeybardInput_Conflict_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeybardInput_Conflict.WB_KeybardInput_Conflict_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=SizeBox                         
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeybardInput_Popwindow.WB_KeybardInput_Popwindow_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeybardInput_Popwindow.WB_KeybardInput_Popwindow_C:WidgetTree
+  WB_SecondaryWindow1_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=SizeBox                         
+      full  : WB_SecondaryWindow1_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeybardInput_SetWrongKey.WB_KeybardInput_SetWrongKey_C:WidgetTree.WB_SecondaryWindow1_C_0
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeybardInput_SetWrongKey.WB_KeybardInput_SetWrongKey_C:WidgetTree
+  WB_SelectBestIPItem_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SelectBestIPItem_C /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree.WB_SelectBestIPItem
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree
+  WB_SelectBestIPItem_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SelectBestIPItem_C /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree.WB_SelectBestIPItem_1
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree
+  WB_SelectBestIPItem_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SelectBestIPItem_C /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree.WB_SelectBestIPItem_2
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree
+  WB_SelectBestIPItem_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SelectBestIPItem_C /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree.WB_SelectBestIPItem_3
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree
+  WB_SelectBestIPItem_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SelectBestIPItem_C /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree.WB_SelectBestIPItem_4
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree
+  WB_SelectBestIPItem_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SelectBestIPItem_C /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree.WB_SelectBestIPItem_5
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree
+  WB_SelectBestIPItem_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SelectBestIPItem_C /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree.WB_SelectBestIPItem_6
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SelectBestIPPanel.WB_SelectBestIPPanel_C:WidgetTree
+  WB_SelectItem_C                                      inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=<none>                          
+      full  : WB_SelectItem_C /Game/Game/WidgetsNew/Pack/PackSelectItem/Test/WB_PackSelectItemBodyButton2_New.WB_PackSelectItemBodyButton2_New_C:WidgetTree.WB_SelectItem
+      outer : WidgetTree /Game/Game/WidgetsNew/Pack/PackSelectItem/Test/WB_PackSelectItemBodyButton2_New.WB_PackSelectItemBodyButton2_New_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=Collapsed            parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_174
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_236
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_3
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_4
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_46
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_5
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_6
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_7
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_8
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetControllerInputMouseButton_C                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetControllerInputMouseButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree.WB_SetControllerInputMouseButton_98
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_MouseInput.WB_MouseInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_10
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_11
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_12
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_120
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_3
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_4
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_5
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_6
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_7
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_8
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetGamepadInputButton_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetGamepadInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_9
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_02L
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_02R
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_04D
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_04L
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_04R
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_04U
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_07D
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_07L
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_07R
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_07U
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_08
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_09
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_10
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_11
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_12L
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_ps_12R
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon02
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon03
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon04L
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon04R
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon05D
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon05L
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon05R
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon05U
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon06D
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon06L
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon06R
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon06U
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon10
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon11
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon12
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetInput_LightIcon_C                              inViewport=false isVisible=false visibility=Hidden               parent=Overlay                         
+      full  : WB_SetInput_LightIcon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.lightIcon_xbox_icon13
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetKeyboardInputButton_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetKeyboardInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_13
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetKeyboardInputButton_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetKeyboardInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_14
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetKeyboardInputButton_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetKeyboardInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_15
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetKeyboardInputButton_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetKeyboardInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_16
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetKeyboardInputButton_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetKeyboardInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_17
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetKeyboardInputButton_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetKeyboardInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_18
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetKeyboardInputButton_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetKeyboardInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_19
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetKeyboardInputButton_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetKeyboardInputButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_SetKeyboardInputButton_96
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_SetModuleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetModuleButton_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_SetModuleButton
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_SetModuleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetModuleButton_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_SetModuleButton_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_SetModuleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetModuleButton_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_SetModuleButton_2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_SetModuleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetModuleButton_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_SetModuleButton_234
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_SetModuleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetModuleButton_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_SetModuleButton_3
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_SetModuleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetModuleButton_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_SetModuleButton_4
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_SetModuleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetModuleButton_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_SetModuleButton_5
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_SetModuleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetModuleButton_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_SetModuleButton_6
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_SetModuleButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetModuleButton_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_SetModuleButton_7
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/OnlineSetting/WB_OnlineSetting.WB_OnlineSetting_C:WidgetTree.WB_SetOptionButton
+      outer : WidgetTree /Game/Game/WidgetsNew/OnlineSetting/WB_OnlineSetting.WB_OnlineSetting_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/OnlineSetting/WB_OnlineSetting.WB_OnlineSetting_C:WidgetTree.WB_SetOptionButton_100
+      outer : WidgetTree /Game/Game/WidgetsNew/OnlineSetting/WB_OnlineSetting.WB_OnlineSetting_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/OnlineSetting/WB_OnlineSetting.WB_OnlineSetting_C:WidgetTree.WB_SetOptionButton_1074
+      outer : WidgetTree /Game/Game/WidgetsNew/OnlineSetting/WB_OnlineSetting.WB_OnlineSetting_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/OnlineSetting/WB_OnlineSetting.WB_OnlineSetting_C:WidgetTree.WB_SetOptionButton_1152
+      outer : WidgetTree /Game/Game/WidgetsNew/OnlineSetting/WB_OnlineSetting.WB_OnlineSetting_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_10
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_11
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_3
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_4
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_5
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_6
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_7
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_8
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree.WB_SetOptionButton_9
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/GameOptions/WB_Options.WB_Options_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree.WB_SetOptionButton
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree.WB_SetOptionButton_1
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree
+  WB_SetOptionButton_C                                 inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_SetOptionButton_C /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree.WB_SetOptionButton_2
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree
+  WB_SetUp_C                                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_SetUp_C /Game/Game/WidgetsNew/Login/WB_LoginSetting.WB_LoginSetting_C:WidgetTree.WB_SetUp
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_LoginSetting.WB_LoginSetting_C:WidgetTree
+  WB_Set_InputTypeShowPanel_C                          inViewport=false isVisible=false visibility=Collapsed            parent=Overlay                         
+      full  : WB_Set_InputTypeShowPanel_C /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree.WB_Set_InputTypeShowPanel
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/WB_SetUp.WB_SetUp_C:WidgetTree
+  WB_Set_InputTypeShowPanel_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShowPanel_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree.WB_Set_InputTypeShowPanel
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_KeyBoardInput.WB_KeyBoardInput_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_liupaiji
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_qiehuanfashu
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_qiehuanwupins
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_qiehuanwupinx
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_qiehuanwuqi
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_qinggongji
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_renwuyidong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_shanbi
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_shijiaoyidong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_shiyongdaojv
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_shiyongfashu
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_shunxizhan
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_suoding
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_wuqijineng
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_xingdong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_xitongcaidan
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_zhonggongji
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconps_zishi
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_liupaiji
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_qiehaunwupinS
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_qiehuanfashu
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_qiehuanwuoinX
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_qiehuanwuqi
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_qinggongji
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_shanbi
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_shijiaoyidong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_shiyongdaojv
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_shiyongfashu
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_shunxizhan
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_wuqijineng
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_xingdong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_xitongcaidan
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_yidong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_zhonggongji
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxbox_zishi_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button2_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button2_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Iconxboxs_suoding
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_chongci
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_daojvkuaijieshiyong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_fashukuaijieshiyong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_liupaijineng
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_qiehuandaojv
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_qiehuanfashu
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_qiehuanfashu2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_qiehuanwuqi
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_qinggongji
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_sanbi
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_shiyongdaojv
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_shiyongfashu
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_shunxizhan
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_suoding
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_wuqijineng
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_xingdong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_xingzou
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_xitongcaidan
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_yidong
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_zhonggongji
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button3_C                       inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Set_InputTypeShow_Button3_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.IconKB_zishi
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_1-1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_1-2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_1-3
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_1-4
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_1-5
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_2-1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_2-2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_2-3
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_2-4
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_2-5
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_3-1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_3-2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_3-3
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_3-4
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_3-5
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_4-1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_4-1_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_4-2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_4-3
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Button_C                        inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WB_Set_InputTypeShow_Button_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree.Button_4-4
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShowPanel.WB_Set_InputTypeShowPanel_C:WidgetTree
+  WB_Set_InputTypeShow_Icon_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WB_Set_InputTypeShow_Icon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShow_Button.WB_Set_InputTypeShow_Button_C:WidgetTree.WB_Set_InputTypeShow_Icon
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShow_Button.WB_Set_InputTypeShow_Button_C:WidgetTree
+  WB_Set_InputTypeShow_Icon_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WB_Set_InputTypeShow_Icon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShow_Button2.WB_Set_InputTypeShow_Button2_C:WidgetTree.WB_Set_InputTypeShow_Icon
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShow_Button2.WB_Set_InputTypeShow_Button2_C:WidgetTree
+  WB_Set_InputTypeShow_Icon_C                          inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WB_Set_InputTypeShow_Icon_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShow_Button3.WB_Set_InputTypeShow_Button3_C:WidgetTree.WB_Set_InputTypeShow_Icon
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/KeyboardInput/WB_Set_InputTypeShow_Button3.WB_Set_InputTypeShow_Button3_C:WidgetTree
+  WB_Set_PopwindowButton_C                             inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_Set_PopwindowButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree.WB_Set_PopwindowButton
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree
+  WB_Set_PopwindowButton_C                             inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_Set_PopwindowButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree.WB_Set_PopwindowButton_1
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree
+  WB_Set_PopwindowButton_C                             inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_Set_PopwindowButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree.WB_Set_PopwindowButton_1527
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree
+  WB_Set_PopwindowButton_C                             inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_Set_PopwindowButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree.WB_Set_PopwindowButton_2
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree
+  WB_Set_PopwindowButton_C                             inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_Set_PopwindowButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree.WB_Set_PopwindowButton_3
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree
+  WB_Set_PopwindowButton_C                             inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_Set_PopwindowButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree.WB_Set_PopwindowButton_4
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree
+  WB_Set_PopwindowButton_C                             inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=ScrollBox                       
+      full  : WB_Set_PopwindowButton_C /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree.WB_Set_PopwindowButton_5
+      outer : WidgetTree /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Option_Popwindow.WB_Option_Popwindow_C:WidgetTree
+  WB_Setting_C                                         inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Setting_C /Game/Game/WidgetsNew/Login/WB_Login.WB_Login_C:WidgetTree.WB_Setting
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_Login.WB_Login_C:WidgetTree
+  WB_Setting_C                                         inViewport=false isVisible=true  visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WB_Setting_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371.WB_Setting
+      outer : WidgetTree /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_Login_C_2147482372.WidgetTree_2147482371
+  WB_WarehouseInfoPanel_C                              inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WB_WarehouseInfoPanel_C /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree.InfoPanel
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree
+  WB_Weaponproperties_C                                inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=SizeBox                         
+      full  : WB_Weaponproperties_C /Game/Game/WidgetsNew/Characterinterface/WB_Characterinterface.WB_Characterinterface_C:WidgetTree.WB_Weaponproperties
+      outer : WidgetTree /Game/Game/WidgetsNew/Characterinterface/WB_Characterinterface.WB_Characterinterface_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/GemSystem/WB_GemMain.WB_GemMain_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/GemSystem/WB_GemMain.WB_GemMain_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/Save/WB_SaveMain.WB_SaveMain_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/Save/WB_SaveMain.WB_SaveMain_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit.WB_PlumeTransit_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/PlumeTransit/WB_PlumeTransit.WB_PlumeTransit_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseMain.WB_WarehouseMain_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/DialogueMain/NewDialogueMain.NewDialogueMain_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/DialogueMain/NewDialogueMain.NewDialogueMain_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/WB_Agreement.WB_Agreement_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_Agreement.WB_Agreement_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/WB_DLCPage.WB_DLCPage_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_DLCPage.WB_DLCPage_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/WB_FirstSetting.WB_FirstSetting_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_FirstSetting.WB_FirstSetting_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/WB_HardDiskTips.WB_HardDiskTips_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_HardDiskTips.WB_HardDiskTips_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_LanguageSetting.WB_LanguageSetting_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/WB_LoginSetting.WB_LoginSetting_C:WidgetTree.InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_LoginSetting.WB_LoginSetting_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=SizeBox                         
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/WB_SelectItem.WB_SelectItem_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/WB_SelectItem.WB_SelectItem_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/WB_BossRoomFirePoint.WB_BossRoomFirePoint_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_BossRoomFirePoint.WB_BossRoomFirePoint_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/WB_SaveCrashTip.WB_SaveCrashTip_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SaveCrashTip.WB_SaveCrashTip_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/Login/WB_SaveErrorTips.WB_SaveErrorTips_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/Login/WB_SaveErrorTips.WB_SaveErrorTips_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/MainWB/ShowAddItem/WB_ShowAddSpcItem.WB_ShowAddSpcItem_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/MainWB/ShowAddItem/WB_ShowAddSpcItem.WB_ShowAddSpcItem_C:WidgetTree
+  WGI_InputHelpVis_C                                   inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=VerticalBox                     
+      full  : WGI_InputHelpVis_C /Game/Game/WidgetsNew/WB_SecondaryWindow1.WB_SecondaryWindow1_C:WidgetTree.WGI_InputHelpVis
+      outer : WidgetTree /Game/Game/WidgetsNew/WB_SecondaryWindow1.WB_SecondaryWindow1_C:WidgetTree
+  WGI_InputHelpVis_ItemKey_C                           inViewport=false isVisible=false visibility=Collapsed            parent=HorizontalBox                   
+      full  : WGI_InputHelpVis_ItemKey_C /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseInfoPanel.WB_WarehouseInfoPanel_C:WidgetTree.WGI_InputHelpVis_ItemKey
+      outer : WidgetTree /Game/Game/WidgetsNew/PlumeArchive/Warehouse/WB_WarehouseInfoPanel.WB_WarehouseInfoPanel_C:WidgetTree
+  WGI_InputHelpVis_ItemKey_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WGI_InputHelpVis_ItemKey_C /Game/Game/Widgets/WB_LoadingAsync.WB_LoadingAsync_C:WidgetTree.WGI_InputHelpVis_ItemKey
+      outer : WidgetTree /Game/Game/Widgets/WB_LoadingAsync.WB_LoadingAsync_C:WidgetTree
+  WGI_InputHelpVis_ItemKey_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WGI_InputHelpVis_ItemKey_C /WidgetGroupInput/HelpVisType/WGI_InputHelpVis_Type1.WGI_InputHelpVis_Type1_C:WidgetTree.WGI_InputHelpVis_ItemKey
+      outer : WidgetTree /WidgetGroupInput/HelpVisType/WGI_InputHelpVis_Type1.WGI_InputHelpVis_Type1_C:WidgetTree
+  WGI_InputHelpVis_ItemKey_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=HorizontalBox                   
+      full  : WGI_InputHelpVis_ItemKey_C /WidgetGroupInput/HelpVisType/WGI_InputHelpVis_Type2.WGI_InputHelpVis_Type2_C:WidgetTree.WGI_InputHelpVis_ItemKey
+      outer : WidgetTree /WidgetGroupInput/HelpVisType/WGI_InputHelpVis_Type2.WGI_InputHelpVis_Type2_C:WidgetTree
+  WGI_InputHelpVis_ItemKey_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WGI_InputHelpVis_ItemKey_C /Game/Game/WidgetsNew/CG/WB_CheckClickPanel.WB_CheckClickPanel_C:WidgetTree.WGI_InputHelpVis_ItemKey
+      outer : WidgetTree /Game/Game/WidgetsNew/CG/WB_CheckClickPanel.WB_CheckClickPanel_C:WidgetTree
+  WGI_InputHelpVis_ItemKey_C                           inViewport=false isVisible=false visibility=SelfHitTestInvisible parent=Overlay                         
+      full  : WGI_InputHelpVis_ItemKey_C /Game/Game/WidgetsNew/CG/WB_HoldSkipBase.WB_HoldSkipBase_C:WidgetTree.WGI_InputHelpVis_ItemKey
+      outer : WidgetTree /Game/Game/WidgetsNew/CG/WB_HoldSkipBase.WB_HoldSkipBase_C:WidgetTree
+
+-- widget class chains (one per class) --
+  WB_Cursor_C                                          WB_Cursor_C -> UserWidget
+  WB_SecondaryWindow1_C                                WB_SecondaryWindow1_C -> WGI_UserWidget -> UserWidget
+  WB_AnimationSlot_Fade_C                              WB_AnimationSlot_Fade_C -> WB_AnimationSlot_Base_C -> UserWidget
+  WGI_InputHelpVis_ItemKey_C                           WGI_InputHelpVis_ItemKey_C -> UserWidget
+  WGI_InputHelpVis_C                                   WGI_InputHelpVis_C -> WGI_InputHelp -> UserWidget
+  WB_SavingTips_C                                      WB_SavingTips_C -> UserWidget
+  WB_Set_InputTypeShow_Icon_C                          WB_Set_InputTypeShow_Icon_C -> WGI_UserWidget -> UserWidget
+  WB_Set_InputTypeShow_Button2_C                       WB_Set_InputTypeShow_Button2_C -> WGI_UserWidget -> UserWidget
+  WB_Set_InputTypeShow_Button3_C                       WB_Set_InputTypeShow_Button3_C -> WGI_UserWidget -> UserWidget
+  WB_Set_InputTypeShow_Button_C                        WB_Set_InputTypeShow_Button_C -> WGI_UserWidget -> UserWidget
+  WB_Set_PopwindowButton_C                             WB_Set_PopwindowButton_C -> WGI_NavItem -> UserWidget
+  WB_SetOptionButton_C                                 WB_SetOptionButton_C -> WGI_NavItem -> UserWidget
+  WB_SetControllerInputMouseButton_C                   WB_SetControllerInputMouseButton_C -> WB_SetGamepadInputButton_C -> WB_SetOptionButton_C -> WGI_NavItem -> UserWidget
+  WB_SelectBestIPItem_C                                WB_SelectBestIPItem_C -> WGI_NavItem -> UserWidget
+  WB_CursorHidden_C                                    WB_CursorHidden_C -> UserWidget
+  WB_Setting_C                                         WB_Setting_C -> WGI_UserWidget -> UserWidget
+  WB_MouseInput_C                                      WB_MouseInput_C -> WGI_UserWidget -> UserWidget
+  WB_Set_InputTypeShowPanel_C                          WB_Set_InputTypeShowPanel_C -> WGI_UserWidget -> UserWidget
+  WB_SetGamepadInputButton_C                           WB_SetGamepadInputButton_C -> WB_SetOptionButton_C -> WGI_NavItem -> UserWidget
+  WB_SetInput_LightIcon_C                              WB_SetInput_LightIcon_C -> WGI_UserWidget -> UserWidget
+  WB_SetKeyboardInputButton_C                          WB_SetKeyboardInputButton_C -> WB_SetGamepadInputButton_C -> WB_SetOptionButton_C -> WGI_NavItem -> UserWidget
+  WB_KeyBoardInput_C                                   WB_KeyBoardInput_C -> WGI_UserWidget -> UserWidget
+  WB_Options_C                                         WB_Options_C -> WGI_UserWidget -> UserWidget
+  WB_SetModuleButton_C                                 WB_SetModuleButton_C -> WGI_NavItem -> UserWidget
+  WB_SetUp_C                                           WB_SetUp_C -> WGI_UserWidget -> UserWidget
+  WB_LoginFlow_C                                       WB_LoginFlow_C -> WGI_UserWidget -> UserWidget
+  WB_EditionType_C                                     WB_EditionType_C -> WGI_UserWidget -> UserWidget
+  WB_Login_C                                           WB_Login_C -> WGI_UserWidget -> UserWidget
+  WB_LoopScrollView_C                                  WB_LoopScrollView_C -> UserWidget
+  SpcialTipsText_C                                     SpcialTipsText_C -> UserWidget
+  WB_HelpTitleButton_C                                 WB_HelpTitleButton_C -> WGI_UserWidget -> UserWidget
+  WB_SelectItem_C                                      WB_SelectItem_C -> WGI_UserWidget -> UserWidget
+  WB_GemSuitDes_C                                      WB_GemSuitDes_C -> UserWidget
+  WB_PlumeTransit_TransitPointItem_NpcIcon_C           WB_PlumeTransit_TransitPointItem_NpcIcon_C -> UserWidget
+  WB_PlumeTransit_TransitPointItem_NpcIconList_C       WB_PlumeTransit_TransitPointItem_NpcIconList_C -> UserWidget
+  WB_GemInfoUnit_C                                     WB_GemInfoUnit_C -> UserWidget
+  WB_Grid_AJ_C                                         WB_Grid_AJ_C -> WGI_UserWidget -> UserWidget
+  WB_ScrollItemTextRoot_C                              WB_ScrollItemTextRoot_C -> UserWidget
+  WB_ScrollItemButtonList_C                            WB_ScrollItemButtonList_C -> WGI_UserWidget -> UserWidget
+  WB_WarehouseInfoPanel_C                              WB_WarehouseInfoPanel_C -> WGI_UserWidget -> UserWidget
+  WB_PlumeTransit_TransitPointItem_C                   WB_PlumeTransit_TransitPointItem_C -> WGI_NavItem -> UserWidget
+  WB_AnomalousResistance_C                             WB_AnomalousResistance_C -> UserWidget
+  WB_Damagereduction_C                                 WB_Damagereduction_C -> UserWidget
+  WB_Weaponproperties_C                                WB_Weaponproperties_C -> UserWidget
+
+-- other UI objects --
+  HUD                            HUD /Game/MapsEntry/Lobby.Lobby:PersistentLevel.HUD_2147482375
+  HUD total: 1
+  GameViewportClient             GameViewportClient /Engine/Transient.GameEngine_2147482621:GameViewportClient_2147482531
+  GameViewportClient total: 1
+  WidgetComponent total: 0
+  SlateWidgetStyleContainerBase total: 0

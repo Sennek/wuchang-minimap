@@ -56,6 +56,9 @@ build\windows\x64\Game__Shipping__Win64\main.pdb
 
 `main.dll` exports `start_mod` / `uninstall_mod` and imports 16 symbols from `UE4SS.dll`.
 
+A clean build takes about 4 seconds. Our own target is built with `set_warnings("all")`
+and is warning-free; `third_party/` is left at the default warning level.
+
 ## Install
 
 ```powershell

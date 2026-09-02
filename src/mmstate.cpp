@@ -489,17 +489,52 @@ namespace mm
             {
                 cfg.floor_z_tolerance = parse_float(value, cfg.floor_z_tolerance);
             }
-            else if (key == "floor_hysteresis")
+            else if (key == "floor_fade_uu")
             {
-                cfg.floor_hysteresis = parse_float(value, cfg.floor_hysteresis);
+                cfg.floor_fade_uu = parse_float(value, cfg.floor_fade_uu);
+            }
+            else if (key == "floor_gradient_strength")
+            {
+                cfg.floor_gradient_strength = parse_float(value, cfg.floor_gradient_strength);
+            }
+            else if (key == "floor_base_color")
+            {
+                // "R G B" or "R,G,B", 0..255 each.
+                float rgb[3] = {cfg.floor_base_r, cfg.floor_base_g, cfg.floor_base_b};
+                std::string one;
+                int n = 0;
+                for (std::size_t i = 0; i <= value.size() && n < 3; ++i)
+                {
+                    const char c = i < value.size() ? value[i] : ',';
+                    if (c == ',' || c == ' ' || c == '\t' || c == ';')
+                    {
+                        if (!one.empty())
+                        {
+                            rgb[n] = parse_float(one, rgb[n]);
+                            ++n;
+                            one.clear();
+                        }
+                    }
+                    else
+                    {
+                        one.push_back(c);
+                    }
+                }
+                cfg.floor_base_r = rgb[0];
+                cfg.floor_base_g = rgb[1];
+                cfg.floor_base_b = rgb[2];
+            }
+            else if (key == "slice_hz")
+            {
+                cfg.slice_hz = parse_int(value, cfg.slice_hz);
+            }
+            else if (key == "feet_z_smooth_ms")
+            {
+                cfg.feet_z_smooth_ms = parse_int(value, cfg.feet_z_smooth_ms);
             }
             else if (key == "player_z_offset")
             {
                 cfg.player_z_offset = parse_float(value, cfg.player_z_offset);
-            }
-            else if (key == "floor_fallback_hold_ms")
-            {
-                cfg.floor_fallback_hold_ms = parse_int(value, cfg.floor_fallback_hold_ms);
             }
             else if (key == "fallback_use_composite")
             {
@@ -534,10 +569,15 @@ namespace mm
         cfg.min_visible_after_state_ok_ms = (std::max)(0, (std::min)(10000, cfg.min_visible_after_state_ok_ms));
         cfg.menu_close_show_delay_ms = (std::max)(0, (std::min)(3000, cfg.menu_close_show_delay_ms));
         cfg.adjacent_floor_opacity = (std::max)(0.0f, (std::min)(1.0f, cfg.adjacent_floor_opacity));
-        cfg.floor_z_tolerance = (std::max)(0.0f, (std::min)(2000.0f, cfg.floor_z_tolerance));
-        cfg.floor_hysteresis = (std::max)(0.0f, (std::min)(2000.0f, cfg.floor_hysteresis));
+        cfg.floor_z_tolerance = (std::max)(10.0f, (std::min)(2000.0f, cfg.floor_z_tolerance));
+        cfg.floor_fade_uu = (std::max)(cfg.floor_z_tolerance, (std::min)(20000.0f, cfg.floor_fade_uu));
+        cfg.floor_gradient_strength = (std::max)(0.0f, (std::min)(1.0f, cfg.floor_gradient_strength));
+        cfg.floor_base_r = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_r));
+        cfg.floor_base_g = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_g));
+        cfg.floor_base_b = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_b));
+        cfg.slice_hz = (std::max)(2, (std::min)(30, cfg.slice_hz));
+        cfg.feet_z_smooth_ms = (std::max)(1, (std::min)(2000, cfg.feet_z_smooth_ms));
         cfg.player_z_offset = (std::max)(-500.0f, (std::min)(500.0f, cfg.player_z_offset));
-        cfg.floor_fallback_hold_ms = (std::max)(0, (std::min)(60000, cfg.floor_fallback_hold_ms));
 
         set_config(cfg);
         logf(L"config: loaded {} setting(s) from {}", lines, path);
@@ -569,9 +609,14 @@ namespace mm
         out += "show_adjacent_floors = " + std::string(cfg.show_adjacent_floors ? "1" : "0") + "\n";
         out += "adjacent_floor_opacity = " + std::format("{:.2f}", cfg.adjacent_floor_opacity) + "\n";
         out += "floor_z_tolerance = " + std::format("{:.0f}", cfg.floor_z_tolerance) + "\n";
-        out += "floor_hysteresis = " + std::format("{:.0f}", cfg.floor_hysteresis) + "\n";
+        out += "floor_fade_uu = " + std::format("{:.0f}", cfg.floor_fade_uu) + "\n";
+        out += "floor_gradient_strength = " + std::format("{:.2f}", cfg.floor_gradient_strength) + "\n";
+        out += "floor_base_color = " + std::format("{:.0f} {:.0f} {:.0f}", cfg.floor_base_r, cfg.floor_base_g,
+                                                   cfg.floor_base_b) +
+               "\n";
+        out += "slice_hz = " + std::to_string(cfg.slice_hz) + "\n";
+        out += "feet_z_smooth_ms = " + std::to_string(cfg.feet_z_smooth_ms) + "\n";
         out += "player_z_offset = " + std::format("{:.0f}", cfg.player_z_offset) + "\n";
-        out += "floor_fallback_hold_ms = " + std::to_string(cfg.floor_fallback_hold_ms) + "\n";
         out += "fallback_use_composite = " + std::string(cfg.fallback_use_composite ? "1" : "0") + "\n\n";
         out += "debug_readout = " + std::string(cfg.debug_readout ? "1" : "0") + "\n";
         out += "debug_show_panel_on_start = " + std::string(cfg.debug_show_panel_on_start ? "1" : "0") + "\n";

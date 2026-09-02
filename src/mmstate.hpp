@@ -63,9 +63,18 @@ namespace mm
         // a minimum age here before it draws anything, so the frames around a level
         // load never flash the minimap.
         std::uint64_t state_ok_since_ms = 0;
+        // GetTickCount64() of the last detected teleport (a position jump inside one
+        // pump). A shrine fast-travel keeps the same pawn and the same world, so this is
+        // the only signal the render side gets that its position-derived caches (the
+        // height-slice window, the smoothed feet Z) must be dropped.
+        std::uint64_t teleport_ms = 0;
 
         wchar_t pawn_name[96]{}; // pawn class / object name, for the debug readout
         wchar_t level_name[160]{}; // pawn full name (carries the world + level path)
+        // The in-viewport Visible root widget that is currently holding menu_open true,
+        // or empty. Printed by the F2 debug block so "hidden because: a menu is open"
+        // always names the widget responsible.
+        wchar_t menu_holder[64]{};
     };
 
     // Writer (game thread) and reader (render thread). A torn read is retried, never
@@ -106,23 +115,45 @@ namespace mm
         int menu_close_show_delay_ms = 150;
 
         //==============================================================================
-        // Floor (Z) awareness
+        // Height slicing (what the minimap actually draws)
         //==============================================================================
         //
-        // The map ships one pre-rendered layer per floor plus a per-cell table of
-        // walkable surface bands (maps.json `floor_grid`). Every frame the overlay
-        // picks the band the player is standing in and draws that band's layer(s).
+        // The map ships a MULTI-SURFACE HEIGHT MAP: four 16-bit PNGs holding the Z of
+        // up to four stacked walkable surfaces per pixel. Every ~80 ms the overlay
+        // slices the window around the player on the CPU:
+        //
+        //     |surfaceZ - feetZ| <= floor_z_tolerance -> opaque, shaded by the gradient
+        //     nearest below within floor_fade_uu      -> adjacent_floor_opacity
+        //     nearest above within floor_fade_uu      -> adjacent_floor_opacity x 0.6
+        //     nothing                                 -> transparent
+        //
+        // This replaced the surface-ordinal layer scheme, which drew a temple interior
+        // as several blended layers. There are no floor ranks or band grids left, so
+        // `floor_hysteresis` and `floor_fallback_hold_ms` are gone too - the only
+        // smoothing is feet_z_smooth_ms.
 
-        bool show_adjacent_floors = true;     // dim the storey below / above
+        bool show_adjacent_floors = true;     // draw the surfaces below / above, dimmed
         float adjacent_floor_opacity = 0.25f; // below; above uses 0.6 x this
-        float floor_z_tolerance = 150.0f;     // uu of slack around a band's Z range
-        float floor_hysteresis = 100.0f;      // uu the new band must win by, on stairs
+        float floor_z_tolerance = 200.0f;     // uu: |Z - feetZ| within this = my floor
+        float floor_fade_uu = 800.0f;         // uu: how far below / above is still shown
+        // Height gradient. lum = 1 + strength * clamp((surfaceZ - feetZ) / span, -1, 1)
+        // with span = tolerance (current floor) or fade (dimmed), so a ramp or a
+        // staircase inside one storey reads as a gentle gradient rather than a flat
+        // silhouette. The SAME formula is implemented offline in
+        // tools/navmesh/slice_preview.py, so a reported spot can be reproduced without
+        // the game.
+        float floor_gradient_strength = 0.18f;
+        float floor_base_r = 214.0f; // the walkable fill: a light warm grey that reads
+        float floor_base_g = 208.0f; // on this game's dark scenes
+        float floor_base_b = 196.0f;
+        int slice_hz = 12;           // CPU re-slices per second (2..30)
+        int feet_z_smooth_ms = 100;  // EMA time constant on feet Z
         // The pawn's location is its capsule centre, ~90 uu above the navmesh it is
-        // standing on. Subtracted before the band lookup.
+        // standing on. Subtracted to get feet Z.
         float player_z_offset = 90.0f;
-        int floor_fallback_hold_ms = 3000; // keep the last floor this long when off-grid
-        // After that: draw every layer at once (0, the default - costs no extra VRAM)
-        // or the Z-shaded composite texture (1, +82 MB of VRAM for Chapter 1).
+        // Load the Z-shaded composite PNG as well (+82 MB of VRAM for Chapter 1). It
+        // merges every storey, so it is only the fallback for a chapter whose height
+        // maps are missing - which the runtime loads on its own anyway.
         bool fallback_use_composite = false;
 
         bool debug_readout = true;

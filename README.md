@@ -103,7 +103,8 @@ third_party/minhook/       MinHook v1.3.4
 third_party/fmt/           fmt 11.2.0, headers only (FMT_HEADER_ONLY)
 tools/gen_ue4ss_importlib.ps1
 tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
-tools/navmesh/build_map.py tile JSON -> composite + per-floor layers + maps/maps.json
+tools/navmesh/build_map.py tile JSON -> composite + multi-surface height maps + maps/maps.json
+tools/navmesh/slice_preview.py the runtime's height-slicing rule, offline, for any (x, y, z)
 maps/                      the shipped map assets (deployed into the mod folder)
 tools/lua-recon/           WuchangRecon Lua recon mod + its offline mock harness
 deploy/ue4ss/Mods/WuchangMinimap/
@@ -299,31 +300,51 @@ python build_map.py --input dumps_offline --chapter chapter1 --out ..\..\maps
 ```
 
 `build_map.py` imports `render.py`, so the loader, the richest-copy dedupe and the flat-plane filter are
-shared. It writes three things (schema `wuchang-minimap-maps/2`):
+shared. It writes three things (schema `wuchang-minimap-maps/3`):
 
 1. **`chapter1/small.png`** - the Z-shaded RGBA composite of every storey, transparent background.
-   Chapter 1 at 0.06 px/uu is 4947 x 4333 px, 3.2 MB PNG, 82 MB as RGBA8. It is now only the *fallback*
-   and is not even loaded unless `fallback_use_composite = 1`.
-2. **`chapter1/small_f0.png` .. `_f7.png`** - one 8-bit grayscale coverage mask per **surface ordinal**:
-   layer k holds, at every pixel, the k-th walkable surface counted from the bottom
-   (`rasterize_ordinals()` draws the polygons low Z first and keeps a per-pixel count of how many
-   surfaces are already there). A roof and the corridor beneath it are therefore never in the same layer,
-   and there are no grid-shaped seams. Each layer is cropped to its own footprint with an 8 px
-   transparent margin (ImGui's DX12 sampler is CLAMP) and carries **its own bounds and its own
-   `px_per_uu`**; `plan_layer_scales()` coarsens the deepest ordinals until the whole set fits
-   `--max-layer-mb`. Chapter 1: **8 layers, 4.2 MB of PNG, 109 MB of `R8_UNORM`** (f0-f4 at 0.06, f5 at
-   0.03, f6/f7 at 0.015). Anything deeper than `--max-levels` (8) folds into the last layer - 0.7 % of
-   the polygons.
-3. **`maps.json`** - per chapter the composite's bounds/scale/mapping, the per-layer entries, and the
-   **surface-band grid**: for each 640-uu XY cell, the walkable surfaces at that spot as
-   `[gx, gy, band_count, (zmin, zmax, layer_count, layer...)...]`, low Z first, each band naming its
-   layers dominant-first. That table is how the runtime answers "which storey is the player on?".
-   Chapter 1: 7 894 cells, 23 838 bands, 586 kB.
+   Chapter 1 at 0.06 px/uu is 4947 x 4333 px, 3.2 MB PNG, 82 MB as RGBA8. It is only the *fallback* for
+   a chapter with no height maps, and is not loaded unless `fallback_use_composite = 1`.
+2. **`chapter1/small_z0.png` .. `_z7.png`** - the **multi-surface height map**: eight 16-bit grayscale
+   PNGs where plane k holds, at every pixel, the Z of the k-th walkable surface counted from the bottom.
+   `code = 1 + round((Z - z_min) / (z_max - z_min) * 65534)`, and **code 0 means "no surface"**. All
+   eight share one size, one `px_per_uu` and one set of bounds - no per-layer crops, no per-layer
+   scales. Chapter 1: **4947 x 4333, 10.2 MB of PNG, 327 MB of RAM** (`z_min` -15089, `z_max` 38871,
+   0.82 uu per step). Properties that matter:
+   * **Fill only, no outlines.** Coverage is "the sample point is inside the polygon, or within
+     `--seam-px` (0.5) of its boundary", which closes the sub-pixel gaps that made the old layers look
+     like a triangle mesh. The ~1 px overlap that creates is absorbed by `--merge-tol` (120 uu): a
+     polygon's pixels *join* the surface already at that pixel when the Z is that close, instead of
+     opening a new slot - so no phantom storey appears along an edge.
+   * **Z is interpolated per vertex** (barycentric over the polygon's fan triangles, clamped to the
+     polygon's own vertex Z range), so a ramp or a staircase stores a smoothly varying Z and the
+     runtime's gradient comes out smooth rather than per-polygon flat.
+   * Slots are sorted ascending, so `z0 <= z1 <= ... <= z7` is guaranteed per pixel. **Eight** slots,
+     not four: four hold 93 % of the chapter's lit pixels but only 50 % in the Digong-spiral /
+     Hanguang-temple block (up to eleven surfaces at one pixel), and sliced at the temple's feet Z that
+     cost two thirds of the floor (5 655 opaque px vs 17 807). Eight is within 2 % of sixteen. The top
+     slot is the **overflow** slot and keeps the *highest* Z, so the top of a deep stack is never what
+     gets dropped. `--max-surfaces 4` halves the RAM if needed.
+3. **`maps.json`** - per chapter the bounds, scale, mapping, `z_min` / `z_max` / `z_step_uu`,
+   `max_surfaces` and the `height_maps` list (the array index IS the surface slot). 1 kB.
 
-Why per-pixel ordinals and not floor ranks: measured on Chapter 1, `render.py`'s global floor clustering
-leaves 62 % of the 640-uu cells with two or more surfaces in the same rank, and union-find over
-"neighbouring cells' Z ranges overlap" merges the chapter into one 231 k-polygon surface. Details in the
-script's docstring and in `.workspace/wuchang-minimap/lessons.md`.
+Superseded, kept reachable behind `--legacy-layers`: the **per-pixel surface-ordinal** layers
+(`small_f0..f7.png`, 8-bit coverage masks) plus the 640-uu **surface-band grid**. They separated storeys
+exactly, but the *runtime* could only guess which ordinal its storey was from a band table that names up
+to three of them - so a temple interior drew several layers blended and read as noise. The height map
+answers the same question exactly, per pixel. `.workspace/wuchang-minimap/lessons.md` has the
+measurements, including why floor ranks and surface connectivity both fail on this map.
+
+### `slice_preview.py` - the runtime's rule, offline
+
+```powershell
+python tools\navmesh\slice_preview.py --x 19537 --y 4587 --z 2505 --out temple.png
+```
+
+Renders exactly what the overlay would draw at that world position, straight from the shipped height
+maps - so a "the floor looks wrong at X" report can be reproduced and fixed without launching the game.
+`slice_window()` + `shade()` are the reference implementation of the slicing rule; keep them and
+`overlay.cpp`'s `slice_window()` in step.
 
 `--px-per-uu` is a request - the scale halves until neither dimension exceeds `--max-dim` (8192).
 
@@ -374,9 +395,32 @@ render thread never touches a UObject.
 `show_minimap`, `minimap_size`, `minimap_zoom`, `minimap_shape`, `minimap_anchor`,
 `minimap_offset_x/y`, `rotate_with_player`, `opacity`, `hide_in_menus`, `require_pawn_view`,
 `state_stale_ms`, `min_visible_after_state_ok_ms`, `menu_close_show_delay_ms`, `debug_readout`,
-`debug_show_panel_on_start`, `panel_key`, `reload_key`, plus the floor block: `show_adjacent_floors`,
-`adjacent_floor_opacity`, `floor_z_tolerance`, `floor_hysteresis`, `player_z_offset`,
-`floor_fallback_hold_ms`, `fallback_use_composite`.
+`debug_show_panel_on_start`, `panel_key`, `reload_key`, plus the height-slicing block:
+
+| key | default | meaning |
+|---|---|---|
+| `show_adjacent_floors` | 1 | also draw the surfaces below / above, dimmed |
+| `adjacent_floor_opacity` | 0.25 | opacity of the surface below; the one above uses 60 % of it |
+| `floor_z_tolerance` | 200 | uu: a surface within this of your feet is "my floor", drawn opaque |
+| `floor_fade_uu` | 800 | uu: how far below / above is still drawn, dimmed |
+| `floor_gradient_strength` | 0.18 | `lum = 1 + strength * clamp((surfaceZ - feetZ) / span, -1, +1)` |
+| `floor_base_color` | `214 208 196` | the walkable fill, `R G B` |
+| `slice_hz` | 12 | CPU re-slices per second (2..30) |
+| `feet_z_smooth_ms` | 100 | EMA time constant on feet Z |
+| `player_z_offset` | 90 | uu subtracted from the pawn's capsule centre to get feet Z |
+| `fallback_use_composite` | 0 | also load `small.png` (+82 MB VRAM); only useful with no height maps |
+
+Removed in the height-slicing rewrite: `floor_hysteresis` and `floor_fallback_hold_ms` - there is no
+band grid to be off any more, and the only smoothing left is `feet_z_smooth_ms`.
+
+### Why the minimap is (not) on screen
+
+`overlay.cpp`'s `set_hide_reason()` is the single choke point for visibility, and every show condition
+is re-evaluated from the live snapshot on **every frame** - there is no latch anywhere in the path. The
+F2 debug block prints the current reason as `hidden because: <reason>` (or `minimap: visible`) together
+with how long that state has held, and every transition is written to `UE4SS.log` as
+`minimap HIDDEN: <reason> (previous state held N ms)`, rate-limited to one line per 2 s. When the reason
+is a menu, the block also names the in-viewport widget holding it open.
 **F2** opens the panel, **F5** reloads the file and the maps. Only F1-F5, F7 and F8 are accepted as
 hotkeys; F6 (RenoDX DLSS 5), F9/F11 (engine binds), F10 (game console) and F12 (Steam) are rejected in
 code.
@@ -385,10 +429,14 @@ code.
 
 - [ ] Markers: shrines, chests, pickups, fog gates, enemies, with auto-mark.
 - [ ] Full-screen pannable map, compass, waypoints, category filters.
-- [x] Per-floor map selection from the player's Z (per-pixel surface-ordinal layers + the surface-band
-      grid; tolerance 150 uu, hysteresis 100 uu, adjacent storeys dimmed).
-- [ ] If the residual multi-layer draw reads as clutter in-world: the height-encoded texture + custom
-      pixel shader (`|Z - playerZ| < window`, one ~86 MB RGBA texture, no floors at all).
+- [x] Per-floor map selection from the player's Z. Round 2's surface-ordinal layers read as clutter
+      in-world, so round 3 replaced them with a **multi-surface height map sliced on the CPU** into a
+      small double-buffered dynamic texture (`|Z - feetZ| <= 200 uu` opaque with a height gradient,
+      +/-800 uu dimmed, nothing else drawn).
+- [ ] Optimisation, not a fix: move the same slicing loop into a **pixel shader**. It needs its own root
+      signature, PSO, `D3DCompile` and `ImDrawList::AddCallback` juggling on a ReShade-wrapped
+      swapchain, and it would only save the few ms per update and the ~1 MB upload - the CPU slicer
+      already has the exactly-correct semantics.
 - [ ] Build the other four chapters' maps and load/unload them by area.
 - [ ] Sweep all streaming cells so the runtime navmesh dumps cover a whole region, not just the
       4-6 cells resident around the player.

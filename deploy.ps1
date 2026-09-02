@@ -117,6 +117,12 @@ foreach ($modDir in $targets) {
         $mapsSrc = Join-Path $PSScriptRoot 'maps'
         if (Test-Path $mapsSrc) {
             $mapsDst = Join-Path $modDir 'maps'
+            # Wipe first: Copy-Item does not remove files the pipeline stopped
+            # producing, and a stale asset set (the old small_f*.png ordinal layers,
+            # say) would be loaded alongside the new one.
+            if ((Test-Path $mapsDst) -and ($mapsSrc -ne $mapsDst)) {
+                Remove-Item -Recurse -Force $mapsDst
+            }
             New-Item -ItemType Directory -Force -Path $mapsDst | Out-Null
             if ($mapsSrc -ne $mapsDst) {
                 Copy-Item -Path (Join-Path $mapsSrc '*') -Destination $mapsDst -Recurse -Force

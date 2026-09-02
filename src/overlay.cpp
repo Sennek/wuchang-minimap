@@ -292,11 +292,39 @@ namespace overlay
             D3D12_GPU_DESCRIPTOR_HANDLE srv_gpu{};
             int width = 0;
             int height = 0;
-            int floor = -1;    // -1 = the composite
             int channels = 4;
             std::size_t bytes = 0;
             bool ready = false;
             std::string chapter;
+        };
+
+        //==============================================================================
+        // The height-slice texture
+        //==============================================================================
+        //
+        // A small dynamic RGBA8 texture the CPU slicer refills at slice_hz. Two of
+        // them, because the GPU may still be sampling one while we write the next:
+        // `in_flight_fence` is the fence value of the last frame that DREW this buffer,
+        // so a buffer is only rewritten once GetCompletedValue() has passed it.
+        //
+        // The upload heap stays mapped for the buffer's whole life (a 512x512 RGBA
+        // window is 1 MB, and Map/Unmap per update is pure overhead), and the copy is
+        // recorded on the same command list Present already records for ImGui - so
+        // there is no extra queue, no PSO and no root signature on ReShade's swapchain.
+
+        struct SliceBuf
+        {
+            ID3D12Resource* tex = nullptr;
+            ID3D12Resource* upload = nullptr;
+            std::uint8_t* mapped = nullptr;
+            D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu{};
+            D3D12_GPU_DESCRIPTOR_HANDLE srv_gpu{};
+            D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+            UINT rows = 0;
+            int size = 0;                 // side, px
+            bool needs_copy = false;      // filled by the CPU, copy not recorded yet
+            bool in_copy_dest = true;     // resource state tracking for the barriers
+            UINT64 in_flight_fence = 0;   // last frame that sampled it
         };
 
         Spinlock g_render_lock;
@@ -322,12 +350,38 @@ namespace overlay
         bool g_rt_ready = false;
         bool g_failed = false;
 
-        // The chapter composite (only loaded when fallback_use_composite = 1) and one
-        // texture per floor layer, indexed the same way as `Chapter::layers`.
+        // The chapter composite - only loaded when fallback_use_composite = 1, or when
+        // the height maps failed to load at all.
         MapTexture g_map;
-        MapTexture g_layer_tex[mapdata::kMaxLayers];
-        int g_layers_ready = 0;
-        std::size_t g_layer_bytes = 0;
+
+        constexpr int kSliceBufs = 2;
+        constexpr int kSliceMinPx = 128;
+        constexpr int kSliceMaxPx = 1024;
+        SliceBuf g_slice[kSliceBufs];
+        int g_slice_next = 0;  // the buffer the next update writes
+        int g_slice_shown = -1; // the buffer the minimap is drawing
+        int g_slice_size = 0;   // side of the currently allocated buffers, px
+        std::uint64_t g_slice_last_ms = 0;
+        double g_slice_ms = 0.0;     // cost of the last slice, ms (EMA)
+        double g_slice_ms_peak = 0.0;
+        std::uint64_t g_slice_updates = 0;
+        std::uint64_t g_slice_skipped = 0;
+        // The window the SHOWN buffer covers, as a world->uv mapping.
+        double g_slice_min_y = 0.0;
+        double g_slice_max_x = 0.0;
+        double g_slice_px_per_uu = 0.0;
+        // Feet Z, EMA-smoothed so a jump or a step does not snap the whole picture.
+        float g_feet_z = 0.0f;
+        bool g_feet_z_valid = false;
+        // Slice statistics, for the F2 debug block.
+        std::uint32_t g_slice_opaque = 0;
+        std::uint32_t g_slice_dim = 0;
+        std::uint32_t g_slice_faint = 0;
+        int g_slice_surfaces = 0; // height planes the slicer is reading
+        // Per-pixel scratch for the PLANE-MAJOR slice pass (see slice_window).
+        std::vector<std::uint8_t> g_slice_state;
+        std::vector<float> g_slice_best_ad;
+        std::vector<float> g_slice_best_d;
 
         // The swapchain we render on. Present can be called for more than one
         // swapchain (ReShade wraps its own, DLSS frame generation adds another), so the
@@ -350,9 +404,47 @@ namespace overlay
         wchar_t g_hide_reason[96] = L"not evaluated yet";
         std::wstring g_hook_report = L"not installed";
 
+        // Every hide/show transition is logged with its reason, so one line in the log
+        // pins "why did the minimap vanish" without a screenshot. Rate-limited: a
+        // reason that has not changed is never logged again, and even a changing reason
+        // is logged at most once per kReasonLogMs (a flapping condition must not be
+        // able to flood the log the way "the settings panel rendered" once did).
+        constexpr std::uint64_t kReasonLogMs = 2000;
+        wchar_t g_reason_logged[96] = L"";
+        std::uint64_t g_reason_log_ms = 0;
+        std::uint64_t g_reason_since_ms = 0;
+        std::uint64_t g_reason_suppressed = 0;
+
         void set_hide_reason(const wchar_t* text)
         {
+            if (::wcscmp(g_hide_reason, text) == 0)
+            {
+                return; // unchanged - nothing to record, nothing to log
+            }
             ::wcsncpy_s(g_hide_reason, text, std::size(g_hide_reason) - 1);
+            const std::uint64_t now = ::GetTickCount64();
+            const std::uint64_t held = g_reason_since_ms == 0 ? 0 : now - g_reason_since_ms;
+            g_reason_since_ms = now;
+            if (::wcscmp(g_reason_logged, text) == 0)
+            {
+                return; // flapping between two states we already reported
+            }
+            if (now - g_reason_log_ms < kReasonLogMs)
+            {
+                ++g_reason_suppressed;
+                return;
+            }
+            const bool visible = ::wcscmp(text, L"visible") == 0;
+            mm::logf(L"minimap {}: {} (previous state held {} ms{})",
+                     visible ? L"SHOWN" : L"HIDDEN",
+                     text,
+                     held,
+                     g_reason_suppressed != 0 ? std::format(L", {} change(s) suppressed",
+                                                            g_reason_suppressed)
+                                              : std::wstring{});
+            ::wcsncpy_s(g_reason_logged, text, std::size(g_reason_logged) - 1);
+            g_reason_log_ms = now;
+            g_reason_suppressed = 0;
         }
 
         //==============================================================================
@@ -513,15 +605,36 @@ namespace overlay
             t = MapTexture{};
         }
 
+        void destroy_slice_buffers()
+        {
+            for (SliceBuf& b : g_slice)
+            {
+                if (b.upload != nullptr && b.mapped != nullptr)
+                {
+                    b.upload->Unmap(0, nullptr);
+                }
+                if (b.srv_cpu.ptr != 0)
+                {
+                    g_srv_heap.free(b.srv_cpu);
+                }
+                safe_release(b.tex);
+                safe_release(b.upload);
+                b = SliceBuf{};
+            }
+            g_slice_size = 0;
+            g_slice_next = 0;
+            g_slice_shown = -1;
+            g_slice_last_ms = 0;
+        }
+
         void destroy_all_map_textures()
         {
             destroy_texture(g_map);
-            for (MapTexture& t : g_layer_tex)
-            {
-                destroy_texture(t);
-            }
-            g_layers_ready = 0;
-            g_layer_bytes = 0;
+            destroy_slice_buffers();
+            g_feet_z_valid = false;
+            g_slice_state.clear();
+            g_slice_best_ad.clear();
+            g_slice_best_d.clear();
         }
 
         // An upload buffer only has to live until the GPU has run the copy. Releasing
@@ -541,22 +654,13 @@ namespace overlay
                 }
             };
             sweep(g_map);
-            for (MapTexture& t : g_layer_tex)
-            {
-                sweep(t);
-            }
         }
 
         // Creates the texture and its upload buffer, and records the copy into
         // `list`. Called with the render lock held, from inside a frame.
         bool begin_map_upload(const mapdata::PendingImage& img, ID3D12GraphicsCommandList* list)
         {
-            const bool is_layer = img.layer_index >= 0;
-            if (is_layer && img.layer_index >= mapdata::kMaxLayers)
-            {
-                return false;
-            }
-            MapTexture& target = is_layer ? g_layer_tex[img.layer_index] : g_map;
+            MapTexture& target = g_map;
             const DXGI_FORMAT format = img.channels == 1 ? DXGI_FORMAT_R8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
             destroy_texture(target);
 
@@ -666,7 +770,6 @@ namespace overlay
 
             target.width = img.width;
             target.height = img.height;
-            target.floor = img.floor;
             target.channels = img.channels;
             target.bytes = static_cast<std::size_t>(total);
             target.chapter = img.chapter_key;
@@ -675,35 +778,11 @@ namespace overlay
             // passed it, release_finished_uploads() frees the staging buffer.
             target.upload_fence = g_fence_value + 1;
 
-            if (is_layer)
-            {
-                g_layer_bytes = 0;
-                g_layers_ready = 0;
-                for (const MapTexture& t : g_layer_tex)
-                {
-                    if (t.ready)
-                    {
-                        ++g_layers_ready;
-                        g_layer_bytes += t.bytes;
-                    }
-                }
-                mm::logf(L"map texture: floor layer f{} {}x{} uploaded (R8, {} MB); {} layer(s) resident, "
-                         L"{} MB of texture memory",
-                         img.floor,
-                         img.width,
-                         img.height,
-                         total / (1024 * 1024),
-                         g_layers_ready,
-                         g_layer_bytes / (1024 * 1024));
-            }
-            else
-            {
-                mm::logf(L"map texture: composite {}x{} uploaded (RGBA8, {} MB), chapter \"{}\"",
-                         img.width,
-                         img.height,
-                         total / (1024 * 1024),
-                         std::wstring(img.chapter_key.begin(), img.chapter_key.end()));
-            }
+            mm::logf(L"map texture: composite {}x{} uploaded (RGBA8, {} MB), chapter \"{}\"",
+                     img.width,
+                     img.height,
+                     total / (1024 * 1024),
+                     std::wstring(img.chapter_key.begin(), img.chapter_key.end()));
             return true;
         }
 
@@ -734,11 +813,6 @@ namespace overlay
         UvMap uv_of(const mapdata::Chapter& c)
         {
             return UvMap{c.min_y, c.max_x, c.px_per_uu, c.image_width, c.image_height};
-        }
-
-        UvMap uv_of(const mapdata::Layer& l)
-        {
-            return UvMap{l.min_y, l.max_x, l.px_per_uu, l.image_width, l.image_height};
         }
 
         struct MiniGeom
@@ -827,169 +901,587 @@ namespace overlay
         MiniDebug g_last_mini{};
 
         //==============================================================================
-        // Which floor is the player on?
+        // The height slicer
         //==============================================================================
         //
-        // maps.json carries, per XY grid cell, the walkable *surface bands* at that
-        // spot (see build_map.py's build_floor_grid: the cell's polygons split by Z at
-        // gaps > 250 uu, each band tagged - dominant first - with the layer(s) its
-        // polygons were rasterised into). A layer is one SURFACE ORDINAL: layer k is
-        // the k-th walkable surface from the bottom at each pixel, so two surfaces
-        // stacked above one another are never in the same layer.
-        // Every frame:
+        // WHY THIS REPLACED THE ORDINAL LAYERS (2026-09-02, round 3 of the in-world
+        // feedback). The map used to ship one pre-rendered texture per per-pixel
+        // surface ORDINAL plus a 640-uu grid of surface bands, and the runtime guessed
+        // which ordinal the player's storey was from that grid. The guess is genuinely
+        // ambiguous - a band names up to three ordinals - so a temple interior drew
+        // several layers blended together and read as noise, exactly the failure mode
+        // `CURRENT.md` had written down as the trigger for this rewrite.
         //
-        //   1. look up the player's cell and score each band by the distance from the
-        //      player's feet Z to the band's Z range, with `floor_z_tolerance` uu of
-        //      slack (so standing on a ramp or a 1 px-off surface still counts as
-        //      "inside");
-        //   2. take the nearest band - which is also the rule for being *between*
-        //      floors, mid-jump or mid-fall;
-        //   3. HYSTERESIS: if last frame's band is still present in this cell and is
-        //      no worse than the winner by `floor_hysteresis` uu, keep it. Without this
-        //      a staircase flickers between two layers at every step.
+        // Now the asset carries the ACTUAL Z of up to four stacked surfaces per pixel
+        // (mapdata::HeightMaps) and this code answers the question exactly, per pixel:
         //
-        // The band immediately below and above the chosen one are what
-        // `show_adjacent_floors` draws dimmed - by band, not by floor *index*, because
-        // the floor index is a global rank and the rank order inside one cell is not
-        // always the Z order.
+        //     |Z - feetZ| <= floor_z_tolerance          -> the floor I am on, opaque
+        //     nearest surface below within floor_fade_uu -> dim  (adjacent_floor_opacity)
+        //     nearest surface above within floor_fade_uu -> faint (x 0.6)
+        //     nothing                                    -> transparent
+        //
+        // and shades each pixel by (surfaceZ - feetZ) so slopes and staircases inside
+        // one storey read as a gentle gradient instead of a flat silhouette. There are
+        // no floor ranks, no bands and no per-position grid lookup left - the only
+        // hysteresis is the EMA on feetZ.
+        //
+        // It runs on the CPU, at slice_hz, over only the window the minimap can show
+        // (a ~512x512 source region), and uploads that window into a small dynamic
+        // texture. That buys the shader path's exact semantics without a custom root
+        // signature / PSO / D3DCompile on a ReShade-wrapped DX12 swapchain - see
+        // CURRENT.md § Decisions. The shader path stays documented as a later
+        // optimisation: it would move this loop to the GPU and drop the 512x512 upload.
 
-        struct FloorPick
+        void slice_selftest();
+
+        bool create_slice_buffers(int size)
         {
-            bool have = false;                          // a band was resolved this frame
-            bool stale = false;                         // no band here; holding the last one
-            int floors[mapdata::kMaxBandFloors]{};
-            int floor_count = 0;
-            int below[mapdata::kMaxBandFloors]{};
-            int below_count = 0;
-            int above[mapdata::kMaxBandFloors]{};
-            int above_count = 0;
-            float z_min = 0.0f;
-            float z_max = 0.0f;
-            double distance = 0.0;
-            int bands_in_cell = 0;
-            int band_index = -1;
-            std::uint64_t resolved_ms = 0;
-        };
-
-        FloorPick g_floor{};
-
-        void copy_floors(const mapdata::Band& band, int* dst, int& count)
-        {
-            count = band.floor_count;
-            for (int i = 0; i < band.floor_count && i < mapdata::kMaxBandFloors; ++i)
+            destroy_slice_buffers();
+            if (g_device == nullptr || size <= 0)
             {
-                dst[i] = band.floors[i];
-            }
-        }
-
-        // Returns true when a band was resolved (g_floor.have), false when the player
-        // is off the grid entirely - the caller then decides between holding the last
-        // floor and the fallback.
-        bool pick_floor(const mm::Config& cfg, const mapdata::Chapter& ch, const mm::Snapshot& snap,
-                        std::uint64_t now)
-        {
-            const std::vector<mapdata::Band>* bands =
-                ch.grid ? ch.grid->at(snap.x, snap.y) : nullptr;
-            if (bands == nullptr || bands->empty())
-            {
-                if (g_floor.have && now - g_floor.resolved_ms <=
-                                        static_cast<std::uint64_t>(cfg.floor_fallback_hold_ms))
-                {
-                    g_floor.stale = true;
-                    return true; // keep drawing the floor we had
-                }
-                g_floor = FloorPick{};
                 return false;
             }
 
-            // The pawn's location is its capsule centre; the navmesh is at its feet.
-            const double z = snap.z - static_cast<double>(cfg.player_z_offset);
-            const double tol = static_cast<double>(cfg.floor_z_tolerance);
-            const auto score = [&](const mapdata::Band& b) {
-                const double d = b.distance(z);
-                return d <= tol ? 0.0 : d - tol;
-            };
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-            int best = 0;
-            double best_score = score((*bands)[0]);
-            for (std::size_t i = 1; i < bands->size(); ++i)
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            desc.Width = static_cast<UINT64>(size);
+            desc.Height = static_cast<UINT>(size);
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels = 1;
+            desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.SampleDesc.Count = 1;
+            desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+            D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout{};
+            UINT num_rows = 0;
+            UINT64 row_size = 0;
+            UINT64 total = 0;
+            g_device->GetCopyableFootprints(&desc, 0, 1, 0, &layout, &num_rows, &row_size, &total);
+
+            D3D12_HEAP_PROPERTIES upload_heap{};
+            upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC buffer{};
+            buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            buffer.Width = total;
+            buffer.Height = 1;
+            buffer.DepthOrArraySize = 1;
+            buffer.MipLevels = 1;
+            buffer.Format = DXGI_FORMAT_UNKNOWN;
+            buffer.SampleDesc.Count = 1;
+            buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+            for (SliceBuf& b : g_slice)
             {
-                const double s = score((*bands)[i]);
-                if (s < best_score)
+                if (FAILED(g_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                             IID_PPV_ARGS(&b.tex))))
                 {
-                    best_score = s;
-                    best = static_cast<int>(i);
+                    mm::logf(L"slice: CreateCommittedResource({}x{} RGBA) failed", size, size);
+                    destroy_slice_buffers();
+                    return false;
+                }
+                if (FAILED(g_device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+                                                             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                             IID_PPV_ARGS(&b.upload))))
+                {
+                    mm::logf(L"slice: upload buffer of {} KB failed", total / 1024);
+                    destroy_slice_buffers();
+                    return false;
+                }
+                void* mapped = nullptr;
+                D3D12_RANGE none{0, 0};
+                if (FAILED(b.upload->Map(0, &none, &mapped)) || mapped == nullptr)
+                {
+                    mm::log(L"slice: Map() of the upload buffer failed");
+                    destroy_slice_buffers();
+                    return false;
+                }
+                b.mapped = static_cast<std::uint8_t*>(mapped);
+                if (!g_srv_heap.alloc(b.srv_cpu, b.srv_gpu))
+                {
+                    mm::log(L"slice: no free SRV descriptor");
+                    destroy_slice_buffers();
+                    return false;
+                }
+                D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+                srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                srv.Texture2D.MipLevels = 1;
+                g_device->CreateShaderResourceView(b.tex, &srv, b.srv_cpu);
+
+                b.footprint = layout;
+                b.rows = num_rows;
+                b.size = size;
+                b.in_copy_dest = true;
+                b.in_flight_fence = 0;
+                b.needs_copy = false;
+            }
+            g_slice_size = size;
+            g_slice_next = 0;
+            g_slice_shown = -1;
+            mm::logf(L"slice: {} dynamic texture(s) of {}x{} RGBA created ({} KB each, {} KB of "
+                     L"mapped upload memory)",
+                     kSliceBufs,
+                     size,
+                     size,
+                     total / 1024,
+                     (total * kSliceBufs) / 1024);
+            return true;
+        }
+
+        // How many source pixels the minimap can show, including the rotation corners
+        // and a margin so the CLAMP sampler never smears an edge into view.
+        int slice_size_for(const mm::Config& cfg, const mapdata::HeightMaps& hm, float half_px)
+        {
+            const double radius_uu = static_cast<double>(half_px) * static_cast<double>(cfg.zoom_uu_per_px) *
+                                     1.4143; // the diagonal of the square the disc rotates in
+            double want = 2.0 * radius_uu * hm.px_per_uu + 16.0;
+            int size = static_cast<int>(std::ceil(want / 128.0)) * 128;
+            if (size < kSliceMinPx)
+            {
+                size = kSliceMinPx;
+            }
+            if (size > kSliceMaxPx)
+            {
+                size = kSliceMaxPx;
+            }
+            return size;
+        }
+
+        // One pixel's colour, from the up-to-four surface Z values under it.
+        //
+        // `state` 3 = the floor the player is on, 2 = the nearest surface below,
+        // 1 = the nearest above, 0 = nothing. The gradient is the SAME rule offline
+        // (tools/navmesh/slice_preview.py) so a reported spot can be reproduced
+        // without the game:
+        //     lum = 1 + gradient_strength * clamp((surfaceZ - feetZ) / span, -1, +1)
+        // with span = tolerance for the current floor and fade for the dim ones.
+        struct SliceStyle
+        {
+            float base_r = 214.0f;
+            float base_g = 208.0f;
+            float base_b = 196.0f;
+            float strength = 0.18f;
+            float tol = 200.0f;
+            float fade = 800.0f;
+            float a_dim = 0.25f;
+            float a_faint = 0.15f;
+        };
+
+        // Fills `dst` (size*size RGBA8, row pitch `pitch`) with the window whose
+        // top-left source pixel is (x0, y0).
+        //
+        // PLANE-MAJOR, deliberately. The obvious pixel-major loop reads all eight
+        // planes at one pixel before moving on - eight addresses ~43 MB apart, i.e. one
+        // cache miss per plane per pixel, ~2.1 M misses for a 512x512 window. Walking
+        // one plane's window to completion instead touches 512 contiguous uint16 per
+        // row, so the whole pass is ~65 k cache lines: the same arithmetic, ~30x fewer
+        // misses. The per-pixel decision state lives in ~1.3 MB of scratch, which fits
+        // in L2/L3.
+        void slice_window(const mapdata::HeightMaps& hm, int x0, int y0, int size, std::uint8_t* dst,
+                          UINT pitch, float feet, const SliceStyle& st)
+        {
+            g_slice_opaque = 0;
+            g_slice_dim = 0;
+            g_slice_faint = 0;
+
+            const std::size_t n = static_cast<std::size_t>(size) * static_cast<std::size_t>(size);
+            if (g_slice_state.size() != n)
+            {
+                g_slice_state.assign(n, 0);
+                g_slice_best_ad.assign(n, 0.0f);
+                g_slice_best_d.assign(n, 0.0f);
+            }
+            else
+            {
+                std::memset(g_slice_state.data(), 0, n);
+            }
+            std::uint8_t* state = g_slice_state.data();
+            float* best_ad = g_slice_best_ad.data();
+            float* best_d = g_slice_best_d.data();
+
+            const float z0 = hm.z_min;
+            const float step = hm.z_step();
+            const int planes = hm.count < mapdata::kMaxSurfaces ? hm.count : mapdata::kMaxSurfaces;
+            g_slice_surfaces = planes;
+
+            // Rows and columns of the window that exist in the source at all; the rest
+            // stay state 0 and come out transparent.
+            const int row_lo = y0 < 0 ? -y0 : 0;
+            const int row_hi = (y0 + size) > hm.height ? hm.height - y0 : size;
+            const int col_lo = x0 < 0 ? -x0 : 0;
+            const int col_hi = (x0 + size) > hm.width ? hm.width - x0 : size;
+
+            for (int k = 0; k < planes; ++k)
+            {
+                const std::uint16_t* plane = hm.plane[k].data();
+                if (hm.plane[k].empty())
+                {
+                    continue;
+                }
+                const std::uint8_t cand_state_none = 0;
+                (void)cand_state_none;
+                for (int row = row_lo; row < row_hi; ++row)
+                {
+                    const std::uint16_t* src = plane + static_cast<std::size_t>(y0 + row) *
+                                                           static_cast<std::size_t>(hm.width) +
+                                               static_cast<std::size_t>(x0);
+                    const std::size_t out_base = static_cast<std::size_t>(row) * static_cast<std::size_t>(size);
+                    for (int col = col_lo; col < col_hi; ++col)
+                    {
+                        const std::uint16_t code = src[col];
+                        if (code == 0)
+                        {
+                            continue; // no surface in this slot here
+                        }
+                        const float z = z0 + (static_cast<float>(code) - 1.0f) * step;
+                        const float d = z - feet;
+                        const float ad = d < 0.0f ? -d : d;
+                        std::uint8_t cand = 0;
+                        if (ad <= st.tol)
+                        {
+                            cand = 3; // the floor I am standing on
+                        }
+                        else if (ad <= st.fade)
+                        {
+                            cand = d < 0.0f ? 2 : 1; // below / above, dimmed
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                        const std::size_t i = out_base + static_cast<std::size_t>(col);
+                        // Class first, then "nearest": exactly the offline rule in
+                        // tools/navmesh/slice_preview.py (slice_window + shade).
+                        if (cand > state[i] || (cand == state[i] && ad < best_ad[i]))
+                        {
+                            state[i] = cand;
+                            best_ad[i] = ad;
+                            best_d[i] = d;
+                        }
+                    }
                 }
             }
 
-            if (g_floor.have && !g_floor.stale)
+            const std::uint8_t a_dim = static_cast<std::uint8_t>(st.a_dim * 255.0f + 0.5f);
+            const std::uint8_t a_faint = static_cast<std::uint8_t>(st.a_faint * 255.0f + 0.5f);
+            for (int row = 0; row < size; ++row)
             {
-                // The same storey, one frame later: the band whose Z range still
-                // overlaps the one we were on (grown by the tolerance both ways).
-                int previous = -1;
-                for (std::size_t i = 0; i < bands->size(); ++i)
+                std::uint8_t* out = dst + static_cast<std::size_t>(row) * pitch;
+                const std::size_t base = static_cast<std::size_t>(row) * static_cast<std::size_t>(size);
+                for (int col = 0; col < size; ++col)
                 {
-                    const mapdata::Band& b = (*bands)[i];
-                    if (static_cast<double>(b.z_min) - tol <= static_cast<double>(g_floor.z_max) + tol &&
-                        static_cast<double>(g_floor.z_min) - tol <= static_cast<double>(b.z_max) + tol)
+                    std::uint8_t* px = out + static_cast<std::size_t>(col) * 4;
+                    const std::size_t i = base + static_cast<std::size_t>(col);
+                    const std::uint8_t cls = state[i];
+                    if (cls == 0)
                     {
-                        previous = static_cast<int>(i);
+                        px[0] = px[1] = px[2] = px[3] = 0;
+                        continue;
+                    }
+                    // lum = 1 + strength * clamp(d / span, -1, +1), span = tol for my own
+                    // floor and fade for the dimmed ones - so a ramp or a staircase
+                    // inside one storey reads as a gentle gradient, and the dimmed
+                    // storeys are shaded by how far away they are.
+                    const float span = cls == 3 ? st.tol : st.fade;
+                    float t = span > 0.0f ? best_d[i] / span : 0.0f;
+                    t = t < -1.0f ? -1.0f : (t > 1.0f ? 1.0f : t);
+                    const float lum = 1.0f + st.strength * t;
+                    const auto ch = [lum](float v) {
+                        const float x = v * lum + 0.5f;
+                        return static_cast<std::uint8_t>(x < 0.0f ? 0.0f : (x > 255.0f ? 255.0f : x));
+                    };
+                    px[0] = ch(st.base_r);
+                    px[1] = ch(st.base_g);
+                    px[2] = ch(st.base_b);
+                    if (cls == 3)
+                    {
+                        px[3] = 255;
+                        ++g_slice_opaque;
+                    }
+                    else if (cls == 2)
+                    {
+                        px[3] = a_dim;
+                        ++g_slice_dim;
+                    }
+                    else
+                    {
+                        px[3] = a_faint;
+                        ++g_slice_faint;
+                    }
+                }
+            }
+        }
+
+        // Re-slices into the next buffer if it is time and that buffer is free.
+        // Returns true when a buffer is available to draw (this frame's or the previous
+        // one's - the window has margin, so a skipped update is invisible).
+        bool update_slice(const mm::Config& cfg, const mapdata::Chapter& ch, const mm::Snapshot& snap,
+                          float half_px, std::uint64_t now)
+        {
+            if (!ch.has_heights())
+            {
+                return false;
+            }
+            const mapdata::HeightMaps& hm = *ch.heights;
+
+            // ---- feet Z, EMA-smoothed ------------------------------------------------
+            const float raw_feet = static_cast<float>(snap.z) - cfg.player_z_offset;
+            static std::uint64_t last_teleport = 0;
+            const bool teleported = snap.teleport_ms != 0 && snap.teleport_ms != last_teleport;
+            if (teleported)
+            {
+                last_teleport = snap.teleport_ms;
+            }
+            if (!g_feet_z_valid || teleported)
+            {
+                g_feet_z = raw_feet;
+                g_feet_z_valid = true;
+                g_slice_last_ms = 0; // a teleport must re-slice on this very frame
+            }
+            else
+            {
+                const float tau = cfg.feet_z_smooth_ms > 1 ? static_cast<float>(cfg.feet_z_smooth_ms) : 1.0f;
+                // One frame is ~16 ms; the exact dt does not matter for a 100 ms EMA.
+                const float a = 16.0f / tau;
+                g_feet_z += (raw_feet - g_feet_z) * (a > 1.0f ? 1.0f : a);
+            }
+
+            // ---- (re)allocate when the needed window size changes --------------------
+            const int want = slice_size_for(cfg, hm, half_px);
+            if (want != g_slice_size)
+            {
+                wait_for_gpu(); // the old buffers may still be in flight
+                if (!create_slice_buffers(want))
+                {
+                    return false;
+                }
+            }
+
+            const int period = cfg.slice_hz > 0 ? 1000 / cfg.slice_hz : 80;
+            if (g_slice_shown >= 0 && now - g_slice_last_ms < static_cast<std::uint64_t>(period))
+            {
+                return true; // the previous window is still good enough
+            }
+
+            SliceBuf& b = g_slice[g_slice_next];
+            if (b.tex == nullptr || b.mapped == nullptr)
+            {
+                return g_slice_shown >= 0;
+            }
+            if (b.in_flight_fence != 0 && g_fence != nullptr &&
+                g_fence->GetCompletedValue() < b.in_flight_fence)
+            {
+                // The GPU is still sampling this one. Never stall Present for the map:
+                // keep showing the other buffer and try again next frame.
+                ++g_slice_skipped;
+                return g_slice_shown >= 0;
+            }
+
+            double pxc = 0.0;
+            double pyc = 0.0;
+            hm.to_px(snap.x, snap.y, pxc, pyc);
+            const int x0 = static_cast<int>(std::lround(pxc)) - b.size / 2;
+            const int y0 = static_cast<int>(std::lround(pyc)) - b.size / 2;
+
+            SliceStyle st{};
+            st.base_r = cfg.floor_base_r;
+            st.base_g = cfg.floor_base_g;
+            st.base_b = cfg.floor_base_b;
+            st.strength = cfg.floor_gradient_strength;
+            st.tol = cfg.floor_z_tolerance;
+            st.fade = cfg.floor_fade_uu;
+            st.a_dim = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity : 0.0f;
+            st.a_faint = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity * 0.6f : 0.0f;
+
+            LARGE_INTEGER t0{};
+            LARGE_INTEGER t1{};
+            LARGE_INTEGER freq{};
+            ::QueryPerformanceFrequency(&freq);
+            ::QueryPerformanceCounter(&t0);
+            slice_window(hm, x0, y0, b.size, b.mapped + b.footprint.Offset, b.footprint.Footprint.RowPitch,
+                         g_feet_z, st);
+            ::QueryPerformanceCounter(&t1);
+            if (freq.QuadPart > 0)
+            {
+                const double ms = 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) /
+                                  static_cast<double>(freq.QuadPart);
+                g_slice_ms = g_slice_ms == 0.0 ? ms : g_slice_ms * 0.8 + ms * 0.2;
+                if (ms > g_slice_ms_peak)
+                {
+                    g_slice_ms_peak = ms;
+                }
+            }
+
+            b.needs_copy = true;
+            g_slice_shown = g_slice_next;
+            g_slice_next = (g_slice_next + 1) % kSliceBufs;
+            g_slice_last_ms = now;
+            ++g_slice_updates;
+            // The window's own world -> pixel mapping (see mapdata::HeightMaps::to_px):
+            //   px_local = px - x0 = (Y - (min_y + x0/s)) * s
+            //   py_local = py - y0 = ((max_x - y0/s) - X) * s
+            g_slice_px_per_uu = hm.px_per_uu;
+            g_slice_min_y = hm.min_y + static_cast<double>(x0) / hm.px_per_uu;
+            g_slice_max_x = hm.max_x - static_cast<double>(y0) / hm.px_per_uu;
+            return true;
+        }
+
+        // MAIN-MENU SELF-TEST. The slicer only ever runs inside draw_minimap, which is
+        // gated on a gameplay pawn - so at the main menu neither the D3D12 resources nor
+        // the CPU loop is exercised, and a verification run there could only say "it did
+        // not crash". This allocates the buffers and slices one window at the chapter's
+        // centre so a Lobby log line proves the whole path: texture + mapped upload heap
+        // created, the loop ran, and what it cost. It also removes the first-frame hitch
+        // in-world, since the buffers already exist.
+        void slice_selftest()
+        {
+            const mm::Config cfg = mm::config();
+            std::vector<mapdata::Chapter> list = mapdata::chapters();
+            const mapdata::Chapter* ch = nullptr;
+            for (const mapdata::Chapter& c : list)
+            {
+                if (c.has_heights())
+                {
+                    ch = &c;
+                    break;
+                }
+            }
+            // Size it for the shipping window so the in-world path needs no realloc.
+            const float side = (std::max)(72.0f, cfg.size_frac * static_cast<float>(g_height));
+            const int size = ch != nullptr ? slice_size_for(cfg, *ch->heights, side * 0.5f) : 512;
+            if (!create_slice_buffers(size))
+            {
+                return;
+            }
+            if (ch == nullptr)
+            {
+                mm::log(L"slice: self-test skipped - no chapter with height maps is loaded");
+                return;
+            }
+
+            const mapdata::HeightMaps& hm = *ch->heights;
+            SliceBuf& b = g_slice[0];
+            SliceStyle st{};
+            st.base_r = cfg.floor_base_r;
+            st.base_g = cfg.floor_base_g;
+            st.base_b = cfg.floor_base_b;
+            st.strength = cfg.floor_gradient_strength;
+            st.tol = cfg.floor_z_tolerance;
+            st.fade = cfg.floor_fade_uu;
+            st.a_dim = cfg.adjacent_floor_opacity;
+            st.a_faint = cfg.adjacent_floor_opacity * 0.6f;
+
+            LARGE_INTEGER t0{};
+            LARGE_INTEGER t1{};
+            LARGE_INTEGER freq{};
+            ::QueryPerformanceFrequency(&freq);
+            ::QueryPerformanceCounter(&t0);
+            // Slice a window that actually HAS geometry in it, at a feet Z taken from
+            // that geometry - a window over empty map at the mid-Z of the chapter comes
+            // out fully transparent and proves nothing about the colour path.
+            const int wx0 = (hm.width - b.size) / 2;
+            const int wy0 = (hm.height - b.size) / 2;
+            float probe_z = (hm.z_min + hm.z_max) * 0.5f;
+            int sx0 = wx0;
+            int sy0 = wy0;
+            {
+                const std::vector<std::uint16_t>& p0 = hm.plane[0];
+                for (std::size_t i = 0; i < p0.size(); i += 97) // a coarse stride is plenty
+                {
+                    if (p0[i] != 0)
+                    {
+                        const int px = static_cast<int>(i % static_cast<std::size_t>(hm.width));
+                        const int py = static_cast<int>(i / static_cast<std::size_t>(hm.width));
+                        probe_z = hm.decode(p0[i]);
+                        sx0 = px - b.size / 2;
+                        sy0 = py - b.size / 2;
                         break;
                     }
                 }
-                if (previous >= 0 && previous != best &&
-                    score((*bands)[previous]) <= best_score + static_cast<double>(cfg.floor_hysteresis))
-                {
-                    best = previous;
-                    best_score = score((*bands)[previous]);
-                }
             }
+            slice_window(hm, sx0, sy0, b.size, b.mapped + b.footprint.Offset,
+                         b.footprint.Footprint.RowPitch, probe_z, st);
+            ::QueryPerformanceCounter(&t1);
+            const double ms = freq.QuadPart > 0 ? 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) /
+                                                      static_cast<double>(freq.QuadPart)
+                                                : 0.0;
+            // Deliberately NOT marked needs_copy: nothing may be drawn at the main menu.
+            mm::logf(L"slice: self-test sliced a {}x{} window of \"{}\" at source ({}, {}), feet Z "
+                     L"{:.0f}, over {} surface(s) in {:.2f} ms (opaque {}, dim {}, faint {}) - the CPU "
+                     L"path and the dynamic texture both work",
+                     b.size,
+                     b.size,
+                     std::wstring(ch->key.begin(), ch->key.end()),
+                     sx0 + b.size / 2,
+                     sy0 + b.size / 2,
+                     static_cast<double>(probe_z),
+                     hm.count,
+                     ms,
+                     g_slice_opaque,
+                     g_slice_dim,
+                     g_slice_faint);
+            g_slice_opaque = 0;
+            g_slice_dim = 0;
+            g_slice_faint = 0;
+        }
 
-            const mapdata::Band& band = (*bands)[best];
-            g_floor = FloorPick{};
-            g_floor.have = true;
-            g_floor.stale = false;
-            g_floor.z_min = band.z_min;
-            g_floor.z_max = band.z_max;
-            g_floor.distance = best_score;
-            g_floor.bands_in_cell = static_cast<int>(bands->size());
-            g_floor.band_index = best;
-            g_floor.resolved_ms = now;
-            copy_floors(band, g_floor.floors, g_floor.floor_count);
-            if (best > 0)
+        // Render thread, inside a frame, after the command list has been reset: record
+        // the copy for whichever buffer the CPU just filled.
+        void record_slice_copy(ID3D12GraphicsCommandList* list)
+        {
+            for (SliceBuf& b : g_slice)
             {
-                copy_floors((*bands)[best - 1], g_floor.below, g_floor.below_count);
+                if (!b.needs_copy || b.tex == nullptr)
+                {
+                    continue;
+                }
+                D3D12_RESOURCE_BARRIER barrier{};
+                barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                barrier.Transition.pResource = b.tex;
+                barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                if (!b.in_copy_dest)
+                {
+                    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+                    list->ResourceBarrier(1, &barrier);
+                }
+
+                D3D12_TEXTURE_COPY_LOCATION dst{};
+                dst.pResource = b.tex;
+                dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                dst.SubresourceIndex = 0;
+                D3D12_TEXTURE_COPY_LOCATION src{};
+                src.pResource = b.upload;
+                src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                src.PlacedFootprint = b.footprint;
+                list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+
+                barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                list->ResourceBarrier(1, &barrier);
+                b.in_copy_dest = false;
+                b.needs_copy = false;
             }
-            if (best + 1 < static_cast<int>(bands->size()))
-            {
-                copy_floors((*bands)[best + 1], g_floor.above, g_floor.above_count);
-            }
-            return true;
         }
 
         //==============================================================================
         // Drawing one image (the composite or one floor layer)
         //==============================================================================
 
-        // True when the layer's footprint can be seen at all in the current window. A
-        // layer that cannot is skipped: the CLAMP sampler would only smear its
-        // transparent margin, but skipping saves a 64-triangle fan per layer.
-        bool layer_in_view(const mapdata::Layer& l, const mm::Snapshot& snap, float half, float zoom)
+        void draw_srv(ImDrawList* dl, D3D12_GPU_DESCRIPTOR_HANDLE srv, const UvMap& uv, MiniGeom g, ImU32 col,
+                      bool round, float x0, float y0, float side)
         {
-            const double r = static_cast<double>(half) * static_cast<double>(zoom) * 1.45;
-            return snap.x + r >= l.min_x && snap.x - r <= l.max_x && snap.y + r >= l.min_y &&
-                   snap.y - r <= l.max_y;
-        }
-
-        void draw_image(ImDrawList* dl, const MapTexture& t, const UvMap& uv, MiniGeom g, ImU32 col,
-                        bool round, float x0, float y0, float side)
-        {
-            if (!t.ready || t.srv_gpu.ptr == 0)
+            if (srv.ptr == 0)
             {
                 return;
             }
             g.uv = uv;
-            const ImTextureRef tex{static_cast<ImTextureID>(t.srv_gpu.ptr)};
+            const ImTextureRef tex{static_cast<ImTextureID>(srv.ptr)};
             if (round)
             {
                 add_image_circle(dl, tex, g, col);
@@ -1007,6 +1499,16 @@ namespace overlay
                              uv_at(g, g.half, g.half),
                              uv_at(g, -g.half, g.half),
                              col);
+        }
+
+        void draw_image(ImDrawList* dl, const MapTexture& t, const UvMap& uv, const MiniGeom& g, ImU32 col,
+                        bool round, float x0, float y0, float side)
+        {
+            if (!t.ready)
+            {
+                return;
+            }
+            draw_srv(dl, t.srv_gpu, uv, g, col, round, x0, y0, side);
         }
 
         void draw_minimap(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
@@ -1081,18 +1583,11 @@ namespace overlay
             }
             const mapdata::Chapter& chapter = *chapter_ptr;
             const bool composite_ready = g_map.ready && chapter.key == g_map.chapter;
-            if (g_layers_ready == 0 && !composite_ready)
+            if (!chapter.has_heights() && !composite_ready)
             {
-                set_hide_reason(L"no map texture");
+                set_hide_reason(L"no height maps and no composite texture loaded");
                 return;
             }
-            if (g_layers_ready == 0 && chapter.key != g_map.chapter)
-            {
-                set_hide_reason(L"the loaded map texture is for another chapter");
-                return;
-            }
-
-            const bool have_floor = pick_floor(cfg, chapter, snap, now);
 
             const ImGuiViewport* vp = ImGui::GetMainViewport();
             const float screen_w = vp->Size.x;
@@ -1132,17 +1627,10 @@ namespace overlay
             const ImU32 frame = IM_COL32(168, 176, 186, alpha(0.85f));
             const ImU32 inner_ring = IM_COL32(0, 0, 0, alpha(0.55f));
 
-            // Floor tints. The current floor is a bright, slightly cool white; the
-            // storey below is cooler and dim, the one above warmer and dimmer still,
-            // so "which one am I on" reads at a glance.
-            const ImU32 tint_current = IM_COL32(214, 224, 232, alpha(1.0f));
-            // A band's polygons can land on more than one surface ordinal (the ordinal
-            // boundary is per pixel), so the band names its layers dominant-first: the
-            // first one is the storey, the rest are drawn a little dimmer.
-            const ImU32 tint_secondary = IM_COL32(196, 208, 218, alpha(0.65f));
-            const ImU32 tint_below = IM_COL32(140, 172, 200, alpha(cfg.adjacent_floor_opacity));
-            const ImU32 tint_above = IM_COL32(206, 176, 148, alpha(cfg.adjacent_floor_opacity * 0.6f));
-            const ImU32 tint_all = IM_COL32(190, 200, 210, alpha(0.55f));
+            // The slice texture already carries the floor colour, the height gradient
+            // and the per-pixel alpha, so the only tint left is the global opacity.
+            const ImU32 tint_slice = IM_COL32(255, 255, 255, alpha(1.0f));
+            const ImU32 tint_composite = IM_COL32(255, 255, 255, alpha(0.85f));
 
             ImDrawList* dl = ImGui::GetForegroundDrawList();
 
@@ -1155,57 +1643,26 @@ namespace overlay
                 dl->AddRectFilled(ImVec2{x0, y0}, ImVec2{x0 + side, y0 + side}, backdrop, 4.0f);
             }
 
-            const auto draw_floor = [&](int floor, ImU32 col) {
-                const int idx = chapter.layer_of_floor(floor);
-                if (idx < 0 || idx >= mapdata::kMaxLayers || !g_layer_tex[idx].ready)
-                {
-                    return;
-                }
-                const mapdata::Layer& l = (*chapter.layers)[static_cast<std::size_t>(idx)];
-                if (!layer_in_view(l, snap, g.half, g.zoom))
-                {
-                    return;
-                }
-                draw_image(dl, g_layer_tex[idx], uv_of(l), g, col, cfg.round, x0, y0, side);
-            };
-
-            int layers_drawn = 0;
-            if (have_floor && g_layers_ready > 0)
+            // ONE textured quad: the height slice. `update_slice` re-cuts the window
+            // around the player at slice_hz and returns true while a window is
+            // available to draw (its own or the previous one's - the window carries
+            // margin, so a skipped update is invisible).
+            const bool slice_ok = update_slice(cfg, chapter, snap, g.half, now);
+            if (slice_ok && g_slice_shown >= 0)
             {
-                if (cfg.show_adjacent_floors)
-                {
-                    for (int i = 0; i < g_floor.below_count; ++i)
-                    {
-                        draw_floor(g_floor.below[i], tint_below);
-                    }
-                    for (int i = 0; i < g_floor.above_count; ++i)
-                    {
-                        draw_floor(g_floor.above[i], tint_above);
-                    }
-                }
-                // Dominant ordinal last and brightest, so it wins the overlap.
-                for (int i = g_floor.floor_count - 1; i >= 0; --i)
-                {
-                    draw_floor(g_floor.floors[i], i == 0 ? tint_current : tint_secondary);
-                    ++layers_drawn;
-                }
+                const SliceBuf& b = g_slice[g_slice_shown];
+                const UvMap window{g_slice_min_y, g_slice_max_x, g_slice_px_per_uu, b.size, b.size};
+                draw_srv(dl, b.srv_gpu, window, g, tint_slice, cfg.round, x0, y0, side);
             }
             else if (composite_ready)
             {
-                // Off the floor grid for longer than floor_fallback_hold_ms and the
-                // config asked for the Z-shaded composite.
-                draw_image(dl, g_map, uv_of(chapter), g, IM_COL32(255, 255, 255, alpha(1.0f)), cfg.round, x0, y0,
-                           side);
+                // No height maps: the Z-shaded composite, which merges every storey.
+                draw_image(dl, g_map, uv_of(chapter), g, tint_composite, cfg.round, x0, y0, side);
             }
             else
             {
-                // The default fallback: every layer at once. That is the composite
-                // minus its Z shading, and it costs no extra VRAM.
-                const int count = chapter.layer_count();
-                for (int i = 0; i < count && i < mapdata::kMaxLayers; ++i)
-                {
-                    draw_floor((*chapter.layers)[static_cast<std::size_t>(i)].floor, tint_all);
-                }
+                set_hide_reason(L"the height slicer has no window yet");
+                return;
             }
 
             if (cfg.round)
@@ -1237,7 +1694,6 @@ namespace overlay
             g_last_mini.v = uv.y;
             g_last_mini.chapter = chapter.key;
             g_last_mini.side = side;
-            (void)layers_drawn;
         }
 
         //==============================================================================
@@ -1290,9 +1746,11 @@ namespace overlay
             ImGui::Checkbox("Rotate with player (off = north up)", &cfg.rotate_with_player);
             ImGui::Checkbox("Show the floor below / above (dimmed)", &cfg.show_adjacent_floors);
             ImGui::SliderFloat("Adjacent floor opacity", &cfg.adjacent_floor_opacity, 0.0f, 0.6f, "%.2f");
-            ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 0.0f, 600.0f, "%.0f");
-            ImGui::SliderFloat("Floor hysteresis (uu)", &cfg.floor_hysteresis, 0.0f, 600.0f, "%.0f");
+            ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 20.0f, 800.0f, "%.0f");
+            ImGui::SliderFloat("Below / above fade range (uu)", &cfg.floor_fade_uu, 100.0f, 4000.0f, "%.0f");
+            ImGui::SliderFloat("Height gradient strength", &cfg.floor_gradient_strength, 0.0f, 0.6f, "%.2f");
             ImGui::SliderFloat("Player Z offset (uu, capsule -> feet)", &cfg.player_z_offset, -200.0f, 200.0f, "%.0f");
+            ImGui::SliderInt("Slice rate (Hz)", &cfg.slice_hz, 2, 30);
             ImGui::Checkbox("Hide while a menu is open", &cfg.hide_in_menus);
             ImGui::SameLine();
             ImGui::Checkbox("Only when the camera follows the pawn", &cfg.require_pawn_view);
@@ -1330,38 +1788,27 @@ namespace overlay
                                 snap.transition ? "YES" : "no",
                                 static_cast<unsigned long long>(
                                     snap.state_ok_since_ms == 0 ? 0 : ::GetTickCount64() - snap.state_ok_since_ms));
-                    // Floor (Z) awareness: which layer is on screen and why.
-                    if (g_floor.have)
-                    {
-                        std::string floors;
-                        for (int i = 0; i < g_floor.floor_count; ++i)
-                        {
-                            floors += (i == 0 ? "" : "+") + std::to_string(g_floor.floors[i]);
-                        }
-                        ImGui::Text("floor  f%s   band %d/%d   Z %.0f..%.0f   feet Z %.0f (dist %.0f)%s",
-                                    floors.c_str(),
-                                    g_floor.band_index + 1,
-                                    g_floor.bands_in_cell,
-                                    static_cast<double>(g_floor.z_min),
-                                    static_cast<double>(g_floor.z_max),
-                                    snap.z - static_cast<double>(cfg.player_z_offset),
-                                    g_floor.distance,
-                                    g_floor.stale ? "  HELD (off grid)" : "");
-                        ImGui::Text("       below %d layer(s), above %d layer(s)   %d layer texture(s) resident, "
-                                    "%llu MB",
-                                    g_floor.below_count,
-                                    g_floor.above_count,
-                                    g_layers_ready,
-                                    static_cast<unsigned long long>(g_layer_bytes / (1024 * 1024)));
-                    }
-                    else
-                    {
-                        ImGui::TextColored(ImVec4{1.0f, 0.75f, 0.4f, 1.0f},
-                                           "floor  no surface band at this cell - drawing the fallback "
-                                           "(%d layer texture(s), %llu MB)",
-                                           g_layers_ready,
-                                           static_cast<unsigned long long>(g_layer_bytes / (1024 * 1024)));
-                    }
+                    // The height slicer: what it cut, how much it cost, where it is.
+                    ImGui::Text("slice  %dx%d px x %d surface(s) @ %.4f px/uu   %.2f ms (peak %.2f)   "
+                                "%llu update(s), %llu skipped",
+                                g_slice_size,
+                                g_slice_size,
+                                g_slice_surfaces,
+                                g_slice_px_per_uu,
+                                g_slice_ms,
+                                g_slice_ms_peak,
+                                static_cast<unsigned long long>(g_slice_updates),
+                                static_cast<unsigned long long>(g_slice_skipped));
+                    ImGui::Text("       feet Z %.0f (raw %.0f)   tol %.0f  fade %.0f  gradient %.2f   "
+                                "opaque %u / dim %u / faint %u",
+                                static_cast<double>(g_feet_z),
+                                snap.z - static_cast<double>(cfg.player_z_offset),
+                                static_cast<double>(cfg.floor_z_tolerance),
+                                static_cast<double>(cfg.floor_fade_uu),
+                                static_cast<double>(cfg.floor_gradient_strength),
+                                g_slice_opaque,
+                                g_slice_dim,
+                                g_slice_faint);
                     ImGui::Text("pawn %s   pawn-view %s   menu %s   state age %llu ms",
                                 snap.has_pawn ? "yes" : "no",
                                 snap.is_pawn_view ? "yes" : "no",
@@ -1373,12 +1820,22 @@ namespace overlay
                                 snap.loc_from_function ? "K2_GetActorLocation" : "RootComponent");
                     // Menu hide/show latency: how long ago the game thread saw the menu
                     // state change, and how many roots it re-tests on every pump.
+                    char holder[128]{};
+                    ::WideCharToMultiByte(CP_UTF8, 0, snap.menu_holder, -1, holder, sizeof(holder) - 1, nullptr,
+                                          nullptr);
                     ImGui::Text("menu state changed %llu ms ago   %u cached in-viewport root(s)   "
-                                "show delay %d ms",
+                                "show delay %d ms   holder '%s'",
                                 static_cast<unsigned long long>(
                                     snap.menu_change_ms == 0 ? 0 : ::GetTickCount64() - snap.menu_change_ms),
                                 snap.menu_roots_cached,
-                                cfg.menu_close_show_delay_ms);
+                                cfg.menu_close_show_delay_ms,
+                                holder[0] != '\0' ? holder : "-");
+                    ImGui::Text("teleport %s",
+                                snap.teleport_ms == 0
+                                    ? "never this session"
+                                    : std::format("{} ms ago",
+                                                  ::GetTickCount64() - snap.teleport_ms)
+                                          .c_str());
                     char narrow[256]{};
                     ::WideCharToMultiByte(CP_UTF8, 0, snap.level_name, -1, narrow, sizeof(narrow) - 1, nullptr, nullptr);
                     ImGui::TextWrapped("pawn: %s", narrow);
@@ -1387,7 +1844,20 @@ namespace overlay
                 ImGui::Spacing();
                 char reason[192]{};
                 ::WideCharToMultiByte(CP_UTF8, 0, g_hide_reason, -1, reason, sizeof(reason) - 1, nullptr, nullptr);
-                ImGui::Text("minimap: %s", reason);
+                // THE ONE LINE THAT ANSWERS "why is the minimap not there". It is
+                // recomputed from live state every frame - there is no latch anywhere in
+                // the show condition - and every change to it is also logged.
+                if (g_last_mini.visible)
+                {
+                    ImGui::TextColored(ImVec4{0.55f, 0.9f, 0.6f, 1.0f}, "minimap: %s", reason);
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f}, "hidden because: %s", reason);
+                }
+                ImGui::TextDisabled("       this state has held for %llu ms",
+                                    static_cast<unsigned long long>(
+                                        g_reason_since_ms == 0 ? 0 : ::GetTickCount64() - g_reason_since_ms));
                 ImGui::Text("backbuffer %ux%u, %u buffer(s), composite %dx%d %s",
                             g_width,
                             g_height,
@@ -1574,6 +2044,7 @@ namespace overlay
                      static_cast<void*>(queue),
                      g_buffer_count,
                      format_name(g_format));
+            slice_selftest();
             return true;
         }
 
@@ -1687,8 +2158,7 @@ namespace overlay
             {
                 wait_for_gpu();
                 destroy_all_map_textures();
-                g_floor = FloorPick{};
-                mm::log(L"map textures dropped for a reload");
+                mm::log(L"map textures and slice buffers dropped for a reload");
             }
             release_finished_uploads();
 
@@ -1710,6 +2180,12 @@ namespace overlay
             {
                 begin_map_upload(*pending, g_cmd_list);
             }
+
+            // The height-slice window the CPU filled during build_ui(). Recorded here,
+            // i.e. BEFORE ImGui's draw call in the same command list, so the GPU sees
+            // the copy complete before it samples the texture - no extra queue, no
+            // second submission and no PSO of our own.
+            record_slice_copy(g_cmd_list);
 
             D3D12_RESOURCE_BARRIER barrier{};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -1737,6 +2213,12 @@ namespace overlay
             ++g_fence_value;
             queue->Signal(g_fence, g_fence_value);
             frame.fence_value = g_fence_value;
+            // The buffer this frame sampled may not be rewritten until the GPU is past
+            // this fence.
+            if (g_slice_shown >= 0)
+            {
+                g_slice[g_slice_shown].in_flight_fence = g_fence_value;
+            }
 
             if (g_map.upload != nullptr && g_map.upload_fence == 0)
             {

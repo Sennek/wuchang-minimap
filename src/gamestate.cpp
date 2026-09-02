@@ -91,9 +91,34 @@ namespace gamestate
         std::uint32_t g_widgets_seen = 0;
         std::uint32_t g_widgets_visible = 0;
 
-        // Root widgets that were once confirmed `IsInViewport()`. Re-tested every pump
-        // by reading their Visibility byte only.
+        // Root widgets that were once confirmed `IsInViewport()`. Re-tested every pump:
+        // the Visibility byte as a cheap prefilter AND `IsInViewport()` as the actual
+        // answer - see the comment on menu_from_cached_roots() for why the byte alone
+        // latched the minimap off forever.
         std::vector<uer::ObjRef> g_menu_roots;
+
+        // The root that is currently holding "a menu is open" true, for the F2 debug
+        // block and the log. Empty when no root is visible.
+        std::wstring g_menu_holder;
+
+        // Set whenever the menu state flips, a root leaves the viewport or the pawn
+        // teleports: the next pump runs the full FindAllOf sweep instead of waiting up
+        // to kWidgetFullPeriodMs, so the cached-root list is re-validated and rebuilt
+        // from live state.
+        bool g_force_widget_sweep = true;
+
+        // Teleport detection. A shrine fast-travel keeps the same pawn object and the
+        // same UWorld, so none of the transition tests fire - but every position-derived
+        // cache (the height-slice window, the smoothed feet Z) must be re-armed, and the
+        // widget set changes as the fast-travel menu tears down.
+        double g_last_x = 0.0;
+        double g_last_y = 0.0;
+        double g_last_z = 0.0;
+        bool g_have_last_pos = false;
+        std::uint64_t g_teleport_ms = 0;
+        // uu of movement inside one 100 ms pump that can only be a teleport (the player
+        // sprints at ~700 uu/s, i.e. ~70 uu per pump).
+        constexpr double kTeleportJumpUu = 3000.0;
 
         std::wstring g_pawn_class_name;
         std::wstring g_pawn_full_name;
@@ -142,6 +167,9 @@ namespace gamestate
             g_menu_open = true;
             g_menu_change_ms = now;
             g_menu_roots.clear(); // the widgets belonged to the world that just went
+            g_menu_holder.clear();
+            g_force_widget_sweep = true;
+            g_have_last_pos = false;
             g_funcs.clear();
             g_layouts.clear();
             if (had_pawn)
@@ -386,12 +414,19 @@ namespace gamestate
         // ProcessEvent calls in here are as dangerous during a level transition as the
         // location read was.
 
-        void set_menu_open(bool open, std::uint64_t now)
+        void set_menu_open(bool open, std::uint64_t now, const wchar_t* why)
         {
             if (open != g_menu_open)
             {
                 g_menu_open = open;
                 g_menu_change_ms = now;
+                // A flip in either direction invalidates the root cache: opening a menu
+                // may have added a root we have never seen, and closing one leaves a
+                // root behind that must be re-confirmed against the live viewport.
+                g_force_widget_sweep = true;
+                mm::logf(L"menu state -> {} ({}); a full widget sweep is queued",
+                         open ? L"OPEN" : L"closed",
+                         why);
             }
         }
 
@@ -423,39 +458,92 @@ namespace gamestate
             if (uer::capture(w, ref))
             {
                 g_menu_roots.push_back(ref);
-                mm::logf(L"menu root cached: {} (now {} cached root(s); the menu test is 10 Hz on these)",
+                mm::logf(L"menu root seen in the viewport: {} (now {} cached root(s); the "
+                         L"menu test re-confirms these at 10 Hz)",
                          w->GetName(),
                          g_menu_roots.size());
             }
         }
 
-        // THE PER-PUMP TEST (10 Hz). Only the cached in-viewport roots, only their
-        // Visibility byte. Dead roots are pruned. Returns "a menu is up".
-        bool menu_from_cached_roots(std::uint32_t& visible_count)
+        // Does this widget answer IsInViewport() == true right now? One ProcessEvent,
+        // SEH-guarded inside uer::call_getter. Only ever asked of a handful of widgets.
+        bool widget_in_viewport(UObject* w)
+        {
+            struct RetBool
+            {
+                bool v = false;
+            } ret{};
+            return uer::call_getter(g_funcs, w, L"IsInViewport", ret) && ret.v;
+        }
+
+        // THE PER-PUMP TEST (10 Hz), over the cached roots only.
+        //
+        // BUG THIS FIXES (2026-09-02 run 2, `context/ue4ss-overlay-ingame-run2.log`):
+        // the first version answered from the reflected `Visibility` byte alone. When
+        // the inventory closes, Wuchang takes `WB_MenuMain_C` OUT OF THE VIEWPORT but
+        // leaves its own Visibility at ESlateVisibility::Visible - so the byte said
+        // "Visible" forever, `menu` was OR-ed over the sweep's correct answer, and the
+        // minimap never came back:
+        //     menu OPEN (last change 109562 ms ago, 1 cached root(s)) | widgets 0/882
+        // i.e. the authoritative sweep saw ZERO in-viewport Visible widgets while the
+        // one cached root held the overlay hidden for the rest of the session.
+        //
+        // So the byte is only a prefilter now and `IsInViewport()` is the answer, which
+        // makes this pass exactly as correct as the full sweep - and a root that is no
+        // longer in the viewport is DROPPED from the cache (the sweep re-discovers it
+        // the next time that menu opens). There is no latch left: the value returned is
+        // derived from live state on every single pump.
+        bool menu_from_cached_roots(std::uint32_t& visible_count, std::wstring& holder)
         {
             bool menu = false;
             visible_count = 0;
             for (std::size_t i = 0; i < g_menu_roots.size();)
             {
+                UObject* w = g_menu_roots[i].obj;
                 if (!uer::alive(g_menu_roots[i]))
                 {
                     g_menu_roots.erase(g_menu_roots.begin() + static_cast<std::ptrdiff_t>(i));
+                    g_force_widget_sweep = true;
+                    mm::logf(L"menu root dropped (the widget object died); {} cached root(s) left",
+                             g_menu_roots.size());
                     continue;
                 }
                 bool has_byte = false;
-                if (widget_is_visible_byte(g_menu_roots[i].obj, has_byte))
+                if (!widget_is_visible_byte(w, has_byte))
                 {
-                    ++visible_count;
-                    menu = true;
+                    ++i; // in the viewport, just not ESlateVisibility::Visible
+                    continue;
                 }
+                if (!widget_in_viewport(w))
+                {
+                    // THE FIX. Visible but no longer in the viewport = the menu closed
+                    // and the game never touched the widget's Visibility byte.
+                    const std::wstring name = w->GetName();
+                    g_menu_roots.erase(g_menu_roots.begin() + static_cast<std::ptrdiff_t>(i));
+                    g_force_widget_sweep = true;
+                    mm::logf(L"menu root dropped ({} is still Visible but no longer in the "
+                             L"viewport - that menu closed); {} cached root(s) left",
+                             name,
+                             g_menu_roots.size());
+                    continue;
+                }
+                ++visible_count;
+                if (!menu)
+                {
+                    holder = w->GetName();
+                }
+                menu = true;
                 ++i;
             }
             return menu;
         }
 
-        // THE FULL SWEEP. Also returns "a menu is up", and refreshes the root cache.
-        bool update_widgets()
+        // THE FULL SWEEP. Also returns "a menu is up", and REBUILDS the root cache from
+        // scratch - a root that does not confirm in this pass is gone, so the cache can
+        // never outlive the state it describes.
+        bool update_widgets(std::wstring& holder)
         {
+            std::vector<uer::ObjRef> confirmed;
             std::vector<UObject*> widgets;
             UObjectGlobals::FindAllOf(L"UserWidget", widgets);
 
@@ -501,12 +589,31 @@ namespace gamestate
                 if (uer::call_getter(g_funcs, w, L"IsInViewport", in_viewport) && in_viewport.v)
                 {
                     ++visible_in_viewport;
+                    if (!menu)
+                    {
+                        holder = w->GetName();
+                    }
                     menu = true;
                     // Cache it: from now on this root is re-tested every pump, so the
                     // NEXT time this menu opens the minimap hides within ~100 ms.
                     remember_menu_root(w);
+                    uer::ObjRef ref{};
+                    if (uer::capture(w, ref))
+                    {
+                        confirmed.push_back(ref);
+                    }
                 }
             }
+
+            // REBUILD, do not merge: `confirmed` is the complete live answer. Anything
+            // that was in the cache and is not in here has left the viewport.
+            if (confirmed.size() != g_menu_roots.size())
+            {
+                mm::logf(L"menu root cache rebuilt by the sweep: {} -> {} root(s)",
+                         g_menu_roots.size(),
+                         confirmed.size());
+            }
+            g_menu_roots = std::move(confirmed);
 
             g_widgets_seen = seen;
             g_widgets_visible = visible_in_viewport;
@@ -655,13 +762,34 @@ namespace gamestate
             // up" is enough, and the answer is published in this same snapshot - so
             // the overlay hides on the next frame, not seconds later.
             std::uint32_t roots_visible = 0;
-            bool menu = menu_from_cached_roots(roots_visible);
-            if (now - g_last_widgets >= kWidgetFullPeriodMs)
+            std::wstring holder;
+            bool menu = menu_from_cached_roots(roots_visible, holder);
+            const bool swept = g_force_widget_sweep || (now - g_last_widgets >= kWidgetFullPeriodMs);
+            if (swept)
             {
                 g_last_widgets = now;
-                menu = update_widgets() || menu;
+                g_force_widget_sweep = false;
+                std::wstring sweep_holder;
+                const bool sweep_menu = update_widgets(sweep_holder);
+                // After a sweep the sweep IS the answer. OR-ing the cached pass's older
+                // answer over it - which is what the first version did - lets a root the
+                // sweep has just dropped win, and that is the latch that hid the minimap
+                // for the rest of run 2. Never OR a cached answer over a fresh sweep.
+                menu = sweep_menu;
+                roots_visible = g_widgets_visible;
+                holder = sweep_holder;
             }
-            set_menu_open(menu, now);
+            else
+            {
+                g_widgets_visible = roots_visible;
+            }
+            g_menu_holder = holder;
+            set_menu_open(menu,
+                          now,
+                          menu ? (swept ? L"the full sweep found an in-viewport Visible root"
+                                        : L"a cached root is in the viewport and Visible")
+                               : (swept ? L"the full sweep found no in-viewport Visible root"
+                                        : L"no cached root is in the viewport and Visible"));
 
             mm::Snapshot snap{};
             snap.stamp_ms = now;
@@ -671,6 +799,7 @@ namespace gamestate
             snap.menu_roots_cached = static_cast<std::uint32_t>(g_menu_roots.size());
             snap.menu_change_ms = g_menu_change_ms;
             snap.pawn_is_gameplay = true;
+            copy_to(snap.menu_holder, std::size(snap.menu_holder), g_menu_holder);
 
             UObject* pawn = g_pawn.obj;
             bool via_function = false;
@@ -690,6 +819,58 @@ namespace gamestate
             copy_to(snap.pawn_name, std::size(snap.pawn_name), g_pawn_short_name);
             copy_to(snap.level_name, std::size(snap.level_name), g_pawn_full_name);
 
+            // TELEPORT / RE-POSSESSION. A shrine fast-travel keeps the same pawn object
+            // in the same UWorld, so none of the transition tests above fire and nothing
+            // is re-armed - which is the second way the overlay could get stuck. Detect
+            // it from the position itself, re-run the widget sweep (the fast-travel menu
+            // is tearing down as we land), confirm the world's idea of the player pawn
+            // still names our object, and publish the event so the render side can drop
+            // its position-derived caches.
+            if (snap.has_pawn)
+            {
+                if (g_have_last_pos)
+                {
+                    const double dx = snap.x - g_last_x;
+                    const double dy = snap.y - g_last_y;
+                    const double dz = snap.z - g_last_z;
+                    if (std::sqrt(dx * dx + dy * dy + dz * dz) > kTeleportJumpUu)
+                    {
+                        g_teleport_ms = now;
+                        g_force_widget_sweep = true;
+                        mm::logf(L"teleport detected: {:.0f} {:.0f} {:.0f} -> {:.0f} {:.0f} {:.0f}; "
+                                 L"re-resolving the pawn and re-sweeping the widgets",
+                                 g_last_x,
+                                 g_last_y,
+                                 g_last_z,
+                                 snap.x,
+                                 snap.y,
+                                 snap.z);
+                        // Re-resolve rather than trust the cached pointer: if the game
+                        // re-possessed a new pawn during the fade, FindAllOf names it and
+                        // we switch; if it did not, this is a no-op that costs one
+                        // FindAllOf. Either way the caches keyed to the class are kept
+                        // only when the object is unchanged.
+                        UObject* before = g_pawn.obj;
+                        resolve_pawn(now);
+                        if (g_pawn.obj != before)
+                        {
+                            mm::log(L"the teleport re-possessed the pawn - snapshot deferred one pump");
+                            g_state_ok_since = 0;
+                            g_have_last_pos = false;
+                            publish_hidden(now, true);
+                            return;
+                        }
+                    }
+                }
+                g_last_x = snap.x;
+                g_last_y = snap.y;
+                g_last_z = snap.z;
+                g_have_last_pos = true;
+            }
+            snap.teleport_ms = g_teleport_ms;
+
+            // Re-read EVERY pump: during a fade the view target is the cutscene camera
+            // and it must be re-read, never remembered, or `is_pawn_view` latches false.
             UObject* view = read_view_target();
             snap.is_pawn_view = (view != nullptr && view == pawn);
 

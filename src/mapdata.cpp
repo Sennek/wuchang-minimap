@@ -389,10 +389,11 @@ namespace mapdata
         // directly. This runs on the loop thread, so the ~90 MB decode never stalls
         // Present.
 
-        // `channels`: 4 -> 32bpp RGBA (the Z-shaded composite), 1 -> 8bpp gray (a
-        // floor layer's coverage mask, uploaded as R8_UNORM and swizzled to RGBA in
-        // the SRV, which is what keeps nine full-resolution layers inside ~104 MB).
-        bool decode_png(const std::wstring& path, PendingImage& out)
+        // `channels`: 4 -> 32bpp RGBA (the Z-shaded composite), 2 -> 16bpp gray (one
+        // height plane; WIC gives native-endian uint16 per pixel, i.e. little-endian
+        // in memory on x64, which is what `HeightMaps::plane` wants), 1 -> 8bpp gray.
+        bool decode_raw(const std::wstring& path, int channels, int& out_w, int& out_h,
+                        std::vector<std::uint8_t>& out_pixels)
         {
             // The loop thread may or may not already have COM up; RPC_E_CHANGED_MODE
             // just means someone else picked the other apartment model, which is fine
@@ -440,9 +441,11 @@ namespace mapdata
             {
                 // GUID_WICPixelFormat32bppRGBA, not BGRA: the ImGui DX12 backend's
                 // sampler and our DXGI_FORMAT_R8G8B8A8_UNORM texture both want RGBA.
+                const WICPixelFormatGUID want = channels == 1   ? GUID_WICPixelFormat8bppGray
+                                                : channels == 2 ? GUID_WICPixelFormat16bppGray
+                                                                : GUID_WICPixelFormat32bppRGBA;
                 hr = converter->Initialize(frame,
-                                           out.channels == 1 ? GUID_WICPixelFormat8bppGray
-                                                             : GUID_WICPixelFormat32bppRGBA,
+                                           want,
                                            WICBitmapDitherTypeNone,
                                            nullptr,
                                            0.0,
@@ -450,11 +453,12 @@ namespace mapdata
             }
             if (SUCCEEDED(hr))
             {
-                const UINT stride = w * static_cast<UINT>(out.channels);
-                out.width = static_cast<int>(w);
-                out.height = static_cast<int>(h);
-                out.pixels.resize(static_cast<std::size_t>(stride) * h);
-                hr = converter->CopyPixels(nullptr, stride, static_cast<UINT>(out.pixels.size()), out.pixels.data());
+                const UINT stride = w * static_cast<UINT>(channels);
+                out_w = static_cast<int>(w);
+                out_h = static_cast<int>(h);
+                out_pixels.resize(static_cast<std::size_t>(stride) * h);
+                hr = converter->CopyPixels(nullptr, stride, static_cast<UINT>(out_pixels.size()),
+                                           out_pixels.data());
                 ok = SUCCEEDED(hr);
             }
             if (!ok)
@@ -479,6 +483,11 @@ namespace mapdata
                 factory->Release();
             }
             return ok;
+        }
+
+        bool decode_png(const std::wstring& path, PendingImage& out)
+        {
+            return decode_raw(path, out.channels, out.width, out.height, out.pixels);
         }
 
         std::wstring widen(std::string_view narrow)
@@ -544,132 +553,67 @@ namespace mapdata
                 continue;
             }
 
-            // ---- the per-floor layers -------------------------------------------
-            auto layers = std::make_shared<std::vector<Layer>>();
-            const JValue* jlayers = c.find("layers");
-            if (jlayers != nullptr && jlayers->kind == JValue::Kind::Array && jlayers->arr)
-            {
-                for (const JValue& jl : *jlayers->arr)
-                {
-                    if (jl.kind != JValue::Kind::Object)
-                    {
-                        continue;
-                    }
-                    const auto ln = [&jl](const char* key, double fallback) {
-                        const JValue* v = jl.find(key);
-                        return v != nullptr ? v->number_or(fallback) : fallback;
-                    };
-                    Layer l{};
-                    const JValue* li = jl.find("image");
-                    l.image = li != nullptr ? li->string_or("") : "";
-                    l.floor = static_cast<int>(ln("floor", -1.0));
-                    l.image_width = static_cast<int>(ln("image_width", 0.0));
-                    l.image_height = static_cast<int>(ln("image_height", 0.0));
-                    l.min_x = ln("min_x", 0.0);
-                    l.min_y = ln("min_y", 0.0);
-                    l.max_x = ln("max_x", 0.0);
-                    l.max_y = ln("max_y", 0.0);
-                    l.px_per_uu = ln("px_per_uu", 0.0);
-                    l.z_min = ln("z_min", 0.0);
-                    l.z_max = ln("z_max", 0.0);
-                    l.poly_count = static_cast<int>(ln("poly_count", 0.0));
-                    if (l.image.empty() || l.floor < 0 || l.image_width <= 0 || l.image_height <= 0 ||
-                        l.px_per_uu <= 0.0 || l.max_x <= l.min_x || l.max_y <= l.min_y)
-                    {
-                        mm::logf(L"maps: chapter \"{}\" has an incomplete layer entry - skipped", widen(ch.key));
-                        continue;
-                    }
-                    if (layers->size() >= static_cast<std::size_t>(kMaxLayers))
-                    {
-                        mm::logf(L"maps: chapter \"{}\" has more than {} layers - the rest are ignored",
-                                 widen(ch.key),
-                                 kMaxLayers);
-                        break;
-                    }
-                    layers->push_back(std::move(l));
-                }
-            }
-            ch.layers = layers;
-
-            // ---- the surface-band grid ------------------------------------------
+            // ---- the multi-surface height map (schema wuchang-minimap-maps/3) ----
             //
-            // Row layout, from build_map.py:
-            //   [gx, gy, band_count, (zmin, zmax, floor_count, floor...) * band_count]
-            // Anything malformed drops that one row, never the whole grid: a broken
-            // grid only means "fall back", not "no map".
-            auto grid = std::make_shared<FloorGrid>();
-            grid->cell_uu = n("floor_grid_cell_uu", 0.0);
-            std::size_t bands_total = 0;
-            std::size_t rows_bad = 0;
-            const JValue* jgrid = c.find("floor_grid");
-            if (grid->cell_uu > 0.0 && jgrid != nullptr && jgrid->kind == JValue::Kind::Array && jgrid->arr)
+            // `height_maps` is an array of PNG paths, lowest surface first. Everything
+            // else about them is the chapter's own bounds / px_per_uu, so there is one
+            // mapping for the whole asset - no per-layer crops and no per-layer scales
+            // any more.
+            auto hm = std::make_shared<HeightMaps>();
+            hm->min_x = ch.min_x;
+            hm->min_y = ch.min_y;
+            hm->max_x = ch.max_x;
+            hm->max_y = ch.max_y;
+            hm->px_per_uu = n("px_per_uu", 0.0);
+            hm->z_min = static_cast<float>(n("z_min", 0.0));
+            hm->z_max = static_cast<float>(n("z_max", 0.0));
+            const int declared = static_cast<int>(n("max_surfaces", static_cast<double>(kMaxSurfaces)));
+
+            std::vector<std::string> height_files;
+            const JValue* jh = c.find("height_maps");
+            if (jh != nullptr && jh->kind == JValue::Kind::Array && jh->arr)
             {
-                for (const JValue& jrow : *jgrid->arr)
+                for (const JValue& e : *jh->arr)
                 {
-                    if (jrow.kind != JValue::Kind::Array || !jrow.arr || jrow.arr->size() < 3)
+                    // Either a bare filename or {"image": "..."}; accept both so a
+                    // manifest tweak cannot silently produce a mapless overlay.
+                    std::string rel = e.string_or("");
+                    if (rel.empty())
                     {
-                        ++rows_bad;
-                        continue;
+                        const JValue* img2 = e.find("image");
+                        rel = img2 != nullptr ? img2->string_or("") : "";
                     }
-                    const JArray& row = *jrow.arr;
-                    const auto num = [&row](std::size_t i) {
-                        return row[i].kind == JValue::Kind::Number ? row[i].num : 0.0;
-                    };
-                    const int gx = static_cast<int>(num(0));
-                    const int gy = static_cast<int>(num(1));
-                    const int nbands = static_cast<int>(num(2));
-                    if (nbands <= 0 || nbands > 64)
+                    if (!rel.empty() && height_files.size() < static_cast<std::size_t>(kMaxSurfaces))
                     {
-                        ++rows_bad;
-                        continue;
+                        height_files.push_back(rel);
                     }
-                    std::vector<Band> bands;
-                    bands.reserve(static_cast<std::size_t>(nbands));
-                    std::size_t p = 3;
-                    bool ok = true;
-                    for (int b = 0; b < nbands && ok; ++b)
-                    {
-                        if (p + 3 > row.size())
-                        {
-                            ok = false;
-                            break;
-                        }
-                        Band band{};
-                        band.z_min = static_cast<float>(num(p));
-                        band.z_max = static_cast<float>(num(p + 1));
-                        const int nf = static_cast<int>(num(p + 2));
-                        p += 3;
-                        if (nf <= 0 || nf > 32 || p + static_cast<std::size_t>(nf) > row.size())
-                        {
-                            ok = false;
-                            break;
-                        }
-                        for (int f = 0; f < nf; ++f)
-                        {
-                            if (band.floor_count < kMaxBandFloors)
-                            {
-                                band.floors[band.floor_count++] = static_cast<int>(num(p + static_cast<std::size_t>(f)));
-                            }
-                        }
-                        p += static_cast<std::size_t>(nf);
-                        if (band.z_max < band.z_min)
-                        {
-                            std::swap(band.z_min, band.z_max);
-                        }
-                        bands.push_back(band);
-                    }
-                    if (!ok || bands.empty())
-                    {
-                        ++rows_bad;
-                        continue;
-                    }
-                    bands_total += bands.size();
-                    grid->cells.emplace(FloorGrid::key(gx, gy), std::move(bands));
                 }
             }
-            ch.grid = grid;
+            if (height_files.empty())
+            {
+                // Fallback for a manifest written before the key existed: the shipped
+                // naming is <chapter>/small_z<k>.png next to the composite.
+                std::string stem = ch.image;
+                const std::size_t dot = stem.rfind('.');
+                if (dot != std::string::npos)
+                {
+                    stem = stem.substr(0, dot);
+                }
+                const int want = declared > 0 && declared <= kMaxSurfaces ? declared : kMaxSurfaces;
+                for (int k = 0; k < want; ++k)
+                {
+                    height_files.push_back(stem + "_z" + std::to_string(k) + ".png");
+                }
+                mm::logf(L"maps: chapter \"{}\" has no \"height_maps\" key - guessing {} file(s) "
+                         L"from the composite name",
+                         widen(ch.key),
+                         height_files.size());
+            }
+            ch.height_files = height_files;
+            ch.heights = hm;
 
-            mm::logf(L"maps: chapter \"{}\" {} {}x{} px @ {:.4f} px/uu, world X {:.0f}..{:.0f} Y {:.0f}..{:.0f}",
+            mm::logf(L"maps: chapter \"{}\" {} {}x{} px @ {:.4f} px/uu, world X {:.0f}..{:.0f} "
+                     L"Y {:.0f}..{:.0f}, Z {:.0f}..{:.0f}, {} height plane(s)",
                      widen(ch.key),
                      widen(ch.image),
                      ch.image_width,
@@ -678,14 +622,10 @@ namespace mapdata
                      ch.min_x,
                      ch.max_x,
                      ch.min_y,
-                     ch.max_y);
-            mm::logf(L"maps: chapter \"{}\" {} floor layer(s), grid {} cell(s) of {:.0f} uu with {} band(s){}",
-                     widen(ch.key),
-                     layers->size(),
-                     grid->cells.size(),
-                     grid->cell_uu,
-                     bands_total,
-                     rows_bad != 0 ? std::format(L", {} malformed row(s) dropped", rows_bad) : std::wstring{});
+                     ch.max_y,
+                     static_cast<double>(hm->z_min),
+                     static_cast<double>(hm->z_max),
+                     height_files.size());
             parsed.push_back(std::move(ch));
         }
 
@@ -695,8 +635,7 @@ namespace mapdata
             return;
         }
 
-        // MVP: one chapter's textures at a time - the first one in the manifest.
-        // Multi-chapter streaming comes with the rest of the chapters' assets.
+        // MVP: one chapter's asset at a time - the first one in the manifest.
         Chapter& first = parsed.front();
         const auto png_path = [&maps_dir](const std::string& rel) {
             std::wstring p = maps_dir + L"\\" + widen(rel);
@@ -706,51 +645,115 @@ namespace mapdata
 
         pending_clear(); // an F5 reload must not upload the previous set
 
-        // The layers first: they are what is drawn. The composite is only the
-        // off-grid fallback and is skipped entirely unless the config asks for it -
-        // it is another 82 MB of VRAM on top of the layers' ~104 MB.
-        std::size_t layer_bytes = 0;
-        std::size_t layers_ok = 0;
-        if (first.layers)
+        // ---- the height planes: CPU-side source data for the slicer ---------------
+        //
+        // These are NOT GPU textures. The render thread slices a window out of them
+        // into a small dynamic texture every ~80 ms, so they live in ordinary RAM and
+        // cost no VRAM at all (the previous ordinal-layer scheme cost 109 MB of it).
+        std::size_t planes_ok = 0;
+        if (first.heights)
         {
-            for (std::size_t i = 0; i < first.layers->size(); ++i)
+            // `heights` is shared as const once published, so fill it while we are
+            // still the only owner.
+            auto* hm = const_cast<HeightMaps*>(first.heights.get());
+            for (std::size_t k = 0; k < first.height_files.size(); ++k)
             {
-                const Layer& l = (*first.layers)[i];
-                auto img = std::make_unique<PendingImage>();
-                img->chapter_key = first.key;
-                img->layer_index = static_cast<int>(i);
-                img->floor = l.floor;
-                img->channels = 1;
-                if (!decode_png(png_path(l.image), *img))
+                int w = 0;
+                int h = 0;
+                std::vector<std::uint8_t> raw;
+                if (!decode_raw(png_path(first.height_files[k]), 2, w, h, raw))
                 {
-                    continue;
+                    break; // a gap in the planes would misorder the surfaces
                 }
-                if (img->width != l.image_width || img->height != l.image_height)
+                if (hm->width == 0)
                 {
-                    mm::logf(L"maps: layer f{} is {}x{} but maps.json says {}x{} - skipped (the bounds would not match)",
-                             l.floor,
-                             img->width,
-                             img->height,
-                             l.image_width,
-                             l.image_height);
-                    continue;
+                    hm->width = w;
+                    hm->height = h;
                 }
-                layer_bytes += img->pixels.size();
-                ++layers_ok;
-                pending_push(std::move(img));
+                else if (w != hm->width || h != hm->height)
+                {
+                    mm::logf(L"maps: height plane z{} is {}x{} but z0 is {}x{} - stopping here",
+                             k,
+                             w,
+                             h,
+                             hm->width,
+                             hm->height);
+                    break;
+                }
+                const std::size_t n_px = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+                hm->plane[k].resize(n_px);
+                std::memcpy(hm->plane[k].data(), raw.data(), n_px * sizeof(std::uint16_t));
+                hm->count = static_cast<int>(k + 1);
+                ++planes_ok;
             }
-            mm::logf(L"maps: decoded {}/{} floor layer(s) of \"{}\", {} MB of R8 texture memory",
-                     layers_ok,
-                     first.layers->size(),
-                     widen(first.key),
-                     layer_bytes / (1024 * 1024));
+            if (hm->z_max <= hm->z_min)
+            {
+                mm::logf(L"maps: chapter \"{}\" has no usable z_min/z_max in maps.json "
+                         L"({:.0f}..{:.0f}) - the height maps are unusable",
+                         widen(first.key),
+                         static_cast<double>(hm->z_min),
+                         static_cast<double>(hm->z_max));
+                hm->count = 0;
+                planes_ok = 0;
+            }
+            if (planes_ok > 0)
+            {
+                // SANITY CHECK ON THE BYTE ORDER. PNG stores 16-bit samples
+                // big-endian; WIC's 16bppGray converter hands them back in native
+                // (little-endian) order, but a decoder that did not would produce codes
+                // that are byte-swapped garbage - and the only symptom would be a map
+                // that looks like noise. So decode plane 0's actual Z range and log it:
+                // it must land inside [z_min, z_max] and be broad. A swapped buffer
+                // shows up immediately as a range that fills the whole span with a
+                // nonsense distribution.
+                float lo = hm->z_max;
+                float hi = hm->z_min;
+                std::size_t lit = 0;
+                for (std::uint16_t code : hm->plane[0])
+                {
+                    if (code == 0)
+                    {
+                        continue;
+                    }
+                    const float z = hm->decode(code);
+                    lo = z < lo ? z : lo;
+                    hi = z > hi ? z : hi;
+                    ++lit;
+                }
+                mm::logf(L"maps: height plane z0 has {} lit pixel(s) ({}%), decoded Z {:.0f}..{:.0f} "
+                         L"(manifest says {:.0f}..{:.0f}) - a byte-swapped decode would not fit this",
+                         lit,
+                         hm->plane[0].empty() ? 0 : (lit * 100) / hm->plane[0].size(),
+                         static_cast<double>(lo),
+                         static_cast<double>(hi),
+                         static_cast<double>(hm->z_min),
+                         static_cast<double>(hm->z_max));
+
+                mm::logf(L"maps: decoded {}/{} height plane(s) of \"{}\" ({}x{}, Z {:.0f}..{:.0f} "
+                         L"in steps of {:.1f} uu), {} MB of RAM, 0 MB of VRAM",
+                         planes_ok,
+                         first.height_files.size(),
+                         widen(first.key),
+                         hm->width,
+                         hm->height,
+                         static_cast<double>(hm->z_min),
+                         static_cast<double>(hm->z_max),
+                         static_cast<double>(hm->z_step()),
+                         hm->bytes() / (1024 * 1024));
+            }
+            else
+            {
+                mm::logf(L"maps: NO height plane decoded for \"{}\" - build them with "
+                         L"tools/navmesh/build_map.py and re-run deploy.ps1",
+                         widen(first.key));
+            }
         }
 
-        if (want_composite)
+        // ---- the composite, only as the no-height-map fallback --------------------
+        if (want_composite || planes_ok == 0)
         {
             auto img = std::make_unique<PendingImage>();
             img->chapter_key = first.key;
-            img->layer_index = -1;
             img->channels = 4;
             if (decode_png(png_path(first.image), *img))
             {
@@ -765,23 +768,19 @@ namespace mapdata
                     first.image_width = img->width;
                     first.image_height = img->height;
                 }
-                mm::logf(L"maps: decoded the composite {} -> {}x{} RGBA ({} MB)",
+                mm::logf(L"maps: decoded the composite {} -> {}x{} RGBA ({} MB){}",
                          widen(first.image),
                          img->width,
                          img->height,
-                         img->pixels.size() / (1024 * 1024));
+                         img->pixels.size() / (1024 * 1024),
+                         planes_ok == 0 ? L" - the only thing there is to draw" : L"");
                 pending_push(std::move(img));
             }
         }
         else
         {
-            mm::log(L"maps: composite texture not loaded (fallback_use_composite = 0); the off-grid "
-                    L"fallback draws every floor layer at once instead");
-        }
-
-        if (layers_ok == 0 && !want_composite)
-        {
-            mm::log(L"maps: no layer decoded and no composite requested - the minimap will have nothing to draw");
+            mm::log(L"maps: composite texture not loaded (fallback_use_composite = 0); the height "
+                    L"slicer does not need it");
         }
 
         publish_chapters(std::move(parsed));
@@ -799,18 +798,6 @@ namespace mapdata
         }
         pending_unlock();
         return std::unique_ptr<PendingImage>{out};
-    }
-
-    const std::vector<Band>* FloorGrid::at(double wx, double wy) const
-    {
-        if (cell_uu <= 0.0 || cells.empty())
-        {
-            return nullptr;
-        }
-        const int gx = static_cast<int>(std::floor(wx / cell_uu));
-        const int gy = static_cast<int>(std::floor(wy / cell_uu));
-        const auto it = cells.find(key(gx, gy));
-        return it == cells.end() ? nullptr : &it->second;
     }
 
     std::vector<Chapter> chapters()

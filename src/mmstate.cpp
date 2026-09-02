@@ -469,6 +469,10 @@ namespace mm
             {
                 cfg.state_stale_ms = parse_int(value, cfg.state_stale_ms);
             }
+            else if (key == "min_visible_after_state_ok_ms")
+            {
+                cfg.min_visible_after_state_ok_ms = parse_int(value, cfg.min_visible_after_state_ok_ms);
+            }
             else if (key == "debug_readout")
             {
                 cfg.debug_readout = parse_bool(value, cfg.debug_readout);
@@ -495,6 +499,7 @@ namespace mm
         cfg.offset_x = (std::max)(0.0f, (std::min)(4000.0f, cfg.offset_x));
         cfg.offset_y = (std::max)(0.0f, (std::min)(4000.0f, cfg.offset_y));
         cfg.state_stale_ms = (std::max)(100, (std::min)(60000, cfg.state_stale_ms));
+        cfg.min_visible_after_state_ok_ms = (std::max)(0, (std::min)(10000, cfg.min_visible_after_state_ok_ms));
 
         set_config(cfg);
         logf(L"config: loaded {} setting(s) from {}", lines, path);
@@ -520,6 +525,7 @@ namespace mm
         out += "hide_in_menus = " + std::string(cfg.hide_in_menus ? "1" : "0") + "\n";
         out += "require_pawn_view = " + std::string(cfg.require_pawn_view ? "1" : "0") + "\n";
         out += "state_stale_ms = " + std::to_string(cfg.state_stale_ms) + "\n";
+        out += "min_visible_after_state_ok_ms = " + std::to_string(cfg.min_visible_after_state_ok_ms) + "\n";
         out += "debug_readout = " + std::string(cfg.debug_readout ? "1" : "0") + "\n";
         out += "debug_show_panel_on_start = " + std::string(cfg.debug_show_panel_on_start ? "1" : "0") + "\n";
         out += "panel_key = " + vk_name(cfg.panel_key) + "\n";

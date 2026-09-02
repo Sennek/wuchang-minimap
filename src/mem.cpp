@@ -26,6 +26,23 @@ namespace mem
         }
     }
 
+    bool guarded_call(GuardedFn fn, void* a, void* b, void* c) noexcept
+    {
+        if (fn == nullptr)
+        {
+            return false;
+        }
+        __try
+        {
+            fn(a, b, c);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     bool readable(const void* p, std::size_t n) noexcept
     {
         if (p == nullptr || n == 0)

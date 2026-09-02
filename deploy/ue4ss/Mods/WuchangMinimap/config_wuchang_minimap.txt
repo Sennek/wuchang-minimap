@@ -51,6 +51,11 @@ require_pawn_view = 1
 ; many milliseconds.
 state_stale_ms = 1000
 
+; Grace period: how long the reader must have had a validated gameplay pawn
+; (class BP_CombatCharacter_Player*, live in GUObjectArray) before the minimap is
+; allowed to appear. Stops it flashing during a level load / right after Continue.
+min_visible_after_state_ok_ms = 600
+
 ; Show the world position / uv / chapter readout in the F2 panel.
 debug_readout = 1
 

@@ -26,6 +26,14 @@ namespace mem
     // must not need C++ object unwinding (MSVC C2712).
     bool copy(const void* src, void* dst, std::size_t n) noexcept;
 
+    // SEH-guarded call into foreign code. `fn` must be a plain function (no C++
+    // unwinding needed at the call site, MSVC C2712) that does the risky work with
+    // the three opaque arguments - e.g. a trampoline that issues a
+    // UObject::ProcessEvent. Returns false when the call faulted, which is how a
+    // UObject that died under us stops being a crash and becomes "no data".
+    using GuardedFn = void (*)(void*, void*, void*);
+    bool guarded_call(GuardedFn fn, void* a, void* b, void* c) noexcept;
+
     // True when [p, p+n) is entirely committed and readable. Caches the last
     // accepted region, which matters: the tile scan asks this tens of thousands
     // of times and a VirtualQuery is ~1 us.

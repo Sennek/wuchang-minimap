@@ -39,14 +39,25 @@ namespace mm
         double z = 0.0;
         float yaw = 0.0f; // degrees, UE convention (0 = +X = the image's "north")
 
+        // DEFAULTS ARE "HIDDEN". A snapshot that was never filled in, or one published
+        // while the reader is idling (main menu, level transition), must never let the
+        // minimap appear: has_pawn/pawn_is_gameplay/is_pawn_view stay false and
+        // menu_open starts TRUE.
         bool has_pawn = false;
-        bool is_pawn_view = false; // view target == pawn (false in menus and cutscenes)
-        bool menu_open = false;    // some in-viewport root widget is ESlateVisibility::Visible
+        bool pawn_is_gameplay = false; // pawn class contains BP_CombatCharacter_Player
+        bool is_pawn_view = false;     // view target == pawn (false in menus and cutscenes)
+        bool menu_open = true;         // some in-viewport root widget is ESlateVisibility::Visible
         bool loc_from_function = false; // true: K2_GetActorLocation; false: RootComponent property
+        bool transition = false;        // a level transition / pawn change cooldown is running
 
         std::uint32_t widgets_seen = 0;
         std::uint32_t widgets_visible_in_viewport = 0;
         std::uint64_t stamp_ms = 0; // GetTickCount64() when this snapshot was published
+        // GetTickCount64() at which the reader last STARTED to have a validated
+        // gameplay pawn continuously. 0 = right now it does not. The overlay requires
+        // a minimum age here before it draws anything, so the frames around a level
+        // load never flash the minimap.
+        std::uint64_t state_ok_since_ms = 0;
 
         wchar_t pawn_name[96]{}; // pawn class / object name, for the debug readout
         wchar_t level_name[160]{}; // pawn full name (carries the world + level path)
@@ -84,6 +95,7 @@ namespace mm
         bool hide_in_menus = true;
         bool require_pawn_view = true;
         int state_stale_ms = 1000;
+        int min_visible_after_state_ok_ms = 600; // grace after the state becomes good
         bool debug_readout = true;
         bool debug_show_panel_on_start = false; // main-menu verification aid
         int panel_key = 0x71;                   // VK_F2

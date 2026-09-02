@@ -717,9 +717,32 @@ namespace overlay
                 set_hide_reason(L"game state is stale (game thread not pumping)");
                 return;
             }
-            if (!snap.has_pawn)
+            if (!snap.transition && !snap.has_pawn)
             {
                 set_hide_reason(L"no player pawn");
+                return;
+            }
+            if (snap.transition)
+            {
+                set_hide_reason(L"level transition in progress (reader idling)");
+                return;
+            }
+            // The class gate lives on the game thread; this is its render-side echo.
+            if (!snap.pawn_is_gameplay)
+            {
+                set_hide_reason(L"the pawn is not a gameplay pawn (Lobby / spectator)");
+                return;
+            }
+            // A fresh gameplay pawn must have been valid for a while before anything is
+            // drawn: without this the first snapshot after a load can flash the minimap.
+            if (snap.state_ok_since_ms == 0)
+            {
+                set_hide_reason(L"waiting for a valid gameplay state");
+                return;
+            }
+            if (now - snap.state_ok_since_ms < static_cast<std::uint64_t>(cfg.min_visible_after_state_ok_ms))
+            {
+                set_hide_reason(L"gameplay state is too fresh (grace period)");
                 return;
             }
             if (cfg.hide_in_menus && snap.menu_open)
@@ -910,6 +933,11 @@ namespace overlay
                                 g_last_mini.u,
                                 g_last_mini.v,
                                 g_last_mini.chapter.empty() ? "-" : g_last_mini.chapter.c_str());
+                    ImGui::Text("gameplay pawn %s   transition %s   state-ok age %llu ms",
+                                snap.pawn_is_gameplay ? "yes" : "NO",
+                                snap.transition ? "YES" : "no",
+                                static_cast<unsigned long long>(
+                                    snap.state_ok_since_ms == 0 ? 0 : ::GetTickCount64() - snap.state_ok_since_ms));
                     ImGui::Text("pawn %s   pawn-view %s   menu %s   state age %llu ms",
                                 snap.has_pawn ? "yes" : "no",
                                 snap.is_pawn_view ? "yes" : "no",

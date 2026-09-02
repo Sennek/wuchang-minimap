@@ -352,7 +352,7 @@ render thread never touches a UObject.
 `ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`: `enabled`,
 `show_minimap`, `minimap_size`, `minimap_zoom`, `minimap_shape`, `minimap_anchor`,
 `minimap_offset_x/y`, `rotate_with_player`, `opacity`, `hide_in_menus`, `require_pawn_view`,
-`state_stale_ms`, `debug_readout`, `debug_show_panel_on_start`, `panel_key`, `reload_key`.
+`state_stale_ms`, `min_visible_after_state_ok_ms`, `debug_readout`, `debug_show_panel_on_start`, `panel_key`, `reload_key`.
 **F2** opens the panel, **F5** reloads the file and the maps. Only F1-F5, F7 and F8 are accepted as
 hotkeys; F6 (RenoDX DLSS 5), F9/F11 (engine binds), F10 (game console) and F12 (Steam) are rejected in
 code.

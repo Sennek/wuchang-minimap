@@ -238,18 +238,234 @@ namespace uer
         std::unordered_map<Key, UFunction*, KeyHash> cache_;
     };
 
+    // POD trampoline for mem::guarded_call: issues the ProcessEvent inside the SEH
+    // frame. Plain function, no C++ objects, so the __try in mem.cpp is legal.
+    inline void process_event_trampoline(void* obj, void* fn, void* params)
+    {
+        static_cast<UObject*>(obj)->ProcessEvent(static_cast<UFunction*>(fn), params);
+    }
+
     // Calls a zero-argument getter whose whole parameter block is the return value.
+    //
+    // Every ProcessEvent is a call into game code through a pointer we cached, so it
+    // is issued inside an SEH guard: if the object died between the validation and the
+    // call (a level transition can free it inside the same frame), the access
+    // violation becomes `false` instead of a crash dump. See lessons.md.
     template <typename Ret>
     inline bool call_getter(FuncCache& funcs, UObject* obj, const wchar_t* name, Ret& out)
     {
+        if (obj == nullptr)
+        {
+            return false;
+        }
         UFunction* fn = funcs.get(obj, name);
         if (fn == nullptr)
         {
             return false;
         }
         Ret scratch{};
-        obj->ProcessEvent(fn, &scratch);
+        if (!mem::guarded_call(&process_event_trampoline, obj, fn, &scratch))
+        {
+            return false;
+        }
         out = scratch;
         return true;
+    }
+
+    // ---- object liveness -----------------------------------------------------------
+    //
+    // A cached UObject* does NOT survive a level transition: the Lobby pawn and its
+    // world are destroyed when the real map loads, the GC frees the object and the
+    // pointer (plus every UFunction / property offset cached off its class) is dead.
+    // Comparing GetClassPrivate() against a remembered UClass* is not enough, because
+    // freed memory usually still holds the old bytes.
+    //
+    // The only structure that is authoritative *and* safe to read after the object
+    // died is GUObjectArray: its FUObjectItem slots live in UE's permanently committed
+    // object array. So the reference remembers the object's internal index (captured
+    // while it was known good) and every check goes index -> FUObjectItem -> flags and
+    // back-pointer, and only then touches the object itself.
+
+    struct ObjRef
+    {
+        UObject* obj = nullptr;
+        UClass* cls = nullptr;
+        int index = -1;
+        int serial = 0;
+
+        bool empty() const
+        {
+            return obj == nullptr;
+        }
+
+        void reset()
+        {
+            *this = ObjRef{};
+        }
+    };
+
+    namespace detail
+    {
+        struct CaptureArgs
+        {
+            UObject* obj = nullptr;
+            UClass* cls = nullptr;
+            int index = -1;
+            int serial = 0;
+            bool ok = false;
+        };
+
+        inline void capture_trampoline(void* a, void*, void*)
+        {
+            auto* args = static_cast<CaptureArgs*>(a);
+            UObject* obj = args->obj;
+            args->index = obj->GetInternalIndex();
+            args->cls = obj->GetClassPrivate();
+            if (obj->HasAnyFlags(static_cast<RC::Unreal::EObjectFlags>(
+                    RC::Unreal::RF_BeginDestroyed | RC::Unreal::RF_FinishDestroyed |
+                    RC::Unreal::RF_ClassDefaultObject | RC::Unreal::RF_ArchetypeObject)))
+            {
+                return;
+            }
+            RC::Unreal::FUObjectItem* item = RC::Unreal::FUObjectArray::IndexToObject(args->index);
+            if (item == nullptr || item->GetUObject() != obj || !item->IsValid(false))
+            {
+                return;
+            }
+            args->serial = item->GetSerialNumber();
+            args->ok = args->cls != nullptr;
+        }
+
+        struct AliveArgs
+        {
+            UObject* obj = nullptr;
+            UClass* cls = nullptr;
+            int index = -1;
+            int serial = 0;
+            bool ok = false;
+        };
+
+        inline void alive_trampoline(void* a, void*, void*)
+        {
+            auto* args = static_cast<AliveArgs*>(a);
+            RC::Unreal::FUObjectItem* item = RC::Unreal::FUObjectArray::IndexToObject(args->index);
+            if (item == nullptr)
+            {
+                return;
+            }
+            // Read the slot first: this is the part that is safe even if the object's
+            // own allocation has already been handed back to the allocator.
+            if (item->GetUObject() != args->obj)
+            {
+                return; // slot recycled for a different object
+            }
+            if (!item->IsValid(false) || item->IsUnreachable() || item->IsPendingKill())
+            {
+                return;
+            }
+            if (args->serial != 0 && item->GetSerialNumber() != args->serial)
+            {
+                return;
+            }
+            // Only now the object itself.
+            if (args->obj->GetClassPrivate() != args->cls)
+            {
+                return;
+            }
+            if (args->obj->HasAnyFlags(static_cast<RC::Unreal::EObjectFlags>(
+                    RC::Unreal::RF_BeginDestroyed | RC::Unreal::RF_FinishDestroyed)))
+            {
+                return;
+            }
+            args->ok = true;
+        }
+
+        struct WorldArgs
+        {
+            UObject* obj = nullptr;
+            const void* world = nullptr;
+        };
+
+        inline void world_trampoline(void* a, void*, void*)
+        {
+            auto* args = static_cast<WorldArgs*>(a);
+            args->world = args->obj->GetWorld();
+        }
+    } // namespace detail
+
+    // Remembers an object by pointer + GUObjectArray index (+ serial). Rejects CDOs,
+    // archetypes and objects already being destroyed.
+    inline bool capture(UObject* obj, ObjRef& out)
+    {
+        out.reset();
+        if (obj == nullptr || !mem::readable(obj, 0x40))
+        {
+            return false;
+        }
+        detail::CaptureArgs args{};
+        args.obj = obj;
+        if (!mem::guarded_call(&detail::capture_trampoline, &args, nullptr, nullptr) || !args.ok)
+        {
+            return false;
+        }
+        out.obj = obj;
+        out.cls = args.cls;
+        out.index = args.index;
+        out.serial = args.serial;
+        return true;
+    }
+
+    inline bool alive(const ObjRef& ref)
+    {
+        if (ref.obj == nullptr || ref.cls == nullptr || ref.index < 0)
+        {
+            return false;
+        }
+        if (!mem::readable(ref.obj, 0x40))
+        {
+            return false;
+        }
+        detail::AliveArgs args{};
+        args.obj = ref.obj;
+        args.cls = ref.cls;
+        args.index = ref.index;
+        args.serial = ref.serial;
+        if (!mem::guarded_call(&detail::alive_trampoline, &args, nullptr, nullptr))
+        {
+            return false;
+        }
+        return args.ok;
+    }
+
+    // The object's UWorld*, used purely as an identity token for "did the level
+    // change". nullptr means "unknown" - never treat it as a change on its own.
+    inline const void* world_of(const ObjRef& ref)
+    {
+        if (!alive(ref))
+        {
+            return nullptr;
+        }
+        detail::WorldArgs args{};
+        args.obj = ref.obj;
+        if (!mem::guarded_call(&detail::world_trampoline, &args, nullptr, nullptr))
+        {
+            return nullptr;
+        }
+        return args.world;
+    }
+
+    // The class's short name, e.g. `BP_CombatCharacter_Player_Final_C`. Allocates, so
+    // call it when the class changes, not per pump.
+    inline std::wstring class_name(const ObjRef& ref)
+    {
+        if (ref.cls == nullptr)
+        {
+            return {};
+        }
+        if (!mem::readable(ref.cls, 0x40))
+        {
+            return {};
+        }
+        return static_cast<UObject*>(ref.cls)->GetName();
     }
 } // namespace uer

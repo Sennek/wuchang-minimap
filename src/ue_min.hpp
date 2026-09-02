@@ -41,17 +41,84 @@ namespace RC::Unreal
     class UStruct;
     class FField;
     class UFunction;
+    class UObject;
+    class UWorld;
+    struct FUObjectItem;
+
+    // Unscoped enum, so it mangles as `W4EObjectFlags@23@` exactly like UEPseudo's.
+    // Only the values the mod tests are spelled out.
+    enum EObjectFlags
+    {
+        RF_NoFlags = 0x00000000,
+        RF_ClassDefaultObject = 0x00000010,
+        RF_ArchetypeObject = 0x00000020,
+        RF_BeginDestroyed = 0x00008000,
+        RF_FinishDestroyed = 0x00010000,
+    };
 
     class UObjectBase
     {
       public:
         // ?GetClassPrivate@UObjectBase@Unreal@RC@@QEAAAEAPEAVUClass@23@XZ
         UClass*& GetClassPrivate();
+
+        // ?GetInternalIndex@UObjectBase@Unreal@RC@@QEBA?BHXZ
+        //
+        // The object's slot in GUObjectArray. Captured while the object is known good,
+        // it is the key that makes a later liveness test possible without touching the
+        // object's own (possibly freed) memory.
+        const int GetInternalIndex() const;
+
+        // ?GetObjectItem@UObjectBase@Unreal@RC@@QEAAPEAUFUObjectItem@23@XZ
+        FUObjectItem* GetObjectItem();
+    };
+
+    // The GUObjectArray slot. This lives in UE's permanently-committed object array,
+    // not in the object's own allocation, so reading it is safe even after the object
+    // has been destroyed and freed - which is exactly why the validation goes through
+    // here rather than through the cached UObject*.
+    struct FUObjectItem
+    {
+        // ?GetUObject@FUObjectItem@Unreal@RC@@QEBAPEAVUObject@23@XZ
+        UObject* GetUObject() const;
+
+        // ?IsValid@FUObjectItem@Unreal@RC@@QEBA_N_N@Z   (bEvenIfPendingKill)
+        bool IsValid(bool even_if_pending_kill) const;
+
+        // ?IsUnreachable@FUObjectItem@Unreal@RC@@QEBA_NXZ
+        bool IsUnreachable() const;
+
+        // ?IsPendingKill@FUObjectItem@Unreal@RC@@QEBA_NXZ
+        bool IsPendingKill() const;
+
+        // ?GetSerialNumber@FUObjectItem@Unreal@RC@@QEBAAEBHXZ
+        const int& GetSerialNumber() const;
+    };
+
+    class FUObjectArray
+    {
+      public:
+        // ?IndexToObject@FUObjectArray@Unreal@RC@@SAPEAUFUObjectItem@23@H@Z
+        //
+        // Bounds-checked: an out-of-range index yields nullptr.
+        static FUObjectItem* IndexToObject(int index);
     };
 
     class UObject : public UObjectBase
     {
       public:
+        // ?HasAnyFlags@UObject@Unreal@RC@@QEAA_NW4EObjectFlags@23@@Z
+        bool HasAnyFlags(EObjectFlags flags);
+
+        // ?IsUnreachable@UObject@Unreal@RC@@QEAA_NXZ
+        bool IsUnreachable();
+
+        // ?GetWorld@UObject@Unreal@RC@@QEBAPEAVUWorld@23@XZ
+        //
+        // Used only as a cheap *identity* signal: when the pawn's world pointer changes,
+        // a level transition happened and every cached pointer is suspect.
+        UWorld* GetWorld() const;
+
         // ?GetName@UObject@Unreal@RC@@QEBA?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@XZ
         std::wstring GetName() const;
 
@@ -143,6 +210,12 @@ namespace RC::Unreal
         // subclasses). Returns nothing for a name that has no loaded class, which is
         // exactly what happens at the main menu for "RecastNavMesh".
         void FindAllOf(std::wstring_view class_name, std::vector<UObject*>& out);
+
+        // ?FindFirstOf@UObjectGlobals@Unreal@RC@@YAPEAVUObject@23@PEB_W@Z
+        UObject* FindFirstOf(const wchar_t* class_name);
+
+        // ?IsValidObjectForFindXOf@UObjectGlobals@Unreal@RC@@YA_NPEAVUObject@23@@Z
+        bool IsValidObjectForFindXOf(UObject* object);
     } // namespace UObjectGlobals
 
     class UFunction;

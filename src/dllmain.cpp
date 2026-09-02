@@ -5,10 +5,16 @@
 // (Dear ImGui + a DX12 Present hook installed with MinHook) lives in overlay.cpp
 // and is *not* wired up yet - see overlay::selftest().
 //
+// The navmesh dumper (navmesh_dump.cpp) IS live: it locates the game's Recast/Detour
+// navmesh and writes the streamed-in tiles to
+//     ue4ss/Mods/WuchangMinimap/navmesh/<agent>/tiles_<timestamp>.json
+// automatically and on F6. See navmesh_dump.hpp.
+//
 
 #include <Mod/CppUserModBase.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 
+#include "navmesh_dump.hpp"
 #include "overlay.hpp"
 
 using namespace RC;
@@ -40,11 +46,17 @@ class WuchangMinimap : public CppUserModBase
         // installed and no ImGui context is created yet.
         const auto report = overlay::selftest();
         Output::send<LogLevel::Verbose>(STR("WuchangMinimap: {}\n"), report);
+
+        // The navmesh dumper needs the Unreal reflection API, so it can only start
+        // here. It stays quiet until a RecastNavMesh actor actually shows up.
+        navmesh::on_unreal_init();
     }
 
     auto on_update() -> void override
     {
-        // Per-frame UE4SS tick. Nothing to do until the overlay is wired up.
+        // Per-frame UE4SS tick. The overlay is not wired up yet; the navmesh dumper
+        // throttles itself internally (actor poll every 2 s, hotkey edge-detected).
+        navmesh::on_update();
     }
 };
 

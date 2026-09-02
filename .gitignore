@@ -29,3 +29,10 @@ tools/lua-recon/WuchangRecon/out/*
 !tools/lua-recon/WuchangRecon/out/navprobe_*.csv
 !tools/lua-recon/WuchangRecon/out/navprobe_*.png
 !tools/lua-recon/WuchangRecon/out/track.csv
+!tools/lua-recon/WuchangRecon/out/pickupwatch_*.txt
+
+# Navmesh dumps pulled back from the game with deploy.ps1 -Pull, and renders.
+# Same reasoning as the recon dumps: the JSONs are irreplaceable evidence and get
+# committed; the rendered PNGs are reproducible from them and do not.
+tools/navmesh/out/
+__pycache__/

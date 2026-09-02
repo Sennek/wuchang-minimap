@@ -1,0 +1,1120 @@
+WuchangRecon world dump
+kind      : menu_world
+time      : 2026-09-02 11:28:40
+out dir   : E:/Program Files (x86)/Steam/steamapps/common/Wuchang Fallen Feathers/Project_Plague/Binaries/Win64/ue4ss/Mods/WuchangRecon\out
+UEHelpers : 3
+
+================================================================================
+== PLAYER / CONTROLLER / CAMERA
+================================================================================
+pawn full name  : DefaultPawn /Game/MapsEntry/Lobby.Lobby:PersistentLevel.DefaultPawn_2147482374
+pawn class      : DefaultPawn
+pawn class chain: DefaultPawn -> Pawn -> Actor -> Object
+pawn address    : 0x22D768307F0
+location        : 0.00 0.00 0.00
+rotation        : P=0.00 Y=0.00 R=0.00  (via K2_GetActorRotation)
+forward vector  : 1.00 0.00 0.00
+raw K2_GetActorRotation -> {Yaw=0.0, roll=0.0, Pitch=0.0}
+RootComponent   : SphereComponent  (SphereComponent /Game/MapsEntry/Lobby.Lobby:PersistentLevel.DefaultPawn_2147482374.CollisionComponent0)
+root location   : 0.00 0.00 0.00
+Controller      : DCSPlayerControllerBase_Lobby_C  (DCSPlayerControllerBase_Lobby_C /Game/MapsEntry/Lobby.Lobby:PersistentLevel.DCSPlayerControllerBase_Lobby_C_2147482383)
+Controller chain: DCSPlayerControllerBase_Lobby_C -> DCSPlayerControllerBase_C -> WGIPlayerController -> PlayerController -> Controller -> Actor -> Object
+
+PlayerController      : DCSPlayerControllerBase_Lobby_C  (DCSPlayerControllerBase_Lobby_C /Game/MapsEntry/Lobby.Lobby:PersistentLevel.DCSPlayerControllerBase_Lobby_C_2147482383)
+PlayerController chain: DCSPlayerControllerBase_Lobby_C -> DCSPlayerControllerBase_C -> WGIPlayerController -> PlayerController -> Controller -> Actor -> Object
+PlayerCameraManager  : PlayerCameraManager  (PlayerCameraManager /Game/MapsEntry/Lobby.Lobby:PersistentLevel.PlayerCameraManager_2147482381)
+PCM class chain      : PlayerCameraManager -> Actor -> Object
+camera location      : 35568.63 -19206.92 4311.95
+camera rotation      : P=-1.90 Y=126.62 R=-0.00
+PCM actor rotation   : P=-1.90 Y=126.62 R=-0.00  (via K2_GetActorRotation)
+PCM forward vector   : -0.60 0.80 -0.03
+camera FOV           : 51.282005310059
+PCM.ViewTarget.Target: CineCameraActor  (CineCameraActor /Game/MapsEntry/Lobby_01.Lobby_01:PersistentLevel.CineCameraActor_2)
+  chain              : CineCameraActor -> CameraActor -> Actor -> Object
+POV location         : 35568.63 -19206.92 4311.95
+POV rotation         : P=-1.90 Y=126.62 R=-0.00
+POV FOV              : 51.282005310059
+PC:GetViewTarget()   : CineCameraActor  (CineCameraActor /Game/MapsEntry/Lobby_01.Lobby_01:PersistentLevel.CineCameraActor_2)
+  chain              : CineCameraActor -> CameraActor -> Actor -> Object
+  location           : 35568.63 -19206.92 4311.95
+  NOTE: the view target is NOT the player pawn - a cutscene or a scripted camera is active
+AcknowledgedPawn     : DefaultPawn /Game/MapsEntry/Lobby.Lobby:PersistentLevel.DefaultPawn_2147482374
+HUD                  : HUD  (HUD /Game/MapsEntry/Lobby.Lobby:PersistentLevel.HUD_2147482375)
+
+================================================================================
+== WORLD / LEVELS / STREAMING
+================================================================================
+world full name   : World /Game/MapsEntry/Lobby.Lobby
+world class       : World
+world address     : 0x22D5F0C9BA0
+GetCurrentLevelName: Lobby
+world outer (pkg) : Package /Game/MapsEntry/Lobby
+PersistentLevel   : Level /Game/MapsEntry/Lobby.Lobby:PersistentLevel
+  outer package   : World /Game/MapsEntry/Lobby.Lobby
+
+StreamingLevels   : 7
+  [1] LevelStreamingDynamic
+       full        : LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_0
+       PackageNameToLoad: None
+       LevelColor  : ScriptStruct /Script/CoreUObject.LinearColor
+       bShouldBeLoaded: true
+       bShouldBeVisible: true
+       bShouldBlockOnLoad: false
+       StreamingPriority: 0
+       LevelTransform: ScriptStruct /Script/CoreUObject.Transform
+       IsLevelLoaded: true
+       IsLevelVisible: true
+       IsStreamingStatePending: false
+       GetWorldAssetPackageFName: /Game/MapsEntry/Lobby_01
+       GetLoadedLevel: Level /Game/MapsEntry/Lobby_01.Lobby_01:PersistentLevel
+  [2] LevelStreamingDynamic
+       full        : LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_2
+       PackageNameToLoad: None
+       LevelColor  : ScriptStruct /Script/CoreUObject.LinearColor
+       bShouldBeLoaded: false
+       bShouldBeVisible: false
+       bShouldBlockOnLoad: false
+       StreamingPriority: 0
+       LevelTransform: ScriptStruct /Script/CoreUObject.Transform
+       IsLevelLoaded: false
+       IsLevelVisible: false
+       IsStreamingStatePending: false
+       GetWorldAssetPackageFName: /Game/MapsEntry/Lobby_02
+       GetLoadedLevel: <UObject>
+  [3] LevelStreamingDynamic
+       full        : LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_3
+       PackageNameToLoad: None
+       LevelColor  : ScriptStruct /Script/CoreUObject.LinearColor
+       bShouldBeLoaded: false
+       bShouldBeVisible: false
+       bShouldBlockOnLoad: false
+       StreamingPriority: 0
+       LevelTransform: ScriptStruct /Script/CoreUObject.Transform
+       IsLevelLoaded: false
+       IsLevelVisible: false
+       IsStreamingStatePending: false
+       GetWorldAssetPackageFName: /Game/MapsEntry/Lobby_03
+       GetLoadedLevel: <UObject>
+  [4] LevelStreamingDynamic
+       full        : LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_4
+       PackageNameToLoad: None
+       LevelColor  : ScriptStruct /Script/CoreUObject.LinearColor
+       bShouldBeLoaded: false
+       bShouldBeVisible: false
+       bShouldBlockOnLoad: false
+       StreamingPriority: 0
+       LevelTransform: ScriptStruct /Script/CoreUObject.Transform
+       IsLevelLoaded: false
+       IsLevelVisible: false
+       IsStreamingStatePending: false
+       GetWorldAssetPackageFName: /Game/MapsEntry/Lobby_05
+       GetLoadedLevel: <UObject>
+  [5] LevelStreamingDynamic
+       full        : LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_5
+       PackageNameToLoad: None
+       LevelColor  : ScriptStruct /Script/CoreUObject.LinearColor
+       bShouldBeLoaded: false
+       bShouldBeVisible: false
+       bShouldBlockOnLoad: false
+       StreamingPriority: 0
+       LevelTransform: ScriptStruct /Script/CoreUObject.Transform
+       IsLevelLoaded: false
+       IsLevelVisible: false
+       IsStreamingStatePending: false
+       GetWorldAssetPackageFName: /Game/MapsEntry/Lobby_00
+       GetLoadedLevel: <UObject>
+  [6] LevelStreamingDynamic
+       full        : LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_6
+       PackageNameToLoad: None
+       LevelColor  : ScriptStruct /Script/CoreUObject.LinearColor
+       bShouldBeLoaded: false
+       bShouldBeVisible: false
+       bShouldBlockOnLoad: false
+       StreamingPriority: 0
+       LevelTransform: ScriptStruct /Script/CoreUObject.Transform
+       IsLevelLoaded: false
+       IsLevelVisible: false
+       IsStreamingStatePending: false
+       GetWorldAssetPackageFName: /Game/MapsEntry/Lobby_04
+       GetLoadedLevel: <UObject>
+  [7] LevelStreamingDynamic
+       full        : LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_1
+       PackageNameToLoad: None
+       LevelColor  : ScriptStruct /Script/CoreUObject.LinearColor
+       bShouldBeLoaded: false
+       bShouldBeVisible: false
+       bShouldBlockOnLoad: false
+       StreamingPriority: 0
+       LevelTransform: ScriptStruct /Script/CoreUObject.Transform
+       IsLevelLoaded: false
+       IsLevelVisible: false
+       IsStreamingStatePending: false
+       GetWorldAssetPackageFName: /Game/MapsEntry/Lobby_RTX_CvarVolume
+       GetLoadedLevel: <UObject>
+
+loaded ULevel objects: 2
+  Level /Game/MapsEntry/Lobby.Lobby:PersistentLevel
+  Level /Game/MapsEntry/Lobby_01.Lobby_01:PersistentLevel
+
+-- world partition / streaming objects (UE5.1) --
+WorldPartition: 0
+WorldPartitionSubsystem: 1
+  WorldPartitionSubsystem                        WorldPartitionSubsystem /Game/MapsEntry/Lobby.Lobby:WorldPartitionSubsystem_2147482418
+WorldPartitionRuntimeCell: 0
+WorldPartitionRuntimeSpatialHash: 0
+WorldPartitionRuntimeHash: 0
+WorldPartitionStreamingPolicy: 0
+DataLayer: 0
+DataLayerInstance: 0
+DataLayerAsset: 0
+DataLayerSubsystem: 1
+  DataLayerSubsystem                             DataLayerSubsystem /Game/MapsEntry/Lobby.Lobby:DataLayerSubsystem_2147482420
+WorldPartitionLevelStreamingDynamic: 0
+LevelStreamingDynamic: 7
+  LevelStreamingDynamic                          LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_0  [bClientOnlyVisible=false]
+  LevelStreamingDynamic                          LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_1  [bClientOnlyVisible=false]
+  LevelStreamingDynamic                          LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_2  [bClientOnlyVisible=false]
+  LevelStreamingDynamic                          LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_3  [bClientOnlyVisible=false]
+  LevelStreamingDynamic                          LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_4  [bClientOnlyVisible=false]
+  LevelStreamingDynamic                          LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_5  [bClientOnlyVisible=false]
+  LevelStreamingDynamic                          LevelStreamingDynamic /Game/MapsEntry/Lobby.Lobby:LevelStreamingDynamic_6  [bClientOnlyVisible=false]
+LevelStreamingAlwaysLoaded: 0
+LevelStreamingKismet: 0
+WorldComposition: 0
+LevelBounds: 1
+  LevelBounds                                    LevelBounds /Game/MapsEntry/Lobby_01.Lobby_01:PersistentLevel.LevelBounds_0
+
+-- UWorld reflected properties --
+  -- [World] 38 properties
+    PersistentLevel                              ObjectProperty             = Level /Game/MapsEntry/Lobby.Lobby:PersistentLevel
+    NetDriver                                    ObjectProperty             = <UObject>
+    LineBatcher                                  ObjectProperty             = LineBatchComponent /Engine/Transient.LineBatchComponent_2147482394
+    PersistentLineBatcher                        ObjectProperty             = LineBatchComponent /Engine/Transient.LineBatchComponent_2147482393
+    ForegroundLineBatcher                        ObjectProperty             = LineBatchComponent /Engine/Transient.LineBatchComponent_2147482392
+    NetworkManager                               ObjectProperty             = GameNetworkManager /Game/MapsEntry/Lobby.Lobby:PersistentLevel.GameNetworkManager_2147482386
+    PhysicsCollisionHandler                      ObjectProperty             = PhysicsCollisionHandler /Game/MapsEntry/Lobby.Lobby:PhysicsCollisionHandler_2147482396
+    ExtraReferencedObjects                       ArrayProperty              = TArray[0]
+    PerModuleDataObjects                         ArrayProperty              = TArray[1]
+    StreamingLevels                              ArrayProperty              = TArray[7]
+    StreamingLevelsToConsider                    StructProperty             = ScriptStruct /Script/Engine.StreamingLevelsToConsider
+    ServerStreamingLevelsVisibility              ObjectProperty             = <UObject>
+    StreamingLevelsPrefix                        StrProperty                = 
+    CurrentLevelPendingVisibility                ObjectProperty             = <UObject>
+    CurrentLevelPendingInvisibility              ObjectProperty             = <UObject>
+    DemoNetDriver                                ObjectProperty             = <UObject>
+    MyParticleEventManager                       ObjectProperty             = ParticleEventManager /Game/MapsEntry/Lobby.Lobby:PersistentLevel.ParticleEventManager_2147482389
+    DefaultPhysicsVolume                         ObjectProperty             = DefaultPhysicsVolume /Game/MapsEntry/Lobby.Lobby:PersistentLevel.DefaultPhysicsVolume_2147482397
+    bAreConstraintsDirty                         BoolProperty               = false
+    NavigationSystem                             ObjectProperty             = NavigationSystemV1 /Game/MapsEntry/Lobby.Lobby:NavigationSystemV1_2147482409
+    AuthorityGameMode                            ObjectProperty             = LobbyGameMode_C /Game/MapsEntry/Lobby.Lobby:PersistentLevel.LobbyGameMode_C_2147482395
+    GameState                                    ObjectProperty             = GameStateBase /Game/MapsEntry/Lobby.Lobby:PersistentLevel.GameStateBase_2147482387
+    AISystem                                     ObjectProperty             = AISystem /Game/MapsEntry/Lobby.Lobby:AISystem_2147482408
+    AvoidanceManager                             ObjectProperty             = AvoidanceManager /Game/MapsEntry/Lobby.Lobby:AvoidanceManager_2147482405
+    Levels                                       ArrayProperty              = TArray[2]
+    LevelCollections                             ArrayProperty              = TArray[2]
+    OwningGameInstance                           ObjectProperty             = DCSGameInstance_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580
+    ParameterCollectionInstances                 ArrayProperty              = TArray[24]
+    CanvasForRenderingToTarget                   ObjectProperty             = <UObject>
+    CanvasForDrawMaterialToRenderTarget          ObjectProperty             = <UObject>
+    PhysicsField                                 ObjectProperty             = PhysicsFieldComponent /Engine/Transient.PhysicsFieldComponent_2147482391
+    LWILastAssignedUID                           UInt32Property             = 0
+    ComponentsThatNeedPreEndOfFrameSync          SetProperty                = <TSet>
+    ComponentsThatNeedEndOfFrameUpdate           ArrayProperty              = TArray[0]
+    ComponentsThatNeedEndOfFrameUpdate_OnGameThread ArrayProperty              = TArray[0]
+    WorldComposition                             ObjectProperty             = <UObject>
+    ContentBundleManager                         ObjectProperty             = <UObject>
+    PSCPool                                      StructProperty             = ScriptStruct /Script/Engine.WorldPSCPool
+
+================================================================================
+== ACTOR CENSUS
+================================================================================
+actors scanned: 2173   (skipped CDO/invalid: 0)   distinct classes: 48
+
+-- class histogram (count desc) --
+     1090  StaticMeshActor
+     1019  Actor
+        7  DecalActor
+        4  BP_PreEquipmentInstance_C
+        4  SpotLight
+        3  RectLight
+        2  CineCameraActor
+        2  DCSWorldSettings
+        2  Landscape
+        2  LandscapeGizmoActiveActor
+        1  AIController
+        1  AbstractNavData
+        1  BP_RefGet_C
+        1  BP_WuChangeLobby_C
+        1  DCSPlayerControllerBase_Lobby_C
+        1  DI_MP_Chest_Yaohuangzei_C
+        1  DI_MP_Hands02_C
+        1  DI_MP_Head_GuWuTouGuan_C
+        1  DI_MP_Legs02_C
+        1  DefaultPawn
+        1  DefaultPhysicsVolume
+        1  DirectionalLight
+        1  Emitter
+        1  ExponentialHeightFog
+        1  GameBooterLibBP_C
+        1  GameNetworkManager
+        1  GameSaveExecutorNative
+        1  GameSaveNativeBooter_C
+        1  GameSaverNativeBPFactory_C
+        1  GameSession
+        1  GameSettingsBooter_C
+        1  GameSettingsSaver_C
+        1  GameStateBase
+        1  HUD
+        1  Impl_GameSettingsSaver_C
+        1  LevelBounds
+        1  LobbyGameBooter_C
+        1  LobbyGameMode_C
+        1  Lobby_01_C
+        1  Lobby_C
+        1  NiagaraActor
+        1  ParticleEventManager
+        1  PlayerCameraManager
+        1  PlayerState
+        1  PostProcessVolume
+        1  SkyAtmosphere
+        1  SkyLight
+        1  WindDirectionalSource
+
+-- keywords: shrine, fire, altar, save, chest, box, treasure, item, pickup, loot, drop, collect, boss, enemy, monster, npc, merchant, shop, door, gate, ladder, elevator, lift, rope, portal, teleport, trigger, volume, nav, recast, camera, spline, wumen, fog, mist, plume, transit, puzzle, rebornfire, digong, dici, zhuanjing, qicaishi --
+
+== A. actors whose CLASS name matches a keyword (the interesting ones) ==
+   per-class instance cap: 60
+
+[AbstractNavData]  total=1  shown=1  matched-on=nav
+   own properties: none (pure engine class)
+  AbstractNavData /Game/MapsEntry/Lobby.Lobby:PersistentLevel.AbstractNavData-Default | loc 0.00 0.00 0.00
+
+[CineCameraActor]  total=2  shown=2  matched-on=camera
+   own properties (9, AActor/UObject ones omitted): AspectRatio, AutoActivateForPlayer, CameraComponent, FOVAngle, LookatTrackingSettings, PostProcessBlendWeight, PostProcessSettings, SceneComponent, bConstrainAspectRatio
+  CineCameraActor /Game/MapsEntry/Lobby.Lobby:PersistentLevel.CineCameraActor_0 | loc 38352.43 -24851.11 4238.03
+  CineCameraActor /Game/MapsEntry/Lobby_01.Lobby_01:PersistentLevel.CineCameraActor_2 | loc 35568.63 -19206.92 4311.95
+
+[DI_MP_Chest_Yaohuangzei_C]  total=1  shown=1  matched-on=chest
+   own properties (36, AActor/UObject ones omitted): AttachNiagara, AttachmentSocket, CloseSimTimer, CollisionRadius, DCSLevelLayers, DefineCollisionSockets, EnableNoPlayerTickPerformance, EquipmentComponent, EquipmentId, Lod0Range, Lod1Range, Lod2Range, Lod3Range, LodDistanceScale, MayCachedShapeType, OnActorMeshSlowtickUpdate, PartsSkeletal, Scene, Shape Ids, SkeletalMesh, SlotIndex, SlowTickComponentTag, SlowTickHegihtTag, SlowTickInterval, SlowTickLawfulHeight, SlowTickRange, SortID, StopTickInterval, StopTickRange, System Template, Type, UINotify, UberGraphFrame, bEnableDelayedBeginPlay, bPerformanceHidden, 模型显示的优先级
+  DI_MP_Chest_Yaohuangzei_C /Game/MapsEntry/Lobby_01.Lobby_01:PersistentLevel.DI_MP_Chest_Yaohuangzei_C_2147482172 | loc 35246.26 -19167.40 4291.46
+
+[DefaultPhysicsVolume]  total=1  shown=1  matched-on=volume
+   own properties (5, AActor/UObject ones omitted): FluidFriction, Priority, TerminalVelocity, bPhysicsOnContact, bWaterVolume
+  DefaultPhysicsVolume /Game/MapsEntry/Lobby.Lobby:PersistentLevel.DefaultPhysicsVolume_2147482397 | loc 0.00 0.00 0.00
+
+[ExponentialHeightFog]  total=1  shown=1  matched-on=fog
+   own properties (2, AActor/UObject ones omitted): Component, bEnabled
+  ExponentialHeightFog /Game/MapsEntry/Lobby_01.Lobby_01:PersistentLevel.ExponentialHeightFog_2 | loc -0.00 0.00 1101.70
+
+[GameSaveExecutorNative]  total=1  shown=1  matched-on=save
+   own properties (1, AActor/UObject ones omitted): NewGamePlusSavingSlot
+  GameSaveExecutorNative /Game/MapsEntry/Lobby.Lobby:PersistentLevel.GameSaveExecutorNative_2147482291 | loc 0.00 0.00 0.00
+
+[GameSaveNativeBooter_C]  total=1  shown=1  matched-on=save
+   own properties (13, AActor/UObject ones omitted): BP_RefGet, DefaultSceneRoot, DependConfig, InitList, InternalDependList, Methed, OnBootProceed, OnBootResult, OnTotalProceed, StartWait, SuccessNum, TreeLevel, UberGraphFrame
+  GameSaveNativeBooter_C /Game/MapsEntry/Lobby.Lobby:PersistentLevel.GameSaveNativeBooter_C_2147482295 | loc 0.00 0.00 0.00
+
+[GameSaverNativeBPFactory_C]  total=1  shown=1  matched-on=save
+   own properties (1, AActor/UObject ones omitted): DefaultSceneRoot
+  GameSaverNativeBPFactory_C /Game/MapsEntry/Lobby.Lobby:PersistentLevel.GameSaverNativeBPFactory_C_2147482292 | loc 0.00 0.00 0.00
+
+[GameSettingsSaver_C]  total=1  shown=1  matched-on=save
+   own properties (10, AActor/UObject ones omitted): BlackAll, CachedBlackList, CachedSVN, CommandBlackList, DefaultSceneRoot, HasInit, NewGamePlusSavingSlot, SaverImpl, UberGraphFrame, UserName
+  GameSettingsSaver_C /Game/MapsEntry/Lobby.Lobby:PersistentLevel.GameSettingsSaver_C_2147482293 | loc 0.00 0.00 0.00
+
+[Impl_GameSettingsSaver_C]  total=1  shown=1  matched-on=save
+   own properties (14, AActor/UObject ones omitted): CountTimeInfos, DefaultSceneRoot, DeleteDirComplete, HasInit, LCachedMapName, LastRecordRealTime, NewGamePlusSavingSlot, SaveNextCount, SaveNextDebugCount, Select_Count, Select_DebugCount, ShouldRecordCount, TickCountSavPath, UberGraphFrame
+  Impl_GameSettingsSaver_C /Game/MapsEntry/Lobby.Lobby:PersistentLevel.Impl_GameSettingsSaver_C_2147482294 | loc 0.00 0.00 0.00
+
+[PlayerCameraManager]  total=1  shown=1  matched-on=camera
+   own properties (33, AActor/UObject ones omitted): AnimCameraActor, CachedCameraShakeMod, CameraCache, CameraCachePrivate, CameraLensEffects, DefaultAspectRatio, DefaultFOV, DefaultModifiers, DefaultOrthoWidth, FreeCamDistance, FreeCamOffset, LastFrameCameraCache, LastFrameCameraCachePrivate, ModifierList, OnAudioFadeChangeEvent, PCOwner, PendingViewTarget, PostProcessBlendCache, ServerUpdateCameraTimeout, TransformComponent, ViewPitchMax, ViewPitchMin, ViewRollMax, ViewRollMin, ViewTarget, ViewTargetOffset, ViewYawMax, ViewYawMin, bClientSimulatingViewTarget, bDefaultConstrainAspectRatio, bGameCameraCutThisFrame, bIsOrthographic, bUseClientSideCameraUpdates
+  PlayerCameraManager /Game/MapsEntry/Lobby.Lobby:PersistentLevel.PlayerCameraManager_2147482381 | loc 35568.63 -19206.92 4311.95
+
+[PostProcessVolume]  total=1  shown=1  matched-on=volume
+   own properties (6, AActor/UObject ones omitted): BlendRadius, BlendWeight, Priority, Settings, bEnabled, bUnbound
+  PostProcessVolume /Game/MapsEntry/Lobby_01.Lobby_01:PersistentLevel.PostProcessVolume_3 | loc 14370.29 6848.06 1026.96
+
+== B. actors whose OBJECT name only matches (mostly HISM_/SM_ geometry) ==
+   counts per class, up to 8 examples each
+
+[Actor]  name-matches=54  first-keyword=door
+  HISM_ENV_B_Any_Door_01_Nanite_Medres_878A81BD4CA6D3EE3C5D6693E6EFED55 | loc 33048.90 8950.54 2790.81
+  HISM_ENV_B_Any_Door_01_Nanite_Medres_8A02C517489B815EC53C889AB9AB32BD | loc 28652.37 -1096.24 -351.42
+  HISM_ENV_B_Any_Door_01_Nanite_Medres_D6C6BF40485C5E18866C71875446D121 | loc 12188.46 67.39 1820.13
+  HISM_ENV_B_Any_Door_02_Nanite_Medres_26FA4B1846F0A6DA2B086FA5F7CB2006 | loc 23493.29 -1942.30 -924.43
+  HISM_ENV_B_Any_Door_02_Nanite_Medres_D853B3594D3851EEF9EA9189AA739AAF | loc 27839.28 13032.74 3347.45
+  HISM_ENV_B_Any_DoorXiao_01_Nanite_Medres_31759D364D4F4711F431759F2A28077F | loc 33524.84 10772.87 2488.80
+  HISM_ENV_B_Any_Ladder_03_Nanite_Medres_8274F0F24DF0A0636C549B8617AC6F36 | loc 36604.29 6492.34 1243.72
+  HISM_ENV_B_Any_Ladder_04_Nanite_Medres_06751DA14E7C48A925EE8AA0CC523DC4 | loc 14678.34 -572.36 917.69
+
+[StaticMeshActor]  name-matches=25  first-keyword=boss
+  Boss_Merged_House_07_2955 | loc 0.00 0.00 0.00
+  Boss_Merged_House_2954 | loc -0.63 0.00 0.00
+  Boss_Merged_House_3281 | loc -672.75 0.00 -0.00
+  Boss_Merged_House_3282 | loc -672.75 0.00 -0.00
+  Boss_Merged_House_3283 | loc -672.75 0.00 -0.00
+  ENV_B_Any_uboxeeada_Nanite_Medres_3BC557854EC8B982885167B7A1312AE7_H_4C1B1C9C4FFC9FB7C79DA0B3FB2EFEB0_3702 | loc 11267.78 7813.18 3587.62
+  ENV_LG_Any_DiGongLanGan01_Nanite_Medres_89961E404A20D0904DA35281CC887BE2_H_0FDD100049CCB4EE8C8971B93CE72530_72 | loc 34308.51 11.90 -502.09
+  ENV_LG_Any_DiGongLanGan01_Nanite_Medres_89961E404A20D0904DA35281CC887BE2_H_15D2F47B42DA3CEBCFC5318456AB75EA_68 | loc 34596.00 376.39 -457.16
+
+================================================================================
+== MARKER CLASSES - VALUES AND DISTANCE TO PLAYER
+================================================================================
+player at 0.00 0.00 0.00   (distances below are 3D, in uu; 100 uu = 1 m)
+per-class instance cap: 200   scalar props per instance cap: 40
+
+[BP_PickupActor_C]  0 instances
+
+[BP_PickUpPT_C]  0 instances
+
+[BP_AutoPickUp_C]  0 instances
+
+[ItemCollectionBox_C]  0 instances
+
+[BP_treasurebox_C]  0 instances
+
+[BP_ItemRedBox_C]  0 instances
+
+[BP_RebornFire_C]  0 instances
+
+[BP_Wumen_C]  0 instances
+
+[BP_NewPuzzlesDoor_C]  0 instances
+
+[BP_Door_C]  0 instances
+
+[BP_DoorBase_C]  0 instances
+
+================================================================================
+== FUNCTION SIGNATURES (Teleport|Cheat|Fly|Ghost|Walk|Cell|Load|Level|Stream|Debug|Camera|ViewTarget|Time|God|Unlock)
+================================================================================
+parameter list order is the UFunction's own property order; the LAST parameter is normally the return value.
+
+-- pawn class chain (chain walked until Object) --
+  [Actor]
+    GetActorTimeDilation(FloatProperty ReturnValue)
+    GetGameTimeSinceCreation(FloatProperty ReturnValue)
+    GetLevel(ObjectProperty ReturnValue)
+    GetLevelTransform(StructProperty ReturnValue)
+    K2_OnBecomeViewTarget(ObjectProperty PC)
+    K2_OnEndViewTarget(ObjectProperty PC)
+    K2_TeleportTo(StructProperty DestLocation, StructProperty DestRotation, BoolProperty ReturnValue)
+
+-- PlayerController class chain (chain walked until Object) --
+  [DCSPlayerControllerBase_C]
+    CheckCreateDebugKeys()
+    DebugRemoved(ObjectProperty Widget)
+  [PlayerController]
+    Camera(NameProperty NewMode)
+    ClientAckTimeDilation(FloatProperty TimeDilation, IntProperty ServerStep)
+    ClientAckUpdateLevelVisibility(NameProperty PackageName, StructProperty TransactionId, BoolProperty bClientAckCanMakeVisible)
+    ClientAddTextureStreamingLoc(StructProperty InLoc, FloatProperty Duration, BoolProperty bOverrideLocation)
+    ClientClearCameraLensEffects()
+    ClientCorrectionAsyncPhysicsTimestamp(StructProperty Timestamp)
+    ClientFlushLevelStreaming()
+    ClientRecvServerAckFrameDebug(ByteProperty NumBuffered, FloatProperty TargetNumBufferedCmds)
+    ClientSetBlockOnAsyncLoading()
+    ClientSetCameraFade(BoolProperty bEnableFading, StructProperty FadeColor, StructProperty FadeAlpha, FloatProperty FadeTime, BoolProperty bFadeAudio, BoolProperty bHoldWhenFinished)
+    ClientSetCameraMode(NameProperty NewCamMode)
+    ClientSetForceMipLevelsToBeResident(ObjectProperty Material, FloatProperty ForceDuration, IntProperty CinematicTextureGroups)
+    ClientSetViewTarget(ObjectProperty A, StructProperty TransitionParams)
+    ClientSpawnCameraLensEffect(ClassProperty LensEffectEmitterClass)
+    ClientSpawnGenericCameraLensEffect(ClassProperty LensEffectEmitterClass)
+    ClientStartCameraShake(ClassProperty Shake, FloatProperty Scale, EnumProperty PlaySpace, StructProperty UserPlaySpaceRot)
+    ClientStartCameraShakeFromSource(ClassProperty Shake, ObjectProperty SourceComponent)
+    ClientStopCameraShake(ClassProperty Shake, BoolProperty bImmediately)
+    ClientStopCameraShakesFromSource(ObjectProperty SourceComponent, BoolProperty bImmediately)
+    ClientUpdateLevelStreamingStatus(NameProperty PackageName, BoolProperty bNewShouldBeLoaded, BoolProperty bNewShouldBeVisible, BoolProperty bNewShouldBlockOnLoad, IntProperty LODIndex, StructProperty TransactionId)
+    ClientUpdateMultipleLevelsStreamingStatus(ArrayProperty LevelStatuses)
+    EnableCheats()
+    GetInputKeyTimeDown(StructProperty Key, FloatProperty ReturnValue)
+    GetStreamingSourceLocationAndRotation(StructProperty OutLocation, StructProperty OutRotation)
+    GetStreamingSourcePriority(EnumProperty ReturnValue)
+    GetStreamingSourceShapes(ArrayProperty OutShapes)
+    IsStreamingSourceEnabled(BoolProperty ReturnValue)
+    RestartLevel()
+    ServerCamera(NameProperty NewMode)
+    ServerNotifyLoadedWorld(NameProperty WorldPackageName)
+    ServerSendLatestAsyncPhysicsTimestamp(StructProperty Timestamp)
+    ServerShortTimeout()
+    ServerUpdateCamera(StructProperty CamLoc, IntProperty CamPitchAndYaw)
+    ServerUpdateLevelVisibility(StructProperty LevelVisibility)
+    ServerUpdateMultipleLevelsVisibility(ArrayProperty LevelVisibilities)
+    ServerVerifyViewTarget()
+    SetViewTargetWithBlend(ObjectProperty NewViewTarget, FloatProperty BlendTime, ByteProperty BlendFunc, FloatProperty BlendExp, BoolProperty bLockOutgoing)
+    StreamingSourceShouldActivate(BoolProperty ReturnValue)
+    StreamingSourceShouldBlockOnSlowStreaming(BoolProperty ReturnValue)
+    SwitchLevel(StrProperty URL)
+    TestServerLevelVisibilityChange(NameProperty PackageName, NameProperty Filename)
+  [Controller]
+    GetViewTarget(ObjectProperty ReturnValue)
+  [Actor]
+    GetActorTimeDilation(FloatProperty ReturnValue)
+    GetGameTimeSinceCreation(FloatProperty ReturnValue)
+    GetLevel(ObjectProperty ReturnValue)
+    GetLevelTransform(StructProperty ReturnValue)
+    K2_OnBecomeViewTarget(ObjectProperty PC)
+    K2_OnEndViewTarget(ObjectProperty PC)
+    K2_TeleportTo(StructProperty DestLocation, StructProperty DestRotation, BoolProperty ReturnValue)
+
+-- PlayerCameraManager class chain (chain walked until Object) --
+  [PlayerCameraManager]
+    AddCameraLensEffect(ClassProperty LensEffectEmitterClass, ObjectProperty ReturnValue)
+    AddGenericCameraLensEffect(ClassProperty LensEffectEmitterClass, InterfaceProperty ReturnValue)
+    AddNewCameraModifier(ClassProperty ModifierClass, ObjectProperty ReturnValue)
+    BlueprintUpdateCamera(ObjectProperty CameraTarget, StructProperty NewCameraLocation, StructProperty NewCameraRotation, FloatProperty NewCameraFOV, BoolProperty ReturnValue)
+    ClearCameraLensEffects()
+    FindCameraModifierByClass(ClassProperty ModifierClass, ObjectProperty ReturnValue)
+    GetCameraLocation(StructProperty ReturnValue)
+    GetCameraRotation(StructProperty ReturnValue)
+    PhotographyCameraModify(StructProperty NewCameraLocation, StructProperty PreviousCameraLocation, StructProperty OriginalCameraLocation, StructProperty ResultCameraLocation)
+    RemoveCameraLensEffect(ObjectProperty Emitter)
+    RemoveCameraModifier(ObjectProperty ModifierToRemove, BoolProperty ReturnValue)
+    RemoveGenericCameraLensEffect(InterfaceProperty Emitter)
+    SetGameCameraCutThisFrame()
+    SetManualCameraFade(FloatProperty InFadeAmount, StructProperty Color, BoolProperty bInFadeAudio)
+    StartCameraFade(FloatProperty FromAlpha, FloatProperty ToAlpha, FloatProperty Duration, StructProperty Color, BoolProperty bShouldFadeAudio, BoolProperty bHoldWhenFinished)
+    StartCameraShake(ClassProperty ShakeClass, FloatProperty Scale, EnumProperty PlaySpace, StructProperty UserPlaySpaceRot, ObjectProperty ReturnValue)
+    StartCameraShakeFromSource(ClassProperty ShakeClass, ObjectProperty SourceComponent, FloatProperty Scale, EnumProperty PlaySpace, StructProperty UserPlaySpaceRot, ObjectProperty ReturnValue)
+    StopAllCameraShakes(BoolProperty bImmediately)
+    StopAllCameraShakesFromSource(ObjectProperty SourceComponent, BoolProperty bImmediately)
+    StopAllInstancesOfCameraShake(ClassProperty Shake, BoolProperty bImmediately)
+    StopAllInstancesOfCameraShakeFromSource(ClassProperty Shake, ObjectProperty SourceComponent, BoolProperty bImmediately)
+    StopCameraFade()
+    StopCameraShake(ObjectProperty ShakeInstance, BoolProperty bImmediately)
+    SwapPendingViewTargetWhenUsingClientSideCameraUpdates()
+  [Actor]
+    GetActorTimeDilation(FloatProperty ReturnValue)
+    GetGameTimeSinceCreation(FloatProperty ReturnValue)
+    GetLevel(ObjectProperty ReturnValue)
+    GetLevelTransform(StructProperty ReturnValue)
+    K2_OnBecomeViewTarget(ObjectProperty PC)
+    K2_OnEndViewTarget(ObjectProperty PC)
+    K2_TeleportTo(StructProperty DestLocation, StructProperty DestRotation, BoolProperty ReturnValue)
+
+================================================================================
+== LOADED CLASSES (keyword filtered)
+================================================================================
+route FindObjects(0,BlueprintGeneratedClass)       -> 1071 object(s)
+route FindObjects(0,Class)                         -> 4577 object(s)
+route FindAllOf(BlueprintGeneratedClass)           -> 0 object(s)
+route FindAllOf(Class)                             -> 0 object(s)
+
+using route: FindObjects(0,BlueprintGeneratedClass)
+classes seen: 1071   matching debugcommand/firepoint/shrine/minimap/map/nav/player/combatcharacter/chapter/area/chest/boss/menu/hud: 65
+  AnimBlueprintGeneratedClass /Game/Assets/Character/player/player_wuchang_rebined/Anims/bpa/ABP_CombatCharacterNew.ABP_CombatCharacterNew_C
+  BlueprintGeneratedClass /Game/Assets/Effect/Camera_shake/Shake_Attack_Level0_HitPlayer.Shake_Attack_Level0_HitPlayer_C
+  BlueprintGeneratedClass /Game/Assets/Effect/Camera_shake/Shake_Attack_Level1_HitPlayer.Shake_Attack_Level1_HitPlayer_C
+  BlueprintGeneratedClass /Game/Assets/Effect/Camera_shake/Shake_Attack_Level1_PlayerEXE.Shake_Attack_Level1_PlayerEXE_C
+  BlueprintGeneratedClass /Game/Assets/Effect/Camera_shake/Shake_Attack_Level1_PlayerEXE_Begin.Shake_Attack_Level1_PlayerEXE_Begin_C
+  BlueprintGeneratedClass /Game/Assets/Effect/Camera_shake/Shake_Attack_Level2_HitPlayer.Shake_Attack_Level2_HitPlayer_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/AnimNotifies/ANS_CreateBossSpellActing.ANS_CreateBossSpellActing_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/AnimNotifies/ANS_PlayerFallDown.ANS_PlayerFallDown_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/AnimNotifies/AN_CreateBossSpellActing.AN_CreateBossSpellActing_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/BP_CombatCharacter.BP_CombatCharacter_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Components/PlayerEquipmentSaver.PlayerEquipmentSaver_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Components/PlayerModel.PlayerModel_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Components/PlayerPostureCompoent.PlayerPostureCompoent_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Components/PlayerProperty.PlayerProperty_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Components/RotatingComponent_Player.RotatingComponent_Player_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/DCSPlayerController.DCSPlayerController_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/DCSPlayerControllerBase.DCSPlayerControllerBase_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/DCSPlayerControllerBase_Lobby.DCSPlayerControllerBase_Lobby_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Functions_CombatCharacter.Functions_CombatCharacter_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Interfaces/I_RebornFirePoint.I_RebornFirePoint_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Items/ObjectItems/Item_BossSpell.Item_BossSpell_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Libraries/PlayerModelLibrary.PlayerModelLibrary_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Misc/BP_BossDeathSpellActing.BP_BossDeathSpellActing_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/Online/DCSPlayerState.DCSPlayerState_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/PlayerCamerExternController.PlayerCamerExternController_C
+  BlueprintGeneratedClass /Game/DynamicCombatSystem/Blueprints/PrimaryData/DA_PlayerStatic_Class.DA_PlayerStatic_Class_C
+  BlueprintGeneratedClass /Game/Game/AI/BP_PlacedBossAI.BP_PlacedBossAI_C
+  BlueprintGeneratedClass /Game/Game/Blueprints/AnimNotify/AN_OpenPlayerWidget.AN_OpenPlayerWidget_C
+  BlueprintGeneratedClass /Game/Game/Blueprints/BP_CombatCharacter_Player_Final.BP_CombatCharacter_Player_Final_C
+  BlueprintGeneratedClass /Game/Game/Blueprints/Components/ImplMovementSpeed_Player.ImplMovementSpeed_Player_C
+  BlueprintGeneratedClass /Game/Game/Blueprints/Components/ImplStateManagerComponent_Player.ImplStateManagerComponent_Player_C
+  BlueprintGeneratedClass /Game/Game/Blueprints/Item/DisplayItems/Instances/BP_ADI_PlayerStone.BP_ADI_PlayerStone_C
+  BlueprintGeneratedClass /Game/Game/Blueprints/Item/DisplayItems/Instances/Equipment/Chest/DI_MP_Chest_Yaohuangzei.DI_MP_Chest_Yaohuangzei_C
+  BlueprintGeneratedClass /Game/Game/Blueprints/LevelScriptInGame/ShowPlayer_Handler.ShowPlayer_Handler_C
+  BlueprintGeneratedClass /Game/Game/Blueprints/ResMapperDefine.ResMapperDefine_C
+  BlueprintGeneratedClass /Game/Game/Blueprints/ResourceMapperSupportProcess.ResourceMapperSupportProcess_C
+  BlueprintGeneratedClass /Game/Game/WidgetsNew/MainMenu/INT_MenuChange.INT_MenuChange_C
+  BlueprintGeneratedClass /Game/Global/blueprint/DynamicLight/BossLightingEffectActor.BossLightingEffectActor_C
+  BlueprintGeneratedClass /panda_framework_assemble_api/resource_mapper/LibResourceMapper.LibResourceMapper_C
+  BlueprintGeneratedClass /panda_framework_assemble_api/resource_mapper/ResourceMapper.ResourceMapper_C
+  WidgetBlueprintGeneratedClass /Game/DynamicCombatSystem/Widgets/WB_BossDeathActingPH.WB_BossDeathActingPH_C
+  WidgetBlueprintGeneratedClass /Game/DynamicCombatSystem/Widgets/WB_BossDeathProxy.WB_BossDeathProxy_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/Characterinterface/Roleproperties/WB_PlayerWeaponInfoRight.WB_PlayerWeaponInfoRight_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/Login/WB_BossRoomFirePoint.WB_BossRoomFirePoint_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainMenu/WB_MenuButton.WB_MenuButton_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainMenu/WB_MenuButtonTop.WB_MenuButtonTop_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainMenu/WB_MenuMain.WB_MenuMain_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainWB/NewPlayerInfo/WB_NewPlayerInfo.WB_NewPlayerInfo_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainWB/NewPlayerInfo/WB_PlayerState.WB_PlayerState_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainWB/Online/WB_HelpPlayers.WB_HelpPlayers_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainWB/Online/WB_PlayerBloodBar.WB_PlayerBloodBar_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainWB/Online/WB_PlayerBloodContain.WB_PlayerBloodContain_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainWB/WB_BossState.WB_BossState_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainWB/WB_LevelChapterInfo.WB_LevelChapterInfo_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/MainWB/WB_PlayerCoins.WB_PlayerCoins_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/Misc/ComMediaPlayer/WB_ComMediaPlayer.WB_ComMediaPlayer_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/NewPlayerGuidelines/WB_NewPlayerGuidelines.WB_NewPlayerGuidelines_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/NewPlayerGuidelines/WB_NewPlayerGuidelinesItem.WB_NewPlayerGuidelinesItem_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/PlumeArchive/StarGraph/Area/WB_AreaFog.WB_AreaFog_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/PlumeArchive/StarGraph/Area/WB_AreaFogRoot.WB_AreaFogRoot_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/PlumeArchive/StarGraph/Details/WB_StarNodeDetails_PlayerItem.WB_StarNodeDetails_PlayerItem_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/PlumeArchive/StarGraph/Details/WB_StarNodeDetails_PlayerPanel.WB_StarNodeDetails_PlayerPanel_C
+  WidgetBlueprintGeneratedClass /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Type_OptionKeyMap.WB_Type_OptionKeyMap_C
+  WidgetBlueprintGeneratedClass /StarGraphHelper/Editor/NewEditor/BackgroudArea/WB_StarGraph_BackArea.WB_StarGraph_BackArea_C
+  WidgetBlueprintGeneratedClass /StarGraphHelper/Editor/NewEditor/BackgroudArea/WB_StarGraph_BackArea_Image.WB_StarGraph_BackArea_Image_C
+
+================================================================================
+== NAVMESH / NAVIGATION
+================================================================================
+RecastNavMesh              : 0 new instance(s)
+
+NavigationData             : 1 new instance(s)
+
+  >>> AbstractNavData /Game/MapsEntry/Lobby.Lobby:PersistentLevel.AbstractNavData-Default
+      class      : AbstractNavData
+      class chain: AbstractNavData -> NavigationData -> Actor -> Object
+      ADDRESS    : 0x22B3D24FA30   <-- for the C++ RecastNavMeshImpl dumper
+      actor loc  : 0.00 0.00 0.00
+      -- all reflected properties --
+      -- [NavigationData] 12 properties
+        RenderingComp                                ObjectProperty             = <UObject>
+        NavDataConfig                                StructProperty             = ScriptStruct /Script/Engine.NavDataConfig
+        bEnableDrawing                               BoolProperty               = false
+        bForceRebuildOnLoad                          BoolProperty               = false
+        bAutoDestroyWhenNoNavigation                 BoolProperty               = false
+        bCanBeMainNavData                            BoolProperty               = false
+        bCanSpawnOnRebuild                           BoolProperty               = false
+        bRebuildAtRuntime                            BoolProperty               = false
+        RuntimeGeneration                            EnumProperty               = 0
+        ObservedPathsTickInterval                    FloatProperty              = 0.5
+        DataVersion                                  UInt32Property             = 13
+        SupportedAreas                               ArrayProperty              = TArray[0]
+      -- [Actor] 82 properties
+        PrimaryActorTick                             StructProperty             = ScriptStruct /Script/Engine.ActorTickFunction
+        bNetTemporary                                BoolProperty               = false
+        bOnlyRelevantToOwner                         BoolProperty               = false
+        bAlwaysRelevant                              BoolProperty               = false
+        bReplicateMovement                           BoolProperty               = false
+        bCallPreReplication                          BoolProperty               = true
+        bCallPreReplicationForReplay                 BoolProperty               = true
+        bHidden                                      BoolProperty               = false
+        DCSHiddenStateTypes                          ArrayProperty              = TArray[0]
+        bLocalHidden                                 BoolProperty               = false
+        bTearOff                                     BoolProperty               = false
+        bForceNetAddressable                         BoolProperty               = false
+        bExchangedRoles                              BoolProperty               = true
+        bNetLoadOnClient                             BoolProperty               = false
+        bNetUseOwnerRelevancy                        BoolProperty               = false
+        bRelevantForNetworkReplays                   BoolProperty               = true
+        bRelevantForLevelBounds                      BoolProperty               = true
+        bReplayRewindable                            BoolProperty               = false
+        bAllowTickBeforeBeginPlay                    BoolProperty               = false
+        bAutoDestroyWhenFinished                     BoolProperty               = false
+        bCanBeDamaged                                BoolProperty               = false
+        bBlockInput                                  BoolProperty               = false
+        bCollideWhenPlacing                          BoolProperty               = false
+        bFindCameraComponentWhenViewTarget           BoolProperty               = true
+        bGenerateOverlapEventsDuringLevelStreaming   BoolProperty               = false
+        bIgnoresOriginShifting                       BoolProperty               = false
+        bEnableAutoLODGeneration                     BoolProperty               = false
+        bIsEditorOnlyActor                           BoolProperty               = false
+        bActorSeamlessTraveled                       BoolProperty               = false
+        bReplicates                                  BoolProperty               = false
+        bCanBeInCluster                              BoolProperty               = false
+        bAllowReceiveTickEventOnDedicatedServer      BoolProperty               = true
+        bReplicateUsingRegisteredSubObjectList       BoolProperty               = false
+        bActorEnableCollision                        BoolProperty               = true
+        bActorIsBeingDestroyed                       BoolProperty               = false
+        bAsyncPhysicsTickEnabled                     BoolProperty               = false
+        UpdateOverlapsMethodDuringLevelStreaming     EnumProperty               = 0
+        DefaultUpdateOverlapsMethodDuringLevelStreaming EnumProperty               = 2
+        InitialLifeSpan                              FloatProperty              = 0.0
+        CustomTimeDilation                           FloatProperty              = 1.0
+        RemoteRole                                   ByteProperty               = 0
+        RayTracingGroupId                            IntProperty                = -1
+        AttachmentReplication                        StructProperty             = ScriptStruct /Script/Engine.RepAttachment
+        ReplicatedMovement                           StructProperty             = ScriptStruct /Script/Engine.RepMovement
+        Owner                                        ObjectProperty             = <UObject>
+        NetDriverName                                NameProperty               = GameNetDriver
+        Role                                         ByteProperty               = 3
+        NetDormancy                                  ByteProperty               = 1
+        SpawnCollisionHandlingMethod                 EnumProperty               = 1
+        AutoReceiveInput                             ByteProperty               = 0
+        InputPriority                                IntProperty                = 0
+        InputComponent                               ObjectProperty             = <UObject>
+        NetCullDistanceSquared                       FloatProperty              = 225000000.0
+        NetTag                                       IntProperty                = 0
+        NetUpdateFrequency                           FloatProperty              = 100.0
+        MinNetUpdateFrequency                        FloatProperty              = 2.0
+        NetPriority                                  FloatProperty              = 1.0
+        Instigator                                   ObjectProperty             = <UObject>
+        Children                                     ArrayProperty              = TArray[0]
+        RootComponent                                ObjectProperty             = SceneComponent /Game/MapsEntry/Lobby.Lobby:PersistentLevel.AbstractNavData-Default.SceneComp
+        Layers                                       ArrayProperty              = TArray[0]
+        ParentComponent                              WeakObjectProperty         = <FWeakObjectPtr>
+        Tags                                         ArrayProperty              = TArray[0]
+        CustomizedFlags                              StructProperty             = ScriptStruct /Script/Engine.ActorCustomizedFlags
+        OnTakeAnyDamage                              MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnTakeAnyDamage
+        OnTakePointDamage                            MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnTakePointDamage
+        OnTakeRadialDamage                           MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnTakeRadialDamage
+        OnActorBeginOverlap                          MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnActorBeginOverlap
+        OnActorEndOverlap                            MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnActorEndOverlap
+        OnBeginCursorOver                            MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnBeginCursorOver
+        OnEndCursorOver                              MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnEndCursorOver
+        OnClicked                                    MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnClicked
+        OnReleased                                   MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnReleased
+        OnInputTouchBegin                            MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnInputTouchBegin
+        OnInputTouchEnd                              MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnInputTouchEnd
+        OnInputTouchEnter                            MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnInputTouchEnter
+        OnInputTouchLeave                            MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnInputTouchLeave
+        OnActorHit                                   MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnActorHit
+        OnDestroyed                                  MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnDestroyed
+        OnEndPlay                                    MulticastSparseDelegateProperty = MulticastSparseDelegateProperty /Script/Engine.Actor:OnEndPlay
+        InstanceComponents                           ArrayProperty              = TArray[0]
+        BlueprintCreatedComponents                   ArrayProperty              = TArray[0]
+
+NavigationSystemV1         : 1 new instance(s)
+
+  >>> NavigationSystemV1 /Game/MapsEntry/Lobby.Lobby:NavigationSystemV1_2147482409
+      class      : NavigationSystemV1
+      class chain: NavigationSystemV1 -> NavigationSystemBase -> Object
+      ADDRESS    : 0x22D5F0B6AD0   <-- for the C++ RecastNavMeshImpl dumper
+      -- all reflected properties --
+      -- [NavigationSystemV1] 26 properties
+        MainNavData                                  ObjectProperty             = <UObject>
+        AbstractNavData                              ObjectProperty             = AbstractNavData /Game/MapsEntry/Lobby.Lobby:PersistentLevel.AbstractNavData-Default
+        DefaultAgentName                             NameProperty               = small
+        CrowdManagerClass                            SoftClassProperty          = <TSoftObjectPtrUserdata>
+        bAutoCreateNavigationData                    BoolProperty               = true
+        bSpawnNavDataInNavBoundsLevel                BoolProperty               = false
+        bAllowClientSideNavigation                   BoolProperty               = false
+        bShouldDiscardSubLevelNavData                BoolProperty               = true
+        bTickWhilePaused                             BoolProperty               = false
+        bSupportRebuilding                           BoolProperty               = false
+        bInitialBuildingLocked                       BoolProperty               = false
+        bSkipAgentHeightCheckWhenPickingNavData      BoolProperty               = false
+        GeometryExportVertexCountWarningThreshold    IntProperty                = 1000000
+        bGenerateNavigationOnlyAroundNavigationInvokers BoolProperty               = true
+        ActiveTilesUpdateInterval                    FloatProperty              = 1.0
+        DataGatheringMode                            EnumProperty               = 1
+        DirtyAreaWarningSizeThreshold                FloatProperty              = -1.0
+        GatheringNavModifiersWarningLimitTime        FloatProperty              = -1.0
+        SupportedAgents                              ArrayProperty              = TArray[4]
+        SupportedAgentsMask                          StructProperty             = ScriptStruct /Script/Engine.NavAgentSelector
+        BuildBounds                                  StructProperty             = ScriptStruct /Script/CoreUObject.Box
+        NavDataSet                                   ArrayProperty              = TArray[0]
+        NavDataRegistrationQueue                     ArrayProperty              = TArray[0]
+        OnNavDataRegisteredEvent                     MulticastInlineDelegateProperty = MulticastInlineDelegateProperty /Script/NavigationSystem.NavigationSystemV1:OnNavDataRegisteredEvent
+        OnNavigationGenerationFinishedDelegate       MulticastInlineDelegateProperty = MulticastInlineDelegateProperty /Script/NavigationSystem.NavigationSystemV1:OnNavigationGenerationFinishedDelegate
+        OperationMode                                EnumProperty               = 1
+
+NavigationSystemBase       : 0 new instance(s)  (+1 already listed above)
+
+NavMeshBoundsVolume        : 0 new instance(s)
+
+NavModifierVolume          : 0 new instance(s)
+
+NavLinkProxy               : 0 new instance(s)
+
+NavArea                    : 0 new instance(s)
+
+RecastNavMeshDataChunk     : 0 new instance(s)
+
+NavigationGraph            : 0 new instance(s)
+
+NavRelevantComponent       : 0 new instance(s)
+
+UClass /Script/NavigationSystem.RecastNavMesh : Class /Script/NavigationSystem.RecastNavMesh @ 0x22B37B4A600
+UClass /Script/NavigationSystem.NavigationSystemV1 : Class /Script/NavigationSystem.NavigationSystemV1 @ 0x22B37B4BC80
+
+-- ProjectPointToNavigation probe at the player --
+player at 0.00 0.00 0.00
+  extent (100,100,500) -> hit=false proj=0.00 0.00 0.00
+  extent (500,500,1000) -> hit=false proj=0.00 0.00 0.00
+  extent (2000,2000,2000) -> hit=false proj=0.00 0.00 0.00
+  working call: K2_ProjectPointToNavigation on NavigationSystemV1 /Script/NavigationSystem.Default__NavigationSystemV1
+any RecastNavMesh/NavigationData instance found: true
+
+================================================================================
+== DebugCommand_C / FUNCTION SURFACE
+================================================================================
+FindAllOf("DebugCommand_C") returned nothing
+
+-- player class function names (DefaultPawn) --
+  -- [DefaultPawn] 5 functions
+    LookUpAtRate
+    MoveForward
+    MoveRight
+    MoveUp_World
+    TurnAtRate
+  -- [Pawn] 32 functions
+    AddControllerPitchInput
+    AddControllerRollInput
+    AddControllerYawInput
+    AddMovementInput
+    ConsumeMovementInputVector
+    DetachFromControllerPendingDestroy
+    GetBaseAimRotation
+    GetControlRotation
+    GetController
+    GetLastMovementInputVector
+    GetLocalViewingPlayerController
+    GetMovementBaseActor
+    GetMovementComponent
+    GetNavAgentLocation
+    GetOverrideInputComponentClass
+    GetPendingMovementInputVector
+    IsBotControlled
+    IsControlled
+    IsLocallyControlled
+    IsLocallyViewed
+    IsMoveInputIgnored
+    IsPawnControlled
+    IsPlayerControlled
+    OnRep_Controller
+    OnRep_PlayerState
+    PawnMakeNoise
+    ReceiveControllerChanged
+    ReceivePossessed
+    ReceiveRestarted
+    ReceiveUnpossessed
+    SetCanAffectNavigationGeneration
+    SpawnDefaultController
+  -- [Actor] 136 functions
+    ActorHasTag
+    AddComponent
+    AddComponentByClass
+    AddTickPrerequisiteActor
+    AddTickPrerequisiteComponent
+    DetachRootComponentFromParent
+    DisableInput
+    EnableInput
+    FinishAddComponent
+    FlushNetDormancy
+    ForceNetUpdate
+    GetActorBounds
+    GetActorEnableCollision
+    GetActorEyesViewPoint
+    GetActorForwardVector
+    GetActorRelativeScale3D
+    GetActorRightVector
+    GetActorScale3D
+    GetActorTickInterval
+    GetActorTimeDilation
+    GetActorUpVector
+    GetAllChildActors
+    GetAttachParentActor
+    GetAttachParentSocketName
+    GetAttachedActors
+    GetComponentByClass
+    GetComponentsByInterface
+    GetComponentsByTag
+    GetDistanceTo
+    GetDotProductTo
+    GetGameTimeSinceCreation
+    GetHorizontalDistanceTo
+    GetHorizontalDotProductTo
+    GetInputAxisKeyValue
+    GetInputAxisValue
+    GetInputVectorAxisValue
+    GetInstigator
+    GetInstigatorController
+    GetLevel
+    GetLevelTransform
+    GetLifeSpan
+    GetLocalRole
+    GetOverlappingActors
+    GetOverlappingComponents
+    GetOwner
+    GetParentActor
+    GetParentComponent
+    GetRayTracingGroupId
+    GetRemoteRole
+    GetSquaredDistanceTo
+    GetSquaredHorizontalDistanceTo
+    GetTickableWhenPaused
+    GetTransform
+    GetVelocity
+    GetVerticalDistanceTo
+    HasAuthority
+    IsActorBeingDestroyed
+    IsActorTickEnabled
+    IsChildActor
+    IsOverlappingActor
+    K2_AddActorLocalOffset
+    K2_AddActorLocalRotation
+    K2_AddActorLocalTransform
+    K2_AddActorWorldOffset
+    K2_AddActorWorldRotation
+    K2_AddActorWorldTransform
+    K2_AddActorWorldTransformKeepScale
+    K2_AttachRootComponentTo
+    K2_AttachRootComponentToActor
+    K2_AttachToActor
+    K2_AttachToComponent
+    K2_DestroyActor
+    K2_DetachFromActor
+    K2_GetActorLocation
+    K2_GetActorRotation
+    K2_GetComponentsByClass
+    K2_GetRootComponent
+    K2_OnBecomeViewTarget
+    K2_OnEndViewTarget
+    K2_OnReset
+    K2_SetActorLocation
+    K2_SetActorLocationAndRotation
+    K2_SetActorRelativeLocation
+    K2_SetActorRelativeRotation
+    K2_SetActorRelativeTransform
+    K2_SetActorRotation
+    K2_SetActorTransform
+    K2_TeleportTo
+    MakeNoise
+    OnDCSHiddenStateChangedEvent
+    OnRep_AttachmentReplication
+    OnRep_Instigator
+    OnRep_Owner
+    OnRep_ReplicateMovement
+    OnRep_ReplicatedMovement
+    PrestreamTextures
+    ReceiveActorBeginCursorOver
+    ReceiveActorBeginOverlap
+    ReceiveActorEndCursorOver
+    ReceiveActorEndOverlap
+    ReceiveActorOnClicked
+    ReceiveActorOnInputTouchBegin
+    ReceiveActorOnInputTouchEnd
+    ReceiveActorOnInputTouchEnter
+    ReceiveActorOnInputTouchLeave
+    ReceiveActorOnReleased
+    ReceiveAnyDamage
+    ReceiveAsyncPhysicsTick
+    ReceiveBeginPlay
+    ReceiveDestroyed
+    ReceiveEndPlay
+    ReceiveHit
+    ReceivePointDamage
+    ReceiveRadialDamage
+    ReceiveTick
+    RemoveTickPrerequisiteActor
+    RemoveTickPrerequisiteComponent
+    SetActorEnableCollision
+    SetActorHiddenInGame
+    SetActorLocalHiddenInGame
+    SetActorRelativeScale3D
+    SetActorScale3D
+    SetActorTickEnabled
+    SetActorTickInterval
+    SetAutoDestroyWhenFinished
+    SetLifeSpan
+    SetNetDormancy
+    SetOwner
+    SetRayTracingGroupId
+    SetReplicateMovement
+    SetReplicates
+    SetTickGroup
+    SetTickableWhenPaused
+    TearOff
+    UserConstructionScript
+    WasRecentlyRendered
+
+-- player controller class function names (DCSPlayerControllerBase_Lobby_C) --
+  -- [DCSPlayerControllerBase_Lobby_C] 0 functions
+  -- [DCSPlayerControllerBase_C] 25 functions
+    BindKeyDownEvent
+    BindOnScreenSolutionChanged
+    BndEvt__DCSPlayerControllerBase_ApplicationLifecycle_K2Node_ComponentBoundEvent_0_ApplicationLifetimeDelegate__DelegateSignature
+    CheckCreateDebugKeys
+    DebugRemoved
+    EnableMouse0
+    EndImmediatelyChangedEvent
+    EventHidMouse
+    EventOnPostScreenSolutionChanged
+    EventOnPreScreenSolutionChanged
+    ExecuteUbergraph_DCSPlayerControllerBase
+    GetLocalShowMouse
+    HiddMouseEvent_0
+    InitGameKeysArray
+    InpActEvt_AnyKey_K2Node_InputKeyEvent_0
+    InpActEvt_AnyKey_K2Node_InputKeyEvent_1
+    InputModeSwitch__DelegateSignature
+    PreUpdateCacheButtonWhenScreenSolution
+    PreviewKey
+    ReceiveBeginPlay
+    ReceiveTick
+    RunConsoleCommand
+    WGI AnyKeyDownEvent
+    getCurrentInputMode
+    setInputMode
+  -- [WGIPlayerController] 0 functions
+  -- [PlayerController] 162 functions
+    ActivateTouchInterface
+    AddPitchInput
+    AddRollInput
+    AddYawInput
+    Camera
+    CanRestartPlayer
+    ClearAudioListenerAttenuationOverride
+    ClearAudioListenerOverride
+    ClientAckTimeDilation
+    ClientAckUpdateLevelVisibility
+    ClientAddTextureStreamingLoc
+    ClientCancelPendingMapChange
+    ClientCapBandwidth
+    ClientClearCameraLensEffects
+    ClientCommitMapChange
+    ClientCorrectionAsyncPhysicsTimestamp
+    ClientEnableNetworkVoice
+    ClientEndOnlineSession
+    ClientFlushLevelStreaming
+    ClientForceGarbageCollection
+    ClientGameEnded
+    ClientGotoState
+    ClientIgnoreLookInput
+    ClientIgnoreMoveInput
+    ClientMessage
+    ClientMutePlayer
+    ClientPlayForceFeedback_Internal
+    ClientPlaySound
+    ClientPlaySoundAtLocation
+    ClientPrepareMapChange
+    ClientPrestreamTextures
+    ClientReceiveLocalizedMessage
+    ClientRecvServerAckFrame
+    ClientRecvServerAckFrameDebug
+    ClientRepObjRef
+    ClientReset
+    ClientRestart
+    ClientRetryClientRestart
+    ClientReturnToMainMenu
+    ClientReturnToMainMenuWithTextReason
+    ClientSetBlockOnAsyncLoading
+    ClientSetCameraFade
+    ClientSetCameraMode
+    ClientSetCinematicMode
+    ClientSetForceMipLevelsToBeResident
+    ClientSetHUD
+    ClientSetSpectatorWaiting
+    ClientSetViewTarget
+    ClientSpawnCameraLensEffect
+    ClientSpawnGenericCameraLensEffect
+    ClientStartCameraShake
+    ClientStartCameraShakeFromSource
+    ClientStartOnlineSession
+    ClientStopCameraShake
+    ClientStopCameraShakesFromSource
+    ClientStopForceFeedback
+    ClientTeamMessage
+    ClientTravel
+    ClientTravelInternal
+    ClientUnmutePlayer
+    ClientUnmutePlayers
+    ClientUpdateLevelStreamingStatus
+    ClientUpdateMultipleLevelsStreamingStatus
+    ClientVoiceHandshakeComplete
+    ClientWasKicked
+    ConsoleKey
+    DeprojectMousePositionToWorld
+    DeprojectScreenPositionToWorld
+    EnableCheats
+    FOV
+    GetAsyncPhysicsDataToConsume
+    GetAsyncPhysicsDataToWrite
+    GetDeprecatedInputPitchScale
+    GetDeprecatedInputRollScale
+    GetDeprecatedInputYawScale
+    GetFocalLocation
+    GetHUD
+    GetHitResultUnderCursor
+    GetHitResultUnderCursorByChannel
+    GetHitResultUnderCursorForObjects
+    GetHitResultUnderFinger
+    GetHitResultUnderFingerByChannel
+    GetHitResultUnderFingerForObjects
+    GetInputAnalogKeyState
+    GetInputAnalogStickState
+    GetInputKeyTimeDown
+    GetInputMotionState
+    GetInputMouseDelta
+    GetInputTouchState
+    GetInputVectorKeyState
+    GetMousePosition
+    GetOverridePlayerInputClass
+    GetPlatformUserId
+    GetSpectatorPawn
+    GetStreamingSourceLocationAndRotation
+    GetStreamingSourcePriority
+    GetStreamingSourceShapes
+    GetViewportSize
+    IsInputKeyDown
+    IsStreamingSourceEnabled
+    K2_ClientPlayForceFeedback
+    LocalTravel
+    OnRep_AsyncPhysicsDataComponent
+    OnServerStartedVisualLogger
+    Pause
+    PlayDynamicForceFeedback
+    PlayHapticEffect
+    ProjectWorldLocationToScreen
+    ResetControllerLightColor
+    RestartLevel
+    SendToConsole
+    ServerAcknowledgePossession
+    ServerBlockPlayer
+    ServerCamera
+    ServerChangeName
+    ServerCheckClientPossession
+    ServerCheckClientPossessionReliable
+    ServerExec
+    ServerExecRPC
+    ServerMutePlayer
+    ServerNotifyLoadedWorld
+    ServerPause
+    ServerRecvClientInputFrame
+    ServerRestartPlayer
+    ServerSendLatestAsyncPhysicsTimestamp
+    ServerSetSpectatorLocation
+    ServerSetSpectatorWaiting
+    ServerShortTimeout
+    ServerToggleAILogging
+    ServerUnblockPlayer
+    ServerUnmutePlayer
+    ServerUpdateCamera
+    ServerUpdateLevelVisibility
+    ServerUpdateMultipleLevelsVisibility
+    ServerVerifyViewTarget
+    ServerViewNextPlayer
+    ServerViewPrevPlayer
+    ServerViewSelf
+    SetAudioListenerAttenuationOverride
+    SetAudioListenerOverride
+    SetCinematicMode
+    SetControllerLightColor
+    SetDeprecatedInputPitchScale
+    SetDeprecatedInputRollScale
+    SetDeprecatedInputYawScale
+    SetDisableHaptics
+    SetHapticsByValue
+    SetMotionControlsEnabled
+    SetMouseCursorWidget
+    SetMouseLocation
+    SetName
+    SetViewTargetWithBlend
+    SetVirtualJoystickVisibility
+    StartFire
+    StopHapticEffect
+    StreamingSourceShouldActivate
+    StreamingSourceShouldBlockOnSlowStreaming
+    SwitchLevel
+    TestServerLevelVisibilityChange
+    ToggleSpeaking
+    WasInputKeyJustPressed
+    WasInputKeyJustReleased
+
+CheatManager instance: CheatManager /Game/MapsEntry/Lobby.Lobby:PersistentLevel.DCSPlayerControllerBase_Lobby_C_2147482383.CheatManager_2147482373
+GameViewportClient   : GameViewportClient /Engine/Transient.GameEngine_2147482621:GameViewportClient_2147482531

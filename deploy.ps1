@@ -19,6 +19,11 @@
 .PARAMETER Force
     Overwrite even if the target dlls folder does not exist yet (it is created either
     way); use this to skip the "is UE4SS actually installed?" sanity check.
+
+.PARAMETER Pull
+    Do not deploy. Instead copy the navmesh dumps the mod has written in the game
+    (Mods\WuchangMinimap\navmesh\<agent>\*.json) back into tools\navmesh\dumps\ so
+    they can be rendered and committed.
 #>
 [CmdletBinding()]
 param(
@@ -26,12 +31,37 @@ param(
     [ValidateSet('Game__Shipping__Win64', 'Game__Debug__Win64')]
     [string]$Mode     = 'Game__Shipping__Win64',
     [switch]$NoPdb,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$Pull
 )
 
 $ErrorActionPreference = 'Stop'
 
 $ModName  = 'WuchangMinimap'
+
+if ($Pull) {
+    $srcNav = Join-Path $GameRoot "Project_Plague\Binaries\Win64\ue4ss\Mods\$ModName\navmesh"
+    if (-not (Test-Path $srcNav)) {
+        throw "No navmesh dumps yet: '$srcNav' does not exist. Run the game and press F6 (or just walk around) first."
+    }
+    $dstNav = Join-Path $PSScriptRoot 'tools\navmesh\dumps'
+    New-Item -ItemType Directory -Force -Path $dstNav | Out-Null
+    $n = 0
+    foreach ($agentDir in Get-ChildItem -Path $srcNav -Directory) {
+        $dst = Join-Path $dstNav $agentDir.Name
+        New-Item -ItemType Directory -Force -Path $dst | Out-Null
+        foreach ($f in Get-ChildItem -Path $agentDir.FullName -Filter '*.json' -File) {
+            Copy-Item -Path $f.FullName -Destination $dst -Force
+            $n++
+        }
+        Write-Host "  $($agentDir.Name): $((Get-ChildItem -Path $dst -Filter '*.json' -File).Count) file(s)"
+    }
+    Write-Host ""
+    Write-Host "Pulled $n navmesh JSON file(s) -> $dstNav" -ForegroundColor Green
+    Write-Host "Render them with:" -ForegroundColor Green
+    Write-Host "  python tools\navmesh\render.py --input tools\navmesh\dumps --out tools\navmesh\out --debug"
+    return
+}
 $builtDll = Join-Path $PSScriptRoot "build\windows\x64\$Mode\main.dll"
 $builtPdb = Join-Path $PSScriptRoot "build\windows\x64\$Mode\main.pdb"
 

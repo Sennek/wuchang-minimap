@@ -7,21 +7,28 @@
     Hotkeys - each is registered twice, plain and with CTRL, so if the game or the
     engine swallows the plain key the CTRL variant still works.
     (CTRL+O stays UE4SS' own GUI toggle.)
-      F8  / CTRL+F8  - world dump     (player, camera, world/levels/streaming,
-                                       actor census, keyword-filtered actors,
+      F8  / CTRL+F8  - world dump     (player, camera, view target, world/levels/
+                                       streaming, actor census, keyword-filtered
+                                       actors, MARKER VALUES, function signatures,
                                        navmesh, DebugCommand_C)
       F9  / CTRL+F9  - UI dump        (all UUserWidget instances + visibility)
       F7  / CTRL+F7  - tracker toggle (one CSV line per second to out\track.csv)
       F11 / CTRL+F11 - navmesh probe  (41x41 ProjectPointToNavigation grid)
+      F12 / CTRL+F12 - pickup watch   (toggle; snapshots pickup/chest actors every
+                                       2 s and logs actors that vanished and props
+                                       that changed - settles "collected" vs
+                                       "destroyed" when you pick something up)
 
     NOT F10: UE4SS' ConsoleEnablerMod registers F10 as one of the game's console
     keys on this build, so F10 would open the UE console as well.
     Plain F9 may also hit the engine screenshot bind and plain F11 the engine
     fullscreen toggle - the CTRL variants avoid both.
+    NOT F6 either: that is the WuchangMinimap C++ mod's navmesh-dump hotkey.
 
     Output: <mod dir>\out\dump_<yyyymmdd_hhmmss>_<kind>.txt
             <mod dir>\out\navprobe_<yyyymmdd_hhmmss>.csv
             <mod dir>\out\track.csv
+            <mod dir>\out\pickupwatch_<yyyymmdd_hhmmss>.txt
     A one-line confirmation for every dump goes to ue4ss\UE4SS.log.
 --]]
 
@@ -37,6 +44,12 @@ local CFG = {
     MAX_ACTORS_SCANNED       = 200000, -- hard stop, safety only
     MAX_MATCHES_PER_CLASS    = 60,     -- per matching class, print at most this many instances
     MAX_MATCH_LINES          = 8000,   -- overall cap on filtered-actor lines
+    -- marker section (class + VALUES + distance to player)
+    MAX_MARKERS_PER_CLASS    = 200,    -- per marker class, print at most this many instances
+    MAX_VALUE_PROPS          = 40,     -- scalar props printed per marker instance
+    -- pickup watch (F12)
+    WATCH_PERIOD_MS          = 2000,
+    WATCH_MAX_ACTORS         = 4000,
     -- property dumps
     MAX_PROPS_PER_STRUCT     = 400,
     MAX_CLASS_CHAIN          = 40,
@@ -52,13 +65,51 @@ local CFG = {
     AUTO_GIVE_UP_S           = 180,
 }
 
--- class OR full name substrings that mark an actor as "interesting" (lowercase)
+-- class OR full name substrings that mark an actor as "interesting" (lowercase).
+-- The game's own Pinyin/Chinese vocabulary MUST be in here or whole marker
+-- categories go missing with no warning (BP_Wumen_C matched no English keyword in
+-- the first recon pass and got zero positions).
 local KEYWORDS = {
     "shrine", "fire", "altar", "save", "chest", "box", "treasure", "item",
     "pickup", "loot", "drop", "collect", "boss", "enemy", "monster", "npc",
     "merchant", "shop", "door", "gate", "ladder", "elevator", "lift", "rope",
     "portal", "teleport", "trigger", "volume", "nav", "recast", "camera",
     "spline",
+    -- added 2026-09-02
+    "wumen", "fog", "mist", "plume", "transit", "puzzle",
+    "rebornfire", "digong", "dici", "zhuanjing", "qicaishi",
+}
+
+-- Marker classes that get the full treatment in the MARKERS section: every scalar
+-- property VALUE plus the distance to the player. A dump that lists property names
+-- cannot answer "is this chest already opened?" - only values can.
+local MARKER_CLASSES = {
+    -- pickups
+    "BP_PickupActor_C", "BP_PickUpPT_C", "BP_AutoPickUp_C", "ItemCollectionBox_C",
+    -- chests
+    "BP_treasurebox_C", "BP_ItemRedBox_C",
+    -- shrines / fast travel
+    "BP_RebornFire_C",
+    -- fog gates
+    "BP_Wumen_C",
+    -- doors / shortcuts
+    "BP_NewPuzzlesDoor_C", "BP_Door_C", "BP_DoorBase_C",
+}
+
+-- Property types worth printing a VALUE for. Struct/object/array properties come
+-- back from UE4SS as the type object, not the value, so they are skipped here.
+local SCALAR_PROP_TYPES = {
+    BoolProperty = true, IntProperty = true, Int8Property = true,
+    Int16Property = true, Int64Property = true, UInt16Property = true,
+    UInt32Property = true, UInt64Property = true, FloatProperty = true,
+    DoubleProperty = true, ByteProperty = true, EnumProperty = true,
+    NameProperty = true, StrProperty = true, TextProperty = true,
+}
+
+-- UFunction names worth a full signature dump on the pawn / controller chain.
+local FN_PATTERNS = {
+    "Teleport", "Cheat", "Fly", "Ghost", "Walk", "Cell", "Load", "Level",
+    "Stream", "Debug", "Camera", "ViewTarget", "Time", "God", "Unlock",
 }
 
 -- cheap state flags worth printing when they exist on a matched actor
@@ -775,17 +826,69 @@ local function sec_player(w)
             local fov = safe(function() return pcm:GetFOVAngle() end)
             if fov == nil then fov = read_prop_str(pcm, "DefaultFOV") end
             w:line("camera FOV           : %s", tostring(fov))
-            local vt = safe(function() return pcm:GetViewTarget() end)
-            if vt ~= nil and isvalid(vt) then
-                w:line("view target          : %s  (%s)", classname(vt), fullname(vt))
-                w:line("view target chain    : %s", class_chain(vt))
+            -- APlayerCameraManager has NO GetViewTarget(); reading it here returned
+            -- nil and UE4SS does not raise, which is why every earlier dump said
+            -- "view target: <none>". The real sources are the PlayerController's
+            -- GetViewTarget() UFunction and PCM.ViewTarget.Target.
+            local vtStruct = safe(function() return pcm.ViewTarget end)
+            if vtStruct ~= nil then
+                local tgt = safe(function() return vtStruct.Target end)
+                if tgt ~= nil and isvalid(tgt) then
+                    w:line("PCM.ViewTarget.Target: %s  (%s)", classname(tgt), fullname(tgt))
+                    w:line("  chain              : %s", class_chain(tgt))
+                else
+                    w:line("PCM.ViewTarget.Target: <not readable>  (ViewTarget raw: %s)",
+                           fmt_value(vtStruct))
+                end
             else
-                w:line("view target          : <none>  (raw: %s)",
-                       vt ~= nil and fmt_value(vt) or "nil")
+                w:line("PCM.ViewTarget       : <absent>")
+            end
+
+            -- CameraCachePrivate.POV is the live camera POV (FMinimalViewInfo).
+            local cache = safe(function() return pcm.CameraCachePrivate end)
+            if cache ~= nil then
+                local pov = safe(function() return cache.POV end)
+                if pov ~= nil then
+                    local pl = safe(function() return pov.Location end)
+                    local pr = safe(function() return pov.Rotation end)
+                    local pf = safe(function() return pov.FOV end)
+                    w:line("POV location         : %s", pl and fmt_vec(pl) or "<?>")
+                    local ppi, pya, pro = rot_fields(pr)
+                    if pya then
+                        w:line("POV rotation         : P=%.2f Y=%.2f R=%.2f", ppi, pya, pro)
+                    else
+                        w:line("POV rotation         : <unreadable: %s>",
+                               pr ~= nil and fmt_value(pr) or "nil")
+                    end
+                    w:line("POV FOV              : %s", pf ~= nil and fmt_value(pf) or "<?>")
+                else
+                    w:line("CameraCachePrivate.POV: <not readable> (raw: %s)", fmt_value(cache))
+                end
+            else
+                w:line("CameraCachePrivate   : <absent>")
             end
         else
             w:line("PlayerCameraManager  : <none>")
         end
+
+        -- The view target lives on the CONTROLLER, not the camera manager.
+        local vt = safe(function() return pc:GetViewTarget() end)
+        if vt ~= nil and isvalid(vt) then
+            w:line("PC:GetViewTarget()   : %s  (%s)", classname(vt), fullname(vt))
+            w:line("  chain              : %s", class_chain(vt))
+            local vloc = safe(function() return vt:K2_GetActorLocation() end)
+            if vloc then w:line("  location           : %s", fmt_vec(vloc)) end
+            local p2 = get_player()
+            if p2 and vt ~= p2 then
+                w:line("  NOTE: the view target is NOT the player pawn - a cutscene or a"
+                       .. " scripted camera is active")
+            end
+        else
+            w:line("PC:GetViewTarget()   : <none>  (raw: %s)",
+                   vt ~= nil and fmt_value(vt) or "nil")
+        end
+        local vtPawn = read_prop_str(pc, "AcknowledgedPawn")
+        if vtPawn then w:line("AcknowledgedPawn     : %s", vtPawn) end
         local hud = safe(function() return pc.MyHUD end)
         if hud and isvalid(hud) then
             w:line("HUD                  : %s  (%s)", classname(hud), fullname(hud))
@@ -1047,6 +1150,184 @@ local function sec_actors(w)
 end
 
 --------------------------------------------------------------------------------
+-- section: markers with VALUES + distance to player
+--------------------------------------------------------------------------------
+-- A dump that lists property NAMES cannot answer state questions. Wuchang's
+-- marker actors carry Used / IsShowMesh / Active / DoorOpen / Persistent /
+-- SavedStatuKey - knowing the names told us nothing about whether a chest was
+-- open. So: every scalar property VALUE, plus the distance to the player so a
+-- known-yes and a known-no instance can be told apart in the same press.
+
+local function dist_to(a, ref)
+    if not ref then return nil end
+    local loc = safe(function() return a:K2_GetActorLocation() end)
+    if not loc then return nil end
+    local ok, d = pcall(function()
+        local dx, dy, dz = loc.X - ref.X, loc.Y - ref.Y, loc.Z - ref.Z
+        return math.sqrt(dx * dx + dy * dy + dz * dz)
+    end)
+    if ok then return d end
+    return nil
+end
+
+-- "Name=value" for every scalar own property that exists on the actor's class.
+local function scalar_values(a)
+    local cls = classof(a)
+    if not cls then return {}, 0 end
+    local types = class_prop_map(cls)
+    local names = class_gameplay_props(cls)
+    local out, skipped = {}, 0
+    for _, pn in ipairs(names) do
+        if SCALAR_PROP_TYPES[types[pn]] then
+            if #out >= CFG.MAX_VALUE_PROPS then
+                skipped = skipped + 1
+            else
+                local v = read_prop_str(a, pn)
+                out[#out + 1] = pn .. "=" .. (v ~= nil and v or "<unreadable>")
+            end
+        end
+    end
+    return out, skipped
+end
+
+local function sec_markers(w)
+    w:header("MARKER CLASSES - VALUES AND DISTANCE TO PLAYER")
+
+    local p = get_player()
+    local ref = p and safe(function() return p:K2_GetActorLocation() end) or nil
+    if ref then
+        w:line("player at %s   (distances below are 3D, in uu; 100 uu = 1 m)", fmt_vec(ref))
+    else
+        w:line("no player location - distances will be omitted")
+    end
+    w:line("per-class instance cap: %d   scalar props per instance cap: %d",
+           CFG.MAX_MARKERS_PER_CLASS, CFG.MAX_VALUE_PROPS)
+
+    for _, cn in ipairs(MARKER_CLASSES) do
+        local insts = find_all(cn)
+        local live = {}
+        if insts then
+            for _, a in pairs(insts) do
+                if isvalid(a) and not is_cdo(a) then live[#live + 1] = a end
+            end
+        end
+        w:blank()
+        if #live == 0 then
+            w:line("[%s]  0 instances", cn)
+        else
+            -- nearest first: that is where the user was standing when they pressed F8
+            table.sort(live, function(x, y)
+                local dx = dist_to(x, ref) or 1e12
+                local dy = dist_to(y, ref) or 1e12
+                return dx < dy
+            end)
+            local proto = classof(live[1])
+            local types = proto and class_prop_map(proto) or {}
+            local own = proto and class_gameplay_props(proto) or {}
+            local scalars = 0
+            for _, pn in ipairs(own) do
+                if SCALAR_PROP_TYPES[types[pn]] then scalars = scalars + 1 end
+            end
+            w:line("[%s]  %d instances   own props %d (%d scalar)   chain: %s",
+                   cn, #live, #own, scalars, class_chain(live[1]))
+            local shown = 0
+            for _, a in ipairs(live) do
+                if shown >= CFG.MAX_MARKERS_PER_CLASS then
+                    w:line("  ... %d more instances not shown", #live - shown)
+                    break
+                end
+                shown = shown + 1
+                local loc = safe(function() return a:K2_GetActorLocation() end)
+                local d = dist_to(a, ref)
+                w:line("  %s | loc %s | dist %s",
+                       fullname(a),
+                       loc and fmt_vec(loc) or "<?>",
+                       d and string.format("%.0f", d) or "?")
+                local vals, extra = scalar_values(a)
+                if #vals > 0 then
+                    w:line("      %s%s", table.concat(vals, "  "),
+                           extra > 0 and string.format("   (+%d more)", extra) or "")
+                else
+                    w:line("      (no scalar own properties)")
+                end
+            end
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
+-- section: function signatures on the pawn / controller chain
+--------------------------------------------------------------------------------
+-- Only the names that matter for the minimap work: teleporting, cheat movement,
+-- level/cell streaming, camera and view target, debug entry points.
+
+local function fn_matches(name)
+    for _, pat in ipairs(FN_PATTERNS) do
+        if name:find(pat, 1, true) then return pat end
+    end
+    return nil
+end
+
+local function dump_matching_functions(w, cls, label)
+    w:blank()
+    if not cls or not isvalid(cls) then
+        w:line("-- %s: <no class>", label)
+        return
+    end
+    w:line("-- %s (chain walked until Object) --", label)
+    local guard, c, total = 0, cls, 0
+    while c ~= nil and isvalid(c) and guard < CFG.MAX_CLASS_CHAIN do
+        local cn = sname(c)
+        local hits = {}
+        pcall(function()
+            c:ForEachFunction(function(f)
+                local n = sname(f)
+                if n and fn_matches(n) then hits[#hits + 1] = f end
+            end)
+        end)
+        table.sort(hits, function(a, b) return sname(a) < sname(b) end)
+        if #hits > 0 then
+            w:line("  [%s]", cn)
+            for _, f in ipairs(hits) do
+                local params = {}
+                pcall(function()
+                    f:ForEachProperty(function(pp)
+                        params[#params + 1] = prop_type(pp) .. " " .. prop_name(pp)
+                    end)
+                end)
+                w:line("    %s(%s)", sname(f), table.concat(params, ", "))
+                total = total + 1
+            end
+        end
+        if cn == "Object" then break end
+        c = safe(function() return c:GetSuperStruct() end)
+        guard = guard + 1
+    end
+    if total == 0 then
+        w:line("  (no function matched %s)", table.concat(FN_PATTERNS, "|"))
+    end
+end
+
+local function sec_functions(w)
+    w:header("FUNCTION SIGNATURES (Teleport|Cheat|Fly|Ghost|Walk|Cell|Load|Level|Stream|Debug|Camera|ViewTarget|Time|God|Unlock)")
+    w:line("parameter list order is the UFunction's own property order; the LAST"
+           .. " parameter is normally the return value.")
+
+    local p = get_player()
+    dump_matching_functions(w, p and classof(p) or nil, "pawn class chain")
+
+    local pc = get_pc()
+    dump_matching_functions(w, pc and classof(pc) or nil, "PlayerController class chain")
+
+    if pc then
+        local pcm = safe(function() return pc.PlayerCameraManager end)
+        if pcm then
+            dump_matching_functions(w, classof(pcm), "PlayerCameraManager class chain")
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
 -- section: loaded blueprint classes (keyword filtered)
 --------------------------------------------------------------------------------
 local function sec_classes(w)
@@ -1288,6 +1569,8 @@ local function do_world_dump(kind)
         { "player", sec_player },
         { "world", sec_world },
         { "actors", sec_actors },
+        { "markers", sec_markers },
+        { "functions", sec_functions },
         { "classes", sec_classes },
         { "navmesh", sec_navmesh },
         { "debugcommand", sec_debugcommand },
@@ -1573,6 +1856,161 @@ local function do_navprobe()
 end
 
 --------------------------------------------------------------------------------
+-- F12: pickup watch
+--------------------------------------------------------------------------------
+-- Open question this exists to close: when the player collects a pickup, is the
+-- actor DESTROYED or does it survive with a flag flipped (Persistent /
+-- IsShowMesh / Used / SavedStatuKey)? Auto-marking "found" items on the minimap
+-- depends on the answer. Procedure: stand near a pickup, press F12, collect it,
+-- watch the log / out\pickupwatch_*.txt, press F12 again.
+
+local watch_on = false
+local watch_loop_live = false
+local watch_path = nil
+local watch_prev = nil
+local watch_tick = 0
+
+local function watch_write(fmt, ...)
+    local ok, s = pcall(string.format, fmt, ...)
+    local line = ok and s or tostring(fmt)
+    log("watch: %s", line)
+    if not watch_path then return end
+    local f = io.open(watch_path, "a")
+    if f then
+        f:write(line, "\n")
+        f:close()
+    end
+end
+
+-- fullname -> { cls, loc, vals = { name = value } }
+local function watch_snapshot()
+    local snap, n = {}, 0
+    for _, cn in ipairs(MARKER_CLASSES) do
+        local insts = find_all(cn)
+        if insts then
+            for _, a in pairs(insts) do
+                if n >= CFG.WATCH_MAX_ACTORS then break end
+                if isvalid(a) and not is_cdo(a) then
+                    n = n + 1
+                    local vals = {}
+                    for _, kv in ipairs((scalar_values(a))) do
+                        local k, v = kv:match("^([^=]+)=(.*)$")
+                        if k then vals[k] = v end
+                    end
+                    local loc = safe(function() return a:K2_GetActorLocation() end)
+                    snap[fullname(a)] = {
+                        cls = cn,
+                        loc = loc and fmt_vec(loc) or "?",
+                        vals = vals,
+                    }
+                end
+            end
+        end
+    end
+    return snap, n
+end
+
+local function watch_diff(old, new)
+    local changes = 0
+    for key, o in pairs(old) do
+        local nw = new[key]
+        if nw == nil then
+            watch_write("DESTROYED  %s  [%s]  last loc %s", key, o.cls, o.loc)
+            changes = changes + 1
+        else
+            for pn, ov in pairs(o.vals) do
+                local nv = nw.vals[pn]
+                if nv ~= nil and nv ~= ov then
+                    watch_write("CHANGED    %s  [%s]  %s: %s -> %s", key, o.cls, pn, ov, nv)
+                    changes = changes + 1
+                end
+            end
+            if o.loc ~= nw.loc then
+                watch_write("MOVED      %s  [%s]  %s -> %s", key, o.cls, o.loc, nw.loc)
+                changes = changes + 1
+            end
+        end
+    end
+    for key, nw in pairs(new) do
+        if old[key] == nil then
+            watch_write("APPEARED   %s  [%s]  loc %s", key, nw.cls, nw.loc)
+            changes = changes + 1
+        end
+    end
+    return changes
+end
+
+local function watch_sample()
+    if not watch_on then return end
+    watch_tick = watch_tick + 1
+    local ok, snap, n = pcall(watch_snapshot)
+    if not ok then
+        watch_write("snapshot failed: %s", tostring(snap))
+        return
+    end
+    if watch_prev == nil then
+        watch_prev = snap
+        watch_write("baseline: %d watched actors", n)
+        return
+    end
+    local okd, changes = pcall(watch_diff, watch_prev, snap)
+    if okd and changes == 0 then
+        -- keep the log quiet but prove the watch is alive every ~30 s
+        if watch_tick % 15 == 0 then
+            watch_write("tick %d: %d actors, no change", watch_tick, n)
+        end
+    elseif not okd then
+        watch_write("diff failed: %s", tostring(changes))
+    end
+    watch_prev = snap
+end
+
+local function watch_start()
+    watch_prev = nil
+    watch_tick = 0
+    watch_path = OUT_DIR and (OUT_DIR .. "\\pickupwatch_" .. stamp() .. ".txt") or nil
+    if watch_path then
+        local f = io.open(watch_path, "w")
+        if f then
+            f:write("# WuchangRecon pickup watch\n")
+            f:write(string.format("# started %s  level %s  period %d ms\n",
+                tostring(safe(os.date, "%Y-%m-%d %H:%M:%S")), current_level_name(),
+                CFG.WATCH_PERIOD_MS))
+            f:write("# classes: " .. table.concat(MARKER_CLASSES, ", ") .. "\n")
+            f:close()
+        else
+            watch_path = nil
+        end
+    end
+    log("pickup watch ON  (every %d ms; file: %s)", CFG.WATCH_PERIOD_MS,
+        tostring(watch_path))
+
+    if watch_loop_live then return end
+    watch_loop_live = true
+    local ok, e = pcall(LoopAsync, CFG.WATCH_PERIOD_MS, function()
+        if not watch_on then
+            watch_loop_live = false
+            return true
+        end
+        pcall(ExecuteInGameThread, function() pcall(watch_sample) end)
+        return false
+    end)
+    if not ok then
+        watch_loop_live = false
+        log("pickup watch loop failed to start: %s", tostring(e))
+    end
+end
+
+local function watch_toggle()
+    watch_on = not watch_on
+    if watch_on then
+        watch_start()
+    else
+        log("pickup watch OFF after %d ticks (file: %s)", watch_tick, tostring(watch_path))
+    end
+end
+
+--------------------------------------------------------------------------------
 -- automatic menu-time dump
 --------------------------------------------------------------------------------
 local auto_done = false
@@ -1624,6 +2062,7 @@ local function init()
         { Key.F9,  "UI dump",        function() pcall(do_ui_dump, "ui") end },
         { Key.F7,  "tracker",        function() pcall(track_toggle) end },
         { Key.F11, "navmesh probe",  function() pcall(do_navprobe) end },
+        { Key.F12, "pickup watch",   function() pcall(watch_toggle) end },
     }
     local plain, ctrl = 0, 0
     for _, b in ipairs(binds) do
@@ -1641,8 +2080,9 @@ local function init()
 
     pcall(start_auto_dump)
 
-    log("WuchangRecon loaded: F8 world, F9 UI, F7 track, F11 navprobe"
-        .. " (CTRL+key also works; F10 avoided - it is a console key)")
+    log("WuchangRecon loaded: F8 world, F9 UI, F7 track, F11 navprobe, F12 pickup watch"
+        .. " (CTRL+key also works; F10 avoided - it is a console key;"
+        .. " F6 belongs to the WuchangMinimap C++ mod)")
 end
 
 local ok, e = pcall(init)

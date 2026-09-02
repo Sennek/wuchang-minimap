@@ -65,4 +65,5 @@ Write-Host "  Scripts\main.lua"
 Write-Host "  enabled.txt"
 Write-Host "  out\            (dumps land here)"
 Write-Host ""
-Write-Host "Hotkeys in game: F8 world dump, F9 UI dump, F7 tracker toggle, F11 navmesh probe (CTRL+key also works)." -ForegroundColor Green
+Write-Host "Hotkeys in game: F8 world dump, F9 UI dump, F7 tracker toggle, F11 navmesh probe, F12 pickup watch (CTRL+key also works)." -ForegroundColor Green
+Write-Host "F6 belongs to the WuchangMinimap C++ mod (navmesh dump); F10 is a game console key." -ForegroundColor DarkGray

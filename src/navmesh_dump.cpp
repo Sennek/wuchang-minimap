@@ -84,6 +84,7 @@ namespace navmesh
         constexpr std::uint64_t kActorPollMs = 2000;  // FindAllOf + tile-set poll throttle
         constexpr std::uint64_t kDebounceMs = 3000;   // tile set changed -> auto dump
         constexpr std::uint64_t kHotkeyGuardMs = 500; // key-repeat guard
+        constexpr std::uint64_t kDiscoveryRetryMs = 10000; // re-scan for the dtNavMesh at most this often
 
         // Where the blind scan for RecastNavMeshImpl starts / stops when reflection could
         // not tell us where the reflected properties end.
@@ -300,12 +301,20 @@ namespace navmesh
         // Discovered layouts
         //==============================================================================
 
+        // "no offset" sentinel for the discovered layout fields below.
+        constexpr std::size_t kNoOffset = static_cast<std::size_t>(-1);
+
         struct MeshLayout
         {
             bool impl_found = false;
             bool detour_found = false;
 
-            std::size_t impl_offset = 0;   // actor + impl_offset -> FPImplRecastNavMesh*
+            std::size_t impl_offset = 0;     // actor + impl_offset -> FPImplRecastNavMesh*
+            std::size_t detour_in_impl = 0;  // impl + detour_in_impl -> dtNavMesh*
+            bool impl_is_detour = false;     // the actor slot points straight at the dtNavMesh
+            std::size_t owner_in_impl = kNoOffset; // impl + owner_in_impl -> the actor itself
+            std::size_t second_hop = kNoOffset;    // set when the mesh took one extra hop
+
             std::size_t params_offset = 0; // dtNavMesh + params_offset -> dtNavMeshParams
             bool params_double = true;
 
@@ -314,7 +323,8 @@ namespace navmesh
             std::size_t tile_stride = 0;  // sizeof(dtMeshTile) as this build compiled it
             int tile_finds = 0;           // DNAV hits the stride was derived from
 
-            std::wstring note; // human-readable reason when something is missing
+            std::wstring note;              // human-readable reason when something is missing
+            std::vector<std::wstring> diag; // actor pointer table, kept only on failure
         };
 
         struct HeaderLayout
@@ -337,52 +347,193 @@ namespace navmesh
         }
 
         //==============================================================================
-        // Step 1: actor -> FPImplRecastNavMesh -> dtNavMesh
+        // Step 1: actor -> dtNavMesh
         //==============================================================================
         //
-        // ARecastNavMesh declares `FPImplRecastNavMesh* RecastNavMeshImpl` right after its
-        // reflected UPROPERTYs, and FPImplRecastNavMesh starts with
-        //     dtNavMesh*       DetourNavMesh;
-        //     ARecastNavMesh*  NavMeshOwner;
+        // The first in-game run (2026-09-02 11:39) failed here on all four agents with
+        // "no pointer inside the actor targeted a struct whose 2nd field is the actor
+        // itself". The old recogniser assumed
+        //     class FPImplRecastNavMesh { dtNavMesh* DetourNavMesh; ARecastNavMesh* Owner; ... };
+        // and that assumption does not hold on this build (a vtable, extra leading
+        // members, or a different declaration order). So nothing about the impl layout is
+        // assumed any more.
         //
-        // so the recogniser is "a pointer slot inside the actor whose target's SECOND
-        // pointer is the actor itself". That back-pointer is already almost unique; when
-        // the first pointer also validates as a dtNavMesh the identification is certain.
-        // No offset is hardcoded - the scan starts where reflection says the reflected
-        // properties end and runs to the class's structure size.
+        // What IS unmistakable is dtNavMeshParams: three finite reals of origin followed
+        // by tileWidth == tileHeight == TileSizeUU (1280.0 here, read off the actor by
+        // reflection) and two sane int counts. That pattern is the only acceptance test,
+        // and the search takes whatever indirection reaches it:
+        //
+        //   depth 0   actor + off               -> dtNavMesh   (impl_is_detour)
+        //   depth 1   actor + off -> impl + i   -> dtNavMesh   (the expected case)
+        //
+        // The ARecastNavMesh back-pointer is still hunted for inside the candidate struct,
+        // but only to score candidates and to document the build's real field order - it
+        // is no longer required. Every read goes through mem::readable + SEH, so a wrong
+        // guess produces a log line, never a crash. On failure the scan keeps a pointer
+        // table (target address, first three qwords, where the back-pointer was, and
+        // whether TileSizeUU echoes anywhere in the target) which is written into the
+        // probe JSON - that is what identifies the layout for the next iteration.
 
-        MeshLayout find_impl_and_detour(const void* actor, const ClassProps& props, double expected_tile_size)
+        // Copies up to `want` bytes, halving on failure so a struct at the end of a
+        // committed region still yields its head. Returns the byte count actually copied.
+        std::size_t snapshot(const void* p, std::uint8_t* dst, std::size_t want) noexcept
+        {
+            if (!mem::plausible_ptr(p))
+            {
+                return 0;
+            }
+            for (; want >= 32; want /= 2)
+            {
+                if (mem::readable(p, want) && mem::copy(p, dst, want))
+                {
+                    return want;
+                }
+            }
+            return 0;
+        }
+
+        struct ParamsHit
+        {
+            std::size_t offset = 0;
+            bool as_double = true;
+            NavParams params{};
+        };
+
+        template <typename Real>
+        bool parse_params(const std::uint8_t* buf, std::size_t n, std::size_t off, NavParams& out)
+        {
+            struct Raw
+            {
+                Real orig[3];
+                Real tile_width;
+                Real tile_height;
+                std::int32_t max_tiles;
+                std::int32_t max_polys;
+            };
+            if (off + sizeof(Raw) > n)
+            {
+                return false;
+            }
+            Raw raw{};
+            std::memcpy(&raw, buf + off, sizeof(Raw));
+            for (int i = 0; i < 3; ++i)
+            {
+                out.orig[i] = static_cast<double>(raw.orig[i]);
+            }
+            out.tile_width = static_cast<double>(raw.tile_width);
+            out.tile_height = static_cast<double>(raw.tile_height);
+            out.max_tiles = raw.max_tiles;
+            out.max_polys = raw.max_polys;
+            return true;
+        }
+
+        // Stock Detour's dtNavMesh has no virtual functions, so m_params sits at +0; the
+        // sweep absorbs a vtable or any UE-added leading member.
+        constexpr std::size_t kParamsSweepEnd = 0x40;
+        constexpr std::size_t kImplSnapBytes = 0x200; // inner scan window inside a candidate
+        constexpr std::size_t kMeshSnapBytes = 0x100; // dtNavMeshParams plus slack
+        constexpr std::size_t kMaxDiagLines = 48;
+
+        std::optional<ParamsHit> find_params_in(const std::uint8_t* buf, std::size_t n, double expected_tile_size)
+        {
+            for (std::size_t off = 0; off < kParamsSweepEnd; off += 8)
+            {
+                for (const bool as_double : {true, false})
+                {
+                    NavParams p{};
+                    const bool ok =
+                        as_double ? parse_params<double>(buf, n, off, p) : parse_params<float>(buf, n, off, p);
+                    if (ok && params_plausible(p, expected_tile_size))
+                    {
+                        return ParamsHit{off, as_double, p};
+                    }
+                }
+            }
+            return std::nullopt;
+        }
+
+        // Diagnostic only: does this buffer hold two adjacent reals both equal to
+        // TileSizeUU? A hit says the dtNavMesh is right here and only the surrounding
+        // layout surprised us; no hit anywhere in the actor's pointer graph says the mesh
+        // is not reachable in two hops at all, which is a different problem.
+        std::wstring tile_size_echo(const std::uint8_t* buf, std::size_t n, double expected)
+        {
+            for (std::size_t off = 0; off + 16 <= n; off += 4)
+            {
+                double d[2]{};
+                std::memcpy(d, buf + off, 16);
+                if (std::fabs(d[0] - expected) < 1.0 && std::fabs(d[1] - expected) < 1.0)
+                {
+                    return std::format(L" TileSizeUU f64x2@{}", hex(off));
+                }
+            }
+            for (std::size_t off = 0; off + 8 <= n; off += 4)
+            {
+                float f[2]{};
+                std::memcpy(f, buf + off, 8);
+                if (std::fabs(static_cast<double>(f[0]) - expected) < 1.0 &&
+                    std::fabs(static_cast<double>(f[1]) - expected) < 1.0)
+                {
+                    return std::format(L" TileSizeUU f32x2@{}", hex(off));
+                }
+            }
+            return {};
+        }
+
+        MeshLayout find_impl_and_detour(const void* actor,
+                                        const ClassProps& props,
+                                        double expected_tile_size,
+                                        bool verbose)
         {
             MeshLayout out{};
 
-            std::size_t scan_begin = props.reflected_end;
             std::size_t scan_end = static_cast<std::size_t>((std::max)(props.structure_size, props.properties_size));
-            const bool from_reflection = scan_begin >= 0x28 && scan_end > scan_begin;
+            const bool from_reflection = scan_end > 0x100;
             if (!from_reflection)
             {
-                scan_begin = kScanStartFallback;
                 scan_end = kScanEndFallback;
             }
-            // Round down to a pointer boundary with a little slack: the last reflected
-            // property can be followed by padding, and the impl pointer may precede it in
-            // declaration order on some builds.
-            scan_begin = (scan_begin >= 0x40 ? scan_begin - 0x40 : 0x28) & ~static_cast<std::size_t>(7);
-            scan_end = (std::min)(scan_end + 0x80, static_cast<std::size_t>(0x4000));
+            // The whole object is scanned now, not just the native tail past the reflected
+            // properties: the impl pointer need not be the last member, and slots that are
+            // obviously something else (UClass, Outer, components) cost one guarded read.
+            const std::size_t scan_begin = 0x28;
+            scan_end = (std::min)(scan_end + 0x100, static_cast<std::size_t>(0x4000));
 
-            logf(L"  scan {} for RecastNavMeshImpl in [{}, {}) - {}; reflected props end {}, StructureSize {}, "
-                 L"PropertiesSize {}, {} props over {} classes",
-                 hex_ptr(actor),
-                 hex(scan_begin),
-                 hex(scan_end),
-                 from_reflection ? L"range from reflection" : L"FALLBACK range, reflection yielded nothing",
-                 hex(props.reflected_end),
-                 props.structure_size,
-                 props.properties_size,
-                 static_cast<int>(props.by_name.size()),
-                 props.walked_classes);
+            if (verbose)
+            {
+                logf(L"  scan {} for a reachable dtNavMesh in actor+[{}, {}) - {}; reflected props end {}, "
+                     L"StructureSize {}, PropertiesSize {}, {} props over {} classes; acceptance test is "
+                     L"dtNavMeshParams with tileWidth == tileHeight == {:.1f}",
+                     hex_ptr(actor),
+                     hex(scan_begin),
+                     hex(scan_end),
+                     from_reflection ? L"range from reflection" : L"FALLBACK range, reflection yielded nothing",
+                     hex(props.reflected_end),
+                     props.structure_size,
+                     props.properties_size,
+                     static_cast<int>(props.by_name.size()),
+                     props.walked_classes,
+                     expected_tile_size);
+            }
 
-            std::size_t impl_offset_null_detour = 0;
-            bool have_null_detour = false;
+            struct Cand
+            {
+                std::size_t off = 0;            // actor + off -> impl (or the mesh itself)
+                std::size_t detour_in_impl = 0; // impl + this -> dtNavMesh
+                bool direct = false;            // actor + off IS the dtNavMesh
+                std::size_t owner_in_impl = kNoOffset;
+                const void* impl = nullptr;
+                const void* detour = nullptr;
+                ParamsHit hit{};
+            };
+
+            std::vector<Cand> cands;
+            std::size_t impl_by_backptr = kNoOffset; // a struct identified only by its back-pointer
+            std::size_t owner_of_that = kNoOffset;
+            int readable_slots = 0;
+
+            std::vector<std::uint8_t> impl_buf(kImplSnapBytes);
+            std::vector<std::uint8_t> mesh_buf(kMeshSnapBytes);
 
             for (std::size_t off = scan_begin; off + 8 <= scan_end; off += 8)
             {
@@ -391,81 +542,263 @@ namespace navmesh
                 {
                     continue;
                 }
-                if (!mem::readable(impl, 16))
+                const std::size_t impl_n = snapshot(impl, impl_buf.data(), kImplSnapBytes);
+                if (impl_n == 0)
                 {
                     continue;
                 }
+                ++readable_slots;
 
-                void* owner = nullptr;
-                if (!mem::read_at(impl, 8, owner) || owner != actor)
+                const std::size_t before = cands.size();
+
+                // depth 0: the slot points straight at a dtNavMesh.
+                if (const auto direct = find_params_in(impl_buf.data(), impl_n, expected_tile_size))
                 {
-                    continue;
+                    cands.push_back(Cand{off, 0, true, kNoOffset, impl, impl, *direct});
                 }
 
-                // The back-pointer matched: this is FPImplRecastNavMesh.
-                void* detour = nullptr;
-                const bool detour_ok =
-                    mem::read_at(impl, 0, detour) && mem::plausible_ptr(detour) && mem::readable(detour, 256);
-                if (!detour_ok)
+                // depth 1: some pointer inside the struct is the dtNavMesh, and somewhere
+                // in the same struct there may be a back-pointer to the actor.
+                std::size_t owner_in_impl = kNoOffset;
+                for (std::size_t i = 0; i + 8 <= impl_n; i += 8)
                 {
-                    if (!have_null_detour)
+                    void* q = nullptr;
+                    std::memcpy(&q, impl_buf.data() + i, 8);
+                    if (q == actor)
                     {
-                        have_null_detour = true;
-                        impl_offset_null_detour = off;
-                    }
-                    continue;
-                }
-
-                // Validate the dtNavMesh. Stock Detour has no vtable so m_params sits at
-                // offset 0, but a UE addition would shift it - hence the small sweep.
-                for (const std::size_t params_off : {std::size_t{0}, std::size_t{8}, std::size_t{16}})
-                {
-                    for (const bool as_double : {true, false})
-                    {
-                        NavParams p{};
-                        const bool ok = as_double ? read_params_as<double>(detour, params_off, p)
-                                                  : read_params_as<float>(detour, params_off, p);
-                        if (!ok || !params_plausible(p, expected_tile_size))
+                        if (owner_in_impl == kNoOffset)
                         {
-                            continue;
+                            owner_in_impl = i;
                         }
-                        out.impl_found = true;
-                        out.detour_found = true;
-                        out.impl_offset = off;
-                        out.params_offset = params_off;
-                        out.params_double = as_double;
-                        logf(L"  FOUND RecastNavMeshImpl at actor+{}   impl={}   dtNavMesh={}",
-                             hex(off),
-                             hex_ptr(impl),
-                             hex_ptr(detour));
-                        logf(L"  dtNavMeshParams at dtNavMesh+{} as {}: orig ({:.2f} {:.2f} {:.2f}) tileWidth {:.2f} "
-                             L"tileHeight {:.2f} maxTiles {} maxPolys {}",
-                             hex(params_off),
-                             as_double ? L"double (UE5 LWC)" : L"float",
-                             p.orig[0],
-                             p.orig[1],
-                             p.orig[2],
-                             p.tile_width,
-                             p.tile_height,
-                             p.max_tiles,
-                             p.max_polys);
-                        return out;
+                        continue;
                     }
+                    if (!mem::plausible_ptr(q))
+                    {
+                        continue;
+                    }
+                    const std::size_t mesh_n = snapshot(q, mesh_buf.data(), kMeshSnapBytes);
+                    if (mesh_n == 0)
+                    {
+                        continue;
+                    }
+                    if (const auto hit = find_params_in(mesh_buf.data(), mesh_n, expected_tile_size))
+                    {
+                        cands.push_back(Cand{off, i, false, kNoOffset, impl, q, *hit});
+                    }
+                }
+
+                for (std::size_t c = before; c < cands.size(); ++c)
+                {
+                    cands[c].owner_in_impl = owner_in_impl;
+                }
+                if (owner_in_impl != kNoOffset && impl_by_backptr == kNoOffset)
+                {
+                    impl_by_backptr = off;
+                    owner_of_that = owner_in_impl;
+                }
+
+                if (out.diag.size() < kMaxDiagLines)
+                {
+                    void* q[3]{};
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        if (impl_n >= static_cast<std::size_t>(8 * (k + 1)))
+                        {
+                            std::memcpy(&q[k], impl_buf.data() + 8 * k, 8);
+                        }
+                    }
+                    out.diag.push_back(std::format(L"actor+{} -> {} ({}B) q0 {} q1 {} q2 {} owner@{}{}",
+                                                   hex(off),
+                                                   hex_ptr(impl),
+                                                   impl_n,
+                                                   hex_ptr(q[0]),
+                                                   hex_ptr(q[1]),
+                                                   hex_ptr(q[2]),
+                                                   owner_in_impl == kNoOffset ? std::wstring{L"-"}
+                                                                              : hex(owner_in_impl),
+                                                   tile_size_echo(impl_buf.data(), impl_n, expected_tile_size)));
                 }
             }
 
-            if (have_null_detour)
+            // Prefer a candidate whose struct also carries the actor back-pointer: that is
+            // a genuine FPImplRecastNavMesh rather than some unrelated cache holding the
+            // same mesh pointer. Among equals, prefer the indirect (impl -> mesh) form.
+            const Cand* best = nullptr;
+            int best_score = -1;
+            for (const Cand& c : cands)
+            {
+                const int score = (c.owner_in_impl != kNoOffset ? 2 : 0) + (c.direct ? 0 : 1);
+                if (score > best_score)
+                {
+                    best_score = score;
+                    best = &c;
+                }
+            }
+
+            if (best != nullptr)
             {
                 out.impl_found = true;
-                out.impl_offset = impl_offset_null_detour;
-                out.note = L"RecastNavMeshImpl found but DetourNavMesh is null - no navmesh data streamed in yet";
-                logf(L"  RecastNavMeshImpl at actor+{} but DetourNavMesh is null/unreadable - no tile data loaded yet",
-                     hex(impl_offset_null_detour));
+                out.detour_found = true;
+                out.impl_offset = best->off;
+                out.detour_in_impl = best->detour_in_impl;
+                out.impl_is_detour = best->direct;
+                out.owner_in_impl = best->owner_in_impl;
+                out.params_offset = best->hit.offset;
+                out.params_double = best->hit.as_double;
+
+                logf(L"  FOUND dtNavMesh: actor+{} -> {}{} -> dtNavMesh {}; actor back-pointer inside the impl at {}"
+                     L"; {} candidate(s) validated over {} readable pointer slots",
+                     hex(best->off),
+                     hex_ptr(best->impl),
+                     best->direct ? std::wstring{L" (that slot IS the mesh)"}
+                                  : std::format(L" + {}", hex(best->detour_in_impl)),
+                     hex_ptr(best->detour),
+                     best->owner_in_impl == kNoOffset
+                         ? std::wstring{L"<none - the impl layout differs from UE's published order>"}
+                         : hex(best->owner_in_impl),
+                     static_cast<int>(cands.size()),
+                     readable_slots);
+                const NavParams& p = best->hit.params;
+                logf(L"  dtNavMeshParams at dtNavMesh+{} as {}: orig ({:.2f} {:.2f} {:.2f}) tileWidth {:.2f} "
+                     L"tileHeight {:.2f} maxTiles {} maxPolys {}",
+                     hex(best->hit.offset),
+                     best->hit.as_double ? L"double (UE5 LWC)" : L"float",
+                     p.orig[0],
+                     p.orig[1],
+                     p.orig[2],
+                     p.tile_width,
+                     p.tile_height,
+                     p.max_tiles,
+                     p.max_polys);
+                out.diag.clear();
                 return out;
             }
 
-            out.note = L"no pointer inside the actor targeted a struct whose 2nd field is the actor itself";
-            logf(L"  NOT FOUND: {}", out.note);
+            // Last resort: the struct that back-points to the actor IS FPImplRecastNavMesh,
+            // so if the mesh was not one hop away from it, try two. This is only run for
+            // that one confirmed struct, so it costs nothing on the happy path. It covers
+            // the impl holding the mesh behind a wrapper (a TUniquePtr member struct, a
+            // per-resolution holder, a cached query object).
+            if (impl_by_backptr != kNoOffset)
+            {
+                void* impl = nullptr;
+                if (mem::read_ptr(static_cast<const std::uint8_t*>(actor) + impl_by_backptr, impl))
+                {
+                    const std::size_t impl_n = snapshot(impl, impl_buf.data(), kImplSnapBytes);
+                    for (std::size_t i = 0; i + 8 <= impl_n; i += 8)
+                    {
+                        void* mid = nullptr;
+                        std::memcpy(&mid, impl_buf.data() + i, 8);
+                        if (mid == actor || !mem::plausible_ptr(mid))
+                        {
+                            continue;
+                        }
+                        std::vector<std::uint8_t> mid_buf(kMeshSnapBytes);
+                        const std::size_t mid_n = snapshot(mid, mid_buf.data(), kMeshSnapBytes);
+                        for (std::size_t j = 0; j + 8 <= mid_n; j += 8)
+                        {
+                            void* q = nullptr;
+                            std::memcpy(&q, mid_buf.data() + j, 8);
+                            if (!mem::plausible_ptr(q))
+                            {
+                                continue;
+                            }
+                            const std::size_t mesh_n = snapshot(q, mesh_buf.data(), kMeshSnapBytes);
+                            if (mesh_n == 0)
+                            {
+                                continue;
+                            }
+                            const auto hit = find_params_in(mesh_buf.data(), mesh_n, expected_tile_size);
+                            if (!hit)
+                            {
+                                continue;
+                            }
+                            // Pin the middle struct as "the impl": the chain
+                            // actor+impl_by_backptr -> impl + i is a stable pointer slot,
+                            // so re-reading it later is exactly as valid as the one-hop
+                            // case, just with the mesh pointer one level further in.
+                            out.impl_found = true;
+                            out.detour_found = true;
+                            out.impl_offset = impl_by_backptr;
+                            out.detour_in_impl = i;
+                            out.impl_is_detour = false;
+                            out.owner_in_impl = owner_of_that;
+                            out.params_offset = hit->offset;
+                            out.params_double = hit->as_double;
+                            out.second_hop = j;
+                            logf(L"  FOUND dtNavMesh two hops in: actor+{} -> impl {} + {} -> {} + {} -> dtNavMesh "
+                                 L"{} (actor back-pointer at impl+{})",
+                                 hex(impl_by_backptr),
+                                 hex_ptr(impl),
+                                 hex(i),
+                                 hex_ptr(mid),
+                                 hex(j),
+                                 hex_ptr(q),
+                                 hex(owner_of_that));
+                            const NavParams& pp = hit->params;
+                            logf(L"  dtNavMeshParams at dtNavMesh+{} as {}: orig ({:.2f} {:.2f} {:.2f}) "
+                                 L"tileWidth {:.2f} tileHeight {:.2f} maxTiles {} maxPolys {}",
+                                 hex(hit->offset),
+                                 hit->as_double ? L"double (UE5 LWC)" : L"float",
+                                 pp.orig[0],
+                                 pp.orig[1],
+                                 pp.orig[2],
+                                 pp.tile_width,
+                                 pp.tile_height,
+                                 pp.max_tiles,
+                                 pp.max_polys);
+                            out.diag.clear();
+                            return out;
+                        }
+                    }
+                    // No mesh anywhere below the impl - keep its head as diagnostics.
+                    out.diag.clear();
+                    for (std::size_t i = 0; i + 8 <= impl_n && i < 0x80; i += 8)
+                    {
+                        void* q = nullptr;
+                        std::memcpy(&q, impl_buf.data() + i, 8);
+                        out.diag.push_back(std::format(L"impl+{} = {}{}",
+                                                       hex(i),
+                                                       hex_ptr(q),
+                                                       q == actor ? L"  <- the actor" : L""));
+                    }
+                }
+
+                out.impl_found = true;
+                out.impl_offset = impl_by_backptr;
+                out.owner_in_impl = owner_of_that;
+                out.note = std::format(L"a struct at actor+{} back-points to the actor at +{} (that is "
+                                       L"FPImplRecastNavMesh) but no dtNavMesh with tileWidth {:.0f} is reachable "
+                                       L"from it - navmesh data is probably not streamed in yet",
+                                       hex(impl_by_backptr),
+                                       hex(owner_of_that),
+                                       expected_tile_size);
+                if (verbose)
+                {
+                    logf(L"  PARTIAL: {}", out.note);
+                    for (const std::wstring& line : out.diag)
+                    {
+                        logf(L"    {}", line);
+                    }
+                }
+                return out;
+            }
+
+            out.note = std::format(L"no dtNavMesh reachable in two hops from the actor - {} readable pointer slots "
+                                   L"scanned in actor+[{}, {}), none of their targets contained dtNavMeshParams "
+                                   L"with tileWidth {:.0f}",
+                                   readable_slots,
+                                   hex(scan_begin),
+                                   hex(scan_end),
+                                   expected_tile_size);
+            if (verbose)
+            {
+                logf(L"  NOT FOUND: {}", out.note);
+                for (const std::wstring& line : out.diag)
+                {
+                    logf(L"    ptr {}", line);
+                }
+            }
             return out;
         }
 
@@ -831,6 +1164,10 @@ namespace navmesh
             std::uint64_t signature_changed_at = 0;
             bool signature_seen = false;
             bool dumped_current_signature = false;
+
+            // Discovery throttling (see reach_mesh).
+            int discovery_attempts = 0;
+            std::uint64_t last_discovery = 0;
         };
 
         std::unordered_map<const void*, AgentState> g_agents;
@@ -999,12 +1336,21 @@ namespace navmesh
                              st.params.max_tiles,
                              st.params.max_polys);
 
-            f << std::format("  \"offsets\": {{\"impl_ptr\": \"{}\", \"params\": \"{}\", \"tiles_ptr\": \"{}\", "
+            f << std::format("  \"offsets\": {{\"impl_ptr\": \"{}\", \"detour_in_impl\": \"{}\", "
+                             "\"impl_is_detour\": {}, \"second_hop\": \"{}\", "
+                             "\"owner_in_impl\": \"{}\", "
+                             "\"params\": \"{}\", \"tiles_ptr\": \"{}\", "
                              "\"tile_stride\": \"{}\", \"tile_stride_from_hits\": {}, \"hdr_bmin\": \"{}\", "
                              "\"hdr_walkable\": \"{}\", \"hdr_poly_count\": \"{}\", \"poly_stride\": \"{}\", "
                              "\"verts_per_poly\": {}, \"params_layout\": \"{}\", \"header_layout\": \"{}\", "
                              "\"verts_layout\": \"{}\"}},\n",
                              to_utf8(hex(st.mesh.impl_offset)),
+                             to_utf8(hex(st.mesh.detour_in_impl)),
+                             st.mesh.impl_is_detour ? "true" : "false",
+                             to_utf8(st.mesh.second_hop == kNoOffset ? std::wstring{L"-"}
+                                                                     : hex(st.mesh.second_hop)),
+                             to_utf8(st.mesh.owner_in_impl == kNoOffset ? std::wstring{L"?"}
+                                                                        : hex(st.mesh.owner_in_impl)),
                              to_utf8(hex(st.mesh.params_offset)),
                              to_utf8(hex(st.mesh.tiles_offset)),
                              to_utf8(hex(st.mesh.tile_stride)),
@@ -1022,6 +1368,18 @@ namespace navmesh
                              tiles.size(),
                              total_polys,
                              total_verts);
+
+            // The pointer table from a failed discovery scan. This is what identifies the
+            // real FPImplRecastNavMesh layout on the next iteration, so it is the most
+            // valuable part of a probe_*.json.
+            f << "  \"discovery_diagnostics\": [\n";
+            for (std::size_t di = 0; di < st.mesh.diag.size(); ++di)
+            {
+                f << std::format("    \"{}\"{}\n",
+                                 to_utf8(st.mesh.diag[di]),
+                                 di + 1 == st.mesh.diag.size() ? "" : ",");
+            }
+            f << "  ],\n";
 
             f << "  \"tiles\": [\n";
             for (std::size_t ti = 0; ti < tiles.size(); ++ti)
@@ -1197,10 +1555,15 @@ namespace navmesh
                              vpp,
                              poly_count,
                              vert_count);
-                        logf(L"  PIN LINE {}: impl+{} params+{}/{} tiles+{} tileStride {} hdrBmin+{} hdrCounts+{}/{} "
-                             L"dtPoly {}b vpp {} verts {}",
+                        logf(L"  PIN LINE {}: impl+{} detour+{}{} owner+{} hop2+{} params+{}/{} tiles+{} "
+                             L"tileStride {} "
+                             L"hdrBmin+{} hdrCounts+{}/{} dtPoly {}b vpp {} verts {}",
                              st.agent,
                              hex(st.mesh.impl_offset),
+                             hex(st.mesh.detour_in_impl),
+                             st.mesh.impl_is_detour ? L" (that slot is the mesh)" : L"",
+                             st.mesh.owner_in_impl == kNoOffset ? std::wstring{L"?"} : hex(st.mesh.owner_in_impl),
+                             st.mesh.second_hop == kNoOffset ? std::wstring{L"-"} : hex(st.mesh.second_hop),
                              hex(st.mesh.params_offset),
                              st.mesh.params_double ? L"f64" : L"f32",
                              hex(st.mesh.tiles_offset),
@@ -1356,14 +1719,30 @@ namespace navmesh
         // Re-validates (or re-discovers) the whole chain. Cheap on the happy path: two
         // pointer reads plus one dtNavMeshParams check, and the tile array is only
         // re-scanned when the cached offset stops working.
-        MeshHandle reach_mesh(AgentState& st)
+        MeshHandle reach_mesh(AgentState& st, bool force_discovery)
         {
             MeshHandle h{};
             const double expected_tile = st.tile_size_uu ? static_cast<double>(*st.tile_size_uu) : kExpectedTileSizeUU;
 
             if (!st.mesh.detour_found)
             {
-                st.mesh = find_impl_and_detour(st.actor, st.props, expected_tile);
+                // Discovery is the expensive path (a two-level guarded pointer scan) and it
+                // stays hopeless until navmesh data streams in, so after the first few
+                // tries it is throttled to once every 10 s and goes quiet in the log.
+                // A forced dump (F6) always retries, verbosely.
+                const std::uint64_t now = ::GetTickCount64();
+                const bool due = force_discovery || st.discovery_attempts < 3 ||
+                                 now - st.last_discovery >= kDiscoveryRetryMs;
+                if (!due)
+                {
+                    h.reason = st.mesh.note.empty() ? std::wstring{L"dtNavMesh not reachable"} : st.mesh.note;
+                    return h;
+                }
+                const bool verbose =
+                    force_discovery || st.discovery_attempts < 3 || (st.discovery_attempts % 15) == 0;
+                st.last_discovery = now;
+                ++st.discovery_attempts;
+                st.mesh = find_impl_and_detour(st.actor, st.props, expected_tile, verbose);
             }
             if (!st.mesh.detour_found)
             {
@@ -1378,11 +1757,26 @@ namespace navmesh
                 h.reason = L"RecastNavMeshImpl pointer went bad";
                 return h;
             }
-            void* detour = nullptr;
-            if (!mem::read_at(impl, 0, detour) || !mem::plausible_ptr(detour) || !mem::readable(detour, 256))
+            void* detour = impl;
+            if (!st.mesh.impl_is_detour &&
+                (!mem::read_at(impl, st.mesh.detour_in_impl, detour) || !mem::plausible_ptr(detour) ||
+                 !mem::readable(detour, 256)))
             {
+                st.mesh.detour_found = false;
                 h.reason = L"DetourNavMesh is null - navmesh data is not loaded";
                 return h;
+            }
+            if (st.mesh.second_hop != kNoOffset)
+            {
+                void* deeper = nullptr;
+                if (!mem::read_at(detour, st.mesh.second_hop, deeper) || !mem::plausible_ptr(deeper) ||
+                    !mem::readable(deeper, 256))
+                {
+                    st.mesh.detour_found = false;
+                    h.reason = L"the second-hop dtNavMesh pointer went bad";
+                    return h;
+                }
+                detour = deeper;
             }
 
             NavParams p{};
@@ -1546,7 +1940,7 @@ namespace navmesh
 
         void dump_agent(AgentState& st, bool forced)
         {
-            const MeshHandle h = reach_mesh(st);
+            const MeshHandle h = reach_mesh(st, forced);
 
             std::vector<Tile> tiles;
             int skipped = 0;
@@ -1666,7 +2060,9 @@ namespace navmesh
                 read_settings(st);
 
                 const double expected_tile = st.tile_size_uu ? static_cast<double>(*st.tile_size_uu) : kExpectedTileSizeUU;
-                st.mesh = find_impl_and_detour(st.actor, st.props, expected_tile);
+                st.mesh = find_impl_and_detour(st.actor, st.props, expected_tile, true);
+                st.discovery_attempts = 1;
+                st.last_discovery = ::GetTickCount64();
 
                 g_agents.emplace(static_cast<const void*>(obj), std::move(st));
             }
@@ -1764,7 +2160,7 @@ namespace navmesh
         for (auto& entry : g_agents)
         {
             AgentState& st = entry.second;
-            const MeshHandle h = reach_mesh(st);
+            const MeshHandle h = reach_mesh(st, false);
             if (!h.ok)
             {
                 continue;

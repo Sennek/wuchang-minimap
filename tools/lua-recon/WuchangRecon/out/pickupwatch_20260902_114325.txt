@@ -1,0 +1,4 @@
+# WuchangRecon pickup watch
+# started 2026-09-02 11:43:25  level ProjectMain  period 2000 ms
+# classes: BP_PickupActor_C, BP_PickUpPT_C, BP_AutoPickUp_C, ItemCollectionBox_C, BP_treasurebox_C, BP_ItemRedBox_C, BP_RebornFire_C, BP_Wumen_C, BP_NewPuzzlesDoor_C, BP_Door_C, BP_DoorBase_C
+baseline: 86 watched actors

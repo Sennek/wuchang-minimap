@@ -39,6 +39,8 @@ local MOD_NAME = "WuchangRecon"
 --------------------------------------------------------------------------------
 -- tunables
 --------------------------------------------------------------------------------
+local clock_ms = 0 -- coarse monotonic ms, advanced by a LoopAsync in init()
+
 local CFG = {
     -- actor census / keyword filter
     MAX_ACTORS_SCANNED       = 200000, -- hard stop, safety only
@@ -59,6 +61,10 @@ local CFG = {
     PROBE_EXTENT             = { X = 100.0, Y = 100.0, Z = 500.0 },
     -- tracker
     TRACK_PERIOD_MS          = 1000,
+    -- Hotkey coalescing: the plain and CTRL+ registrations of one key are the same
+    -- logical bind, so a press of both within this window fires the action once.
+    CLOCK_MS                 = 100,
+    COALESCE_MS              = 1500,
     -- automatic menu-time dump
     AUTO_FIRST_DELAY_S       = 20,
     AUTO_POLL_S              = 5,
@@ -2006,7 +2012,8 @@ local function watch_toggle()
     if watch_on then
         watch_start()
     else
-        log("pickup watch OFF after %d ticks (file: %s)", watch_tick, tostring(watch_path))
+        log("pickup watch OFF after %d ticks (file: %s) - press F12 again to start a new watch",
+            watch_tick, tostring(watch_path))
     end
 end
 
@@ -2056,13 +2063,37 @@ local function init()
         log("WARNING: no writable output directory found; dumps will be skipped")
     end
 
+    -- Every hotkey is registered twice (plain and CTRL+) because the engine eats some
+    -- plain F-keys, and the test instructions tell the user to press both. For a TOGGLE
+    -- that is fatal: run 2 lost the pickup-watch result because F12 turned the watch on
+    -- and CTRL+F12 turned it straight back off 3.5 s later. So every action now goes
+    -- through a coalescing guard - two presses of the same logical bind inside
+    -- COALESCE_MS count as one, and the second one says so in the log.
+    LoopAsync(CFG.CLOCK_MS, function()
+        clock_ms = clock_ms + CFG.CLOCK_MS
+        return false
+    end)
+
+    local last_fire = {}
+    local function coalesced(name, fn)
+        return function()
+            local prev = last_fire[name]
+            if prev and clock_ms - prev < CFG.COALESCE_MS then
+                log("%s: press coalesced (the plain and CTRL+ variants are the same bind)", name)
+                return
+            end
+            last_fire[name] = clock_ms
+            pcall(fn)
+        end
+    end
+
     -- F10 is deliberately avoided: ConsoleEnablerMod maps it to the game console.
     local binds = {
-        { Key.F8,  "world dump",     function() pcall(do_world_dump, "world") end },
-        { Key.F9,  "UI dump",        function() pcall(do_ui_dump, "ui") end },
-        { Key.F7,  "tracker",        function() pcall(track_toggle) end },
-        { Key.F11, "navmesh probe",  function() pcall(do_navprobe) end },
-        { Key.F12, "pickup watch",   function() pcall(watch_toggle) end },
+        { Key.F8,  "world dump",     coalesced("world dump",    function() do_world_dump("world") end) },
+        { Key.F9,  "UI dump",        coalesced("UI dump",       function() do_ui_dump("ui") end) },
+        { Key.F7,  "tracker",        coalesced("tracker",       track_toggle) },
+        { Key.F11, "navmesh probe",  coalesced("navmesh probe", do_navprobe) },
+        { Key.F12, "pickup watch",   coalesced("pickup watch",  watch_toggle) },
     }
     local plain, ctrl = 0, 0
     for _, b in ipairs(binds) do

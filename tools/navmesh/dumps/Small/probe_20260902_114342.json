@@ -1,0 +1,18 @@
+{
+  "schema": "wuchang-navmesh-tiles/1",
+  "generated": "20260902_114342",
+  "agent": "Small",
+  "primary_agent": true,
+  "actor": "RecastNavMesh-Small",
+  "actor_full_name": "RecastNavMesh /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.RecastNavMesh-Small",
+  "actor_address": "0x296E2883A60",
+  "reason": "no pointer inside the actor targeted a struct whose 2nd field is the actor itself",
+  "settings": {"AgentRadius": 34.0000, "AgentHeight": 120.0000, "TileSizeUU": 1280.0000, "CellSize": 10.0000, "CellHeight": 40.0000, "TilePoolSize": 4096, "PolyRefTileBits": 23, "PolyRefNavPolyBits": 32, "PolyRefSaltBits": 9},
+  "dtnavmesh": {"orig": [0.0000, 0.0000, 0.0000], "tile_width": 0.0000, "tile_height": 0.0000, "max_tiles": 0, "max_polys": 0},
+  "offsets": {"impl_ptr": "0x0", "params": "0x0", "tiles_ptr": "0x0", "tile_stride": "0x0", "tile_stride_from_hits": 0, "hdr_bmin": "0x0", "hdr_walkable": "0x0", "hdr_poly_count": "0x0", "poly_stride": "0x20", "verts_per_poly": 6, "params_layout": "double", "header_layout": "double", "verts_layout": "double"},
+  "tile_count": 0,
+  "poly_count": 0,
+  "vert_count": 0,
+  "tiles": [
+  ]
+}

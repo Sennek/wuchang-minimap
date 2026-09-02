@@ -259,6 +259,18 @@ namespace markers
         std::vector<std::string> g_outbox;
         std::atomic<bool> g_outbox_pending{false};
 
+        // render -> loop : a manual found/not-found toggle from the full map's click
+        // handler. Same shape as the outbox, but it can UNSET as well as set, so it
+        // carries the wanted state alongside the id.
+        struct ToggleReq
+        {
+            std::string id;
+            bool found = false;
+        };
+        Spin g_toggle_lock;
+        std::vector<ToggleReq> g_toggle;
+        std::atomic<bool> g_toggle_pending{false};
+
         std::unordered_set<std::string> g_found_master; // loop thread only
         std::unordered_set<std::string> g_found_gt;     // game thread only
         bool g_found_dirty = false;                     // loop thread only
@@ -307,6 +319,9 @@ namespace markers
             double x = 0.0;
             double y = 0.0;
             double z = 0.0;
+            // Always one of kClasses[].name - a string literal with static storage, so
+            // holding the pointer is safe and costs nothing.
+            const wchar_t* cls = nullptr;
             mdb::Cat cat = mdb::Cat::Other;
             bool found = false;
             bool persist = false;
@@ -544,6 +559,7 @@ namespace markers
 
                 LiveEntry e{};
                 e.cat = s.cat;
+                e.cls = s.name;
                 e.persist = s.persist;
                 e.round = g_round;
                 if (actor_location(actor, e.x, e.y, e.z))
@@ -696,6 +712,7 @@ namespace markers
                         }
                     }
                     copy_id(d.id, sizeof(d.id), sm.id);
+                    copy_id(d.label, sizeof(d.label), sm.cls.empty() ? sm.name : sm.cls);
                     dst.push_back(d);
                 }
             }
@@ -724,6 +741,10 @@ namespace markers
                     d.flags |= kFlagFound;
                 }
                 copy_id(d.id, sizeof(d.id), kv.first);
+                if (kv.second.cls != nullptr)
+                {
+                    copy_id(d.label, sizeof(d.label), narrow_ascii(kv.second.cls));
+                }
                 dst.push_back(d);
             }
 
@@ -972,6 +993,23 @@ namespace markers
                  widen(mdb::format_category_mask(cfg.markers_categories)));
     }
 
+    void request_toggle_found(const char* id, bool found)
+    {
+        if (id == nullptr || id[0] == '\0')
+        {
+            return;
+        }
+        {
+            Guard guard(g_toggle_lock);
+            if (g_toggle.size() >= 256)
+            {
+                return; // somebody is holding the mouse button down on a marker
+            }
+            g_toggle.push_back(ToggleReq{std::string{id}, found});
+        }
+        g_toggle_pending.store(true, std::memory_order_release);
+    }
+
     void reload()
     {
         load_static_db();
@@ -1005,6 +1043,49 @@ namespace markers
                 mm::logf(L"markers: auto-marked {} new marker(s) as found ({} total)", added,
                          g_found_master.size());
                 recompute_stats();
+            }
+        }
+
+        // Manual toggles from the full map. They go through the same master set and
+        // the same debounced write as the auto-marks, and the whole set is republished
+        // to the game thread so the draw buffer agrees on the next round.
+        if (g_toggle_pending.exchange(false, std::memory_order_acquire))
+        {
+            std::vector<ToggleReq> reqs;
+            {
+                Guard guard(g_toggle_lock);
+                reqs.swap(g_toggle);
+            }
+            int changed = 0;
+            for (const ToggleReq& r : reqs)
+            {
+                if (r.id.empty())
+                {
+                    continue;
+                }
+                if (r.found)
+                {
+                    changed += g_found_master.insert(r.id).second ? 1 : 0;
+                }
+                else
+                {
+                    changed += g_found_master.erase(r.id) != 0 ? 1 : 0;
+                }
+            }
+            if (changed != 0)
+            {
+                g_found_dirty = true;
+                g_found_dirty_ms = now;
+                std::vector<std::string> all;
+                all.reserve(g_found_master.size());
+                for (const std::string& id : g_found_master)
+                {
+                    all.push_back(id);
+                }
+                publish_inbox(std::move(all), true);
+                recompute_stats();
+                mm::logf(L"markers: {} manual found change(s) from the map ({} total)", changed,
+                         g_found_master.size());
             }
         }
 

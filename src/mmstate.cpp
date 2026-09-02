@@ -78,6 +78,13 @@ namespace mm
         Config g_cfg{};
 
         //==============================================================================
+        // Waypoint
+        //==============================================================================
+
+        Spinlock g_wp_lock;
+        mv::Waypoint g_wp{};
+
+        //==============================================================================
         // Log queue
         //==============================================================================
 
@@ -351,6 +358,7 @@ namespace mm
     std::atomic<bool> g_reload_config{false};
     std::atomic<bool> g_save_config{false};
     std::atomic<bool> g_panel_drew_frame{false};
+    std::atomic<bool> g_waypoint_dirty{false};
 
     //==================================================================================
     // Snapshot seqlock
@@ -656,6 +664,74 @@ namespace mm
             {
                 cfg.markers_max_draw = parse_int(value, cfg.markers_max_draw);
             }
+            else if (key == "map_recenter_key")
+            {
+                cfg.map_recenter_key = vk_from_name(value, cfg.map_recenter_key, "map_recenter_key");
+            }
+            else if (key == "map_zoom")
+            {
+                cfg.map_zoom = parse_float(value, cfg.map_zoom);
+            }
+            else if (key == "map_zoom_min")
+            {
+                cfg.map_zoom_min = parse_float(value, cfg.map_zoom_min);
+            }
+            else if (key == "map_zoom_max")
+            {
+                cfg.map_zoom_max = parse_float(value, cfg.map_zoom_max);
+            }
+            else if (key == "map_zoom_factor")
+            {
+                cfg.map_zoom_factor = parse_float(value, cfg.map_zoom_factor);
+            }
+            else if (key == "map_pan_speed")
+            {
+                cfg.map_pan_speed = parse_float(value, cfg.map_pan_speed);
+            }
+            else if (key == "map_margin")
+            {
+                cfg.map_margin = parse_float(value, cfg.map_margin);
+            }
+            else if (key == "map_backdrop")
+            {
+                cfg.map_backdrop = parse_float(value, cfg.map_backdrop);
+            }
+            else if (key == "map_marker_size")
+            {
+                cfg.map_marker_size = parse_float(value, cfg.map_marker_size);
+            }
+            else if (key == "map_markers_max_draw")
+            {
+                cfg.map_markers_max_draw = parse_int(value, cfg.map_markers_max_draw);
+            }
+            else if (key == "map_floor_step")
+            {
+                cfg.map_floor_step = parse_float(value, cfg.map_floor_step);
+            }
+            else if (key == "map_show_all_floors")
+            {
+                cfg.map_show_all_floors = parse_bool(value, cfg.map_show_all_floors);
+            }
+            else if (key == "map_slice_px")
+            {
+                cfg.map_slice_px = parse_int(value, cfg.map_slice_px);
+            }
+            else if (key == "map_slice_hz")
+            {
+                cfg.map_slice_hz = parse_int(value, cfg.map_slice_hz);
+            }
+            else if (key == "map_gamepad")
+            {
+                cfg.map_gamepad = parse_bool(value, cfg.map_gamepad);
+            }
+            else if (key == "map_gamepad_deadzone")
+            {
+                cfg.map_gamepad_deadzone = parse_float(value, cfg.map_gamepad_deadzone);
+            }
+            else if (key == "map_waypoint_persist")
+            {
+                cfg.map_waypoint_persist = parse_bool(value, cfg.map_waypoint_persist);
+            }
             else if (key == "found_tracker")
             {
                 cfg.found_tracker = parse_bool(value, cfg.found_tracker);
@@ -691,6 +767,22 @@ namespace mm
         cfg.markers_size = (std::max)(2.0f, (std::min)(24.0f, cfg.markers_size));
         cfg.markers_max_draw = (std::max)(0, (std::min)(4000, cfg.markers_max_draw));
         cfg.found_save_debounce_ms = (std::max)(200, (std::min)(60000, cfg.found_save_debounce_ms));
+        // The full map. Same hand-edit discipline as everything above: without a clamp
+        // a typo could ask for a 1 uu/px view of a 500 m chapter, a zero-size slice
+        // texture, or a zoom factor of 1.0 (which never changes the zoom at all).
+        cfg.map_zoom_min = (std::max)(1.0f, (std::min)(2000.0f, cfg.map_zoom_min));
+        cfg.map_zoom_max = (std::max)(cfg.map_zoom_min, (std::min)(4000.0f, cfg.map_zoom_max));
+        cfg.map_zoom = (std::max)(cfg.map_zoom_min, (std::min)(cfg.map_zoom_max, cfg.map_zoom));
+        cfg.map_zoom_factor = (std::max)(1.01f, (std::min)(2.0f, cfg.map_zoom_factor));
+        cfg.map_pan_speed = (std::max)(50.0f, (std::min)(6000.0f, cfg.map_pan_speed));
+        cfg.map_margin = (std::max)(0.0f, (std::min)(0.3f, cfg.map_margin));
+        cfg.map_backdrop = (std::max)(0.0f, (std::min)(1.0f, cfg.map_backdrop));
+        cfg.map_marker_size = (std::max)(2.0f, (std::min)(32.0f, cfg.map_marker_size));
+        cfg.map_markers_max_draw = (std::max)(0, (std::min)(20000, cfg.map_markers_max_draw));
+        cfg.map_floor_step = (std::max)(10.0f, (std::min)(5000.0f, cfg.map_floor_step));
+        cfg.map_slice_px = (std::max)(128, (std::min)(2048, cfg.map_slice_px));
+        cfg.map_slice_hz = (std::max)(1, (std::min)(30, cfg.map_slice_hz));
+        cfg.map_gamepad_deadzone = (std::max)(0.05f, (std::min)(0.6f, cfg.map_gamepad_deadzone));
         cfg.markers_categories &= mdb::kAllCats;
 
         set_config(cfg);
@@ -749,9 +841,32 @@ namespace mm
         out += "markers_max_draw = " + std::to_string(cfg.markers_max_draw) + "\n";
         out += "found_tracker = " + std::string(cfg.found_tracker ? "1" : "0") + "\n";
         out += "found_save_debounce_ms = " + std::to_string(cfg.found_save_debounce_ms) + "\n\n";
+        out += "\n; ---------------------------------------------------------------------------------\n";
+        out += "; The full map (map_key - shipped default M)\n";
+        out += "; ---------------------------------------------------------------------------------\n";
+        out += "; Same height-sliced asset as the minimap, at map scale, always north-up. While it\n";
+        out += "; is open the minimap is hidden and the mouse works. Zoom is world units per SCREEN\n";
+        out += "; pixel - the same unit as minimap_zoom, so the numbers are comparable.\n";
+        out += "map_zoom = " + std::format("{:.0f}", cfg.map_zoom) + "\n";
+        out += "map_zoom_min = " + std::format("{:.0f}", cfg.map_zoom_min) + "\n";
+        out += "map_zoom_max = " + std::format("{:.0f}", cfg.map_zoom_max) + "\n";
+        out += "map_zoom_factor = " + std::format("{:.2f}", cfg.map_zoom_factor) + "\n";
+        out += "map_pan_speed = " + std::format("{:.0f}", cfg.map_pan_speed) + "\n";
+        out += "map_margin = " + std::format("{:.3f}", cfg.map_margin) + "\n";
+        out += "map_backdrop = " + std::format("{:.2f}", cfg.map_backdrop) + "\n";
+        out += "map_marker_size = " + std::format("{:.1f}", cfg.map_marker_size) + "\n";
+        out += "map_markers_max_draw = " + std::to_string(cfg.map_markers_max_draw) + "\n";
+        out += "map_floor_step = " + std::format("{:.0f}", cfg.map_floor_step) + "\n";
+        out += "map_show_all_floors = " + std::string(cfg.map_show_all_floors ? "1" : "0") + "\n";
+        out += "map_slice_px = " + std::to_string(cfg.map_slice_px) + "\n";
+        out += "map_slice_hz = " + std::to_string(cfg.map_slice_hz) + "\n";
+        out += "map_gamepad = " + std::string(cfg.map_gamepad ? "1" : "0") + "\n";
+        out += "map_gamepad_deadzone = " + std::format("{:.2f}", cfg.map_gamepad_deadzone) + "\n";
+        out += "map_waypoint_persist = " + std::string(cfg.map_waypoint_persist ? "1" : "0") + "\n\n";
         out += "panel_key = " + vk_name(cfg.panel_key) + "\n";
         out += "reload_key = " + vk_name(cfg.reload_key) + "\n";
         out += "map_key = " + vk_name(cfg.map_key) + "\n";
+        out += "map_recenter_key = " + vk_name(cfg.map_recenter_key) + "\n";
 
         const std::wstring path = config_path();
         if (write_whole_file(path, out))
@@ -761,6 +876,74 @@ namespace mm
         else
         {
             logf(L"config: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
+        }
+    }
+
+    //==================================================================================
+    // The waypoint file
+    //==================================================================================
+
+    mv::Waypoint waypoint()
+    {
+        SpinGuard guard(g_wp_lock);
+        return g_wp;
+    }
+
+    void set_waypoint(const mv::Waypoint& wp)
+    {
+        {
+            SpinGuard guard(g_wp_lock);
+            g_wp = wp;
+        }
+        g_waypoint_dirty.store(true, std::memory_order_release);
+    }
+
+    std::wstring waypoint_path()
+    {
+        return mod_dir() + L"\\wuchang_minimap_waypoint.txt";
+    }
+
+    void load_waypoint_file()
+    {
+        const std::wstring path = waypoint_path();
+        std::string text;
+        mv::Waypoint wp{};
+        if (read_whole_file(path, text))
+        {
+            if (!mv::waypoint_parse(text, wp))
+            {
+                logf(L"waypoint: {} exists but carries no usable x / y - ignored", path);
+                wp = mv::Waypoint{};
+            }
+            else if (wp.set)
+            {
+                logf(L"waypoint: loaded ({:.0f}, {:.0f}, {:.0f}) from {}", wp.x, wp.y, wp.z, path);
+            }
+        }
+        {
+            SpinGuard guard(g_wp_lock);
+            g_wp = wp;
+        }
+        // What was just read IS what the file says, so nothing is pending.
+        g_waypoint_dirty.store(false, std::memory_order_release);
+    }
+
+    void save_waypoint_file()
+    {
+        const mv::Waypoint wp = waypoint();
+        const std::wstring path = waypoint_path();
+        if (!write_whole_file(path, mv::waypoint_serialize(wp)))
+        {
+            logf(L"waypoint: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
+            return;
+        }
+        if (wp.set)
+        {
+            logf(L"waypoint: saved ({:.0f}, {:.0f}, {:.0f})", wp.x, wp.y, wp.z);
+        }
+        else
+        {
+            log(L"waypoint: cleared");
         }
     }
 

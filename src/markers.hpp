@@ -44,6 +44,10 @@ namespace markers
         std::uint8_t cat = static_cast<std::uint8_t>(mdb::Cat::Other);
         std::uint8_t flags = 0;
         char id[54]{}; // truncated stable id, for the F2 "nearest marker" readout
+        // The blueprint class ("BP_ItemRedBox_C"), or the manifest's display name when
+        // there is no class. Only the full map's hover tooltip uses it - the id alone
+        // reads as a path and does not say WHAT the thing is.
+        char label[40]{};
     };
 
     // A borrowed view of the last published buffer. Valid for the duration of the
@@ -90,6 +94,14 @@ namespace markers
 
     // Loop thread, once. Loads markers/<chapter>.json and the found tracker.
     void on_unreal_init();
+
+    // ANY THREAD (in practice the render thread, from the full map's click handler):
+    // manually mark a marker found or not found. The request is queued and applied by
+    // the loop thread, which owns the master set and the file; the game thread then
+    // gets the whole set back through the existing inbox. Note the live sweep still
+    // owns the truth: un-marking a chest the game reports as `Used` will be undone on
+    // the next round, which is correct - the tracker follows the save, not the mod.
+    void request_toggle_found(const char* id, bool found);
 
     // Loop thread, every tick. Drains the game thread's newly-found outbox and writes
     // the found file once the debounce has elapsed.

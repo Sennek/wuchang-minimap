@@ -25,6 +25,7 @@
 #include <string>
 #include <utility>
 
+#include "mapview.hpp"
 #include "markers_db.hpp"
 
 namespace mm
@@ -182,11 +183,47 @@ namespace mm
         bool found_tracker = true;
         int found_save_debounce_ms = 2000;
 
+        //==============================================================================
+        // The full map (step C1)
+        //==============================================================================
+        //
+        // The full map is the same height-sliced asset the minimap draws, at map scale:
+        // a north-up, pannable, zoomable window over the chapter with every marker on
+        // it. While it is open the minimap is hidden and ImGui takes the mouse and the
+        // keyboard (never latched - closing the map gives both back on the same frame).
+        //
+        // Zoom is world units per SCREEN pixel, the same unit as `minimap_zoom`, so the
+        // three numbers below are directly comparable with it (26 = the minimap).
+
+        // 30 uu/px shows ~270 m across a 900 px canvas - a district, not a continent.
+        // Chapter 1 is ~450 m wide, so ~55 fits the whole chapter and 240 is as far out
+        // as is ever useful.
+        float map_zoom = 30.0f;      // uu per screen pixel when the map opens
+        float map_zoom_min = 4.0f;   // most zoomed IN (fewest uu per pixel)
+        float map_zoom_max = 240.0f; // most zoomed OUT
+        float map_zoom_factor = 1.15f; // multiplier per wheel notch / per 0.1 s of trigger
+        float map_pan_speed = 900.0f;  // keyboard / stick pan, SCREEN px per second
+        float map_margin = 0.045f;     // border around the map, fraction of screen height
+        float map_backdrop = 0.86f;    // opacity of the dark backdrop behind it
+        float map_marker_size = 8.0f;  // glyph radius in screen px
+        int map_markers_max_draw = 4000;
+        float map_floor_step = 200.0f; // uu per floor-adjust notch (Q/E, LB/RB, Ctrl+wheel)
+        bool map_show_all_floors = false; // ignore the height slice: draw every surface
+        // The dynamic texture the map slice is cut into. The cut costs roughly
+        // (width x height x surfaces) plane reads, so 768 x ~430 x 8 is ~2.6 M and lands
+        // around 5-10 ms - which is why it only runs when something actually changed.
+        int map_slice_px = 768;
+        int map_slice_hz = 6;        // hard cap on re-cuts per second
+        bool map_gamepad = true;     // poll XInput while the map is open
+        float map_gamepad_deadzone = 0.22f;
+        bool map_waypoint_persist = true; // write wuchang_minimap_waypoint.txt
+
         bool debug_readout = true;
         bool debug_show_panel_on_start = false; // main-menu verification aid
         int panel_key = 0x71;                   // VK_F2
         int reload_key = 0x74;                  // VK_F5
-        int map_key = 0x4D;                     // 'M' - full map (reserved, not built yet)
+        int map_key = 0x4D;                     // 'M' - full map
+        int map_recenter_key = 0x52;            // 'R' - recentre the full map on the player
     };
 
     // The config lives here and is copied under a spinlock. The loop thread writes it
@@ -204,6 +241,25 @@ namespace mm
     std::wstring key_name(int vk);
 
     //==================================================================================
+    // The waypoint
+    //==================================================================================
+    //
+    // One waypoint at a time, set on the full map and drawn on both the full map and
+    // the minimap (edge-clamped, with a distance). It lives in its own tiny file rather
+    // than in config_wuchang_minimap.txt, because the config file is rewritten wholesale
+    // by the F2 panel's Save button and a waypoint set during play must survive without
+    // anyone pressing Save.
+    //
+    // The render thread sets it (a right-click on the map); the loop thread writes the
+    // file. The handover is the same spinlocked-copy pattern the config uses.
+
+    mv::Waypoint waypoint();
+    void set_waypoint(const mv::Waypoint& wp); // any thread; marks the file dirty
+    void load_waypoint_file();                 // loop thread
+    void save_waypoint_file();                 // loop thread
+    std::wstring waypoint_path();
+
+    //==================================================================================
     // Cross-thread flags
     //==================================================================================
 
@@ -212,6 +268,7 @@ namespace mm
     extern std::atomic<bool> g_reload_config;   // F5 -> loop thread reloads
     extern std::atomic<bool> g_save_config;     // panel -> loop thread saves
     extern std::atomic<bool> g_panel_drew_frame; // set by the render thread, for the log
+    extern std::atomic<bool> g_waypoint_dirty;   // render -> loop: write the waypoint file
 
     //==================================================================================
     // Logging that is safe from any thread

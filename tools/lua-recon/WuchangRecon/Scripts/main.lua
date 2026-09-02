@@ -48,7 +48,10 @@ local CFG = {
     MAX_MATCH_LINES          = 8000,   -- overall cap on filtered-actor lines
     -- marker section (class + VALUES + distance to player)
     MAX_MARKERS_PER_CLASS    = 200,    -- per marker class, print at most this many instances
-    MAX_VALUE_PROPS          = 40,     -- scalar props printed per marker instance
+    -- 40 was too low: it truncated BP_RebornFire_C (109 scalars) at "Lod1Range" and hid
+    -- BP_Wumen_C's LocalUsed / FirstActive, which are the state flags the whole section
+    -- exists to capture. The priority list below is printed FIRST and is never capped.
+    MAX_VALUE_PROPS          = 140,    -- scalar props printed per marker instance
     -- pickup watch (F12)
     WATCH_PERIOD_MS          = 2000,
     WATCH_MAX_ACTORS         = 4000,
@@ -305,6 +308,20 @@ end
 
 local function classof(o)
     return safe(function() return o:GetClass() end)
+end
+
+-- Two UE4SS userdata values can wrap the same UObject and still compare unequal with
+-- `==`, so object identity has to go through GetAddress() (or, failing that, the full
+-- object path). Never use `a == b` on reflection results.
+local function same_object(a, b)
+    if a == nil or b == nil then return false end
+    if a == b then return true end
+    local aa = safe(function() return a:GetAddress() end)
+    local ba = safe(function() return b:GetAddress() end)
+    if aa ~= nil and ba ~= nil then return aa == ba end
+    local an = safe(function() return a:GetFullName() end)
+    local bn = safe(function() return b:GetFullName() end)
+    return an ~= nil and an == bn
 end
 
 local function classname(o)
@@ -884,8 +901,12 @@ local function sec_player(w)
             w:line("  chain              : %s", class_chain(vt))
             local vloc = safe(function() return vt:K2_GetActorLocation() end)
             if vloc then w:line("  location           : %s", fmt_vec(vloc)) end
+            -- UE4SS hands out a FRESH Lua userdata wrapper per reflection call, so
+            -- `vt ~= p2` is true even when both wrap the SAME UObject. Run 2 printed the
+            -- "NOT the player pawn" note in 100 % of in-world dumps because of exactly
+            -- that. Compare identity by ADDRESS (fall back to the full name).
             local p2 = get_player()
-            if p2 and vt ~= p2 then
+            if p2 and not same_object(vt, p2) then
                 w:line("  NOTE: the view target is NOT the player pawn - a cutscene or a"
                        .. " scripted camera is active")
             end
@@ -1176,20 +1197,44 @@ local function dist_to(a, ref)
     return nil
 end
 
+-- Properties that answer "is this collected / open / used?". They are emitted before
+-- anything else and are exempt from MAX_VALUE_PROPS, because run 2 lost BP_Wumen_C's
+-- LocalUsed and FirstActive to the cap while printing 40 LOD and timeline fields.
+local STATE_PROPS_FIRST = {
+    "Used", "LocalUsed", "Active", "FirstActive", "IsShowMesh", "DoorOpen", "Persistent",
+    "SavedStatuKey", "SlotKey", "Key", "IsOpen", "bIsOpened", "Opened", "Finished",
+    "Collected", "PickedUp", "IsUsed", "HasUsed", "State", "Status", "Statu", "GeemID",
+    "NewFirePointID", "New Fire Point ID", "ItemID", "ID",
+}
+
 -- "Name=value" for every scalar own property that exists on the actor's class.
 local function scalar_values(a)
     local cls = classof(a)
     if not cls then return {}, 0 end
     local types = class_prop_map(cls)
     local names = class_gameplay_props(cls)
-    local out, skipped = {}, 0
+    local out, skipped, done = {}, 0, {}
+
+    local function emit(pn)
+        local v = read_prop_str(a, pn)
+        out[#out + 1] = pn .. "=" .. (v ~= nil and v or "<unreadable>")
+    end
+
+    -- pass 1: the state whitelist, in the order above, never capped
+    for _, pn in ipairs(STATE_PROPS_FIRST) do
+        if SCALAR_PROP_TYPES[types[pn]] and not done[pn] then
+            done[pn] = true
+            emit(pn)
+        end
+    end
+    -- pass 2: everything else, capped
     for _, pn in ipairs(names) do
-        if SCALAR_PROP_TYPES[types[pn]] then
+        if SCALAR_PROP_TYPES[types[pn]] and not done[pn] then
+            done[pn] = true
             if #out >= CFG.MAX_VALUE_PROPS then
                 skipped = skipped + 1
             else
-                local v = read_prop_str(a, pn)
-                out[#out + 1] = pn .. "=" .. (v ~= nil and v or "<unreadable>")
+                emit(pn)
             end
         end
     end
@@ -1206,8 +1251,12 @@ local function sec_markers(w)
     else
         w:line("no player location - distances will be omitted")
     end
-    w:line("per-class instance cap: %d   scalar props per instance cap: %d",
+    w:line("per-class instance cap: %d   scalar props per instance cap: %d"
+           .. "   (state props are printed first and are never capped)",
            CFG.MAX_MARKERS_PER_CLASS, CFG.MAX_VALUE_PROPS)
+    w:line("NOTE: an instance printed at loc 0.00 0.00 0.00 is an already-collected pickup"
+           .. " that the level saver has parked at the origin - filter those out when"
+           .. " deciding what is still collectable (run-2 finding)")
 
     for _, cn in ipairs(MARKER_CLASSES) do
         local insts = find_all(cn)

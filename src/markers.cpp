@@ -14,6 +14,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "highlight.hpp"
 #include "mem.hpp"
 #include "mmstate.hpp"
 #include "scan_sched.hpp"
@@ -1295,6 +1296,10 @@ namespace markers
 
     void drop_caches()
     {
+        // HOOK: the highlight's camera manager belonged to the world that just went, and
+        // gamestate calls this whenever it drops the pawn - so this is the one place
+        // that already means "everything keyed to that world is dead".
+        hl::drop_caches();
         g_layouts.clear();
         g_class_spec.clear();
         g_id_cache.clear();
@@ -1344,6 +1349,17 @@ namespace markers
 
         // 2.
         const mm::Config cfg = mm::config();
+
+        // ---- HOOK: the x-ray highlight's camera reader (src/highlight.cpp) ----------
+        //
+        // It needs the game thread and the same validated state this pump already runs
+        // on, and `gamestate.cpp` is owned by another workstream this session - so it is
+        // driven from here rather than from a second call site of its own. It returns
+        // immediately (one atomic load) unless the highlight key is held or the compass
+        // is on, and it never touches anything this module owns.
+        hl::game_thread_pump(now, world, cfg);
+        // ---- end of hook ------------------------------------------------------------
+
         if (!cfg.markers_enabled || !cfg.markers_live)
         {
             return;

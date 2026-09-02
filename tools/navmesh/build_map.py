@@ -752,8 +752,12 @@ def build_chapter(args: argparse.Namespace) -> dict:
         sys.exit("every polygon was filtered out")
 
     bounds = render.compute_bounds(polys, args.px_per_uu, margin_uu=args.margin)
-    bounds = clamp_scale(bounds, args.max_dim)
+    # RAM budget FIRST, max-dim second: the budget scales continuously while the
+    # max-dim clamp can only halve, so clamping first would charge a chapter that is
+    # merely a little too wide (Chapter 5: 6099x13755 at 0.06) a full halving and then
+    # leave it well under the RAM budget it could have spent on resolution.
     bounds = fit_ram_budget(bounds, args.max_surfaces, args.max_ram_mb)
+    bounds = clamp_scale(bounds, args.max_dim)
     print(
         f"[{args.chapter}] world X {bounds.min_x:.0f}..{bounds.max_x:.0f}  "
         f"Y {bounds.min_y:.0f}..{bounds.max_y:.0f}  -> {bounds.width}x{bounds.height} px "

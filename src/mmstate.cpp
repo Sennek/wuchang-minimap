@@ -231,13 +231,44 @@ namespace mm
             }
         }
 
+        // Named keys beyond the F-keys / letters / digits. The modifiers are here for
+        // the x-ray highlight, which is a HOLD binding and therefore wants a key the
+        // hand is already resting near: LALT is the shipped default. Both the
+        // side-specific codes and the "either side" ones are offered, because
+        // GetAsyncKeyState answers for either with VK_MENU / VK_SHIFT / VK_CONTROL and
+        // some players will want that.
+        struct NamedKey
+        {
+            const char* name;
+            int vk;
+        };
+
+        constexpr NamedKey kNamedKeys[] = {
+            {"TAB", VK_TAB},         {"SPACE", VK_SPACE},   {"LALT", VK_LMENU},
+            {"RALT", VK_RMENU},      {"ALT", VK_MENU},      {"LSHIFT", VK_LSHIFT},
+            {"RSHIFT", VK_RSHIFT},   {"SHIFT", VK_SHIFT},   {"LCTRL", VK_LCONTROL},
+            {"RCTRL", VK_RCONTROL},  {"CTRL", VK_CONTROL},
+        };
+
+        std::string upper(const std::string& s)
+        {
+            std::string out;
+            out.reserve(s.size());
+            for (const char c : s)
+            {
+                out.push_back((c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c);
+            }
+            return out;
+        }
+
         // Hotkey name -> virtual key.
         //
-        // Accepted: F1..F5, F7, F8; a single letter A..Z or digit 0..9; TAB. F6 and
-        // F9..F12 are REJECTED outright rather than trusted to whoever edits the file:
-        // on this machine F6 is the RenoDX DLSS5 toggle (it ignores modifiers and has
-        // already caused one GPU crash), F10 the game console, F11 the engine
-        // fullscreen bind and F12 the Steam screenshot key. See lessons.md.
+        // Accepted: F1..F5, F7, F8; a single letter A..Z or digit 0..9; and the named
+        // keys above. F6 and F9..F12 are REJECTED outright rather than trusted to
+        // whoever edits the file: on this machine F6 is the RenoDX DLSS5 toggle (it
+        // ignores modifiers and has already caused one GPU crash), F10 the game console,
+        // F11 the engine fullscreen bind and F12 the Steam screenshot key. See
+        // lessons.md.
         int vk_from_name(const std::string& name, int fallback, const char* key_label)
         {
             const std::wstring label(key_label, key_label + std::strlen(key_label));
@@ -245,7 +276,7 @@ namespace mm
 
             const auto reject = [&](const wchar_t* why) {
                 logf(L"config: {} = '{}' rejected ({}) - keeping the default. Allowed: F1..F5, F7, F8, "
-                     L"a single letter or digit, or TAB.",
+                     L"a single letter or digit, TAB, SPACE, or L/R ALT / SHIFT / CTRL.",
                      label,
                      shown,
                      std::wstring{why});
@@ -255,6 +286,17 @@ namespace mm
             if (name.empty())
             {
                 return fallback;
+            }
+
+            {
+                const std::string up = upper(name);
+                for (const NamedKey& k : kNamedKeys)
+                {
+                    if (up == k.name)
+                    {
+                        return k.vk;
+                    }
+                }
             }
 
             // F-keys first, so the single letter "F" cannot swallow "F6".
@@ -291,10 +333,6 @@ namespace mm
                 return reject(L"not a letter or a digit");
             }
 
-            if (name == "TAB" || name == "Tab" || name == "tab")
-            {
-                return VK_TAB;
-            }
             return reject(L"not a recognised key name");
         }
 
@@ -304,15 +342,104 @@ namespace mm
             {
                 return "F" + std::to_string(vk - VK_F1 + 1);
             }
-            if (vk == VK_TAB)
+            for (const NamedKey& k : kNamedKeys)
             {
-                return "TAB";
+                if (vk == k.vk)
+                {
+                    return k.name;
+                }
             }
             if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9'))
             {
                 return std::string(1, static_cast<char>(vk));
             }
             return "F2";
+        }
+
+        //==============================================================================
+        // The gamepad chord (the highlight's second route)
+        //==============================================================================
+        //
+        // "LB+RB", "A", "LT+RT", "none". The face / shoulder / dpad buttons are bits in
+        // the XInput mask; the two triggers are analogue and are carried as flags. The
+        // names are the ones on the pad, not XInput's XINPUT_GAMEPAD_* spelling.
+
+        struct PadButton
+        {
+            const char* name;
+            std::uint16_t bit;
+        };
+
+        constexpr PadButton kPadButtons[] = {
+            {"LB", 0x0100},    {"RB", 0x0200},    {"A", 0x1000},    {"B", 0x2000},
+            {"X", 0x4000},     {"Y", 0x8000},     {"BACK", 0x0020}, {"START", 0x0010},
+            {"LS", 0x0040},    {"RS", 0x0080},    {"UP", 0x0001},   {"DOWN", 0x0002},
+            {"LEFT", 0x0004},  {"RIGHT", 0x0008},
+        };
+
+        void parse_pad_chord(const std::string& value, std::uint16_t& mask, bool& lt, bool& rt)
+        {
+            std::uint16_t new_mask = 0;
+            bool new_lt = false;
+            bool new_rt = false;
+            std::string token;
+            std::string rejected;
+            const auto flush = [&]() {
+                if (token.empty())
+                {
+                    return;
+                }
+                const std::string up = upper(token);
+                token.clear();
+                if (up == "NONE" || up == "OFF")
+                {
+                    return;
+                }
+                if (up == "LT")
+                {
+                    new_lt = true;
+                    return;
+                }
+                if (up == "RT")
+                {
+                    new_rt = true;
+                    return;
+                }
+                for (const PadButton& b : kPadButtons)
+                {
+                    if (up == b.name)
+                    {
+                        new_mask = static_cast<std::uint16_t>(new_mask | b.bit);
+                        return;
+                    }
+                }
+                if (!rejected.empty())
+                {
+                    rejected += ",";
+                }
+                rejected += up;
+            };
+            for (const char c : value)
+            {
+                if (c == '+' || c == ',' || c == ' ' || c == '\t')
+                {
+                    flush();
+                }
+                else
+                {
+                    token.push_back(c);
+                }
+            }
+            flush();
+            if (!rejected.empty())
+            {
+                logf(L"config: highlight_pad_chord - unknown button(s) '{}' ignored. Known: LB, RB, LT, "
+                     L"RT, A, B, X, Y, BACK, START, LS, RS, UP, DOWN, LEFT, RIGHT (join with +).",
+                     std::wstring(rejected.begin(), rejected.end()));
+            }
+            mask = new_mask;
+            lt = new_lt;
+            rt = new_rt;
         }
 
         const char* anchor_name(Anchor a)
@@ -424,6 +551,38 @@ namespace mm
     {
         const std::string n = vk_name(vk);
         return std::wstring(n.begin(), n.end());
+    }
+
+    std::wstring pad_chord_name(std::uint16_t mask, bool lt, bool rt)
+    {
+        std::string out;
+        const auto add = [&out](const char* n) {
+            if (!out.empty())
+            {
+                out += "+";
+            }
+            out += n;
+        };
+        if (lt)
+        {
+            add("LT");
+        }
+        if (rt)
+        {
+            add("RT");
+        }
+        for (const PadButton& b : kPadButtons)
+        {
+            if ((mask & b.bit) != 0)
+            {
+                add(b.name);
+            }
+        }
+        if (out.empty())
+        {
+            out = "none";
+        }
+        return std::wstring(out.begin(), out.end());
     }
 
     std::wstring config_path()
@@ -740,6 +899,111 @@ namespace mm
             {
                 cfg.map_waypoint_persist = parse_bool(value, cfg.map_waypoint_persist);
             }
+            else if (key == "highlight_enabled")
+            {
+                cfg.highlight_enabled = parse_bool(value, cfg.highlight_enabled);
+            }
+            else if (key == "highlight_key")
+            {
+                cfg.highlight_key = vk_from_name(value, cfg.highlight_key, "highlight_key");
+            }
+            else if (key == "highlight_gamepad")
+            {
+                cfg.highlight_gamepad = parse_bool(value, cfg.highlight_gamepad);
+            }
+            else if (key == "highlight_pad_chord")
+            {
+                parse_pad_chord(value, cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt);
+            }
+            else if (key == "highlight_radius")
+            {
+                cfg.highlight_radius = parse_float(value, cfg.highlight_radius);
+            }
+            else if (key == "highlight_categories")
+            {
+                std::string rejected;
+                cfg.highlight_categories =
+                    mdb::parse_category_mask(value, cfg.highlight_categories, &rejected);
+                if (!rejected.empty())
+                {
+                    logf(L"config: highlight_categories - unknown name(s) '{}' ignored",
+                         std::wstring(rejected.begin(), rejected.end()));
+                }
+            }
+            else if (key == "highlight_show_found")
+            {
+                cfg.highlight_show_found = parse_bool(value, cfg.highlight_show_found);
+            }
+            else if (key == "highlight_max_draw")
+            {
+                cfg.highlight_max_draw = parse_int(value, cfg.highlight_max_draw);
+            }
+            else if (key == "highlight_alpha_near")
+            {
+                cfg.highlight_alpha_near = parse_float(value, cfg.highlight_alpha_near);
+            }
+            else if (key == "highlight_alpha_far")
+            {
+                cfg.highlight_alpha_far = parse_float(value, cfg.highlight_alpha_far);
+            }
+            else if (key == "highlight_size")
+            {
+                cfg.highlight_size = parse_float(value, cfg.highlight_size);
+            }
+            else if (key == "highlight_labels")
+            {
+                cfg.highlight_labels = parse_bool(value, cfg.highlight_labels);
+            }
+            else if (key == "highlight_edge_arrows")
+            {
+                cfg.highlight_edge_arrows = parse_bool(value, cfg.highlight_edge_arrows);
+            }
+            else if (key == "highlight_camera_hz")
+            {
+                cfg.highlight_camera_hz = parse_int(value, cfg.highlight_camera_hz);
+            }
+            else if (key == "compass_enabled")
+            {
+                cfg.compass_enabled = parse_bool(value, cfg.compass_enabled);
+            }
+            else if (key == "compass_width")
+            {
+                cfg.compass_width = parse_float(value, cfg.compass_width);
+            }
+            else if (key == "compass_offset_y")
+            {
+                cfg.compass_offset_y = parse_float(value, cfg.compass_offset_y);
+            }
+            else if (key == "compass_height")
+            {
+                cfg.compass_height = parse_float(value, cfg.compass_height);
+            }
+            else if (key == "compass_span_deg")
+            {
+                cfg.compass_span_deg = parse_float(value, cfg.compass_span_deg);
+            }
+            else if (key == "compass_opacity")
+            {
+                cfg.compass_opacity = parse_float(value, cfg.compass_opacity);
+            }
+            else if (key == "compass_categories")
+            {
+                std::string rejected;
+                cfg.compass_categories = mdb::parse_category_mask(value, cfg.compass_categories, &rejected);
+                if (!rejected.empty())
+                {
+                    logf(L"config: compass_categories - unknown name(s) '{}' ignored",
+                         std::wstring(rejected.begin(), rejected.end()));
+                }
+            }
+            else if (key == "compass_marker_distance")
+            {
+                cfg.compass_marker_distance = parse_float(value, cfg.compass_marker_distance);
+            }
+            else if (key == "compass_show_waypoint")
+            {
+                cfg.compass_show_waypoint = parse_bool(value, cfg.compass_show_waypoint);
+            }
             else if (key == "found_tracker")
             {
                 cfg.found_tracker = parse_bool(value, cfg.found_tracker);
@@ -794,6 +1058,23 @@ namespace mm
         cfg.map_slice_hz = (std::max)(1, (std::min)(30, cfg.map_slice_hz));
         cfg.map_gamepad_deadzone = (std::max)(0.05f, (std::min)(0.6f, cfg.map_gamepad_deadzone));
         cfg.markers_categories &= mdb::kAllCats;
+        // The highlight and the compass. Same discipline: a hand-edited radius of 1e9
+        // would ask the projector for every marker in the game, and a zero-degree span
+        // would divide by zero on the strip.
+        cfg.highlight_radius = (std::max)(200.0f, (std::min)(50000.0f, cfg.highlight_radius));
+        cfg.highlight_categories &= mdb::kAllCats;
+        cfg.highlight_max_draw = (std::max)(1, (std::min)(400, cfg.highlight_max_draw));
+        cfg.highlight_alpha_near = (std::max)(0.05f, (std::min)(1.0f, cfg.highlight_alpha_near));
+        cfg.highlight_alpha_far = (std::max)(0.0f, (std::min)(cfg.highlight_alpha_near, cfg.highlight_alpha_far));
+        cfg.highlight_size = (std::max)(2.0f, (std::min)(32.0f, cfg.highlight_size));
+        cfg.highlight_camera_hz = (std::max)(5, (std::min)(240, cfg.highlight_camera_hz));
+        cfg.compass_width = (std::max)(0.1f, (std::min)(1.0f, cfg.compass_width));
+        cfg.compass_offset_y = (std::max)(0.0f, (std::min)(2000.0f, cfg.compass_offset_y));
+        cfg.compass_height = (std::max)(10.0f, (std::min)(120.0f, cfg.compass_height));
+        cfg.compass_span_deg = (std::max)(30.0f, (std::min)(360.0f, cfg.compass_span_deg));
+        cfg.compass_opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.compass_opacity));
+        cfg.compass_categories &= mdb::kAllCats;
+        cfg.compass_marker_distance = (std::max)(500.0f, (std::min)(200000.0f, cfg.compass_marker_distance));
 
         set_config(cfg);
         logf(L"config: loaded {} setting(s) from {}", lines, path);
@@ -875,6 +1156,53 @@ namespace mm
         out += "map_gamepad = " + std::string(cfg.map_gamepad ? "1" : "0") + "\n";
         out += "map_gamepad_deadzone = " + std::format("{:.2f}", cfg.map_gamepad_deadzone) + "\n";
         out += "map_waypoint_persist = " + std::string(cfg.map_waypoint_persist ? "1" : "0") + "\n\n";
+        out += "\n; ---------------------------------------------------------------------------------\n";
+        out += "; Hold-key x-ray highlight\n";
+        out += "; ---------------------------------------------------------------------------------\n";
+        out += "; While highlight_key is HELD (or the gamepad chord is), every marker of an enabled\n";
+        out += "; category within highlight_radius uu is drawn at its projected screen position -\n";
+        out += "; glyph, name and distance - through walls, fading with distance. It is a hold, not\n";
+        out += "; a toggle, so there is no state to get stuck. highlight_key takes the same names as\n";
+        out += "; the other hotkeys plus SPACE and L/R ALT / SHIFT / CTRL.\n";
+        out += "highlight_enabled = " + std::string(cfg.highlight_enabled ? "1" : "0") + "\n";
+        out += "highlight_key = " + vk_name(cfg.highlight_key) + "\n";
+        out += "highlight_gamepad = " + std::string(cfg.highlight_gamepad ? "1" : "0") + "\n";
+        {
+            const std::wstring chord =
+                pad_chord_name(cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt);
+            std::string narrow;
+            narrow.reserve(chord.size());
+            for (const wchar_t c : chord)
+            {
+                narrow.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
+            }
+            out += "highlight_pad_chord = " + narrow + "\n";
+        }
+        out += "highlight_radius = " + std::format("{:.0f}", cfg.highlight_radius) + "\n";
+        out += "highlight_categories = " + mdb::format_category_mask(cfg.highlight_categories) + "\n";
+        out += "highlight_show_found = " + std::string(cfg.highlight_show_found ? "1" : "0") + "\n";
+        out += "highlight_max_draw = " + std::to_string(cfg.highlight_max_draw) + "\n";
+        out += "highlight_alpha_near = " + std::format("{:.2f}", cfg.highlight_alpha_near) + "\n";
+        out += "highlight_alpha_far = " + std::format("{:.2f}", cfg.highlight_alpha_far) + "\n";
+        out += "highlight_size = " + std::format("{:.1f}", cfg.highlight_size) + "\n";
+        out += "highlight_labels = " + std::string(cfg.highlight_labels ? "1" : "0") + "\n";
+        out += "highlight_edge_arrows = " + std::string(cfg.highlight_edge_arrows ? "1" : "0") + "\n";
+        out += "highlight_camera_hz = " + std::to_string(cfg.highlight_camera_hz) + "\n";
+        out += "\n; ---------------------------------------------------------------------------------\n";
+        out += "; The compass strip\n";
+        out += "; ---------------------------------------------------------------------------------\n";
+        out += "; Headings and ticks across the top of the screen, with bearing pips for the\n";
+        out += "; waypoint and for nearby markers of the selected categories. Hidden by exactly the\n";
+        out += "; same rules as the minimap.\n";
+        out += "compass_enabled = " + std::string(cfg.compass_enabled ? "1" : "0") + "\n";
+        out += "compass_width = " + std::format("{:.3f}", cfg.compass_width) + "\n";
+        out += "compass_offset_y = " + std::format("{:.0f}", cfg.compass_offset_y) + "\n";
+        out += "compass_height = " + std::format("{:.0f}", cfg.compass_height) + "\n";
+        out += "compass_span_deg = " + std::format("{:.0f}", cfg.compass_span_deg) + "\n";
+        out += "compass_opacity = " + std::format("{:.2f}", cfg.compass_opacity) + "\n";
+        out += "compass_categories = " + mdb::format_category_mask(cfg.compass_categories) + "\n";
+        out += "compass_marker_distance = " + std::format("{:.0f}", cfg.compass_marker_distance) + "\n";
+        out += "compass_show_waypoint = " + std::string(cfg.compass_show_waypoint ? "1" : "0") + "\n\n";
         out += "panel_key = " + vk_name(cfg.panel_key) + "\n";
         out += "reload_key = " + vk_name(cfg.reload_key) + "\n";
         out += "map_key = " + vk_name(cfg.map_key) + "\n";

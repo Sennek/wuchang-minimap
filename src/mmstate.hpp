@@ -226,6 +226,67 @@ namespace mm
         float map_gamepad_deadzone = 0.22f;
         bool map_waypoint_persist = true; // write wuchang_minimap_waypoint.txt
 
+        //==============================================================================
+        // Hold-key x-ray highlight (master plan step 7, v1)
+        //==============================================================================
+        //
+        // While `highlight_key` is HELD (or the gamepad chord is), every marker of an
+        // enabled category within `highlight_radius` is drawn at its projected screen
+        // position - glyph, name and distance in metres - fading with distance. The
+        // overlay draws over the scene, so "through walls" costs nothing extra; there is
+        // no occlusion test and no render state anywhere near the game's.
+        //
+        // It is a HOLD, not a toggle: a toggle would be one more piece of latched state
+        // to unlatch when a menu opens, and lessons.md is unambiguous about those.
+
+        bool highlight_enabled = true;
+        int highlight_key = 0xA4; // VK_LMENU - left Alt
+        bool highlight_gamepad = true;
+        // XInput chord (pad::kLeftShoulder | pad::kRightShoulder by default). The
+        // triggers are analogue, so they are their own flags rather than mask bits.
+        std::uint16_t highlight_pad_mask = 0x0300;
+        bool highlight_pad_lt = false;
+        bool highlight_pad_rt = false;
+        float highlight_radius = 3000.0f; // uu (30 m)
+        // Chests and pickups: the "uncollected loot" set. Everything mdb knows about is
+        // selectable, which is what makes this useful for shrines or fog gates too.
+        std::uint32_t highlight_categories =
+            mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup);
+        bool highlight_show_found = false; // draw collected / opened ones too
+        int highlight_max_draw = 60;       // nearest first
+        float highlight_alpha_near = 1.0f; // at the camera
+        float highlight_alpha_far = 0.25f; // at highlight_radius
+        float highlight_size = 7.0f;       // glyph radius, screen px
+        bool highlight_labels = true;      // name + distance next to the glyph
+        bool highlight_edge_arrows = true; // off-screen / behind: an arrow on the rim
+        // How often the game thread re-reads the camera while the key is held. The read
+        // is a handful of raw doubles at a cached offset, so this is cheap; it only has
+        // to keep up with how fast the player can swing the camera.
+        int highlight_camera_hz = 60;
+
+        //==============================================================================
+        // The compass strip
+        //==============================================================================
+        //
+        // A heading strip across the top of the screen: N/E/S/W plus 15-degree ticks
+        // derived from the camera yaw (the pawn's yaw when no camera pose is fresh),
+        // with bearing pips for the waypoint and for nearby markers of the selected
+        // categories. It is hidden by exactly the same evaluation as the minimap - no
+        // second set of show/hide rules, no second latch.
+
+        bool compass_enabled = true;
+        float compass_width = 0.42f;    // fraction of the screen width
+        float compass_offset_y = 18.0f; // px from the top of the screen
+        float compass_height = 26.0f;   // px
+        float compass_span_deg = 120.0f; // degrees visible across the strip
+        float compass_opacity = 0.9f;
+        std::uint32_t compass_categories = mdb::cat_bit(mdb::Cat::Shrine) |
+                                           mdb::cat_bit(mdb::Cat::Boss) |
+                                           mdb::cat_bit(mdb::Cat::Elite) |
+                                           mdb::cat_bit(mdb::Cat::FogGate);
+        float compass_marker_distance = 15000.0f; // uu (150 m)
+        bool compass_show_waypoint = true;
+
         bool debug_readout = true;
         bool debug_show_panel_on_start = false; // main-menu verification aid
         int panel_key = 0x71;                   // VK_F2
@@ -245,8 +306,12 @@ namespace mm
     std::wstring config_path();
     std::wstring mod_dir();
 
-    // "F2", "M", "TAB", ... - the same spelling the config file uses. Any thread.
+    // "F2", "M", "TAB", "LALT", ... - the same spelling the config file uses. Any thread.
     std::wstring key_name(int vk);
+
+    // "LB+RB", "A", "LT+RT", "none" - the gamepad chord spelling the config file uses.
+    // Any thread.
+    std::wstring pad_chord_name(std::uint16_t mask, bool lt, bool rt);
 
     //==================================================================================
     // The waypoint

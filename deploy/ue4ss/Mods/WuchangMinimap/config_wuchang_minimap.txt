@@ -157,11 +157,27 @@ markers_enabled = 1
 ; static database (positions, but no collected / opened state).
 markers_live = 1
 
-; Complete sweeps of the marker class table per second (1..10). Each sweep is one
-; FindAllOf per game-thread tick, so 1 is roughly one object-array walk per 100 ms -
-; the same order of cost the menu test already pays. Raise it only if markers feel
-; stale; enemies are the only thing that actually moves.
+; How the live sweep works, and its three dials.
+;
+; The sweep walks the engine's object array ONCE per full pass, a slice at a time, and
+; classifies each object by its blueprint class. A "pump" is one slice; a "round" is a
+; complete pass, after which the marker set is republished.
+;
+;   markers_rounds_per_sec  (1..10)      how often a full pass may START. A pass that
+;                                        finishes early idles until its next turn, so
+;                                        this is a ceiling, not a target.
+;   markers_scan_chunk      (512..131072) object slots visited per pump. This is the
+;                                        frame-cost dial: more slots = a fresher marker
+;                                        set and a costlier pump.
+;   markers_scan_period_ms  (1..500)     minimum milliseconds between pumps.
+;
+; The F2 panel prints both numbers you need to tune these: `scan pump` (what one pump
+; costs the game thread - keep it under ~1 ms) and `round` (how long a full pass took
+; and how many object slots it covered). Halve the chunk if pumps are expensive; the
+; round simply takes proportionally longer.
 markers_rounds_per_sec = 1
+markers_scan_chunk = 8192
+markers_scan_period_ms = 8
 
 ; Which categories to draw. A comma-separated list of
 ;   shrine, chest, pickup, boss, elite, enemy, npc, merchant, door, ladder, lift,

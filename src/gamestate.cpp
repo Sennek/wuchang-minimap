@@ -668,6 +668,23 @@ namespace gamestate
             const std::uint64_t now = ::GetTickCount64();
             if (now - g_last_position < kPositionPeriodMs)
             {
+                // BETWEEN position pumps: run the marker scan slice and nothing else.
+                //
+                // The marker sweep walks GUObjectArray a slice at a time and needs many
+                // small slices per second to keep a full pass inside ~1 s. Gating it on
+                // this 10 Hz pump was what forced the old design to do a whole
+                // FindAllOf (28 ms, 2-3 dropped frames) per pump. It is self-throttled
+                // on QueryPerformanceCounter, so calling it from every ProcessEvent
+                // costs one QPC read and a compare when it is not its turn.
+                //
+                // It runs on the LAST validated state: same re-entrancy guard, same
+                // transition cooldown, and only while a gameplay pawn was standing as
+                // of the most recent position pump (at most 100 ms ago).
+                if (g_state_ok_since != 0 && now >= g_cooldown_until)
+                {
+                    const DepthGuard slice_guard{depth};
+                    markers::game_thread_pump(now, g_world);
+                }
                 return;
             }
             g_last_position = now;
@@ -898,9 +915,10 @@ namespace gamestate
             g_report_pending.store(true, std::memory_order_relaxed);
 
             // The marker sweep runs LAST, on the same validated state and inside the
-            // same re-entrancy guard: one FindAllOf per pump, cycling through the
-            // marker class table. Putting it after the publish means a slow sweep can
-            // never delay the position the overlay draws with.
+            // same re-entrancy guard: one slice of the chunked GUObjectArray walk.
+            // Putting it after the publish means a slow slice can never delay the
+            // position the overlay draws with. Most slices are taken by the fast path
+            // above, between position pumps.
             markers::game_thread_pump(now, g_world);
         }
     } // namespace

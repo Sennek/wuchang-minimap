@@ -102,6 +102,17 @@ namespace RC::Unreal
         //
         // Bounds-checked: an out-of-range index yields nullptr.
         static FUObjectItem* IndexToObject(int index);
+
+        // ?GetNumElements@FUObjectArray@Unreal@RC@@SAHXZ
+        //
+        // How many slots GUObjectArray currently holds (used, free and never-used).
+        // It is the loop bound of the chunked marker walk: iterating [0, N) and
+        // rejecting the slots whose FUObjectItem is not valid costs one pass over the
+        // array instead of the one-pass-per-class that FindAllOf charges.
+        //
+        // The value GROWS as levels stream in and can drop after a GC, so it is
+        // re-read every slice and the cursor clamped against it - never cached.
+        static int GetNumElements();
     };
 
     class UObject : public UObjectBase

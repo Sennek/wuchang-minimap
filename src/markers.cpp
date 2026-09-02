@@ -16,6 +16,7 @@
 
 #include "mem.hpp"
 #include "mmstate.hpp"
+#include "scan_sched.hpp"
 #include "ue_min.hpp"
 #include "uereflect.hpp"
 
@@ -31,19 +32,23 @@ namespace markers
         // The class table - what the live sweep looks for
         //==============================================================================
         //
-        // One FindAllOf call per game-thread pump, cycling through this table, so a
-        // full round costs exactly kClassCount object-array walks spread over ~1 s.
-        // That is the same order of cost gamestate already pays for its 4 Hz
-        // FindAllOf("UserWidget") sweep, and it keeps the per-pump peak at one walk
-        // instead of nine.
+        // HOW THE SWEEP FINDS THESE (changed 2026-09-02, see lessons.md)
+        // --------------------------------------------------------------
+        // It used to be one `UObjectGlobals::FindAllOf` per game-thread pump, cycling
+        // through this table. FindAllOf walks the WHOLE GUObjectArray, so a round cost
+        // kClassCount full walks - measured in-game at 28.30 ms mean / 51.05 ms peak
+        // PER PUMP, i.e. two to three dropped frames ten times a second.
         //
-        // FindAllOf matches subclasses too (lessons.md: FindAllOf("Actor") returns
-        // 2173 objects of which only 1019 have the bare `Actor` class), so
-        // BP_PickupActor_C also brings in BP_DropItem_C - the runtime-spawned enemy
-        // loot drop whose collect was watched end-to-end in run 3. Every returned
-        // object is still re-classified by walking its class' super chain by name, so
-        // a subclass instance lands in the right category regardless of which entry
-        // found it.
+        // Now the sweep walks the object array itself, ONCE per round, in slices of
+        // `markers_scan_chunk` slots per pump (src/scan_sched.hpp). Each slot costs a
+        // validity check, a class-pointer load and one memoised lookup; the expensive
+        // per-object work only runs for the few slots whose class is in this table.
+        //
+        // Classification is still by NAME up the super chain, so a subclass lands in
+        // the right category exactly as FindAllOf's subclass matching used to arrange -
+        // BP_PickupActor_C still brings in BP_DropItem_C, the runtime-spawned enemy
+        // loot drop whose collect was watched end-to-end in run 3. The difference is
+        // that the answer is memoised per UClass* and consulted, not recomputed.
 
         enum class Rule : std::uint8_t
         {
@@ -286,8 +291,21 @@ namespace markers
         std::atomic<int> g_published_count{0};
         std::atomic<int> g_live_count{0};
         std::atomic<std::uint64_t> g_rounds{0};
-        std::atomic<double> g_sweep_ms{0.0};
-        std::atomic<double> g_sweep_ms_peak{0.0};
+
+        // Scan diagnostics. Written by the game thread, read by the loop and render
+        // threads; every one of them is a lone scalar, so a relaxed atomic is the whole
+        // synchronisation story - a torn *set* of numbers on the F2 panel would be
+        // harmless anyway (they are refreshed 1 Hz).
+        std::atomic<double> g_scan_slice_ms{0.0};
+        std::atomic<double> g_scan_slice_ms_avg{0.0};
+        std::atomic<double> g_scan_slice_ms_peak{0.0};
+        std::atomic<double> g_scan_slice_ms_max{0.0};
+        std::atomic<double> g_scan_round_ms{0.0};
+        std::atomic<int> g_scan_round_slices{0};
+        std::atomic<int> g_scan_round_objects{0};
+        std::atomic<int> g_scan_total{0};
+        std::atomic<int> g_scan_chunk{0};
+        std::atomic<bool> g_scan_fallback{false};
 
         //==============================================================================
         // The published draw buffer
@@ -332,9 +350,38 @@ namespace markers
         std::unordered_map<std::string, LiveEntry> g_live;
 
         const void* g_world = nullptr;
+        std::uint64_t g_round = 0;
+
+        // The chunked object-array walk (game thread only).
+        scan::Cursor g_cursor{};
+        scan::RoundStats g_round_stats{};
+        std::uint64_t g_last_slice_us = 0;
+        std::uint64_t g_round_start_us = 0;
+        bool g_round_open = false; // false = waiting for the next round's turn
+
+        // Fallback path only: one FindAllOf per pump, cycling the class table. Used
+        // when FUObjectArray::GetNumElements() cannot answer (0 or negative), which
+        // would mean UE4SS has not resolved GUObjectArray - drawing nothing at all in
+        // that case would be worse than a slow sweep.
         int g_next_class = 0;
         std::uint64_t g_last_class_ms = 0;
-        std::uint64_t g_round = 0;
+
+        std::uint64_t qpc_us()
+        {
+            static LARGE_INTEGER freq = [] {
+                LARGE_INTEGER f{};
+                ::QueryPerformanceFrequency(&f);
+                return f;
+            }();
+            LARGE_INTEGER t{};
+            ::QueryPerformanceCounter(&t);
+            if (freq.QuadPart <= 0)
+            {
+                return 0;
+            }
+            return static_cast<std::uint64_t>(t.QuadPart) * 1000000ull /
+                   static_cast<std::uint64_t>(freq.QuadPart);
+        }
 
         //==============================================================================
         // Raw reads on the game thread
@@ -453,7 +500,11 @@ namespace markers
                 }
                 current = current->GetSuperStruct();
             }
-            if (g_class_spec.size() > 8192)
+            // The cap has to clear the WHOLE game's class count, not the marker
+            // classes': the chunked walk asks about every class that owns an object, so
+            // a cap of 8192 (what the FindAllOf sweep needed) would be hit mid-round and
+            // throw away exactly the negative answers that make the walk cheap.
+            if (g_class_spec.size() > 262144)
             {
                 g_class_spec.clear();
             }
@@ -520,9 +571,182 @@ namespace markers
         }
 
         //==============================================================================
-        // One class sweep (game thread)
+        // One marker actor (game thread)
         //==============================================================================
+        //
+        // Everything expensive about a marker - the layout cache, the RootComponent
+        // location read, the state-flag read, the FullName-derived id - lives here, and
+        // it only ever runs for an object whose class IS in kClasses. The chunked walk
+        // steps over hundreds of thousands of slots per round and reaches this for a
+        // few hundred of them.
+        void process_marker(UObject* obj, const ClassSpec& s)
+        {
+            // The marker actor. For an AI controller it is the pawn it possesses.
+            UObject* actor = obj;
+            if (s.rule == Rule::ControllerPawn)
+            {
+                const uer::ClassLayout* layout = g_layouts.get(obj);
+                actor = uer::read_object_prop(layout, obj, L"Pawn");
+                if (actor == nullptr)
+                {
+                    return;
+                }
+            }
 
+            LiveEntry e{};
+            e.cat = s.cat;
+            e.cls = s.name;
+            e.persist = s.persist;
+            e.round = g_round;
+            if (actor_location(actor, e.x, e.y, e.z))
+            {
+                // (0,0,0) is not a position here: it is where the level saver parks
+                // a collected pickup. Keep the entry (its `found` still matters) but
+                // never draw it there.
+                e.pos_valid = !(e.x == 0.0 && e.y == 0.0 && e.z == 0.0);
+            }
+
+            switch (s.rule)
+            {
+            case Rule::UsedBool:
+            {
+                bool used = false;
+                if (read_bool_prop(actor, L"Used", used))
+                {
+                    e.found = used;
+                }
+                break;
+            }
+            case Rule::DoorOpenBool:
+            {
+                bool open = false;
+                if (read_bool_prop(actor, L"DoorOpen", open))
+                {
+                    e.found = open;
+                }
+                break;
+            }
+            case Rule::ActiveBool:
+            {
+                bool active = false;
+                if (read_bool_prop(actor, L"Active", active))
+                {
+                    e.found = active;
+                }
+                break;
+            }
+            case Rule::PickupDying:
+            {
+                bool dying = false;
+                if (read_bool_prop(actor, L"dying", dying) && dying)
+                {
+                    e.found = true;
+                }
+                if (!e.pos_valid)
+                {
+                    e.found = true; // parked at the origin = already collected
+                }
+                break;
+            }
+            case Rule::ControllerPawn:
+            case Rule::None:
+            default:
+                break;
+            }
+
+            // The id. Shrines carry a game-authored one; everything else is
+            // <level short name>/<object name>, which is the join key the offline
+            // extractor writes into markers/<chapter>.json.
+            std::string id;
+            if (s.cat == mdb::Cat::Shrine)
+            {
+                std::wstring shrine;
+                if (read_fstring_prop(actor, kShrineIdProp, shrine) && !shrine.empty())
+                {
+                    id = narrow_ascii(shrine);
+                }
+            }
+            if (id.empty())
+            {
+                id = id_for(actor);
+            }
+            if (id.empty())
+            {
+                return;
+            }
+            // NOTE: enemies are NOT namespaced. The offline extractor writes an
+            // enemy's spawn point into the static DB under the same
+            // <level>/<object name> id, and giving the live one a prefix of its own
+            // would draw the spawn point and the live pawn as two markers. What
+            // keeps enemies out of the collection tracker is `persist == false`,
+            // not the id.
+
+            if (e.found && e.persist)
+            {
+                note_found(id);
+            }
+            if (g_live.size() < 8192 || g_live.contains(id))
+            {
+                g_live[id] = e;
+            }
+        }
+
+        //==============================================================================
+        // The chunked GUObjectArray walk (game thread)
+        //==============================================================================
+        //
+        // One slice = one game-thread pump. Per slot the cost is a bounds-checked
+        // FUObjectItem lookup, a validity test, the object's class pointer and one
+        // memoised UClass* -> spec index lookup. Only a class that IS a marker class
+        // pays for anything more.
+        //
+        // The rejects, cheapest first:
+        //   * FUObjectItem::IsValid(false) - null slot, pending kill, or unreachable.
+        //     Read through the object ARRAY, never through the object, so a slot whose
+        //     allocation has already been freed is safe to look at.
+        //   * spec_for_class() < 0        - not a marker class. The overwhelming case,
+        //     and memoised per UClass*, so the super-chain name walk (wstring compares)
+        //     runs once per class per level, not once per object per round.
+        //   * IsValidObjectForFindXOf()   - CDOs and archetypes: exactly what FindAllOf
+        //     used to filter out on our behalf.
+        int scan_slice(const scan::Slice& slice)
+        {
+            int visited = 0;
+            for (int i = slice.begin; i < slice.end; ++i)
+            {
+                ++visited;
+                RC::Unreal::FUObjectItem* item = RC::Unreal::FUObjectArray::IndexToObject(i);
+                if (item == nullptr || !item->IsValid(false))
+                {
+                    continue;
+                }
+                UObject* obj = item->GetUObject();
+                if (obj == nullptr)
+                {
+                    continue;
+                }
+                const int si = spec_for_class(obj);
+                if (si < 0)
+                {
+                    continue;
+                }
+                if (!UObjectGlobals::IsValidObjectForFindXOf(obj) || !mem::readable(obj, 0x40))
+                {
+                    continue;
+                }
+                process_marker(obj, kClasses[si]);
+            }
+            return visited;
+        }
+
+        //==============================================================================
+        // Fallback: one FindAllOf per pump, cycling the class table (game thread)
+        //==============================================================================
+        //
+        // Only reached when FUObjectArray::GetNumElements() cannot answer. This is the
+        // old, slow path - 28.30 ms mean / 51.05 ms peak per pump when it was measured
+        // in-game - and it exists purely so a UE4SS build that fails to resolve
+        // GUObjectArray still draws markers instead of nothing.
         void sweep_class(int index)
         {
             const ClassSpec& spec = kClasses[index];
@@ -543,116 +767,7 @@ namespace markers
                     continue;
                 }
                 const int si = spec_for_class(obj);
-                const ClassSpec& s = si >= 0 ? kClasses[si] : spec;
-
-                // The marker actor. For an AI controller it is the pawn it possesses.
-                UObject* actor = obj;
-                if (s.rule == Rule::ControllerPawn)
-                {
-                    const uer::ClassLayout* layout = g_layouts.get(obj);
-                    actor = uer::read_object_prop(layout, obj, L"Pawn");
-                    if (actor == nullptr)
-                    {
-                        continue;
-                    }
-                }
-
-                LiveEntry e{};
-                e.cat = s.cat;
-                e.cls = s.name;
-                e.persist = s.persist;
-                e.round = g_round;
-                if (actor_location(actor, e.x, e.y, e.z))
-                {
-                    // (0,0,0) is not a position here: it is where the level saver parks
-                    // a collected pickup. Keep the entry (its `found` still matters) but
-                    // never draw it there.
-                    e.pos_valid = !(e.x == 0.0 && e.y == 0.0 && e.z == 0.0);
-                }
-
-                switch (s.rule)
-                {
-                case Rule::UsedBool:
-                {
-                    bool used = false;
-                    if (read_bool_prop(actor, L"Used", used))
-                    {
-                        e.found = used;
-                    }
-                    break;
-                }
-                case Rule::DoorOpenBool:
-                {
-                    bool open = false;
-                    if (read_bool_prop(actor, L"DoorOpen", open))
-                    {
-                        e.found = open;
-                    }
-                    break;
-                }
-                case Rule::ActiveBool:
-                {
-                    bool active = false;
-                    if (read_bool_prop(actor, L"Active", active))
-                    {
-                        e.found = active;
-                    }
-                    break;
-                }
-                case Rule::PickupDying:
-                {
-                    bool dying = false;
-                    if (read_bool_prop(actor, L"dying", dying) && dying)
-                    {
-                        e.found = true;
-                    }
-                    if (!e.pos_valid)
-                    {
-                        e.found = true; // parked at the origin = already collected
-                    }
-                    break;
-                }
-                case Rule::ControllerPawn:
-                case Rule::None:
-                default:
-                    break;
-                }
-
-                // The id. Shrines carry a game-authored one; everything else is
-                // <level short name>/<object name>, which is the join key the offline
-                // extractor writes into markers/<chapter>.json.
-                std::string id;
-                if (s.cat == mdb::Cat::Shrine)
-                {
-                    std::wstring shrine;
-                    if (read_fstring_prop(actor, kShrineIdProp, shrine) && !shrine.empty())
-                    {
-                        id = narrow_ascii(shrine);
-                    }
-                }
-                if (id.empty())
-                {
-                    id = id_for(actor);
-                }
-                if (id.empty())
-                {
-                    continue;
-                }
-                // NOTE: enemies are NOT namespaced. The offline extractor writes an
-                // enemy's spawn point into the static DB under the same
-                // <level>/<object name> id, and giving the live one a prefix of its own
-                // would draw the spawn point and the live pawn as two markers. What
-                // keeps enemies out of the collection tracker is `persist == false`,
-                // not the id.
-
-                if (e.found && e.persist)
-                {
-                    note_found(id);
-                }
-                if (g_live.size() < 8192 || g_live.contains(id))
-                {
-                    g_live[id] = e;
-                }
+                process_marker(obj, si >= 0 ? kClasses[si] : spec);
             }
         }
 
@@ -755,6 +870,53 @@ namespace markers
         }
 
         //==============================================================================
+        // The fallback pump (game thread)
+        //==============================================================================
+        //
+        // Byte-for-byte the pre-2026-09-02 behaviour: one FindAllOf per interval,
+        // cycling the class table. It is only reached when GUObjectArray reports no
+        // elements, i.e. when the chunked walk has nothing to walk. Its cost lands in
+        // the same F2 counters, flagged by `scan_fallback` so a 28 ms reading is never
+        // mistaken for the fast path.
+        void legacy_pump(std::uint64_t now, const mm::Config& cfg)
+        {
+            g_scan_fallback.store(true, std::memory_order_relaxed);
+            const int rounds_per_sec = cfg.markers_rounds_per_sec < 1 ? 1 : cfg.markers_rounds_per_sec;
+            const std::uint64_t interval = static_cast<std::uint64_t>(1000 / (rounds_per_sec * kClassCount) + 1);
+            if (now - g_last_class_ms < interval)
+            {
+                return;
+            }
+            g_last_class_ms = now;
+
+            const std::uint64_t t0 = qpc_us();
+            sweep_class(g_next_class);
+            const double ms = static_cast<double>(qpc_us() - t0) / 1000.0;
+
+            scan::note_slice(g_round_stats, ms, 0);
+            g_scan_slice_ms.store(ms, std::memory_order_relaxed);
+            if (ms > g_scan_slice_ms_max.load(std::memory_order_relaxed))
+            {
+                g_scan_slice_ms_max.store(ms, std::memory_order_relaxed);
+            }
+
+            ++g_next_class;
+            if (g_next_class >= kClassCount)
+            {
+                g_next_class = 0;
+                publish_round();
+                ++g_round;
+                g_rounds.store(g_round, std::memory_order_relaxed);
+                g_scan_slice_ms_avg.store(g_round_stats.avg_ms(), std::memory_order_relaxed);
+                g_scan_slice_ms_peak.store(g_round_stats.peak_ms, std::memory_order_relaxed);
+                g_scan_round_ms.store(g_round_stats.total_ms, std::memory_order_relaxed);
+                g_scan_round_slices.store(g_round_stats.slices, std::memory_order_relaxed);
+                g_scan_round_objects.store(0, std::memory_order_relaxed);
+                g_round_stats = scan::RoundStats{};
+            }
+        }
+
+        //==============================================================================
         // Loading (loop thread)
         //==============================================================================
 
@@ -819,8 +981,16 @@ namespace markers
             s.published = g_published_count.load(std::memory_order_relaxed);
             s.live_entries = g_live_count.load(std::memory_order_relaxed);
             s.rounds = g_rounds.load(std::memory_order_relaxed);
-            s.sweep_ms = g_sweep_ms.load(std::memory_order_relaxed);
-            s.sweep_ms_peak = g_sweep_ms_peak.load(std::memory_order_relaxed);
+            s.scan_slice_ms = g_scan_slice_ms.load(std::memory_order_relaxed);
+            s.scan_slice_ms_avg = g_scan_slice_ms_avg.load(std::memory_order_relaxed);
+            s.scan_slice_ms_peak = g_scan_slice_ms_peak.load(std::memory_order_relaxed);
+            s.scan_slice_ms_max = g_scan_slice_ms_max.load(std::memory_order_relaxed);
+            s.scan_round_ms = g_scan_round_ms.load(std::memory_order_relaxed);
+            s.scan_round_slices = g_scan_round_slices.load(std::memory_order_relaxed);
+            s.scan_round_objects = g_scan_round_objects.load(std::memory_order_relaxed);
+            s.scan_total = g_scan_total.load(std::memory_order_relaxed);
+            s.scan_chunk = g_scan_chunk.load(std::memory_order_relaxed);
+            s.scan_fallback = g_scan_fallback.load(std::memory_order_relaxed);
             Guard guard(g_stats_lock);
             g_stats = s;
         }
@@ -986,11 +1156,15 @@ namespace markers
         load_found_file();
         recompute_stats();
         const mm::Config cfg = mm::config();
-        mm::logf(L"markers: {} ({} live class sweep, {} found tracker); categories = {}",
+        mm::logf(L"markers: {} ({} live sweep, {} found tracker); categories = {}; "
+                 L"scan = {} slot(s)/pump every {} ms, {} full round(s)/s max",
                  cfg.markers_enabled ? L"enabled" : L"DISABLED",
                  cfg.markers_live ? L"with" : L"without",
                  cfg.found_tracker ? L"with" : L"without",
-                 widen(mdb::format_category_mask(cfg.markers_categories)));
+                 widen(mdb::format_category_mask(cfg.markers_categories)),
+                 cfg.markers_scan_chunk,
+                 cfg.markers_scan_period_ms,
+                 cfg.markers_rounds_per_sec);
     }
 
     void request_toggle_found(const char* id, bool found)
@@ -1106,8 +1280,16 @@ namespace markers
             g_stats.published = g_published_count.load(std::memory_order_relaxed);
             g_stats.live_entries = g_live_count.load(std::memory_order_relaxed);
             g_stats.rounds = g_rounds.load(std::memory_order_relaxed);
-            g_stats.sweep_ms = g_sweep_ms.load(std::memory_order_relaxed);
-            g_stats.sweep_ms_peak = g_sweep_ms_peak.load(std::memory_order_relaxed);
+            g_stats.scan_slice_ms = g_scan_slice_ms.load(std::memory_order_relaxed);
+            g_stats.scan_slice_ms_avg = g_scan_slice_ms_avg.load(std::memory_order_relaxed);
+            g_stats.scan_slice_ms_peak = g_scan_slice_ms_peak.load(std::memory_order_relaxed);
+            g_stats.scan_slice_ms_max = g_scan_slice_ms_max.load(std::memory_order_relaxed);
+            g_stats.scan_round_ms = g_scan_round_ms.load(std::memory_order_relaxed);
+            g_stats.scan_round_slices = g_scan_round_slices.load(std::memory_order_relaxed);
+            g_stats.scan_round_objects = g_scan_round_objects.load(std::memory_order_relaxed);
+            g_stats.scan_total = g_scan_total.load(std::memory_order_relaxed);
+            g_stats.scan_chunk = g_scan_chunk.load(std::memory_order_relaxed);
+            g_stats.scan_fallback = g_scan_fallback.load(std::memory_order_relaxed);
         }
     }
 
@@ -1119,11 +1301,48 @@ namespace markers
         g_live.clear();
         g_world = nullptr;
         g_next_class = 0;
+        g_cursor = scan::Cursor{};
+        g_round_stats = scan::RoundStats{};
+        g_last_slice_us = 0;
+        g_round_start_us = 0;
+        g_round_open = false;
         g_live_count.store(0, std::memory_order_relaxed);
     }
 
+    //======================================================================================
+    // The game-thread pump
+    //======================================================================================
+    //
+    // CALLED FROM EVERY ProcessEvent, not once per 100 ms. gamestate's own 10 Hz gate
+    // used to bound this, and that was the reason the sweep could never be cheap: ten
+    // pumps a second times a chunk small enough not to stall = a round that takes many
+    // seconds. Now gamestate calls it on every pre-callback while the last validated
+    // state still stands, and the throttling below - QPC, not GetTickCount64, whose
+    // ~15.6 ms granularity is coarser than the slice period - decides the scan rate.
+    //
+    // Structure per call:
+    //   1. a 1 kHz gate, so the thousands-per-second callback costs one QPC read;
+    //   2. the config + world-change check;
+    //   3. the round gate: a finished round waits its turn (markers_rounds_per_sec);
+    //   4. the slice gate: at most one slice per markers_scan_period_ms;
+    //   5. one slice of the object-array walk, timed;
+    //   6. on wrap: publish the draw buffer and freeze the round's diagnostics.
+
     void game_thread_pump(std::uint64_t now, const void* world)
     {
+        const std::uint64_t now_us = qpc_us();
+
+        // 1. Hard ceiling on how often anything at all happens here. mm::config()
+        //    copies the config under a spinlock; at ProcessEvent rate that alone would
+        //    be thousands of lock round-trips a second for nothing.
+        static std::uint64_t s_gate_us = 0;
+        if (!scan::elapsed(now_us, s_gate_us, 1000))
+        {
+            return;
+        }
+        s_gate_us = now_us;
+
+        // 2.
         const mm::Config cfg = mm::config();
         if (!cfg.markers_enabled || !cfg.markers_live)
         {
@@ -1137,47 +1356,62 @@ namespace markers
 
         drain_inbox();
 
-        // One FindAllOf per interval, cycling through the class table: a whole round
-        // costs kClassCount object-array walks and finishes in
-        // 1 / markers_rounds_per_sec seconds. Spreading it keeps the per-pump peak at
-        // one walk - a single 9-walk burst once a second would be a visible hitch.
-        const int rounds_per_sec = cfg.markers_rounds_per_sec < 1 ? 1 : cfg.markers_rounds_per_sec;
-        const std::uint64_t interval =
-            static_cast<std::uint64_t>(1000 / (rounds_per_sec * kClassCount) + 1);
-        if (now - g_last_class_ms < interval)
+        const int total = RC::Unreal::FUObjectArray::GetNumElements();
+        if (total <= 0)
+        {
+            legacy_pump(now, cfg);
+            return;
+        }
+        g_scan_fallback.store(false, std::memory_order_relaxed);
+
+        // 3. A round that finished early waits until its slot comes round again -
+        //    refreshing the marker set faster than markers_rounds_per_sec buys nothing.
+        if (!g_round_open)
+        {
+            if (!scan::round_due(now_us, g_round_start_us, cfg.markers_rounds_per_sec))
+            {
+                return;
+            }
+            g_round_open = true;
+            g_round_start_us = now_us;
+            g_round_stats = scan::RoundStats{};
+        }
+
+        // 4.
+        if (!scan::slice_due(now_us, g_last_slice_us, cfg.markers_scan_period_ms))
         {
             return;
         }
-        g_last_class_ms = now;
+        g_last_slice_us = now_us;
 
-        const int index = g_next_class;
-        LARGE_INTEGER freq{};
-        LARGE_INTEGER t0{};
-        ::QueryPerformanceFrequency(&freq);
-        ::QueryPerformanceCounter(&t0);
+        // 5.
+        const int chunk = scan::clamp_chunk(cfg.markers_scan_chunk);
+        const scan::Slice slice = scan::next_slice(g_cursor, total, chunk);
+        const std::uint64_t t0 = qpc_us();
+        const int visited = slice.empty() ? 0 : scan_slice(slice);
+        const double slice_ms = static_cast<double>(qpc_us() - t0) / 1000.0;
 
-        sweep_class(index);
-
-        LARGE_INTEGER t1{};
-        ::QueryPerformanceCounter(&t1);
-        if (freq.QuadPart > 0)
+        scan::note_slice(g_round_stats, slice_ms, visited);
+        g_scan_slice_ms.store(slice_ms, std::memory_order_relaxed);
+        g_scan_total.store(total, std::memory_order_relaxed);
+        g_scan_chunk.store(chunk, std::memory_order_relaxed);
+        if (slice_ms > g_scan_slice_ms_max.load(std::memory_order_relaxed))
         {
-            const double ms =
-                static_cast<double>(t1.QuadPart - t0.QuadPart) * 1000.0 / static_cast<double>(freq.QuadPart);
-            g_sweep_ms.store(ms, std::memory_order_relaxed);
-            if (ms > g_sweep_ms_peak.load(std::memory_order_relaxed))
-            {
-                g_sweep_ms_peak.store(ms, std::memory_order_relaxed);
-            }
+            g_scan_slice_ms_max.store(slice_ms, std::memory_order_relaxed);
         }
 
-        g_next_class = index + 1;
-        if (g_next_class >= kClassCount)
+        // 6.
+        if (scan::advance(g_cursor, slice, total))
         {
-            g_next_class = 0;
             publish_round();
             ++g_round;
             g_rounds.store(g_round, std::memory_order_relaxed);
+            g_scan_slice_ms_avg.store(g_round_stats.avg_ms(), std::memory_order_relaxed);
+            g_scan_slice_ms_peak.store(g_round_stats.peak_ms, std::memory_order_relaxed);
+            g_scan_round_ms.store(g_round_stats.total_ms, std::memory_order_relaxed);
+            g_scan_round_slices.store(g_round_stats.slices, std::memory_order_relaxed);
+            g_scan_round_objects.store(g_round_stats.objects, std::memory_order_relaxed);
+            g_round_open = false;
         }
     }
 } // namespace markers

@@ -111,8 +111,11 @@ src/mapdata.{hpp,cpp}      maps.json parser + WIC PNG decode
 src/markers_db.{hpp,cpp}   PURE marker model: markers/<chapter>.json, category masks,
                            the found-file round-trip. No Windows, no UE4SS - which is
                            what lets tests/markers_test.cpp link it
-src/markers.{hpp,cpp}      the runtime half: the game-thread class sweep, the merge
+src/markers.{hpp,cpp}      the runtime half: the chunked game-thread object sweep, the merge
                            with the static DB, the found tracker's file I/O
+src/scan_sched.hpp         PURE scan scheduler: which object-array slots this pump,
+                           has the round wrapped, is it time yet. No engine types,
+                           so markers_test covers the live sweep's pacing
 src/mapview.{hpp,cpp}      PURE full-map layer: the north-up viewport transform and its
                            exact inverse, the zoom clamp / step, the waypoint file
                            round-trip. Same "no Windows, no UE4SS" rule as markers_db,
@@ -451,7 +454,9 @@ The marker block:
 |---|---|---|
 | `markers_enabled` | 1 | draw markers at all |
 | `markers_live` | 1 | run the game-thread class sweep (off = static positions, no state) |
-| `markers_rounds_per_sec` | 1 | complete sweeps of the class table per second (1..10) |
+| `markers_rounds_per_sec` | 1 | ceiling on how often a full pass over the object array may **start** (1..10); a pass that finishes early idles |
+| `markers_scan_chunk` | 8192 | object slots the sweep visits per game-thread pump (512..131072) - the frame-cost dial |
+| `markers_scan_period_ms` | 8 | minimum milliseconds between pumps (1..500) |
 | `markers_categories` | all but `enemy` | comma-separated category names, or `all` / `none`; the F2 checkboxes edit the same setting |
 | `markers_hide_found` | 0 | 0 = dim a found marker, 1 = hide it |
 | `markers_found_alpha` | 0.30 | how dim, as a multiple of `opacity` |
@@ -560,8 +565,9 @@ Markers come from two halves that are merged by a **stable id**, and the id is t
 
 * the **static database**, `markers\<chapter>.json` (schema `wuchang-minimap-markers/1`), built offline
   from the cooked levels by `tools/markers`, so a marker exists for an area you have never visited;
-* the **live sweep**, one `FindAllOf` per game-thread pump cycling through a table of marker classes,
-  which supplies the position and, more importantly, the *state* of every actor currently streamed in.
+* the **live sweep**, a chunked walk of `GUObjectArray` that classifies every object against a table of
+  marker classes, and supplies the position and - more importantly - the *state* of every actor
+  currently streamed in.
 
 The id is the game's own shrine id for shrines (`digong01` - `BP_RebornFire_C`'s CJK-named
 "sitting-Buddha point ID", the only property that distinguishes sibling shrines) and
@@ -583,11 +589,35 @@ State, all from the in-world recon (see the task workspace's `wuchang-classes.md
 Absence from `FindAllOf` is deliberately **not** evidence of a collect: an unloaded level looks exactly
 the same. Only the state flags auto-mark.
 
-Cost control: the sweep does **one** object-array walk per pump and cycles through the class table, so
-a complete round is `markers_rounds_per_sec` per second with a per-pump peak of a single walk - never a
-nine-walk burst. Positions are read raw (`RootComponent` -> `RelativeLocation`), not through
+### Cost control
+
+`UObjectGlobals::FindAllOf` walks the **whole** object array, so one `FindAllOf` per class means one
+full walk per class. The first version of this sweep did exactly that, one class per game-thread pump,
+and the in-game measurement was **28.30 ms mean / 51.05 ms peak per pump** - two to three dropped frames
+ten times a second.
+
+The sweep now inverts the loop. It walks `GUObjectArray` **once per round**, in slices of
+`markers_scan_chunk` slots per pump (`src/scan_sched.hpp` holds the pure slice / wrap / rate arithmetic
+and `tests/markers_test.cpp` covers it). Per slot the cost is a bounds-checked
+`FUObjectArray::IndexToObject`, an `FUObjectItem::IsValid(false)`, the object's `UClass*`, and one
+lookup in a `UClass* -> marker spec` table memoised per class - so the super-chain name walk that
+decides "is this a marker class, or a subclass of one" happens once per class per level, not once per
+object per round. Everything expensive (`RootComponent` location, the state flag, the `GetFullName`
+id) runs only for the handful of objects that matched.
+
+The slice is called from **every** `ProcessEvent` pre-callback while the last validated state stands,
+not from the 10 Hz position pump - that caller-side throttle was the reason the old design could not be
+made cheap - and it throttles itself on `QueryPerformanceCounter`, because `GetTickCount64`'s ~15.6 ms
+granularity is coarser than a one-frame slice period.
+
+Positions are still read raw (`RootComponent` -> `RelativeLocation`), not through
 `K2_GetActorLocation`, because a `ProcessEvent` per actor for ~130 pickups plus ~95 enemies inside the
 engine's own call stack is not affordable.
+
+The F2 panel prints the two numbers that tune this: `scan pump <last> ms (avg, peak, max)` - what one
+pump costs the game thread - and `round <ms> / <pumps> / <objects> of <total>  chunk N` - how long a
+full pass took and how much of the array it covered. A `! FindAllOf fallback` suffix means
+`FUObjectArray::GetNumElements()` answered 0 and the old per-class path took over.
 
 Glyphs are drawn with `ImDrawList` primitives - no image atlas, so there is no art to keep in sync with
 the category list, and each category gets a **shape as well as a colour** (a dimmed "found" marker keeps

@@ -27,6 +27,7 @@
 
 #include "mapview.hpp"
 #include "markers_db.hpp"
+#include "scan_sched.hpp"
 
 namespace mm
 {
@@ -171,7 +172,14 @@ namespace mm
 
         bool markers_enabled = true;  // draw markers at all
         bool markers_live = true;     // run the game-thread class sweep
-        int markers_rounds_per_sec = 1; // full sweeps of the class table per second
+        // The live sweep walks GUObjectArray in slices, one slice per game-thread pump
+        // (src/scan_sched.hpp). `markers_rounds_per_sec` caps how often a FULL pass is
+        // started; `markers_scan_chunk` and `markers_scan_period_ms` decide how finely
+        // that pass is sliced, i.e. how much game-thread time a single pump can cost.
+        // Raise the chunk for a fresher marker set, lower it if the frame time suffers.
+        int markers_rounds_per_sec = 1;   // full passes over the object array per second
+        int markers_scan_chunk = scan::kChunkDefault;        // object slots per pump
+        int markers_scan_period_ms = scan::kPeriodDefaultMs; // min ms between pumps
         std::uint32_t markers_categories = mdb::kAllCats & ~mdb::cat_bit(mdb::Cat::Enemy);
         bool markers_hide_found = false; // hide instead of dimming a found marker
         float markers_found_alpha = 0.3f;

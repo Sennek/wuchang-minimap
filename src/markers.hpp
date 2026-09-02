@@ -81,8 +81,22 @@ namespace markers
         int published = 0;                          // markers in the last draw buffer
         int live_entries = 0;                       // live actors currently tracked
         std::uint64_t rounds = 0;                   // completed live sweep rounds
-        double sweep_ms = 0.0;                      // last single-class sweep
-        double sweep_ms_peak = 0.0;
+
+        // The chunked GUObjectArray walk. A "slice" is one game-thread pump's worth of
+        // the object array; a "round" is a full pass over it, after which the draw
+        // buffer is published. Per-slice numbers say whether the game thread is being
+        // stalled; per-round numbers say whether the marker set is still fresh.
+        double scan_slice_ms = 0.0;      // the most recent slice
+        double scan_slice_ms_avg = 0.0;  // mean slice of the last COMPLETED round
+        double scan_slice_ms_peak = 0.0; // worst slice of the last completed round
+        double scan_slice_ms_max = 0.0;  // worst slice since the mod loaded
+        double scan_round_ms = 0.0;      // summed slice time of the last completed round
+        int scan_round_slices = 0;       // slices the last completed round took
+        int scan_round_objects = 0;      // object-array slots it visited
+        int scan_total = 0;              // GUObjectArray size at the last slice
+        int scan_chunk = 0;              // slots per slice currently in force
+        bool scan_fallback = false;      // true = the FindAllOf-per-class fallback is running
+
         bool db_loaded = false;
     };
 

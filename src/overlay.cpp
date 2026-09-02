@@ -3097,6 +3097,14 @@ namespace overlay
                 ImGui::SliderFloat("Found marker opacity", &cfg.markers_found_alpha, 0.0f, 1.0f, "%.2f");
                 ImGui::Checkbox("Keep out-of-range markers on the rim", &cfg.markers_clamp_to_edge);
 
+                // The two knobs that trade game-thread time for marker freshness.
+                // Higher chunk / lower period = a fresher set and a costlier pump; the
+                // "scan pump" line below is the read-out that says which way to move.
+                ImGui::SliderInt("Object slots per pump", &cfg.markers_scan_chunk, scan::kChunkMin,
+                                 scan::kChunkMax);
+                ImGui::SliderInt("Min ms between pumps", &cfg.markers_scan_period_ms, scan::kPeriodMinMs,
+                                 scan::kPeriodMaxMs);
+
                 // The category filter. Exactly the same set of names the config file's
                 // `markers_categories` list uses, so a filter set here and one written
                 // into the file are one setting, not two.
@@ -3205,11 +3213,29 @@ namespace overlay
                             st.found_ids,
                             st.published,
                             st.live_entries);
-                ImGui::Text("sweep %.2f ms (peak %.2f) over %llu round(s)   drawn %d of %d (%d clamped, "
-                            "%d filtered)",
-                            st.sweep_ms,
-                            st.sweep_ms_peak,
-                            static_cast<unsigned long long>(st.rounds),
+                // Two independent numbers, and they answer different questions.
+                //   PUMP  - what one game-thread pump costs. This is the frame-hitch
+                //           number; the target is well under 1 ms, and `max` is the
+                //           worst single pump since the mod loaded.
+                //   ROUND - what a full pass over the object array cost and how many
+                //           object slots it visited. This is the freshness number: the
+                //           marker set is `slices x period_ms` old at worst.
+                // `!` marks the FindAllOf fallback, which is the old 28 ms-per-pump
+                // path and only runs when GUObjectArray reports no elements.
+                ImGui::Text("scan pump %.3f ms (avg %.3f, peak %.3f, max %.3f)%s",
+                            st.scan_slice_ms,
+                            st.scan_slice_ms_avg,
+                            st.scan_slice_ms_peak,
+                            st.scan_slice_ms_max,
+                            st.scan_fallback ? "   ! FindAllOf fallback" : "");
+                ImGui::Text("round %.1f ms / %d pump(s) / %d object(s) of %d   chunk %d   %llu round(s)",
+                            st.scan_round_ms,
+                            st.scan_round_slices,
+                            st.scan_round_objects,
+                            st.scan_total,
+                            st.scan_chunk,
+                            static_cast<unsigned long long>(st.rounds));
+                ImGui::Text("drawn %d of %d (%d clamped, %d filtered)",
                             g_marker_draw.drawn,
                             g_marker_draw.total,
                             g_marker_draw.clamped,

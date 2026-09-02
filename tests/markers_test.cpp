@@ -14,6 +14,11 @@
 //   * the stable-id helpers that join the offline DB to the live actors;
 //   * the full map's viewport transform and its exact inverse, the zoom clamp, and the
 //     waypoint file round-trip (src/mapview.cpp - same "pure half" idea).
+//   * the chunked GUObjectArray scan scheduler (src/scan_sched.hpp): slice
+//     planning, round wrap, the clamps and the rate gates. That walk replaced the
+//     per-class FindAllOf sweep that cost 28.30 ms mean / 51.05 ms peak per
+//     game-thread pump in-game, and its arithmetic is the one part of it that can
+//     be proven without the engine.
 //
 // Run it with the repo's `markers` directory as argv[1] (build.ps1 does) to include
 // the real sample file in the run; without it the embedded fixtures still cover
@@ -29,6 +34,7 @@
 
 #include "mapview.hpp"
 #include "markers_db.hpp"
+#include "scan_sched.hpp"
 
 namespace
 {
@@ -627,6 +633,133 @@ namespace
         CHECK(keep.set);
         CHECK_NEAR(keep.x, 7.0, 1e-9);
     }
+    //======================================================================================
+    // The chunked object-array scan scheduler (src/scan_sched.hpp)
+    //======================================================================================
+
+    void test_scan_sched()
+    {
+        std::printf("-- scan scheduler --\n");
+
+        // --- clamps ---------------------------------------------------------------
+        CHECK(scan::clamp_chunk(scan::kChunkDefault) == scan::kChunkDefault);
+        CHECK(scan::clamp_chunk(0) == scan::kChunkMin);
+        CHECK(scan::clamp_chunk(-5) == scan::kChunkMin);
+        CHECK(scan::clamp_chunk(1 << 30) == scan::kChunkMax);
+        CHECK(scan::clamp_period_ms(0) == scan::kPeriodMinMs);
+        CHECK(scan::clamp_period_ms(100000) == scan::kPeriodMaxMs);
+        CHECK(scan::clamp_period_ms(scan::kPeriodDefaultMs) == scan::kPeriodDefaultMs);
+
+        // --- a whole round visits every slot exactly once, in order ---------------
+        {
+            constexpr int kTotal = 25000;
+            constexpr int kChunk = 8192;
+            scan::Cursor c{};
+            int expected_next = 0;
+            int slices = 0;
+            bool wrapped = false;
+            while (!wrapped && slices < 1000)
+            {
+                const scan::Slice s = scan::next_slice(c, kTotal, kChunk);
+                CHECK(s.begin == expected_next);
+                CHECK(s.count() > 0);
+                CHECK(s.count() <= kChunk);
+                CHECK(s.end <= kTotal);
+                expected_next = s.end;
+                wrapped = scan::advance(c, s, kTotal);
+                ++slices;
+            }
+            CHECK(wrapped);
+            CHECK(expected_next == kTotal);
+            // ceil(25000 / 8192) == 4, so a 1 s round at 8 ms per slice has plenty of
+            // headroom - which is the whole point of the redesign.
+            CHECK(slices == 4);
+            CHECK(c.round == 1);
+            CHECK(c.index == 0);
+            CHECK(c.visited == 0); // reset by the wrap
+        }
+
+        // --- a chunk that swallows the array wraps in one slice --------------------
+        {
+            scan::Cursor c{};
+            const scan::Slice s = scan::next_slice(c, 100, 8192);
+            CHECK(s.begin == 0);
+            CHECK(s.end == 100);
+            CHECK(scan::advance(c, s, 100));
+            CHECK(c.round == 1);
+        }
+
+        // --- the array shrinking under the cursor does not run off the end ---------
+        // GUObjectArray grows as levels stream in and can drop after a GC, so `total`
+        // is re-read every slice. A cursor left beyond the new end restarts at 0
+        // instead of planning an out-of-range slice.
+        {
+            scan::Cursor c{};
+            c.index = 40000;
+            const scan::Slice s = scan::next_slice(c, 1000, 8192);
+            CHECK(s.begin == 0);
+            CHECK(s.end == 1000);
+        }
+
+        // --- an empty array still ends its round -----------------------------------
+        // Otherwise nothing would ever be published again.
+        {
+            scan::Cursor c{};
+            const scan::Slice s = scan::next_slice(c, 0, 8192);
+            CHECK(s.empty());
+            CHECK(scan::advance(c, s, 0));
+            CHECK(c.round == 1);
+            CHECK(c.index == 0);
+        }
+
+        // --- the visited counter tracks the round, not the run ---------------------
+        {
+            scan::Cursor c{};
+            const scan::Slice s1 = scan::next_slice(c, 20000, 8192);
+            CHECK(!scan::advance(c, s1, 20000));
+            CHECK(c.visited == 8192);
+            const scan::Slice s2 = scan::next_slice(c, 20000, 8192);
+            CHECK(s2.begin == 8192);
+            CHECK(!scan::advance(c, s2, 20000));
+            CHECK(c.visited == 16384);
+            const scan::Slice s3 = scan::next_slice(c, 20000, 8192);
+            CHECK(s3.count() == 20000 - 16384);
+            CHECK(scan::advance(c, s3, 20000));
+            CHECK(c.visited == 0);
+        }
+
+        // --- rate gates ------------------------------------------------------------
+        // A zero "last" means never-ran and is always due; that is what makes the very
+        // first pump after a level load take a slice immediately.
+        CHECK(scan::elapsed(1000, 0, 1000000));
+        CHECK(!scan::slice_due(5000, 1000, 8));   // 4 ms into an 8 ms period
+        CHECK(scan::slice_due(9001, 1000, 8));    // 8.001 ms
+        CHECK(scan::slice_due(1000000, 0, 8));
+        // A QPC that appears to go backwards (it can across a suspend) must not wedge
+        // the scan forever.
+        CHECK(scan::slice_due(500, 1000, 8));
+
+        // rounds_per_sec 1 => a finished round waits a second before the next starts.
+        CHECK(!scan::round_due(999999, 1, 1));
+        CHECK(scan::round_due(1000002, 1, 1));
+        // Out-of-range values are clamped, never divided by zero.
+        CHECK(scan::round_due(1000002, 1, 0));
+        CHECK(scan::round_due(20000, 1, 1000));
+
+        // --- diagnostics arithmetic -------------------------------------------------
+        {
+            scan::RoundStats r{};
+            CHECK_NEAR(r.avg_ms(), 0.0, 1e-12); // no slices yet: no division by zero
+            scan::note_slice(r, 0.5, 8192);
+            scan::note_slice(r, 1.5, 8192);
+            scan::note_slice(r, 0.25, 4000);
+            CHECK(r.slices == 3);
+            CHECK(r.objects == 20384);
+            CHECK_NEAR(r.total_ms, 2.25, 1e-12);
+            CHECK_NEAR(r.peak_ms, 1.5, 1e-12);
+            CHECK_NEAR(r.avg_ms(), 0.75, 1e-12);
+        }
+    }
 } // namespace
 
 int main(int argc, char** argv)
@@ -641,6 +774,7 @@ int main(int argc, char** argv)
     test_found_file();
     test_ids();
     test_mapview();
+    test_scan_sched();
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

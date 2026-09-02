@@ -632,6 +632,14 @@ namespace mm
             {
                 cfg.markers_rounds_per_sec = parse_int(value, cfg.markers_rounds_per_sec);
             }
+            else if (key == "markers_scan_chunk")
+            {
+                cfg.markers_scan_chunk = parse_int(value, cfg.markers_scan_chunk);
+            }
+            else if (key == "markers_scan_period_ms")
+            {
+                cfg.markers_scan_period_ms = parse_int(value, cfg.markers_scan_period_ms);
+            }
             else if (key == "markers_categories")
             {
                 std::string rejected;
@@ -763,6 +771,8 @@ namespace mm
         cfg.feet_z_smooth_ms = (std::max)(1, (std::min)(2000, cfg.feet_z_smooth_ms));
         cfg.player_z_offset = (std::max)(-500.0f, (std::min)(500.0f, cfg.player_z_offset));
         cfg.markers_rounds_per_sec = (std::max)(1, (std::min)(10, cfg.markers_rounds_per_sec));
+        cfg.markers_scan_chunk = scan::clamp_chunk(cfg.markers_scan_chunk);
+        cfg.markers_scan_period_ms = scan::clamp_period_ms(cfg.markers_scan_period_ms);
         cfg.markers_found_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.markers_found_alpha));
         cfg.markers_size = (std::max)(2.0f, (std::min)(24.0f, cfg.markers_size));
         cfg.markers_max_draw = (std::max)(0, (std::min)(4000, cfg.markers_max_draw));
@@ -833,6 +843,8 @@ namespace mm
         out += "markers_enabled = " + std::string(cfg.markers_enabled ? "1" : "0") + "\n";
         out += "markers_live = " + std::string(cfg.markers_live ? "1" : "0") + "\n";
         out += "markers_rounds_per_sec = " + std::to_string(cfg.markers_rounds_per_sec) + "\n";
+        out += "markers_scan_chunk = " + std::to_string(cfg.markers_scan_chunk) + "\n";
+        out += "markers_scan_period_ms = " + std::to_string(cfg.markers_scan_period_ms) + "\n";
         out += "markers_categories = " + mdb::format_category_mask(cfg.markers_categories) + "\n";
         out += "markers_hide_found = " + std::string(cfg.markers_hide_found ? "1" : "0") + "\n";
         out += "markers_found_alpha = " + std::format("{:.2f}", cfg.markers_found_alpha) + "\n";

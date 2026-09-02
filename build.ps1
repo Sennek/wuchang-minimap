@@ -24,7 +24,8 @@ param(
     [string]$Xmake     = 'F:\Tools\xmake\xmake.exe',
     [string]$Toolset   = '14.40.33807',
     [int]   $Jobs      = 8,
-    [switch]$Rebuild
+    [switch]$Rebuild,
+    [switch]$NoTests
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,6 +51,16 @@ try {
 
     & $Xmake -j $Jobs
     if ($LASTEXITCODE -ne 0) { throw "xmake build failed ($LASTEXITCODE)" }
+
+    # Offline tests. They link only src\markers_db.cpp (no UE4SS, no D3D12), so they
+    # run here on the build machine with the game closed - which is the only place
+    # anything about this mod can be verified without burning a play session.
+    if (-not $NoTests) {
+        & $Xmake build markers_test
+        if ($LASTEXITCODE -ne 0) { throw "xmake build markers_test failed ($LASTEXITCODE)" }
+        & $Xmake run markers_test (Join-Path $PSScriptRoot 'markers')
+        if ($LASTEXITCODE -ne 0) { throw "markers_test FAILED ($LASTEXITCODE)" }
+    }
 
     $dll = Join-Path $PSScriptRoot "build\windows\x64\$Mode\main.dll"
     Write-Host ""

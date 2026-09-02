@@ -150,3 +150,25 @@ target("WuchangMinimap")
         print("WuchangMinimap -> %s", target:targetfile())
     end)
 target_end()
+
+----------------------------------------------------------------------------------------
+-- Offline tests. Everything about the markers that does NOT need the engine - the
+-- markers/<chapter>.json loader, the category filter mask the config file and the F2
+-- checkboxes share, and the wuchang_minimap_found.txt round-trip - is verified here,
+-- in a console exe that links only src/markers_db.cpp. No UE4SS, no D3D12, no
+-- UE4SS.lib: it runs on the build machine while the game is closed, which is the whole
+-- reason markers_db.cpp is kept free of Windows and Unreal.
+--
+--     xmake build markers_test && xmake run markers_test markers
+----------------------------------------------------------------------------------------
+target("markers_test")
+    set_kind("binary")
+    set_languages("cxx23")
+    set_exceptions("cxx")
+    set_group("tests")
+    set_warnings("all")
+    set_default(false) -- built explicitly (and by build.ps1), not by a bare `xmake`
+    common_settings()
+    add_includedirs("src")
+    add_files("src/markers_db.cpp", "tests/markers_test.cpp")
+target_end()

@@ -1,0 +1,101 @@
+{
+  "schema": "wuchang-minimap-markers/1",
+  "chapter": 1,
+  "_comment": [
+    "HAND-WRITTEN SAMPLE - this is documentation of the schema, not data.",
+    "The runtime loads markers/chapter1.json (no `.sample`), which tools/markers",
+    "produces from the cooked .umap cells. Every coordinate below is a real one",
+    "taken from the in-world recon dumps in the task workspace, so the file is also",
+    "a usable smoke test: rename it to chapter1.json and these seven markers appear",
+    "at the places the recon found them.",
+    "",
+    "Stable ids: a shrine uses the game-authored shrine id from BP_RebornFire_C's",
+    "CJK-named 'sitting-Buddha point ID' property; everything else uses",
+    "<owning level short name>/<cooked actor object name>, because that object name",
+    "is what FindAllOf hands back at runtime - it is the join key between this file",
+    "and the live actors.",
+    "",
+    "Categories: shrine, chest, pickup, boss, elite, enemy, npc, merchant, door,",
+    "ladder, lift, fog_gate, hidden, other. Enemies are LIVE ONLY and must never",
+    "appear in this file."
+  ],
+  "markers": [
+    {
+      "id": "digong01",
+      "cat": "shrine",
+      "cls": "BP_RebornFire_C",
+      "name": "Digong shrine",
+      "x": 18214.0,
+      "y": 5505.0,
+      "z": -1579.0,
+      "cell": "B1EX0_L0_X1_Y0",
+      "level": "Chapter1_DGong_logic"
+    },
+    {
+      "id": "Chapter1_Hanguang_logic/BP_treasurebox_C_0",
+      "cat": "chest",
+      "cls": "BP_treasurebox_C",
+      "name": "Chest",
+      "x": 25063.0,
+      "y": -22241.0,
+      "z": 1077.0,
+      "cell": "B1EX0_L0_X2_Y-3",
+      "level": "Chapter1_Hanguang_logic"
+    },
+    {
+      "id": "Chapter1_DGong_logic/BP_ItemRedBox_C_0",
+      "cat": "chest",
+      "cls": "BP_ItemRedBox_C",
+      "name": "Red box",
+      "x": 18852.0,
+      "y": 7322.0,
+      "z": -1079.0,
+      "cell": "B1EX0_L0_X1_Y0",
+      "level": "Chapter1_DGong_logic"
+    },
+    {
+      "id": "Chapter1_Shuwang_logic/BP_PickupActor_C_36",
+      "cat": "pickup",
+      "cls": "BP_PickupActor_C",
+      "name": "Item",
+      "x": 17489.0,
+      "y": 5523.0,
+      "z": 946.0,
+      "cell": "B1EX0_L0_X1_Y0",
+      "level": "Chapter1_Shuwang_logic"
+    },
+    {
+      "id": "Chapter1_PYuan_logic/BP_DoorZhong2",
+      "cat": "door",
+      "cls": "BP_DoorZhong_C",
+      "name": "Door",
+      "x": 36949.0,
+      "y": -13408.0,
+      "z": 795.0,
+      "cell": "B1EX0_L0_X3_Y-2",
+      "level": "Chapter1_PYuan_logic"
+    },
+    {
+      "id": "Chapter1_DGong_logic/BP_LadderV2_C_3",
+      "cat": "ladder",
+      "cls": "BP_LadderV2_C",
+      "name": "Ladder",
+      "x": 17043.0,
+      "y": 7155.0,
+      "z": -2257.0,
+      "cell": "B1EX0_L0_X1_Y0",
+      "level": "Chapter1_DGong_logic"
+    },
+    {
+      "id": "Chapter1_DGong_logic/BP_WoodenElevator_C_5",
+      "cat": "lift",
+      "cls": "BP_WoodenElevator_C",
+      "name": "Wooden elevator",
+      "x": 20337.0,
+      "y": 8418.0,
+      "z": -1656.0,
+      "cell": "B1EX0_L0_X1_Y0",
+      "level": "Chapter1_DGong_logic"
+    }
+  ]
+}

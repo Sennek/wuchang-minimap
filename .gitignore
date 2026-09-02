@@ -18,3 +18,7 @@
 .vs/
 .vscode/
 *.ilk
+
+# recon dumps (generated at runtime)
+tools/lua-recon/WuchangRecon/out/*
+!tools/lua-recon/WuchangRecon/out/.gitkeep

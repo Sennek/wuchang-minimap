@@ -38,7 +38,8 @@
    "y": 27459.31,
    "z": 3482.0,
    "cell": "B4EX0_L0_X2_Y2",
-   "level": "Chapter4_DanQingY_logic"
+   "level": "Chapter4_DanQingY_logic",
+   "mark": 61073
   },
   {
    "id": "Chapter4_DiGong_logic/BP_treasurebox_C_1",
@@ -50,7 +51,8 @@
    "y": -17944.22,
    "z": -6262.0,
    "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "mark": 61094
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_ItemRedBox_C_1",
@@ -62,7 +64,8 @@
    "y": 10764.11,
    "z": 2464.82,
    "cell": "B4EX0_L0_X2_Y1",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "mark": 61295
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_ItemRedBox_C_4",
@@ -74,7 +77,8 @@
    "y": -18805.55,
    "z": -2561.92,
    "cell": "B4EX0_L0_X-1_Y-2",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "mark": 61012
   },
   {
    "id": "Chapter4_RanDengD_logic/BP_treasurebox_C_0",
@@ -86,7 +90,8 @@
    "y": -31329.89,
    "z": 4235.57,
    "cell": "B4EX0_L0_X5_Y-4",
-   "level": "Chapter4_RanDengD_logic"
+   "level": "Chapter4_RanDengD_logic",
+   "mark": 61093
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_ItemRedBox_C_0",
@@ -98,7 +103,8 @@
    "y": 4448.03,
    "z": 3377.51,
    "cell": "B4EX0_L0_X1_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "mark": 61253
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_ItemRedBox_C_2",
@@ -110,7 +116,8 @@
    "y": -1818.37,
    "z": -525.99,
    "cell": "B4EX0_L0_X1_Y-1",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "mark": 61258
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_treasurebox_C_1",
@@ -122,7 +129,8 @@
    "y": 4858.23,
    "z": 122.42,
    "cell": "B4EX0_L0_X3_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "mark": 61094
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_ItemRedBox_C_1",
@@ -134,7 +142,8 @@
    "y": -3621.44,
    "z": 1701.49,
    "cell": "B4EX0_L0_X0_Y-1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "mark": 61255
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_ItemRedBox_C_11",
@@ -146,7 +155,8 @@
    "y": -11081.86,
    "z": 1480.83,
    "cell": "B4EX0_L0_X-1_Y-2",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "mark": 61254
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_ItemRedBox_C_2",
@@ -158,7 +168,8 @@
    "y": 4306.73,
    "z": 1836.75,
    "cell": "B4EX0_L0_X1_Y0",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "mark": 61260
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_DoorZhong_C_2",
@@ -2744,1261 +2755,1586 @@
    "id": "Chapter4_DanQingY_logic/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Flawless Red Mercury",
    "obj": "BP_PickupActor_C_1",
    "x": 28274.95,
    "y": 22298.58,
    "z": 723.95,
    "cell": "B4EX0_L0_X2_Y2",
-   "level": "Chapter4_DanQingY_logic"
+   "level": "Chapter4_DanQingY_logic",
+   "items": [
+    20227
+   ]
   },
   {
    "id": "Chapter4_DanQingY_logic/BP_PickupActor_C_13",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Flawless Red Mercury",
    "obj": "BP_PickupActor_C_13",
    "x": 29971.92,
    "y": 30182.26,
    "z": 3152.42,
    "cell": "B4EX0_L0_X2_Y2",
-   "level": "Chapter4_DanQingY_logic"
+   "level": "Chapter4_DanQingY_logic",
+   "items": [
+    20227
+   ]
   },
   {
    "id": "Chapter4_DanQingY_logic/BP_PickupActor_C_17",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Health Pill",
    "obj": "BP_PickupActor_C_17",
    "x": 36482.68,
    "y": 26846.08,
    "z": 3241.85,
    "cell": "B4EX0_L0_X3_Y2",
-   "level": "Chapter4_DanQingY_logic"
+   "level": "Chapter4_DanQingY_logic",
+   "items": [
+    20025
+   ]
   },
   {
    "id": "Chapter4_DanQingY_logic/BP_PickupActor_C_2",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Niter Fire Pot",
    "obj": "BP_PickupActor_C_2",
    "x": 28581.78,
    "y": 14880.14,
    "z": 208.38,
    "cell": "B4EX0_L0_X2_Y1",
-   "level": "Chapter4_DanQingY_logic"
+   "level": "Chapter4_DanQingY_logic",
+   "items": [
+    20091
+   ]
   },
   {
    "id": "Chapter4_DanQingY_logic/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Flawless Red Mercury",
    "obj": "BP_PickupActor_C_3",
    "x": 30275.39,
    "y": 15154.36,
    "z": -184.68,
    "cell": "B4EX0_L0_X2_Y1",
-   "level": "Chapter4_DanQingY_logic"
+   "level": "Chapter4_DanQingY_logic",
+   "items": [
+    20227
+   ]
   },
   {
    "id": "Chapter4_DanQingY_logic/BP_PickupActor_C_4",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Steamed Bunny Bun",
    "obj": "BP_PickupActor_C_4",
    "x": 32460.67,
    "y": 28491.99,
    "z": 3232.51,
    "cell": "B4EX0_L0_X3_Y2",
-   "level": "Chapter4_DanQingY_logic"
+   "level": "Chapter4_DanQingY_logic",
+   "items": [
+    20020
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_AutoPickUp_C_2",
    "cat": "pickup",
    "cls": "BP_AutoPickUp_C",
-   "name": "Pickup",
+   "name": "Spiritual Flames",
    "obj": "BP_AutoPickUp_C_2",
    "x": 9193.0,
    "y": -8183.0,
    "z": -1333.0,
    "cell": "B4EX0_L0_X0_Y-1",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    24064
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Crimson Lantern Fruit",
    "obj": "BP_PickupActor_C_0",
    "x": 11775.4,
    "y": -19706.32,
    "z": -5132.62,
    "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    20036
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Fixed Origin Pill",
    "obj": "BP_PickupActor_C_1",
    "x": 12448.92,
    "y": -19154.09,
    "z": -6648.9,
    "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    20042
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_10",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Gilded Axe",
    "obj": "BP_PickupActor_C_10",
    "x": 4230.2,
    "y": -10650.83,
    "z": -1576.78,
    "cell": "B4EX0_L0_X0_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    21240
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_2",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Topaz Lotus Seed",
    "obj": "BP_PickupActor_C_2",
    "x": 6257.98,
    "y": -18501.06,
    "z": -3557.44,
    "cell": "B4EX0_L0_X0_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    20060
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Wangdi",
    "obj": "BP_PickupActor_C_3",
    "x": 11988.78,
    "y": -16919.75,
    "z": -7133.8,
    "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    20229
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_4",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Soulgrass",
    "obj": "BP_PickupActor_C_4",
    "x": 10132.82,
    "y": -18225.76,
    "z": -6296.11,
    "cell": "B4EX0_L0_X0_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    20027
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_5",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Raven Pill",
    "obj": "BP_PickupActor_C_5",
    "x": 10687.36,
    "y": -18777.57,
    "z": -5833.2,
    "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    20026
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_6",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Thundering Flying Dagger",
    "obj": "BP_PickupActor_C_6",
    "x": 12192.42,
    "y": -18777.73,
    "z": -5517.42,
    "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    20085
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_7",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Feather Pearl",
    "obj": "BP_PickupActor_C_7",
    "x": 13282.87,
    "y": -17840.02,
    "z": -6196.94,
    "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    20270
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_8",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Radiant Red Feather",
    "obj": "BP_PickupActor_C_8",
    "x": 13370.49,
    "y": -19153.11,
    "z": -5929.71,
    "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    22109
+   ]
   },
   {
    "id": "Chapter4_DiGong_logic/BP_PickupActor_C_9",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Wangdi",
    "obj": "BP_PickupActor_C_9",
    "x": 6603.22,
    "y": -10550.8,
    "z": -1585.65,
    "cell": "B4EX0_L0_X0_Y-2",
-   "level": "Chapter4_DiGong_logic"
+   "level": "Chapter4_DiGong_logic",
+   "items": [
+    20229
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Fire Pot",
    "obj": "BP_PickupActor_C_0",
    "x": 23366.36,
    "y": 10340.87,
    "z": 3160.76,
    "cell": "B4EX0_L0_X2_Y1",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20090
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Steamed Bunny Bun",
    "obj": "BP_PickupActor_C_1",
    "x": 32446.17,
    "y": 14107.64,
    "z": 1467.57,
    "cell": "B4EX0_L0_X3_Y1",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20020
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_10",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_10",
    "x": 21243.12,
    "y": 7762.36,
    "z": 2731.73,
    "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_14",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Flawless Red Mercury",
    "obj": "BP_PickupActor_C_14",
    "x": 21874.6,
    "y": 11093.47,
    "z": 3712.96,
    "cell": "B4EX0_L0_X2_Y1",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20227
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_16",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Emerald Lotus Seed",
    "obj": "BP_PickupActor_C_16",
    "x": 17904.18,
    "y": 7092.49,
    "z": 2636.0,
    "cell": "B4EX0_L0_X1_Y0",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20061
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_21",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Soft Rush",
    "obj": "BP_PickupActor_C_21",
    "x": 10534.25,
    "y": 9353.4,
    "z": 3801.54,
    "cell": "B4EX0_L0_X1_Y0",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20044
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_27",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Health Pill",
    "obj": "BP_PickupActor_C_27",
    "x": 8938.67,
    "y": 6028.1,
    "z": 1505.24,
    "cell": "B4EX0_L0_X0_Y0",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20025
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Fiery Flying Dagger",
    "obj": "BP_PickupActor_C_3",
    "x": 30283.97,
    "y": 8867.87,
    "z": 2432.31,
    "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20084
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_30",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Emerald Lotus Seed",
    "obj": "BP_PickupActor_C_30",
    "x": 26616.17,
    "y": 10275.66,
    "z": 3419.09,
    "cell": "B4EX0_L0_X2_Y1",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20061
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_4",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Soulgrass",
    "obj": "BP_PickupActor_C_4",
    "x": 8704.99,
    "y": 13438.31,
    "z": 5118.59,
    "cell": "B4EX0_L0_X0_Y1",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20027
+   ]
   },
   {
    "id": "Chapter4_FoYuanZ_logic/BP_PickupActor_C_9",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_9",
    "x": 24101.39,
    "y": 11373.71,
    "z": 3215.41,
    "cell": "B4EX0_L0_X2_Y1",
-   "level": "Chapter4_FoYuanZ_logic"
+   "level": "Chapter4_FoYuanZ_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_PickupActor_C_11",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_11",
    "x": -12373.29,
    "y": -22362.77,
    "z": -2861.76,
    "cell": "B4EX0_L0_X-2_Y-3",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_PickupActor_C_12",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_12",
    "x": -8161.34,
    "y": -20946.78,
    "z": -2546.01,
    "cell": "B4EX0_L0_X-1_Y-3",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_PickupActor_C_14",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Niter Fire Pot",
    "obj": "BP_PickupActor_C_14",
    "x": -11270.88,
    "y": -22663.95,
    "z": -2080.67,
    "cell": "B4EX0_L0_X-2_Y-3",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "items": [
+    20091
+   ]
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_PickupActor_C_16",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Soft Rush Flowers",
    "obj": "BP_PickupActor_C_16",
    "x": -10187.28,
    "y": -23342.67,
    "z": -3151.6,
    "cell": "B4EX0_L0_X-1_Y-3",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "items": [
+    20045
+   ]
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_PickupActor_C_2",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Crimson Lantern Fruit",
    "obj": "BP_PickupActor_C_2",
    "x": -9340.51,
    "y": -15007.99,
    "z": -1525.5,
    "cell": "B4EX0_L0_X-1_Y-2",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "items": [
+    20036
+   ]
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_PickupActor_C_21",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Feather Pearl",
    "obj": "BP_PickupActor_C_21",
    "x": -6755.83,
    "y": -18381.59,
    "z": -2635.75,
    "cell": "B4EX0_L0_X-1_Y-2",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "items": [
+    20270
+   ]
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_PickupActor_C_29",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Purple Camellia",
    "obj": "BP_PickupActor_C_29",
    "x": 955.0,
    "y": -21706.1,
    "z": -3195.08,
    "cell": "B4EX0_L0_X0_Y-3",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "items": [
+    20062
+   ]
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_PickupActor_C_37",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Health Pill",
    "obj": "BP_PickupActor_C_37",
    "x": -7941.19,
    "y": -13680.96,
    "z": -389.47,
    "cell": "B4EX0_L0_X-1_Y-2",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "items": [
+    20025
+   ]
   },
   {
    "id": "Chapter4_HuiLiuT_logic/BP_PickupActor_C_4",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Lantern Fruit",
    "obj": "BP_PickupActor_C_4",
    "x": -8995.57,
    "y": -18689.33,
    "z": -2483.45,
    "cell": "B4EX0_L0_X-1_Y-2",
-   "level": "Chapter4_HuiLiuT_logic"
+   "level": "Chapter4_HuiLiuT_logic",
+   "items": [
+    20035
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_AutoPickUp_C_1",
    "cat": "pickup",
    "cls": "BP_AutoPickUp_C",
-   "name": "Pickup",
+   "name": "Wei - Blood Force +1",
    "obj": "BP_AutoPickUp_C_1",
    "x": 36162.99,
    "y": -13444.82,
    "z": 1245.85,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    24041
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Merchant's Headband +3",
    "obj": "BP_PickupActor_C_0",
    "x": 35739.24,
    "y": -7141.44,
    "z": -628.27,
    "cell": "B4EX0_L0_X3_Y-1",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    18291,
+    18292,
+    18293,
+    18294
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Special Pill",
    "obj": "BP_PickupActor_C_1",
    "x": 39599.89,
    "y": -14016.32,
    "z": 558.4,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20037
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_10",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Longevity Necklace +1",
    "obj": "BP_PickupActor_C_10",
    "x": 34463.77,
    "y": -12655.29,
    "z": 571.91,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    21241,
+    20034
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_12",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_12",
    "x": 38673.96,
    "y": -14307.44,
    "z": 560.11,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_2",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Niter Fire Pot",
    "obj": "BP_PickupActor_C_2",
    "x": 38197.83,
    "y": -3938.02,
    "z": -625.72,
    "cell": "B4EX0_L0_X3_Y-1",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20091
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_22",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Soulgrass",
    "obj": "BP_PickupActor_C_22",
    "x": 40607.75,
    "y": 4673.58,
    "z": 808.08,
    "cell": "B4EX0_L0_X3_Y0",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20027
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_23",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Divination Plate",
    "obj": "BP_PickupActor_C_23",
    "x": 35326.23,
    "y": -12047.61,
    "z": 552.41,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    21161
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_26",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Sword of Exorcism",
    "obj": "BP_PickupActor_C_26",
    "x": 35216.31,
    "y": -12032.86,
    "z": 553.7,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    21243
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Sword of Judgment",
    "obj": "BP_PickupActor_C_3",
    "x": 35108.29,
    "y": -12019.38,
    "z": 547.7,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    21242
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_31",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Kong Wine",
    "obj": "BP_PickupActor_C_31",
    "x": 38858.95,
    "y": -12416.69,
    "z": 559.64,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20043
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_35",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Purple Camellia",
    "obj": "BP_PickupActor_C_35",
    "x": 39458.26,
    "y": -7974.98,
    "z": -630.5,
    "cell": "B4EX0_L0_X3_Y-1",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20062
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_38",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Fixed Origin Pill",
    "obj": "BP_PickupActor_C_38",
    "x": 35082.0,
    "y": -8570.0,
    "z": -583.15,
    "cell": "B4EX0_L0_X3_Y-1",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20042
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_39",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Stormward Pill",
    "obj": "BP_PickupActor_C_39",
    "x": 37041.26,
    "y": -14994.09,
    "z": 1295.0,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20041
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_45",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_45",
    "x": 38443.09,
    "y": -17963.91,
    "z": 3113.73,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_5",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Dough Figurine of Yang Zongbao",
    "obj": "BP_PickupActor_C_5",
    "x": 34579.2,
    "y": -12643.25,
    "z": 573.15,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20032
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_6",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_6",
    "x": 34511.55,
    "y": -5039.9,
    "z": -600.2,
    "cell": "B4EX0_L0_X3_Y-1",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_7",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Wishborn Pendant",
    "obj": "BP_PickupActor_C_7",
    "x": 34682.56,
    "y": -12848.51,
    "z": 599.9,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    19022
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_8",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Fang Yao's Silver Bangle +1",
    "obj": "BP_PickupActor_C_8",
    "x": 35839.04,
    "y": -7286.82,
    "z": -628.27,
    "cell": "B4EX0_L0_X3_Y-1",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    18233,
+    18234
+   ]
   },
   {
    "id": "Chapter4_PuYuanS_logic/BP_PickupActor_C_9",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Ceramic Jar",
    "obj": "BP_PickupActor_C_9",
    "x": 34552.42,
    "y": -12720.86,
    "z": 582.19,
    "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_logic"
+   "level": "Chapter4_PuYuanS_logic",
+   "items": [
+    18301
+   ]
   },
   {
    "id": "Chapter4_RanDengD_logic/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Special Pill",
    "obj": "BP_PickupActor_C_0",
    "x": 43953.43,
    "y": -25603.46,
    "z": 4215.4,
    "cell": "B4EX0_L0_X4_Y-3",
-   "level": "Chapter4_RanDengD_logic"
+   "level": "Chapter4_RanDengD_logic",
+   "items": [
+    20037
+   ]
   },
   {
    "id": "Chapter4_RanDengD_logic/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Crimson Lantern Fruit",
    "obj": "BP_PickupActor_C_1",
    "x": 44325.0,
    "y": -29316.0,
    "z": 4215.67,
    "cell": "B4EX0_L0_X4_Y-3",
-   "level": "Chapter4_RanDengD_logic"
+   "level": "Chapter4_RanDengD_logic",
+   "items": [
+    20036
+   ]
   },
   {
    "id": "Chapter4_RanDengD_logic/BP_PickupActor_C_2",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Soft Rush Flowers",
    "obj": "BP_PickupActor_C_2",
    "x": 48203.66,
    "y": -32579.4,
    "z": 4224.4,
    "cell": "B4EX0_L0_X4_Y-4",
-   "level": "Chapter4_RanDengD_logic"
+   "level": "Chapter4_RanDengD_logic",
+   "items": [
+    20045
+   ]
   },
   {
    "id": "Chapter4_RanDengD_logic/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Special Pill",
    "obj": "BP_PickupActor_C_3",
    "x": 47975.92,
    "y": -29626.34,
    "z": 4175.1,
    "cell": "B4EX0_L0_X4_Y-3",
-   "level": "Chapter4_RanDengD_logic"
+   "level": "Chapter4_RanDengD_logic",
+   "items": [
+    20037
+   ]
   },
   {
    "id": "Chapter4_RanDengD_logic/BP_PickupActor_C_4",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Medicine Residue",
    "obj": "BP_PickupActor_C_4",
    "x": 48340.46,
    "y": -27018.45,
    "z": 4357.97,
    "cell": "B4EX0_L0_X4_Y-3",
-   "level": "Chapter4_RanDengD_logic"
+   "level": "Chapter4_RanDengD_logic",
+   "items": [
+    20034
+   ]
   },
   {
    "id": "Chapter4_RanDengD_logic/BP_PickupActor_C_5",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Soulgrass",
    "obj": "BP_PickupActor_C_5",
    "x": 52312.98,
    "y": -31061.12,
    "z": 4237.46,
    "cell": "B4EX0_L0_X5_Y-4",
-   "level": "Chapter4_RanDengD_logic"
+   "level": "Chapter4_RanDengD_logic",
+   "items": [
+    20027
+   ]
   },
   {
    "id": "Chapter4_RanDengD_logic/BP_PickupActor_C_6",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Special Pill",
    "obj": "BP_PickupActor_C_6",
    "x": 47871.92,
    "y": -26372.19,
    "z": 4390.76,
    "cell": "B4EX0_L0_X4_Y-3",
-   "level": "Chapter4_RanDengD_logic"
+   "level": "Chapter4_RanDengD_logic",
+   "items": [
+    20037
+   ]
   },
   {
    "id": "Chapter4_RanDengD_logic/BP_PickupActor_C_7",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Fixed Origin Pill",
    "obj": "BP_PickupActor_C_7",
    "x": 50199.85,
    "y": -30222.08,
    "z": 4170.73,
    "cell": "B4EX0_L0_X4_Y-3",
-   "level": "Chapter4_RanDengD_logic"
+   "level": "Chapter4_RanDengD_logic",
+   "items": [
+    20042
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Lantern Fruit",
    "obj": "BP_PickupActor_C_0",
    "x": 28154.54,
    "y": 2518.48,
    "z": -195.35,
    "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20035
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Corrupted Flying Dagger",
    "obj": "BP_PickupActor_C_1",
    "x": 27174.17,
    "y": 2765.3,
    "z": -211.83,
    "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20083
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_10",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Soft Rush",
    "obj": "BP_PickupActor_C_10",
    "x": 34988.18,
    "y": 5471.62,
    "z": -227.09,
    "cell": "B4EX0_L0_X3_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20044
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_13",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Divination Crescent",
    "obj": "BP_PickupActor_C_13",
    "x": 22450.06,
    "y": 3253.25,
    "z": 772.91,
    "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20110
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_15",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Wangdi",
    "obj": "BP_PickupActor_C_15",
    "x": 33810.8,
    "y": 3533.56,
    "z": -456.1,
    "cell": "B4EX0_L0_X3_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20229
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_16",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Crimson Lantern Fruit",
    "obj": "BP_PickupActor_C_16",
    "x": 37221.34,
    "y": 4548.06,
    "z": 526.98,
    "cell": "B4EX0_L0_X3_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20036
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_17",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Feather Pearl",
    "obj": "BP_PickupActor_C_17",
    "x": 15578.0,
    "y": -3585.0,
    "z": -872.68,
    "cell": "B4EX0_L0_X1_Y-1",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20270
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_18",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Steamed Bunny Bun",
    "obj": "BP_PickupActor_C_18",
    "x": 27455.73,
    "y": 2232.52,
    "z": -205.16,
    "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20020
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_19",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_19",
    "x": 26906.07,
    "y": 2615.28,
    "z": -222.66,
    "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_2",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Fixed Origin Pill",
    "obj": "BP_PickupActor_C_2",
    "x": 19358.59,
    "y": 4628.93,
    "z": 2518.31,
    "cell": "B4EX0_L0_X1_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20042
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_21",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Topaz Lotus Seed",
    "obj": "BP_PickupActor_C_21",
    "x": 33124.94,
    "y": 1237.42,
    "z": -507.05,
    "cell": "B4EX0_L0_X3_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20060
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Wangdi",
    "obj": "BP_PickupActor_C_3",
    "x": 31832.77,
    "y": -2594.32,
    "z": -584.61,
    "cell": "B4EX0_L0_X3_Y-1",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20229
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_4",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_4",
    "x": 19875.95,
    "y": 835.0,
    "z": 683.81,
    "cell": "B4EX0_L0_X1_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_5",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Steamed Bunny Bun",
    "obj": "BP_PickupActor_C_5",
    "x": 17319.88,
    "y": -164.34,
    "z": 887.96,
    "cell": "B4EX0_L0_X1_Y-1",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20020
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_6",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Purple Camellia",
    "obj": "BP_PickupActor_C_6",
    "x": 27440.35,
    "y": 2914.19,
    "z": -194.37,
    "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20062
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_7",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Lantern Fruit",
    "obj": "BP_PickupActor_C_7",
    "x": 17520.0,
    "y": -4071.0,
    "z": -708.57,
    "cell": "B4EX0_L0_X1_Y-1",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20035
+   ]
   },
   {
    "id": "Chapter4_ShuWangC_logic/BP_PickupActor_C_8",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Raven Pill",
    "obj": "BP_PickupActor_C_8",
    "x": 34058.04,
    "y": 5646.08,
    "z": 137.41,
    "cell": "B4EX0_L0_X3_Y0",
-   "level": "Chapter4_ShuWangC_logic"
+   "level": "Chapter4_ShuWangC_logic",
+   "items": [
+    20026
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Flawless Red Mercury",
    "obj": "BP_PickupActor_C_0",
    "x": 9535.44,
    "y": 6250.51,
    "z": 1519.4,
    "cell": "B4EX0_L0_X0_Y0",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20227
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Fire Pot",
    "obj": "BP_PickupActor_C_1",
    "x": -2991.94,
    "y": 11704.46,
    "z": 2169.41,
    "cell": "B4EX0_L0_X-1_Y1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20090
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_10",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Divination Crescent",
    "obj": "BP_PickupActor_C_10",
    "x": 10058.0,
    "y": 7872.0,
    "z": 3271.3,
    "cell": "B4EX0_L0_X0_Y0",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20110
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_11",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Crimson Lantern Fruit",
    "obj": "BP_PickupActor_C_11",
    "x": 11630.48,
    "y": 16366.58,
    "z": 6217.6,
    "cell": "B4EX0_L0_X1_Y1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20036
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_12",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_12",
    "x": -2756.57,
    "y": 6718.87,
    "z": 2169.41,
    "cell": "B4EX0_L0_X-1_Y0",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_13",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Purple Camellia",
    "obj": "BP_PickupActor_C_13",
    "x": 4773.3,
    "y": 5703.15,
    "z": 2168.0,
    "cell": "B4EX0_L0_X0_Y0",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20062
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_14",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_14",
    "x": -2824.0,
    "y": 3420.0,
    "z": 2192.43,
    "cell": "B4EX0_L0_X-1_Y0",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_2",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Niter Fire Pot",
    "obj": "BP_PickupActor_C_2",
    "x": -2365.1,
    "y": 4610.08,
    "z": 2243.31,
    "cell": "B4EX0_L0_X-1_Y0",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20091
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_22",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Fiery Flying Dagger",
    "obj": "BP_PickupActor_C_22",
    "x": 1825.04,
    "y": 1272.35,
    "z": 2347.19,
    "cell": "B4EX0_L0_X0_Y0",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20084
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_24",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Breaking Flying Dagger",
    "obj": "BP_PickupActor_C_24",
    "x": 1147.26,
    "y": -7797.09,
    "z": 1812.44,
    "cell": "B4EX0_L0_X0_Y-1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20082
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_25",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Radiant Red Feather",
    "obj": "BP_PickupActor_C_25",
    "x": 497.81,
    "y": -4719.7,
    "z": 1704.49,
    "cell": "B4EX0_L0_X0_Y-1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    22109
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_27",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_27",
    "x": -3763.67,
    "y": 11145.92,
    "z": 2254.67,
    "cell": "B4EX0_L0_X-1_Y1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Corrupted Flying Dagger",
    "obj": "BP_PickupActor_C_3",
    "x": 13075.95,
    "y": 16036.93,
    "z": 6161.65,
    "cell": "B4EX0_L0_X1_Y1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20083
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_30",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Mind Lotus Seed",
    "obj": "BP_PickupActor_C_30",
    "x": 193.64,
    "y": 1173.89,
    "z": 2364.08,
    "cell": "B4EX0_L0_X0_Y0",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20065
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_4",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Sword of Exorcism",
    "obj": "BP_PickupActor_C_4",
    "x": 14389.1,
    "y": 17590.67,
    "z": 6187.43,
    "cell": "B4EX0_L0_X1_Y1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    21243
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_41",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Radiant Red Feather",
    "obj": "BP_PickupActor_C_41",
    "x": -995.52,
    "y": -9182.68,
    "z": 1495.17,
    "cell": "B4EX0_L0_X-1_Y-1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    22109
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_5",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Wangdi",
    "obj": "BP_PickupActor_C_5",
    "x": -3611.0,
    "y": -9673.0,
    "z": 1774.76,
    "cell": "B4EX0_L0_X-1_Y-1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20229
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_52",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_52",
    "x": 2110.43,
    "y": -4197.97,
    "z": 1702.49,
    "cell": "B4EX0_L0_X0_Y-1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_6",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Blood of Changhong",
    "obj": "BP_PickupActor_C_6",
    "x": 3838.45,
    "y": -3554.96,
    "z": 2098.2,
    "cell": "B4EX0_L0_X0_Y-1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20228
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_7",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Zhanlu Sword +5",
    "obj": "BP_PickupActor_C_7",
    "x": 14210.83,
    "y": 17633.53,
    "z": 6196.95,
    "cell": "B4EX0_L0_X1_Y1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    11260,
+    18281,
+    18282,
+    18283,
+    18284,
+    21242
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_8",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Sword of Exorcism",
    "obj": "BP_PickupActor_C_8",
    "x": 13471.09,
    "y": 15950.9,
    "z": 6207.3,
    "cell": "B4EX0_L0_X1_Y1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    21243
+   ]
   },
   {
    "id": "Chapter4_TangWangXG_logic/BP_PickupActor_C_9",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Pickup",
+   "name": "Raven Pill",
    "obj": "BP_PickupActor_C_9",
    "x": -2827.25,
    "y": -3537.13,
    "z": 2098.2,
    "cell": "B4EX0_L0_X-1_Y-1",
-   "level": "Chapter4_TangWangXG_logic"
+   "level": "Chapter4_TangWangXG_logic",
+   "items": [
+    20026
+   ]
   },
   {
    "id": "danqingy401",

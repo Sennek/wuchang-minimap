@@ -18,6 +18,12 @@ five slots into that block.
 
 Join key with the runtime: `obj` -- the cooked export name, which is exactly
 what `FindAllOf` reports in-game (`...PersistentLevel.BP_RebornFire_C_0`).
+
+Pickups additionally carry their real item names.  `item_ids()` scans the actor
+export for the inline `Items` array and `markers/items.json` (built by
+`build_items.py`) turns the first id into a display name, so a pickup marker
+reads "Purple Camellia" instead of "Pickup".  See `item_ids()` and
+`context/item-names-research.md`.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ import json
 import math
 import os
 import re
+import struct
 import sys
 import time
 
@@ -36,6 +43,7 @@ sys.path.insert(0, _HERE)
 
 import pakmaps                                              # noqa: E402
 import marker_classes                                       # noqa: E402
+import itemdb                                               # noqa: E402
 from uprops import (Schema, compose, find_strings, finite_vec, parse_header,   # noqa: E402
                     read_vec, SC_ATTACH_PARENT, SC_ATTACH_SOCKET,
                     SC_COMPONENT_VELOCITY, SC_REL_LOCATION, SC_REL_ROTATION,
@@ -409,6 +417,95 @@ def shrine_id(pkg, actor) -> str | None:
     return None
 
 
+COLLECT_MARK = re.compile(r"^6\d{4}$")
+
+
+def collect_mark(pkg, actor) -> int | None:
+    """A chest's persisted collect/mark id (`61208`), which the cooked export
+    carries as a plain `FString` -- the first string in the payload, exactly the
+    way `shrine_id()` finds a shrine id.  60 of the game's 68 chests have one;
+    the other 8 `BP_ItemRedBox_C` write none.  What the id maps to (a row of
+    `DT_CollectRestore` / `DT_GoldBox`, presumably) is still unsolved, so this
+    is emitted as `mark` for the runtime to join on and the chest keeps its
+    generic "Chest" label."""
+    for _off, s in find_strings(pkg.data(actor), 4, 12):
+        if COLLECT_MARK.match(s):
+            return int(s)
+        return None                    # only the FIRST string is the mark
+    return None
+
+
+ITEM_ID_MIN, ITEM_ID_MAX = 10000, 40000
+ITEM_AMOUNT_MAX = 999
+ITEM_ARRAY_MAX_LEN = 8
+
+# Which of the inline id arrays is the pickup's *contents*.  Every class writes
+# its own property list, so the ordinal is per class -- and it is not guessed,
+# it is measured against the designer labels embedded in the exports
+# (`BP_PickupActor_Gold_23245`, `BP_AutoPickUp_24001`): the first array is right
+# for 25/25 labelled `BP_PickupActor_C` and the *second* for 11/11
+# `BP_AutoPickUp_C`, whose first array is the same constant `[20229]` on every
+# instance in the game.  Anything not listed uses array 0.
+ITEM_ARRAY_INDEX = {"BP_AutoPickUp_C": 1}
+
+
+def item_ids(pkg, actor, items: "itemdb.ItemDB") -> list[int]:
+    """The item ids a pickup grants, read straight out of its cooked export.
+
+    `BP_PickupActor_C` and friends serialise their `Items` array inline as
+    `int32 count` followed by `count` x `{int32 ID, int32 Amount}`
+    (`ST_DropData`-shaped).  BP schemas are unknown without a `.usmap`, so the
+    array is found the same way `shrine_id()` finds the shrine id: by a
+    self-validating scan of the payload.  What makes it safe is that every id
+    must be a real row of one of the item DataTables (`markers/items.json`) --
+    2 384 ids out of a 30 000-wide window, so a run of unrelated bytes
+    essentially never passes.
+
+    The scan is byte-granular (unversioned property payloads are packed, so
+    nothing is aligned) and non-overlapping: arrays are returned in payload
+    order and `ITEM_ARRAY_INDEX` picks the one that is the pickup's contents.
+    Later arrays are `CustomedItems_2..5` / `ItemResult` NG+ and conditional
+    variants.
+    """
+    d = pkg.data(actor)
+    n = len(d)
+    want = ITEM_ARRAY_INDEX.get(actor.class_name, 0)
+    seen = 0
+    o = 0
+    while o <= n - 12:
+        (count,) = struct.unpack_from("<i", d, o)
+        if 1 <= count <= ITEM_ARRAY_MAX_LEN and o + 4 + 8 * count <= n:
+            ids = []
+            for j in range(count):
+                iid, amount = struct.unpack_from("<ii", d, o + 4 + 8 * j)
+                if not (ITEM_ID_MIN <= iid <= ITEM_ID_MAX
+                        and 1 <= amount <= ITEM_AMOUNT_MAX
+                        and (iid in items if items else True)):
+                    ids = None
+                    break
+                ids.append(iid)
+            if ids:
+                if seen == want:
+                    return ids
+                seen += 1
+                o += 4 + 8 * count
+                continue
+        o += 1
+    return []
+
+
+def item_name(ids: list[int], items: "itemdb.ItemDB") -> str | None:
+    """Display name for a pickup: the first item's name, plus `+N` when the
+    pickup grants more than one distinct item."""
+    if not ids:
+        return None
+    first = items.name(ids[0])
+    if not first:
+        return None
+    extra = len(dict.fromkeys(ids)) - 1
+    return f"{first} +{extra}" if extra > 0 else first
+
+
 def cell_of(x: float, y: float, chapter: str) -> str:
     return (f"B{chapter}EX0_L0_X{int(math.floor(x / CELL_UU))}"
             f"_Y{int(math.floor(y / CELL_UU))}")
@@ -418,7 +515,8 @@ def cell_of(x: float, y: float, chapter: str) -> str:
 # driver
 # ---------------------------------------------------------------------------
 
-def extract(ms, chapter: str, verbose=True):
+def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None):
+    items = items if items is not None else itemdb.ItemDB.load()
     keys = chapter_packages(ms, chapter)
     t0 = time.time()
     pkgs = {}
@@ -477,6 +575,16 @@ def extract(ms, chapter: str, verbose=True):
             mid = sid if sid else f"{lvl.short}/{actor.name}"
             label = marker_classes.LABEL.get(cat, cat)
             name = f"{label} {sid}" if sid else label
+            mark = collect_mark(lvl.pkg, actor) if cat == "chest" else None
+            if cat == "chest":
+                stats["chest-mark" if mark else "chest-no-mark"] += 1
+            ids = item_ids(lvl.pkg, actor, items) if cat == "pickup" else []
+            if cat == "pickup":
+                stats["pickup-items" if ids else "pickup-no-items"] += 1
+                iname = item_name(ids, items)
+                if iname:
+                    name = iname
+                    stats["pickup-named"] += 1
             markers.append({
                 "id": mid,
                 "cat": cat,
@@ -488,6 +596,8 @@ def extract(ms, chapter: str, verbose=True):
                 "z": round(loc[2], 2),
                 "cell": cell_of(loc[0], loc[1], chapter),
                 "level": lvl.short,
+                **({"items": ids} if ids else {}),
+                **({"mark": mark} if mark else {}),
             })
             stats["cat:" + cat] += 1
     markers.sort(key=lambda m: (m["cat"], m["level"], m["obj"]))
@@ -502,6 +612,58 @@ def extract(ms, chapter: str, verbose=True):
         print(f"  chapter {chapter}: {len(pkgs)} packages, {len(markers)} markers, "
               f"{time.time() - t0:.1f}s")
     return markers, stats, schema, pkgs
+
+
+# Designer labels embedded in a pickup export ("BP_PickupActor_Gold_23245",
+# "BP_AutoPickUp_24001") end in the item id.  They are the only independent
+# witness to what `item_ids()` should return, so they are the acceptance test.
+ITEM_LABEL = re.compile(r"^BP_\w*?_?(\d{5})$")
+
+
+def items_check(ms, items, chapters=("1", "2", "3", "4", "5", "DLC")):
+    """Cross-check `item_ids()` against the designer labels, and report how many
+    pickup exports yield an id that is a real item-table row."""
+    lbl = collections.Counter()
+    rate = collections.Counter()
+    bad = []
+    for ch in chapters:
+        for k in chapter_packages(ms, ch):
+            try:
+                pkg = ms.package(k)
+            except Exception:                                   # noqa: BLE001
+                continue
+            lvl = Level(k, pkg)
+            for a in lvl.actors():
+                if not a.class_name.startswith(("BP_PickupActor", "BP_AutoPickUp",
+                                                "BP_DropItem", "BP_PickUpActor_Trap")):
+                    continue
+                ids = item_ids(pkg, a, items)
+                fam = ("BP_AutoPickUp" if a.class_name.startswith("BP_AutoPickUp")
+                       else a.class_name)
+                rate[fam + ":total"] += 1
+                if ids:
+                    rate[fam + ":resolved"] += 1
+                for _off, s in find_strings(pkg.data(a), 4, 60):
+                    m = ITEM_LABEL.match(s)
+                    if not m:
+                        continue
+                    want = int(m.group(1))
+                    if want not in items:
+                        break
+                    ok = bool(ids) and ids[0] == want
+                    lbl[fam + (":ok" if ok else ":bad")] += 1
+                    if not ok:
+                        bad.append((lvl.short, a.name, s, ids))
+                    break
+    print("label cross-check (export label digits vs item_ids()[0]):")
+    for fam in sorted({k.rsplit(":", 1)[0] for k in lbl}):
+        ok, no = lbl[fam + ":ok"], lbl[fam + ":bad"]
+        print(f"    {fam:26s} {ok}/{ok + no}")
+    for b in bad[:20]:
+        print(f"      ! {b[0]}/{b[1]} label {b[2]} -> {b[3]}")
+    print("table-membership rate (an export yields an id that is a real row):")
+    for fam in sorted({k.rsplit(":", 1)[0] for k in rate}):
+        print(f"    {fam:26s} {rate[fam + ':resolved']}/{rate[fam + ':total']}")
 
 
 def census(ms, chapter):
@@ -526,7 +688,11 @@ def main(argv=None):
     ap.add_argument("--chapter", default="1")
     ap.add_argument("--all-chapters", action="store_true")
     ap.add_argument("--out", default=os.path.join(_HERE, "..", "..", "markers"))
+    ap.add_argument("--items", default=itemdb.DEFAULT_PATH,
+                    help="markers/items.json from build_items.py (item names)")
     ap.add_argument("--census", action="store_true")
+    ap.add_argument("--items-check", action="store_true",
+                    help="cross-check item_ids() against the export labels")
     ap.add_argument("--stats", action="store_true")
     a = ap.parse_args(argv)
 
@@ -534,11 +700,19 @@ def main(argv=None):
     if a.census:
         census(ms, a.chapter)
         return 0
+    if a.items_check:
+        items_check(ms, itemdb.ItemDB.load(a.items))
+        return 0
+
+    items = itemdb.ItemDB.load(a.items)
+    if not len(items):
+        print(f"  ! no item database at {a.items} -- pickups keep the generic label "
+              f"(run build_items.py first)", file=sys.stderr)
 
     chapters = ["1", "2", "3", "4", "5", "DLC"] if a.all_chapters else [a.chapter]
     os.makedirs(a.out, exist_ok=True)
     for ch in chapters:
-        markers, stats, _schema, _pkgs = extract(ms, ch)
+        markers, stats, _schema, _pkgs = extract(ms, ch, items=items)
         if not markers:
             print(f"  chapter {ch}: nothing extracted, skipped")
             continue

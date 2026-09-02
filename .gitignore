@@ -19,6 +19,13 @@
 .vscode/
 *.ilk
 
-# recon dumps (generated at runtime)
+# recon dumps (generated at runtime).
+# Keep the dumps themselves: they are the recorded evidence behind
+# .workspace/wuchang-minimap/context/wuchang-classes.md and cannot be re-taken
+# without another in-game session. Everything else in out/ stays ignored.
 tools/lua-recon/WuchangRecon/out/*
 !tools/lua-recon/WuchangRecon/out/.gitkeep
+!tools/lua-recon/WuchangRecon/out/dump_*.txt
+!tools/lua-recon/WuchangRecon/out/navprobe_*.csv
+!tools/lua-recon/WuchangRecon/out/navprobe_*.png
+!tools/lua-recon/WuchangRecon/out/track.csv

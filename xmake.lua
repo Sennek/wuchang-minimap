@@ -141,6 +141,11 @@ target("WuchangMinimap")
     -- Import library synthesised from the installed UE4SS.dll export table.
     add_links("sdk/lib/UE4SS.lib")
 
+    -- windowscodecs/ole32: WIC decodes the chapter PNGs (src/mapdata.cpp) - no
+    -- vendored image decoder needed. d3d12/dxgi come in publicly from the imgui
+    -- target, but the overlay calls D3D12CreateDevice / CreateDXGIFactory1 itself.
+    add_syslinks("d3d12", "dxgi", "windowscodecs", "ole32")
+
     after_build(function (target)
         print("WuchangMinimap -> %s", target:targetfile())
     end)

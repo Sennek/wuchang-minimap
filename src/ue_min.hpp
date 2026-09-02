@@ -40,6 +40,7 @@ namespace RC::Unreal
     class UClass;
     class UStruct;
     class FField;
+    class UFunction;
 
     class UObjectBase
     {
@@ -56,6 +57,25 @@ namespace RC::Unreal
 
         // ?GetFullName@UObject@Unreal@RC@@QEBA?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@PEAV123@@Z
         std::wstring GetFullName(UObject* stop_outer = nullptr) const;
+
+        // ?GetFunctionByNameInChain@UObject@Unreal@RC@@QEAAPEAVUFunction@23@PEB_W@Z
+        //
+        // Looks the UFunction up on this object's class and every super class. Returns
+        // nullptr when the name does not exist, which is the only way to tell - a
+        // BlueprintCallable getter that is not there must never be *assumed* present
+        // (lessons.md: APlayerCameraManager has no GetViewTarget()).
+        UFunction* GetFunctionByNameInChain(const wchar_t* name);
+
+        // ?ProcessEvent@UObject@Unreal@RC@@QEAAXPEAVUFunction@23@PEAX@Z
+        //
+        // Calls the function with `params` pointing at the function's parameter block
+        // (parameters in declaration order, then the return value at the end - for the
+        // zero-argument getters we use, `params` is just the return value).
+        //
+        // MUST only be called from the game thread, i.e. from inside our ProcessEvent
+        // pre-callback pump - and the pump has to guard against re-entrancy, because
+        // every call made from it fires the pre-callback again.
+        void ProcessEvent(UFunction* function, void* params);
     };
 
     class UField : public UObject

@@ -16,6 +16,7 @@
 #include <Mod/CppUserModBase.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 
+#include "gamestate.hpp"
 #include "navmesh_dump.hpp"
 #include "overlay.hpp"
 
@@ -62,6 +63,8 @@ class WuchangMinimap : public CppUserModBase
         // traverse UObjects or read engine allocations - navmesh::on_update() only
         // samples the hotkey and hands the work to a game-thread pump.
         navmesh::on_update();
+        overlay::on_update();
+        gamestate::on_update();
     }
 };
 

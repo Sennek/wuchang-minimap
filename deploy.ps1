@@ -32,6 +32,8 @@ param(
     [string]$Mode     = 'Game__Shipping__Win64',
     [switch]$NoPdb,
     [switch]$Force,
+    [switch]$ForceConfig,
+    [switch]$NoMaps,
     [switch]$Pull
 )
 
@@ -95,13 +97,36 @@ foreach ($modDir in $targets) {
     $enabled = Join-Path $modDir 'enabled.txt'
     if (-not (Test-Path $enabled)) { New-Item -ItemType File -Path $enabled | Out-Null }
 
-    # config.ini gates the runtime navmesh dumper (off by default). Never overwrite the
-    # installed copy - the user may have turned the dumper on for a capture session.
-    $cfgSrc = Join-Path $PSScriptRoot 'deploy\ue4ss\Mods\WuchangMinimap\config.ini'
-    $cfgDst = Join-Path $modDir 'config.ini'
-    if ((Test-Path $cfgSrc) -and -not (Test-Path $cfgDst)) {
-        Copy-Item -Path $cfgSrc -Destination $cfgDst -Force
-        Write-Host "Installed default config.ini -> $cfgDst"
+    # Config files are never overwritten unless -ForceConfig: the user may have turned
+    # the navmesh dumper on for a capture session, or tuned the minimap by hand.
+    #   config.ini                  - the runtime navmesh dumper (off by default)
+    #   config_wuchang_minimap.txt  - the overlay / minimap settings
+    foreach ($cfgName in @('config.ini', 'config_wuchang_minimap.txt')) {
+        $cfgSrc = Join-Path $PSScriptRoot "deploy\ue4ss\Mods\WuchangMinimap\$cfgName"
+        $cfgDst = Join-Path $modDir $cfgName
+        if ((Test-Path $cfgSrc) -and ($cfgSrc -ne $cfgDst) -and ($ForceConfig -or -not (Test-Path $cfgDst))) {
+            Copy-Item -Path $cfgSrc -Destination $cfgDst -Force
+            Write-Host "Installed default $cfgName -> $cfgDst"
+        }
+    }
+
+    # The map assets the overlay loads at start-up: maps\maps.json plus
+    # maps\<chapter>\*.png, built by tools\navmesh\build_map.py. Always refreshed -
+    # they are generated, not user-editable.
+    if (-not $NoMaps) {
+        $mapsSrc = Join-Path $PSScriptRoot 'maps'
+        if (Test-Path $mapsSrc) {
+            $mapsDst = Join-Path $modDir 'maps'
+            New-Item -ItemType Directory -Force -Path $mapsDst | Out-Null
+            if ($mapsSrc -ne $mapsDst) {
+                Copy-Item -Path (Join-Path $mapsSrc '*') -Destination $mapsDst -Recurse -Force
+            }
+            $png = Get-ChildItem -Path $mapsDst -Filter '*.png' -Recurse -File
+            Write-Host ("Deployed maps -> {0} ({1} PNG, {2:N1} MB)" -f $mapsDst, $png.Count,
+                        (($png | Measure-Object -Property Length -Sum).Sum / 1MB))
+        } else {
+            Write-Warning "No maps\ directory in the repo - build it with tools\navmesh\build_map.py"
+        }
     }
 
     Write-Host "Deployed -> $dllsDir\main.dll"

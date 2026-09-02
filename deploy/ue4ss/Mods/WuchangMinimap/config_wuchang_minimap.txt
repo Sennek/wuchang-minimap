@@ -1,0 +1,63 @@
+; WuchangMinimap - overlay settings.
+;
+; Plain `key = value` lines; `;` and `#` start a comment. Written by the F2 settings
+; panel ("Save settings") and re-read by F5 or "Reload settings + maps", so the game
+; does not have to be restarted for a change here.
+;
+; HOTKEYS: only F1..F5, F7 and F8 are accepted. Anything else falls back to the
+; default, because on this machine
+;   F6  toggles RenoDX / DLSS 5 Neural Rendering (it ignores modifiers, and pressing
+;       it in-world hung the GPU on 2026-09-02)
+;   F9  / F11 are engine screenshot / fullscreen binds
+;   F10 opens the game console (UE4SS ConsoleEnablerMod)
+;   F12 is the Steam screenshot key
+
+; Master switch. 0 = install no DX12 hooks at all.
+enabled = 1
+
+; Draw the minimap. Turn off to keep only the F2 panel.
+show_minimap = 1
+
+; Minimap side length as a fraction of the screen height (0.05 .. 0.9).
+minimap_size = 0.24
+
+; World units per minimap pixel. Smaller = more zoomed in. 1 uu = 1 cm, so 26 shows
+; roughly a 70 m square on a 270 px minimap.
+minimap_zoom = 26
+
+; round | square
+minimap_shape = round
+
+; top-left | top-right | bottom-left | bottom-right
+minimap_anchor = top-left
+minimap_offset_x = 24
+minimap_offset_y = 24
+
+; 0 = north up (the map never turns, the arrow does); 1 = the map turns with you.
+rotate_with_player = 0
+
+; 0.1 .. 1.0
+opacity = 0.92
+
+; Hide the minimap while any menu is open (inventory / pause / shrine map).
+hide_in_menus = 1
+
+; Hide the minimap unless the camera's view target is the player pawn. This is what
+; keeps it off the main menu (the Lobby view target is a CineCameraActor) and out of
+; cutscenes.
+require_pawn_view = 1
+
+; Hide the minimap if the game-thread reader has not published a position in this
+; many milliseconds.
+state_stale_ms = 1000
+
+; Show the world position / uv / chapter readout in the F2 panel.
+debug_readout = 1
+
+; Open the settings panel as soon as the mod starts. Development aid only - it is how
+; the panel is verified without a keypress. Leave at 0 for normal play.
+debug_show_panel_on_start = 0
+
+; Settings panel toggle, and config+map reload.
+panel_key = F2
+reload_key = F5

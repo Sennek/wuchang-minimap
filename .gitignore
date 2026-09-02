@@ -36,3 +36,16 @@ tools/lua-recon/WuchangRecon/out/*
 # committed; the rendered PNGs are reproducible from them and do not.
 tools/navmesh/out/
 __pycache__/
+
+# Offline navmesh extraction (tools/navmesh/offline). The JSON tiles are fully
+# reproducible from the game's paks in seconds -- unlike the runtime dumps above,
+# they are NOT irreplaceable evidence, so they stay out of the repo (400 MB for the
+# whole game). Of the renders, keep only the primary agent's floors, the bounds/
+# alignment metadata and the two probe cross-check crops.
+tools/navmesh/dumps_offline/
+tools/navmesh/out_offline/*
+!tools/navmesh/out_offline/Small_floor*.png
+!tools/navmesh/out_offline/bounds.json
+!tools/navmesh/out_offline/alignment.json
+!tools/navmesh/out_offline/_spot1_zslice.png
+!tools/navmesh/out_offline/_spot2_zslice.png

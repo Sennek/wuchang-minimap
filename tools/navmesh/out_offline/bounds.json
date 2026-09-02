@@ -1,0 +1,674 @@
+{
+  "schema": "wuchang-navmesh-render/1",
+  "agents": [
+    {
+      "agent": "Big",
+      "source_files": [
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y1_DL0_WP.json"
+      ],
+      "tile_count": 7222,
+      "poly_count": 112253,
+      "floor_gap_uu": 600.0,
+      "cell_uu": 12800.0,
+      "floors": [
+        [
+          -15089.0,
+          14844.333333333334
+        ],
+        [
+          -12033.0,
+          36351.0
+        ],
+        [
+          -9369.0,
+          38871.0
+        ],
+        [
+          -7529.0,
+          36351.0
+        ],
+        [
+          146.59666716881475,
+          36351.0
+        ],
+        [
+          1306.5966671688147,
+          36351.0
+        ]
+      ],
+      "images": [
+        {
+          "floor": 0,
+          "png": "Big_floor0.png",
+          "polys": 79145,
+          "z_min": -15089.0,
+          "z_max": 14844.333333333334
+        },
+        {
+          "floor": 1,
+          "png": "Big_floor1.png",
+          "polys": 19411,
+          "z_min": -12033.0,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 2,
+          "png": "Big_floor2.png",
+          "polys": 7396,
+          "z_min": -9369.0,
+          "z_max": 38871.0
+        },
+        {
+          "floor": 3,
+          "png": "Big_floor3.png",
+          "polys": 5588,
+          "z_min": -7529.0,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 4,
+          "png": "Big_floor4.png",
+          "polys": 59,
+          "z_min": 146.59666716881475,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 5,
+          "png": "Big_floor5.png",
+          "polys": 654,
+          "z_min": 1306.5966671688147,
+          "z_max": 36351.0
+        }
+      ],
+      "settings": {
+        "AgentRadius": 60.0,
+        "AgentHeight": 188.0,
+        "TileSizeUU": 1280.0,
+        "CellSize": 10.0,
+        "CellHeight": 40.0,
+        "TilePoolSize": 4096,
+        "PolyRefTileBits": 23,
+        "PolyRefNavPolyBits": 32,
+        "PolyRefSaltBits": 9
+      },
+      "dtnavmesh": {
+        "orig": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "tile_width": 1280.0,
+        "tile_height": 1280.0,
+        "max_tiles": 4096,
+        "max_polys": 4194304
+      },
+      "offsets": {
+        "impl_ptr": "0x0",
+        "params": "0x0",
+        "tiles_ptr": "0x0",
+        "tile_stride": "0x22"
+      },
+      "min_x": -20608.0,
+      "min_y": -41088.0,
+      "max_x": 51328.0,
+      "max_y": 41088.0,
+      "px_per_uu": 0.02,
+      "image_width": 1645,
+      "image_height": 1440,
+      "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu"
+    },
+    {
+      "agent": "BitFat",
+      "source_files": [
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y1_DL0_WP.json"
+      ],
+      "tile_count": 6184,
+      "poly_count": 76140,
+      "floor_gap_uu": 600.0,
+      "cell_uu": 12800.0,
+      "floors": [
+        [
+          -15089.0,
+          14864.333333333334
+        ],
+        [
+          -12009.0,
+          36351.0
+        ],
+        [
+          -9349.0,
+          38871.0
+        ],
+        [
+          -7209.0,
+          15751.0
+        ],
+        [
+          -1782.3333333333333,
+          36351.0
+        ],
+        [
+          9839.0,
+          17061.0
+        ],
+        [
+          36351.0,
+          36351.0
+        ]
+      ],
+      "images": [
+        {
+          "floor": 0,
+          "png": "BitFat_floor0.png",
+          "polys": 54150,
+          "z_min": -15089.0,
+          "z_max": 14864.333333333334
+        },
+        {
+          "floor": 1,
+          "png": "BitFat_floor1.png",
+          "polys": 12113,
+          "z_min": -12009.0,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 2,
+          "png": "BitFat_floor2.png",
+          "polys": 5756,
+          "z_min": -9349.0,
+          "z_max": 38871.0
+        },
+        {
+          "floor": 3,
+          "png": "BitFat_floor3.png",
+          "polys": 1106,
+          "z_min": -7209.0,
+          "z_max": 15751.0
+        },
+        {
+          "floor": 4,
+          "png": "BitFat_floor4.png",
+          "polys": 2939,
+          "z_min": -1782.3333333333333,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 5,
+          "png": "BitFat_floor5.png",
+          "polys": 46,
+          "z_min": 9839.0,
+          "z_max": 17061.0
+        },
+        {
+          "floor": 6,
+          "png": "BitFat_floor6.png",
+          "polys": 30,
+          "z_min": 36351.0,
+          "z_max": 36351.0
+        }
+      ],
+      "settings": {
+        "AgentRadius": 90.0,
+        "AgentHeight": 188.0,
+        "TileSizeUU": 1280.0,
+        "CellSize": 10.0,
+        "CellHeight": 40.0,
+        "TilePoolSize": 4096,
+        "PolyRefTileBits": 23,
+        "PolyRefNavPolyBits": 32,
+        "PolyRefSaltBits": 9
+      },
+      "dtnavmesh": {
+        "orig": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "tile_width": 1280.0,
+        "tile_height": 1280.0,
+        "max_tiles": 4096,
+        "max_polys": 4194304
+      },
+      "offsets": {
+        "impl_ptr": "0x0",
+        "params": "0x0",
+        "tiles_ptr": "0x0",
+        "tile_stride": "0x22"
+      },
+      "min_x": -20608.0,
+      "min_y": -41088.0,
+      "max_x": 51328.0,
+      "max_y": 41088.0,
+      "px_per_uu": 0.02,
+      "image_width": 1645,
+      "image_height": 1440,
+      "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu"
+    },
+    {
+      "agent": "Giant",
+      "source_files": [
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y1_DL0_WP.json"
+      ],
+      "tile_count": 5379,
+      "poly_count": 54408,
+      "floor_gap_uu": 600.0,
+      "cell_uu": 12800.0,
+      "floors": [
+        [
+          -15089.0,
+          14871.0
+        ],
+        [
+          -10169.0,
+          36351.0
+        ],
+        [
+          -7629.0,
+          38871.0
+        ],
+        [
+          -4599.0,
+          36351.0
+        ],
+        [
+          -2289.0,
+          36351.0
+        ],
+        [
+          6962.398895576702,
+          16891.0
+        ],
+        [
+          9421.0,
+          36351.0
+        ],
+        [
+          11687.0,
+          11687.0
+        ],
+        [
+          36351.0,
+          36351.0
+        ]
+      ],
+      "images": [
+        {
+          "floor": 0,
+          "png": "Giant_floor0.png",
+          "polys": 40753,
+          "z_min": -15089.0,
+          "z_max": 14871.0
+        },
+        {
+          "floor": 1,
+          "png": "Giant_floor1.png",
+          "polys": 6368,
+          "z_min": -10169.0,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 2,
+          "png": "Giant_floor2.png",
+          "polys": 3223,
+          "z_min": -7629.0,
+          "z_max": 38871.0
+        },
+        {
+          "floor": 3,
+          "png": "Giant_floor3.png",
+          "polys": 739,
+          "z_min": -4599.0,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 4,
+          "png": "Giant_floor4.png",
+          "polys": 3170,
+          "z_min": -2289.0,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 5,
+          "png": "Giant_floor5.png",
+          "polys": 57,
+          "z_min": 6962.398895576702,
+          "z_max": 16891.0
+        },
+        {
+          "floor": 6,
+          "png": "Giant_floor6.png",
+          "polys": 53,
+          "z_min": 9421.0,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 7,
+          "png": "Giant_floor7.png",
+          "polys": 1,
+          "z_min": 11687.0,
+          "z_max": 11687.0
+        },
+        {
+          "floor": 8,
+          "png": "Giant_floor8.png",
+          "polys": 44,
+          "z_min": 36351.0,
+          "z_max": 36351.0
+        }
+      ],
+      "settings": {
+        "AgentRadius": 120.0,
+        "AgentHeight": 200.0,
+        "TileSizeUU": 1280.0,
+        "CellSize": 10.0,
+        "CellHeight": 40.0,
+        "TilePoolSize": 4096,
+        "PolyRefTileBits": 23,
+        "PolyRefNavPolyBits": 32,
+        "PolyRefSaltBits": 9
+      },
+      "dtnavmesh": {
+        "orig": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "tile_width": 1280.0,
+        "tile_height": 1280.0,
+        "max_tiles": 4096,
+        "max_polys": 4194304
+      },
+      "offsets": {
+        "impl_ptr": "0x0",
+        "params": "0x0",
+        "tiles_ptr": "0x0",
+        "tile_stride": "0x22"
+      },
+      "min_x": -20608.0,
+      "min_y": -41088.0,
+      "max_x": 51328.0,
+      "max_y": 41088.0,
+      "px_per_uu": 0.02,
+      "image_width": 1645,
+      "image_height": 1440,
+      "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu"
+    },
+    {
+      "agent": "Small",
+      "source_files": [
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-1_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X-2_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X0_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y-4_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X1_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X2_Y3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y-3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X3_Y3_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y-1_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y-2_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y0_DL0_WP.json",
+        "tiles_20260902_ch1_B1EX0_L0_X4_Y1_DL0_WP.json"
+      ],
+      "tile_count": 10037,
+      "poly_count": 196837,
+      "floor_gap_uu": 600.0,
+      "cell_uu": 12800.0,
+      "floors": [
+        [
+          -15089.0,
+          14839.0
+        ],
+        [
+          -12041.0,
+          36351.0
+        ],
+        [
+          -9369.0,
+          38871.0
+        ],
+        [
+          -7555.666666666667,
+          36351.0
+        ],
+        [
+          -197.40333283118525,
+          36351.0
+        ],
+        [
+          1302.5966671688147,
+          4802.596667168815
+        ]
+      ],
+      "images": [
+        {
+          "floor": 0,
+          "png": "Small_floor0.png",
+          "polys": 148762,
+          "z_min": -15089.0,
+          "z_max": 14839.0
+        },
+        {
+          "floor": 1,
+          "png": "Small_floor1.png",
+          "polys": 20927,
+          "z_min": -12041.0,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 2,
+          "png": "Small_floor2.png",
+          "polys": 25225,
+          "z_min": -9369.0,
+          "z_max": 38871.0
+        },
+        {
+          "floor": 3,
+          "png": "Small_floor3.png",
+          "polys": 1012,
+          "z_min": -7555.666666666667,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 4,
+          "png": "Small_floor4.png",
+          "polys": 37,
+          "z_min": -197.40333283118525,
+          "z_max": 36351.0
+        },
+        {
+          "floor": 5,
+          "png": "Small_floor5.png",
+          "polys": 874,
+          "z_min": 1302.5966671688147,
+          "z_max": 4802.596667168815
+        }
+      ],
+      "settings": {
+        "AgentRadius": 34.0,
+        "AgentHeight": 120.0,
+        "TileSizeUU": 1280.0,
+        "CellSize": 10.0,
+        "CellHeight": 40.0,
+        "TilePoolSize": 4096,
+        "PolyRefTileBits": 23,
+        "PolyRefNavPolyBits": 32,
+        "PolyRefSaltBits": 9
+      },
+      "dtnavmesh": {
+        "orig": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "tile_width": 1280.0,
+        "tile_height": 1280.0,
+        "max_tiles": 4096,
+        "max_polys": 4194304
+      },
+      "offsets": {
+        "impl_ptr": "0x0",
+        "params": "0x0",
+        "tiles_ptr": "0x0",
+        "tile_stride": "0x22"
+      },
+      "min_x": -20608.0,
+      "min_y": -41088.0,
+      "max_x": 51328.0,
+      "max_y": 41088.0,
+      "px_per_uu": 0.02,
+      "image_width": 1645,
+      "image_height": 1440,
+      "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu"
+    }
+  ],
+  "probes": [],
+  "min_x": -20608.0,
+  "min_y": -41088.0,
+  "max_x": 51328.0,
+  "max_y": 41088.0,
+  "px_per_uu": 0.02,
+  "image_width": 1645,
+  "image_height": 1440,
+  "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu"
+}

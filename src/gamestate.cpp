@@ -28,6 +28,10 @@ namespace gamestate
         // Tuning
         //==============================================================================
 
+        // THE DEFAULTS. Every one of these is a config key now (`reader_*` in
+        // config_wuchang_minimap.txt) and the live values live in `g_tune` below, which
+        // is refreshed from the config twice a second. The constants stay as the
+        // documented defaults and as the values used before the first refresh.
         constexpr std::uint64_t kPositionPeriodMs = 100; // 10 Hz: pawn location + yaw
         constexpr std::uint64_t kResolvePeriodMs = 500;  // 2 Hz: FindAllOf for pawn / controller
         // The menu test runs at two rates, because "the minimap hides 2-3 s after I
@@ -131,6 +135,54 @@ namespace gamestate
         // sprints at ~700 uu/s, i.e. ~70 uu per pump).
         constexpr double kTeleportJumpUu = 3000.0;
 
+        //==============================================================================
+        // The live copies of the constants above (game thread)
+        //==============================================================================
+        //
+        // mm::config() copies the whole Config under a spinlock, which is far too much
+        // for a callback the engine fires thousands of times a second - so it is read at
+        // most every kTunePeriodMs and unpacked into these scalars. Everything below
+        // uses `g_tune`, never the constants.
+
+        struct Tunables
+        {
+            std::uint64_t position_ms = kPositionPeriodMs;
+            std::uint64_t resolve_ms = kResolvePeriodMs;
+            std::uint64_t widget_sweep_ms = kWidgetFullPeriodMs;
+            std::uint64_t cooldown_ms = kTransitionCooldownMs;
+            std::uint64_t log_throttle_ms = kLogThrottleMs;
+            std::uint64_t chapter_ms = kChapterPeriodMs;
+            std::size_t max_widgets = kMaxWidgets;
+            std::size_t max_menu_roots = kMaxMenuRoots;
+            int max_levels = kMaxLevelsScanned;
+            double teleport_uu = kTeleportJumpUu;
+        };
+
+        constexpr std::uint64_t kTunePeriodMs = 500;
+
+        Tunables g_tune{};
+        std::uint64_t g_tune_ms = 0;
+
+        void refresh_tunables(std::uint64_t now)
+        {
+            if (g_tune_ms != 0 && now - g_tune_ms < kTunePeriodMs)
+            {
+                return;
+            }
+            g_tune_ms = now;
+            const mm::Config cfg = mm::config();
+            g_tune.position_ms = static_cast<std::uint64_t>(cfg.reader_position_period_ms);
+            g_tune.resolve_ms = static_cast<std::uint64_t>(cfg.reader_resolve_period_ms);
+            g_tune.widget_sweep_ms = static_cast<std::uint64_t>(cfg.reader_widget_sweep_period_ms);
+            g_tune.cooldown_ms = static_cast<std::uint64_t>(cfg.reader_transition_cooldown_ms);
+            g_tune.log_throttle_ms = static_cast<std::uint64_t>(cfg.reader_log_throttle_ms);
+            g_tune.chapter_ms = static_cast<std::uint64_t>(cfg.reader_chapter_period_ms);
+            g_tune.max_widgets = static_cast<std::size_t>(cfg.reader_max_widgets);
+            g_tune.max_menu_roots = static_cast<std::size_t>(cfg.reader_max_menu_roots);
+            g_tune.max_levels = cfg.reader_max_levels;
+            g_tune.teleport_uu = cfg.reader_teleport_jump_uu;
+        }
+
         std::wstring g_pawn_class_name;
         std::wstring g_pawn_full_name;
         std::wstring g_pawn_short_name;
@@ -147,7 +199,7 @@ namespace gamestate
 
         bool throttled(std::uint64_t& last, std::uint64_t now)
         {
-            if (now - last < kLogThrottleMs)
+            if (now - last < g_tune.log_throttle_ms)
             {
                 return false;
             }
@@ -199,10 +251,10 @@ namespace gamestate
             markers::drop_caches();
             if (had_pawn)
             {
-                g_cooldown_until = now + kTransitionCooldownMs;
+                g_cooldown_until = now + g_tune.cooldown_ms;
                 mm::logf(L"pawn dropped ({}): caches cleared, no UFunction calls for {} ms",
                          why,
-                         kTransitionCooldownMs);
+                         g_tune.cooldown_ms);
             }
         }
 
@@ -475,7 +527,7 @@ namespace gamestate
                     return;
                 }
             }
-            if (g_menu_roots.size() >= kMaxMenuRoots)
+            if (g_menu_roots.size() >= g_tune.max_menu_roots)
             {
                 return;
             }
@@ -576,7 +628,7 @@ namespace gamestate
             std::uint32_t visible_in_viewport = 0;
             bool menu = false;
 
-            const std::size_t count = widgets.size() < kMaxWidgets ? widgets.size() : kMaxWidgets;
+            const std::size_t count = widgets.size() < g_tune.max_widgets ? widgets.size() : g_tune.max_widgets;
             for (std::size_t i = 0; i < count; ++i)
             {
                 UObject* w = widgets[i];
@@ -685,7 +737,7 @@ namespace gamestate
             {
                 return false;
             }
-            if (out.num < 0 || out.num > kMaxLevelsScanned || out.max < out.num)
+            if (out.num < 0 || out.num > g_tune.max_levels || out.max < out.num)
             {
                 return false;
             }
@@ -790,7 +842,7 @@ namespace gamestate
                 UObjectGlobals::FindAllOf(L"Level", levels);
                 for (UObject* level : levels)
                 {
-                    if (counted >= kMaxLevelsScanned)
+                    if (counted >= g_tune.max_levels)
                     {
                         break;
                     }
@@ -885,7 +937,9 @@ namespace gamestate
             }
 
             const std::uint64_t now = ::GetTickCount64();
-            if (now - g_last_position < kPositionPeriodMs)
+            // Twice a second at most; every other call is a compare (see refresh_tunables).
+            refresh_tunables(now);
+            if (now - g_last_position < g_tune.position_ms)
             {
                 // BETWEEN position pumps: run the marker scan slice and nothing else.
                 //
@@ -923,7 +977,7 @@ namespace gamestate
             if (!uer::alive(g_controller))
             {
                 g_controller.reset();
-                if (now - g_last_resolve >= kResolvePeriodMs)
+                if (now - g_last_resolve >= g_tune.resolve_ms)
                 {
                     g_last_resolve = now;
                     resolve_controller();
@@ -977,7 +1031,7 @@ namespace gamestate
             }
 
             // ---- 3. (re-)acquire a gameplay pawn ------------------------------------
-            if (!pawn_ok && now - g_last_resolve >= kResolvePeriodMs)
+            if (!pawn_ok && now - g_last_resolve >= g_tune.resolve_ms)
             {
                 g_last_resolve = now;
                 if (!uer::alive(g_controller))
@@ -1004,7 +1058,7 @@ namespace gamestate
             std::uint32_t roots_visible = 0;
             std::wstring holder;
             bool menu = menu_from_cached_roots(roots_visible, holder);
-            const bool swept = g_force_widget_sweep || (now - g_last_widgets >= kWidgetFullPeriodMs);
+            const bool swept = g_force_widget_sweep || (now - g_last_widgets >= g_tune.widget_sweep_ms);
             if (swept)
             {
                 g_last_widgets = now;
@@ -1033,7 +1087,7 @@ namespace gamestate
 
             // Which chapter's map asset should be resident. Slow (1 Hz) and cheap, and
             // it runs on the same validated state the rest of the pump uses.
-            if (now - g_last_chapter >= kChapterPeriodMs)
+            if (now - g_last_chapter >= g_tune.chapter_ms)
             {
                 g_last_chapter = now;
                 refresh_chapter(now);
@@ -1081,7 +1135,7 @@ namespace gamestate
                     const double dx = snap.x - g_last_x;
                     const double dy = snap.y - g_last_y;
                     const double dz = snap.z - g_last_z;
-                    if (std::sqrt(dx * dx + dy * dy + dz * dz) > kTeleportJumpUu)
+                    if (std::sqrt(dx * dx + dy * dy + dz * dz) > g_tune.teleport_uu)
                     {
                         g_teleport_ms = now;
                         g_force_widget_sweep = true;

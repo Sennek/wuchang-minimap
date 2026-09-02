@@ -286,6 +286,19 @@ namespace mm
         // is a handful of raw doubles at a cached offset, so this is cheap; it only has
         // to keep up with how fast the player can swing the camera.
         int highlight_camera_hz = 60;
+        // The camera reader's own rates and its discovery bounds (src/highlight.cpp).
+        // `highlight_camera_resolve_ms` is how often the APlayerCameraManager is
+        // re-found when it is missing; `highlight_compass_period_ms` is the slower rate
+        // used when only the compass wants a heading; `highlight_getter_period_ms`
+        // paces the ProcessEvent fallback route. `highlight_pov_scan_bytes` is how far
+        // into CameraCachePrivate the POV block is looked for, and
+        // `highlight_pov_bad_reads` how many insane reads in a row drop the pinned
+        // offset and re-discover it.
+        int highlight_camera_resolve_ms = 500;
+        int highlight_compass_period_ms = 50;
+        int highlight_getter_period_ms = 33;
+        int highlight_pov_scan_bytes = 192;
+        int highlight_pov_bad_reads = 8;
 
         //==============================================================================
         // The compass strip
@@ -309,6 +322,102 @@ namespace mm
                                            mdb::cat_bit(mdb::Cat::FogGate);
         float compass_marker_distance = 15000.0f; // uu (150 m)
         bool compass_show_waypoint = true;
+        // The strip's minor-tick spacing in degrees (a multiple of 45 is a labelled
+        // major tick, a multiple of 90 a cardinal letter), and the hard cap on how many
+        // marker pips it draws, nearest first.
+        float compass_tick_step_deg = 15.0f;
+        int compass_max_pips = 32;
+
+        //==============================================================================
+        // Minimap look
+        //==============================================================================
+        //
+        // Everything the minimap draws that is not the map itself. These used to be
+        // literals inside draw_minimap(); they are here so a legibility complaint can
+        // be answered by editing a file instead of by a rebuild. All of them are live -
+        // the next frame uses the new value.
+
+        float minimap_backdrop = 0.86f;    // alpha of the dark disc under the map
+        float minimap_backdrop_r = 6.0f;   // and its colour, 0..255
+        float minimap_backdrop_g = 9.0f;
+        float minimap_backdrop_b = 13.0f;
+        float minimap_frame_r = 168.0f;    // the ring / border around the minimap
+        float minimap_frame_g = 176.0f;
+        float minimap_frame_b = 186.0f;
+        float minimap_frame_alpha = 0.85f;
+        // The Z-shaded composite fallback is a merged picture of every storey, so it is
+        // drawn a little weaker than a height slice.
+        float minimap_composite_alpha = 0.85f;
+        float minimap_min_px = 72.0f;      // floor on the side length, whatever the fraction says
+        float minimap_arrow_frac = 0.055f; // player arrow, as a fraction of the side
+        float minimap_arrow_min_px = 8.0f;
+        int minimap_circle_segments = 72;  // roundness of the disc and its rings
+        // The waypoint glyph's radius, as a multiple of markers_size. It is deliberately
+        // a touch bigger than a marker: it is the one thing that is never culled.
+        float waypoint_size_scale = 1.05f;
+
+        //==============================================================================
+        // Height-slice sizing
+        //==============================================================================
+        //
+        // How big a window the CPU slicer cuts. `slice_min_px` / `slice_max_px` bound
+        // the minimap's square; `map_slice_margin` is how much bigger than the visible
+        // canvas the full map's cut is, so a drag can move inside the cut before it has
+        // to be redone (1.30 = 15 % of the canvas in either direction).
+
+        int slice_min_px = 128;
+        int slice_max_px = 1024;
+        float map_slice_margin = 1.30f;
+
+        //==============================================================================
+        // The game-state reader (src/gamestate.cpp, game thread)
+        //==============================================================================
+        //
+        // The rates and caps of the ProcessEvent pump. They are read from the config at
+        // most twice a second and are live. LOWER PERIODS COST GAME-THREAD TIME: the
+        // position pump is what gates the marker scan and the widget test, and the
+        // widget sweep is a FindAllOf, i.e. a whole object-array walk.
+
+        int reader_position_period_ms = 100;      // 10 Hz: pawn location + yaw
+        int reader_resolve_period_ms = 500;       // 2 Hz: FindAllOf for the pawn / controller
+        int reader_widget_sweep_period_ms = 250;  // the full menu-widget sweep
+        int reader_transition_cooldown_ms = 2000; // no UFunction call for this long after a pawn/world change
+        double reader_teleport_jump_uu = 3000.0;  // a position jump this big in one pump is a fast travel
+        int reader_chapter_period_ms = 1000;      // how often the streamed level set is named
+        int reader_max_widgets = 6000;            // sanity cap on one widget sweep
+        int reader_max_menu_roots = 32;           // in-viewport root cache cap (the game has 5-6)
+        int reader_max_levels = 4096;             // sanity cap on the level enumeration
+        int reader_log_throttle_ms = 5000;        // "no pawn" / "rejected class" lines
+
+        //==============================================================================
+        // Marker sweep internals
+        //==============================================================================
+        //
+        // Caps and the absence grace of the live half. `markers_live_grace_rounds` is
+        // the number of rounds a live actor may go unseen before it is dropped from the
+        // live cache - two rounds is what stops a marker flickering whenever a sweep
+        // races level streaming. It is NOT a collected test (see markers_absence_*).
+
+        int markers_live_grace_rounds = 2;
+        int markers_live_max = 8192;             // live entries tracked at once
+        int markers_id_cache_max = 8192;         // UObject* -> stable id memo
+        int markers_class_cache_max = 262144;    // UClass* -> marker-class memo; must clear the WHOLE game's classes
+        int markers_fallback_max_per_class = 4096; // only the FindAllOf fallback path
+
+        //==============================================================================
+        // Assets and diagnostics
+        //==============================================================================
+
+        // How long a retired chapter's height planes stay alive after the pointer to
+        // them was cleared, so a render thread already inside a slice cannot fault. A
+        // slice is ~4 ms; this is three orders of magnitude more.
+        int map_asset_retire_grace_ms = 2000;
+        // Rate limit on the "hidden because: ..." log line, so a flapping condition
+        // cannot flood the log.
+        int hide_reason_log_ms = 2000;
+        // Size of our SRV descriptor heap (font atlas + map + the four slice buffers).
+        // RESTART ONLY: the heap is created once, when the overlay first initialises.
+        int srv_heap_size = 64;
 
         bool debug_readout = true;
         bool debug_show_panel_on_start = false; // main-menu verification aid

@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "chapterid.hpp"
+#include "config_keys.hpp"
 #include "compass.hpp"
 #include "mapmanifest.hpp"
 #include "mapview.hpp"
@@ -1413,6 +1414,125 @@ namespace
         }
     }
 
+    //==================================================================================
+    // The config file's keys: shipped file == known keys == what the parser accepts
+    //==================================================================================
+    //
+    // Three things drift apart silently. A key in the struct and the parser but not in
+    // the SHIPPED file is invisible to everyone who never presses Save in the F2 panel;
+    // a key left in the shipped file after a rename is ignored without a word, which
+    // looks exactly like the setting not working; and a key documented in
+    // config_keys.hpp that the parser never matches is a lie in the one place a reader
+    // would trust. So all three sets are compared, in both directions, and the failure
+    // message names the offending keys rather than just the count.
+    //
+    // The parser's set is SCRAPED from src/mmstate.cpp (`key == "..."`), so the table in
+    // config_keys.hpp describes the code instead of being a second hand-kept list.
+
+    std::vector<std::string> parser_keys(const std::string& source)
+    {
+        std::vector<std::string> out;
+        const std::string needle = "key == \"";
+        std::size_t at = 0;
+        while ((at = source.find(needle, at)) != std::string::npos)
+        {
+            at += needle.size();
+            const std::size_t end = source.find('"', at);
+            if (end == std::string::npos)
+            {
+                break;
+            }
+            std::string key = source.substr(at, end - at);
+            at = end + 1;
+            if (std::find(out.begin(), out.end(), key) == out.end())
+            {
+                out.push_back(std::move(key));
+            }
+        }
+        return out;
+    }
+
+    void report_missing(const char* what, const std::vector<std::string>& a, const std::vector<std::string>& b)
+    {
+        // Everything in `a` that is not in `b`.
+        for (const std::string& key : a)
+        {
+            const bool found = std::find(b.begin(), b.end(), key) != b.end();
+            const std::string msg = std::string{what} + ": " + key;
+            check(found, msg.c_str(), __FILE__, __LINE__);
+        }
+    }
+
+    void test_config_keys(const std::string& markers_dir)
+    {
+        std::printf("config file - shipped keys vs. the parser\n");
+
+        // markers_dir is <repo>\markers when build.ps1 runs us.
+        std::string root = markers_dir;
+        while (!root.empty() && (root.back() == '/' || root.back() == '\\'))
+        {
+            root.pop_back();
+        }
+        const std::size_t slash = root.find_last_of("/\\");
+        root = slash == std::string::npos ? std::string{"."} : root.substr(0, slash);
+
+        const std::string shipped_path =
+            root + "/deploy/ue4ss/Mods/WuchangMinimap/config_wuchang_minimap.txt";
+        const std::string source_path = root + "/src/mmstate.cpp";
+
+        std::string shipped;
+        std::string source;
+        const bool have_shipped = read_file(shipped_path, shipped);
+        const bool have_source = read_file(source_path, source);
+        if (!have_shipped || !have_source)
+        {
+            std::printf("  SKIPPED (run from the repo, with the markers directory as argv[1])\n");
+            return;
+        }
+
+        std::vector<std::string> known;
+        for (const char* k : cfgkeys::kConfigKeys)
+        {
+            known.emplace_back(k);
+        }
+        const std::vector<std::string> shipped_keys = cfgkeys::keys_in(shipped);
+        const std::vector<std::string> parsed = parser_keys(source);
+
+        std::printf("  %d known, %d in the shipped file, %d matched by the parser\n",
+                    static_cast<int>(known.size()),
+                    static_cast<int>(shipped_keys.size()),
+                    static_cast<int>(parsed.size()));
+
+        report_missing("in the shipped config but not a known key", shipped_keys, known);
+        report_missing("a known key missing from the shipped config", known, shipped_keys);
+        report_missing("parsed by mmstate.cpp but not a known key", parsed, known);
+        report_missing("a known key the parser never matches", known, parsed);
+
+        // The table itself must not carry a duplicate, or one of the set comparisons
+        // above would pass by accident.
+        for (std::size_t i = 0; i < known.size(); ++i)
+        {
+            CHECK(std::count(known.begin(), known.end(), known[i]) == 1);
+        }
+        CHECK(cfgkeys::is_known("mod_enabled"));
+        CHECK(!cfgkeys::is_known("mod_enabled_typo"));
+
+        // The line parser: the same rules as the loader.
+        const std::vector<std::string> parsed_lines = cfgkeys::keys_in(
+            "\xEF\xBB\xBFmod_enabled = 1\n"
+            "; a comment = not a key\n"
+            "  opacity  =  0.9   ; trailing comment\n"
+            "no equals sign here\n"
+            "= 5\n"
+            "opacity = 0.5\n");
+        CHECK_EQ(static_cast<int>(parsed_lines.size()), 2);
+        if (parsed_lines.size() == 2)
+        {
+            CHECK(parsed_lines[0] == "mod_enabled");
+            CHECK(parsed_lines[1] == "opacity");
+        }
+    }
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1433,6 +1553,7 @@ int main(int argc, char** argv)
     test_chapter_id();
     test_marker_chapter_filter();
     test_map_manifest(markers_dir);
+    test_config_keys(markers_dir);
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

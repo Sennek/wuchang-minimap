@@ -35,6 +35,17 @@ namespace hl
         // enough: a torn read across a game-thread write is possible in principle.
         constexpr int kMaxBadReads = 8;
 
+        // All five of the constants above are config keys now (`highlight_camera_*`,
+        // `highlight_compass_period_ms`, `highlight_getter_period_ms`,
+        // `highlight_pov_*`). The two the discovery path needs are cached here from the
+        // Config the pump is handed, because find_pov_offset() and the sanity check run
+        // deep inside it and are not given the config themselves. Game thread only.
+        std::uint64_t g_resolve_ms = kResolvePeriodMs;
+        std::uint64_t g_compass_ms = kCompassPeriodMs;
+        std::uint64_t g_getter_ms = kGetterPeriodMs;
+        int g_max_pov_offset = kMaxPovOffset;
+        int g_max_bad_read_limit = kMaxBadReads;
+
         //==============================================================================
         // What the game thread reads out of the camera cache
         //==============================================================================
@@ -230,7 +241,7 @@ namespace hl
         // Returns the offset, or -1. `truth` is the getters' answer when it exists.
         int find_pov_offset(UObject* pcm, const proj::Camera* truth)
         {
-            const int limit = (std::min)(kMaxPovOffset,
+            const int limit = (std::min)(g_max_pov_offset,
                                          (std::max)(0, g_cache_size - static_cast<int>(sizeof(PovRaw))));
             for (int off = 0; off <= limit; off += 4)
             {
@@ -344,7 +355,7 @@ namespace hl
                     // Never latch a pinned offset that has stopped working: after a few
                     // consecutive rejects the discovery runs again (a patch could move
                     // the field, and a re-possession could hand us a different manager).
-                    if (++g_bad_reads >= kMaxBadReads)
+                    if (++g_bad_reads >= g_max_bad_read_limit)
                     {
                         mm::logf(L"highlight: the pinned camera offset (+{}) produced {} insane reads in a "
                                  L"row - dropping it and re-calibrating",
@@ -471,11 +482,18 @@ namespace hl
         }
         g_world = world;
 
+        // The live tunables (see the block next to their defaults).
+        g_resolve_ms = static_cast<std::uint64_t>(cfg.highlight_camera_resolve_ms);
+        g_compass_ms = static_cast<std::uint64_t>(cfg.highlight_compass_period_ms);
+        g_getter_ms = static_cast<std::uint64_t>(cfg.highlight_getter_period_ms);
+        g_max_pov_offset = cfg.highlight_pov_scan_bytes;
+        g_max_bad_read_limit = cfg.highlight_pov_bad_reads;
+
         if (!uer::alive(g_pcm))
         {
             g_pcm.reset();
             g_have_manager.store(false, std::memory_order_relaxed);
-            if (now - g_last_resolve < kResolvePeriodMs)
+            if (now - g_last_resolve < g_resolve_ms)
             {
                 return;
             }
@@ -490,15 +508,15 @@ namespace hl
         // The rate: the full configured rate while the key is held (the labels have to
         // stay glued to the item while the camera swings), 20 Hz for the compass alone,
         // and never faster than kGetterPeriodMs on the ProcessEvent fallback route.
-        std::uint64_t period = kCompassPeriodMs;
+        std::uint64_t period = g_compass_ms;
         if (want_held)
         {
             const int hz = (std::max)(5, (std::min)(240, cfg.highlight_camera_hz));
             period = static_cast<std::uint64_t>(1000 / hz);
         }
-        if (g_getter_route && period < kGetterPeriodMs)
+        if (g_getter_route && period < g_getter_ms)
         {
-            period = kGetterPeriodMs;
+            period = g_getter_ms;
         }
         if (now - g_last_read < period)
         {

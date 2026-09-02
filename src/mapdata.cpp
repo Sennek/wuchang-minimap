@@ -390,11 +390,15 @@ namespace mapdata
             // while one is pending. Free defensively in case that changes.
             delete g_retired;
             g_retired = const_cast<HeightMaps*>(planes);
-            g_retire_at = now + kRetireGraceMs;
+            // `map_asset_retire_grace_ms` (default kRetireGraceMs), read here rather
+            // than baked in: it is the one number that decides whether a render thread
+            // still inside a slice can be handed freed memory.
+            const std::uint64_t grace = static_cast<std::uint64_t>(mm::config().map_asset_retire_grace_ms);
+            g_retire_at = now + grace;
             mm::logf(L"maps: chapter \"{}\" unloaded ({} MB freed in {} ms)",
                      widen(ch.key),
                      g_retired->bytes() / (1024 * 1024),
-                     kRetireGraceMs);
+                     grace);
         }
     } // namespace
 

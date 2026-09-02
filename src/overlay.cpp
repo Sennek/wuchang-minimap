@@ -77,7 +77,11 @@ namespace overlay
         constexpr float kPi = 3.14159265358979323846f;
         constexpr int kSrvHeapSize = 64;
         constexpr int kMaxBuffers = 8;
+        // The DEFAULT roundness of the minimap disc and its rings; `minimap_circle_segments`
+        // overrides it. The drawing helpers below are handed geometry, not the config, so
+        // the live value is cached here by build_ui() once per frame (render thread only).
         constexpr int kCircleSegments = 72;
+        int g_circle_segments = kCircleSegments;
 
         //==============================================================================
         // Spinlock (no std::mutex anywhere in this mod - see lessons.md)
@@ -394,6 +398,8 @@ namespace overlay
         MapTexture g_map;
 
         constexpr int kSliceBufs = 2;
+        // Defaults for `slice_min_px` / `slice_max_px`, which is what slice_size_for()
+        // actually reads.
         constexpr int kSliceMinPx = 128;
         constexpr int kSliceMaxPx = 1024;
         SliceBuf g_slice[kSliceBufs];
@@ -503,7 +509,7 @@ namespace overlay
         // reason that has not changed is never logged again, and even a changing reason
         // is logged at most once per kReasonLogMs (a flapping condition must not be
         // able to flood the log the way "the settings panel rendered" once did).
-        constexpr std::uint64_t kReasonLogMs = 2000;
+        constexpr std::uint64_t kReasonLogMs = 2000; // the default of `hide_reason_log_ms`
         wchar_t g_reason_logged[96] = L"";
         std::uint64_t g_reason_log_ms = 0;
         std::uint64_t g_reason_since_ms = 0;
@@ -523,7 +529,7 @@ namespace overlay
             {
                 return; // flapping between two states we already reported
             }
-            if (now - g_reason_log_ms < kReasonLogMs)
+            if (now - g_reason_log_ms < static_cast<std::uint64_t>(mm::config().hide_reason_log_ms))
             {
                 ++g_reason_suppressed;
                 return;
@@ -978,21 +984,21 @@ namespace overlay
         void add_image_circle(ImDrawList* dl, ImTextureRef tex, const MiniGeom& g, ImU32 col)
         {
             dl->PushTexture(tex);
-            dl->PrimReserve(kCircleSegments * 3, kCircleSegments + 1);
+            dl->PrimReserve(g_circle_segments * 3, g_circle_segments + 1);
             const unsigned int base = dl->_VtxCurrentIdx;
             dl->PrimWriteVtx(g.center, uv_at(g, 0.0f, 0.0f), col);
-            for (int i = 0; i < kCircleSegments; ++i)
+            for (int i = 0; i < g_circle_segments; ++i)
             {
-                const float a = (2.0f * kPi * static_cast<float>(i)) / static_cast<float>(kCircleSegments);
+                const float a = (2.0f * kPi * static_cast<float>(i)) / static_cast<float>(g_circle_segments);
                 const float dx = std::cos(a) * g.half;
                 const float dy = std::sin(a) * g.half;
                 dl->PrimWriteVtx(ImVec2{g.center.x + dx, g.center.y + dy}, uv_at(g, dx, dy), col);
             }
-            for (int i = 0; i < kCircleSegments; ++i)
+            for (int i = 0; i < g_circle_segments; ++i)
             {
                 dl->PrimWriteIdx(static_cast<ImDrawIdx>(base));
                 dl->PrimWriteIdx(static_cast<ImDrawIdx>(base + 1 + i));
-                dl->PrimWriteIdx(static_cast<ImDrawIdx>(base + 1 + ((i + 1) % kCircleSegments)));
+                dl->PrimWriteIdx(static_cast<ImDrawIdx>(base + 1 + ((i + 1) % g_circle_segments)));
             }
             dl->PopTexture();
         }
@@ -1183,13 +1189,13 @@ namespace overlay
                                      1.4143; // the diagonal of the square the disc rotates in
             double want = 2.0 * radius_uu * hm.px_per_uu + 16.0;
             int size = static_cast<int>(std::ceil(want / 128.0)) * 128;
-            if (size < kSliceMinPx)
+            if (size < cfg.slice_min_px)
             {
-                size = kSliceMinPx;
+                size = cfg.slice_min_px;
             }
-            if (size > kSliceMaxPx)
+            if (size > cfg.slice_max_px)
             {
-                size = kSliceMaxPx;
+                size = cfg.slice_max_px;
             }
             return size;
         }
@@ -2143,7 +2149,9 @@ namespace overlay
             const ImGuiViewport* vp = ImGui::GetMainViewport();
             const float screen_w = vp->Size.x;
             const float screen_h = vp->Size.y;
-            const float side = (std::max)(72.0f, (std::min)(cfg.size_frac * screen_h, (std::min)(screen_w, screen_h) * 0.9f));
+            const float side = (std::max)(cfg.minimap_min_px,
+                                          (std::min)(cfg.size_frac * screen_h,
+                                                     (std::min)(screen_w, screen_h) * 0.9f));
 
             float x0 = cfg.offset_x;
             float y0 = cfg.offset_y;
@@ -2174,20 +2182,23 @@ namespace overlay
             // A darker, more opaque disc than the MVP had: the first in-world
             // screenshot showed a light grey map over a light grey scene, and the
             // walkable fill needs something dark to sit on.
-            const ImU32 backdrop = IM_COL32(6, 9, 13, alpha(0.86f));
-            const ImU32 frame = IM_COL32(168, 176, 186, alpha(0.85f));
+            const auto ch = [](float v) { return static_cast<int>(v + 0.5f); };
+            const ImU32 backdrop = IM_COL32(ch(cfg.minimap_backdrop_r), ch(cfg.minimap_backdrop_g),
+                                            ch(cfg.minimap_backdrop_b), alpha(cfg.minimap_backdrop));
+            const ImU32 frame = IM_COL32(ch(cfg.minimap_frame_r), ch(cfg.minimap_frame_g), ch(cfg.minimap_frame_b),
+                                         alpha(cfg.minimap_frame_alpha));
             const ImU32 inner_ring = IM_COL32(0, 0, 0, alpha(0.55f));
 
             // The slice texture already carries the floor colour, the height gradient
             // and the per-pixel alpha, so the only tint left is the global opacity.
             const ImU32 tint_slice = IM_COL32(255, 255, 255, alpha(1.0f));
-            const ImU32 tint_composite = IM_COL32(255, 255, 255, alpha(0.85f));
+            const ImU32 tint_composite = IM_COL32(255, 255, 255, alpha(cfg.minimap_composite_alpha));
 
             ImDrawList* dl = ImGui::GetForegroundDrawList();
 
             if (cfg.round)
             {
-                dl->AddCircleFilled(g.center, g.half, backdrop, kCircleSegments);
+                dl->AddCircleFilled(g.center, g.half, backdrop, g_circle_segments);
             }
             else
             {
@@ -2218,8 +2229,8 @@ namespace overlay
 
             if (cfg.round)
             {
-                dl->AddCircle(g.center, g.half - 1.0f, inner_ring, kCircleSegments, 2.0f);
-                dl->AddCircle(g.center, g.half, frame, kCircleSegments, 2.0f);
+                dl->AddCircle(g.center, g.half - 1.0f, inner_ring, g_circle_segments, 2.0f);
+                dl->AddCircle(g.center, g.half, frame, g_circle_segments, 2.0f);
             }
             else
             {
@@ -2251,7 +2262,7 @@ namespace overlay
                     const double zz = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
                     double dx = (-g.sin_yaw * wdx + g.cos_yaw * wdy) / zz;
                     double dy = (-g.cos_yaw * wdx - g.sin_yaw * wdy) / zz;
-                    const float wr = (std::max)(5.0f, cfg.markers_size * 1.05f);
+                    const float wr = (std::max)(5.0f, cfg.markers_size * cfg.waypoint_size_scale);
                     const float lim = (std::max)(4.0f, g.half - wr - 3.0f);
                     bool clamped = false;
                     if (cfg.round)
@@ -2284,7 +2295,8 @@ namespace overlay
                 }
             }
 
-            add_player_arrow(dl, g.center, snap.yaw - eff_yaw, (std::max)(8.0f, side * 0.055f));
+            add_player_arrow(dl, g.center, snap.yaw - eff_yaw,
+                             (std::max)(cfg.minimap_arrow_min_px, side * cfg.minimap_arrow_frac));
 
             set_hide_reason(L"visible");
             g.uv = uv_of(chapter);
@@ -2604,7 +2616,8 @@ namespace overlay
             // Ticks. A cardinal gets the full height and its letter, an intercardinal a
             // shorter line and its two-letter label, everything else a stub.
             cmp::Tick ticks[128]{};
-            const int n = cmp::ticks(strip, ticks, static_cast<int>(std::size(ticks)), 15.0);
+            const int n = cmp::ticks(strip, ticks, static_cast<int>(std::size(ticks)),
+                                     static_cast<double>(cfg.compass_tick_step_deg));
             for (int i = 0; i < n; ++i)
             {
                 const cmp::Tick& t = ticks[i];
@@ -2672,7 +2685,7 @@ namespace overlay
                     p.found = (m.flags & markers::kFlagFound) != 0;
                     pips.push_back(p);
                 }
-                constexpr std::size_t kMaxPips = 32;
+                const std::size_t kMaxPips = static_cast<std::size_t>(cfg.compass_max_pips);
                 if (pips.size() > kMaxPips)
                 {
                     std::partial_sort(pips.begin(), pips.begin() + kMaxPips, pips.end(),
@@ -2822,7 +2835,7 @@ namespace overlay
             // 30 % of margin around the viewport: a drag can move ~15 % of the canvas
             // in either direction before the cut has to be redone, which at 6 Hz is
             // most of a fast drag.
-            constexpr double kMargin = 1.30;
+            const double kMargin = static_cast<double>(cfg.map_slice_margin);
             const double zoom = g_mv.uu_per_px;
             const double want_w_uu = static_cast<double>(canvas.w()) * zoom * kMargin;
             const double want_h_uu = static_cast<double>(canvas.h()) * zoom * kMargin;
@@ -4150,6 +4163,9 @@ namespace overlay
         void build_ui()
         {
             const mm::Config cfg = mm::config();
+            // The disc-drawing helpers take geometry, not the config, so the live
+            // roundness is cached here once per frame (render thread only).
+            g_circle_segments = cfg.minimap_circle_segments;
             mm::Snapshot snap{};
             const bool have = mm::read_snapshot(snap);
 
@@ -4279,7 +4295,8 @@ namespace overlay
                 return false;
             }
 
-            if (!g_srv_heap.create(g_device, kSrvHeapSize))
+            // RESTART-ONLY config key: the heap is created once, here.
+            if (!g_srv_heap.create(g_device, mm::config().srv_heap_size))
             {
                 mm::log(L"CreateDescriptorHeap(SRV) failed");
                 g_failed = true;

@@ -220,6 +220,15 @@ edits the same settings and its <em>Save settings</em> button writes them back.<
           edge arrows.</td></tr>
   <tr><td><code>compass_*</code></td>
       <td>The compass strip: width, height, how many degrees it spans, which markers get a pip.</td></tr>
+  <tr><td><code>minimap_backdrop*</code>, <code>minimap_frame*</code>,
+          <code>minimap_arrow*</code>, <code>waypoint_size_scale</code>,
+          <code>slice_*</code>, <code>reader_*</code>, <code>markers_live_*</code>,
+          <code>compass_tick_step_deg</code>, <code>srv_heap_size</code>, &hellip;</td>
+      <td>Fine tuning: colours and sizes of everything the minimap draws, how big a window the map
+          slicer cuts, and the rates and caps of the reader that runs inside the game. These were
+          hard-coded until v0.9.1; the defaults are the old behaviour, and every one of them is
+          range-checked when the file is read. <code>srv_heap_size</code> is the only one that needs
+          a restart.</td></tr>
   <tr><td><code>panel_key</code>, <code>map_key</code>, <code>map_recenter_key</code>,
           <code>reload_key</code>, <code>highlight_key</code></td>
       <td>Rebinding. The <kbd>F2</kbd> panel and the full map's footer read the key hints straight

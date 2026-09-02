@@ -569,6 +569,47 @@ The marker block:
 | `found_tracker` | 1 | write `wuchang_minimap_found.txt` |
 | `found_save_debounce_ms` | 2000 | how long after the last change the file is written |
 
+### Tuning - everything that used to be hard-coded
+
+Added 2026-09-03. Every number below was a literal in `src/`; the defaults are exactly the previous
+behaviour, and all of them are clamped on load. **Only `srv_heap_size` needs a restart** (the
+descriptor heap is created once, when the overlay first initialises) - everything else is picked up by
+F5 or by turning `mod_enabled` off and on. `tests/markers_test.cpp` asserts that the shipped config's
+keys, the table in `src/config_keys.hpp` and the `key == "..."` literals scraped out of `mmstate.cpp`
+are the same set in both directions, so none of the three can drift.
+
+| key | default | meaning |
+|---|---|---|
+| `minimap_backdrop`, `minimap_backdrop_color` | 0.86, `6 9 13` | the dark disc the map is drawn on |
+| `minimap_frame_color`, `minimap_frame_alpha` | `168 176 186`, 0.85 | the ring / border |
+| `minimap_composite_alpha` | 0.85 | the no-height-map composite is drawn weaker than a slice |
+| `minimap_min_px` | 72 | floor on the minimap's side length |
+| `minimap_arrow_frac`, `minimap_arrow_min_px` | 0.055, 8 | the player arrow |
+| `minimap_circle_segments` | 72 | roundness of the disc and its rings (8..256) |
+| `waypoint_size_scale` | 1.05 | waypoint glyph radius, as a multiple of `markers_size` |
+| `slice_min_px`, `slice_max_px` | 128, 1024 | bounds on the minimap's CPU-sliced window |
+| `map_slice_margin` | 1.30 | how much bigger than the canvas the full map cuts, so a drag can move inside it |
+| `reader_position_period_ms` | 100 | 10 Hz: the pawn's location and yaw - this also gates the marker scan |
+| `reader_resolve_period_ms` | 500 | how often a missing pawn / controller is re-found |
+| `reader_widget_sweep_period_ms` | 250 | the full menu-widget sweep (the cheap re-test runs every pump) |
+| `reader_transition_cooldown_ms` | 2000 | no blueprint getter is called for this long after a pawn / world change |
+| `reader_teleport_jump_uu` | 3000 | a position jump this big in one pump is a fast travel (sprinting is ~70) |
+| `reader_chapter_period_ms` | 1000 | how often the streamed level set is walked to name the chapter |
+| `reader_max_widgets`, `reader_max_menu_roots`, `reader_max_levels` | 6000, 32, 4096 | sanity caps |
+| `reader_log_throttle_ms` | 5000 | rate limit on the reader's repeating log lines |
+| `markers_live_grace_rounds` | 2 | rounds a live actor may go unseen before it leaves the live cache - **not** a collected test |
+| `markers_live_max`, `markers_id_cache_max`, `markers_class_cache_max` | 8192, 8192, 262144 | cache caps; the class cache has to clear the whole game's class count |
+| `markers_fallback_max_per_class` | 4096 | only the slow `FindAllOf` fallback path |
+| `map_asset_retire_grace_ms` | 2000 | how long a retired chapter's height planes stay alive after the pointer is cleared |
+| `hide_reason_log_ms` | 2000 | rate limit on the `hidden because:` log line |
+| `srv_heap_size` | 64 | our SRV descriptor heap (**restart only**) |
+| `highlight_camera_resolve_ms` | 500 | how often a missing camera manager is re-found |
+| `highlight_compass_period_ms` | 50 | camera read rate when only the compass wants a heading |
+| `highlight_getter_period_ms` | 33 | pace of the `ProcessEvent` fallback route |
+| `highlight_pov_scan_bytes`, `highlight_pov_bad_reads` | 192, 8 | how far into `CameraCachePrivate` the POV block is looked for, and how many insane reads drop the pin |
+| `compass_tick_step_deg` | 15 | minor-tick spacing (45 = labelled, 90 = a cardinal letter) |
+| `compass_max_pips` | 32 | cap on marker pips, nearest first |
+
 The full map block:
 
 | key | default | meaning |

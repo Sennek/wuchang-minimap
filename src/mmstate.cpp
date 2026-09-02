@@ -442,6 +442,35 @@ namespace mm
             rt = new_rt;
         }
 
+        // "R G B" / "R,G,B", 0..255 each. Anything missing keeps the current value, so
+        // a truncated line degrades one channel at a time instead of resetting three.
+        void parse_rgb(const std::string& value, float& r, float& g, float& b)
+        {
+            float rgb[3] = {r, g, b};
+            std::string one;
+            int n = 0;
+            for (std::size_t i = 0; i <= value.size() && n < 3; ++i)
+            {
+                const char c = i < value.size() ? value[i] : ',';
+                if (c == ',' || c == ' ' || c == '\t' || c == ';')
+                {
+                    if (!one.empty())
+                    {
+                        rgb[n] = parse_float(one, rgb[n]);
+                        ++n;
+                        one.clear();
+                    }
+                }
+                else
+                {
+                    one.push_back(c);
+                }
+            }
+            r = rgb[0];
+            g = rgb[1];
+            b = rgb[2];
+        }
+
         const char* anchor_name(Anchor a)
         {
             switch (a)
@@ -477,6 +506,629 @@ namespace mm
                 return Anchor::BottomRight;
             }
             return fallback;
+        }
+
+        // Returns true when `key` belonged to this group.
+        bool apply_core(Config& cfg, const std::string& key, const std::string& value)
+        {
+            if (key == "mod_enabled")
+            {
+                cfg.mod_enabled = parse_bool(value, cfg.mod_enabled);
+            }
+            else if (key == "enabled")
+            {
+                cfg.enabled = parse_bool(value, cfg.enabled);
+            }
+            else if (key == "show_minimap")
+            {
+                cfg.show_minimap = parse_bool(value, cfg.show_minimap);
+            }
+            else if (key == "minimap_size")
+            {
+                cfg.size_frac = parse_float(value, cfg.size_frac);
+            }
+            else if (key == "minimap_zoom")
+            {
+                cfg.zoom_uu_per_px = parse_float(value, cfg.zoom_uu_per_px);
+            }
+            else if (key == "minimap_shape")
+            {
+                cfg.round = (value != "square");
+            }
+            else if (key == "minimap_anchor")
+            {
+                cfg.anchor = anchor_from_name(value, cfg.anchor);
+            }
+            else if (key == "minimap_offset_x")
+            {
+                cfg.offset_x = parse_float(value, cfg.offset_x);
+            }
+            else if (key == "minimap_offset_y")
+            {
+                cfg.offset_y = parse_float(value, cfg.offset_y);
+            }
+            else if (key == "rotate_with_player")
+            {
+                cfg.rotate_with_player = parse_bool(value, cfg.rotate_with_player);
+            }
+            else if (key == "opacity")
+            {
+                cfg.opacity = parse_float(value, cfg.opacity);
+            }
+            else if (key == "hide_in_menus")
+            {
+                cfg.hide_in_menus = parse_bool(value, cfg.hide_in_menus);
+            }
+            else if (key == "require_pawn_view")
+            {
+                cfg.require_pawn_view = parse_bool(value, cfg.require_pawn_view);
+            }
+            else if (key == "state_stale_ms")
+            {
+                cfg.state_stale_ms = parse_int(value, cfg.state_stale_ms);
+            }
+            else if (key == "min_visible_after_state_ok_ms")
+            {
+                cfg.min_visible_after_state_ok_ms = parse_int(value, cfg.min_visible_after_state_ok_ms);
+            }
+            else if (key == "menu_close_show_delay_ms")
+            {
+                cfg.menu_close_show_delay_ms = parse_int(value, cfg.menu_close_show_delay_ms);
+            }
+            else
+            {
+                return false;
+            }
+            return true;
+        }
+
+        // Returns true when `key` belonged to this group.
+        bool apply_floors(Config& cfg, const std::string& key, const std::string& value)
+        {
+            if (key == "show_adjacent_floors")
+            {
+                cfg.show_adjacent_floors = parse_bool(value, cfg.show_adjacent_floors);
+            }
+            else if (key == "adjacent_floor_opacity")
+            {
+                cfg.adjacent_floor_opacity = parse_float(value, cfg.adjacent_floor_opacity);
+            }
+            else if (key == "floor_z_tolerance")
+            {
+                cfg.floor_z_tolerance = parse_float(value, cfg.floor_z_tolerance);
+            }
+            else if (key == "floor_fade_uu")
+            {
+                cfg.floor_fade_uu = parse_float(value, cfg.floor_fade_uu);
+            }
+            else if (key == "floor_gradient_strength")
+            {
+                cfg.floor_gradient_strength = parse_float(value, cfg.floor_gradient_strength);
+            }
+            else if (key == "floor_base_color")
+            {
+                parse_rgb(value, cfg.floor_base_r, cfg.floor_base_g, cfg.floor_base_b);
+            }
+            else if (key == "slice_hz")
+            {
+                cfg.slice_hz = parse_int(value, cfg.slice_hz);
+            }
+            else if (key == "feet_z_smooth_ms")
+            {
+                cfg.feet_z_smooth_ms = parse_int(value, cfg.feet_z_smooth_ms);
+            }
+            else if (key == "player_z_offset")
+            {
+                cfg.player_z_offset = parse_float(value, cfg.player_z_offset);
+            }
+            else if (key == "fallback_use_composite")
+            {
+                cfg.fallback_use_composite = parse_bool(value, cfg.fallback_use_composite);
+            }
+            else if (key == "debug_readout")
+            {
+                cfg.debug_readout = parse_bool(value, cfg.debug_readout);
+            }
+            else if (key == "debug_show_panel_on_start")
+            {
+                cfg.debug_show_panel_on_start = parse_bool(value, cfg.debug_show_panel_on_start);
+            }
+            else if (key == "panel_key")
+            {
+                cfg.panel_key = vk_from_name(value, cfg.panel_key, "panel_key");
+            }
+            else if (key == "reload_key")
+            {
+                cfg.reload_key = vk_from_name(value, cfg.reload_key, "reload_key");
+            }
+            else if (key == "map_key")
+            {
+                cfg.map_key = vk_from_name(value, cfg.map_key, "map_key");
+            }
+            else
+            {
+                return false;
+            }
+            return true;
+        }
+
+        // Returns true when `key` belonged to this group.
+        bool apply_markers(Config& cfg, const std::string& key, const std::string& value)
+        {
+            if (key == "markers_enabled")
+            {
+                cfg.markers_enabled = parse_bool(value, cfg.markers_enabled);
+            }
+            else if (key == "markers_live")
+            {
+                cfg.markers_live = parse_bool(value, cfg.markers_live);
+            }
+            else if (key == "markers_filter_chapter")
+            {
+                cfg.markers_filter_chapter = parse_bool(value, cfg.markers_filter_chapter);
+            }
+            else if (key == "markers_rounds_per_sec")
+            {
+                cfg.markers_rounds_per_sec = parse_int(value, cfg.markers_rounds_per_sec);
+            }
+            else if (key == "markers_scan_chunk")
+            {
+                cfg.markers_scan_chunk = parse_int(value, cfg.markers_scan_chunk);
+            }
+            else if (key == "markers_scan_period_ms")
+            {
+                cfg.markers_scan_period_ms = parse_int(value, cfg.markers_scan_period_ms);
+            }
+            else if (key == "markers_categories")
+            {
+                std::string rejected;
+                cfg.markers_categories = mdb::parse_category_mask(value, cfg.markers_categories, &rejected);
+                if (!rejected.empty())
+                {
+                    const std::string known = mdb::format_category_mask(mdb::kAllCats);
+                    logf(L"config: markers_categories - unknown name(s) '{}' ignored. Known: {}",
+                         std::wstring(rejected.begin(), rejected.end()),
+                         std::wstring(known.begin(), known.end()));
+                }
+            }
+            else if (key == "markers_hide_found")
+            {
+                cfg.markers_hide_found = parse_bool(value, cfg.markers_hide_found);
+            }
+            else if (key == "markers_found_alpha")
+            {
+                cfg.markers_found_alpha = parse_float(value, cfg.markers_found_alpha);
+            }
+            else if (key == "markers_size")
+            {
+                cfg.markers_size = parse_float(value, cfg.markers_size);
+            }
+            else if (key == "markers_clamp_to_edge")
+            {
+                cfg.markers_clamp_to_edge = parse_bool(value, cfg.markers_clamp_to_edge);
+            }
+            else if (key == "markers_max_draw")
+            {
+                cfg.markers_max_draw = parse_int(value, cfg.markers_max_draw);
+            }
+            else if (key == "map_recenter_key")
+            {
+                cfg.map_recenter_key = vk_from_name(value, cfg.map_recenter_key, "map_recenter_key");
+            }
+            else
+            {
+                return false;
+            }
+            return true;
+        }
+
+        // Returns true when `key` belonged to this group.
+        bool apply_map(Config& cfg, const std::string& key, const std::string& value)
+        {
+            if (key == "map_zoom")
+            {
+                cfg.map_zoom = parse_float(value, cfg.map_zoom);
+            }
+            else if (key == "map_zoom_min")
+            {
+                cfg.map_zoom_min = parse_float(value, cfg.map_zoom_min);
+            }
+            else if (key == "map_zoom_max")
+            {
+                cfg.map_zoom_max = parse_float(value, cfg.map_zoom_max);
+            }
+            else if (key == "map_zoom_factor")
+            {
+                cfg.map_zoom_factor = parse_float(value, cfg.map_zoom_factor);
+            }
+            else if (key == "map_pan_speed")
+            {
+                cfg.map_pan_speed = parse_float(value, cfg.map_pan_speed);
+            }
+            else if (key == "map_margin")
+            {
+                cfg.map_margin = parse_float(value, cfg.map_margin);
+            }
+            else if (key == "map_backdrop")
+            {
+                cfg.map_backdrop = parse_float(value, cfg.map_backdrop);
+            }
+            else if (key == "map_marker_size")
+            {
+                cfg.map_marker_size = parse_float(value, cfg.map_marker_size);
+            }
+            else if (key == "map_markers_max_draw")
+            {
+                cfg.map_markers_max_draw = parse_int(value, cfg.map_markers_max_draw);
+            }
+            else if (key == "map_floor_step")
+            {
+                cfg.map_floor_step = parse_float(value, cfg.map_floor_step);
+            }
+            else if (key == "map_show_all_floors")
+            {
+                cfg.map_show_all_floors = parse_bool(value, cfg.map_show_all_floors);
+            }
+            else if (key == "map_slice_px")
+            {
+                cfg.map_slice_px = parse_int(value, cfg.map_slice_px);
+            }
+            else if (key == "map_slice_hz")
+            {
+                cfg.map_slice_hz = parse_int(value, cfg.map_slice_hz);
+            }
+            else if (key == "map_gamepad")
+            {
+                cfg.map_gamepad = parse_bool(value, cfg.map_gamepad);
+            }
+            else if (key == "map_gamepad_deadzone")
+            {
+                cfg.map_gamepad_deadzone = parse_float(value, cfg.map_gamepad_deadzone);
+            }
+            else if (key == "map_waypoint_persist")
+            {
+                cfg.map_waypoint_persist = parse_bool(value, cfg.map_waypoint_persist);
+            }
+            else
+            {
+                return false;
+            }
+            return true;
+        }
+
+        // Returns true when `key` belonged to this group.
+        bool apply_highlight(Config& cfg, const std::string& key, const std::string& value)
+        {
+            if (key == "highlight_enabled")
+            {
+                cfg.highlight_enabled = parse_bool(value, cfg.highlight_enabled);
+            }
+            else if (key == "highlight_key")
+            {
+                cfg.highlight_key = vk_from_name(value, cfg.highlight_key, "highlight_key");
+            }
+            else if (key == "highlight_gamepad")
+            {
+                cfg.highlight_gamepad = parse_bool(value, cfg.highlight_gamepad);
+            }
+            else if (key == "highlight_pad_chord")
+            {
+                parse_pad_chord(value, cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt);
+            }
+            else if (key == "highlight_radius")
+            {
+                cfg.highlight_radius = parse_float(value, cfg.highlight_radius);
+            }
+            else if (key == "highlight_categories")
+            {
+                std::string rejected;
+                cfg.highlight_categories =
+                    mdb::parse_category_mask(value, cfg.highlight_categories, &rejected);
+                if (!rejected.empty())
+                {
+                    logf(L"config: highlight_categories - unknown name(s) '{}' ignored",
+                         std::wstring(rejected.begin(), rejected.end()));
+                }
+            }
+            else if (key == "highlight_show_found")
+            {
+                cfg.highlight_show_found = parse_bool(value, cfg.highlight_show_found);
+            }
+            else if (key == "highlight_max_draw")
+            {
+                cfg.highlight_max_draw = parse_int(value, cfg.highlight_max_draw);
+            }
+            else if (key == "highlight_alpha_near")
+            {
+                cfg.highlight_alpha_near = parse_float(value, cfg.highlight_alpha_near);
+            }
+            else if (key == "highlight_alpha_far")
+            {
+                cfg.highlight_alpha_far = parse_float(value, cfg.highlight_alpha_far);
+            }
+            else if (key == "highlight_size")
+            {
+                cfg.highlight_size = parse_float(value, cfg.highlight_size);
+            }
+            else if (key == "highlight_labels")
+            {
+                cfg.highlight_labels = parse_bool(value, cfg.highlight_labels);
+            }
+            else if (key == "highlight_edge_arrows")
+            {
+                cfg.highlight_edge_arrows = parse_bool(value, cfg.highlight_edge_arrows);
+            }
+            else if (key == "highlight_camera_hz")
+            {
+                cfg.highlight_camera_hz = parse_int(value, cfg.highlight_camera_hz);
+            }
+            else
+            {
+                return false;
+            }
+            return true;
+        }
+
+        // Returns true when `key` belonged to this group.
+        bool apply_compass_and_keys(Config& cfg, const std::string& key, const std::string& value)
+        {
+            if (key == "compass_enabled")
+            {
+                cfg.compass_enabled = parse_bool(value, cfg.compass_enabled);
+            }
+            else if (key == "compass_width")
+            {
+                cfg.compass_width = parse_float(value, cfg.compass_width);
+            }
+            else if (key == "compass_offset_y")
+            {
+                cfg.compass_offset_y = parse_float(value, cfg.compass_offset_y);
+            }
+            else if (key == "compass_height")
+            {
+                cfg.compass_height = parse_float(value, cfg.compass_height);
+            }
+            else if (key == "compass_span_deg")
+            {
+                cfg.compass_span_deg = parse_float(value, cfg.compass_span_deg);
+            }
+            else if (key == "compass_opacity")
+            {
+                cfg.compass_opacity = parse_float(value, cfg.compass_opacity);
+            }
+            else if (key == "compass_categories")
+            {
+                std::string rejected;
+                cfg.compass_categories = mdb::parse_category_mask(value, cfg.compass_categories, &rejected);
+                if (!rejected.empty())
+                {
+                    logf(L"config: compass_categories - unknown name(s) '{}' ignored",
+                         std::wstring(rejected.begin(), rejected.end()));
+                }
+            }
+            else if (key == "compass_marker_distance")
+            {
+                cfg.compass_marker_distance = parse_float(value, cfg.compass_marker_distance);
+            }
+            else if (key == "compass_show_waypoint")
+            {
+                cfg.compass_show_waypoint = parse_bool(value, cfg.compass_show_waypoint);
+            }
+            else if (key == "found_tracker")
+            {
+                cfg.found_tracker = parse_bool(value, cfg.found_tracker);
+            }
+            else if (key == "found_save_debounce_ms")
+            {
+                cfg.found_save_debounce_ms = parse_int(value, cfg.found_save_debounce_ms);
+            }
+            else
+            {
+                return false;
+            }
+            return true;
+        }
+
+        // Returns true when `key` belonged to this group.
+        bool apply_tuning(Config& cfg, const std::string& key, const std::string& value)
+        {
+            if (key == "minimap_backdrop")
+            {
+                cfg.minimap_backdrop = parse_float(value, cfg.minimap_backdrop);
+            }
+            else if (key == "minimap_backdrop_color")
+            {
+                parse_rgb(value, cfg.minimap_backdrop_r, cfg.minimap_backdrop_g, cfg.minimap_backdrop_b);
+            }
+            else if (key == "minimap_frame_color")
+            {
+                parse_rgb(value, cfg.minimap_frame_r, cfg.minimap_frame_g, cfg.minimap_frame_b);
+            }
+            else if (key == "minimap_frame_alpha")
+            {
+                cfg.minimap_frame_alpha = parse_float(value, cfg.minimap_frame_alpha);
+            }
+            else if (key == "minimap_composite_alpha")
+            {
+                cfg.minimap_composite_alpha = parse_float(value, cfg.minimap_composite_alpha);
+            }
+            else if (key == "minimap_min_px")
+            {
+                cfg.minimap_min_px = parse_float(value, cfg.minimap_min_px);
+            }
+            else if (key == "minimap_arrow_frac")
+            {
+                cfg.minimap_arrow_frac = parse_float(value, cfg.minimap_arrow_frac);
+            }
+            else if (key == "minimap_arrow_min_px")
+            {
+                cfg.minimap_arrow_min_px = parse_float(value, cfg.minimap_arrow_min_px);
+            }
+            else if (key == "minimap_circle_segments")
+            {
+                cfg.minimap_circle_segments = parse_int(value, cfg.minimap_circle_segments);
+            }
+            else if (key == "waypoint_size_scale")
+            {
+                cfg.waypoint_size_scale = parse_float(value, cfg.waypoint_size_scale);
+            }
+            else if (key == "slice_min_px")
+            {
+                cfg.slice_min_px = parse_int(value, cfg.slice_min_px);
+            }
+            else if (key == "slice_max_px")
+            {
+                cfg.slice_max_px = parse_int(value, cfg.slice_max_px);
+            }
+            else if (key == "map_slice_margin")
+            {
+                cfg.map_slice_margin = parse_float(value, cfg.map_slice_margin);
+            }
+            else if (key == "reader_position_period_ms")
+            {
+                cfg.reader_position_period_ms = parse_int(value, cfg.reader_position_period_ms);
+            }
+            else if (key == "reader_resolve_period_ms")
+            {
+                cfg.reader_resolve_period_ms = parse_int(value, cfg.reader_resolve_period_ms);
+            }
+            else if (key == "reader_widget_sweep_period_ms")
+            {
+                cfg.reader_widget_sweep_period_ms = parse_int(value, cfg.reader_widget_sweep_period_ms);
+            }
+            else if (key == "reader_transition_cooldown_ms")
+            {
+                cfg.reader_transition_cooldown_ms = parse_int(value, cfg.reader_transition_cooldown_ms);
+            }
+            else if (key == "reader_teleport_jump_uu")
+            {
+                cfg.reader_teleport_jump_uu = parse_float(value, static_cast<float>(cfg.reader_teleport_jump_uu));
+            }
+            else if (key == "reader_chapter_period_ms")
+            {
+                cfg.reader_chapter_period_ms = parse_int(value, cfg.reader_chapter_period_ms);
+            }
+            else if (key == "reader_max_widgets")
+            {
+                cfg.reader_max_widgets = parse_int(value, cfg.reader_max_widgets);
+            }
+            else if (key == "reader_max_menu_roots")
+            {
+                cfg.reader_max_menu_roots = parse_int(value, cfg.reader_max_menu_roots);
+            }
+            else if (key == "reader_max_levels")
+            {
+                cfg.reader_max_levels = parse_int(value, cfg.reader_max_levels);
+            }
+            else if (key == "reader_log_throttle_ms")
+            {
+                cfg.reader_log_throttle_ms = parse_int(value, cfg.reader_log_throttle_ms);
+            }
+            else if (key == "markers_live_grace_rounds")
+            {
+                cfg.markers_live_grace_rounds = parse_int(value, cfg.markers_live_grace_rounds);
+            }
+            else if (key == "markers_live_max")
+            {
+                cfg.markers_live_max = parse_int(value, cfg.markers_live_max);
+            }
+            else if (key == "markers_id_cache_max")
+            {
+                cfg.markers_id_cache_max = parse_int(value, cfg.markers_id_cache_max);
+            }
+            else if (key == "markers_class_cache_max")
+            {
+                cfg.markers_class_cache_max = parse_int(value, cfg.markers_class_cache_max);
+            }
+            else if (key == "markers_fallback_max_per_class")
+            {
+                cfg.markers_fallback_max_per_class = parse_int(value, cfg.markers_fallback_max_per_class);
+            }
+            else if (key == "map_asset_retire_grace_ms")
+            {
+                cfg.map_asset_retire_grace_ms = parse_int(value, cfg.map_asset_retire_grace_ms);
+            }
+            else if (key == "hide_reason_log_ms")
+            {
+                cfg.hide_reason_log_ms = parse_int(value, cfg.hide_reason_log_ms);
+            }
+            else if (key == "srv_heap_size")
+            {
+                cfg.srv_heap_size = parse_int(value, cfg.srv_heap_size);
+            }
+            else if (key == "highlight_camera_resolve_ms")
+            {
+                cfg.highlight_camera_resolve_ms = parse_int(value, cfg.highlight_camera_resolve_ms);
+            }
+            else if (key == "highlight_compass_period_ms")
+            {
+                cfg.highlight_compass_period_ms = parse_int(value, cfg.highlight_compass_period_ms);
+            }
+            else if (key == "highlight_getter_period_ms")
+            {
+                cfg.highlight_getter_period_ms = parse_int(value, cfg.highlight_getter_period_ms);
+            }
+            else if (key == "highlight_pov_scan_bytes")
+            {
+                cfg.highlight_pov_scan_bytes = parse_int(value, cfg.highlight_pov_scan_bytes);
+            }
+            else if (key == "highlight_pov_bad_reads")
+            {
+                cfg.highlight_pov_bad_reads = parse_int(value, cfg.highlight_pov_bad_reads);
+            }
+            else if (key == "compass_tick_step_deg")
+            {
+                cfg.compass_tick_step_deg = parse_float(value, cfg.compass_tick_step_deg);
+            }
+            else if (key == "compass_max_pips")
+            {
+                cfg.compass_max_pips = parse_int(value, cfg.compass_max_pips);
+            }
+            else
+            {
+                return false;
+            }
+            return true;
+        }
+
+        // The whole key table, in groups. It USED to be one if/else-if chain and
+        // MSVC refused it at 123 keys ("compiler limit: blocks nested too deeply",
+        // C1061) - an else-if chain counts as nesting. Each group answers "was this
+        // key mine?", and tests/markers_test.cpp scrapes the key literals out of this
+        // file and compares it with cfgkeys::kConfigKeys and with the shipped config,
+        // so a key that lands in no group is caught on the build machine.
+        void apply_setting(Config& cfg, const std::string& key, const std::string& value)
+        {
+            if (apply_core(cfg, key, value))
+            {
+                return;
+            }
+            if (apply_floors(cfg, key, value))
+            {
+                return;
+            }
+            if (apply_markers(cfg, key, value))
+            {
+                return;
+            }
+            if (apply_map(cfg, key, value))
+            {
+                return;
+            }
+            if (apply_highlight(cfg, key, value))
+            {
+                return;
+            }
+            if (apply_compass_and_keys(cfg, key, value))
+            {
+                return;
+            }
+            if (apply_tuning(cfg, key, value))
+            {
+                return;
+            }
+            // An unknown key is ignored on purpose: a config written by a NEWER
+            // build must not stop an older one from starting.
         }
     } // namespace
 
@@ -642,390 +1294,7 @@ namespace mm
             }
             ++lines;
 
-            if (key == "mod_enabled")
-            {
-                cfg.mod_enabled = parse_bool(value, cfg.mod_enabled);
-            }
-            else if (key == "enabled")
-            {
-                cfg.enabled = parse_bool(value, cfg.enabled);
-            }
-            else if (key == "show_minimap")
-            {
-                cfg.show_minimap = parse_bool(value, cfg.show_minimap);
-            }
-            else if (key == "minimap_size")
-            {
-                cfg.size_frac = parse_float(value, cfg.size_frac);
-            }
-            else if (key == "minimap_zoom")
-            {
-                cfg.zoom_uu_per_px = parse_float(value, cfg.zoom_uu_per_px);
-            }
-            else if (key == "minimap_shape")
-            {
-                cfg.round = (value != "square");
-            }
-            else if (key == "minimap_anchor")
-            {
-                cfg.anchor = anchor_from_name(value, cfg.anchor);
-            }
-            else if (key == "minimap_offset_x")
-            {
-                cfg.offset_x = parse_float(value, cfg.offset_x);
-            }
-            else if (key == "minimap_offset_y")
-            {
-                cfg.offset_y = parse_float(value, cfg.offset_y);
-            }
-            else if (key == "rotate_with_player")
-            {
-                cfg.rotate_with_player = parse_bool(value, cfg.rotate_with_player);
-            }
-            else if (key == "opacity")
-            {
-                cfg.opacity = parse_float(value, cfg.opacity);
-            }
-            else if (key == "hide_in_menus")
-            {
-                cfg.hide_in_menus = parse_bool(value, cfg.hide_in_menus);
-            }
-            else if (key == "require_pawn_view")
-            {
-                cfg.require_pawn_view = parse_bool(value, cfg.require_pawn_view);
-            }
-            else if (key == "state_stale_ms")
-            {
-                cfg.state_stale_ms = parse_int(value, cfg.state_stale_ms);
-            }
-            else if (key == "min_visible_after_state_ok_ms")
-            {
-                cfg.min_visible_after_state_ok_ms = parse_int(value, cfg.min_visible_after_state_ok_ms);
-            }
-            else if (key == "menu_close_show_delay_ms")
-            {
-                cfg.menu_close_show_delay_ms = parse_int(value, cfg.menu_close_show_delay_ms);
-            }
-            else if (key == "show_adjacent_floors")
-            {
-                cfg.show_adjacent_floors = parse_bool(value, cfg.show_adjacent_floors);
-            }
-            else if (key == "adjacent_floor_opacity")
-            {
-                cfg.adjacent_floor_opacity = parse_float(value, cfg.adjacent_floor_opacity);
-            }
-            else if (key == "floor_z_tolerance")
-            {
-                cfg.floor_z_tolerance = parse_float(value, cfg.floor_z_tolerance);
-            }
-            else if (key == "floor_fade_uu")
-            {
-                cfg.floor_fade_uu = parse_float(value, cfg.floor_fade_uu);
-            }
-            else if (key == "floor_gradient_strength")
-            {
-                cfg.floor_gradient_strength = parse_float(value, cfg.floor_gradient_strength);
-            }
-            else if (key == "floor_base_color")
-            {
-                // "R G B" or "R,G,B", 0..255 each.
-                float rgb[3] = {cfg.floor_base_r, cfg.floor_base_g, cfg.floor_base_b};
-                std::string one;
-                int n = 0;
-                for (std::size_t i = 0; i <= value.size() && n < 3; ++i)
-                {
-                    const char c = i < value.size() ? value[i] : ',';
-                    if (c == ',' || c == ' ' || c == '\t' || c == ';')
-                    {
-                        if (!one.empty())
-                        {
-                            rgb[n] = parse_float(one, rgb[n]);
-                            ++n;
-                            one.clear();
-                        }
-                    }
-                    else
-                    {
-                        one.push_back(c);
-                    }
-                }
-                cfg.floor_base_r = rgb[0];
-                cfg.floor_base_g = rgb[1];
-                cfg.floor_base_b = rgb[2];
-            }
-            else if (key == "slice_hz")
-            {
-                cfg.slice_hz = parse_int(value, cfg.slice_hz);
-            }
-            else if (key == "feet_z_smooth_ms")
-            {
-                cfg.feet_z_smooth_ms = parse_int(value, cfg.feet_z_smooth_ms);
-            }
-            else if (key == "player_z_offset")
-            {
-                cfg.player_z_offset = parse_float(value, cfg.player_z_offset);
-            }
-            else if (key == "fallback_use_composite")
-            {
-                cfg.fallback_use_composite = parse_bool(value, cfg.fallback_use_composite);
-            }
-            else if (key == "debug_readout")
-            {
-                cfg.debug_readout = parse_bool(value, cfg.debug_readout);
-            }
-            else if (key == "debug_show_panel_on_start")
-            {
-                cfg.debug_show_panel_on_start = parse_bool(value, cfg.debug_show_panel_on_start);
-            }
-            else if (key == "panel_key")
-            {
-                cfg.panel_key = vk_from_name(value, cfg.panel_key, "panel_key");
-            }
-            else if (key == "reload_key")
-            {
-                cfg.reload_key = vk_from_name(value, cfg.reload_key, "reload_key");
-            }
-            else if (key == "map_key")
-            {
-                cfg.map_key = vk_from_name(value, cfg.map_key, "map_key");
-            }
-            else if (key == "markers_enabled")
-            {
-                cfg.markers_enabled = parse_bool(value, cfg.markers_enabled);
-            }
-            else if (key == "markers_live")
-            {
-                cfg.markers_live = parse_bool(value, cfg.markers_live);
-            }
-            else if (key == "markers_filter_chapter")
-            {
-                cfg.markers_filter_chapter = parse_bool(value, cfg.markers_filter_chapter);
-            }
-            else if (key == "markers_rounds_per_sec")
-            {
-                cfg.markers_rounds_per_sec = parse_int(value, cfg.markers_rounds_per_sec);
-            }
-            else if (key == "markers_scan_chunk")
-            {
-                cfg.markers_scan_chunk = parse_int(value, cfg.markers_scan_chunk);
-            }
-            else if (key == "markers_scan_period_ms")
-            {
-                cfg.markers_scan_period_ms = parse_int(value, cfg.markers_scan_period_ms);
-            }
-            else if (key == "markers_categories")
-            {
-                std::string rejected;
-                cfg.markers_categories = mdb::parse_category_mask(value, cfg.markers_categories, &rejected);
-                if (!rejected.empty())
-                {
-                    const std::string known = mdb::format_category_mask(mdb::kAllCats);
-                    logf(L"config: markers_categories - unknown name(s) '{}' ignored. Known: {}",
-                         std::wstring(rejected.begin(), rejected.end()),
-                         std::wstring(known.begin(), known.end()));
-                }
-            }
-            else if (key == "markers_hide_found")
-            {
-                cfg.markers_hide_found = parse_bool(value, cfg.markers_hide_found);
-            }
-            else if (key == "markers_found_alpha")
-            {
-                cfg.markers_found_alpha = parse_float(value, cfg.markers_found_alpha);
-            }
-            else if (key == "markers_size")
-            {
-                cfg.markers_size = parse_float(value, cfg.markers_size);
-            }
-            else if (key == "markers_clamp_to_edge")
-            {
-                cfg.markers_clamp_to_edge = parse_bool(value, cfg.markers_clamp_to_edge);
-            }
-            else if (key == "markers_max_draw")
-            {
-                cfg.markers_max_draw = parse_int(value, cfg.markers_max_draw);
-            }
-            else if (key == "map_recenter_key")
-            {
-                cfg.map_recenter_key = vk_from_name(value, cfg.map_recenter_key, "map_recenter_key");
-            }
-            else if (key == "map_zoom")
-            {
-                cfg.map_zoom = parse_float(value, cfg.map_zoom);
-            }
-            else if (key == "map_zoom_min")
-            {
-                cfg.map_zoom_min = parse_float(value, cfg.map_zoom_min);
-            }
-            else if (key == "map_zoom_max")
-            {
-                cfg.map_zoom_max = parse_float(value, cfg.map_zoom_max);
-            }
-            else if (key == "map_zoom_factor")
-            {
-                cfg.map_zoom_factor = parse_float(value, cfg.map_zoom_factor);
-            }
-            else if (key == "map_pan_speed")
-            {
-                cfg.map_pan_speed = parse_float(value, cfg.map_pan_speed);
-            }
-            else if (key == "map_margin")
-            {
-                cfg.map_margin = parse_float(value, cfg.map_margin);
-            }
-            else if (key == "map_backdrop")
-            {
-                cfg.map_backdrop = parse_float(value, cfg.map_backdrop);
-            }
-            else if (key == "map_marker_size")
-            {
-                cfg.map_marker_size = parse_float(value, cfg.map_marker_size);
-            }
-            else if (key == "map_markers_max_draw")
-            {
-                cfg.map_markers_max_draw = parse_int(value, cfg.map_markers_max_draw);
-            }
-            else if (key == "map_floor_step")
-            {
-                cfg.map_floor_step = parse_float(value, cfg.map_floor_step);
-            }
-            else if (key == "map_show_all_floors")
-            {
-                cfg.map_show_all_floors = parse_bool(value, cfg.map_show_all_floors);
-            }
-            else if (key == "map_slice_px")
-            {
-                cfg.map_slice_px = parse_int(value, cfg.map_slice_px);
-            }
-            else if (key == "map_slice_hz")
-            {
-                cfg.map_slice_hz = parse_int(value, cfg.map_slice_hz);
-            }
-            else if (key == "map_gamepad")
-            {
-                cfg.map_gamepad = parse_bool(value, cfg.map_gamepad);
-            }
-            else if (key == "map_gamepad_deadzone")
-            {
-                cfg.map_gamepad_deadzone = parse_float(value, cfg.map_gamepad_deadzone);
-            }
-            else if (key == "map_waypoint_persist")
-            {
-                cfg.map_waypoint_persist = parse_bool(value, cfg.map_waypoint_persist);
-            }
-            else if (key == "highlight_enabled")
-            {
-                cfg.highlight_enabled = parse_bool(value, cfg.highlight_enabled);
-            }
-            else if (key == "highlight_key")
-            {
-                cfg.highlight_key = vk_from_name(value, cfg.highlight_key, "highlight_key");
-            }
-            else if (key == "highlight_gamepad")
-            {
-                cfg.highlight_gamepad = parse_bool(value, cfg.highlight_gamepad);
-            }
-            else if (key == "highlight_pad_chord")
-            {
-                parse_pad_chord(value, cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt);
-            }
-            else if (key == "highlight_radius")
-            {
-                cfg.highlight_radius = parse_float(value, cfg.highlight_radius);
-            }
-            else if (key == "highlight_categories")
-            {
-                std::string rejected;
-                cfg.highlight_categories =
-                    mdb::parse_category_mask(value, cfg.highlight_categories, &rejected);
-                if (!rejected.empty())
-                {
-                    logf(L"config: highlight_categories - unknown name(s) '{}' ignored",
-                         std::wstring(rejected.begin(), rejected.end()));
-                }
-            }
-            else if (key == "highlight_show_found")
-            {
-                cfg.highlight_show_found = parse_bool(value, cfg.highlight_show_found);
-            }
-            else if (key == "highlight_max_draw")
-            {
-                cfg.highlight_max_draw = parse_int(value, cfg.highlight_max_draw);
-            }
-            else if (key == "highlight_alpha_near")
-            {
-                cfg.highlight_alpha_near = parse_float(value, cfg.highlight_alpha_near);
-            }
-            else if (key == "highlight_alpha_far")
-            {
-                cfg.highlight_alpha_far = parse_float(value, cfg.highlight_alpha_far);
-            }
-            else if (key == "highlight_size")
-            {
-                cfg.highlight_size = parse_float(value, cfg.highlight_size);
-            }
-            else if (key == "highlight_labels")
-            {
-                cfg.highlight_labels = parse_bool(value, cfg.highlight_labels);
-            }
-            else if (key == "highlight_edge_arrows")
-            {
-                cfg.highlight_edge_arrows = parse_bool(value, cfg.highlight_edge_arrows);
-            }
-            else if (key == "highlight_camera_hz")
-            {
-                cfg.highlight_camera_hz = parse_int(value, cfg.highlight_camera_hz);
-            }
-            else if (key == "compass_enabled")
-            {
-                cfg.compass_enabled = parse_bool(value, cfg.compass_enabled);
-            }
-            else if (key == "compass_width")
-            {
-                cfg.compass_width = parse_float(value, cfg.compass_width);
-            }
-            else if (key == "compass_offset_y")
-            {
-                cfg.compass_offset_y = parse_float(value, cfg.compass_offset_y);
-            }
-            else if (key == "compass_height")
-            {
-                cfg.compass_height = parse_float(value, cfg.compass_height);
-            }
-            else if (key == "compass_span_deg")
-            {
-                cfg.compass_span_deg = parse_float(value, cfg.compass_span_deg);
-            }
-            else if (key == "compass_opacity")
-            {
-                cfg.compass_opacity = parse_float(value, cfg.compass_opacity);
-            }
-            else if (key == "compass_categories")
-            {
-                std::string rejected;
-                cfg.compass_categories = mdb::parse_category_mask(value, cfg.compass_categories, &rejected);
-                if (!rejected.empty())
-                {
-                    logf(L"config: compass_categories - unknown name(s) '{}' ignored",
-                         std::wstring(rejected.begin(), rejected.end()));
-                }
-            }
-            else if (key == "compass_marker_distance")
-            {
-                cfg.compass_marker_distance = parse_float(value, cfg.compass_marker_distance);
-            }
-            else if (key == "compass_show_waypoint")
-            {
-                cfg.compass_show_waypoint = parse_bool(value, cfg.compass_show_waypoint);
-            }
-            else if (key == "found_tracker")
-            {
-                cfg.found_tracker = parse_bool(value, cfg.found_tracker);
-            }
-            else if (key == "found_save_debounce_ms")
-            {
-                cfg.found_save_debounce_ms = parse_int(value, cfg.found_save_debounce_ms);
-            }
+            apply_setting(cfg, key, value);
         }
 
         // Clamp everything: a hand-edited file must not be able to produce a 40 000 px
@@ -1089,6 +1358,52 @@ namespace mm
         cfg.compass_opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.compass_opacity));
         cfg.compass_categories &= mdb::kAllCats;
         cfg.compass_marker_distance = (std::max)(500.0f, (std::min)(200000.0f, cfg.compass_marker_distance));
+        // The minimap's own look, the slicer's sizing, the reader's rates and the sweep's
+        // caps. Same rule as everything above: a hand-edited file may be wrong, it may
+        // not be able to divide by zero, allocate unboundedly or stall the game thread.
+        cfg.minimap_backdrop = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_backdrop));
+        cfg.minimap_backdrop_r = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_r));
+        cfg.minimap_backdrop_g = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_g));
+        cfg.minimap_backdrop_b = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_b));
+        cfg.minimap_frame_r = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_frame_r));
+        cfg.minimap_frame_g = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_frame_g));
+        cfg.minimap_frame_b = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_frame_b));
+        cfg.minimap_frame_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_frame_alpha));
+        cfg.minimap_composite_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_composite_alpha));
+        cfg.minimap_min_px = (std::max)(16.0f, (std::min)(512.0f, cfg.minimap_min_px));
+        cfg.minimap_arrow_frac = (std::max)(0.01f, (std::min)(0.3f, cfg.minimap_arrow_frac));
+        cfg.minimap_arrow_min_px = (std::max)(2.0f, (std::min)(64.0f, cfg.minimap_arrow_min_px));
+        cfg.minimap_circle_segments = (std::max)(8, (std::min)(256, cfg.minimap_circle_segments));
+        cfg.waypoint_size_scale = (std::max)(0.2f, (std::min)(4.0f, cfg.waypoint_size_scale));
+        cfg.slice_min_px = (std::max)(64, (std::min)(2048, cfg.slice_min_px));
+        cfg.slice_max_px = (std::max)(cfg.slice_min_px, (std::min)(4096, cfg.slice_max_px));
+        cfg.map_slice_margin = (std::max)(1.0f, (std::min)(2.0f, cfg.map_slice_margin));
+        cfg.reader_position_period_ms = (std::max)(16, (std::min)(1000, cfg.reader_position_period_ms));
+        cfg.reader_resolve_period_ms = (std::max)(100, (std::min)(10000, cfg.reader_resolve_period_ms));
+        cfg.reader_widget_sweep_period_ms = (std::max)(50, (std::min)(5000, cfg.reader_widget_sweep_period_ms));
+        cfg.reader_transition_cooldown_ms = (std::max)(0, (std::min)(30000, cfg.reader_transition_cooldown_ms));
+        cfg.reader_teleport_jump_uu = (std::max)(200.0, (std::min)(100000.0, cfg.reader_teleport_jump_uu));
+        cfg.reader_chapter_period_ms = (std::max)(200, (std::min)(60000, cfg.reader_chapter_period_ms));
+        cfg.reader_max_widgets = (std::max)(256, (std::min)(100000, cfg.reader_max_widgets));
+        cfg.reader_max_menu_roots = (std::max)(1, (std::min)(512, cfg.reader_max_menu_roots));
+        cfg.reader_max_levels = (std::max)(64, (std::min)(65536, cfg.reader_max_levels));
+        cfg.reader_log_throttle_ms = (std::max)(500, (std::min)(600000, cfg.reader_log_throttle_ms));
+        cfg.markers_live_grace_rounds = (std::max)(1, (std::min)(30, cfg.markers_live_grace_rounds));
+        cfg.markers_live_max = (std::max)(64, (std::min)(262144, cfg.markers_live_max));
+        cfg.markers_id_cache_max = (std::max)(64, (std::min)(262144, cfg.markers_id_cache_max));
+        cfg.markers_class_cache_max = (std::max)(1024, (std::min)(4194304, cfg.markers_class_cache_max));
+        cfg.markers_fallback_max_per_class =
+            (std::max)(64, (std::min)(65536, cfg.markers_fallback_max_per_class));
+        cfg.map_asset_retire_grace_ms = (std::max)(0, (std::min)(60000, cfg.map_asset_retire_grace_ms));
+        cfg.hide_reason_log_ms = (std::max)(0, (std::min)(600000, cfg.hide_reason_log_ms));
+        cfg.srv_heap_size = (std::max)(16, (std::min)(1024, cfg.srv_heap_size));
+        cfg.highlight_camera_resolve_ms = (std::max)(100, (std::min)(10000, cfg.highlight_camera_resolve_ms));
+        cfg.highlight_compass_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_compass_period_ms));
+        cfg.highlight_getter_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_getter_period_ms));
+        cfg.highlight_pov_scan_bytes = (std::max)(64, (std::min)(1024, cfg.highlight_pov_scan_bytes));
+        cfg.highlight_pov_bad_reads = (std::max)(1, (std::min)(64, cfg.highlight_pov_bad_reads));
+        cfg.compass_tick_step_deg = (std::max)(1.0f, (std::min)(90.0f, cfg.compass_tick_step_deg));
+        cfg.compass_max_pips = (std::max)(0, (std::min)(256, cfg.compass_max_pips));
 
         set_config(cfg);
         logf(L"config: loaded {} setting(s) from {}", lines, path);
@@ -1155,6 +1470,61 @@ namespace mm
         out += "markers_max_draw = " + std::to_string(cfg.markers_max_draw) + "\n";
         out += "found_tracker = " + std::string(cfg.found_tracker ? "1" : "0") + "\n";
         out += "found_save_debounce_ms = " + std::to_string(cfg.found_save_debounce_ms) + "\n\n";
+        out += "\n";
+        out += "; ---------------------------------------------------------------------------------\n";
+        out += "; Minimap look\n";
+        out += "; ---------------------------------------------------------------------------------\n";
+        out += "; Colours are `R G B`, 0..255; alphas are multiplied by `opacity` above. All live\n";
+        out += "; (the next frame uses them).\n";
+        out += "minimap_backdrop = " + std::format("{:.2f}", cfg.minimap_backdrop) + "\n";
+        out += "minimap_backdrop_color = " + std::format("{:.0f} {:.0f} {:.0f}", cfg.minimap_backdrop_r, cfg.minimap_backdrop_g, cfg.minimap_backdrop_b) + "\n";
+        out += "minimap_frame_color = " + std::format("{:.0f} {:.0f} {:.0f}", cfg.minimap_frame_r, cfg.minimap_frame_g, cfg.minimap_frame_b) + "\n";
+        out += "minimap_frame_alpha = " + std::format("{:.2f}", cfg.minimap_frame_alpha) + "\n";
+        out += "minimap_composite_alpha = " + std::format("{:.2f}", cfg.minimap_composite_alpha) + "\n";
+        out += "minimap_min_px = " + std::format("{:.0f}", cfg.minimap_min_px) + "\n";
+        out += "minimap_arrow_frac = " + std::format("{:.3f}", cfg.minimap_arrow_frac) + "\n";
+        out += "minimap_arrow_min_px = " + std::format("{:.0f}", cfg.minimap_arrow_min_px) + "\n";
+        out += "minimap_circle_segments = " + std::to_string(cfg.minimap_circle_segments) + "\n";
+        out += "waypoint_size_scale = " + std::format("{:.2f}", cfg.waypoint_size_scale) + "\n";
+        out += "\n";
+        out += "; Height-slice sizing. slice_* bound the minimap window the CPU cuts;\n";
+        out += "; map_slice_margin is how much bigger than the visible canvas the full map cuts\n";
+        out += "; (1.30 = a drag can move 15 % of the canvas before a re-cut).\n";
+        out += "slice_min_px = " + std::to_string(cfg.slice_min_px) + "\n";
+        out += "slice_max_px = " + std::to_string(cfg.slice_max_px) + "\n";
+        out += "map_slice_margin = " + std::format("{:.2f}", cfg.map_slice_margin) + "\n";
+        out += "\n";
+        out += "; ---------------------------------------------------------------------------------\n";
+        out += "; The game-state reader (game thread)\n";
+        out += "; ---------------------------------------------------------------------------------\n";
+        out += "; Rates and caps of the ProcessEvent pump. Lower periods cost game-thread time:\n";
+        out += "; the position pump gates the marker scan and the menu test, and the widget sweep\n";
+        out += "; is a whole object-array walk. Live (re-read twice a second).\n";
+        out += "reader_position_period_ms = " + std::to_string(cfg.reader_position_period_ms) + "\n";
+        out += "reader_resolve_period_ms = " + std::to_string(cfg.reader_resolve_period_ms) + "\n";
+        out += "reader_widget_sweep_period_ms = " + std::to_string(cfg.reader_widget_sweep_period_ms) + "\n";
+        out += "reader_transition_cooldown_ms = " + std::to_string(cfg.reader_transition_cooldown_ms) + "\n";
+        out += "reader_teleport_jump_uu = " + std::format("{:.0f}", cfg.reader_teleport_jump_uu) + "\n";
+        out += "reader_chapter_period_ms = " + std::to_string(cfg.reader_chapter_period_ms) + "\n";
+        out += "reader_max_widgets = " + std::to_string(cfg.reader_max_widgets) + "\n";
+        out += "reader_max_menu_roots = " + std::to_string(cfg.reader_max_menu_roots) + "\n";
+        out += "reader_max_levels = " + std::to_string(cfg.reader_max_levels) + "\n";
+        out += "reader_log_throttle_ms = " + std::to_string(cfg.reader_log_throttle_ms) + "\n";
+        out += "\n";
+        out += "; Marker sweep internals. markers_live_grace_rounds is how many rounds a live actor\n";
+        out += "; may go unseen before it is dropped from the live cache - it is NOT a collected\n";
+        out += "; test (that is the markers_absence_* block). The rest are cache caps.\n";
+        out += "markers_live_grace_rounds = " + std::to_string(cfg.markers_live_grace_rounds) + "\n";
+        out += "markers_live_max = " + std::to_string(cfg.markers_live_max) + "\n";
+        out += "markers_id_cache_max = " + std::to_string(cfg.markers_id_cache_max) + "\n";
+        out += "markers_class_cache_max = " + std::to_string(cfg.markers_class_cache_max) + "\n";
+        out += "markers_fallback_max_per_class = " + std::to_string(cfg.markers_fallback_max_per_class) + "\n";
+        out += "\n";
+        out += "; Assets and diagnostics. srv_heap_size needs a RESTART (or a mod_enabled off/on):\n";
+        out += "; the descriptor heap is created once, when the overlay first initialises.\n";
+        out += "map_asset_retire_grace_ms = " + std::to_string(cfg.map_asset_retire_grace_ms) + "\n";
+        out += "hide_reason_log_ms = " + std::to_string(cfg.hide_reason_log_ms) + "\n";
+        out += "srv_heap_size = " + std::to_string(cfg.srv_heap_size) + "\n";
         out += "\n; ---------------------------------------------------------------------------------\n";
         out += "; The full map (map_key - shipped default M)\n";
         out += "; ---------------------------------------------------------------------------------\n";
@@ -1209,6 +1579,14 @@ namespace mm
         out += "highlight_labels = " + std::string(cfg.highlight_labels ? "1" : "0") + "\n";
         out += "highlight_edge_arrows = " + std::string(cfg.highlight_edge_arrows ? "1" : "0") + "\n";
         out += "highlight_camera_hz = " + std::to_string(cfg.highlight_camera_hz) + "\n";
+        out += "; The camera reader: how often the camera manager is re-found, the slower rate used\n";
+        out += "; when only the compass wants a heading, the ProcessEvent fallback rate, and the two\n";
+        out += "; bounds of the POV-offset discovery inside CameraCachePrivate.\n";
+        out += "highlight_camera_resolve_ms = " + std::to_string(cfg.highlight_camera_resolve_ms) + "\n";
+        out += "highlight_compass_period_ms = " + std::to_string(cfg.highlight_compass_period_ms) + "\n";
+        out += "highlight_getter_period_ms = " + std::to_string(cfg.highlight_getter_period_ms) + "\n";
+        out += "highlight_pov_scan_bytes = " + std::to_string(cfg.highlight_pov_scan_bytes) + "\n";
+        out += "highlight_pov_bad_reads = " + std::to_string(cfg.highlight_pov_bad_reads) + "\n";
         out += "\n; ---------------------------------------------------------------------------------\n";
         out += "; The compass strip\n";
         out += "; ---------------------------------------------------------------------------------\n";
@@ -1223,7 +1601,12 @@ namespace mm
         out += "compass_opacity = " + std::format("{:.2f}", cfg.compass_opacity) + "\n";
         out += "compass_categories = " + mdb::format_category_mask(cfg.compass_categories) + "\n";
         out += "compass_marker_distance = " + std::format("{:.0f}", cfg.compass_marker_distance) + "\n";
-        out += "compass_show_waypoint = " + std::string(cfg.compass_show_waypoint ? "1" : "0") + "\n\n";
+        out += "compass_show_waypoint = " + std::string(cfg.compass_show_waypoint ? "1" : "0") + "\n";
+        out += "; Minor-tick spacing in degrees (45 = labelled, 90 = a cardinal letter) and the cap\n";
+        out += "; on marker pips, nearest first.\n";
+        out += "compass_tick_step_deg = " + std::format("{:.0f}", cfg.compass_tick_step_deg) + "\n";
+        out += "compass_max_pips = " + std::to_string(cfg.compass_max_pips) + "\n";
+        out += "\n";
         out += "panel_key = " + vk_name(cfg.panel_key) + "\n";
         out += "reload_key = " + vk_name(cfg.reload_key) + "\n";
         out += "map_key = " + vk_name(cfg.map_key) + "\n";

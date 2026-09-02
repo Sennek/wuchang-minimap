@@ -354,6 +354,21 @@ namespace markers
         const void* g_world = nullptr;
         std::uint64_t g_round = 0;
 
+        //==============================================================================
+        // Live copies of the sweep's caps (game thread)
+        //==============================================================================
+        //
+        // The config keys `markers_live_grace_rounds`, `markers_live_max`,
+        // `markers_id_cache_max`, `markers_class_cache_max` and
+        // `markers_fallback_max_per_class`. They are unpacked from the Config the pump
+        // already copies, because process_marker() / publish_round() run per actor and
+        // must not each take the config spinlock.
+        std::uint64_t g_grace_rounds = 2;
+        std::size_t g_live_max = 8192;
+        std::size_t g_id_cache_max = 8192;
+        std::size_t g_class_cache_max = 262144;
+        std::size_t g_fallback_max_per_class = 4096;
+
         // The chunked object-array walk (game thread only).
         scan::Cursor g_cursor{};
         scan::RoundStats g_round_stats{};
@@ -506,7 +521,7 @@ namespace markers
             // classes': the chunked walk asks about every class that owns an object, so
             // a cap of 8192 (what the FindAllOf sweep needed) would be hit mid-round and
             // throw away exactly the negative answers that make the walk cheap.
-            if (g_class_spec.size() > 262144)
+            if (g_class_spec.size() > g_class_cache_max)
             {
                 g_class_spec.clear();
             }
@@ -524,7 +539,7 @@ namespace markers
             const std::string full = narrow_ascii(obj->GetFullName());
             const std::string level = mdb::level_from_full_name(full);
             std::string id = mdb::stable_id(level, narrow_ascii(obj->GetName()));
-            if (g_id_cache.size() > 8192)
+            if (g_id_cache.size() > g_id_cache_max)
             {
                 g_id_cache.clear();
             }
@@ -687,7 +702,7 @@ namespace markers
             {
                 note_found(id);
             }
-            if (g_live.size() < 8192 || g_live.contains(id))
+            if (g_live.size() < g_live_max || g_live.contains(id))
             {
                 g_live[id] = e;
             }
@@ -758,7 +773,7 @@ namespace markers
             {
                 return;
             }
-            constexpr std::size_t kMaxPerClass = 4096;
+            const std::size_t kMaxPerClass = g_fallback_max_per_class;
             const std::size_t count = found.size() < kMaxPerClass ? found.size() : kMaxPerClass;
 
             for (std::size_t i = 0; i < count; ++i)
@@ -797,7 +812,7 @@ namespace markers
             // "collected" - only the state flags do that.
             for (auto it = g_live.begin(); it != g_live.end();)
             {
-                if (g_round >= 2 && it->second.round + 2 <= g_round)
+                if (g_round >= g_grace_rounds && it->second.round + g_grace_rounds <= g_round)
                 {
                     it = g_live.erase(it);
                 }
@@ -1387,6 +1402,11 @@ namespace markers
 
         // 2.
         const mm::Config cfg = mm::config();
+        g_grace_rounds = static_cast<std::uint64_t>(cfg.markers_live_grace_rounds);
+        g_live_max = static_cast<std::size_t>(cfg.markers_live_max);
+        g_id_cache_max = static_cast<std::size_t>(cfg.markers_id_cache_max);
+        g_class_cache_max = static_cast<std::size_t>(cfg.markers_class_cache_max);
+        g_fallback_max_per_class = static_cast<std::size_t>(cfg.markers_fallback_max_per_class);
 
         // ---- HOOK: the x-ray highlight's camera reader (src/highlight.cpp) ----------
         //

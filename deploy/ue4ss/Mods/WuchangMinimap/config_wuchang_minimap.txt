@@ -407,3 +407,146 @@ panel_key = F2
 map_key = M
 map_recenter_key = R
 reload_key = F5
+
+; =================================================================================
+; TUNING - everything the mod used to have baked in
+; =================================================================================
+; Every number below was a literal in the source until 2026-09-03. The defaults are
+; exactly the old behaviour, so a fresh install looks and behaves the same; changing
+; one only changes what its comment says. All of them are clamped on load - a typo
+; cannot produce a 40 000 px minimap, a divide by zero or an unbounded cache.
+;
+; RESTART: only `srv_heap_size` needs one (the descriptor heap is created once, when
+; the overlay first initialises). Everything else is picked up by F5, and by the
+; "Reload settings + maps" button in the F2 panel.
+
+; ---------------------------------------------------------------------------------
+; Minimap look
+; ---------------------------------------------------------------------------------
+; Colours are `R G B`, 0..255. Alphas are multiplied by `opacity` above, so they are
+; relative: 1.00 means "as opaque as the minimap is allowed to be".
+
+; The dark disc the map is drawn on. The first in-world screenshot was a light grey
+; map over a light grey scene - this is what the walkable fill sits on.
+minimap_backdrop = 0.86
+minimap_backdrop_color = 6 9 13
+
+; The ring / border around the minimap.
+minimap_frame_color = 168 176 186
+minimap_frame_alpha = 0.85
+
+; The Z-shaded composite is the fallback picture for a chapter with no height maps.
+; It merges every storey, so it is drawn slightly weaker than a height slice.
+minimap_composite_alpha = 0.85
+
+; Floor on the minimap's side length in pixels, whatever minimap_size works out to.
+minimap_min_px = 72
+
+; The player arrow: a fraction of the minimap's side, never smaller than this.
+minimap_arrow_frac = 0.055
+minimap_arrow_min_px = 8
+
+; Roundness of the disc and its two rings (8..256). Lower is cheaper and more angular.
+minimap_circle_segments = 72
+
+; The waypoint glyph's radius as a multiple of markers_size. It is the one marker that
+; is never culled, so it is drawn a touch bigger than the rest.
+waypoint_size_scale = 1.05
+
+; ---------------------------------------------------------------------------------
+; Height-slice sizing
+; ---------------------------------------------------------------------------------
+; How big a window the CPU slicer cuts out of the chapter's height maps. The minimap's
+; window is square and bounded by these two; the cost of a cut is roughly
+; width x height x surfaces, so raising slice_max_px raises the per-cut milliseconds.
+slice_min_px = 128
+slice_max_px = 1024
+
+; How much bigger than the visible canvas the FULL MAP's cut is. 1.30 lets a drag move
+; ~15 % of the canvas in either direction before the cut has to be redone.
+map_slice_margin = 1.30
+
+; ---------------------------------------------------------------------------------
+; The game-state reader (game thread)
+; ---------------------------------------------------------------------------------
+; The rates and caps of the pump that runs inside the game's own ProcessEvent. LOWER
+; PERIODS COST GAME-THREAD TIME - the position pump is what gates the marker scan and
+; the menu test, and the widget sweep is a whole object-array walk. The values are
+; re-read from this file twice a second.
+
+; 10 Hz: the pawn's location and yaw.
+reader_position_period_ms = 100
+; 2 Hz: re-find the pawn / controller when they are missing.
+reader_resolve_period_ms = 500
+; The full menu-widget sweep. The cheap re-test of the widgets already found runs on
+; EVERY pump, which is what makes the minimap hide the instant a menu opens.
+reader_widget_sweep_period_ms = 250
+; After any pawn or world change, no blueprint getter is called for this long - the
+; engine is inside LoadMap and calling one there crashed the game.
+reader_transition_cooldown_ms = 2000
+; A position jump bigger than this inside one pump is a fast travel: the pawn is
+; re-resolved and the widgets re-swept. Sprinting covers ~70 uu per pump.
+reader_teleport_jump_uu = 3000
+; How often the streamed level set is walked to name the chapter.
+reader_chapter_period_ms = 1000
+; Sanity caps: widgets in one sweep, cached in-viewport menu roots (the game has 5-6),
+; levels in one enumeration.
+reader_max_widgets = 6000
+reader_max_menu_roots = 32
+reader_max_levels = 4096
+; Rate limit on the reader's repeating log lines ("no pawn", "rejected class").
+reader_log_throttle_ms = 5000
+
+; ---------------------------------------------------------------------------------
+; Marker sweep internals
+; ---------------------------------------------------------------------------------
+; How many rounds a live actor may go unseen before it is dropped from the live cache.
+; Two is what stops a marker flickering whenever a sweep races level streaming. This is
+; NOT a collected test - absence only ever marks through the markers_absence_* rules.
+markers_live_grace_rounds = 2
+; Cache caps. markers_class_cache_max has to clear the WHOLE game's class count, not
+; just the marker classes: the walk asks about every class that owns an object, and a
+; cap hit mid-round throws away exactly the negative answers that make it cheap.
+markers_live_max = 8192
+markers_id_cache_max = 8192
+markers_class_cache_max = 262144
+; Only the slow FindAllOf fallback path uses this (it runs when the object array
+; cannot be enumerated at all).
+markers_fallback_max_per_class = 4096
+
+; ---------------------------------------------------------------------------------
+; Assets and diagnostics
+; ---------------------------------------------------------------------------------
+; How long a retired chapter's height planes stay alive after the pointer to them was
+; cleared, so a render thread already inside a slice cannot be handed freed memory.
+; A slice is ~4 ms; this is three orders of magnitude more.
+map_asset_retire_grace_ms = 2000
+; Rate limit on the "hidden because: ..." log line, so a flapping condition cannot
+; flood the log.
+hide_reason_log_ms = 2000
+; Our SRV descriptor heap: the ImGui font atlas, the map texture and the four slice
+; buffers. RESTART ONLY (or turn mod_enabled off and on again).
+srv_heap_size = 64
+
+; ---------------------------------------------------------------------------------
+; The x-ray highlight's camera reader
+; ---------------------------------------------------------------------------------
+; How often the camera manager is re-found when it is missing; the slower rate used
+; when only the compass wants a heading; the pace of the ProcessEvent fallback route
+; (used when the raw POV block could not be pinned).
+highlight_camera_resolve_ms = 500
+highlight_compass_period_ms = 50
+highlight_getter_period_ms = 33
+; How far into CameraCachePrivate the POV block is looked for, and how many insane
+; reads in a row drop the pinned offset and re-run the discovery.
+highlight_pov_scan_bytes = 192
+highlight_pov_bad_reads = 8
+
+; ---------------------------------------------------------------------------------
+; Compass geometry
+; ---------------------------------------------------------------------------------
+; Minor-tick spacing in degrees. A tick at a multiple of 45 gets a label, one at a
+; multiple of 90 gets its cardinal letter.
+compass_tick_step_deg = 15
+; Hard cap on marker pips, nearest first.
+compass_max_pips = 32

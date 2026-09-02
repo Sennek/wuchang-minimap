@@ -1,0 +1,5 @@
+main.dll is placed here by deploy.ps1 (it is gitignored).
+This directory exists so the deploy layout in the repo mirrors what UE4SS expects:
+
+    ue4ss/Mods/WuchangMinimap/enabled.txt
+    ue4ss/Mods/WuchangMinimap/dlls/main.dll

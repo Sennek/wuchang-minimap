@@ -1,0 +1,147 @@
+-- WuchangMinimap - UE4SS C++ mod for Wuchang: Fallen Feathers (UE 5.1.1, x64, DX12)
+--
+-- This project does NOT include("RE-UE4SS") the way the official docs describe,
+-- because UE4SS cannot be built from source on this machine: its `deps/first/Unreal`
+-- submodule points at `Re-UE4SS/UEPseudo`, a private repository that requires Epic
+-- Games GitHub organisation access. See README.md for the full story.
+--
+-- Instead we compile against the headers of an RE-UE4SS checkout pinned to the exact
+-- commit of the UE4SS build installed in the game, and link against an import library
+-- synthesised from that build's UE4SS.dll export table (tools/gen_ue4ss_importlib.ps1).
+
+set_project("WuchangMinimap")
+set_version("0.1.0")
+set_xmakever("2.9.3")
+
+set_allowedplats("windows")
+set_allowedarchs("x64")
+
+-- UE4SS names its shipping configuration Game__Shipping__Win64; we keep that name so
+-- the build command matches the UE4SS documentation.
+set_allowedmodes("Game__Shipping__Win64", "Game__Debug__Win64")
+set_defaultmode("Game__Shipping__Win64")
+
+option("ue4ss_root")
+    set_default("F:/Tools/RE-UE4SS")
+    set_showmenu(true)
+    set_description("Path to the RE-UE4SS checkout (pinned to the commit of the installed UE4SS.dll).")
+option_end()
+
+local ue4ss_root = get_config("ue4ss_root") or "F:/Tools/RE-UE4SS"
+
+-- Every UE4SS header we need, in lookup order. sdk/shim MUST come first: it supplies a
+-- stand-in for <GUI/GUI.hpp> whose real version drags in the unavailable UEPseudo headers.
+local function ue4ss_includedirs()
+    local first = ue4ss_root .. "/deps/first/"
+    return {
+        "sdk/shim",
+        ue4ss_root .. "/UE4SS/include",
+        ue4ss_root .. "/UE4SS/generated_include",
+        first .. "File/include",
+        first .. "DynamicOutput/include",
+        first .. "String/include",
+        first .. "Input/include",
+        first .. "Constructs/include",
+        first .. "Helpers/include",
+        first .. "Function/include",
+        first .. "SinglePassSigScanner/include",
+        first .. "ASMHelper/include",
+        first .. "IniParser/include",
+        first .. "JSON/include",
+        first .. "MProgram/include",
+        first .. "ScopedTimer/include",
+        first .. "Profiler/include",
+        -- fmt 11.2.0, the version UE4SS itself uses. DynamicOutput/Output.hpp includes
+        -- <fmt/core.h>; the formatting happens inside our DLL so header-only is fine.
+        "third_party/fmt/include",
+    }
+end
+
+-- Shared compile settings for every target in this project.
+-- The CRT choice is load bearing: the shipped UE4SS.dll imports MSVCP140.dll and
+-- VCRUNTIME140.dll, so the mod must use the dynamic release CRT (/MD) or the two will
+-- disagree about std:: types across the DLL boundary.
+local function common_settings()
+    set_arch("x64")
+    set_plat("windows")
+    set_runtimes("MD")
+    add_defines("WIN32_LEAN_AND_MEAN", "NOMINMAX", "_CRT_SECURE_NO_WARNINGS", "UNICODE", "_UNICODE")
+    -- Required, not cosmetic: fmt's base.h has a `static_assert(... "Unicode support
+    -- requires compiling with /utf-8")` that fires on MSVC's default codepage.
+    add_cxflags("/utf-8", {tools = {"cl"}})
+    add_cflags("/utf-8", {tools = {"cl"}})
+    if is_mode("Game__Debug__Win64") then
+        set_optimize("none")
+        set_symbols("debug")
+    else
+        set_optimize("fastest")
+        set_symbols("debug") -- keep the .pdb: it is what makes a crash dump readable
+        add_defines("NDEBUG")
+    end
+end
+
+----------------------------------------------------------------------------------------
+-- third_party: Dear ImGui (core + DX12 and Win32 backends)
+----------------------------------------------------------------------------------------
+target("imgui")
+    set_kind("static")
+    set_languages("cxx20")
+    set_group("third_party")
+    common_settings()
+    add_includedirs("third_party/imgui", {public = true})
+    add_files(
+        "third_party/imgui/imgui.cpp",
+        "third_party/imgui/imgui_draw.cpp",
+        "third_party/imgui/imgui_tables.cpp",
+        "third_party/imgui/imgui_widgets.cpp",
+        "third_party/imgui/imgui_demo.cpp",
+        "third_party/imgui/misc/cpp/imgui_stdlib.cpp",
+        "third_party/imgui/backends/imgui_impl_dx12.cpp",
+        "third_party/imgui/backends/imgui_impl_win32.cpp")
+    -- imgui_impl_dx12 calls D3D12SerializeRootSignature; imgui_impl_win32 pokes dwmapi.
+    add_syslinks("d3d12", "dxgi", "d3dcompiler", "dwmapi", {public = true})
+target_end()
+
+----------------------------------------------------------------------------------------
+-- third_party: MinHook
+----------------------------------------------------------------------------------------
+target("minhook")
+    set_kind("static")
+    set_languages("c11")
+    set_group("third_party")
+    common_settings()
+    add_includedirs("third_party/minhook/include", {public = true})
+    add_files("third_party/minhook/src/*.c", "third_party/minhook/src/hde/*.c")
+target_end()
+
+----------------------------------------------------------------------------------------
+-- The mod itself. UE4SS loads <mod>/dlls/main.dll, so the basename is `main`.
+----------------------------------------------------------------------------------------
+target("WuchangMinimap")
+    set_kind("shared")
+    set_basename("main")
+    set_languages("cxx23")
+    set_exceptions("cxx")
+    set_group("mods")
+    set_warnings("all")
+    common_settings()
+    add_deps("imgui", "minhook")
+
+    add_includedirs("src")
+    add_includedirs(ue4ss_includedirs())
+
+    -- fmt must be header-only here: we have no compiled fmt from the UE4SS build.
+    -- RC_IS_ANSI selects the char type used by DynamicOutput; UE4SS ships the wide build.
+    -- The codecvt silencer is for UE4SS's own Helpers/String.hpp, which still uses the
+    -- C++17-deprecated std::wstring_convert; it is the only C4996 in the build.
+    add_defines("FMT_HEADER_ONLY=1", "RC_IS_ANSI=0", "_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING")
+
+    add_files("src/*.cpp")
+
+    -- Import library synthesised from the installed UE4SS.dll export table.
+    add_links("sdk/lib/UE4SS.lib")
+
+    after_build(function (target)
+        print("WuchangMinimap -> %s", target:targetfile())
+    end)
+target_end()

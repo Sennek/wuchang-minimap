@@ -61,6 +61,19 @@ build\windows\x64\Game__Shipping__Win64\main.pdb
 A clean build takes about 4 seconds. Our own target is built with `set_warnings("all")`
 and is warning-free; `third_party/` is left at the default warning level.
 
+`build.ps1` also builds and runs the **offline tests** (`-NoTests` skips them). They link only
+`src/markers_db.cpp`, so they need neither UE4SS nor Direct3D and run with the game closed:
+
+```
+xmake build markers_test
+xmake run   markers_test markers      # the repo's markers\ dir, for the sample manifest
+```
+
+They cover the `markers/<chapter>.json` loader (happy path against the shipped sample, plus every way
+the file can be wrong), the category-name <-> bitmask mapping the config file and the F2 filter
+checkboxes share, and the `wuchang_minimap_found.txt` round-trip. Anything that can be checked without
+launching the game is checked there - a play session is the expensive resource in this project.
+
 ## Install
 
 ```powershell
@@ -91,6 +104,12 @@ src/overlay.{hpp,cpp}      DX12 hooks + ImGui + the minimap and the F2 panel
 src/gamestate.{hpp,cpp}    game-thread reader (pawn, view target, widgets)
 src/mmstate.{hpp,cpp}      snapshot seqlock, config file, cross-thread log queue
 src/mapdata.{hpp,cpp}      maps.json parser + WIC PNG decode
+src/markers_db.{hpp,cpp}   PURE marker model: markers/<chapter>.json, category masks,
+                           the found-file round-trip. No Windows, no UE4SS - which is
+                           what lets tests/markers_test.cpp link it
+src/markers.{hpp,cpp}      the runtime half: the game-thread class sweep, the merge
+                           with the static DB, the found tracker's file I/O
+src/json.hpp               the one JSON reader, shared by mapdata and markers
 src/uereflect.hpp          cached property offsets and UFunction calls
 src/navmesh_dump.{hpp,cpp} dtNavMesh discovery + tile walker + JSON writer
 src/mem.{hpp,cpp}          VirtualQuery + SEH guarded raw reads
@@ -106,6 +125,9 @@ tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
 tools/navmesh/build_map.py tile JSON -> composite + multi-surface height maps + maps/maps.json
 tools/navmesh/slice_preview.py the runtime's height-slicing rule, offline, for any (x, y, z)
 maps/                      the shipped map assets (deployed into the mod folder)
+markers/                   the static marker database (deployed into the mod folder);
+                           chapter1.sample.json documents the schema by hand
+tests/markers_test.cpp     offline tests - `xmake run markers_test markers`
 tools/lua-recon/           WuchangRecon Lua recon mod + its offline mock harness
 deploy/ue4ss/Mods/WuchangMinimap/
 ```
@@ -413,6 +435,23 @@ render thread never touches a UObject.
 Removed in the height-slicing rewrite: `floor_hysteresis` and `floor_fallback_hold_ms` - there is no
 band grid to be off any more, and the only smoothing left is `feet_z_smooth_ms`.
 
+The marker block:
+
+| key | default | meaning |
+|---|---|---|
+| `markers_enabled` | 1 | draw markers at all |
+| `markers_live` | 1 | run the game-thread class sweep (off = static positions, no state) |
+| `markers_rounds_per_sec` | 1 | complete sweeps of the class table per second (1..10) |
+| `markers_categories` | all but `enemy` | comma-separated category names, or `all` / `none`; the F2 checkboxes edit the same setting |
+| `markers_hide_found` | 0 | 0 = dim a found marker, 1 = hide it |
+| `markers_found_alpha` | 0.30 | how dim, as a multiple of `opacity` |
+| `markers_size` | 6.5 | glyph radius in minimap pixels |
+| `markers_clamp_to_edge` | 0 | keep out-of-range markers on the rim, drawn smaller |
+| `markers_max_draw` | 400 | hard cap per frame, nearest first (safety valve) |
+| `found_tracker` | 1 | write `wuchang_minimap_found.txt` |
+| `found_save_debounce_ms` | 2000 | how long after the last change the file is written |
+| `map_key` | `M` | full map (reserved - the map itself is a later step) |
+
 ### Why the minimap is (not) on screen
 
 `overlay.cpp`'s `set_hide_reason()` is the single choke point for visibility, and every show condition
@@ -421,14 +460,64 @@ F2 debug block prints the current reason as `hidden because: <reason>` (or `mini
 with how long that state has held, and every transition is written to `UE4SS.log` as
 `minimap HIDDEN: <reason> (previous state held N ms)`, rate-limited to one line per 2 s. When the reason
 is a menu, the block also names the in-viewport widget holding it open.
-**F2** opens the panel, **F5** reloads the file and the maps. Only F1-F5, F7 and F8 are accepted as
-hotkeys; F6 (RenoDX DLSS 5), F9/F11 (engine binds), F10 (game console) and F12 (Steam) are rejected in
-code.
+**F2** opens the panel, **M** is reserved for the full map (the bind exists and answers with one line;
+the map itself is a later step), **F5** reloads the config, the maps and the markers. Accepted hotkey
+names are F1-F5, F7, F8, any single letter or digit, and TAB; F6 (RenoDX DLSS 5), F9/F11 (engine binds),
+F10 (game console) and F12 (Steam) are rejected in code, not merely discouraged in a comment.
+
+## Markers
+
+Markers come from two halves that are merged by a **stable id**, and the id is the whole design:
+
+* the **static database**, `markers\<chapter>.json` (schema `wuchang-minimap-markers/1`), built offline
+  from the cooked levels by `tools/markers`, so a marker exists for an area you have never visited;
+* the **live sweep**, one `FindAllOf` per game-thread pump cycling through a table of marker classes,
+  which supplies the position and, more importantly, the *state* of every actor currently streamed in.
+
+The id is the game's own shrine id for shrines (`digong01` - `BP_RebornFire_C`'s CJK-named
+"sitting-Buddha point ID", the only property that distinguishes sibling shrines) and
+`<owning level short name>/<actor object name>` for everything else, because that object name is what
+`FindAllOf` hands back at runtime.
+
+State, all from the in-world recon (see the task workspace's `wuchang-classes.md`):
+
+| category | classes swept | "found" means |
+|---|---|---|
+| shrine | `BP_RebornFire_C` | *unknown* - no activation flag has been identified yet, so shrines are never auto-marked |
+| chest | `BP_treasurebox_C`, `BP_ItemRedBox_C` | `Used == true` (persisted under `SavedStatuKey = statu_use`) |
+| pickup | `BP_PickupActor_C` and subclasses (incl. `BP_DropItem_C`) | `dying == true` **or** the actor is parked at `(0,0,0)` |
+| door | `BP_NewPuzzlesDoor_C` (`DoorOpen`), `BP_DoorZhong_C` (`Used`) | the door is open |
+| fog gate | `BP_Wumen_C` | `Active == true` (inferred from `SavedStatuKey = status_active`; not yet observed passed) |
+| ladder / lift | `BP_LadderV2_C`, `BP_WoodenElevator_C` | never - they are navigation aids, not collectables |
+| enemy | pawns possessed by `Impl_BaseAIController_C` | n/a - **live only**, never written to the tracker |
+
+Absence from `FindAllOf` is deliberately **not** evidence of a collect: an unloaded level looks exactly
+the same. Only the state flags auto-mark.
+
+Cost control: the sweep does **one** object-array walk per pump and cycles through the class table, so
+a complete round is `markers_rounds_per_sec` per second with a per-pump peak of a single walk - never a
+nine-walk burst. Positions are read raw (`RootComponent` -> `RelativeLocation`), not through
+`K2_GetActorLocation`, because a `ProcessEvent` per actor for ~130 pickups plus ~95 enemies inside the
+engine's own call stack is not affordable.
+
+Glyphs are drawn with `ImDrawList` primitives - no image atlas, so there is no art to keep in sync with
+the category list, and each category gets a **shape as well as a colour** (a dimmed "found" marker keeps
+its shape long after it has lost its colour contrast). The F2 panel carries the category filter
+checkboxes and the per-chapter found/total counts; the same filter is the config file's
+`markers_categories` list.
+
+`wuchang_minimap_found.txt` (mod folder, next to the config) is the collection tracker: one stable id
+per line, sorted, comments allowed, rewritten from the loop thread `found_save_debounce_ms` after the
+last change. A deploy never touches it.
 
 ## Next steps
 
-- [ ] Markers: shrines, chests, pickups, fog gates, enemies, with auto-mark.
-- [ ] Full-screen pannable map, compass, waypoints, category filters.
+- [x] Markers: shrines, chests, pickups, doors, fog gates, ladders, lifts and enemies, drawn as
+      ImDrawList glyphs, with the live state sweep, the static `markers/<chapter>.json` database and the
+      auto-marking collection tracker. **Not yet verified in-game.**
+- [ ] `tools/markers`: the offline extraction that fills `markers/<chapter>.json` from the cooked
+      `.umap` cells (the runtime already loads it; only the hand-written sample exists so far).
+- [ ] Full-screen pannable map (the **M** bind is reserved and wired), compass, waypoints.
 - [x] Per-floor map selection from the player's Z. Round 2's surface-ordinal layers read as clutter
       in-world, so round 3 replaced them with a **multi-surface height map sliced on the CPU** into a
       small double-buffered dynamic texture (`|Z - feetZ| <= 200 uu` opaque with a height gradient,

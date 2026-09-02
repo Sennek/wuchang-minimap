@@ -18,6 +18,7 @@
 // everything else. Exit code 0 = all green.
 //
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -219,18 +220,74 @@ namespace
         CHECK(rep.added >= 5);
 
         int shrines = 0;
-        int enemies = 0;
         for (const mdb::StaticMarker& m : db)
         {
             CHECK(!m.id.empty());
             CHECK_EQ(m.chapter, 1);
             shrines += (m.cat == mdb::Cat::Shrine) ? 1 : 0;
-            enemies += (m.cat == mdb::Cat::Enemy) ? 1 : 0;
         }
         CHECK(shrines >= 1);
-        // Enemies are live-only by decision; a static file must never carry one.
-        CHECK_EQ(enemies, 0);
         std::printf("  %zu marker(s) parsed from %s\n", db.size(), path.c_str());
+    }
+
+    // The REAL database, once tools/markers has produced it. Skipped when it is not
+    // there yet, so this file is useful before and after that lands - and once it does,
+    // a regression in the extractor's output shows up here instead of in a play session.
+    void test_real_db(const std::string& markers_dir)
+    {
+        section("the generated chapter database");
+        const std::string path = markers_dir + "/chapter1.json";
+        std::string text;
+        if (!read_file(path, text))
+        {
+            std::printf("  SKIP  %s does not exist yet (tools/markers has not run)\n", path.c_str());
+            return;
+        }
+        std::vector<mdb::StaticMarker> db;
+        mdb::ParseReport rep{};
+        CHECK(mdb::parse_markers_json(text, db, rep));
+        CHECK_STR(rep.error, "");
+        CHECK_STR(rep.schema, "wuchang-minimap-markers/1");
+        CHECK_EQ(rep.chapter, 1);
+        CHECK_EQ(rep.skipped, 0);
+        // An unknown category name means the extractor and the runtime have drifted
+        // apart - those markers would still draw, but as anonymous grey dots.
+        CHECK_EQ(rep.unknown_cat, 0);
+        CHECK(rep.added > 100);
+
+        int per_cat[mdb::kCatCount]{};
+        std::vector<std::string> ids;
+        for (const mdb::StaticMarker& m : db)
+        {
+            CHECK(!m.id.empty());
+            per_cat[static_cast<int>(m.cat)] += 1;
+            ids.push_back(m.id);
+            // A shrine's id must be the game-authored one (`digong01`), not
+            // <level>/<object>: it is the only thing the live BP_RebornFire_C sweep can
+            // join on. Everything else must be <level>/<object>, which is what the live
+            // sweep builds from GetFullName().
+            if (m.cat == mdb::Cat::Shrine)
+            {
+                CHECK(m.id.find('/') == std::string::npos);
+            }
+            else
+            {
+                CHECK(m.id.find('/') != std::string::npos);
+            }
+        }
+        // Ids are the join key with the live actors, so a duplicate is a real defect:
+        // the second one could never be reached.
+        std::sort(ids.begin(), ids.end());
+        CHECK(std::adjacent_find(ids.begin(), ids.end()) == ids.end());
+
+        std::printf("  %zu marker(s) parsed from %s\n", db.size(), path.c_str());
+        for (int i = 0; i < mdb::kCatCount; ++i)
+        {
+            if (per_cat[i] != 0)
+            {
+                std::printf("    %-10s %d\n", mdb::cat_name(static_cast<mdb::Cat>(i)), per_cat[i]);
+            }
+        }
     }
 
     void test_categories()
@@ -373,7 +430,9 @@ int main(int argc, char** argv)
     std::printf("WuchangMinimap - offline marker tests\n\n");
 
     test_loader();
-    test_sample_file(argc > 1 ? argv[1] : "markers");
+    const std::string markers_dir = argc > 1 ? argv[1] : "markers";
+    test_sample_file(markers_dir);
+    test_real_db(markers_dir);
     test_categories();
     test_found_file();
     test_ids();

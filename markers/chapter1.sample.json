@@ -16,8 +16,11 @@
     "and the live actors.",
     "",
     "Categories: shrine, chest, pickup, boss, elite, enemy, npc, merchant, door,",
-    "ladder, lift, fog_gate, hidden, other. Enemies are LIVE ONLY and must never",
-    "appear in this file."
+    "ladder, lift, fog_gate, hidden, other. An `enemy` entry here is a SPAWN POINT,",
+    "not a live enemy: the runtime overwrites its position from the live pawn when",
+    "that pawn is streamed in, and enemies are never written to the collection",
+    "tracker. That is why the live sweep does not namespace enemy ids - the spawn",
+    "point and the live pawn must be one marker, not two."
   ],
   "markers": [
     {

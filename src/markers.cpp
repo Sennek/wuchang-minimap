@@ -623,13 +623,12 @@ namespace markers
                 {
                     continue;
                 }
-                if (s.cat == mdb::Cat::Enemy)
-                {
-                    // Enemies are never persisted and never merged with the static DB,
-                    // so they get a namespace of their own that cannot collide with a
-                    // real marker id.
-                    id.insert(0, "enemy/");
-                }
+                // NOTE: enemies are NOT namespaced. The offline extractor writes an
+                // enemy's spawn point into the static DB under the same
+                // <level>/<object name> id, and giving the live one a prefix of its own
+                // would draw the spawn point and the live pawn as two markers. What
+                // keeps enemies out of the collection tracker is `persist == false`,
+                // not the id.
 
                 if (e.found && e.persist)
                 {

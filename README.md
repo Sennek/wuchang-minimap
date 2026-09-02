@@ -489,7 +489,7 @@ State, all from the in-world recon (see the task workspace's `wuchang-classes.md
 | door | `BP_NewPuzzlesDoor_C` (`DoorOpen`), `BP_DoorZhong_C` (`Used`) | the door is open |
 | fog gate | `BP_Wumen_C` | `Active == true` (inferred from `SavedStatuKey = status_active`; not yet observed passed) |
 | ladder / lift | `BP_LadderV2_C`, `BP_WoodenElevator_C` | never - they are navigation aids, not collectables |
-| enemy | pawns possessed by `Impl_BaseAIController_C` | n/a - **live only**, never written to the tracker |
+| enemy | pawns possessed by `Impl_BaseAIController_C` | n/a - never written to the tracker. A static `enemy` entry is a **spawn point**; the live pawn overwrites its position under the same id, so the two are one marker |
 
 Absence from `FindAllOf` is deliberately **not** evidence of a collect: an unloaded level looks exactly
 the same. Only the state flags auto-mark.

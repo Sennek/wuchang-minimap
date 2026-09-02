@@ -9,7 +9,10 @@
 #include <string>
 #include <vector>
 
+#include "chapterid.hpp"
+#include "mapdata.hpp"
 #include "markers.hpp"
+#include "mem.hpp"
 #include "mmstate.hpp"
 #include "ue_min.hpp"
 #include "uereflect.hpp"
@@ -48,6 +51,13 @@ namespace gamestate
         constexpr std::uint64_t kTransitionCooldownMs = 2000;
 
         constexpr std::uint64_t kLogThrottleMs = 5000;
+
+        // How often the streamed level set is walked to name the chapter. A chapter can
+        // only change across a loading screen, so this is slow on purpose: it is ~50
+        // GetFullName() calls, and the answer is only consumed by an asset swap that
+        // itself takes seconds.
+        constexpr std::uint64_t kChapterPeriodMs = 1000;
+        constexpr int kMaxLevelsScanned = 4096;
 
         // The player's own pawn class, from the step-1 recon
         // (context/wuchang-classes.md). The controller is the fallback route.
@@ -124,6 +134,16 @@ namespace gamestate
         std::wstring g_pawn_class_name;
         std::wstring g_pawn_full_name;
         std::wstring g_pawn_short_name;
+
+        // Chapter detection (see chapterid.hpp for why it is the streamed level set and
+        // not the player's position).
+        std::uint64_t g_last_chapter = 0;
+        int g_chapter = chid::kNone;
+        int g_chapter_levels = 0;
+        // Which enumeration route worked, so one log line answers "how did it find the
+        // levels" instead of a debugging session: 0 = none yet, 1 = UWorld::Levels,
+        // 2 = UWorld::StreamingLevels -> ULevelStreaming::LoadedLevel, 3 = FindAllOf.
+        int g_chapter_route = 0;
 
         bool throttled(std::uint64_t& last, std::uint64_t now)
         {

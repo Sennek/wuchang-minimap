@@ -31,11 +31,32 @@
 // is the exact semantics the shader path would have given - without a custom PSO on
 // a ReShade-wrapped swapchain. See CURRENT.md for the full decision.
 //
+// ONE CHAPTER AT A TIME (added with chapters 2-5, 2026-09-02)
+// -----------------------------------------------------------
+// Five chapters ship and each costs 320-340 MB of RAM, so only ONE is ever resident.
+// `gamestate` names the chapter the player is in from the streamed `B<N>EX0_...` cell
+// packages (chapterid.hpp) and calls `set_detected_chapter()` from the game thread;
+// `on_update()` runs the swap on the loop thread. The swap is deliberately
+// RETIRE-THEN-LOAD, never load-then-retire, so the peak is one chapter and not two:
+//
+//   1. the outgoing chapter's `heights` pointer is cleared (readers see "no height
+//      maps" from the very next frame),
+//   2. the planes are freed only after `kRetireGraceMs` - a render thread that had
+//      already dereferenced the pointer finishes its ~4 ms slice a hundred times over
+//      inside that window,
+//   3. only then are the incoming chapter's planes decoded (~1-3 s of WIC).
+//
+// A chapter change happens at a loading screen, where the overlay is hidden anyway by
+// the transition cooldown, so the seconds with no map are not seconds the player sees.
+//
 // Threading: everything here runs on the UE4SS event-loop thread - parsing, file
-// reads and the WIC PNG decode. The height planes are then published as an immutable
-// shared_ptr the render thread reads directly (no per-frame copy), and the composite
-// is handed over as a decoded RGBA buffer through an atomic queue so Present never
-// blocks on the decode.
+// reads and the WIC PNG decode - except `set_detected_chapter()` (game thread, one
+// atomic store) and the two reader functions the render thread uses. The height planes
+// are published as a raw `const HeightMaps*` the render thread reads directly (no
+// per-frame copy and no shared_ptr refcount traffic in the frame path); the pointer is
+// a single aligned 8-byte slot, so a reader sees either the old planes or none, never
+// a torn value. The composite is handed over as a decoded RGBA buffer through an
+// atomic queue so Present never blocks on the decode.
 //
 
 #include <atomic>
@@ -44,12 +65,18 @@
 #include <string>
 #include <vector>
 
+#include "mapmanifest.hpp"
+
 namespace mapdata
 {
     // How many stacked walkable surfaces one pixel can carry. Must match
     // build_map.py's --max-surfaces (shipped: 8). Fewer planes than this in the
     // manifest is fine - `HeightMaps::count` is what the slicer reads.
-    constexpr int kMaxSurfaces = 8;
+    constexpr int kMaxSurfaces = mapmanifest::kMaxSurfaces;
+
+    // How long a retired chapter's height planes are kept alive after the pointer to
+    // them has been cleared. A slice is ~4 ms; this is three orders of magnitude more.
+    constexpr std::uint64_t kRetireGraceMs = 2000;
 
     //==================================================================================
     // The multi-surface height map
@@ -111,6 +138,10 @@ namespace mapdata
     {
         std::string key;   // "chapter1"
         std::string image; // "chapter1/small.png", relative to the maps dir
+        // The chapter NUMBER this asset is for (chid::kDlc for the DLC, chid::kNone
+        // when the manifest neither states it nor spells it in the key). This is what
+        // the runtime's chapter detection matches against.
+        int chapter = chid::kNone;
         int image_width = 0;
         int image_height = 0;
         double min_x = 0.0;
@@ -136,9 +167,12 @@ namespace mapdata
         // The height-plane PNG paths from maps.json, lowest surface first.
         std::vector<std::string> height_files;
 
-        // Immutable once published, so the render thread reads it every frame without
-        // copying anything.
-        std::shared_ptr<const HeightMaps> heights;
+        // The resident height planes, or nullptr when this chapter is not the active
+        // one. Owned by mapdata (see kRetireGraceMs); a raw pointer rather than a
+        // shared_ptr so the render thread's per-frame read is one aligned load with no
+        // refcount traffic, and so a chapter switch does not keep the old planes alive
+        // through a copy some reader happens to hold.
+        const HeightMaps* heights = nullptr;
 
         bool has_heights() const
         {
@@ -157,10 +191,23 @@ namespace mapdata
         std::vector<std::uint8_t> pixels; // width * height * channels, top-down
     };
 
-    // Loop thread: read maps.json, decode the first chapter's height planes (and its
-    // composite, if `mm::Config::fallback_use_composite` is on). Safe to call
-    // repeatedly; a second call re-reads everything (that is what F5 does).
+    // Loop thread: read maps.json and decode the DEFAULT chapter's height planes (the
+    // lowest chapter number in the manifest) plus its composite, if
+    // `mm::Config::fallback_use_composite` is on. Safe to call repeatedly; a second
+    // call re-reads everything (that is what F5 does).
     void load(const std::wstring& mod_dir);
+
+    // Loop thread: drives the retire/decode state machine. Call it every tick.
+    void on_update();
+
+    // GAME THREAD: the chapter the player is in, as a chapter NUMBER (chid::kDlc for
+    // the DLC, chid::kNone when it cannot be determined). One relaxed atomic store; all
+    // the work happens on the loop thread in on_update().
+    void set_detected_chapter(int chapter);
+    int detected_chapter();
+
+    // The chapter whose height planes are resident right now, or an empty string.
+    std::string active_chapter_key();
 
     // Render thread: take ownership of one decoded image, if any is ready.
     std::unique_ptr<PendingImage> take_pending();
@@ -171,9 +218,15 @@ namespace mapdata
     // Chapter whose world bounds contain (wx, wy) - empty key if none.
     Chapter chapter_for(double wx, double wy);
 
-    // Same, but a pointer into the published (and deliberately never freed) chapter
-    // list, so the render thread can read the height planes every frame without a
-    // copy. nullptr if nothing matches.
+    // THE MAP THE OVERLAY SHOULD DRAW at (wx, wy). A pointer into the published (and
+    // deliberately never freed) chapter list, so the render thread can read the height
+    // planes every frame without a copy. nullptr if nothing matches.
+    //
+    // Once a chapter is ACTIVE this answers with that chapter and no other, because
+    // the chapters' world bounds overlap (chapter 4 covers nearly all of chapter 1) and
+    // a bounds test would happily hand back the wrong map. Before anything is known -
+    // at the main menu, or if detection never lands - it falls back to the old
+    // "first chapter whose bounds contain the point" behaviour.
     const Chapter* chapter_ptr_for(double wx, double wy);
 
     bool loaded();

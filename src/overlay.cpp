@@ -56,11 +56,14 @@
 
 #include <MinHook.h>
 
+#include "compass.hpp"
 #include "gamepad.hpp"
+#include "highlight.hpp"
 #include "mapdata.hpp"
 #include "mapview.hpp"
 #include "markers.hpp"
 #include "mmstate.hpp"
+#include "projection.hpp"
 
 // imgui_impl_win32.h deliberately hides this behind `#if 0` so the header does not
 // depend on <windows.h>; the backend expects you to copy the declaration yourself.
@@ -1709,6 +1712,42 @@ namespace overlay
             return out;
         }
 
+        std::string wide_to_ascii(const std::wstring& wide)
+        {
+            std::string out;
+            out.reserve(wide.size());
+            for (const wchar_t c : wide)
+            {
+                out.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
+            }
+            return out;
+        }
+
+        // THE KEY HINTS. Built from the CONFIG, never from the defaults, so a rebound key
+        // is what the player is told - both in the F2 panel and along the bottom of the
+        // full map. One builder, so the two can never drift apart.
+        std::string bindings_hint(const mm::Config& cfg)
+        {
+            std::string s = std::format("{} panel   {} full map ({} recentres)   {} reload",
+                                        key_name_ascii(cfg.panel_key),
+                                        key_name_ascii(cfg.map_key),
+                                        key_name_ascii(cfg.map_recenter_key),
+                                        key_name_ascii(cfg.reload_key));
+            if (cfg.highlight_enabled)
+            {
+                s += std::format("   hold {} x-ray", key_name_ascii(cfg.highlight_key));
+                if (cfg.highlight_gamepad &&
+                    (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt))
+                {
+                    s += " (pad " +
+                         wide_to_ascii(mm::pad_chord_name(cfg.highlight_pad_mask, cfg.highlight_pad_lt,
+                                                          cfg.highlight_pad_rt)) +
+                         ")";
+                }
+            }
+            return s;
+        }
+
         //==============================================================================
         // Drawing: markers
         //==============================================================================
@@ -1999,68 +2038,85 @@ namespace overlay
             (void)side;
         }
 
-        void draw_minimap(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
+        //==============================================================================
+        // THE ONE HUD GATE
+        //==============================================================================
+        //
+        // "May anything of ours be on screen right now?" - the minimap, the compass and
+        // the x-ray highlight all ask exactly this, so it is evaluated exactly once, in
+        // one place, from live state only. It returns nullptr when everything of ours may
+        // draw, or the reason it may not, and the caller decides what to do with that:
+        // the minimap feeds it to set_hide_reason() (which owns the "hidden because"
+        // readout and the transition log lines), the compass and the highlight simply do
+        // not draw. Adding a second set of show/hide rules for the compass is exactly the
+        // shape of bug lessons.md warns about, so there isn't one.
+        //
+        // Nothing in here is remembered between frames. Every condition is recomputed
+        // from the snapshot the game thread published, which is what makes hiding
+        // immediate and makes "it got stuck hidden" impossible.
+        const wchar_t* hud_gate(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
+                                std::uint64_t now)
         {
-            g_last_mini = MiniDebug{};
-
             if (!have_state)
             {
-                set_hide_reason(L"no game-state snapshot yet");
-                return;
+                return L"no game-state snapshot yet";
             }
-            const std::uint64_t now = ::GetTickCount64();
             if (snap.stamp_ms == 0 || now - snap.stamp_ms > static_cast<std::uint64_t>(cfg.state_stale_ms))
             {
-                set_hide_reason(L"game state is stale (game thread not pumping)");
-                return;
+                return L"game state is stale (game thread not pumping)";
             }
             if (!snap.transition && !snap.has_pawn)
             {
-                set_hide_reason(L"no player pawn");
-                return;
+                return L"no player pawn";
             }
             if (snap.transition)
             {
-                set_hide_reason(L"level transition in progress (reader idling)");
-                return;
+                return L"level transition in progress (reader idling)";
             }
             // The class gate lives on the game thread; this is its render-side echo.
             if (!snap.pawn_is_gameplay)
             {
-                set_hide_reason(L"the pawn is not a gameplay pawn (Lobby / spectator)");
-                return;
+                return L"the pawn is not a gameplay pawn (Lobby / spectator)";
             }
             // A fresh gameplay pawn must have been valid for a while before anything is
             // drawn: without this the first snapshot after a load can flash the minimap.
             if (snap.state_ok_since_ms == 0)
             {
-                set_hide_reason(L"waiting for a valid gameplay state");
-                return;
+                return L"waiting for a valid gameplay state";
             }
             if (now - snap.state_ok_since_ms < static_cast<std::uint64_t>(cfg.min_visible_after_state_ok_ms))
             {
-                set_hide_reason(L"gameplay state is too fresh (grace period)");
-                return;
+                return L"gameplay state is too fresh (grace period)";
             }
-            // HIDING IS IMMEDIATE: the game thread now re-tests the cached in-viewport
-            // menu roots on every pump (10 Hz), so this is true within ~100 ms of the
+            // HIDING IS IMMEDIATE: the game thread re-tests the cached in-viewport menu
+            // roots on every pump (10 Hz), so this is true within ~100 ms of the
             // inventory opening.
             if (cfg.hide_in_menus && snap.menu_open)
             {
-                set_hide_reason(L"a menu is open");
-                return;
+                return L"a menu is open";
             }
             // Showing again waits only menu_close_show_delay_ms - a menu closing is not
             // a level transition, so it must not pay min_visible_after_state_ok_ms.
             if (cfg.hide_in_menus && snap.menu_change_ms != 0 &&
                 now - snap.menu_change_ms < static_cast<std::uint64_t>(cfg.menu_close_show_delay_ms))
             {
-                set_hide_reason(L"the menu just closed (short show delay)");
-                return;
+                return L"the menu just closed (short show delay)";
             }
             if (cfg.require_pawn_view && !snap.is_pawn_view)
             {
-                set_hide_reason(L"view target is not the pawn (menu / cutscene / Lobby)");
+                return L"view target is not the pawn (menu / cutscene / Lobby)";
+            }
+            return nullptr;
+        }
+
+        void draw_minimap(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
+        {
+            g_last_mini = MiniDebug{};
+
+            const std::uint64_t now = ::GetTickCount64();
+            if (const wchar_t* blocked = hud_gate(cfg, snap, have_state, now); blocked != nullptr)
+            {
+                set_hide_reason(blocked);
                 return;
             }
             const mapdata::Chapter* chapter_ptr = mapdata::chapter_ptr_for(snap.x, snap.y);
@@ -2231,6 +2287,436 @@ namespace overlay
             g_last_mini.v = uv.y;
             g_last_mini.chapter = chapter.key;
             g_last_mini.side = side;
+        }
+
+        //==============================================================================
+        // Drawing: the HOLD-KEY X-RAY HIGHLIGHT (master plan step 7, v1)
+        //==============================================================================
+        //
+        // While the highlight key (or the pad chord) is held, every marker of an enabled
+        // category within highlight_radius of the PLAYER is drawn at its projected screen
+        // position: category glyph, name, distance in metres, alpha fading with distance.
+        // It is "through walls" for free - the overlay is composited over the finished
+        // frame, so there is no occlusion test, no CustomDepth, no material, and nothing
+        // that can go wrong with the game's render state.
+        //
+        // WHAT IT NEEDS AND WHAT IT DOES WITHOUT
+        //   * the camera pose comes from hl::camera() (game thread, see highlight.cpp)
+        //     and is REQUIRED: no fresh pose, no highlight. Falling back to the pawn's
+        //     own position and yaw would put every label a spring-arm's length away from
+        //     the truth, which is worse than drawing nothing;
+        //   * the screen size comes from the ImGui viewport, which is the swapchain's -
+        //     the same rectangle UE built its projection matrix for;
+        //   * the radius test is against the player, the projection against the camera,
+        //     and the distance shown is the player's. That is what "30 m away" means to
+        //     someone deciding whether to walk over.
+
+        struct HighlightDebug
+        {
+            bool active = false;
+            bool have_camera = false;
+            int considered = 0;
+            int drawn = 0;
+            int on_screen = 0;
+            int edge = 0;
+            std::uint64_t cam_age_ms = 0;
+        };
+
+        HighlightDebug g_hl_debug{};
+
+        // A small outward-pointing triangle at `p`, aimed along (dx, dy) in screen space.
+        void add_edge_arrow(ImDrawList* dl, ImVec2 p, float dx, float dy, float r, ImU32 col, ImU32 edge)
+        {
+            const float len = std::sqrt(dx * dx + dy * dy);
+            if (len < 1e-4f)
+            {
+                return;
+            }
+            const float ux = dx / len;
+            const float uy = dy / len;
+            const ImVec2 tip{p.x + ux * r, p.y + uy * r};
+            const ImVec2 a{p.x - ux * r * 0.6f - uy * r * 0.75f, p.y - uy * r * 0.6f + ux * r * 0.75f};
+            const ImVec2 b{p.x - ux * r * 0.6f + uy * r * 0.75f, p.y - uy * r * 0.6f - ux * r * 0.75f};
+            dl->AddTriangleFilled(tip, a, b, col);
+            dl->AddTriangle(tip, a, b, edge, 1.2f);
+        }
+
+        void draw_label(ImDrawList* dl, ImVec2 at, const std::string& text, ImU32 col, int alpha)
+        {
+            if (text.empty())
+            {
+                return;
+            }
+            const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
+            const ImVec2 tp{at.x - ts.x * 0.5f, at.y};
+            dl->AddRectFilled(ImVec2{tp.x - 4.0f, tp.y - 1.0f}, ImVec2{tp.x + ts.x + 4.0f, tp.y + ts.y + 1.0f},
+                              IM_COL32(8, 10, 14, static_cast<int>(alpha * 0.62f)), 3.0f);
+            dl->AddText(tp, col, text.c_str());
+        }
+
+        void draw_highlight(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
+        {
+            g_hl_debug = HighlightDebug{};
+            if (!cfg.enabled || !cfg.highlight_enabled || !gate_ok)
+            {
+                return;
+            }
+            if (!hl::held())
+            {
+                return;
+            }
+            g_hl_debug.active = true;
+
+            hl::Pose pose{};
+            if (!hl::camera(pose))
+            {
+                return; // the reader has not produced a pose yet
+            }
+            const std::uint64_t now = ::GetTickCount64();
+            g_hl_debug.cam_age_ms = pose.stamp_ms == 0 ? 0 : now - pose.stamp_ms;
+            // A pose older than a few frames is a camera that has stopped being read (the
+            // game thread stalled, or the pawn went) - draw with it and the labels lag
+            // visibly behind the scene, which reads as a bug. 250 ms is ~15 frames.
+            if (pose.stamp_ms == 0 || g_hl_debug.cam_age_ms > 250)
+            {
+                return;
+            }
+            g_hl_debug.have_camera = true;
+
+            proj::Camera cam{};
+            cam.x = pose.x;
+            cam.y = pose.y;
+            cam.z = pose.z;
+            cam.pitch = pose.pitch;
+            cam.yaw = pose.yaw;
+            cam.roll = pose.roll;
+            cam.fov_deg = pose.fov;
+            if (!proj::camera_sane(cam))
+            {
+                return;
+            }
+
+            const ImGuiViewport* vp = ImGui::GetMainViewport();
+            const double screen_w = static_cast<double>(vp->Size.x);
+            const double screen_h = static_cast<double>(vp->Size.y);
+            if (!(screen_w > 1.0) || !(screen_h > 1.0))
+            {
+                return;
+            }
+
+            const markers::View v = markers::view();
+            if (v.data == nullptr || v.count == 0)
+            {
+                return;
+            }
+
+            struct Cand
+            {
+                double dist = 0.0; // from the player, uu
+                const markers::DrawMarker* m = nullptr;
+            };
+            static std::vector<Cand> cands; // render thread only, reused every frame
+            cands.clear();
+
+            const double radius = static_cast<double>(cfg.highlight_radius);
+            for (std::size_t i = 0; i < v.count; ++i)
+            {
+                const markers::DrawMarker& m = v.data[i];
+                if (static_cast<int>(m.cat) >= mdb::kCatCount ||
+                    !mdb::cat_enabled(cfg.highlight_categories, static_cast<mdb::Cat>(m.cat)))
+                {
+                    continue;
+                }
+                if (!cfg.highlight_show_found && (m.flags & markers::kFlagFound) != 0)
+                {
+                    continue; // the point of the feature is what is still UNcollected
+                }
+                const double dx = m.x - snap.x;
+                const double dy = m.y - snap.y;
+                const double dz = m.z - snap.z;
+                const double d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                if (d > radius)
+                {
+                    continue;
+                }
+                cands.push_back(Cand{d, &m});
+            }
+            g_hl_debug.considered = static_cast<int>(cands.size());
+
+            const std::size_t cap = static_cast<std::size_t>((std::max)(1, cfg.highlight_max_draw));
+            if (cands.size() > cap)
+            {
+                std::partial_sort(cands.begin(), cands.begin() + static_cast<std::ptrdiff_t>(cap), cands.end(),
+                                  [](const Cand& a, const Cand& b) { return a.dist < b.dist; });
+                cands.resize(cap);
+            }
+            // Far to near, so the nearest label ends up on top of the pile.
+            std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.dist > b.dist; });
+
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            const float r = cfg.highlight_size;
+            const float pad = r * 2.4f;
+
+            for (const Cand& cand : cands)
+            {
+                const markers::DrawMarker& m = *cand.m;
+                const proj::Result pr = proj::project(cam, m.x, m.y, m.z, screen_w, screen_h);
+                if (!pr.valid)
+                {
+                    continue;
+                }
+
+                // Fade with distance: fully lit at the camera, highlight_alpha_far at the
+                // radius. Linear - a squared falloff makes everything past half the radius
+                // look identical.
+                const double t = radius > 1.0 ? (cand.dist / radius) : 0.0;
+                const double a = static_cast<double>(cfg.highlight_alpha_near) +
+                                 (static_cast<double>(cfg.highlight_alpha_far) -
+                                  static_cast<double>(cfg.highlight_alpha_near)) *
+                                     (t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t));
+                const int alpha = static_cast<int>((std::min)(1.0, (std::max)(0.0, a)) * 255.0 + 0.5);
+                if (alpha <= 4)
+                {
+                    continue;
+                }
+                const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
+                const ImU32 col = marker_color(cat, alpha);
+                const ImU32 edge = IM_COL32(10, 12, 16, static_cast<int>(alpha * 0.9f));
+                const bool found = (m.flags & markers::kFlagFound) != 0;
+
+                if (pr.on_screen && !pr.behind)
+                {
+                    const ImVec2 p{vp->Pos.x + static_cast<float>(pr.sx), vp->Pos.y + static_cast<float>(pr.sy)};
+                    draw_marker_glyph(dl, cat, p, found ? r * 0.75f : r, col, edge);
+                    if (cfg.highlight_labels)
+                    {
+                        const char* name = m.label[0] != '\0' ? m.label : mdb::cat_label(cat);
+                        const double metres = cand.dist / 100.0;
+                        const std::string text = std::format("{}  {:.0f} m{}", name, metres, found ? "  (found)" : "");
+                        draw_label(dl, ImVec2{p.x, p.y + r + 3.0f}, text, col, alpha);
+                    }
+                    ++g_hl_debug.on_screen;
+                    ++g_hl_debug.drawn;
+                    continue;
+                }
+
+                if (!cfg.highlight_edge_arrows)
+                {
+                    continue;
+                }
+                // Off screen (or behind): put an arrow on the rim pointing the way to
+                // turn. proj::project() already handed us a direction rather than a
+                // mirrored position, so this is just a projection onto the border box.
+                double nx = pr.ndc_x;
+                double ny = pr.ndc_y;
+                const double mag = (std::max)(std::fabs(nx), std::fabs(ny));
+                if (mag < 1e-6)
+                {
+                    continue;
+                }
+                nx /= mag;
+                ny /= mag;
+                float sx = static_cast<float>((nx * 0.5 + 0.5) * screen_w);
+                float sy = static_cast<float>((0.5 - ny * 0.5) * screen_h);
+                sx = (std::max)(pad, (std::min)(static_cast<float>(screen_w) - pad, sx));
+                sy = (std::max)(pad, (std::min)(static_cast<float>(screen_h) - pad, sy));
+                const ImVec2 p{vp->Pos.x + sx, vp->Pos.y + sy};
+                const int dim = static_cast<int>(alpha * 0.8f);
+                add_edge_arrow(dl, p, static_cast<float>(nx), static_cast<float>(-ny), r * 1.15f,
+                               marker_color(cat, dim), IM_COL32(10, 12, 16, dim));
+                ++g_hl_debug.edge;
+                ++g_hl_debug.drawn;
+            }
+        }
+
+        //==============================================================================
+        // Drawing: the COMPASS STRIP
+        //==============================================================================
+        //
+        // A heading strip across the top of the screen. The arithmetic (wrap, bearing,
+        // strip position, tick layout) is in src/compass.cpp, where markers_test can
+        // reach it; this is the drawing and nothing else.
+        //
+        // The heading is the CAMERA's yaw when a fresh pose exists, because that is what
+        // the player is looking along, and the pawn's yaw otherwise - so the compass
+        // still works with highlight_enabled = 0 and during the camera reader's warm-up.
+        // Which one is in use is printed in the F2 debug block.
+
+        struct CompassDebug
+        {
+            bool visible = false;
+            bool from_camera = false;
+            double heading = 0.0;
+            int pips = 0;
+        };
+
+        CompassDebug g_compass_debug{};
+
+        void draw_compass(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
+        {
+            g_compass_debug = CompassDebug{};
+            if (!cfg.enabled || !cfg.compass_enabled || !gate_ok)
+            {
+                return;
+            }
+
+            const std::uint64_t now = ::GetTickCount64();
+            double heading = static_cast<double>(snap.yaw);
+            bool from_camera = false;
+            hl::Pose pose{};
+            if (hl::camera(pose) && pose.stamp_ms != 0 && now - pose.stamp_ms <= 1000)
+            {
+                heading = pose.yaw;
+                from_camera = true;
+            }
+            g_compass_debug.heading = cmp::wrap360(heading);
+            g_compass_debug.from_camera = from_camera;
+
+            const ImGuiViewport* vp = ImGui::GetMainViewport();
+            const float screen_w = vp->Size.x;
+            const float width = (std::max)(120.0f, cfg.compass_width * screen_w);
+            const float height = cfg.compass_height;
+            const float x0 = vp->Pos.x + (screen_w - width) * 0.5f;
+            const float y0 = vp->Pos.y + cfg.compass_offset_y;
+            const float y1 = y0 + height;
+
+            const float op = cfg.compass_opacity;
+            const auto alpha = [op](float a) { return static_cast<int>((std::min)(1.0f, op * a) * 255.0f + 0.5f); };
+
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            dl->AddRectFilled(ImVec2{x0, y0}, ImVec2{x0 + width, y1}, IM_COL32(6, 9, 13, alpha(0.72f)), 4.0f);
+            dl->AddRect(ImVec2{x0, y0}, ImVec2{x0 + width, y1}, IM_COL32(150, 158, 168, alpha(0.55f)), 4.0f, 0,
+                        1.2f);
+
+            cmp::Strip strip{};
+            strip.x0 = static_cast<double>(x0);
+            strip.width = static_cast<double>(width);
+            strip.heading = heading;
+            strip.span = static_cast<double>(cfg.compass_span_deg);
+
+            // Ticks. A cardinal gets the full height and its letter, an intercardinal a
+            // shorter line and its two-letter label, everything else a stub.
+            cmp::Tick ticks[128]{};
+            const int n = cmp::ticks(strip, ticks, static_cast<int>(std::size(ticks)), 15.0);
+            for (int i = 0; i < n; ++i)
+            {
+                const cmp::Tick& t = ticks[i];
+                const float x = static_cast<float>(t.x);
+                const float len = t.rank == 2 ? height * 0.5f : (t.rank == 1 ? height * 0.34f : height * 0.22f);
+                const int a = t.rank == 2 ? alpha(0.95f) : (t.rank == 1 ? alpha(0.75f) : alpha(0.45f));
+                dl->AddLine(ImVec2{x, y1 - len}, ImVec2{x, y1 - 2.0f}, IM_COL32(226, 230, 236, a),
+                            t.rank == 2 ? 2.0f : 1.2f);
+                if (t.label[0] != '\0')
+                {
+                    const ImVec2 ts = ImGui::CalcTextSize(t.label);
+                    dl->AddText(ImVec2{x - ts.x * 0.5f, y0 + 1.0f},
+                                IM_COL32(240, 242, 246, t.rank == 2 ? alpha(1.0f) : alpha(0.8f)), t.label);
+                }
+            }
+
+            // The centre reticle: what the player is actually facing.
+            {
+                const float cx = x0 + width * 0.5f;
+                dl->AddTriangleFilled(ImVec2{cx, y1 - 1.0f}, ImVec2{cx - 5.0f, y1 + 7.0f},
+                                      ImVec2{cx + 5.0f, y1 + 7.0f}, IM_COL32(255, 236, 180, alpha(0.95f)));
+            }
+
+            if (!snap.has_pawn)
+            {
+                g_compass_debug.visible = true;
+                return;
+            }
+
+            // Marker pips. Nearest first so the cap keeps what matters, and only inside
+            // the strip's span - an off-strip pip clamped to the edge would pile up into
+            // a solid block at both ends.
+            const markers::View v = markers::view();
+            if (v.data != nullptr && v.count != 0)
+            {
+                struct Pip
+                {
+                    double dist = 0.0;
+                    double bearing = 0.0;
+                    std::uint8_t cat = 0;
+                    bool found = false;
+                };
+                static std::vector<Pip> pips; // render thread only
+                pips.clear();
+                const double max_d = static_cast<double>(cfg.compass_marker_distance);
+                for (std::size_t i = 0; i < v.count; ++i)
+                {
+                    const markers::DrawMarker& m = v.data[i];
+                    if (static_cast<int>(m.cat) >= mdb::kCatCount ||
+                        !mdb::cat_enabled(cfg.compass_categories, static_cast<mdb::Cat>(m.cat)))
+                    {
+                        continue;
+                    }
+                    const double dx = m.x - snap.x;
+                    const double dy = m.y - snap.y;
+                    const double d = std::sqrt(dx * dx + dy * dy);
+                    if (d > max_d)
+                    {
+                        continue;
+                    }
+                    Pip p{};
+                    p.dist = d;
+                    p.bearing = cmp::bearing_deg(snap.x, snap.y, m.x, m.y);
+                    p.cat = m.cat;
+                    p.found = (m.flags & markers::kFlagFound) != 0;
+                    pips.push_back(p);
+                }
+                constexpr std::size_t kMaxPips = 32;
+                if (pips.size() > kMaxPips)
+                {
+                    std::partial_sort(pips.begin(), pips.begin() + kMaxPips, pips.end(),
+                                      [](const Pip& a, const Pip& b) { return a.dist < b.dist; });
+                    pips.resize(kMaxPips);
+                }
+                std::sort(pips.begin(), pips.end(), [](const Pip& a, const Pip& b) { return a.dist > b.dist; });
+                for (const Pip& p : pips)
+                {
+                    double x = 0.0;
+                    double rel = 0.0;
+                    if (!cmp::strip_x(strip, p.bearing, x, rel))
+                    {
+                        continue;
+                    }
+                    const int a = p.found ? alpha(0.35f) : alpha(1.0f);
+                    const ImU32 col = marker_color(static_cast<mdb::Cat>(p.cat), a);
+                    const ImVec2 at{static_cast<float>(x), y1 - height * 0.30f};
+                    draw_marker_glyph(dl, static_cast<mdb::Cat>(p.cat), at, height * 0.22f, col,
+                                      IM_COL32(10, 12, 16, a));
+                    ++g_compass_debug.pips;
+                }
+            }
+
+            // The waypoint is never culled: being told which way to walk while it is off
+            // the strip is the whole point, so it clamps to the edge instead.
+            const mv::Waypoint wp = mm::waypoint();
+            if (cfg.compass_show_waypoint && wp.set)
+            {
+                double x = 0.0;
+                double rel = 0.0;
+                const bool inside = cmp::strip_x(strip, cmp::bearing_deg(snap.x, snap.y, wp.x, wp.y), x, rel);
+                const float wx = static_cast<float>(x);
+                const ImVec2 at{wx, y1 - height * 0.30f};
+                draw_waypoint_glyph(dl, at, height * 0.24f, alpha(1.0f));
+                if (!inside)
+                {
+                    add_edge_arrow(dl, ImVec2{wx + (rel < 0.0 ? -8.0f : 8.0f), at.y}, rel < 0.0 ? -1.0f : 1.0f,
+                                   0.0f, 5.0f, IM_COL32(255, 190, 235, alpha(0.9f)),
+                                   IM_COL32(10, 12, 16, alpha(0.9f)));
+                }
+                const double dxw = wp.x - snap.x;
+                const double dyw = wp.y - snap.y;
+                const double metres = std::sqrt(dxw * dxw + dyw * dyw) / 100.0;
+                const std::string text =
+                    metres >= 1000.0 ? std::format("{:.1f} km", metres / 1000.0) : std::format("{:.0f} m", metres);
+                draw_label(dl, ImVec2{wx, y1 + 9.0f}, text, IM_COL32(255, 190, 235, alpha(1.0f)), alpha(1.0f));
+                ++g_compass_debug.pips;
+            }
+
+            g_compass_debug.visible = true;
         }
 
         //==============================================================================
@@ -3007,6 +3493,9 @@ namespace overlay
                                     key_name_ascii(cfg.map_recenter_key).c_str(),
                                     key_name_ascii(cfg.map_key).c_str());
             }
+            // The same key hints the F2 panel shows, from the same builder and the same
+            // config - so the map's footer cannot go stale when a key is rebound.
+            ImGui::TextDisabled("%s", bindings_hint(cfg).c_str());
             ImGui::TextDisabled("%d of %d marker(s)   cut %dx%d @ %.2f ms%s", g_map_markers_drawn,
                                 g_map_markers_total, g_mslice[0].w, g_mslice[0].h, g_mslice_ms,
                                 cfg.map_gamepad && gp.connected
@@ -3310,6 +3799,150 @@ namespace overlay
                 }
             }
 
+            //--------------------------------------------------------------------------
+            // The hold-key x-ray highlight
+            //--------------------------------------------------------------------------
+            if (ImGui::CollapsingHeader("X-ray highlight (hold a key)"))
+            {
+                std::string hold = key_name_ascii(cfg.highlight_key);
+                if (cfg.highlight_gamepad)
+                {
+                    hold += " or pad " + wide_to_ascii(mm::pad_chord_name(cfg.highlight_pad_mask,
+                                                                         cfg.highlight_pad_lt,
+                                                                         cfg.highlight_pad_rt));
+                }
+                ImGui::TextWrapped("HOLD %s in-world: every uncollected marker of the categories below, "
+                                   "within the radius, is drawn through walls at its position on screen.",
+                                   hold.c_str());
+                ImGui::Checkbox("Enabled", &cfg.highlight_enabled);
+                ImGui::SameLine();
+                ImGui::Checkbox("Gamepad chord", &cfg.highlight_gamepad);
+                ImGui::SliderFloat("Radius (uu)", &cfg.highlight_radius, 200.0f, 20000.0f, "%.0f");
+                ImGui::SameLine();
+                ImGui::TextDisabled("= %.0f m", static_cast<double>(cfg.highlight_radius) / 100.0);
+                ImGui::Checkbox("Names + distance", &cfg.highlight_labels);
+                ImGui::SameLine();
+                ImGui::Checkbox("Edge arrows (off screen / behind)", &cfg.highlight_edge_arrows);
+                ImGui::SameLine();
+                ImGui::Checkbox("Include found", &cfg.highlight_show_found);
+                ImGui::SliderFloat("Glyph size (px)", &cfg.highlight_size, 2.0f, 24.0f, "%.1f");
+                ImGui::SliderFloat("Alpha at the camera", &cfg.highlight_alpha_near, 0.1f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Alpha at the radius", &cfg.highlight_alpha_far, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderInt("Max drawn (nearest first)", &cfg.highlight_max_draw, 1, 400);
+                ImGui::SliderInt("Camera read rate (Hz)", &cfg.highlight_camera_hz, 5, 240);
+
+                // The category filter: the same names the config file uses.
+                std::uint32_t hcats = cfg.highlight_categories;
+                for (int i = 0; i < mdb::kCatCount; ++i)
+                {
+                    const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                    bool on = mdb::cat_enabled(hcats, cat);
+                    if (i % 4 != 0)
+                    {
+                        ImGui::SameLine();
+                    }
+                    ImGui::PushID(i + 200);
+                    if (ImGui::Checkbox(mdb::cat_name(cat), &on))
+                    {
+                        hcats = on ? (hcats | mdb::cat_bit(cat)) : (hcats & ~mdb::cat_bit(cat));
+                    }
+                    ImGui::PopID();
+                }
+                cfg.highlight_categories = hcats;
+
+                // WHERE THE CAMERA COMES FROM. This is the block to screenshot if the
+                // labels are in the wrong place: it names the route, the pinned offset
+                // and how old the pose is.
+                const hl::Stats hs = hl::stats();
+                const char* route = "none yet";
+                switch (hs.route)
+                {
+                case hl::Route::RawPinned:
+                    route = "raw POV read (offset calibrated against the getters)";
+                    break;
+                case hl::Route::RawSane:
+                    route = "raw POV read (offset accepted on sanity ranges only)";
+                    break;
+                case hl::Route::Getters:
+                    route = "GetCameraLocation / GetCameraRotation / GetFOVAngle per read";
+                    break;
+                case hl::Route::None:
+                default:
+                    break;
+                }
+                ImGui::Text("camera: %s", route);
+                ImGui::Text("manager %s   CameraCachePrivate +%d   POV +%d   %llu read(s), %llu rejected",
+                            hs.have_manager ? "yes" : "NO",
+                            hs.cache_offset,
+                            hs.pov_offset,
+                            static_cast<unsigned long long>(hs.reads),
+                            static_cast<unsigned long long>(hs.fails));
+                hl::Pose pose{};
+                if (hl::camera(pose))
+                {
+                    ImGui::Text("pose  X %.0f  Y %.0f  Z %.0f   pitch %.1f  yaw %.1f  roll %.1f   FOV %.1f   "
+                                "%llu ms old",
+                                pose.x,
+                                pose.y,
+                                pose.z,
+                                pose.pitch,
+                                pose.yaw,
+                                pose.roll,
+                                pose.fov,
+                                static_cast<unsigned long long>(
+                                    pose.stamp_ms == 0 ? 0 : ::GetTickCount64() - pose.stamp_ms));
+                }
+                else
+                {
+                    ImGui::TextDisabled("no camera pose published yet (hold the key in-world)");
+                }
+                ImGui::Text("held %s   %d of %d in range drawn (%d on screen, %d on the rim)",
+                            g_hl_debug.active ? "YES" : "no",
+                            g_hl_debug.drawn,
+                            g_hl_debug.considered,
+                            g_hl_debug.on_screen,
+                            g_hl_debug.edge);
+            }
+
+            //--------------------------------------------------------------------------
+            // The compass strip
+            //--------------------------------------------------------------------------
+            if (ImGui::CollapsingHeader("Compass"))
+            {
+                ImGui::Checkbox("Enabled", &cfg.compass_enabled);
+                ImGui::SameLine();
+                ImGui::Checkbox("Show the waypoint bearing", &cfg.compass_show_waypoint);
+                ImGui::SliderFloat("Width (fraction of the screen)", &cfg.compass_width, 0.1f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Distance from the top (px)", &cfg.compass_offset_y, 0.0f, 400.0f, "%.0f");
+                ImGui::SliderFloat("Height (px)", &cfg.compass_height, 10.0f, 120.0f, "%.0f");
+                ImGui::SliderFloat("Degrees across the strip", &cfg.compass_span_deg, 30.0f, 360.0f, "%.0f");
+                ImGui::SliderFloat("Opacity", &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Marker bearing range (uu)", &cfg.compass_marker_distance, 500.0f, 60000.0f,
+                                   "%.0f");
+                std::uint32_t ccats = cfg.compass_categories;
+                for (int i = 0; i < mdb::kCatCount; ++i)
+                {
+                    const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                    bool on = mdb::cat_enabled(ccats, cat);
+                    if (i % 4 != 0)
+                    {
+                        ImGui::SameLine();
+                    }
+                    ImGui::PushID(i + 100);
+                    if (ImGui::Checkbox(mdb::cat_name(cat), &on))
+                    {
+                        ccats = on ? (ccats | mdb::cat_bit(cat)) : (ccats & ~mdb::cat_bit(cat));
+                    }
+                    ImGui::PopID();
+                }
+                cfg.compass_categories = ccats;
+                ImGui::Text("%s   heading %.1f deg from the %s   %d bearing pip(s)",
+                            g_compass_debug.visible ? "visible" : "hidden (same gate as the minimap)",
+                            g_compass_debug.heading,
+                            g_compass_debug.from_camera ? "camera" : "pawn",
+                            g_compass_debug.pips);
+            }
+
             if (ImGui::Button("Save settings"))
             {
                 mm::g_save_config = true;
@@ -3319,15 +3952,10 @@ namespace overlay
             {
                 mm::g_reload_config = true;
             }
-            ImGui::SameLine();
-            {
-                const std::string hint = std::format("{} panel  |  {} full map ({} recentres)  |  {} reload",
-                                                     key_name_ascii(cfg.panel_key),
-                                                     key_name_ascii(cfg.map_key),
-                                                     key_name_ascii(cfg.map_recenter_key),
-                                                     key_name_ascii(cfg.reload_key));
-                ImGui::TextDisabled("%s", hint.c_str());
-            }
+            ImGui::Spacing();
+            // The key hints, read from the config so they stay truthful after a rebind.
+            ImGui::SeparatorText("Keys");
+            ImGui::TextWrapped("%s", bindings_hint(cfg).c_str());
 
             if (cfg.debug_readout)
             {
@@ -3494,6 +4122,15 @@ namespace overlay
             {
                 draw_minimap(cfg, snap, have);
             }
+
+            // The compass and the x-ray highlight ask the SAME gate the minimap does -
+            // one evaluation, no second set of rules, no second latch - and additionally
+            // stand down while the full map is open, because the map is a mode of its own
+            // (it swallows the input and covers the scene they would be drawn over).
+            const bool gate_ok = hud_gate(cfg, snap, have, ::GetTickCount64()) == nullptr;
+            const bool hud_ok = gate_ok && !mm::g_map_open.load(std::memory_order_relaxed);
+            draw_compass(cfg, snap, hud_ok);
+            draw_highlight(cfg, snap, hud_ok);
         }
 
         bool ensure_initialised(IDXGISwapChain* swapchain)
@@ -4068,11 +4705,16 @@ namespace overlay
             mm::log(L"debug_show_panel_on_start = 1: the F2 panel starts open (turn it off for normal play)");
         }
         mm::logf(L"hotkeys: {} settings panel, {} full map ({} recentres it), {} reload "
-                 L"config + maps + markers",
+                 L"config + maps + markers, HOLD {} (pad {}) for the x-ray highlight [{}]; "
+                 L"compass {}",
                  mm::key_name(cfg.panel_key),
                  mm::key_name(cfg.map_key),
                  mm::key_name(cfg.map_recenter_key),
-                 mm::key_name(cfg.reload_key));
+                 mm::key_name(cfg.reload_key),
+                 mm::key_name(cfg.highlight_key),
+                 mm::pad_chord_name(cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt),
+                 cfg.highlight_enabled ? L"on" : L"off",
+                 cfg.compass_enabled ? L"on" : L"off");
         mm::drain_log();
     }
 
@@ -4137,8 +4779,29 @@ namespace overlay
 
         // XInput, on THIS thread - the same place the keyboard is sampled, and never on
         // the game thread (lessons.md). Polling a disconnected pad is expensive, so it
-        // only runs while the map is actually open.
-        pad::poll(cfg.map_gamepad && mm::g_map_open.load(), cfg.map_gamepad_deadzone);
+        // only runs while something wants it: the full map, or the highlight's chord.
+        const bool want_pad = (cfg.map_gamepad && mm::g_map_open.load()) ||
+                              (cfg.highlight_enabled && cfg.highlight_gamepad &&
+                               (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt));
+        pad::poll(want_pad, cfg.map_gamepad_deadzone);
+
+        // THE X-RAY HIGHLIGHT'S HOLD KEY. A hold, not a toggle - so it is sampled as a
+        // level, never edge-detected, and it needs no debounce and no "close it again"
+        // path. The window must be in the foreground, or alt-tabbing away with the key
+        // down would leave the game thread reading the camera forever.
+        bool held = foreground && cfg.highlight_enabled &&
+                    (::GetAsyncKeyState(cfg.highlight_key) & 0x8000) != 0;
+        if (!held && foreground && cfg.highlight_enabled && cfg.highlight_gamepad)
+        {
+            const pad::State gp = pad::state();
+            const bool chord = (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt) &&
+                               (gp.held & cfg.highlight_pad_mask) == cfg.highlight_pad_mask &&
+                               (!cfg.highlight_pad_lt || gp.lt > 0.5f) && (!cfg.highlight_pad_rt || gp.rt > 0.5f);
+            held = gp.connected && chord;
+        }
+        // This is what makes the game thread read the camera at all: with neither the
+        // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.
+        hl::set_demand(held, cfg.enabled && cfg.compass_enabled);
 
         // The waypoint is set on the render thread and written here, because the loop
         // thread is the only one allowed to touch a file.

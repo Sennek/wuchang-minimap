@@ -9,17 +9,17 @@
 #include <cstring>
 #include <format>
 
-#include "json.hpp"
+#include "mapmanifest.hpp"
 #include "mmstate.hpp"
 
 namespace mapdata
 {
     namespace
     {
-        // The JSON reader lives in json.hpp: markers.cpp parses its own manifest with
-        // the same parser, and the offline test target links it without UE4SS.
-        using mjson::JParser;
-        using mjson::JValue;
+        // The manifest parse itself lives in mapmanifest.hpp - pure, header-only and
+        // exercised by tests/markers_test.cpp on the build machine. Everything left in
+        // this file is what genuinely needs Windows: the file read, the WIC decode and
+        // the residency state machine.
 
         //==============================================================================
         // State
@@ -223,174 +223,77 @@ namespace mapdata
         {
             return std::wstring{narrow.begin(), narrow.end()};
         }
-    } // namespace
 
-    void load(const std::wstring& mod_dir)
-    {
-        const std::wstring maps_dir = mod_dir + L"\\maps";
-        const std::wstring manifest = maps_dir + L"\\maps.json";
+        //==============================================================================
+        // ONE CHAPTER AT A TIME
+        //==============================================================================
+        //
+        // All of this is loop-thread state except the two atomics. The published
+        // chapter list is never freed (see publish_chapters), so a render thread that
+        // is holding a `const Chapter*` keeps a valid object across a reload; what it
+        // may find inside it is a null `heights`, which every caller already tests for.
 
-        std::string text;
-        if (!read_whole_file(manifest, text))
+        // Parsed manifest, kept in step (index for index) with the published chapter
+        // vector. It carries the per-chapter z_min / z_max and file list that decoding
+        // needs, so `Chapter` does not have to grow fields the render side never reads.
+        mapmanifest::Manifest g_manifest{};
+        std::wstring g_maps_dir;
+
+        // The published vector, non-const, for the one thread allowed to mutate the
+        // `heights` pointers.
+        std::vector<Chapter>* g_chapters_mut = nullptr;
+
+        // Index of the resident chapter, published for chapter_ptr_for(). -1 = none.
+        std::atomic<int> g_active{-1};
+
+        // Written by the game thread (gamestate), read by the loop thread.
+        std::atomic<int> g_detected{chid::kNone};
+
+        int g_pending_chapter = -1;          // index whose planes still have to be decoded
+        int g_last_logged = chid::kNone - 1; // so the first detection always logs
+
+        // Planes whose pointer has been cleared but which may still be under a render
+        // thread's eyes. Freed once kRetireGraceMs has passed - and always BEFORE the
+        // incoming chapter is decoded, so the peak is one chapter, not two.
+        HeightMaps* g_retired = nullptr;
+        std::uint64_t g_retire_at = 0;
+
+        std::wstring png_path(const std::string& rel)
         {
-            mm::logf(L"maps: {} not found - the overlay will run with no map background. Build it with "
-                     L"tools/navmesh/build_map.py and re-run deploy.ps1.",
-                     manifest);
-            return;
+            std::wstring path = g_maps_dir + L"\\" + widen(rel);
+            std::replace(path.begin(), path.end(), L'/', L'\\');
+            return path;
         }
 
-        JValue root{};
-        if (!JParser{text}.parse(root) || root.kind != JValue::Kind::Object)
+        // Decodes one chapter's 16-bit height planes. Returns nullptr when nothing
+        // usable came back; it logs why.
+        HeightMaps* decode_heights(const Chapter& ch, const mapmanifest::Entry& e)
         {
-            mm::logf(L"maps: {} is not valid JSON", manifest);
-            return;
-        }
-
-        const JValue* chapters = root.find("chapters");
-        if (chapters == nullptr || chapters->kind != JValue::Kind::Object || !chapters->obj)
-        {
-            mm::logf(L"maps: {} has no \"chapters\" object", manifest);
-            return;
-        }
-
-        const bool want_composite = mm::config().fallback_use_composite;
-
-        std::vector<Chapter> parsed;
-        for (const auto& kv : *chapters->obj)
-        {
-            const JValue& c = kv.second;
-            Chapter ch{};
-            ch.key = kv.first;
-            const JValue* image = c.find("image");
-            ch.image = image != nullptr ? image->string_or("") : "";
-            const auto n = [&c](const char* key, double fallback) {
-                const JValue* v = c.find(key);
-                return v != nullptr ? v->number_or(fallback) : fallback;
-            };
-            ch.image_width = static_cast<int>(n("image_width", 0.0));
-            ch.image_height = static_cast<int>(n("image_height", 0.0));
-            ch.min_x = n("min_x", 0.0);
-            ch.min_y = n("min_y", 0.0);
-            ch.max_x = n("max_x", 0.0);
-            ch.max_y = n("max_y", 0.0);
-            ch.px_per_uu = n("px_per_uu", 0.0);
-
-            if (ch.image.empty() || ch.image_width <= 0 || ch.image_height <= 0 || ch.px_per_uu <= 0.0 ||
-                ch.max_x <= ch.min_x || ch.max_y <= ch.min_y)
-            {
-                mm::logf(L"maps: chapter \"{}\" is incomplete - skipped", widen(ch.key));
-                continue;
-            }
-
-            // ---- the multi-surface height map (schema wuchang-minimap-maps/3) ----
-            //
-            // `height_maps` is an array of PNG paths, lowest surface first. Everything
-            // else about them is the chapter's own bounds / px_per_uu, so there is one
-            // mapping for the whole asset - no per-layer crops and no per-layer scales
-            // any more.
-            auto hm = std::make_shared<HeightMaps>();
+            auto hm = std::make_unique<HeightMaps>();
             hm->min_x = ch.min_x;
             hm->min_y = ch.min_y;
             hm->max_x = ch.max_x;
             hm->max_y = ch.max_y;
-            hm->px_per_uu = n("px_per_uu", 0.0);
-            hm->z_min = static_cast<float>(n("z_min", 0.0));
-            hm->z_max = static_cast<float>(n("z_max", 0.0));
-            const int declared = static_cast<int>(n("max_surfaces", static_cast<double>(kMaxSurfaces)));
+            hm->px_per_uu = ch.px_per_uu;
+            hm->z_min = static_cast<float>(e.z_min);
+            hm->z_max = static_cast<float>(e.z_max);
 
-            std::vector<std::string> height_files;
-            const JValue* jh = c.find("height_maps");
-            if (jh != nullptr && jh->kind == JValue::Kind::Array && jh->arr)
+            if (hm->z_max <= hm->z_min)
             {
-                for (const JValue& e : *jh->arr)
-                {
-                    // Either a bare filename or {"image": "..."}; accept both so a
-                    // manifest tweak cannot silently produce a mapless overlay.
-                    std::string rel = e.string_or("");
-                    if (rel.empty())
-                    {
-                        const JValue* img2 = e.find("image");
-                        rel = img2 != nullptr ? img2->string_or("") : "";
-                    }
-                    if (!rel.empty() && height_files.size() < static_cast<std::size_t>(kMaxSurfaces))
-                    {
-                        height_files.push_back(rel);
-                    }
-                }
-            }
-            if (height_files.empty())
-            {
-                // Fallback for a manifest written before the key existed: the shipped
-                // naming is <chapter>/small_z<k>.png next to the composite.
-                std::string stem = ch.image;
-                const std::size_t dot = stem.rfind('.');
-                if (dot != std::string::npos)
-                {
-                    stem = stem.substr(0, dot);
-                }
-                const int want = declared > 0 && declared <= kMaxSurfaces ? declared : kMaxSurfaces;
-                for (int k = 0; k < want; ++k)
-                {
-                    height_files.push_back(stem + "_z" + std::to_string(k) + ".png");
-                }
-                mm::logf(L"maps: chapter \"{}\" has no \"height_maps\" key - guessing {} file(s) "
-                         L"from the composite name",
+                mm::logf(L"maps: chapter \"{}\" has no usable z_min/z_max in maps.json "
+                         L"({:.0f}..{:.0f}) - the height maps are unusable",
                          widen(ch.key),
-                         height_files.size());
+                         static_cast<double>(hm->z_min),
+                         static_cast<double>(hm->z_max));
+                return nullptr;
             }
-            ch.height_files = height_files;
-            ch.heights = hm;
 
-            mm::logf(L"maps: chapter \"{}\" {} {}x{} px @ {:.4f} px/uu, world X {:.0f}..{:.0f} "
-                     L"Y {:.0f}..{:.0f}, Z {:.0f}..{:.0f}, {} height plane(s)",
-                     widen(ch.key),
-                     widen(ch.image),
-                     ch.image_width,
-                     ch.image_height,
-                     ch.px_per_uu,
-                     ch.min_x,
-                     ch.max_x,
-                     ch.min_y,
-                     ch.max_y,
-                     static_cast<double>(hm->z_min),
-                     static_cast<double>(hm->z_max),
-                     height_files.size());
-            parsed.push_back(std::move(ch));
-        }
-
-        if (parsed.empty())
-        {
-            mm::log(L"maps: no usable chapter in the manifest");
-            return;
-        }
-
-        // MVP: one chapter's asset at a time - the first one in the manifest.
-        Chapter& first = parsed.front();
-        const auto png_path = [&maps_dir](const std::string& rel) {
-            std::wstring p = maps_dir + L"\\" + widen(rel);
-            std::replace(p.begin(), p.end(), L'/', L'\\');
-            return p;
-        };
-
-        pending_clear(); // an F5 reload must not upload the previous set
-
-        // ---- the height planes: CPU-side source data for the slicer ---------------
-        //
-        // These are NOT GPU textures. The render thread slices a window out of them
-        // into a small dynamic texture every ~80 ms, so they live in ordinary RAM and
-        // cost no VRAM at all (the previous ordinal-layer scheme cost 109 MB of it).
-        std::size_t planes_ok = 0;
-        if (first.heights)
-        {
-            // `heights` is shared as const once published, so fill it while we are
-            // still the only owner.
-            auto* hm = const_cast<HeightMaps*>(first.heights.get());
-            for (std::size_t k = 0; k < first.height_files.size(); ++k)
+            for (std::size_t k = 0; k < ch.height_files.size() && k < kMaxSurfaces; ++k)
             {
                 int w = 0;
                 int h = 0;
                 std::vector<std::uint8_t> raw;
-                if (!decode_raw(png_path(first.height_files[k]), 2, w, h, raw))
+                if (!decode_raw(png_path(ch.height_files[k]), 2, w, h, raw))
                 {
                     break; // a gap in the planes would misorder the surfaces
                 }
@@ -413,96 +316,317 @@ namespace mapdata
                 hm->plane[k].resize(n_px);
                 std::memcpy(hm->plane[k].data(), raw.data(), n_px * sizeof(std::uint16_t));
                 hm->count = static_cast<int>(k + 1);
-                ++planes_ok;
             }
-            if (hm->z_max <= hm->z_min)
-            {
-                mm::logf(L"maps: chapter \"{}\" has no usable z_min/z_max in maps.json "
-                         L"({:.0f}..{:.0f}) - the height maps are unusable",
-                         widen(first.key),
-                         static_cast<double>(hm->z_min),
-                         static_cast<double>(hm->z_max));
-                hm->count = 0;
-                planes_ok = 0;
-            }
-            if (planes_ok > 0)
-            {
-                // SANITY CHECK ON THE BYTE ORDER. PNG stores 16-bit samples
-                // big-endian; WIC's 16bppGray converter hands them back in native
-                // (little-endian) order, but a decoder that did not would produce codes
-                // that are byte-swapped garbage - and the only symptom would be a map
-                // that looks like noise. So decode plane 0's actual Z range and log it:
-                // it must land inside [z_min, z_max] and be broad. A swapped buffer
-                // shows up immediately as a range that fills the whole span with a
-                // nonsense distribution.
-                float lo = hm->z_max;
-                float hi = hm->z_min;
-                std::size_t lit = 0;
-                for (std::uint16_t code : hm->plane[0])
-                {
-                    if (code == 0)
-                    {
-                        continue;
-                    }
-                    const float z = hm->decode(code);
-                    lo = z < lo ? z : lo;
-                    hi = z > hi ? z : hi;
-                    ++lit;
-                }
-                mm::logf(L"maps: height plane z0 has {} lit pixel(s) ({}%), decoded Z {:.0f}..{:.0f} "
-                         L"(manifest says {:.0f}..{:.0f}) - a byte-swapped decode would not fit this",
-                         lit,
-                         hm->plane[0].empty() ? 0 : (lit * 100) / hm->plane[0].size(),
-                         static_cast<double>(lo),
-                         static_cast<double>(hi),
-                         static_cast<double>(hm->z_min),
-                         static_cast<double>(hm->z_max));
 
-                mm::logf(L"maps: decoded {}/{} height plane(s) of \"{}\" ({}x{}, Z {:.0f}..{:.0f} "
-                         L"in steps of {:.1f} uu), {} MB of RAM, 0 MB of VRAM",
-                         planes_ok,
-                         first.height_files.size(),
-                         widen(first.key),
-                         hm->width,
-                         hm->height,
-                         static_cast<double>(hm->z_min),
-                         static_cast<double>(hm->z_max),
-                         static_cast<double>(hm->z_step()),
-                         hm->bytes() / (1024 * 1024));
-            }
-            else
+            if (hm->count == 0)
             {
                 mm::logf(L"maps: NO height plane decoded for \"{}\" - build them with "
                          L"tools/navmesh/build_map.py and re-run deploy.ps1",
-                         widen(first.key));
+                         widen(ch.key));
+                return nullptr;
+            }
+
+            // SANITY CHECK ON THE BYTE ORDER. PNG stores 16-bit samples big-endian;
+            // WIC's 16bppGray converter hands them back in native (little-endian)
+            // order, but a decoder that did not would produce codes that are
+            // byte-swapped garbage - and the only symptom would be a map that looks
+            // like noise. So decode plane 0's actual Z range and log it: it must land
+            // inside [z_min, z_max] and be broad. A swapped buffer shows up immediately
+            // as a range that fills the whole span with a nonsense distribution.
+            float lo = hm->z_max;
+            float hi = hm->z_min;
+            std::size_t lit = 0;
+            for (std::uint16_t code : hm->plane[0])
+            {
+                if (code == 0)
+                {
+                    continue;
+                }
+                const float z = hm->decode(code);
+                lo = z < lo ? z : lo;
+                hi = z > hi ? z : hi;
+                ++lit;
+            }
+            mm::logf(L"maps: height plane z0 has {} lit pixel(s) ({}%), decoded Z {:.0f}..{:.0f} "
+                     L"(manifest says {:.0f}..{:.0f}) - a byte-swapped decode would not fit this",
+                     lit,
+                     hm->plane[0].empty() ? 0 : (lit * 100) / hm->plane[0].size(),
+                     static_cast<double>(lo),
+                     static_cast<double>(hi),
+                     static_cast<double>(hm->z_min),
+                     static_cast<double>(hm->z_max));
+            mm::logf(L"maps: decoded {}/{} height plane(s) of \"{}\" ({}x{}, Z {:.0f}..{:.0f} "
+                     L"in steps of {:.1f} uu), {} MB of RAM, 0 MB of VRAM",
+                     hm->count,
+                     ch.height_files.size(),
+                     widen(ch.key),
+                     hm->width,
+                     hm->height,
+                     static_cast<double>(hm->z_min),
+                     static_cast<double>(hm->z_max),
+                     static_cast<double>(hm->z_step()),
+                     hm->bytes() / (1024 * 1024));
+            return hm.release();
+        }
+
+        // Clears the active chapter's `heights` pointer and parks the planes for a
+        // delayed free. Loop thread.
+        void retire_active(std::uint64_t now)
+        {
+            const int active = g_active.exchange(-1, std::memory_order_release);
+            if (g_chapters_mut == nullptr || active < 0 ||
+                active >= static_cast<int>(g_chapters_mut->size()))
+            {
+                return;
+            }
+            Chapter& ch = (*g_chapters_mut)[static_cast<std::size_t>(active)];
+            const HeightMaps* planes = ch.heights;
+            ch.heights = nullptr;
+            if (planes == nullptr)
+            {
+                return;
+            }
+            // Only one retirement can ever be in flight, because a switch never starts
+            // while one is pending. Free defensively in case that changes.
+            delete g_retired;
+            g_retired = const_cast<HeightMaps*>(planes);
+            g_retire_at = now + kRetireGraceMs;
+            mm::logf(L"maps: chapter \"{}\" unloaded ({} MB freed in {} ms)",
+                     widen(ch.key),
+                     g_retired->bytes() / (1024 * 1024),
+                     kRetireGraceMs);
+        }
+    } // namespace
+
+    void load(const std::wstring& mod_dir)
+    {
+        g_maps_dir = mod_dir + L"\\maps";
+        const std::wstring manifest_path = g_maps_dir + L"\\maps.json";
+
+        std::string text;
+        if (!read_whole_file(manifest_path, text))
+        {
+            mm::logf(L"maps: {} not found - the overlay will run with no map background. Build it with "
+                     L"tools/navmesh/build_map.py and re-run deploy.ps1.",
+                     manifest_path);
+            return;
+        }
+
+        mapmanifest::Manifest parsed_manifest{};
+        std::vector<std::string> problems;
+        const bool ok = mapmanifest::parse(text, parsed_manifest, problems);
+        for (const std::string& problem : problems)
+        {
+            mm::logf(L"maps: {}", widen(problem));
+        }
+        if (!ok)
+        {
+            return;
+        }
+        if (parsed_manifest.schema != mapmanifest::kSchema)
+        {
+            // Not fatal: every field this build reads was already in schema /3 and a
+            // newer writer is expected to stay additive. Say so once, loudly.
+            mm::logf(L"maps: manifest schema is \"{}\", this build was written for \"{}\" - "
+                     L"reading it anyway",
+                     widen(parsed_manifest.schema),
+                     widen(mapmanifest::kSchema));
+        }
+        if (parsed_manifest.chapters.empty())
+        {
+            mm::log(L"maps: no usable chapter in the manifest");
+            return;
+        }
+
+        // An F5 reload publishes a fresh chapter list; the planes hanging off the old
+        // one have to be retired here or they are leaked with it (327 MB a press).
+        const std::uint64_t now = ::GetTickCount64();
+        retire_active(now);
+        pending_clear(); // an F5 reload must not upload the previous composite
+
+        std::vector<Chapter> parsed;
+        parsed.reserve(parsed_manifest.chapters.size());
+        for (const mapmanifest::Entry& e : parsed_manifest.chapters)
+        {
+            Chapter ch{};
+            ch.key = e.key;
+            ch.image = e.image;
+            ch.chapter = e.chapter;
+            ch.image_width = e.image_width;
+            ch.image_height = e.image_height;
+            ch.min_x = e.min_x;
+            ch.min_y = e.min_y;
+            ch.max_x = e.max_x;
+            ch.max_y = e.max_y;
+            ch.px_per_uu = e.px_per_uu;
+            ch.height_files = e.height_maps;
+            if (e.height_maps_guessed)
+            {
+                mm::logf(L"maps: chapter \"{}\" has no \"height_maps\" key - guessing {} file(s) "
+                         L"from the composite name",
+                         widen(ch.key),
+                         ch.height_files.size());
+            }
+            const std::size_t resident_mb =
+                (static_cast<std::size_t>(e.image_width) * static_cast<std::size_t>(e.image_height) * 2u *
+                 ch.height_files.size()) /
+                (1024u * 1024u);
+            mm::logf(L"maps: chapter \"{}\" (chapter {}) {} {}x{} px @ {:.4f} px/uu, world X {:.0f}..{:.0f} "
+                     L"Y {:.0f}..{:.0f}, Z {:.0f}..{:.0f}, {} height plane(s), {} MB when resident",
+                     widen(ch.key),
+                     ch.chapter,
+                     widen(ch.image),
+                     ch.image_width,
+                     ch.image_height,
+                     ch.px_per_uu,
+                     ch.min_x,
+                     ch.max_x,
+                     ch.min_y,
+                     ch.max_y,
+                     e.z_min,
+                     e.z_max,
+                     ch.height_files.size(),
+                     resident_mb);
+            parsed.push_back(std::move(ch));
+        }
+
+        g_manifest = std::move(parsed_manifest);
+        publish_chapters(std::move(parsed));
+        g_chapters_mut = const_cast<std::vector<Chapter>*>(g_chapters.load(std::memory_order_acquire));
+        g_loaded = true;
+
+        // Start on the chapter the detection has already named, if it has; otherwise on
+        // the lowest-numbered one, which reproduces the single-chapter build's start-up
+        // (chapter 1 resident at the main menu, so the slicer self-test has an asset).
+        const int detected = g_detected.load(std::memory_order_relaxed);
+        const int want = detected == chid::kNone ? -1 : g_manifest.index_of_number(detected);
+        g_pending_chapter = want >= 0 ? want : g_manifest.default_index();
+        mm::logf(L"maps: {} chapter(s) in the manifest, ONE resident at a time; starting with \"{}\"",
+                 g_manifest.chapters.size(),
+                 g_pending_chapter >= 0
+                     ? widen(g_manifest.chapters[static_cast<std::size_t>(g_pending_chapter)].key)
+                     : std::wstring{L"(none)"});
+
+        // Decode it now rather than on the next tick, so a cold start (and F5) behaves
+        // exactly as the single-chapter build did: when load() returns, the map is there.
+        on_update();
+    }
+
+    void set_detected_chapter(int chapter)
+    {
+        g_detected.store(chapter, std::memory_order_relaxed);
+    }
+
+    int detected_chapter()
+    {
+        return g_detected.load(std::memory_order_relaxed);
+    }
+
+    std::string active_chapter_key()
+    {
+        const std::vector<Chapter>* list = g_chapters.load(std::memory_order_acquire);
+        const int active = g_active.load(std::memory_order_acquire);
+        if (list == nullptr || active < 0 || active >= static_cast<int>(list->size()))
+        {
+            return {};
+        }
+        return (*list)[static_cast<std::size_t>(active)].key;
+    }
+
+    void on_update()
+    {
+        if (g_chapters_mut == nullptr)
+        {
+            return;
+        }
+        const std::uint64_t now = ::GetTickCount64();
+
+        // ---- 1. free a retired chapter, once no render thread can still be in it ----
+        if (g_retired != nullptr)
+        {
+            if (now < g_retire_at)
+            {
+                return; // never decode the incoming chapter while the old one is alive
+            }
+            delete g_retired;
+            g_retired = nullptr;
+        }
+
+        // ---- 2. act on the detection ------------------------------------------------
+        const int detected = g_detected.load(std::memory_order_relaxed);
+        if (detected != g_last_logged)
+        {
+            g_last_logged = detected;
+            mm::logf(L"maps: the player is in chapter {}",
+                     detected == chid::kNone  ? std::wstring{L"?"}
+                     : detected == chid::kDlc ? std::wstring{L"DLC"}
+                                              : std::to_wstring(detected));
+        }
+        if (detected != chid::kNone && g_pending_chapter < 0)
+        {
+            const int want = g_manifest.index_of_number(detected);
+            const int active = g_active.load(std::memory_order_acquire);
+            if (want != active)
+            {
+                // want < 0 means "this chapter has no map asset" - the DLC, whose
+                // navmesh the paks do not carry at all. Unloading is the RIGHT answer
+                // there: the chapters' world bounds overlap, so keeping the old one
+                // resident would draw chapter 3's geometry under a DLC player.
+                const std::wstring from =
+                    active >= 0 ? widen((*g_chapters_mut)[static_cast<std::size_t>(active)].key)
+                                : std::wstring{L"(none)"};
+                const std::wstring to =
+                    want >= 0 ? widen(g_manifest.chapters[static_cast<std::size_t>(want)].key)
+                              : std::wstring{L"(no map asset for this chapter)"};
+                mm::logf(L"maps: chapter switch {} -> {}", from, to);
+                retire_active(now);
+                g_pending_chapter = want;
+                return;
             }
         }
 
-        // ---- the composite, only as the no-height-map fallback --------------------
-        if (want_composite || planes_ok == 0)
+        // ---- 3. decode the incoming chapter -----------------------------------------
+        if (g_pending_chapter < 0 || g_pending_chapter >= static_cast<int>(g_chapters_mut->size()))
+        {
+            g_pending_chapter = -1;
+            return;
+        }
+        const int index = g_pending_chapter;
+        g_pending_chapter = -1;
+        Chapter& ch = (*g_chapters_mut)[static_cast<std::size_t>(index)];
+        const mapmanifest::Entry& entry = g_manifest.chapters[static_cast<std::size_t>(index)];
+        HeightMaps* planes = decode_heights(ch, entry);
+        ch.heights = planes;
+        g_active.store(index, std::memory_order_release);
+
+        // The composite is only the no-height-map fallback and it is off by default
+        // (`fallback_use_composite = 0`). Note it IS re-decoded on a chapter switch, but
+        // the upload still happens inside overlay.cpp's own frame path - this side only
+        // queues the pixels.
+        if (mm::config().fallback_use_composite || planes == nullptr)
         {
             auto img = std::make_unique<PendingImage>();
-            img->chapter_key = first.key;
+            img->chapter_key = ch.key;
             img->channels = 4;
-            if (decode_png(png_path(first.image), *img))
+            if (decode_png(png_path(ch.image), *img))
             {
-                if (img->width != first.image_width || img->height != first.image_height)
+                if (img->width != ch.image_width || img->height != ch.image_height)
                 {
                     mm::logf(L"maps: {} is {}x{} but maps.json says {}x{} - trusting the PNG",
-                             widen(first.image),
+                             widen(ch.image),
                              img->width,
                              img->height,
-                             first.image_width,
-                             first.image_height);
-                    first.image_width = img->width;
-                    first.image_height = img->height;
+                             ch.image_width,
+                             ch.image_height);
+                    ch.image_width = img->width;
+                    ch.image_height = img->height;
                 }
                 mm::logf(L"maps: decoded the composite {} -> {}x{} RGBA ({} MB){}",
-                         widen(first.image),
+                         widen(ch.image),
                          img->width,
                          img->height,
                          img->pixels.size() / (1024 * 1024),
-                         planes_ok == 0 ? L" - the only thing there is to draw" : L"");
+                         planes == nullptr ? L" - the only thing there is to draw" : L"");
                 pending_push(std::move(img));
             }
         }
@@ -511,9 +635,6 @@ namespace mapdata
             mm::log(L"maps: composite texture not loaded (fallback_use_composite = 0); the height "
                     L"slicer does not need it");
         }
-
-        publish_chapters(std::move(parsed));
-        g_loaded = true;
     }
 
     std::unique_ptr<PendingImage> take_pending()
@@ -549,6 +670,28 @@ namespace mapdata
         if (list == nullptr)
         {
             return nullptr;
+        }
+
+        // A chapter is resident: it is the only possible answer. The five chapters'
+        // world bounds overlap (chapter 4 covers nearly all of chapter 1), so a bounds
+        // scan here would hand back a different chapter's map the moment the player
+        // stepped into an overlap - which is the bug this whole mechanism exists to
+        // remove.
+        const int active = g_active.load(std::memory_order_acquire);
+        if (active >= 0 && active < static_cast<int>(list->size()))
+        {
+            const Chapter& ch = (*list)[static_cast<std::size_t>(active)];
+            return ch.contains(wx, wy) ? &ch : nullptr;
+        }
+
+        // Nothing resident yet (main menu, or the detection has not landed): the old
+        // behaviour, preferring a chapter that actually has planes decoded.
+        for (const Chapter& ch : *list)
+        {
+            if (ch.has_heights() && ch.contains(wx, wy))
+            {
+                return &ch;
+            }
         }
         for (const Chapter& ch : *list)
         {

@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Mount Wuchang's pak set and hand back cooked `.umap` packages by logical path.
+
+The three paks do **not** share a mount point -- the base and `_0_P` mount at
+`../../../` (so their keys start `Project_Plague/Content/...`) while `_1_P`
+mounts at `../../../Project_Plague/` (keys start `Content/...`).  Those are the
+same logical files, so every path is normalised to `Content/...` and the
+highest-numbered pak wins, exactly as the engine mounts them.
+"""
+
+from __future__ import annotations
+
+import io
+import os
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, "..", "navmesh", "offline"))
+
+import pak as pakmod        # noqa: E402
+import uasset               # noqa: E402
+
+DEFAULT_PAK = (r"E:\Program Files (x86)\Steam\steamapps\common"
+               r"\Wuchang Fallen Feathers\Project_Plague\Content\Paks"
+               r"\Project_Plague-Windows.pak")
+
+_PREFIX = "Project_Plague/"
+
+
+def normalise(p: str) -> str:
+    return p[len(_PREFIX):] if p.startswith(_PREFIX) else p
+
+
+class MapSource:
+    def __init__(self, base_pak: str = DEFAULT_PAK, verbose: bool = False):
+        self.ps = pakmod.PakSet(base_pak, verbose)
+        rank = {p.path: i for i, p in enumerate(self.ps.paks)}
+        self.owner: dict[str, object] = {}
+        self.real: dict[str, str] = {}
+        for raw, ow in self.ps.owner.items():
+            k = normalise(raw)
+            prev = self.owner.get(k)
+            if prev is None or rank[ow.path] >= rank[prev.path]:
+                self.owner[k] = ow
+                self.real[k] = raw
+
+    def paths(self):
+        return self.owner.keys()
+
+    def read(self, key: str) -> bytes:
+        return self.owner[key].read(self.real[key])
+
+    def umaps(self, prefix: str = "Content/Maps/"):
+        return sorted(k for k in self.owner
+                      if k.startswith(prefix) and k.endswith(".umap"))
+
+    def package(self, umap_key: str) -> "uasset.Package":
+        """Parse a cooked package straight out of the paks (no files on disk)."""
+        head = self.read(umap_key)
+        uexp_key = umap_key[:-len(".umap")] + ".uexp"
+        uexp = self.read(uexp_key) if uexp_key in self.owner else b""
+        return _package_from_bytes(umap_key, head, uexp)
+
+
+def _package_from_bytes(name: str, head: bytes, uexp: bytes) -> "uasset.Package":
+    p = uasset.Package.__new__(uasset.Package)
+    p.path = name
+    p.head = head
+    p.uexp = uexp
+    p._parse()
+    return p

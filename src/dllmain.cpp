@@ -50,6 +50,13 @@ class WuchangMinimap : public CppUserModBase
         const auto report = overlay::selftest();
         Output::send<LogLevel::Verbose>(STR("WuchangMinimap: {}\n"), report);
 
+        // The overlay: config + map assets are loaded on this thread, then the DX12
+        // hooks go in. It never touches a UObject.
+        overlay::on_unreal_init();
+
+        // The game-state reader: registers the ProcessEvent game-thread pump.
+        gamestate::on_unreal_init();
+
         // The navmesh dumper needs the Unreal reflection API, so it can only start
         // here. It stays quiet until a RecastNavMesh actor actually shows up.
         navmesh::on_unreal_init();

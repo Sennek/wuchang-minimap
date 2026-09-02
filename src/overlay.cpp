@@ -318,6 +318,12 @@ namespace overlay
         bool g_failed = false;
         MapTexture g_map;
 
+        // The swapchain we render on. Present can be called for more than one
+        // swapchain (ReShade wraps its own, DLSS frame generation adds another), so the
+        // first one that proves to be D3D12 wins and every other Present is ignored.
+        IDXGISwapChain* g_swapchain = nullptr;
+        int g_candidates_logged = 0;
+
         std::atomic<std::uint64_t> g_present_count{0};
         std::atomic<std::uint64_t> g_resize_count{0};
         std::atomic<bool> g_hooks_installed{false};
@@ -988,14 +994,26 @@ namespace overlay
             {
                 return false; // no ExecuteCommandLists yet; try again next frame
             }
-            if (g_imgui_ready)
+            if (g_imgui_ready)  // NOLINT: the happy path, checked every frame
             {
                 return true;
             }
 
-            if (FAILED(swapchain->GetDevice(IID_PPV_ARGS(&g_device))) || g_device == nullptr)
+            // The device comes off the CAPTURED QUEUE, not off the swapchain.
+            // IDXGISwapChain::GetDevice(ID3D12Device) fails on this game's swapchain -
+            // it is a ReShade wrapper (all four hooked addresses live in the 5.6 MB
+            // dxgi.dll ReShade drops next to the exe) and its GetDevice does not hand
+            // out the D3D12 device. ID3D12CommandQueue::GetDevice always does.
+            HRESULT hr = queue->GetDevice(IID_PPV_ARGS(&g_device));
+            if (FAILED(hr) || g_device == nullptr)
             {
-                mm::log(L"the swapchain is not a D3D12 swapchain (GetDevice(ID3D12Device) failed) - overlay off");
+                mm::logf(L"queue->GetDevice failed (0x{:08X}); trying the swapchain", static_cast<unsigned>(hr));
+                hr = swapchain->GetDevice(IID_PPV_ARGS(&g_device));
+            }
+            if (FAILED(hr) || g_device == nullptr)
+            {
+                mm::logf(L"no ID3D12Device reachable from either the queue or the swapchain (0x{:08X}) - overlay off",
+                         static_cast<unsigned>(hr));
                 g_failed = true;
                 return false;
             }
@@ -1116,11 +1134,72 @@ namespace overlay
             return fallback;
         }
 
+        // A D3D12 swapchain hands out ID3D12Resource back buffers; a D3D11 one, or a
+        // wrapper that does not forward, does not. That is the cheapest reliable test.
+        bool is_d3d12_swapchain(IDXGISwapChain* sc)
+        {
+            ID3D12Resource* buffer = nullptr;
+            const HRESULT hr = sc->GetBuffer(0, IID_PPV_ARGS(&buffer));
+            safe_release(buffer);
+            return SUCCEEDED(hr);
+        }
+
+        void log_candidate(IDXGISwapChain* sc, bool d3d12)
+        {
+            // One line per distinct swapchain, not per Present: the game's decoy 144x8
+            // D3D11 swapchain presents every frame.
+            static IDXGISwapChain* seen[8]{};
+            for (IDXGISwapChain* s : seen)
+            {
+                if (s == sc)
+                {
+                    return;
+                }
+            }
+            if (g_candidates_logged >= static_cast<int>(std::size(seen)))
+            {
+                return;
+            }
+            seen[g_candidates_logged] = sc;
+            ++g_candidates_logged;
+            DXGI_SWAP_CHAIN_DESC desc{};
+            sc->GetDesc(&desc);
+            void** vtable = *reinterpret_cast<void***>(sc);
+            mm::logf(L"Present candidate {:p}: {}x{} {} x{} buffers, hwnd 0x{:X}, vtable[8] {} -> {}",
+                     static_cast<void*>(sc),
+                     desc.BufferDesc.Width,
+                     desc.BufferDesc.Height,
+                     format_name(desc.BufferDesc.Format),
+                     desc.BufferCount,
+                     reinterpret_cast<std::uintptr_t>(desc.OutputWindow),
+                     module_of(vtable[8]),
+                     d3d12 ? L"D3D12, taking it" : L"not D3D12, ignored");
+        }
+
         void render(IDXGISwapChain* swapchain)
         {
             g_present_count.fetch_add(1, std::memory_order_relaxed);
+            if (g_failed || g_queue.load(std::memory_order_acquire) == nullptr)
+            {
+                return;
+            }
 
             SpinGuard guard(g_render_lock);
+            if (g_swapchain == nullptr)
+            {
+                const bool d3d12 = is_d3d12_swapchain(swapchain);
+                log_candidate(swapchain, d3d12);
+                if (!d3d12)
+                {
+                    return;
+                }
+                g_swapchain = swapchain;
+            }
+            else if (swapchain != g_swapchain)
+            {
+                return; // another swapchain (frame generation / ReShade) - not ours
+            }
+
             if (!ensure_initialised(swapchain))
             {
                 return;
@@ -1222,11 +1301,14 @@ namespace overlay
                          w,
                          h,
                          format_name(format));
-                if (g_imgui_ready)
+                if (g_imgui_ready && sc == g_swapchain)
                 {
                     wait_for_gpu();
                 }
-                release_render_targets();
+                if (sc == g_swapchain)
+                {
+                    release_render_targets();
+                }
             }
             const HRESULT hr = o_ResizeBuffers(sc, count, w, h, format, flags);
             // The RTVs are recreated lazily on the next Present, once the swapchain has
@@ -1499,9 +1581,14 @@ namespace overlay
             logged_first_present = true;
             mm::logf(L"first Present seen; the hook is live (count {})", g_present_count.load());
         }
-        if (mm::g_panel_drew_frame.exchange(false))
+        // The panel renders every frame, so this is throttled hard: once when it first
+        // draws, then at most one line every 10 s. (Without the throttle a single
+        // main-menu verification run wrote 2 100 identical lines.)
+        static std::uint64_t last_panel_log = 0;
+        if (mm::g_panel_drew_frame.exchange(false) && (last_panel_log == 0 || now - last_panel_log > 10000))
         {
-            mm::log(L"the settings panel rendered a frame");
+            last_panel_log = now;
+            mm::log(L"the settings panel is rendering");
         }
         if (!g_watchdog_reported.load() && g_hooks_installed.load() && g_hook_install_ms != 0 &&
             now - g_hook_install_ms > 8000 && g_present_count.load() == 0)

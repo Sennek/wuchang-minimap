@@ -386,6 +386,13 @@ namespace mm
 
         int lines = 0;
         std::size_t pos = 0;
+        // A UTF-8 BOM (PowerShell's Set-Content -Encoding utf8 writes one) would
+        // otherwise be glued to the first key's name.
+        if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
+            static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
+        {
+            pos = 3;
+        }
         while (pos <= text.size())
         {
             const std::size_t nl = text.find('\n', pos);

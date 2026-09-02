@@ -420,13 +420,14 @@ namespace gamestate
         {
             return;
         }
-        mm::logf(L"state: pawn {} pos {:.0f} {:.0f} {:.0f} yaw {:.0f} | pawn-view {} | menu {} | widgets {}/{} "
-                 L"| {} publishes",
+        mm::logf(L"state: pawn {} pos {:.0f} {:.0f} {:.0f} yaw {:.0f} ({}) | pawn-view {} | menu {} | "
+                 L"widgets {}/{} | {} publishes",
                  snap.has_pawn ? L"yes" : L"NO",
                  snap.x,
                  snap.y,
                  snap.z,
                  static_cast<double>(snap.yaw),
+                 snap.loc_from_function ? L"K2_GetActorLocation" : L"RootComponent",
                  snap.is_pawn_view ? L"yes" : L"no",
                  snap.menu_open ? L"OPEN" : L"no",
                  snap.widgets_visible_in_viewport,

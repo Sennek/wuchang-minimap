@@ -87,7 +87,11 @@ present.
 
 ```
 src/dllmain.cpp            RC::CppUserModBase subclass, start_mod/uninstall_mod
-src/overlay.{hpp,cpp}      ImGui + MinHook link self-test (no hooks installed yet)
+src/overlay.{hpp,cpp}      DX12 hooks + ImGui + the minimap and the F2 panel
+src/gamestate.{hpp,cpp}    game-thread reader (pawn, view target, widgets)
+src/mmstate.{hpp,cpp}      snapshot seqlock, config file, cross-thread log queue
+src/mapdata.{hpp,cpp}      maps.json parser + WIC PNG decode
+src/uereflect.hpp          cached property offsets and UFunction calls
 src/navmesh_dump.{hpp,cpp} dtNavMesh discovery + tile walker + JSON writer
 src/mem.{hpp,cpp}          VirtualQuery + SEH guarded raw reads
 src/ue_min.hpp             hand-written RC::Unreal ABI declarations, see below
@@ -99,6 +103,8 @@ third_party/minhook/       MinHook v1.3.4
 third_party/fmt/           fmt 11.2.0, headers only (FMT_HEADER_ONLY)
 tools/gen_ue4ss_importlib.ps1
 tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
+tools/navmesh/build_map.py tile JSON -> maps/<chapter>/<agent>.png + maps/maps.json
+maps/                      the shipped map assets (deployed into the mod folder)
 tools/lua-recon/           WuchangRecon Lua recon mod + its offline mock harness
 deploy/ue4ss/Mods/WuchangMinimap/
 ```
@@ -278,10 +284,84 @@ surface everywhere. `--probe out\navprobe_*.csv` renders the Lua mod's F11
 `ProjectPointToNavigation` grids through the identical mapping, as an overlay target for
 checking alignment.
 
+## The map assets
+
+```powershell
+# offline: paks -> tile JSON  (see .workspace/.../context/navmesh-offline.md)
+python tools\navmesh\offline\pak.py unpack "<...>\Project_Plague-Windows.pak" `
+       --grep "Maps/Generate/Chapter1/EX0/" --out <scratch>
+python tools\navmesh\offline\navchunk.py "<scratch>\...\Chapter1\EX0\*.umap" `
+       --out tools\navmesh\dumps_offline --stamp 20260902_ch1
+
+# tile JSON -> the shipped assets
+cd tools\navmesh
+python build_map.py --input dumps_offline --chapter chapter1 --out ..\..\maps
+```
+
+`build_map.py` imports `render.py`, so the loader, the richest-copy dedupe and the
+flat-plane filter are shared. It writes **RGBA with a fully transparent background** (light
+desaturated Z-shaded walkable fill, thin polygon edges) plus `maps/maps.json`
+(`wuchang-minimap-maps/1`): per chapter the image path, pixel size, world `min_x/min_y/max_x/max_y`,
+`px_per_uu`, the mapping formula and the global Z bands. `--px-per-uu` is a request - the scale
+halves until neither dimension exceeds `--max-dim` (8192). Chapter 1 at the default 0.06 px/uu is
+**4947 x 4333 px, 3.2 MB PNG, 82 MB as an RGBA8 texture**.
+
+`deploy.ps1` copies `maps\` into the mod folder every time (add `-NoMaps` to skip).
+
+## The overlay
+
+`src/overlay.cpp` installs four MinHook hooks whose addresses come from a throwaway
+device + queue + swapchain (the hudhook trick, since the game's swapchain and its command queue
+are not reachable from a UE4SS mod):
+
+| slot | function |
+|---|---|
+| swapchain vtable 8 | `IDXGISwapChain::Present` |
+| swapchain vtable 13 | `IDXGISwapChain::ResizeBuffers` |
+| swapchain vtable 22 | `IDXGISwapChain1::Present1` |
+| queue vtable 10 | `ID3D12CommandQueue::ExecuteCommandLists` (captures the real queue) |
+
+**On this install all four land inside ReShade's `dxgi.dll`** - it is a 5.6 MB proxy next to the exe,
+and it wraps the command queue too. The dummy objects are created through our own import table, so we
+get the same wrappers the game holds; the module+offset of every hooked address is logged. Consequence:
+the overlay draws before ReShade's effects. Two things that surprised us and are now handled:
+`swapchain->GetDevice(IID_ID3D12Device)` **fails** on the wrapper (the device is taken off the captured
+queue instead), and the game presents a decoy **144x8 D3D11** swapchain every frame next to the real
+**1920x1080 R10G10B10A2_UNORM** one, so the overlay picks one swapchain -
+`GetBuffer(0, IID_ID3D12Resource)` is the test - and ignores Presents from any other.
+
+Rendering owns its own SRV descriptor heap (ImGui 1.92's `ImGui_ImplDX12_InitInfo` allocates through
+callbacks), one command allocator per back buffer fenced against reuse, and RTVs recreated lazily after
+`ResizeBuffers`. The map texture is created and uploaded by us (`CopyTextureRegion` + a barrier to
+`PIXEL_SHADER_RESOURCE`), and its GPU descriptor handle is passed to ImGui as the `ImTextureID`.
+
+The minimap is drawn on the foreground draw list: player-centred crop, north-up by default or
+rotate-with-player, round (a UV'd triangle fan - no mask needed) or square, configurable zoom, size,
+anchor, offsets and opacity, with a yellow player arrow. It hides itself when a menu is open, when the
+camera's view target is not the pawn, when the state snapshot is stale, or when the player is outside
+every mapped chapter - and the F2 panel prints which of those it was.
+
+`src/gamestate.cpp` reads the state on the **game thread** inside UE4SS's ProcessEvent pre-callback:
+pawn location and yaw at 10 Hz via `K2_GetActorLocation` / `K2_GetActorRotation`, the pawn and
+controller re-resolved at 2 Hz, and the menu test at 2 Hz (`UWidget::Visibility == Visible` prefiltered
+from the reflected byte, then `IsInViewport()`). It publishes an `mm::Snapshot` through a seqlock; the
+render thread never touches a UObject.
+
+### Settings
+
+`ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`: `enabled`,
+`show_minimap`, `minimap_size`, `minimap_zoom`, `minimap_shape`, `minimap_anchor`,
+`minimap_offset_x/y`, `rotate_with_player`, `opacity`, `hide_in_menus`, `require_pawn_view`,
+`state_stale_ms`, `debug_readout`, `debug_show_panel_on_start`, `panel_key`, `reload_key`.
+**F2** opens the panel, **F5** reloads the file and the maps. Only F1-F5, F7 and F8 are accepted as
+hotkeys; F6 (RenoDX DLSS 5), F9/F11 (engine binds), F10 (game console) and F12 (Steam) are rejected in
+code.
+
 ## Next steps
 
-- [ ] Hook `IDXGISwapChain3::Present` with MinHook, create our own ImGui context, init
-      `imgui_impl_dx12` + `imgui_impl_win32`, subclass the game's WndProc.
-- [ ] Read player world transform + level bounds from UE, draw the minimap.
-- [ ] Sweep all streaming cells so the navmesh dumps cover a whole region, not just the
+- [ ] Markers: shrines, chests, pickups, fog gates, enemies, with auto-mark.
+- [ ] Full-screen pannable map, compass, waypoints, category filters.
+- [ ] Per-floor map selection from the player's Z (the Z bands are already in `maps.json`).
+- [ ] Build the other four chapters' maps and load/unload them by area.
+- [ ] Sweep all streaming cells so the runtime navmesh dumps cover a whole region, not just the
       4-6 cells resident around the player.

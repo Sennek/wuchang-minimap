@@ -512,6 +512,24 @@ namespace mapdata
         on_update();
     }
 
+    void unload()
+    {
+        // LOOP THREAD, master switch only, and only AFTER overlay::stop_complete():
+        // with the render side torn down nobody can be inside a height slice, so the
+        // planes are freed here and now rather than through the kRetireGraceMs path.
+        const std::uint64_t now = ::GetTickCount64();
+        retire_active(now);
+        delete g_retired;
+        g_retired = nullptr;
+        g_retire_at = 0;
+        g_pending_chapter = -1;
+        pending_clear();
+        // Nothing is detected while the mod is off, and the next enable must log the
+        // chapter again rather than assume the player never moved.
+        g_detected.store(chid::kNone, std::memory_order_relaxed);
+        g_last_logged = chid::kNone - 1;
+    }
+
     void set_detected_chapter(int chapter)
     {
         g_detected.store(chapter, std::memory_order_relaxed);

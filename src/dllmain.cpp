@@ -1,9 +1,10 @@
 //
 // WuchangMinimap - a UE4SS C++ mod for Wuchang: Fallen Feathers (UE 5.1.1, DX12).
 //
-// This translation unit only contains the UE4SS mod skeleton. The rendering side
-// (Dear ImGui + a DX12 Present hook installed with MinHook) lives in overlay.cpp
-// and is *not* wired up yet - see overlay::selftest().
+// This translation unit only contains the UE4SS mod skeleton: it hands both entry
+// points straight to modswitch, which owns the `mod_enabled` master switch and starts
+// or stops every other subsystem (modswitch.hpp). The rendering side (Dear ImGui + a
+// DX12 Present hook installed with MinHook) lives in overlay.cpp.
 //
 // The navmesh dumper (navmesh_dump.cpp) is present but OPT-IN and off by default:
 // the map background is built offline from the paks (tools/navmesh/offline), so the
@@ -16,10 +17,7 @@
 #include <Mod/CppUserModBase.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 
-#include "gamestate.hpp"
-#include "mapdata.hpp"
-#include "markers.hpp"
-#include "navmesh_dump.hpp"
+#include "modswitch.hpp"
 #include "overlay.hpp"
 #include "version.hpp"
 
@@ -54,21 +52,10 @@ class WuchangMinimap : public CppUserModBase
         const auto report = overlay::selftest();
         Output::send<LogLevel::Verbose>(STR("WuchangMinimap: {}\n"), report);
 
-        // The overlay: config + map assets are loaded on this thread, then the DX12
-        // hooks go in. It never touches a UObject.
-        overlay::on_unreal_init();
-
-        // Markers: the static markers/<chapter>.json database and the found tracker
-        // are read here on the loop thread. The live half runs inside gamestate's
-        // ProcessEvent pump, so this must come before it.
-        markers::on_unreal_init();
-
-        // The game-state reader: registers the ProcessEvent game-thread pump.
-        gamestate::on_unreal_init();
-
-        // The navmesh dumper needs the Unreal reflection API, so it can only start
-        // here. It stays quiet until a RecastNavMesh actor actually shows up.
-        navmesh::on_unreal_init();
+        // EVERYTHING else - the overlay and its DX12 hooks, the markers, the
+        // game-thread reader and the opt-in navmesh dumper - is started (or not) by
+        // modswitch, which owns the `mod_enabled` master switch. See modswitch.hpp.
+        modswitch::on_unreal_init();
     }
 
     auto on_update() -> void override
@@ -76,16 +63,12 @@ class WuchangMinimap : public CppUserModBase
         // NOTE: UE4SS calls this on its own EVENT-LOOP thread, not on the game thread
         // (proven 2026-09-02: our poll kept logging while the game thread was blocked in
         // WaitForSingleObject during a GPU crash dump). So nothing called from here may
-        // traverse UObjects or read engine allocations - navmesh::on_update() only
-        // samples the hotkey and hands the work to a game-thread pump.
-        navmesh::on_update();
-        overlay::on_update();
-        // The chapter's map asset is loaded and unloaded here, on the loop thread:
-        // gamestate names the chapter from the game thread with one atomic store, and
-        // mapdata does the (multi-second, allocating) PNG work off it. See mapdata.hpp.
-        mapdata::on_update();
-        gamestate::on_update();
-        markers::on_update();
+        // traverse UObjects or read engine allocations.
+        //
+        // With mod_enabled = 0 this is one GetTickCount64 and, once a second, one
+        // GetFileAttributesEx of the config file - that is the whole cost of a disabled
+        // mod, and it is what lets the switch be flipped back on without a restart.
+        modswitch::on_update();
     }
 };
 

@@ -480,6 +480,12 @@ namespace mm
         }
     } // namespace
 
+    // The master switch. Written only by modswitch (loop thread); read by the game
+    // thread and the render thread on their first statement. Starts TRUE so the
+    // ProcessEvent callback and Present behave normally between the DLL loading and
+    // the config being read - neither is reachable before that anyway.
+    std::atomic<bool> g_mod_active{true};
+
     std::atomic<bool> g_panel_open{false};
     std::atomic<bool> g_map_open{false};
     std::atomic<bool> g_reload_config{false};
@@ -636,7 +642,11 @@ namespace mm
             }
             ++lines;
 
-            if (key == "enabled")
+            if (key == "mod_enabled")
+            {
+                cfg.mod_enabled = parse_bool(value, cfg.mod_enabled);
+            }
+            else if (key == "enabled")
             {
                 cfg.enabled = parse_bool(value, cfg.enabled);
             }
@@ -1091,6 +1101,12 @@ namespace mm
         out += "; WuchangMinimap settings. Written by the F2 panel; hand edits are picked up with F5.\n";
         out += "; Hotkeys may only be F1..F5, F7 or F8: F6 is the RenoDX DLSS5 toggle, F9/F11 engine\n";
         out += "; binds, F10 the game console and F12 the Steam screenshot key.\n\n";
+        out += "; mod_enabled = 0 stops the mod completely: no DX12 hook, no game-thread work, no\n";
+        out += "; scans, no map in memory, no gamepad polling. The only thing left running is a 1 Hz\n";
+        out += "; check of THIS file's timestamp, so setting it back to 1 turns the mod on again\n";
+        out += "; without restarting the game (F5 does not work while it is off - nothing is\n";
+        out += "; listening to the keyboard). `enabled` below only hides the overlay.\n";
+        out += "mod_enabled = " + std::string(cfg.mod_enabled ? "1" : "0") + "\n";
         out += "enabled = " + std::string(cfg.enabled ? "1" : "0") + "\n";
         out += "show_minimap = " + std::string(cfg.show_minimap ? "1" : "0") + "\n";
         out += "minimap_size = " + std::format("{:.3f}", cfg.size_frac) + "\n";
@@ -1222,6 +1238,67 @@ namespace mm
         {
             logf(L"config: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
         }
+    }
+
+    //==================================================================================
+    // The master switch, read straight off disk
+    //==================================================================================
+    //
+    // Deliberately NOT load_config_file(): while the mod is off, the file is the only
+    // channel the player has, and re-applying every other key on the way back in would
+    // mean an unrelated edit took effect at a moment nobody asked for. `modswitch`
+    // calls load_config_file() itself once it has decided to turn the mod on.
+
+    bool peek_mod_enabled(bool& out)
+    {
+        std::string text;
+        if (!read_whole_file(config_path(), text))
+        {
+            return false;
+        }
+        std::size_t pos = 0;
+        if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
+            static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
+        {
+            pos = 3;
+        }
+        bool seen = false;
+        while (pos <= text.size())
+        {
+            const std::size_t nl = text.find('\n', pos);
+            std::string_view raw =
+                std::string_view{text}.substr(pos, (nl == std::string::npos ? text.size() : nl) - pos);
+            pos = (nl == std::string::npos) ? text.size() + 1 : nl + 1;
+            const std::size_t comment = raw.find_first_of(";#");
+            if (comment != std::string_view::npos)
+            {
+                raw = raw.substr(0, comment);
+            }
+            const std::size_t eq = raw.find('=');
+            if (eq == std::string_view::npos)
+            {
+                continue;
+            }
+            if (trim(raw.substr(0, eq)) != "mod_enabled")
+            {
+                continue;
+            }
+            // The LAST occurrence wins, exactly as it does in load_config_file().
+            out = parse_bool(trim(raw.substr(eq + 1)), out);
+            seen = true;
+        }
+        return seen;
+    }
+
+    std::uint64_t config_mtime()
+    {
+        WIN32_FILE_ATTRIBUTE_DATA data{};
+        if (::GetFileAttributesExW(config_path().c_str(), GetFileExInfoStandard, &data) == 0)
+        {
+            return 0;
+        }
+        return (static_cast<std::uint64_t>(data.ftLastWriteTime.dwHighDateTime) << 32) |
+               data.ftLastWriteTime.dwLowDateTime;
     }
 
     //==================================================================================

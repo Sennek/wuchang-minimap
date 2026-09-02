@@ -197,6 +197,12 @@ namespace mapdata
     // call re-reads everything (that is what F5 does).
     void load(const std::wstring& mod_dir);
 
+    // Loop thread, master switch (see modswitch.hpp): free the resident chapter's
+    // height planes and every queued image immediately, and forget the detection. Only
+    // legal once the overlay's render side has stopped - it does NOT use the
+    // kRetireGraceMs delay, because there is no longer a render thread to protect.
+    void unload();
+
     // Loop thread: drives the retire/decode state machine. Call it every tick.
     void on_update();
 

@@ -100,6 +100,24 @@ namespace mm
 
     struct Config
     {
+        //==============================================================================
+        // The master switch
+        //==============================================================================
+        //
+        // `mod_enabled = 0` stops the mod doing ANY measurable work: the DX12 hooks are
+        // not installed (or are disabled again, after the render thread has torn its own
+        // objects down), the ProcessEvent game-thread callback returns on its first
+        // statement, no object-array scan runs, the chapter's height maps are freed and
+        // XInput is never polled. The one thing that keeps running is a 1 Hz stat() of
+        // this file on the loop thread, which is what lets `mod_enabled = 1` turn it
+        // back on without restarting the game (F5 is unavailable while it is off -
+        // nothing samples the keyboard).
+        //
+        // It is deliberately SEPARATE from `enabled` below: `enabled` is "draw the
+        // overlay", and it still leaves the reader, the marker sweep and the map asset
+        // running.
+        bool mod_enabled = true;
+
         bool enabled = true;          // master switch for the whole overlay
         bool show_minimap = true;     // draw the minimap window
         float size_frac = 0.24f;      // minimap side as a fraction of screen height
@@ -304,6 +322,35 @@ namespace mm
     // on load / F5; the render thread writes it when the F2 panel is used.
     Config config();
     void set_config(const Config& cfg);
+
+    //==================================================================================
+    // The master switch, as a lock-free flag
+    //==================================================================================
+    //
+    // `config()` copies the whole struct under a spinlock, which is far too much for the
+    // very first statement of a callback the engine fires thousands of times a second.
+    // `mod_active()` is one relaxed atomic load and allocates nothing, so a disabled mod
+    // costs exactly that per ProcessEvent and per Present.
+    //
+    // It is NOT simply `config().mod_enabled`: the switch is turned off before the
+    // subsystems have finished standing down, so `modswitch` owns the flag and drives
+    // it, and everything else only reads it.
+    extern std::atomic<bool> g_mod_active;
+
+    inline bool mod_active()
+    {
+        return g_mod_active.load(std::memory_order_relaxed);
+    }
+
+    // Loop thread. Reads ONLY `mod_enabled` out of the config file, without touching
+    // the live config - the 1 Hz watcher uses it to answer "did the master switch flip?"
+    // while everything else in the file stays untouched until the mod is running again.
+    // False when the file cannot be read or carries no `mod_enabled` line.
+    bool peek_mod_enabled(bool& out);
+
+    // Loop thread. FILETIME of the config file as a uint64, or 0 when it cannot be
+    // stat()ed. The watcher only parses the file when this changes.
+    std::uint64_t config_mtime();
 
     // Loop thread only (plain Win32 file I/O, no iostreams).
     void load_config_file();

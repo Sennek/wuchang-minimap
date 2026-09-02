@@ -187,8 +187,16 @@ edits the same settings and its <em>Save settings</em> button writes them back.<
 
 <table>
   <tr><th style="width:210px">Group</th><th>What it controls</th></tr>
+  <tr><td><code>mod_enabled</code></td>
+      <td><strong>The master switch.</strong> <code>mod_enabled = 0</code> turns the whole mod off:
+          no graphics hook, no work inside the game, no scanning, no map in memory. Use it to leave
+          the mod installed while ruling it out as the cause of a problem. Setting it back to
+          <code>1</code> and saving the file starts the mod again <em>within a second</em> &mdash; no
+          restart. <kbd>F5</kbd> does <em>not</em> work while it is off (nothing is listening to the
+          keyboard), and the <kbd>F2</kbd> panel can only switch it off, never on.</td></tr>
   <tr><td><code>enabled</code>, <code>show_minimap</code></td>
-      <td>Master switch (<code>0</code> installs no graphics hooks at all) and the minimap itself.</td></tr>
+      <td>The overlay (<code>0</code> installs no graphics hooks) and the minimap itself. Unlike
+          <code>mod_enabled</code> this leaves the rest of the mod running.</td></tr>
   <tr><td><code>minimap_size</code>, <code>minimap_zoom</code>, <code>minimap_shape</code>,
           <code>minimap_anchor</code>, <code>opacity</code>, <code>rotate_with_player</code></td>
       <td>Shape, size, placement and zoom of the minimap. <code>minimap_zoom</code> is world units

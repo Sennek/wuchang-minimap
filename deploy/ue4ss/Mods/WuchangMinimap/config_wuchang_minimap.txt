@@ -15,7 +15,24 @@
 ; Shipped defaults: F2 settings panel, M full map, R recentre the map, F5 reload,
 ; and LALT HELD for the x-ray highlight.
 
-; Master switch. 0 = install no DX12 hooks at all.
+; ---------------------------------------------------------------------------------
+; THE MASTER SWITCH
+; ---------------------------------------------------------------------------------
+; mod_enabled = 0 makes the mod inert: no DX12 hook in the game's Present path, no
+; work in the game-thread callback, no object scans, no map in memory (that is
+; 320-340 MB) and no gamepad polling. Leave the mod installed and prove it is not the
+; cause of whatever you are chasing.
+;
+; The only thing that keeps running is a check of THIS file's timestamp once a second,
+; so setting mod_enabled back to 1 and saving turns the mod on again within a second -
+; no restart. F5 does NOT work while the mod is off: nothing is reading the keyboard.
+; The F2 panel can turn it off (it just writes this key), never on.
+;
+; A flip is logged: look for "master switch:" in UE4SS.log.
+mod_enabled = 1
+
+; Draw the overlay. 0 = install no DX12 hooks, but the game-state reader, the marker
+; sweep and the map asset all keep running - use mod_enabled = 0 to stop those too.
 enabled = 1
 
 ; Draw the minimap. Turn off to keep only the F2 panel.

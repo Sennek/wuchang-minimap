@@ -511,7 +511,22 @@ render thread never touches a UObject.
 
 ### Settings
 
-`ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`: `enabled`,
+`ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`.
+
+**The master switch, `mod_enabled` (default 1).** `mod_enabled = 0` makes the DLL inert: the DX12
+hooks are not installed (and are cleanly disabled again if they already were - the render thread
+tears ImGui and every D3D12 object down inside one Present first, then the MinHook trampolines are
+disabled but kept, so turning it back on can never double-hook), the ProcessEvent game-thread
+callback returns on its first statement (UE4SS exports no *Unregister*, so that early return is the
+mechanism), no object-array scan runs, the chapter's height maps are freed and XInput is never
+polled. What keeps running is one `GetFileAttributesEx` of the config file per second on the loop
+thread: change `mod_enabled` back to `1`, save, and the mod restarts within a second. **F5 does not
+work while the mod is off** - nothing samples the keyboard - and the F2 panel's master-switch
+checkbox can only turn it *off* (it writes the key and lets the watcher do the work). Every flip
+writes one `master switch:` line into `UE4SS.log`. `enabled` is the *overlay*, not the mod: with
+`enabled = 0` the reader, the marker sweep and the map asset all still run.
+
+The other keys: `enabled`,
 `show_minimap`, `minimap_size`, `minimap_zoom`, `minimap_shape`, `minimap_anchor`,
 `minimap_offset_x/y`, `rotate_with_player`, `opacity`, `hide_in_menus`, `require_pawn_view`,
 `state_stale_ms`, `min_visible_after_state_ok_ms`, `menu_close_show_delay_ms`, `debug_readout`,

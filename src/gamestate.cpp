@@ -863,6 +863,17 @@ namespace gamestate
 
         void pump()
         {
+            // THE MASTER SWITCH, first statement (modswitch.hpp). UE4SS exports a
+            // Register for the ProcessEvent pre-callback and no Unregister, so a
+            // disabled mod cannot take this callback out of the engine's path - what it
+            // can do is make it cost one relaxed atomic load and nothing else: no
+            // config copy (that is a spinlock), no allocation, no reflection, no read
+            // of any engine memory.
+            if (!mm::mod_active())
+            {
+                return;
+            }
+
             // ProcessEvent fires thousands of times a second, and every ProcessEvent WE
             // issue fires it again - so the re-entrancy guard comes first, before any
             // work at all. thread_local, because the guard has to be per-thread: the

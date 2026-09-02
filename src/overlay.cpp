@@ -483,6 +483,12 @@ namespace overlay
         // which is the only place a D3D12 resource may be released.
         std::atomic<bool> g_drop_textures{false};
         std::atomic<bool> g_hooks_installed{false};
+        // Master-switch state. `g_hooks_created` is set once the MinHook trampolines
+        // exist: a re-enable then only has to MH_EnableHook them, so no address can
+        // ever be hooked twice. `g_render_stopped` is the render thread's answer to
+        // "you have been switched off" (see shutdown_render()).
+        bool g_hooks_created = false;                // loop thread only
+        std::atomic<bool> g_render_stopped{true};    // render -> loop
         std::atomic<bool> g_watchdog_reported{false};
         std::uint64_t g_hook_install_ms = 0;
 
@@ -3544,6 +3550,27 @@ namespace overlay
             ImGui::Checkbox("Overlay enabled", &cfg.enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Show minimap", &cfg.show_minimap);
+            // THE MASTER SWITCH. Unticking it does not stop anything from here - it
+            // only writes mod_enabled = 0 into the config file, which the loop thread's
+            // 1 Hz watcher then acts on (modswitch.hpp). That keeps the whole shutdown
+            // sequence on the one thread that is allowed to run it, and it means the
+            // file and the running state can never disagree.
+            if (ImGui::Checkbox("Mod enabled (master switch - turns EVERYTHING off)", &cfg.mod_enabled))
+            {
+                if (!cfg.mod_enabled)
+                {
+                    mm::set_config(cfg);
+                    mm::g_save_config = true;
+                    mm::log(L"master switch: turned off from the F2 panel - writing mod_enabled = 0; the "
+                            L"mod stops within a second. Edit the config file to turn it back on.");
+                }
+            }
+            if (!cfg.mod_enabled)
+            {
+                ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f},
+                                   "The mod is shutting down. Set mod_enabled = 1 in %s to restart it.",
+                                   "config_wuchang_minimap.txt");
+            }
 
             ImGui::SliderFloat("Size (fraction of screen height)", &cfg.size_frac, 0.08f, 0.6f, "%.2f");
             ImGui::SliderFloat("Zoom (uu per minimap pixel)", &cfg.zoom_uu_per_px, 4.0f, 200.0f, "%.0f");
@@ -4372,8 +4399,79 @@ namespace overlay
                      d3d12 ? L"D3D12, taking it" : L"not D3D12, ignored");
         }
 
+        //==============================================================================
+        // Render-side teardown for the master switch (RENDER THREAD ONLY)
+        //==============================================================================
+        //
+        // Everything below is a D3D12 object or an ImGui context, and both may only be
+        // touched from the thread that created them - which is whichever thread calls
+        // Present. So the loop thread clears mm::g_mod_active and this runs inside the
+        // next Present, before the hooks are taken out.
+        //
+        // It leaves the module in exactly the state it had before the first frame:
+        // `start()` re-enables the hooks, ExecuteCommandLists re-captures the queue and
+        // ensure_initialised() builds everything again.
+
+        void shutdown_render()
+        {
+            if (g_imgui_ready || g_device != nullptr)
+            {
+                wait_for_gpu();
+                destroy_all_map_textures();
+                if (g_imgui_ready)
+                {
+                    if (g_hwnd != nullptr && g_prev_wndproc != nullptr)
+                    {
+                        ::SetWindowLongPtrW(g_hwnd, GWLP_WNDPROC,
+                                            reinterpret_cast<LONG_PTR>(g_prev_wndproc));
+                    }
+                    g_prev_wndproc = nullptr;
+                    ImGui_ImplDX12_Shutdown();
+                    ImGui_ImplWin32_Shutdown();
+                    ImGui::DestroyContext();
+                    g_imgui_ready = false;
+                }
+                release_render_targets();
+                for (UINT i = 0; i < kMaxBuffers; ++i)
+                {
+                    safe_release(g_frames[i].allocator);
+                    g_frames[i].fence_value = 0;
+                }
+                safe_release(g_cmd_list);
+                safe_release(g_fence);
+                if (g_fence_event != nullptr)
+                {
+                    ::CloseHandle(g_fence_event);
+                    g_fence_event = nullptr;
+                }
+                g_fence_value = 0;
+                g_srv_heap.destroy();
+                safe_release(g_device);
+                mm::log(L"master switch: the render thread has released ImGui, the descriptor heaps, "
+                        L"the slice buffers and the map textures");
+            }
+            g_swapchain = nullptr;
+            g_candidates_logged = 0;
+            g_queue.store(nullptr, std::memory_order_release);
+            g_failed = false;
+            g_render_stopped.store(true, std::memory_order_release);
+        }
+
         void render(IDXGISwapChain* swapchain)
         {
+            // THE MASTER SWITCH, first statement. One relaxed atomic load per Present
+            // while the mod is off - and the one Present that first sees it off does the
+            // teardown, because this is the only thread allowed to.
+            if (!mm::mod_active())
+            {
+                if (!g_render_stopped.load(std::memory_order_acquire))
+                {
+                    SpinGuard guard(g_render_lock);
+                    shutdown_render();
+                }
+                return;
+            }
+
             g_present_count.fetch_add(1, std::memory_order_relaxed);
             if (g_failed || g_queue.load(std::memory_order_acquire) == nullptr)
             {
@@ -4519,6 +4617,10 @@ namespace overlay
         HRESULT STDMETHODCALLTYPE hk_ResizeBuffers(IDXGISwapChain* sc, UINT count, UINT w, UINT h, DXGI_FORMAT format,
                                                    UINT flags)
         {
+            if (!mm::mod_active())
+            {
+                return o_ResizeBuffers(sc, count, w, h, format, flags);
+            }
             g_resize_count.fetch_add(1, std::memory_order_relaxed);
             {
                 SpinGuard guard(g_render_lock);
@@ -4549,7 +4651,7 @@ namespace overlay
         void STDMETHODCALLTYPE hk_ExecuteCommandLists(ID3D12CommandQueue* queue, UINT count,
                                                       ID3D12CommandList* const* lists)
         {
-            if (g_queue.load(std::memory_order_relaxed) == nullptr && queue != nullptr)
+            if (mm::mod_active() && g_queue.load(std::memory_order_relaxed) == nullptr && queue != nullptr)
             {
                 const D3D12_COMMAND_QUEUE_DESC desc = queue->GetDesc();
                 if (desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
@@ -4727,12 +4829,13 @@ namespace overlay
                            std::size(g_entry_points));
     }
 
-    void on_unreal_init()
+    void start()
     {
-        mm::set_loop_thread();
-        mm::load_config_file();
         mm::load_waypoint_file();
         mapdata::load(mm::mod_dir());
+
+        // The render thread is allowed to build its objects again from the next frame.
+        g_render_stopped.store(false, std::memory_order_release);
 
         const mm::Config cfg = mm::config();
         if (!cfg.enabled)
@@ -4742,7 +4845,21 @@ namespace overlay
             return;
         }
 
-        install_hooks();
+        if (!g_hooks_created)
+        {
+            g_hooks_created = install_hooks();
+        }
+        else
+        {
+            // Re-enable after a master-switch disable. The trampolines were never
+            // removed, so this can never install a second hook on the same address.
+            const MH_STATUS en = MH_EnableHook(MH_ALL_HOOKS);
+            g_hooks_installed.store(en == MH_OK, std::memory_order_release);
+            g_hook_install_ms = ::GetTickCount64();
+            g_watchdog_reported = false;
+            mm::logf(L"master switch: the existing DX12 hooks were re-enabled (MH_EnableHook = {})",
+                     static_cast<int>(en));
+        }
 
         if (cfg.debug_show_panel_on_start)
         {
@@ -4761,6 +4878,40 @@ namespace overlay
                  cfg.highlight_enabled ? L"on" : L"off",
                  cfg.compass_enabled ? L"on" : L"off");
         mm::drain_log();
+    }
+
+    //======================================================================================
+    // The master switch (loop thread)
+    //======================================================================================
+
+    void request_stop()
+    {
+        // mm::g_mod_active is already false, so the next Present takes the teardown
+        // path. If no frame is coming - the game is minimised, or the hooks never fired
+        // at all - stop_complete() below answers for it.
+        if (!g_hooks_installed.load(std::memory_order_acquire) || g_present_count.load() == 0)
+        {
+            SpinGuard guard(g_render_lock);
+            shutdown_render(); // nothing of ours is in flight; safe from this thread
+        }
+    }
+
+    bool stop_complete()
+    {
+        return g_render_stopped.load(std::memory_order_acquire);
+    }
+
+    void finish_stop()
+    {
+        if (!g_hooks_created)
+        {
+            return;
+        }
+        const MH_STATUS st = MH_DisableHook(MH_ALL_HOOKS);
+        g_hooks_installed.store(false, std::memory_order_release);
+        mm::logf(L"master switch: the DX12 hooks were disabled (MH_DisableHook = {}); the trampolines "
+                 L"stay created so turning the mod back on cannot double-hook",
+                 static_cast<int>(st));
     }
 
     void on_update()

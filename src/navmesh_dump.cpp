@@ -35,6 +35,7 @@
 #include "navmesh_dump.hpp"
 
 #include "mem.hpp"
+#include "mmstate.hpp"
 #include "ue_min.hpp"
 
 #include <Windows.h>
@@ -2556,7 +2557,9 @@ namespace navmesh
 
         void game_thread_pump()
         {
-            if (!g_initialised)
+            // The master switch, first statement - this callback cannot be unregistered
+            // (see modswitch.hpp), so being switched off has to cost one atomic load.
+            if (!mm::mod_active() || !g_initialised)
             {
                 return;
             }
@@ -2662,6 +2665,10 @@ namespace navmesh
 
     void on_unreal_init()
     {
+        if (g_initialised)
+        {
+            return; // the master switch can call this again; never register twice
+        }
         g_out_root = resolve_out_root();
         g_stage_path = g_out_root / L"last_stage.txt";
         g_cfg = load_config();
@@ -2701,6 +2708,10 @@ namespace navmesh
     {
         // UE4SS EVENT-LOOP THREAD. Nothing here may touch g_agents, UObjects or engine
         // memory - it only samples the keyboard and raises a flag for the game thread.
+        if (!mm::mod_active())
+        {
+            return; // the master switch: not even the hotkey is sampled
+        }
         if (!g_initialised)
         {
             return;

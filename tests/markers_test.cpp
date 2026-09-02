@@ -11,7 +11,9 @@
 //   * the category name <-> bitmask mapping the config file and the F2 filter
 //     checkboxes share;
 //   * the wuchang_minimap_found.txt round-trip;
-//   * the stable-id helpers that join the offline DB to the live actors.
+//   * the stable-id helpers that join the offline DB to the live actors;
+//   * the full map's viewport transform and its exact inverse, the zoom clamp, and the
+//     waypoint file round-trip (src/mapview.cpp - same "pure half" idea).
 //
 // Run it with the repo's `markers` directory as argv[1] (build.ps1 does) to include
 // the real sample file in the run; without it the embedded fixtures still cover
@@ -25,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "mapview.hpp"
 #include "markers_db.hpp"
 
 namespace
@@ -68,6 +71,19 @@ namespace
     }
 
 #define CHECK_STR(got, want) check_eq_str((got), (want), #got, __FILE__, __LINE__)
+
+    void check_near(double got, double want, double tol, const char* what, const char* file, int line)
+    {
+        ++g_checks;
+        const double d = got - want;
+        if (!(d >= -tol && d <= tol))
+        {
+            ++g_failures;
+            std::printf("  FAIL  %s: got %.6f, want %.6f (+-%g)   (%s:%d)\n", what, got, want, tol, file, line);
+        }
+    }
+
+#define CHECK_NEAR(got, want, tol) check_near((got), (want), (tol), #got, __FILE__, __LINE__)
 
     void section(const char* name)
     {
@@ -469,6 +485,148 @@ namespace
                                  "BP_ItemRedBox_C_0"),
                   "Chapter1_DGong_logic/BP_ItemRedBox_C_0");
     }
+    //======================================================================================
+    // The full map: viewport math, zoom, waypoint file
+    //======================================================================================
+
+    void test_mapview()
+    {
+        section("full map - the viewport transform");
+
+        mv::Rect r{100.0f, 50.0f, 1000.0f, 650.0f}; // 900 x 600, centre (550, 350)
+        CHECK_NEAR(r.cx(), 550.0, 1e-6);
+        CHECK_NEAR(r.cy(), 350.0, 1e-6);
+        CHECK_NEAR(r.w(), 900.0, 1e-6);
+        CHECK_NEAR(r.h(), 600.0, 1e-6);
+        CHECK(r.contains(100.0f, 50.0f));
+        CHECK(r.contains(1000.0f, 650.0f));
+        CHECK(!r.contains(99.0f, 300.0f));
+        CHECK(!r.contains(500.0f, 651.0f));
+
+        mv::View v{};
+        v.cx = 12000.0;
+        v.cy = -3400.0;
+        v.uu_per_px = 40.0;
+
+        // The centre of the rectangle is the centre of the view, by definition.
+        float sx = 0.0f;
+        float sy = 0.0f;
+        mv::world_to_screen(v, r, v.cx, v.cy, sx, sy);
+        CHECK_NEAR(sx, 550.0, 1e-3);
+        CHECK_NEAR(sy, 350.0, 1e-3);
+
+        // NORTH IS UP and EAST IS RIGHT - the same convention as build_map.py and the
+        // minimap at yaw 0. Getting this backwards is the one bug that would put every
+        // marker in the wrong quadrant, so it is asserted directly rather than only
+        // through the round-trip below.
+        mv::world_to_screen(v, r, v.cx + 400.0, v.cy, sx, sy); // 400 uu north
+        CHECK_NEAR(sx, 550.0, 1e-3);
+        CHECK_NEAR(sy, 350.0 - 10.0, 1e-3); // 400 / 40 = 10 px UP
+        mv::world_to_screen(v, r, v.cx, v.cy + 800.0, sx, sy); // 800 uu east
+        CHECK_NEAR(sx, 550.0 + 20.0, 1e-3); // 20 px RIGHT
+        CHECK_NEAR(sy, 350.0, 1e-3);
+
+        // The inverse is exact over the whole viewport, at several zooms. This is what
+        // makes a click on the map land on the world position it looks like.
+        const double zooms[] = {6.0, 26.0, 55.0, 240.0, 900.0};
+        for (const double z : zooms)
+        {
+            v.uu_per_px = z;
+            for (int i = 0; i <= 8; ++i)
+            {
+                for (int j = 0; j <= 8; ++j)
+                {
+                    const float px = r.x0 + r.w() * static_cast<float>(i) / 8.0f;
+                    const float py = r.y0 + r.h() * static_cast<float>(j) / 8.0f;
+                    double wx = 0.0;
+                    double wy = 0.0;
+                    mv::screen_to_world(v, r, px, py, wx, wy);
+                    float bx = 0.0f;
+                    float by = 0.0f;
+                    mv::world_to_screen(v, r, wx, wy, bx, by);
+                    // Everything is done in doubles and only the result is narrowed, so
+                    // a 1/1000 px tolerance is generous even at 900 uu/px.
+                    CHECK_NEAR(bx, px, 0.001);
+                    CHECK_NEAR(by, py, 0.001);
+                }
+            }
+        }
+
+        // A degenerate zoom must not divide by zero or produce NaN.
+        v.uu_per_px = 0.0;
+        mv::world_to_screen(v, r, 1.0, 2.0, sx, sy);
+        CHECK(sx == sx && sy == sy);
+
+        section("full map - zoom limits");
+
+        CHECK_NEAR(mv::clamp_zoom(50.0, 10.0, 100.0), 50.0, 1e-9);
+        CHECK_NEAR(mv::clamp_zoom(5.0, 10.0, 100.0), 10.0, 1e-9);
+        CHECK_NEAR(mv::clamp_zoom(500.0, 10.0, 100.0), 100.0, 1e-9);
+        // The limits are accepted in either order, and nonsense falls back to the low
+        // limit rather than to a division by zero.
+        CHECK_NEAR(mv::clamp_zoom(50.0, 100.0, 10.0), 50.0, 1e-9);
+        CHECK_NEAR(mv::clamp_zoom(0.0, 10.0, 100.0), 10.0, 1e-9);
+        CHECK_NEAR(mv::clamp_zoom(-3.0, 10.0, 100.0), 10.0, 1e-9);
+
+        // Positive notches zoom IN (fewer uu per pixel), and a whole notch is exactly
+        // the factor.
+        CHECK_NEAR(mv::zoom_by(100.0, 1.0, 1.25, 1.0, 1000.0), 80.0, 1e-9);
+        CHECK_NEAR(mv::zoom_by(100.0, -1.0, 1.25, 1.0, 1000.0), 125.0, 1e-9);
+        CHECK_NEAR(mv::zoom_by(100.0, 2.0, 1.25, 1.0, 1000.0), 64.0, 1e-9);
+        // Zooming always stops at the limits, however many notches arrive.
+        CHECK_NEAR(mv::zoom_by(100.0, 50.0, 1.25, 6.0, 900.0), 6.0, 1e-9);
+        CHECK_NEAR(mv::zoom_by(100.0, -50.0, 1.25, 6.0, 900.0), 900.0, 1e-9);
+        // A no-op factor or no notches leaves the (clamped) zoom alone.
+        CHECK_NEAR(mv::zoom_by(100.0, 3.0, 1.0, 6.0, 900.0), 100.0, 1e-9);
+        CHECK_NEAR(mv::zoom_by(100.0, 0.0, 1.25, 6.0, 900.0), 100.0, 1e-9);
+        CHECK_NEAR(mv::zoom_by(2.0, 0.0, 1.25, 6.0, 900.0), 6.0, 1e-9);
+
+        section("full map - the waypoint file");
+
+        mv::Waypoint wp{};
+        wp.set = true;
+        wp.x = 18176.671875;
+        wp.y = -13905.2109375;
+        wp.z = -7641.22;
+        const std::string text = mv::waypoint_serialize(wp);
+        mv::Waypoint back{};
+        CHECK(mv::waypoint_parse(text, back));
+        CHECK(back.set);
+        // The round-trip is EXACT: the file is written at 17 significant digits, so a
+        // waypoint survives a save/load with no drift at all.
+        CHECK(back.x == wp.x);
+        CHECK(back.y == wp.y);
+        CHECK(back.z == wp.z);
+
+        // A cleared waypoint round-trips as cleared, not as "at the origin".
+        mv::Waypoint none{};
+        mv::Waypoint none_back{};
+        none_back.set = true;
+        CHECK(mv::waypoint_parse(mv::waypoint_serialize(none), none_back));
+        CHECK(!none_back.set);
+
+        // Hand-written files: a BOM, CRLF, comments, spacing, and no `set` line at all.
+        mv::Waypoint hand{};
+        CHECK(mv::waypoint_parse("\xEF\xBB\xBF; mine\r\n  x =  100.5 \r\ny=-200\r\n; z is optional\r\n",
+                                 hand));
+        CHECK(hand.set);
+        CHECK_NEAR(hand.x, 100.5, 1e-9);
+        CHECK_NEAR(hand.y, -200.0, 1e-9);
+        CHECK_NEAR(hand.z, 0.0, 1e-9);
+
+        // Anything without a usable x AND y is rejected, and the caller's value is left
+        // untouched - a corrupt file must never move an existing waypoint.
+        mv::Waypoint keep{};
+        keep.set = true;
+        keep.x = 7.0;
+        CHECK(!mv::waypoint_parse("", keep));
+        CHECK(!mv::waypoint_parse("set = 1\n", keep));
+        CHECK(!mv::waypoint_parse("x = 1\n", keep));
+        CHECK(!mv::waypoint_parse("x = hello\ny = 3\n", keep));
+        CHECK(!mv::waypoint_parse("; only a comment\n", keep));
+        CHECK(keep.set);
+        CHECK_NEAR(keep.x, 7.0, 1e-9);
+    }
 } // namespace
 
 int main(int argc, char** argv)
@@ -482,6 +640,7 @@ int main(int argc, char** argv)
     test_categories();
     test_found_file();
     test_ids();
+    test_mapview();
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

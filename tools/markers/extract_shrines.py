@@ -71,6 +71,7 @@ sys.path.insert(0, os.path.join(_HERE, "..", "navmesh", "offline"))
 
 import pakmaps                                              # noqa: E402
 import build_items as BI                                    # noqa: E402
+import provenance                                           # noqa: E402
 from uprops import parse_header                             # noqa: E402
 
 SCHEMA = "wuchang-minimap-shrines/1"
@@ -244,7 +245,13 @@ def shrine_names(ms, lang: str = "en", verbose: bool = False) -> dict[str, str]:
 
 
 def marker_positions(markers_dir: str) -> dict[str, dict]:
-    """`shrine id -> {chapter, x, y, z}` from the marker DB already shipped."""
+    """`shrine marker id -> {chapter, x, y, z, fp, level}` from the marker DB.
+
+    The key is the MARKER id, which is the authored fire-point id except when
+    two shrines share one - then `extract_markers.py` appends `@<level>/<obj>`
+    to keep ids unique.  `fp` carries the authored id either way, so a caller
+    can join on the table and still tell the two apart.
+    """
     out: dict[str, dict] = {}
     if not os.path.isdir(markers_dir):
         return out
@@ -263,11 +270,15 @@ def marker_positions(markers_dir: str) -> dict[str, dict]:
             if not mid or mid in out:
                 continue
             out[mid] = {"chapter": m.get("chapter", ch), "x": m.get("x"),
-                        "y": m.get("y"), "z": m.get("z")}
+                        "y": m.get("y"), "z": m.get("z"),
+                        "fp": m.get("fp") or mid.split("@")[0],
+                        "level": m.get("level"), "name": m.get("name")}
     return out
 
 
-def build(ms, markers_dir: str, lang: str = "en", verbose: bool = True) -> dict:
+def build(ms, markers_dir: str, lang: str = "en", verbose: bool = True,
+          prov: dict | None = None) -> dict:
+    prov = prov if prov is not None else {}
     loc = BI.read_locres(ms.read(BI.LOCRES.format(lang=lang)))
     rows = read_rows(ms)
     joined = marker_positions(markers_dir)
@@ -276,6 +287,27 @@ def build(ms, markers_dir: str, lang: str = "en", verbose: bool = True) -> dict:
     placed = 0
     per_chapter: collections.Counter = collections.Counter()
     shrines = []
+    # Review item C.4: the seven DLC shrines were missing from this file
+    # entirely, so the full map's Shrines panel had no DLC section and their ids
+    # never reached the lit/unlocked join.  The reason is not a decoding gap -
+    # **this build's `DT_FirePoint` has no DLC rows at all**.  Its 88 rows cover
+    # chapters 1-5 and its name map does not contain `BaiYS01`, `BaiYS02`,
+    # `borencl01`, `borencl02`, `LiuHKK01` or `pinmingk01`; there is no second
+    # fire-point table anywhere in the paks (one `DT_FirePoint` in
+    # `Content/Game/DataTables` from the `_1_P` pak, one 49-byte stub in
+    # `Content/DynamicCombatSystem`), no `Chapt6`/`ChapterDLC` folder under
+    # `Content/Scene/3D/Others/FirePoint/`, and no DLC area name among the
+    # `ui_*` keys.  The same absence is why `build_bossdoors.py` reports the
+    # DLC boss as one of the two `bosses_without_a_door`.
+    #
+    # So a DLC shrine gets everything the marker DB knows - id, chapter,
+    # position, the authored fire-point id - and no `name`, because the game
+    # does not have one to give.  `source` says which half of the pipeline the
+    # row came from, so "no name" is never mistaken for "the name failed to
+    # decode".
+    table_ids = {r["id"] for r in rows}
+    extra = [(mid, m) for mid, m in sorted(joined.items())
+             if m["fp"] not in table_ids and mid not in table_ids]
     for r in rows:
         rec = {"id": r["id"]}
         if r["bx"] is not None:
@@ -308,6 +340,31 @@ def build(ms, markers_dir: str, lang: str = "en", verbose: bool = True) -> dict:
             per_chapter[chapter] += 1
         shrines.append(rec)
 
+    for mid, m in extra:
+        rec = {"id": mid, "shrine": True, "source": "marker"}
+        if m["fp"] != mid:
+            rec["fp"] = m["fp"]
+        # The marker's own label ("Shrine LiuHKK01"), not a locres name, and that
+        # is why it is not counted in `named`. `shdb::Shrine::label()` would
+        # otherwise fall back to the raw id, which for a duplicated fire point is
+        # the whole `LiuHKK01@ChapterDLC_LiuHuangKK_logic/BP_RebornFire_C_0`
+        # string - unreadable in the shrine list. The two `LiuHKK01` rows get the
+        # SAME label on purpose: they are the same authored fire point, the game
+        # keeps one unlock flag for it, and `level` is what tells them apart.
+        if m.get("name"):
+            rec["name"] = m["name"]
+        if m["x"] is not None:
+            rec["x"] = round(float(m["x"]), 2)
+            rec["y"] = round(float(m["y"]), 2)
+            rec["z"] = round(float(m["z"]), 2)
+        if m.get("chapter") is not None:
+            rec["chapter"] = int(m["chapter"])
+            per_chapter[int(m["chapter"])] += 1
+        if m.get("level"):
+            rec["level"] = m["level"]
+        placed += 1
+        shrines.append(rec)
+
     shrines.sort(key=lambda s: (s.get("chapter", 99), s.get("name", ""), s["id"]))
     if verbose:
         with_pos = sum(1 for s in shrines if "bx" in s)
@@ -319,8 +376,13 @@ def build(ms, markers_dir: str, lang: str = "en", verbose: bool = True) -> dict:
         if missing:
             print(f"    no name for {len(missing)}: {', '.join(missing[:12])}"
                   + (" ..." if len(missing) > 12 else ""))
+    if verbose and extra:
+        print(f"    + {len(extra)} shrine(s) with no DT_FirePoint row, from the "
+              f"marker DB: {', '.join(m for m, _ in extra)}")
     return {"schema": SCHEMA, "count": len(shrines), "named": named,
-            "placed": placed, "shrines": shrines}
+            "placed": placed, "from_table": len(rows), "from_markers": len(extra),
+            "generated_by": "tools/markers/extract_shrines.py",
+            "shrines": shrines, **prov}
 
 
 def main() -> int:
@@ -331,10 +393,12 @@ def main() -> int:
     ap.add_argument("--markers", default=os.path.join(_HERE, "..", "..", "markers"))
     ap.add_argument("--lang", default="en")
     ap.add_argument("--stats", action="store_true")
+    provenance.add_arg(ap)
     args = ap.parse_args()
 
     ms = pakmaps.MapSource(args.pak)
-    db = build(ms, os.path.abspath(args.markers), args.lang)
+    db = build(ms, os.path.abspath(args.markers), args.lang,
+               prov=provenance.stamp(ms, args.pak, not args.no_pak_hash))
     if args.stats:
         for s in db["shrines"]:
             print(f"  {s.get('chapter', '?'):>3}  {s['id']:<24} {s.get('name', '')}")

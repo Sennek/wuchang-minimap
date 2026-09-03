@@ -22,6 +22,15 @@ namespace mdb
             "Notes",   "Doors",  "Ladders", "Lifts",  "Fog gates", "Hidden", "Other",
         };
 
+        // The last-resort SINGULAR word for one marker, used when nothing better is
+        // known. `cat_label` is the plural filter title ("Chests") and reads wrong on a
+        // single glyph; "Marker" is deliberately vague for `other`, because that bucket
+        // holds whatever the classifier could not place.
+        constexpr const char* kCatWords[kCatCount] = {
+            "Shrine", "Chest", "Item",  "Boss", "Elite",     "Enemy",  "NPC",
+            "Note",   "Door",  "Ladder", "Lift", "Fog gate", "Hidden item", "Marker",
+        };
+
         // Renamed categories: {what an older file says, what it means now}. Kept for
         // one release, so a 0.9.4 config or a stale `markers/` folder still parses.
         struct LegacyCatName
@@ -90,6 +99,55 @@ namespace mdb
     {
         const int i = static_cast<int>(cat);
         return (i >= 0 && i < kCatCount) ? kCatLabels[i] : "Other";
+    }
+
+    const char* cat_word(Cat cat)
+    {
+        const int i = static_cast<int>(cat);
+        return (i >= 0 && i < kCatCount) ? kCatWords[i] : "Marker";
+    }
+
+    bool looks_like_class_name(std::string_view text)
+    {
+        const std::string_view t = trim(text);
+        if (t.empty())
+        {
+            return false; // empty is not a class name, it is simply no label
+        }
+        // The two shapes a cooked blueprint class takes in this game: a `BP_` prefix
+        // (`BP_DropItem_C`, `BP_PickupActor_C`) and the `_C` suffix every generated class
+        // carries (`DKDC_NPC_C`, `Impl_BaseAIController_C`, `ItemCollectionBox_C`).
+        if (t.size() >= 3 && lower(t[0]) == 'b' && lower(t[1]) == 'p' && (t[2] == '_' || t[2] == '-'))
+        {
+            return true;
+        }
+        if (t.size() >= 2 && t[t.size() - 2] == '_' && lower(t[t.size() - 1]) == 'c')
+        {
+            return true;
+        }
+        // And the third shape, which is ours: `pickup_actor` - the snake_case
+        // transliteration an older label path produced from a class name. Anything with
+        // no space and an underscore, all lower case, is not a display name in this game
+        // (every real one is either English prose or a proper noun).
+        bool has_underscore = false;
+        bool has_space = false;
+        bool has_upper = false;
+        for (const char c : t)
+        {
+            has_underscore = has_underscore || c == '_';
+            has_space = has_space || c == ' ';
+            has_upper = has_upper || (c >= 'A' && c <= 'Z');
+        }
+        return has_underscore && !has_space && !has_upper;
+    }
+
+    const char* display_label(Cat cat, const char* raw)
+    {
+        if (raw == nullptr || raw[0] == '\0' || looks_like_class_name(raw))
+        {
+            return cat_word(cat);
+        }
+        return raw;
     }
 
     bool cat_from_name(std::string_view name, Cat& out)
@@ -550,6 +608,68 @@ namespace mdb
         }
         tail = trim(tail);
         return std::string{tail};
+    }
+
+    bool parse_items_json(std::string_view text, std::unordered_map<int, std::string>& out,
+                          std::string& error)
+    {
+        error.clear();
+        out.clear();
+        if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
+            static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
+        {
+            text = text.substr(3);
+        }
+        mjson::JValue root{};
+        if (!mjson::JParser{text}.parse(root) || root.kind != mjson::JValue::Kind::Object)
+        {
+            error = "not valid JSON, or the top level is not an object";
+            return false;
+        }
+        const mjson::JValue* schema = root.find("schema");
+        const std::string schema_str = schema != nullptr ? schema->string_or("") : "";
+        // Any minor of the item database: this reader only wants {id -> name}, which
+        // schema /1 and /2 both carry (/2 added the type and quality fields).
+        constexpr std::string_view kWant = "wuchang-minimap-items/";
+        if (schema_str.compare(0, kWant.size(), kWant) != 0)
+        {
+            error = "unexpected schema \"" + schema_str + "\" (want " + std::string(kWant) + "N)";
+            return false;
+        }
+        const mjson::JValue* items = root.find("items");
+        if (items == nullptr || items->kind != mjson::JValue::Kind::Object || !items->obj)
+        {
+            error = "no \"items\" object";
+            return false;
+        }
+        // The keys are the numeric item ids, as strings, exactly as the game's own
+        // DataTable row FNames are (they are numbers, which is why the row list was
+        // readable without a .usmap in the first place).
+        for (const auto& kv : *items->obj)
+        {
+            if (kv.first.empty())
+            {
+                continue;
+            }
+            char* end = nullptr;
+            const long id = std::strtol(kv.first.c_str(), &end, 10);
+            if (end == nullptr || *end != '\0' || id <= 0 || id > 1000000)
+            {
+                continue;
+            }
+            const mjson::JValue* name = kv.second.find("name");
+            if (name == nullptr || name->kind != mjson::JValue::Kind::String || name->str.empty())
+            {
+                continue;
+            }
+            out.emplace(static_cast<int>(id), name->str);
+        }
+        if (out.empty())
+        {
+            error = "\"items\" carries no named entry";
+            return false;
+        }
+        return true;
     }
 
     std::string stable_id(std::string_view level, std::string_view object_name)

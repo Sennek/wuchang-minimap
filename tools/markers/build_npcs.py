@@ -124,8 +124,11 @@ NOT_PEOPLE = {
 # character mesh at all, its only interaction string is `ui_263` = "Check", and
 # it spawns the `NS_Hint01` hint particle.  `ReadPointSP_NPC_C` (14 markers,
 # `NS_Hint01_Blue`) and `Letter01_NPC_C` (1) are the same thing.  So they are
-# readable inscriptions / notes, and "Reading point" is what they get: a
-# description, never a character's name, so it cannot be wrong about identity.
+# readable inscriptions / notes, and **"Note"** is what they get: a description,
+# never a character's name, so it cannot be wrong about identity - and the same
+# word the category itself uses.  "Reading point" was our internal description of
+# the CLASS; on the map it made a note's glyph and its label disagree about what
+# the thing is, and the label is the half the player reads.
 # All three are typed `note` by `marker_classes.EXACT` (the user's call on
 # 2026-09-03; the `NPC` regex would otherwise have typed the last two `npc`).
 #
@@ -134,9 +137,9 @@ NOT_PEOPLE = {
 # dialogue / DataTable / StringTable assets for `NPC_DG_READ08` finds nothing,
 # so the DialoguePlugin resolves them at runtime from data not in the paks.
 READ_POINT = {
-    "DKDC_NPC_C": "Reading point",
-    "ReadPointSP_NPC_C": "Reading point",
-    "Letter01_NPC_C": "Reading point",
+    "DKDC_NPC_C": "Note",
+    "ReadPointSP_NPC_C": "Note",
+    "Letter01_NPC_C": "Note",
 }
 
 # `BP_WeaponRefrom_C` is the weapon-reforge station (its only string is

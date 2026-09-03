@@ -4399,7 +4399,10 @@ namespace overlay
                 {
                     const Shown& sh = shown[i];
                     const mdb::Cat cat = static_cast<mdb::Cat>(sh.cat);
-                    const char* name = sh.m->label[0] != '\0' ? sh.m->label : mdb::cat_label(cat);
+                    // NEVER A CLASS NAME. `mdb::display_label` refuses a label that is
+                    // one (an enemy's dropped loot used to read `BP_PickupActor_C 1 m`)
+                    // and falls back to the category's plain singular word.
+                    const char* name = mdb::display_label(cat, sh.m->label);
                     const std::string text =
                         std::format("{}  {:.0f} m{}", name, sh.dist / 100.0, sh.found ? "  (found)" : "");
                     const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
@@ -5763,7 +5766,7 @@ namespace overlay
                 ImGui::BeginTooltip();
                 const mdb::Cat cat = static_cast<mdb::Cat>(hover->cat);
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(marker_color(cat, 255)), "%s",
-                                   hover->label[0] != '\0' ? hover->label : mdb::cat_label(cat));
+                                   mdb::display_label(cat, hover->label));
                 ImGui::Text("category: %s", mdb::cat_name(cat));
                 // The stable id is a path (`Chapter1_DGong_logic/BP_treasurebox_C_12`).
                 // It is the join key with the live actors and is exactly what a bug

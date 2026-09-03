@@ -2885,6 +2885,90 @@ namespace
             CHECK_EQ(streak, 1);
         }
 
+        section("no user-facing label is ever a class name");
+
+        // The three shapes a class name takes in this game, and the one our own older
+        // label path produced.
+        CHECK(mdb::looks_like_class_name("BP_PickupActor_C"));
+        CHECK(mdb::looks_like_class_name("BP_DropItem_C"));
+        CHECK(mdb::looks_like_class_name("BP_treasurebox_C"));
+        CHECK(mdb::looks_like_class_name("DKDC_NPC_C"));
+        CHECK(mdb::looks_like_class_name("Impl_BaseAIController_C"));
+        CHECK(mdb::looks_like_class_name("ItemCollectionBox_C"));
+        CHECK(mdb::looks_like_class_name("pickup_actor"));
+        CHECK(mdb::looks_like_class_name("  BP_Wumen_C  ")); // trimmed first
+
+        // Real display names must all survive. Every one of these is a name that the
+        // shipped manifests actually carry, including the tricky ones: an apostrophe, a
+        // '+1' suffix, a two-word category label used as a name, and a proper noun.
+        CHECK(!mdb::looks_like_class_name("Cloudfrost's Edge"));
+        CHECK(!mdb::looks_like_class_name("Cloudfrost's Edge +1"));
+        CHECK(!mdb::looks_like_class_name("Blood of Wangdi"));
+        CHECK(!mdb::looks_like_class_name("Huang Jian'e"));
+        CHECK(!mdb::looks_like_class_name("Note"));
+        CHECK(!mdb::looks_like_class_name("Fog gate"));
+        CHECK(!mdb::looks_like_class_name("Commander Honglan"));
+        CHECK(!mdb::looks_like_class_name(""));    // no label, not a class name
+        CHECK(!mdb::looks_like_class_name("Ash")); // three letters, no underscore
+
+        // Every category has a non-empty singular word, and none of them is itself a
+        // class name (which would defeat the whole point of the fallback).
+        for (int c = 0; c < mdb::kCatCount; ++c)
+        {
+            const auto cat = static_cast<mdb::Cat>(c);
+            const char* w = mdb::cat_word(cat);
+            CHECK(w != nullptr && w[0] != '\0');
+            CHECK(!mdb::looks_like_class_name(w));
+        }
+
+        // display_label: a real name passes through; empty and class names become the
+        // category word. This is what the x-ray and the map tooltip both call.
+        CHECK_STR(mdb::display_label(mdb::Cat::Pickup, "Blood of Wangdi"), "Blood of Wangdi");
+        CHECK_STR(mdb::display_label(mdb::Cat::Pickup, "BP_PickupActor_C"), "Item");
+        CHECK_STR(mdb::display_label(mdb::Cat::Pickup, ""), "Item");
+        CHECK_STR(mdb::display_label(mdb::Cat::Pickup, nullptr), "Item");
+        CHECK_STR(mdb::display_label(mdb::Cat::Enemy, "Impl_BaseAIController_C"), "Enemy");
+        CHECK_STR(mdb::display_label(mdb::Cat::Note, "DKDC_NPC_C"), "Note");
+        CHECK_STR(mdb::display_label(mdb::Cat::Npc, "BP_NPC_C"), "NPC");
+        CHECK_STR(mdb::display_label(mdb::Cat::Chest, "BP_treasurebox_C"), "Chest");
+
+        section("markers/items.json at runtime (names for loot an enemy drops)");
+
+        {
+            std::unordered_map<int, std::string> names;
+            std::string err;
+            CHECK(mdb::parse_items_json(
+                R"({"schema":"wuchang-minimap-items/2","items":{
+                     "20001":{"name":"Ancient Chisel","des":"long text"},
+                     "22107":{"name":"Faint Red Feather"},
+                     "10000":{"name":"Cloudfrost's Edge","rarity":1}}})",
+                names, err));
+            CHECK_STR(err.c_str(), "");
+            CHECK_EQ(static_cast<int>(names.size()), 3);
+            CHECK_STR(names[20001].c_str(), "Ancient Chisel");
+            CHECK_STR(names[10000].c_str(), "Cloudfrost's Edge");
+
+            // Schema /1 is accepted too: this reader only wants {id -> name} and both
+            // minors carry it.
+            CHECK(mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/1","items":{"1":{"name":"x"}}})",
+                                        names, err));
+            // Anything else is refused rather than guessed at.
+            CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-markers/1","items":{}})", names, err));
+            CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/2"})", names, err));
+            CHECK(!mdb::parse_items_json("not json", names, err));
+            // A named entry is required: an empty table would silently disable the
+            // feature and look like the file was fine.
+            CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/2","items":{}})", names, err));
+            // Non-numeric keys and entries with no usable name are skipped, not fatal.
+            CHECK(mdb::parse_items_json(
+                R"({"schema":"wuchang-minimap-items/2","items":{
+                     "notanid":{"name":"x"},"20002":{"des":"no name"},"20003":{"name":""},
+                     "20004":{"name":"Real"}}})",
+                names, err));
+            CHECK_EQ(static_cast<int>(names.size()), 1);
+            CHECK_STR(names[20004].c_str(), "Real");
+        }
+
         section("is this character dead? (the three-way health answer)");
 
         // A read that did not answer is UNKNOWN, never dead. Guessing dead erases living

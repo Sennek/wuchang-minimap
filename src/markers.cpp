@@ -452,9 +452,25 @@ namespace markers
             // suppresses both halves at the publish point.
             bool dead = false;
             std::uint64_t round = 0;
+            // The display name, when one could be resolved for a LIVE-ONLY actor (an
+            // enemy's dropped loot). Empty means "nothing better than the category word
+            // is known" - and the category word is what gets drawn, never the class name.
+            std::string label;
         };
 
         std::unordered_map<std::string, LiveEntry> g_live;
+
+        // markers/items.json, {item id -> display name}. Read once per DB load on the
+        // loop thread, then read-only from the game thread.
+        std::unordered_map<int, std::string> g_item_names;
+        // UObject* -> the item name resolved for it (empty = "asked, and there is none").
+        // Memoised because the sweep sees the same drop every round and the answer cannot
+        // change: an actor's item id is set when it is spawned. Dropped with every other
+        // world-keyed cache.
+        std::unordered_map<const void*, std::string> g_drop_name;
+        // The property that reached the item id on a given class, so the walk happens
+        // once per class and the log says which route won.
+        std::unordered_map<const void*, int> g_item_prop;
 
         const void* g_world = nullptr;
         std::uint64_t g_round = 0;
@@ -996,6 +1012,152 @@ namespace markers
             return answer == mdb::Health::Dead;
         }
 
+        //==============================================================================
+        // The item name of a runtime-spawned pickup (game thread)
+        //==============================================================================
+        //
+        // WHY. An enemy drops a `BP_DropItem_C`. It is spawned while you play, so it has
+        // no entry in `markers/chapter*.json` and no name - and the x-ray labelled it
+        // `BP_PickupActor_C 1 m`, which is the CLASS SPEC's base class out of
+        // `kClasses[]`: not the actor's class, not a name, and not something a player
+        // should ever be shown.
+        //
+        // WHERE THE ID IS. The offline extractor already reads it out of the cooked
+        // package: `BP_PickupActor_C` and its descendants serialise an inline `Items`
+        // array of `int32 ID, int32 Amount` pairs, ids in the 10000..40000 band, and
+        // `ids[0]` of the FIRST array is the item (`context/item-names-research.md`; the
+        // designer labels embedded in the exports validate it 25/25 and 1046/1046 exports
+        // yield a real DataTable row). At runtime that same array is a reflected
+        // `TArray` UPROPERTY, so it is a 16-byte header read plus one int32.
+        //
+        // WHAT IS VALIDATED AND WHY IT HAS TO BE. Neither the element STRIDE nor the
+        // position of `ID` inside the element can be checked offline - the element is a
+        // blueprint struct and could carry more members - so the answer is accepted only
+        // when it is an id `markers/items.json` actually knows. That is the same
+        // self-validating-signature rule the navmesh dumper's `dtNavMeshParams` scan and
+        // the offline `ITEM_ARRAY_INDEX` table were both written under: never hard-code
+        // an ordinal that a witness in the data can confirm instead.
+        //
+        // The candidate arrays, in the order the extractor found them meaningful. The
+        // first one whose leading int32 is a known item id wins, and the winning property
+        // is cached per class.
+        constexpr const wchar_t* kItemArrayProps[] = {
+            L"Items",                    // the one BP_PickupActor_C writes (1044/1046)
+            L"首次拾取道具内容", // "first pickup contents"
+            L"ItemResult",
+            L"CustomedItems",
+        };
+        constexpr int kItemArrayCount = static_cast<int>(std::size(kItemArrayProps));
+
+        // The byte offsets inside the first element at which `ID` may sit. 0 is the
+        // serialized order; 4 covers a struct that leads with the amount.
+        constexpr int kItemIdOffsets[] = {0, 4};
+
+        bool lookup_item_name(int id, std::string& out)
+        {
+            const auto it = g_item_names.find(id);
+            if (it == g_item_names.end())
+            {
+                return false;
+            }
+            out = it->second;
+            return true;
+        }
+
+        // Reads `prop` as a TArray header and tries to pull a KNOWN item id out of its
+        // first element. Returns the name.
+        bool item_name_from_array(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
+                                  std::string& out)
+        {
+            struct TArrayRaw
+            {
+                void* data = nullptr;
+                std::int32_t num = 0;
+                std::int32_t max = 0;
+            };
+            TArrayRaw arr{};
+            if (!uer::read_prop(layout, actor, prop, arr, static_cast<int>(sizeof(TArrayRaw))))
+            {
+                return false;
+            }
+            if (arr.num <= 0 || arr.num > 256 || arr.max < arr.num || !mem::plausible_ptr(arr.data) ||
+                !mem::readable(arr.data, 64))
+            {
+                return false;
+            }
+            for (const int off : kItemIdOffsets)
+            {
+                std::int32_t id = 0;
+                if (!mem::read_at(arr.data, static_cast<std::size_t>(off), id))
+                {
+                    continue;
+                }
+                if (id > 0 && lookup_item_name(id, out))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // The display name of a pickup-family actor, or an empty string. Memoised per
+        // actor; the class-level route is memoised too and logged once.
+        const std::string& resolve_item_name(UObject* actor)
+        {
+            static const std::string kNone{};
+            if (actor == nullptr || g_item_names.empty())
+            {
+                return kNone;
+            }
+            const auto cached = g_drop_name.find(actor);
+            if (cached != g_drop_name.end())
+            {
+                return cached->second;
+            }
+            const uer::ClassLayout* layout = g_layouts.get(actor);
+            UClass* cls = actor->GetClassPrivate();
+            std::string name;
+            int winner = -1;
+            const auto known = cls != nullptr ? g_item_prop.find(cls) : g_item_prop.end();
+            if (known != g_item_prop.end())
+            {
+                if (known->second >= 0 &&
+                    item_name_from_array(layout, actor, kItemArrayProps[known->second], name))
+                {
+                    winner = known->second;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < kItemArrayCount; ++i)
+                {
+                    if (item_name_from_array(layout, actor, kItemArrayProps[i], name))
+                    {
+                        winner = i;
+                        break;
+                    }
+                }
+                if (cls != nullptr)
+                {
+                    if (g_item_prop.size() > g_class_cache_max)
+                    {
+                        g_item_prop.clear();
+                    }
+                    g_item_prop.emplace(cls, winner);
+                    mm::logf(L"markers: item-name route on '{}' is {} (first resolved name '{}')",
+                             safe_class_name(actor),
+                             winner >= 0 ? std::wstring{kItemArrayProps[winner]}
+                                         : std::wstring{L"(none - no array holds a known item id)"},
+                             widen(name));
+                }
+            }
+            if (g_drop_name.size() > g_id_cache_max)
+            {
+                g_drop_name.clear();
+            }
+            return g_drop_name.emplace(actor, winner >= 0 ? std::move(name) : std::string{}).first->second;
+        }
+
         // Is this shrine marker's id in the save's UnlockedFirepoints list?
         //
         // The offline extractor de-duplicates a shrine id that the game itself reuses
@@ -1347,6 +1509,10 @@ namespace markers
                 {
                     e.found = true;
                 }
+                // The item's own name, for the case that has none in the static DB: loot
+                // an enemy dropped. Memoised per actor, so this is one hash lookup per
+                // pickup per round after the first sight of it.
+                e.label = resolve_item_name(actor);
                 break;
             }
             case Rule::Proximity:
@@ -2009,9 +2175,16 @@ namespace markers
                     d.flags |= kFlagFound;
                 }
                 copy_id(d.id, sizeof(d.id), kv.first);
-                if (kv.second.cls != nullptr)
+                // THE LABEL OF A LIVE-ONLY MARKER IS NEVER ITS CLASS NAME. It used to be
+                // `narrow_ascii(kv.second.cls)`, i.e. the CLASS SPEC's name out of
+                // kClasses[] - so an enemy's dropped loot read `BP_PickupActor_C 1 m`
+                // through the wall (and that is not even its class: the actor is a
+                // `BP_DropItem_C`). A resolved item name is used when there is one;
+                // otherwise the label is left EMPTY and every drawing site turns that
+                // into the category's plain word through mdb::display_label().
+                if (!kv.second.label.empty())
                 {
-                    copy_id(d.label, sizeof(d.label), narrow_ascii(kv.second.cls));
+                    copy_id(d.label, sizeof(d.label), kv.second.label);
                 }
                 dst.push_back(d);
             }
@@ -2268,6 +2441,34 @@ namespace markers
             g_stats = s;
         }
 
+        // markers/items.json -> {item id -> display name}, for the loot an enemy DROPS.
+        // A runtime-spawned `BP_DropItem_C` has no static twin and therefore no name of
+        // its own; its item id is readable off the actor (see resolve_item_name), and this
+        // is the other half of the join. Missing file = no runtime item names, which is a
+        // worse label and not an error: the file is a toolchain artifact and package.ps1
+        // only ships it when it has been built.
+        void load_item_names(const std::wstring& dir)
+        {
+            g_item_names.clear();
+            const std::wstring path = dir + L"\\items.json";
+            std::string text;
+            if (!read_whole_file(path, text))
+            {
+                mm::logf(L"markers: {} not found - loot dropped by enemies will be labelled by "
+                         L"category rather than by item name",
+                         path);
+                return;
+            }
+            std::string error;
+            if (!mdb::parse_items_json(text, g_item_names, error))
+            {
+                mm::logf(L"markers: {} rejected - {}", path, widen(error));
+                g_item_names.clear();
+                return;
+            }
+            mm::logf(L"markers: {} -> {} item name(s) for runtime drops", path, g_item_names.size());
+        }
+
         void load_static_db()
         {
             const std::wstring dir = markers_dir();
@@ -2389,6 +2590,7 @@ namespace markers
                 mm::logf(L"markers: static database ready - {} marker(s) from {} file(s)", db->markers.size(), files);
             }
             g_db.store(db.release(), std::memory_order_release); // deliberately leaked on reload
+            load_item_names(dir);
         }
 
         void load_found_file()
@@ -2734,6 +2936,8 @@ namespace markers
         g_class_spec.clear();
         g_health_prop.clear();   // the discovered route is keyed to a UClass* of that world
         g_health_fields.clear(); // ditto: the field spelling is cached per component class
+        g_drop_name.clear();     // keyed on the ACTOR: a recycled allocation must not
+        g_item_prop.clear();     // hand a new drop the old one's item name
         g_id_cache.clear();
         g_live.clear();
         // Both are keyed to the world that just went: a level name means nothing in the

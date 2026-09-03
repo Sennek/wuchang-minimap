@@ -85,7 +85,7 @@
   "DKDC_NPC_C": {
    "dir": "NPC_DKDC",
    "key": null,
-   "name": "Reading point",
+   "name": "Note",
    "via": "read-point"
   },
   "DY_NPC_C": {
@@ -205,7 +205,7 @@
   "Letter01_NPC_C": {
    "dir": "NPC_DKDC",
    "key": null,
-   "name": "Reading point",
+   "name": "Note",
    "via": "read-point"
   },
   "MG_NPC_C": {
@@ -295,7 +295,7 @@
   "ReadPointSP_NPC_C": {
    "dir": "NPC_ReadPoint",
    "key": null,
-   "name": "Reading point",
+   "name": "Note",
    "via": "read-point"
   },
   "SJA_NPC_C": {

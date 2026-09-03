@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "chapterid.hpp"
@@ -72,6 +73,38 @@ namespace mdb
 
     // The short label shown next to the F2 filter checkbox.
     const char* cat_label(Cat cat);
+
+    //==========================================================================
+    // NO USER-FACING LABEL MAY EVER BE A CLASS NAME
+    //==========================================================================
+    //
+    // A marker's label is the display name the offline extractor resolved, and for the
+    // 3 601 static markers it always is one. A LIVE-ONLY entry has no static twin to take
+    // a name from, so it used to be labelled with the CLASS SPEC's name out of
+    // markers.cpp's `kClasses[]` - which is a base class, so an enemy-dropped item read
+    // `BP_PickupActor_C 1 m` in the x-ray even though the actor is a `BP_DropItem_C`, and
+    // that is not even the right class name, let alone a name.
+    //
+    // Two functions, and both are needed:
+    //   * `looks_like_class_name()` recognises the shapes this game's blueprints take
+    //     (`BP_...`, anything ending `_C`, an all-lowercase `pickup_actor`-style
+    //     transliteration of one), so a label that is really a class name can be refused
+    //     wherever it comes from - the runtime, a hand-edited manifest, a future class
+    //     table;
+    //   * `cat_word()` is the FINAL fallback: one plain singular word per category, so
+    //     the worst label the player can ever see is "Item" or "Enemy".
+    //
+    // Deliberately not a template on the drawing code: the same two rules have to hold
+    // for the x-ray label, the minimap tooltip and the compass pip, and three copies of
+    // "is this a class name" is how the third one ends up worded differently.
+    bool looks_like_class_name(std::string_view text);
+
+    // A plain singular word per category. Never empty.
+    const char* cat_word(Cat cat);
+
+    // The label to actually draw: `raw` when it is a real name, the category's plain word
+    // otherwise. `raw` may be empty or a class name; the result never is.
+    const char* display_label(Cat cat, const char* raw);
 
     // Exact, case-insensitive match against cat_name(). False for an unknown name.
     bool cat_from_name(std::string_view name, Cat& out);
@@ -416,6 +449,23 @@ namespace mdb
     // Appends to `out` (so several chapter files accumulate into one DB).
     // Returns false and fills `report.error` when the text is not a usable manifest.
     bool parse_markers_json(std::string_view text, std::vector<StaticMarker>& out, ParseReport& report);
+
+    //==================================================================================
+    // markers/items.json - the item display-name database, at RUNTIME
+    //==================================================================================
+    //
+    // The offline extractor already bakes an item's name into every static pickup
+    // marker, so this file used to be read only by the toolchain. What needs it at
+    // runtime is the loot an ENEMY DROPS: a `BP_DropItem_C` is spawned while you play, it
+    // has no static twin and therefore no name, and the x-ray labelled it with the class
+    // spec's base class - `BP_PickupActor_C 1 m`. The actor does carry its item id (the
+    // same inline `Items` array the extractor reads out of the cooked package), so with
+    // {id -> name} in memory the label becomes the item's own name.
+    //
+    // Only the names are kept: the file also carries descriptions, which are a third of a
+    // megabyte and are not drawn anywhere.
+    bool parse_items_json(std::string_view text, std::unordered_map<int, std::string>& out,
+                          std::string& error);
 
     //==================================================================================
     // The found tracker file - wuchang_minimap_found.txt

@@ -92,19 +92,31 @@ The build needs UE4SS's **headers** at exactly the commit the installed DLL was 
 from. The `-g97b7e501` suffix in the release name *is* that commit:
 
 ```powershell
-git clone https://github.com/UE4SS-RE/RE-UE4SS F:\Tools\RE-UE4SS
+git clone --no-recurse-submodules https://github.com/UE4SS-RE/RE-UE4SS F:\Tools\RE-UE4SS
 cd F:\Tools\RE-UE4SS
-git checkout 97b7e501c19d8b2b7c662feee73aaa0dc1f0a4d1
-git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init --recursive
+git checkout --recurse-submodules=no 97b7e501c19d8b2b7c662feee73aaa0dc1f0a4d1
 ```
 
-Two things about that last line:
+**No submodules are needed**, and skipping them is the tidy path rather than a
+workaround. RE-UE4SS has exactly two — `deps/first/Unreal` and
+`deps/first/patternsleuth` — and neither is on this project's include path. Every
+directory `xmake.lua` asks for (`UE4SS/include`, `UE4SS/generated_include`,
+`deps/first/*/include`) is tracked directly in the RE-UE4SS repository; confirm with
+`git ls-files --error-unmatch deps/first/DynamicOutput/include`.
 
-- RE-UE4SS declares its submodules with `git@github.com:` URLs, so the `-c url...`
-  rewrite is what lets them clone over HTTPS without editing your global git config.
-- **`deps/first/Unreal` will fail to clone, and that is expected.** It points at the
-  private `Re-UE4SS/UEPseudo` repository (Epic Games GitHub org access). Nothing on the
-  C++ mod API path needs it. `deps/first/patternsleuth` may fail too; also fine.
+This matters because **`deps/first/Unreal` cannot be cloned at all** by anyone outside
+the Epic Games GitHub organisation: it points at the private `Re-UE4SS/UEPseudo`, which
+is derived from Unreal Engine source. That is the whole reason this project links against
+a synthesised import library instead of building UE4SS
+(see [Why an import library?](#why-an-import-library)).
+
+If you do want the submodules anyway — for reading `patternsleuth`, say — RE-UE4SS
+declares them with `git@github.com:` URLs, so rewrite the protocol rather than editing
+your global git config, and expect `Unreal` to fail:
+
+```powershell
+git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init --recursive
+```
 
 `build.ps1` checks for `UE4SS/include/Mod/CppUserModBase.hpp` under the root and tells
 you if the path is wrong. Point it at your clone with:

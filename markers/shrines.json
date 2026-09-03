@@ -1,9 +1,91 @@
 {
  "schema": "wuchang-minimap-shrines/1",
- "count": 88,
+ "count": 95,
  "named": 88,
- "placed": 50,
+ "placed": 57,
+ "from_table": 88,
+ "from_markers": 7,
+ "generated_by": "tools/markers/extract_shrines.py",
  "shrines": [
+  {
+   "id": "BaiYS01",
+   "shrine": true,
+   "source": "marker",
+   "name": "Shrine BaiYS01",
+   "x": 95104.88,
+   "y": -24934.17,
+   "z": -7343.54,
+   "chapter": 0,
+   "level": "ChapterDLC_BaiYaS_logic"
+  },
+  {
+   "id": "BaiYS02",
+   "shrine": true,
+   "source": "marker",
+   "name": "Shrine BaiYS02",
+   "x": 111698.48,
+   "y": -26000.89,
+   "z": -6743.32,
+   "chapter": 0,
+   "level": "ChapterDLC_BaiYaS_logic"
+  },
+  {
+   "id": "LiuHKK01@ChapterDLC_LiuHuangKK_logic/BP_RebornFire_C_0",
+   "shrine": true,
+   "source": "marker",
+   "fp": "LiuHKK01",
+   "name": "Shrine LiuHKK01",
+   "x": 91594.61,
+   "y": -19570.16,
+   "z": -20485.6,
+   "chapter": 0,
+   "level": "ChapterDLC_LiuHuangKK_logic"
+  },
+  {
+   "id": "LiuHKK01@ChapterDLC_LiuHuangKK_logic/BP_RebornFire_C_1",
+   "shrine": true,
+   "source": "marker",
+   "fp": "LiuHKK01",
+   "name": "Shrine LiuHKK01",
+   "x": 89541.76,
+   "y": -9005.32,
+   "z": -26443.35,
+   "chapter": 0,
+   "level": "ChapterDLC_LiuHuangKK_logic"
+  },
+  {
+   "id": "borencl01",
+   "shrine": true,
+   "source": "marker",
+   "name": "Shrine borencl01",
+   "x": 131773.03,
+   "y": -39433.91,
+   "z": -8200.59,
+   "chapter": 0,
+   "level": "ChapterDLC_BoRenCL_logic"
+  },
+  {
+   "id": "borencl02",
+   "shrine": true,
+   "source": "marker",
+   "name": "Shrine borencl02",
+   "x": 141140.99,
+   "y": -64126.5,
+   "z": -14131.86,
+   "chapter": 0,
+   "level": "ChapterDLC_BoRenCL_logic"
+  },
+  {
+   "id": "pinmingk01",
+   "shrine": true,
+   "source": "marker",
+   "name": "Shrine pinmingk01",
+   "x": 142517.9,
+   "y": -80715.2,
+   "z": -18032.31,
+   "chapter": 0,
+   "level": "ChapterDLC_PingMinK_logic"
+  },
   {
    "id": "danqingy01",
    "bx": 33610.0,
@@ -946,5 +1028,29 @@
    "z": 1383.6,
    "chapter": 5
   }
- ]
+ ],
+ "game_build": "5.1.1.0",
+ "pak": [
+  {
+   "name": "Project_Plague-Windows.pak",
+   "size": 44740955247,
+   "sha256": "8d5888f6510bfaa3620150d91a9cb8ecfc737c683aeba35c20cef88152f4d581"
+  },
+  {
+   "name": "Project_Plague-Windows_0_P.pak",
+   "size": 15139103055,
+   "sha256": "98f5ad3efe2ff1b084f4536d76f354b83d61d9e8a4d66ab389c96309521dd267"
+  },
+  {
+   "name": "Project_Plague-Windows_1_P.pak",
+   "size": 4049445139,
+   "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
+  }
+ ],
+ "extractor_commit": "9a46681+dirty",
+ "exe": {
+  "name": "Project_Plague-Win64-Shipping.exe",
+  "size": 141464648,
+  "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9"
+ }
 }

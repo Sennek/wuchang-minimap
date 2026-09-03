@@ -86,6 +86,7 @@ import build_items as BI
 import build_bosses as BB
 import class_graph
 import pakmaps
+import provenance                          # noqa: E402
 
 SCHEMA = "wuchang-minimap-npcs/1"
 NPC_BASE = "BP_NPC_C"
@@ -450,7 +451,8 @@ def placements(src: pakmaps.MapSource, classes: set[str]) -> dict[str, list[str]
     return out
 
 
-def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False) -> dict:
+def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False,
+          prov: dict | None = None) -> dict:
     graph = BB.build_graph(src, verbose)
     if NPC_BASE not in graph and NPC_BASE not in graph.values():
         raise SystemExit(f"{NPC_BASE} not in the class graph - wrong prefixes?")
@@ -493,6 +495,8 @@ def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False) ->
                    "npc_name_* FText keys embedded in each NPC blueprint + "
                    "MMGame.locres, offline pak extraction"),
         "npcs": npcs,
+        "generated_by": "tools/markers/build_npcs.py",
+        **(prov or {}),
     }
     if conflicts:
         doc["dir_conflicts"] = conflicts
@@ -516,8 +520,11 @@ def main(argv=None):
         os.path.dirname(os.path.abspath(__file__)), "..", "..", "markers", "npcs.json"))
     ap.add_argument("--report", action="store_true",
                     help="also record where every npc class is placed")
+    provenance.add_arg(ap)
     a = ap.parse_args(argv)
-    doc = build(pakmaps.MapSource(a.pak), report=a.report)
+    ms = pakmaps.MapSource(a.pak)
+    doc = build(ms, report=a.report,
+                prov=provenance.stamp(ms, a.pak, not a.no_pak_hash))
     out = os.path.normpath(a.out)
     with open(out, "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1, ensure_ascii=False, sort_keys=True)

@@ -3,6 +3,30 @@
  "chapter": 5,
  "source": "cooked .umap sublevels, offline pak extraction",
  "generated_by": "tools/markers/extract_markers.py",
+ "game_build": "5.1.1.0",
+ "pak": [
+  {
+   "name": "Project_Plague-Windows.pak",
+   "size": 44740955247,
+   "sha256": "8d5888f6510bfaa3620150d91a9cb8ecfc737c683aeba35c20cef88152f4d581"
+  },
+  {
+   "name": "Project_Plague-Windows_0_P.pak",
+   "size": 15139103055,
+   "sha256": "98f5ad3efe2ff1b084f4536d76f354b83d61d9e8a4d66ab389c96309521dd267"
+  },
+  {
+   "name": "Project_Plague-Windows_1_P.pak",
+   "size": 4049445139,
+   "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
+  }
+ ],
+ "extractor_commit": "9a46681+dirty",
+ "exe": {
+  "name": "Project_Plague-Win64-Shipping.exe",
+  "size": 141464648,
+  "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9"
+ },
  "markers": [
   {
    "id": "Chapter5_HaiBbaiHJS_LSXM_AI/BP_XMWC_LS_AI_C_1",
@@ -69,6 +93,174 @@
    "level": "Chapter5_YuRenJT_logic"
   },
   {
+   "id": "Chapter5_HaiBbaiHJS_AI/BP_CQBR_AI_S_C_1",
+   "cat": "elite",
+   "cls": "BP_CQBR_AI_S_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_AI_S_C_1",
+   "x": -91261.16,
+   "y": -20193.28,
+   "z": -1883.8,
+   "cell": "B5EX0_L0_X-9_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_AI"
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_AI/BP_CQBR_AI_S_C_11",
+   "cat": "elite",
+   "cls": "BP_CQBR_AI_S_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_AI_S_C_11",
+   "x": -113553.77,
+   "y": -22623.75,
+   "z": -1898.08,
+   "cell": "B5EX0_L0_X-12_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_AI"
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_AI/BP_CQBR_AI_S_C_2",
+   "cat": "elite",
+   "cls": "BP_CQBR_AI_S_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_AI_S_C_2",
+   "x": -107723.62,
+   "y": -4693.41,
+   "z": -1862.82,
+   "cell": "B5EX0_L0_X-11_Y-1",
+   "level": "Chapter5_HaiBbaiHJS_AI"
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_AI/BP_YNSS_Special_AI_C_0",
+   "cat": "elite",
+   "cls": "BP_YNSS_Special_AI_C",
+   "name": "Elite",
+   "obj": "BP_YNSS_Special_AI_C_0",
+   "x": -113694.26,
+   "y": 11158.84,
+   "z": 9739.77,
+   "cell": "B5EX0_L0_X-12_Y1",
+   "level": "Chapter5_HaiBbaiHJS_AI"
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_AI/BP_YRMY_BL_Special_AI_C_1",
+   "cat": "elite",
+   "cls": "BP_YRMY_BL_Special_AI_C",
+   "name": "Elite",
+   "obj": "BP_YRMY_BL_Special_AI_C_1",
+   "x": -110687.47,
+   "y": -4144.19,
+   "z": -1716.11,
+   "cell": "B5EX0_L0_X-11_Y-1",
+   "level": "Chapter5_HaiBbaiHJS_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_0",
+   "cat": "elite",
+   "cls": "BP_CQBR_AI_S_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_AI_S_C_0",
+   "x": -94730.09,
+   "y": -32079.76,
+   "z": 7957.01,
+   "cell": "B5EX0_L0_X-10_Y-4",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_2",
+   "cat": "elite",
+   "cls": "BP_CQBR_AI_S_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_AI_S_C_2",
+   "x": -78102.84,
+   "y": -45736.67,
+   "z": 2048.43,
+   "cell": "B5EX0_L0_X-8_Y-5",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_3",
+   "cat": "elite",
+   "cls": "BP_CQBR_AI_S_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_AI_S_C_3",
+   "x": -93219.33,
+   "y": -33041.23,
+   "z": 7935.48,
+   "cell": "B5EX0_L0_X-10_Y-4",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_6",
+   "cat": "elite",
+   "cls": "BP_CQBR_AI_S_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_AI_S_C_6",
+   "x": -84721.43,
+   "y": -42800.52,
+   "z": 2269.24,
+   "cell": "B5EX0_L0_X-9_Y-5",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_7",
+   "cat": "elite",
+   "cls": "BP_CQBR_AI_S_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_AI_S_C_7",
+   "x": -80249.59,
+   "y": -24990.42,
+   "z": 2081.86,
+   "cell": "B5EX0_L0_X-8_Y-3",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_8",
+   "cat": "elite",
+   "cls": "BP_CQBR_AI_S_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_AI_S_C_8",
+   "x": -82084.51,
+   "y": -44232.98,
+   "z": 2040.27,
+   "cell": "B5EX0_L0_X-9_Y-5",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_CQBR_Special_AI_C_1",
+   "cat": "elite",
+   "cls": "BP_CQBR_Special_AI_C",
+   "name": "Elite",
+   "obj": "BP_CQBR_Special_AI_C_1",
+   "x": -87852.43,
+   "y": -34473.23,
+   "z": 8195.24,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_SYR_Special_C_1",
+   "cat": "elite",
+   "cls": "BP_SYR_Special_C",
+   "name": "Elite",
+   "obj": "BP_SYR_Special_C_1",
+   "x": -70414.91,
+   "y": -21725.78,
+   "z": 3396.32,
+   "cell": "B5EX0_L0_X-7_Y-3",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/M_BRSW_Special_C_1",
+   "cat": "elite",
+   "cls": "M_BRSW_Special_C",
+   "name": "Elite",
+   "obj": "M_BRSW_Special_C_1",
+   "x": -71206.26,
+   "y": -32961.2,
+   "z": 2267.29,
+   "cell": "B5EX0_L0_X-7_Y-4",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
    "id": "Chapter5_HaiBbaiHJS_AI/BP_CQBR_AI_C_1",
    "cat": "enemy",
    "cls": "BP_CQBR_AI_C",
@@ -90,42 +282,6 @@
    "y": -24875.68,
    "z": -1857.63,
    "cell": "B5EX0_L0_X-12_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_AI"
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_AI/BP_CQBR_AI_S_C_1",
-   "cat": "enemy",
-   "cls": "BP_CQBR_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_AI_S_C_1",
-   "x": -91261.16,
-   "y": -20193.28,
-   "z": -1883.8,
-   "cell": "B5EX0_L0_X-9_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_AI"
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_AI/BP_CQBR_AI_S_C_11",
-   "cat": "enemy",
-   "cls": "BP_CQBR_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_AI_S_C_11",
-   "x": -113553.77,
-   "y": -22623.75,
-   "z": -1898.08,
-   "cell": "B5EX0_L0_X-12_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_AI"
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_AI/BP_CQBR_AI_S_C_2",
-   "cat": "enemy",
-   "cls": "BP_CQBR_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_AI_S_C_2",
-   "x": -107723.62,
-   "y": -4693.41,
-   "z": -1862.82,
-   "cell": "B5EX0_L0_X-11_Y-1",
    "level": "Chapter5_HaiBbaiHJS_AI"
   },
   {
@@ -909,18 +1065,6 @@
    "level": "Chapter5_HaiBbaiHJS_AI"
   },
   {
-   "id": "Chapter5_HaiBbaiHJS_AI/BP_YNSS_Special_AI_C_0",
-   "cat": "enemy",
-   "cls": "BP_YNSS_Special_AI_C",
-   "name": "Enemy",
-   "obj": "BP_YNSS_Special_AI_C_0",
-   "x": -113694.26,
-   "y": 11158.84,
-   "z": 9739.77,
-   "cell": "B5EX0_L0_X-12_Y1",
-   "level": "Chapter5_HaiBbaiHJS_AI"
-  },
-  {
    "id": "Chapter5_HaiBbaiHJS_AI/BP_YRMY_BL_AI_C_1",
    "cat": "enemy",
    "cls": "BP_YRMY_BL_AI_C",
@@ -942,18 +1086,6 @@
    "y": -17218.22,
    "z": -1742.05,
    "cell": "B5EX0_L0_X-11_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_AI"
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_AI/BP_YRMY_BL_Special_AI_C_1",
-   "cat": "enemy",
-   "cls": "BP_YRMY_BL_Special_AI_C",
-   "name": "Enemy",
-   "obj": "BP_YRMY_BL_Special_AI_C_1",
-   "x": -110687.47,
-   "y": -4144.19,
-   "z": -1716.11,
-   "cell": "B5EX0_L0_X-11_Y-1",
    "level": "Chapter5_HaiBbaiHJS_AI"
   },
   {
@@ -1206,90 +1338,6 @@
    "y": -27314.68,
    "z": 2245.0,
    "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
-   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_0",
-   "cat": "enemy",
-   "cls": "BP_CQBR_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_AI_S_C_0",
-   "x": -94730.09,
-   "y": -32079.76,
-   "z": 7957.01,
-   "cell": "B5EX0_L0_X-10_Y-4",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
-   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_2",
-   "cat": "enemy",
-   "cls": "BP_CQBR_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_AI_S_C_2",
-   "x": -78102.84,
-   "y": -45736.67,
-   "z": 2048.43,
-   "cell": "B5EX0_L0_X-8_Y-5",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
-   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_3",
-   "cat": "enemy",
-   "cls": "BP_CQBR_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_AI_S_C_3",
-   "x": -93219.33,
-   "y": -33041.23,
-   "z": 7935.48,
-   "cell": "B5EX0_L0_X-10_Y-4",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
-   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_6",
-   "cat": "enemy",
-   "cls": "BP_CQBR_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_AI_S_C_6",
-   "x": -84721.43,
-   "y": -42800.52,
-   "z": 2269.24,
-   "cell": "B5EX0_L0_X-9_Y-5",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
-   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_7",
-   "cat": "enemy",
-   "cls": "BP_CQBR_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_AI_S_C_7",
-   "x": -80249.59,
-   "y": -24990.42,
-   "z": 2081.86,
-   "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
-   "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_S_C_8",
-   "cat": "enemy",
-   "cls": "BP_CQBR_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_AI_S_C_8",
-   "x": -82084.51,
-   "y": -44232.98,
-   "z": 2040.27,
-   "cell": "B5EX0_L0_X-9_Y-5",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
-   "id": "Chapter5_YuRenJT_AI/BP_CQBR_Special_AI_C_1",
-   "cat": "enemy",
-   "cls": "BP_CQBR_Special_AI_C",
-   "name": "Enemy",
-   "obj": "BP_CQBR_Special_AI_C_1",
-   "x": -87852.43,
-   "y": -34473.23,
-   "z": 8195.24,
-   "cell": "B5EX0_L0_X-9_Y-4",
    "level": "Chapter5_YuRenJT_AI"
   },
   {
@@ -2493,18 +2541,6 @@
    "level": "Chapter5_YuRenJT_AI"
   },
   {
-   "id": "Chapter5_YuRenJT_AI/BP_SYR_Special_C_1",
-   "cat": "enemy",
-   "cls": "BP_SYR_Special_C",
-   "name": "Enemy",
-   "obj": "BP_SYR_Special_C_1",
-   "x": -70414.91,
-   "y": -21725.78,
-   "z": 3396.32,
-   "cell": "B5EX0_L0_X-7_Y-3",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
    "id": "Chapter5_YuRenJT_AI/BP_YNSS_AI_C_2",
    "cat": "enemy",
    "cls": "BP_YNSS_AI_C",
@@ -2745,18 +2781,6 @@
    "level": "Chapter5_YuRenJT_AI"
   },
   {
-   "id": "Chapter5_YuRenJT_AI/M_BRSW_Special_C_1",
-   "cat": "enemy",
-   "cls": "M_BRSW_Special_C",
-   "name": "Enemy",
-   "obj": "M_BRSW_Special_C_1",
-   "x": -71206.26,
-   "y": -32961.2,
-   "z": 2267.29,
-   "cell": "B5EX0_L0_X-7_Y-4",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
    "id": "Chapter5_ZhenLiZM_AI/BP_YRMY_DY_AI_Gold_C_0",
    "cat": "enemy",
    "cls": "BP_YRMY_DY_AI_Gold_C",
@@ -2827,6 +2851,90 @@
    "z": 8251.0,
    "cell": "B5EX0_L0_X-12_Y0",
    "level": "Chapter5_HaiBbaiHJS_logic"
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickUpActor_Trap_C_1",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_1",
+   "x": -112731.23,
+   "y": -26937.89,
+   "z": -1946.07,
+   "cell": "B5EX0_L0_X-12_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic"
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickUpActor_Trap_C_1",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_1",
+   "x": -86712.16,
+   "y": -32669.72,
+   "z": 2009.72,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic"
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickUpActor_Trap_C_3",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_3",
+   "x": -85598.99,
+   "y": -26886.74,
+   "z": 6965.29,
+   "cell": "B5EX0_L0_X-9_Y-3",
+   "level": "Chapter5_YuRenJT_logic"
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_CylinderElevator_02_C_1",
+   "cat": "lift",
+   "cls": "BP_CylinderElevator_02_C",
+   "name": "Lift",
+   "obj": "BP_CylinderElevator_02_C_1",
+   "x": -83625.22,
+   "y": -26692.27,
+   "z": 2117.68,
+   "cell": "B5EX0_L0_X-9_Y-3",
+   "level": "Chapter5_YuRenJT_logic"
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_CylinderElevator_02_C_12",
+   "cat": "lift",
+   "cls": "BP_CylinderElevator_02_C",
+   "name": "Lift",
+   "obj": "BP_CylinderElevator_02_C_12",
+   "x": -76950.97,
+   "y": -40450.66,
+   "z": 2048.43,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic"
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_CylinderElevator_02_C_3",
+   "cat": "lift",
+   "cls": "BP_CylinderElevator_02_C",
+   "name": "Lift",
+   "obj": "BP_CylinderElevator_02_C_3",
+   "x": -93201.66,
+   "y": -17800.77,
+   "z": -1928.71,
+   "cell": "B5EX0_L0_X-10_Y-2",
+   "level": "Chapter5_YuRenJT_logic"
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_CylinderElevator_02_C_7",
+   "cat": "lift",
+   "cls": "BP_CylinderElevator_02_C",
+   "name": "Lift",
+   "obj": "BP_CylinderElevator_02_C_7",
+   "x": -86778.07,
+   "y": -42872.75,
+   "z": 2017.32,
+   "cell": "B5EX0_L0_X-9_Y-5",
+   "level": "Chapter5_YuRenJT_logic"
   },
   {
    "id": "Chapter5_YuRenJT_logic/BP_ElevatorBox_C_0",
@@ -3174,42 +3282,6 @@
    "y": -20531.58,
    "z": 8646.73,
    "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_logic"
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickUpActor_Trap_C_1",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_1",
-   "x": -112731.23,
-   "y": -26937.89,
-   "z": -1946.07,
-   "cell": "B5EX0_L0_X-12_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic"
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickUpActor_Trap_C_1",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_1",
-   "x": -86712.16,
-   "y": -32669.72,
-   "z": 2009.72,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic"
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickUpActor_Trap_C_3",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_3",
-   "x": -85598.99,
-   "y": -26886.74,
-   "z": 6965.29,
-   "cell": "B5EX0_L0_X-9_Y-3",
    "level": "Chapter5_YuRenJT_logic"
   },
   {
@@ -3706,6 +3778,22 @@
     22109
    ],
    "rarity": 2
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_New_C_1",
+   "cat": "pickup",
+   "cls": "BP_PickupActor_New_C",
+   "name": "Avian Tear +1",
+   "obj": "BP_PickupActor_New_C_1",
+   "x": -106517.32,
+   "y": -16697.94,
+   "z": -582.67,
+   "cell": "B5EX0_L0_X-11_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20233,
+    22110
+   ]
   },
   {
    "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_0",
@@ -4442,7 +4530,8 @@
    "y": 6722.44,
    "z": 9783.14,
    "cell": "B5EX0_L0_X-13_Y0",
-   "level": "Chapter5_HaiBbaiHJS_logic"
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "fp": "borenshendian"
   },
   {
    "id": "yurenjt01",
@@ -4454,7 +4543,8 @@
    "y": -27275.04,
    "z": 2178.14,
    "cell": "B5EX0_L0_X-9_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic"
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "fp": "yurenjt01"
   },
   {
    "id": "yurenjt02",
@@ -4466,7 +4556,8 @@
    "y": -48693.5,
    "z": 2124.14,
    "cell": "B5EX0_L0_X-7_Y-5",
-   "level": "Chapter5_YuRenJT_logic"
+   "level": "Chapter5_YuRenJT_logic",
+   "fp": "yurenjt02"
   },
   {
    "id": "fengyin01",
@@ -4478,7 +4569,8 @@
    "y": -15898.22,
    "z": 1383.6,
    "cell": "B5EX0_L0_X-16_Y-2",
-   "level": "Chapter5_ZhenLiZM_logic"
+   "level": "Chapter5_ZhenLiZM_logic",
+   "fp": "fengyin01"
   },
   {
    "id": "zhenlizhimen01",
@@ -4490,7 +4582,8 @@
    "y": -17305.98,
    "z": 2083.35,
    "cell": "B5EX0_L0_X-18_Y-2",
-   "level": "Chapter5_ZhenLiZM_logic"
+   "level": "Chapter5_ZhenLiZM_logic",
+   "fp": "zhenlizhimen01"
   }
  ]
 }

@@ -82,3 +82,10 @@ wuchang_minimap.log.*
 *.bak
 *.orig
 *.rej
+
+# tools/markers provenance digest cache: the sha256 of the 63 GB pak set, keyed by
+# path + size + mtime. Purely a local speed-up for `provenance.py` (about 45 s of
+# disk the first time), and it names one machine's install path, so it never goes
+# in. The digests it caches ARE committed - they are in every generated
+# markers/*.json.
+tools/markers/.provenance-cache.json

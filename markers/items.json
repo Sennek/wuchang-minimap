@@ -13449,5 +13449,29 @@
    "type": "Spell",
    "rarity": 1
   }
+ },
+ "game_build": "5.1.1.0",
+ "pak": [
+  {
+   "name": "Project_Plague-Windows.pak",
+   "size": 44740955247,
+   "sha256": "8d5888f6510bfaa3620150d91a9cb8ecfc737c683aeba35c20cef88152f4d581"
+  },
+  {
+   "name": "Project_Plague-Windows_0_P.pak",
+   "size": 15139103055,
+   "sha256": "98f5ad3efe2ff1b084f4536d76f354b83d61d9e8a4d66ab389c96309521dd267"
+  },
+  {
+   "name": "Project_Plague-Windows_1_P.pak",
+   "size": 4049445139,
+   "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
+  }
+ ],
+ "extractor_commit": "9a46681+dirty",
+ "exe": {
+  "name": "Project_Plague-Win64-Shipping.exe",
+  "size": 141464648,
+  "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9"
  }
 }

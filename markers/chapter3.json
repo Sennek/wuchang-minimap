@@ -3,6 +3,30 @@
  "chapter": 3,
  "source": "cooked .umap sublevels, offline pak extraction",
  "generated_by": "tools/markers/extract_markers.py",
+ "game_build": "5.1.1.0",
+ "pak": [
+  {
+   "name": "Project_Plague-Windows.pak",
+   "size": 44740955247,
+   "sha256": "8d5888f6510bfaa3620150d91a9cb8ecfc737c683aeba35c20cef88152f4d581"
+  },
+  {
+   "name": "Project_Plague-Windows_0_P.pak",
+   "size": 15139103055,
+   "sha256": "98f5ad3efe2ff1b084f4536d76f354b83d61d9e8a4d66ab389c96309521dd267"
+  },
+  {
+   "name": "Project_Plague-Windows_1_P.pak",
+   "size": 4049445139,
+   "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
+  }
+ ],
+ "extractor_commit": "9a46681+dirty",
+ "exe": {
+  "name": "Project_Plague-Win64-Shipping.exe",
+  "size": 141464648,
+  "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9"
+ },
  "markers": [
   {
    "id": "Chapter3_NiaoRenJL_NiaoRenSL_AI/BP_NRSL01_AI_C_2",
@@ -399,6 +423,54 @@
    "level": "Chapter3_ZhenWuG_logic"
   },
   {
+   "id": "Chapter3_DaXiJYD01_AI/M_FSNM_S_C_1",
+   "cat": "elite",
+   "cls": "M_FSNM_S_C",
+   "name": "Elite",
+   "obj": "M_FSNM_S_C_1",
+   "x": 84479.09,
+   "y": 4138.29,
+   "z": -4639.67,
+   "cell": "B3EX0_L0_X8_Y0",
+   "level": "Chapter3_DaXiJYD01_AI"
+  },
+  {
+   "id": "Chapter3_NiaoRenJL01_AI/BP_PHNR_AI_high_C_5",
+   "cat": "elite",
+   "cls": "BP_PHNR_AI_high_C",
+   "name": "Elite",
+   "obj": "BP_PHNR_AI_high_C_5",
+   "x": 92554.46,
+   "y": 3083.05,
+   "z": -7702.88,
+   "cell": "B3EX0_L0_X9_Y0",
+   "level": "Chapter3_NiaoRenJL01_AI"
+  },
+  {
+   "id": "Chapter3_P3P4_AI/M_QWD_high_C_1",
+   "cat": "elite",
+   "cls": "M_QWD_high_C",
+   "name": "Elite",
+   "obj": "M_QWD_high_C_1",
+   "x": 36422.42,
+   "y": 27055.21,
+   "z": 2120.72,
+   "cell": "B3EX0_L0_X3_Y2",
+   "level": "Chapter3_P3P4_AI"
+  },
+  {
+   "id": "Chapter3_ZhenWuG01_AI/M_QWD_high_C_1",
+   "cat": "elite",
+   "cls": "M_QWD_high_C",
+   "name": "Elite",
+   "obj": "M_QWD_high_C_1",
+   "x": 61859.79,
+   "y": 26772.52,
+   "z": -2924.71,
+   "cell": "B3EX0_L0_X6_Y2",
+   "level": "Chapter3_ZhenWuG01_AI"
+  },
+  {
    "id": "Chapter3_DaXiJYD01_AI/BP_DXJSB_AI_C_0",
    "cat": "enemy",
    "cls": "BP_DXJSB_AI_C",
@@ -648,18 +720,6 @@
    "y": 17470.51,
    "z": -5636.94,
    "cell": "B3EX0_L0_X7_Y1",
-   "level": "Chapter3_DaXiJYD01_AI"
-  },
-  {
-   "id": "Chapter3_DaXiJYD01_AI/M_FSNM_S_C_1",
-   "cat": "enemy",
-   "cls": "M_FSNM_S_C",
-   "name": "Enemy",
-   "obj": "M_FSNM_S_C_1",
-   "x": 84479.09,
-   "y": 4138.29,
-   "z": -4639.67,
-   "cell": "B3EX0_L0_X8_Y0",
    "level": "Chapter3_DaXiJYD01_AI"
   },
   {
@@ -1199,18 +1259,6 @@
    "x": 92525.15,
    "y": 4162.8,
    "z": -6383.02,
-   "cell": "B3EX0_L0_X9_Y0",
-   "level": "Chapter3_NiaoRenJL01_AI"
-  },
-  {
-   "id": "Chapter3_NiaoRenJL01_AI/BP_PHNR_AI_high_C_5",
-   "cat": "enemy",
-   "cls": "BP_PHNR_AI_high_C",
-   "name": "Enemy",
-   "obj": "BP_PHNR_AI_high_C_5",
-   "x": 92554.46,
-   "y": 3083.05,
-   "z": -7702.88,
    "cell": "B3EX0_L0_X9_Y0",
    "level": "Chapter3_NiaoRenJL01_AI"
   },
@@ -2319,18 +2367,6 @@
    "level": "Chapter3_P3P4_AI"
   },
   {
-   "id": "Chapter3_P3P4_AI/M_QWD_high_C_1",
-   "cat": "enemy",
-   "cls": "M_QWD_high_C",
-   "name": "Enemy",
-   "obj": "M_QWD_high_C_1",
-   "x": 36422.42,
-   "y": 27055.21,
-   "z": 2120.72,
-   "cell": "B3EX0_L0_X3_Y2",
-   "level": "Chapter3_P3P4_AI"
-  },
-  {
    "id": "Chapter3_P3P4_AI/M_YHNM_ZiBao_C_0",
    "cat": "enemy",
    "cls": "M_YHNM_ZiBao_C",
@@ -2634,7 +2670,7 @@
    "id": "Chapter3_ZhenWuG01_AI/BP_YHGN_AI_chapter_3_C_0",
    "cat": "enemy",
    "cls": "BP_YHGN_AI_chapter_3_C",
-   "name": "Enemy",
+   "name": "Tang Palace Maid",
    "obj": "BP_YHGN_AI_chapter_3_C_0",
    "x": 71396.83,
    "y": 23569.19,
@@ -3567,18 +3603,6 @@
    "level": "Chapter3_ZhenWuG01_AI"
   },
   {
-   "id": "Chapter3_ZhenWuG01_AI/M_QWD_high_C_1",
-   "cat": "enemy",
-   "cls": "M_QWD_high_C",
-   "name": "Enemy",
-   "obj": "M_QWD_high_C_1",
-   "x": 61859.79,
-   "y": 26772.52,
-   "z": -2924.71,
-   "cell": "B3EX0_L0_X6_Y2",
-   "level": "Chapter3_ZhenWuG01_AI"
-  },
-  {
    "id": "Chapter3_ZhenWuG01_AI/M_YHNM_C_0",
    "cat": "enemy",
    "cls": "M_YHNM_C",
@@ -4021,6 +4045,42 @@
    "z": 1102.34,
    "cell": "B3EX0_L0_X5_Y1",
    "level": "Chapter3_ZhenWuG_logic"
+  },
+  {
+   "id": "Chapter3_NiaoRenJL_logic/BP_PickUpActor_Trap_C_1",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_1",
+   "x": 88140.53,
+   "y": -1551.52,
+   "z": -8750.22,
+   "cell": "B3EX0_L0_X8_Y-1",
+   "level": "Chapter3_NiaoRenJL_logic"
+  },
+  {
+   "id": "Chapter3_NiaoRenJL_logic/BP_PickUpActor_Trap_C_2",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_2",
+   "x": 89242.31,
+   "y": -14133.61,
+   "z": -8932.84,
+   "cell": "B3EX0_L0_X8_Y-2",
+   "level": "Chapter3_NiaoRenJL_logic"
+  },
+  {
+   "id": "Chapter3_NiaoRenJL_logic/BP_PickUpActor_Trap_C_3",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_3",
+   "x": 90752.99,
+   "y": 1396.8,
+   "z": -7992.81,
+   "cell": "B3EX0_L0_X8_Y0",
+   "level": "Chapter3_NiaoRenJL_logic"
   },
   {
    "id": "Chapter3_DaXiJYD_logic/BP_Ladder_Child_C_0",
@@ -5319,42 +5379,6 @@
    "level": "Chapter3_ZhenWuG_logic"
   },
   {
-   "id": "Chapter3_NiaoRenJL_logic/BP_PickUpActor_Trap_C_1",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_1",
-   "x": 88140.53,
-   "y": -1551.52,
-   "z": -8750.22,
-   "cell": "B3EX0_L0_X8_Y-1",
-   "level": "Chapter3_NiaoRenJL_logic"
-  },
-  {
-   "id": "Chapter3_NiaoRenJL_logic/BP_PickUpActor_Trap_C_2",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_2",
-   "x": 89242.31,
-   "y": -14133.61,
-   "z": -8932.84,
-   "cell": "B3EX0_L0_X8_Y-2",
-   "level": "Chapter3_NiaoRenJL_logic"
-  },
-  {
-   "id": "Chapter3_NiaoRenJL_logic/BP_PickUpActor_Trap_C_3",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_3",
-   "x": 90752.99,
-   "y": 1396.8,
-   "z": -7992.81,
-   "cell": "B3EX0_L0_X8_Y0",
-   "level": "Chapter3_NiaoRenJL_logic"
-  },
-  {
    "id": "Chapter3_NiaoRenJL_logic/BP_QiCaiShi_2_C_0",
    "cat": "other",
    "cls": "BP_QiCaiShi_2_C",
@@ -5617,6 +5641,18 @@
    "z": -3042.57,
    "cell": "B3EX0_L0_X6_Y2",
    "level": "Chapter3_ZhenWuG_logic"
+  },
+  {
+   "id": "Chapter3_DaXiJYD_logic/BP_BombsBox_C_0",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_0",
+   "x": 76990.55,
+   "y": 22919.11,
+   "z": -5714.7,
+   "cell": "B3EX0_L0_X7_Y2",
+   "level": "Chapter3_DaXiJYD_logic"
   },
   {
    "id": "Chapter3_DaXiJYD_logic/BP_PickupActor_C_0",
@@ -6697,6 +6733,30 @@
     24061
    ],
    "rarity": 1
+  },
+  {
+   "id": "Chapter3_NiaoRenJL_logic/BP_PickUpPT_Red_C_1",
+   "cat": "pickup",
+   "cls": "BP_PickUpPT_Red_C",
+   "name": "Pickup",
+   "obj": "BP_PickUpPT_Red_C_1",
+   "x": 0.0,
+   "y": 0.0,
+   "z": 0.0,
+   "cell": "B3EX0_L0_X0_Y0",
+   "level": "Chapter3_NiaoRenJL_logic"
+  },
+  {
+   "id": "Chapter3_NiaoRenJL_logic/BP_PickUpPT_Red_C_3",
+   "cat": "pickup",
+   "cls": "BP_PickUpPT_Red_C",
+   "name": "Pickup",
+   "obj": "BP_PickUpPT_Red_C_3",
+   "x": 0.0,
+   "y": 0.0,
+   "z": 0.0,
+   "cell": "B3EX0_L0_X0_Y0",
+   "level": "Chapter3_NiaoRenJL_logic"
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_PickupActor_C_0",
@@ -8062,6 +8122,90 @@
     24019
    ],
    "rarity": 1
+  },
+  {
+   "id": "Chapter3_ZhenWuG_logic/BP_BombsBox_C_0",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_0",
+   "x": 69873.55,
+   "y": 32576.05,
+   "z": -3836.29,
+   "cell": "B3EX0_L0_X6_Y3",
+   "level": "Chapter3_ZhenWuG_logic"
+  },
+  {
+   "id": "Chapter3_ZhenWuG_logic/BP_BombsBox_C_1",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_1",
+   "x": 55958.48,
+   "y": 15168.55,
+   "z": -277.89,
+   "cell": "B3EX0_L0_X5_Y1",
+   "level": "Chapter3_ZhenWuG_logic"
+  },
+  {
+   "id": "Chapter3_ZhenWuG_logic/BP_BombsBox_C_2",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_2",
+   "x": 79112.79,
+   "y": 29532.69,
+   "z": -5812.0,
+   "cell": "B3EX0_L0_X7_Y2",
+   "level": "Chapter3_ZhenWuG_logic"
+  },
+  {
+   "id": "Chapter3_ZhenWuG_logic/BP_BombsBox_C_3",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_3",
+   "x": 55392.16,
+   "y": 17031.92,
+   "z": 523.6,
+   "cell": "B3EX0_L0_X5_Y1",
+   "level": "Chapter3_ZhenWuG_logic"
+  },
+  {
+   "id": "Chapter3_ZhenWuG_logic/BP_BombsBox_C_4",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_4",
+   "x": 68769.45,
+   "y": 28901.26,
+   "z": -3832.43,
+   "cell": "B3EX0_L0_X6_Y2",
+   "level": "Chapter3_ZhenWuG_logic"
+  },
+  {
+   "id": "Chapter3_ZhenWuG_logic/BP_BombsBox_C_5",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_5",
+   "x": 54211.0,
+   "y": 14490.0,
+   "z": 122.83,
+   "cell": "B3EX0_L0_X5_Y1",
+   "level": "Chapter3_ZhenWuG_logic"
+  },
+  {
+   "id": "Chapter3_ZhenWuG_logic/BP_BombsBox_C_7",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_7",
+   "x": 64845.04,
+   "y": 31113.46,
+   "z": -3834.29,
+   "cell": "B3EX0_L0_X6_Y3",
+   "level": "Chapter3_ZhenWuG_logic"
   },
   {
    "id": "Chapter3_ZhenWuG_logic/BP_PickupActor_C_0",
@@ -9454,7 +9598,8 @@
    "y": -4710.2,
    "z": 447.49,
    "cell": "B3EX0_L0_X5_Y-1",
-   "level": "Chapter3_GuanAi_logic"
+   "level": "Chapter3_GuanAi_logic",
+   "fp": "guzhancga01"
   },
   {
    "id": "jiangwangdk01",
@@ -9466,7 +9611,8 @@
    "y": 34557.91,
    "z": -5140.24,
    "cell": "B3EX0_L0_X4_Y3",
-   "level": "Chapter3_JiangWangDK_logic"
+   "level": "Chapter3_JiangWangDK_logic",
+   "fp": "jiangwangdk01"
   },
   {
    "id": "nanminyd01",
@@ -9478,7 +9624,8 @@
    "y": 6697.53,
    "z": -2155.8,
    "cell": "B3EX0_L0_X6_Y0",
-   "level": "Chapter3_NanMinYD_logic"
+   "level": "Chapter3_NanMinYD_logic",
+   "fp": "nanminyd01"
   },
   {
    "id": "niaoju01",
@@ -9490,7 +9637,8 @@
    "y": -757.9,
    "z": -6114.0,
    "cell": "B3EX0_L0_X8_Y-1",
-   "level": "Chapter3_NiaoRenJL_logic"
+   "level": "Chapter3_NiaoRenJL_logic",
+   "fp": "niaoju01"
   },
   {
    "id": "niaoju02",
@@ -9502,7 +9650,8 @@
    "y": 5367.45,
    "z": -5890.47,
    "cell": "B3EX0_L0_X11_Y0",
-   "level": "Chapter3_NiaoRenJL_logic"
+   "level": "Chapter3_NiaoRenJL_logic",
+   "fp": "niaoju02"
   },
   {
    "id": "niaoju03",
@@ -9514,7 +9663,8 @@
    "y": -7920.75,
    "z": -9901.02,
    "cell": "B3EX0_L0_X8_Y-1",
-   "level": "Chapter3_NiaoRenJL_logic"
+   "level": "Chapter3_NiaoRenJL_logic",
+   "fp": "niaoju03"
   },
   {
    "id": "baijiajz01",
@@ -9526,7 +9676,8 @@
    "y": 40635.66,
    "z": -6161.24,
    "cell": "B3EX0_L0_X2_Y3",
-   "level": "Chapter3_WuChangJZ_logic"
+   "level": "Chapter3_WuChangJZ_logic",
+   "fp": "baijiajz01"
   },
   {
    "id": "baijiajz02",
@@ -9538,7 +9689,8 @@
    "y": 51869.43,
    "z": -5053.15,
    "cell": "B3EX0_L0_X1_Y5",
-   "level": "Chapter3_WuChangJZ_logic"
+   "level": "Chapter3_WuChangJZ_logic",
+   "fp": "baijiajz02"
   },
   {
    "id": "zhenwug05",
@@ -9550,7 +9702,8 @@
    "y": 18888.73,
    "z": 900.13,
    "cell": "B3EX0_L0_X5_Y1",
-   "level": "Chapter3_ZhenWuG_logic"
+   "level": "Chapter3_ZhenWuG_logic",
+   "fp": "zhenwug05"
   },
   {
    "id": "zhenwug03",
@@ -9562,7 +9715,8 @@
    "y": 25074.77,
    "z": 1391.0,
    "cell": "B3EX0_L0_X5_Y2",
-   "level": "Chapter3_ZhenWuG_logic"
+   "level": "Chapter3_ZhenWuG_logic",
+   "fp": "zhenwug03"
   },
   {
    "id": "zhenwug04",
@@ -9574,7 +9728,8 @@
    "y": 27417.99,
    "z": -3765.87,
    "cell": "B3EX0_L0_X6_Y2",
-   "level": "Chapter3_ZhenWuG_logic"
+   "level": "Chapter3_ZhenWuG_logic",
+   "fp": "zhenwug04"
   },
   {
    "id": "zhenwug02",
@@ -9586,7 +9741,8 @@
    "y": 24947.86,
    "z": -110.21,
    "cell": "B3EX0_L0_X5_Y2",
-   "level": "Chapter3_ZhenWuG_logic"
+   "level": "Chapter3_ZhenWuG_logic",
+   "fp": "zhenwug02"
   }
  ]
 }

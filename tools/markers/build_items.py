@@ -47,6 +47,7 @@ sys.path.insert(0, _HERE)
 sys.path.insert(0, os.path.join(_HERE, "..", "navmesh", "offline"))
 
 import pakmaps                                              # noqa: E402
+import provenance                          # noqa: E402
 import uasset                                               # noqa: E402
 import itemdb                                               # noqa: E402
 from itemdb import SCHEMA                                   # noqa: E402
@@ -413,6 +414,7 @@ def main(argv=None):
     ap.add_argument("--out", default=os.path.join(_HERE, "..", "..", "markers",
                                                   "items.json"))
     ap.add_argument("--stats", action="store_true")
+    provenance.add_arg(ap)
     a = ap.parse_args(argv)
 
     ms = pakmaps.MapSource(a.pak)
@@ -429,6 +431,7 @@ def main(argv=None):
                           "the game's own pickup beam is (DT_Particle LightColor: "
                           "blue / pink / gold)"),
         "items": {str(k): v for k, v in sorted(items.items())},
+        **provenance.stamp(ms, a.pak, not a.no_pak_hash),
     }
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as fh:

@@ -8,11 +8,28 @@ owning sublevel and the cooked object name, which is exactly the join key the
 offline extractor emits (`level` + `obj`).  So every matched pair is a direct
 check of the pak-side position against the engine's own.
 
+    python verify_markers.py                       # every markers/chapter*.json
     python verify_markers.py --markers ..\..\markers\chapter1.json
+    python verify_markers.py --dumps "D:\somewhere\dump_*_world.txt"
 
 Collected pickups are parked at the world origin by the level saver (see
 `lessons.md`), so `loc 0 0 0` rows are reported separately and never counted as
 mismatches.
+
+WHERE THE DUMPS COME FROM (review item C.19)
+--------------------------------------------
+The default is the set committed to this repo -
+`tools/lua-recon/WuchangRecon/out/dump_*_world.txt`, kept by an explicit
+`.gitignore` exception because they are irreplaceable in-game evidence - so the
+tool runs on a fresh clone with no game installed and no environment set up.
+It used to default to one developer's Steam directory, which is why nothing
+ever called it.  `WUCHANG_RECON_DUMPS` or `--dumps` override the glob when you
+have a newer session's dumps.
+
+The dumps only ever cover the areas that were loaded when F8 was pressed, so a
+chapter with no overlap is reported as "no live actors in common" and is not a
+failure - `--require` turns a chapter with matches but disagreements into a
+non-zero exit, which is what the regen driver uses.
 """
 
 from __future__ import annotations
@@ -26,14 +43,14 @@ import os
 import re
 import sys
 
-# Machine-specific: where WuchangRecon drops its dumps inside the game folder on the
-# original dev box. Override the whole glob with WUCHANG_RECON_DUMPS, or just the
-# install folder with WUCHANG_GAME_ROOT (or pass --dumps).
-_FALLBACK_GAME_ROOT = r"E:\Program Files (x86)\Steam\steamapps\common\Wuchang Fallen Feathers"
-DUMPS = os.environ.get("WUCHANG_RECON_DUMPS") or os.path.join(
-    os.environ.get("WUCHANG_GAME_ROOT", _FALLBACK_GAME_ROOT),
-    "Project_Plague", "Binaries", "Win64", "ue4ss", "Mods", "WuchangRecon", "out",
-    "dump_*_world.txt")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+# The reference dumps committed to this repo. No machine-specific path and no
+# game install needed; `WUCHANG_RECON_DUMPS` or `--dumps` point at a newer set.
+REPO_DUMPS = os.path.join(_HERE, "..", "lua-recon", "WuchangRecon", "out",
+                          "dump_*_world.txt")
+DUMPS = os.environ.get("WUCHANG_RECON_DUMPS") or REPO_DUMPS
+MARKERS = os.path.join(_HERE, "..", "..", "markers")
 
 LINE = re.compile(
     r"^\s{2}(\S+)\s+(\S+)\s+\|\s+loc\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*$")
@@ -60,19 +77,11 @@ def load_dumps(pattern):
     return live, files
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--markers", required=True)
-    ap.add_argument("--dumps", default=DUMPS)
-    ap.add_argument("--tol", type=float, default=5.0)
-    ap.add_argument("--show", type=int, default=15)
-    a = ap.parse_args(argv)
-
-    live, nfiles = load_dumps(a.dumps)
-    doc = json.load(open(a.markers, encoding="utf-8"))
+def score(path: str, live: dict, tol: float, show: int) -> tuple[int, int]:
+    """Print one chapter's agreement; return (matched, disagreements)."""
+    doc = json.load(open(path, encoding="utf-8"))
     ms = doc["markers"]
-    print(f"dumps: {nfiles} files, {len(live)} distinct live actors")
-    print(f"markers: {len(ms)} in {os.path.basename(a.markers)}")
+    print(f"markers: {len(ms)} in {os.path.basename(path)}")
 
     matched = miss = parked = bad = 0
     errs = []
@@ -90,26 +99,73 @@ def main(argv=None):
         d = math.dist((m["x"], m["y"], m["z"]), (x, y, z))
         matched += 1
         errs.append(d)
-        per[m["cat"] + (" ok" if d <= a.tol else " BAD")] += 1
-        if d > a.tol:
+        per[m["cat"] + (" ok" if d <= tol else " BAD")] += 1
+        if d > tol:
             bad += 1
             worst.append((d, m, (x, y, z)))
     errs.sort()
-    print(f"\nin both: {matched}  (+{parked} collected/parked at origin, "
+    print(f"  in both: {matched}  (+{parked} collected/parked at origin, "
           f"{miss} not loaded in any dump)")
     if matched:
-        print(f"agree within {a.tol} uu: {matched - bad}/{matched} = "
+        print(f"  agree within {tol} uu: {matched - bad}/{matched} = "
               f"{100.0 * (matched - bad) / matched:.1f} %")
-        print(f"error: median {errs[len(errs)//2]:.3f} uu  "
+        print(f"  error: median {errs[len(errs)//2]:.3f} uu  "
               f"p90 {errs[int(len(errs)*0.9)]:.3f}  max {errs[-1]:.3f}")
     for k, v in sorted(per.items()):
-        print(f"   {k:20s} {v}")
+        print(f"     {k:20s} {v}")
     worst.sort(reverse=True)
-    for d, m, l in worst[:a.show]:
-        print(f"   MISMATCH {d:12.1f}  {m['cls']:28s} {m['level']}/{m['obj']}"
+    for d, m, l in worst[:show]:
+        print(f"     MISMATCH {d:12.1f}  {m['cls']:28s} {m['level']}/{m['obj']}"
               f"  ours=({m['x']:.1f},{m['y']:.1f},{m['z']:.1f}) "
               f"live=({l[0]:.1f},{l[1]:.1f},{l[2]:.1f})")
-    return 0 if bad == 0 else 1
+    return matched, bad
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--markers", default="",
+                    help="a chapter json, or a directory of them "
+                         "(default: the repo's markers/)")
+    ap.add_argument("--dumps", default=DUMPS,
+                    help="glob of WuchangRecon F8 world dumps "
+                         "(default: the ones committed to this repo)")
+    ap.add_argument("--tol", type=float, default=5.0)
+    ap.add_argument("--show", type=int, default=15)
+    ap.add_argument("--require", action="store_true",
+                    help="exit non-zero when a chapter has matches that disagree; "
+                         "without it the tool only reports")
+    a = ap.parse_args(argv)
+
+    live, nfiles = load_dumps(a.dumps)
+    print(f"dumps: {nfiles} file(s) matching {a.dumps}, "
+          f"{len(live)} distinct live actors")
+    if not live:
+        print("  no dumps found - nothing to score. This is not a failure: the "
+              "dumps are recorded in-game evidence, not a build input.")
+        return 0
+
+    target = a.markers or MARKERS
+    if os.path.isdir(target):
+        paths = sorted(glob.glob(os.path.join(target, "chapter*.json")))
+        paths = [p for p in paths if ".sample." not in os.path.basename(p)]
+    else:
+        paths = [target]
+    if not paths:
+        print(f"  no chapter json under {target}")
+        return 1
+
+    total_matched = total_bad = 0
+    for p in paths:
+        m, b = score(p, live, a.tol, a.show)
+        total_matched += m
+        total_bad += b
+    print(f"\ntotal: {total_matched} marker(s) scored, {total_bad} disagree "
+          f"beyond {a.tol} uu")
+    if total_matched == 0:
+        print("  no live actors in common with these dumps - not a failure")
+        return 0
+    return 1 if (a.require and total_bad) else 0
 
 
 if __name__ == "__main__":

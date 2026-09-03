@@ -69,6 +69,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 import pakmaps  # noqa: E402
+import provenance                          # noqa: E402
 
 SCHEMA = "wuchang-minimap-bossdoors/1"
 
@@ -245,6 +246,7 @@ def main() -> int:
     ap.add_argument("--out", default=os.path.join(_HERE, "..", "..", "markers",
                                                   "bossdoors.json"))
     ap.add_argument("-q", "--quiet", action="store_true")
+    provenance.add_arg(ap)
     args = ap.parse_args()
 
     bosses = load_boss_markers()
@@ -319,6 +321,8 @@ def main() -> int:
         "doors": doors,
         "markers": markers,
         "bosses_without_a_door": sorted(m for m in bosses if m not in by_marker),
+        "generated_by": "tools/markers/build_bossdoors.py",
+        **provenance.stamp(ms, args.pak, not args.no_pak_hash),
     }
     out = os.path.abspath(args.out)
     with open(out, "w", encoding="utf-8", newline="\n") as f:

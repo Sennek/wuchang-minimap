@@ -54,6 +54,7 @@ import sys
 import build_items as BI
 import class_graph
 import pakmaps
+import provenance                          # noqa: E402
 
 SCHEMA = "wuchang-minimap-bosses/1"
 BOSS_BASE = "BP_PlacedBossAI_C"
@@ -233,7 +234,8 @@ def placements(src: pakmaps.MapSource, classes: set[str]) -> dict[str, list[str]
     return out
 
 
-def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False) -> dict:
+def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False,
+          prov: dict | None = None) -> dict:
     graph = build_graph(src, verbose)
     if BOSS_BASE not in graph.values() and BOSS_BASE not in graph:
         raise SystemExit(f"{BOSS_BASE} not in the class graph - wrong prefixes?")
@@ -258,6 +260,8 @@ def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False) ->
         "source": ("cooked .uasset export maps (class graph) + DT_AiTable + "
                    "MMGame.locres, offline pak extraction"),
         "bosses": bosses,
+        "generated_by": "tools/markers/build_bosses.py",
+        **(prov or {}),
     }
     if report:
         doc["placed_in"] = placements(src, set(classes))
@@ -273,8 +277,11 @@ def main(argv=None):
         os.path.dirname(os.path.abspath(__file__)), "..", "..", "markers", "bosses.json"))
     ap.add_argument("--report", action="store_true",
                     help="also record where every boss class is placed")
+    provenance.add_arg(ap)
     a = ap.parse_args(argv)
-    doc = build(pakmaps.MapSource(a.pak), report=a.report)
+    ms = pakmaps.MapSource(a.pak)
+    doc = build(ms, report=a.report,
+                prov=provenance.stamp(ms, a.pak, not a.no_pak_hash))
     out = os.path.normpath(a.out)
     with open(out, "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1, ensure_ascii=False, sort_keys=True)

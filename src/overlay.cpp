@@ -64,6 +64,7 @@
 #include "mapdata.hpp"
 #include "mapview.hpp"
 #include "markers.hpp"
+#include "shrines.hpp"
 #include "mmstate.hpp"
 #include "projection.hpp"
 #include "version.hpp"
@@ -2534,6 +2535,253 @@ namespace overlay
             g_toast_until = ::GetTickCount64() + 1000;
         }
 
+        //==============================================================================
+        // The collection statistics page
+        //==============================================================================
+        //
+        // "Why am I using this mod" on one screen: found/total for every chapter and
+        // every category, the shrines the save has lit, and one overall percentage.
+        //
+        // RENDER THREAD ONLY, and it never asks the game anything. Both sources are
+        // published snapshots - `markers::stats()` (a spinlock and a ~1.5 KB copy) and
+        // `shr::state()` (~6.5 KB) - so asking per frame would be ~8 KB of copying and a
+        // lock round-trip per frame for numbers that change once per SWEEP ROUND. The
+        // cache below therefore refreshes when `markers::rounds()` moves, with a 1 s
+        // floor so the page still fills in when the live sweep is off entirely (rounds
+        // never advance then, and a page that stays empty for ever reads as a bug).
+
+        struct StatsCache
+        {
+            markers::Stats st{};
+            shr::State shrines{};
+            std::uint64_t round = ~0ull;
+            std::uint64_t at_ms = 0;
+            bool primed = false;
+        };
+
+        StatsCache g_stats_cache;
+        bool g_stats_page = false; // the full map's Stats panel
+
+        const StatsCache& stats_cached(std::uint64_t now)
+        {
+            const std::uint64_t round = markers::rounds();
+            if (!g_stats_cache.primed || round != g_stats_cache.round ||
+                now - g_stats_cache.at_ms >= 1000)
+            {
+                g_stats_cache.st = markers::stats();
+                g_stats_cache.shrines = shr::state();
+                g_stats_cache.round = round;
+                g_stats_cache.at_ms = now;
+                g_stats_cache.primed = true;
+            }
+            return g_stats_cache;
+        }
+
+        // Draws into whatever window is current. `compact` drops the per-chapter matrix
+        // and keeps the summary, for the F2 panel where vertical space is scarce.
+        void draw_collection_stats(std::uint64_t now, bool compact)
+        {
+            const StatsCache& c = stats_cached(now);
+            const markers::Stats& st = c.st;
+
+            if (!st.db_loaded || st.static_markers == 0)
+            {
+                ImGui::TextDisabled("no markers\\<chapter>.json loaded - live markers only");
+                return;
+            }
+
+            // ---- the headline ---------------------------------------------------------
+            int found_all = 0;
+            int total_all = 0;
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                found_all += st.cat[i].found;
+                total_all += st.cat[i].total;
+            }
+            const float pct = total_all > 0 ? 100.0f * static_cast<float>(found_all) /
+                                                  static_cast<float>(total_all)
+                                            : 0.0f;
+            ImGui::Text("%d / %d collected", found_all, total_all);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%.1f%% of every chapter)", static_cast<double>(pct));
+            ImGui::ProgressBar(total_all > 0 ? static_cast<float>(found_all) /
+                                                   static_cast<float>(total_all)
+                                             : 0.0f,
+                               ImVec2(-1.0f, ImGui::GetTextLineHeight()));
+
+            // ---- shrines lit ----------------------------------------------------------
+            //
+            // `UnlockedFirepoints` also holds boss-door and task pseudo-points, so the
+            // raw count is not "shrines". Only the ids that JOIN to a shrine marker in
+            // the static DB are counted; the raw list length is shown beside it so a
+            // join that goes wrong is visible rather than silent.
+            const int shrine_total = st.cat[static_cast<int>(mdb::Cat::Shrine)].total;
+            if (!c.shrines.valid)
+            {
+                ImGui::TextDisabled("Shrines lit: n/a  (%s)",
+                                    c.shrines.route[0] != '\0' ? c.shrines.route : "not read yet");
+            }
+            else
+            {
+                int lit = 0;
+                const markers::View view = markers::view();
+                for (int i = 0; i < c.shrines.id_count; ++i)
+                {
+                    for (std::size_t m = 0; m < view.count; ++m)
+                    {
+                        if (view.data[m].cat != static_cast<std::uint8_t>(mdb::Cat::Shrine))
+                        {
+                            continue;
+                        }
+                        if (::_stricmp(view.data[m].id, c.shrines.ids[i]) == 0)
+                        {
+                            ++lit;
+                            break;
+                        }
+                    }
+                }
+                ImGui::Text("Shrines lit: %d", lit);
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%d unlocked ids incl. boss doors / tasks; %d shrines in the DB%s)",
+                                    c.shrines.unlocked, shrine_total,
+                                    c.shrines.truncated ? "; list TRUNCATED" : "");
+                if (c.shrines.current[0] != '\0')
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("| last rested at %s", c.shrines.current);
+                }
+            }
+
+            // ---- per category ---------------------------------------------------------
+            ImGui::Spacing();
+            if (ImGui::BeginTable("stats_cat", 4,
+                                  ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
+                                      ImGuiTableFlags_BordersInnerV))
+            {
+                ImGui::TableSetupColumn("Category");
+                ImGui::TableSetupColumn("Found");
+                ImGui::TableSetupColumn("Total");
+                ImGui::TableSetupColumn("%");
+                ImGui::TableHeadersRow();
+                for (int i = 0; i < mdb::kCatCount; ++i)
+                {
+                    if (st.cat[i].total == 0)
+                    {
+                        continue; // a category with nothing in the DB is noise, not a zero
+                    }
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%s", mdb::cat_label(static_cast<mdb::Cat>(i)));
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%d", st.cat[i].found);
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%d", st.cat[i].total);
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.0f%%", 100.0 * static_cast<double>(st.cat[i].found) /
+                                              static_cast<double>(st.cat[i].total));
+                }
+                ImGui::EndTable();
+            }
+
+            if (compact)
+            {
+                return;
+            }
+
+            // ---- per chapter x category ----------------------------------------------
+            //
+            // Only the categories that exist anywhere in the DB get a column, so the
+            // matrix is as wide as the data and not as wide as the enum; it still scrolls
+            // horizontally, because 14 columns will not fit a 1080p panel.
+            int cols[mdb::kCatCount]{};
+            int ncols = 0;
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                if (st.cat[i].total > 0)
+                {
+                    cols[ncols++] = i;
+                }
+            }
+            ImGui::Spacing();
+            ImGui::TextDisabled("per chapter");
+            if (ncols > 0 &&
+                ImGui::BeginTable("stats_matrix", ncols + 2,
+                                  ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
+                                      ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollX,
+                                  ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 11.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("Chapter");
+                for (int i = 0; i < ncols; ++i)
+                {
+                    ImGui::TableSetupColumn(mdb::cat_label(static_cast<mdb::Cat>(cols[i])));
+                }
+                ImGui::TableSetupColumn("all");
+                ImGui::TableHeadersRow();
+
+                const auto cell = [](const markers::CatStat& cs) {
+                    ImGui::TableNextColumn();
+                    if (cs.total == 0)
+                    {
+                        ImGui::TextDisabled("-");
+                    }
+                    else if (cs.found >= cs.total)
+                    {
+                        ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%d/%d", cs.found, cs.total);
+                    }
+                    else
+                    {
+                        ImGui::Text("%d/%d", cs.found, cs.total);
+                    }
+                };
+
+                // Row 0 is the bucket for a manifest whose "chapter" is not a number -
+                // the DLC one spells it "DLC".
+                for (int ch = 0; ch <= 8; ++ch)
+                {
+                    markers::CatStat row{};
+                    for (int i = 0; i < mdb::kCatCount; ++i)
+                    {
+                        row.total += st.chapter[ch][i].total;
+                        row.found += st.chapter[ch][i].found;
+                    }
+                    if (row.total == 0)
+                    {
+                        continue;
+                    }
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    // The chapter the markers are currently filtered to (the one the
+                    // player is standing in) is starred and highlighted.
+                    char label[16]{};
+                    const bool here = (ch == st.filter_chapter);
+                    if (ch == 0)
+                    {
+                        ::strncpy_s(label, sizeof(label), here ? "DLC*" : "DLC", _TRUNCATE);
+                    }
+                    else
+                    {
+                        ::_snprintf_s(label, sizeof(label), _TRUNCATE, here ? "%d*" : "%d", ch);
+                    }
+                    if (here)
+                    {
+                        ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.45f, 1.0f), "%s", label);
+                    }
+                    else
+                    {
+                        ImGui::TextUnformatted(label);
+                    }
+                    for (int i = 0; i < ncols; ++i)
+                    {
+                        cell(st.chapter[ch][cols[i]]);
+                    }
+                    cell(row);
+                }
+                ImGui::EndTable();
+            }
+            ImGui::TextDisabled("* the chapter the markers are filtered to right now");
+        }
+
         void draw_toast()
         {
             const std::uint64_t now = ::GetTickCount64();
@@ -4208,6 +4456,9 @@ namespace overlay
             {
                 return;
             }
+            // The Stats panel belongs to the map mode, so it goes with it - otherwise it
+            // would be left drawn over the game with nothing swallowing the input.
+            g_stats_page = false;
             mm::logf(L"full map closed: {}", why);
         }
 
@@ -4311,6 +4562,11 @@ namespace overlay
             // ZOOM TO FIT. The chapter's bounds are in the manifest, so this is the one
             // view control that cannot be reached by panning and zooming by hand.
             bool want_fit = ImGui::SmallButton("Fit");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Stats"))
+            {
+                g_stats_page = !g_stats_page;
+            }
             ImGui::SameLine();
             if (ImGui::SmallButton("Recentre"))
             {
@@ -4836,6 +5092,33 @@ namespace overlay
                             ddz / 100.0);
                 ImGui::TextDisabled("left-click toggles found");
                 ImGui::EndTooltip();
+            }
+
+            //--------------------------------------------------------------------------
+            // The collection statistics panel (the `Stats` button in the header)
+            //--------------------------------------------------------------------------
+            //
+            // A child window over the map rather than a separate top-level one: the map
+            // is a MODE that owns the whole screen and swallows the input, so a floating
+            // window the player cannot reach with a normal Alt+Tab-style focus change
+            // would be a trap. It closes with the same button, with Esc, and with the map.
+            if (g_stats_page)
+            {
+                const ImVec2 vp = ImGui::GetMainViewport()->Size;
+                ImGui::SetNextWindowPos(ImVec2(vp.x * 0.5f, vp.y * 0.5f), ImGuiCond_Appearing,
+                                        ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowSize(ImVec2(720.0f * ui_scale, 0.0f), ImGuiCond_Appearing);
+                if (ImGui::Begin("Collection", &g_stats_page,
+                                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+                {
+                    draw_collection_stats(::GetTickCount64(), false);
+                    ImGui::Spacing();
+                    if (ImGui::Button("Close"))
+                    {
+                        g_stats_page = false;
+                    }
+                }
+                ImGui::End();
             }
 
             //--------------------------------------------------------------------------
@@ -5436,76 +5719,9 @@ namespace overlay
                                   "anything else = wuchang_minimap_found_<name>.txt\n"
                                   "Takes effect on Save or F5.");
             }
-            if (!st.db_loaded || st.static_markers == 0)
-            {
-                ImGui::TextDisabled("no markers\\<chapter>.json loaded - live markers only");
-            }
-            else if (ImGui::BeginTable("found", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg))
-            {
-                ImGui::TableSetupColumn("Chapter");
-                ImGui::TableSetupColumn("Shrines");
-                ImGui::TableSetupColumn("Chests");
-                ImGui::TableSetupColumn("Pickups");
-                ImGui::TableHeadersRow();
-                const auto cell = [](const markers::CatStat& s) {
-                    ImGui::TableNextColumn();
-                    if (s.total == 0)
-                    {
-                        ImGui::TextDisabled("-");
-                    }
-                    else
-                    {
-                        ImGui::Text("%d / %d", s.found, s.total);
-                    }
-                };
-                // Row 0 is the bucket for a manifest whose "chapter" is not a number -
-                // the DLC one spells it "DLC".
-                for (int ch = 0; ch <= 8; ++ch)
-                {
-                    int any = 0;
-                    for (int i = 0; i < mdb::kCatCount; ++i)
-                    {
-                        any += st.chapter[ch][i].total;
-                    }
-                    if (any == 0)
-                    {
-                        continue;
-                    }
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    if (ch == 0)
-                    {
-                        ImGui::Text("DLC");
-                    }
-                    else
-                    {
-                        ImGui::Text("%d", ch);
-                    }
-                    cell(st.chapter[ch][static_cast<int>(mdb::Cat::Shrine)]);
-                    cell(st.chapter[ch][static_cast<int>(mdb::Cat::Chest)]);
-                    cell(st.chapter[ch][static_cast<int>(mdb::Cat::Pickup)]);
-                }
-                // The summary row follows the filter: when only one chapter is drawn, a
-                // whole-DB total would count five chapters the player cannot see.
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                const int fch = st.filter_chapter;
-                if (fch >= 0 && fch <= 8)
-                {
-                    ImGui::TextDisabled("current");
-                    cell(st.chapter[fch][static_cast<int>(mdb::Cat::Shrine)]);
-                    cell(st.chapter[fch][static_cast<int>(mdb::Cat::Chest)]);
-                    cell(st.chapter[fch][static_cast<int>(mdb::Cat::Pickup)]);
-                }
-                else
-                {
-                    ImGui::TextDisabled("all");
-                    cell(st.cat[static_cast<int>(mdb::Cat::Shrine)]);
-                    cell(st.cat[static_cast<int>(mdb::Cat::Chest)]);
-                    cell(st.cat[static_cast<int>(mdb::Cat::Pickup)]);
-                }
-                ImGui::EndTable();
-            }
+            // The whole collection-statistics page, shared with the full map's Stats
+            // panel. One function, so the two views can never disagree about a number.
+            draw_collection_stats(::GetTickCount64(), false);
 
             //--------------------------------------------------------------------------
             // Full map

@@ -19,6 +19,7 @@
 #include "mem.hpp"
 #include "mmstate.hpp"
 #include "saveslot.hpp"
+#include "shrines.hpp"
 #include "scan_sched.hpp"
 #include "ue_min.hpp"
 #include "uereflect.hpp"
@@ -1815,6 +1816,7 @@ namespace markers
         // that already means "everything keyed to that world is dead".
         hl::drop_caches();
         slotid::drop_caches();
+        shr::drop_caches();
         g_layouts.clear();
         g_class_spec.clear();
         g_id_cache.clear();
@@ -1893,6 +1895,12 @@ namespace markers
         // once a route has answered, and it stops asking entirely unless the world
         // changes (drop_caches re-arms it).
         slotid::game_thread_pump(now, world);
+        // ---- HOOK: the shrine unlock state (src/shrines.cpp) ------------------------
+        //
+        // Four raw property reads at 1 Hz once the component is found. It is what the
+        // stats page means by "shrines lit" and what the shrine list uses to decide
+        // whether travelling to a shrine may even be offered.
+        shr::game_thread_pump(now);
         // ---- end of hook ------------------------------------------------------------
 
         if (!cfg.markers_enabled || !cfg.markers_live)

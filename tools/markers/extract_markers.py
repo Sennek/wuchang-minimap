@@ -542,6 +542,24 @@ def boss_names() -> dict[str, str]:
     return {c: b["name"] for c, b in doc.get("bosses", {}).items() if b.get("name")}
 
 
+def boss_doors() -> dict[str, dict]:
+    """boss marker id -> {"bossdoor": id, "via": ...} from markers/bossdoors.json.
+
+    Toolchain artifact (`build_bossdoors.py`), read only here and baked into
+    chapter*.json as an additive `"bossdoor"` field, so the runtime reads one
+    file rather than two.  Missing it costs the save-backed boss-defeat rule
+    and nothing else.
+    """
+    p = os.path.join(_HERE, "..", "..", "markers", "bossdoors.json")
+    if not os.path.exists(p):
+        print(f"  ! {p} not found - run build_bossdoors.py; "
+              f"bosses get no save-backed defeat signal", file=sys.stderr)
+        return {}
+    with open(p, encoding="utf-8") as f:
+        doc = json.load(f)
+    return doc.get("markers", {})
+
+
 def npc_names() -> dict[str, str]:
     """class -> display name from markers/npcs.json, or {} if it is absent.
 
@@ -561,10 +579,12 @@ def npc_names() -> dict[str, str]:
 
 def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None,
             bosses: "dict[str, str] | None" = None,
-            npcs: "dict[str, str] | None" = None):
+            npcs: "dict[str, str] | None" = None,
+            doors: "dict[str, dict] | None" = None):
     items = items if items is not None else itemdb.ItemDB.load()
     bosses = bosses if bosses is not None else boss_names()
     npcs = npcs if npcs is not None else npc_names()
+    doors = doors if doors is not None else boss_doors()
     keys = chapter_packages(ms, chapter)
     t0 = time.time()
     pkgs = {}
@@ -649,6 +669,20 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                     stats["npc-named"] += 1
                 else:
                     stats["npc-unnamed:" + actor.class_name] += 1
+            # The boss' own save-backed defeat signal: the `bossdoor_*`
+            # firepoint id the level script names for this boss actor
+            # (`build_bossdoors.py`).  Stamped on the marker so the runtime can
+            # test `UnlockedFirepoints` for a boss it has never seen spawn -
+            # which is the only way a boss killed before the mod was installed
+            # can ever read as found.
+            door = ""
+            if cat == "boss":
+                d = doors.get(mid)
+                if d:
+                    door = d.get("bossdoor", "")
+                    stats["boss-door:" + d.get("via", "?")] += 1
+                else:
+                    stats["boss-no-door:" + actor.class_name] += 1
             ids = item_ids(lvl.pkg, actor, items) if cat == "pickup" else []
             rarity = 0
             if cat == "pickup":
@@ -676,6 +710,7 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                 **({"items": ids} if ids else {}),
                 **({"rarity": rarity} if rarity else {}),
                 **({"mark": mark} if mark else {}),
+                **({"bossdoor": door} if door else {}),
             })
             stats["cat:" + cat] += 1
     markers.sort(key=lambda m: (m["cat"], m["level"], m["obj"]))
@@ -785,6 +820,7 @@ def main(argv=None):
     items = itemdb.ItemDB.load(a.items)
     bosses = boss_names()
     npcs = npc_names()
+    doors = boss_doors()
     if not len(items):
         print(f"  ! no item database at {a.items} -- pickups keep the generic label "
               f"(run build_items.py first)", file=sys.stderr)
@@ -793,7 +829,7 @@ def main(argv=None):
     os.makedirs(a.out, exist_ok=True)
     for ch in chapters:
         markers, stats, _schema, _pkgs = extract(ms, ch, items=items, bosses=bosses,
-                                                 npcs=npcs)
+                                                 npcs=npcs, doors=doors)
         if not markers:
             print(f"  chapter {ch}: nothing extracted, skipped")
             continue

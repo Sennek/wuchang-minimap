@@ -14,7 +14,8 @@
    "y": 6865.0,
    "z": 7997.0,
    "cell": "B5EX0_L0_X-13_Y0",
-   "level": "Chapter5_HaiBbaiHJS_LSXM_AI"
+   "level": "Chapter5_HaiBbaiHJS_LSXM_AI",
+   "bossdoor": "bossdoor_znxm"
   },
   {
    "id": "Chapter5_ZhenLiZM_YHXYZ_AI/BP_XYZ_AI_S_C_1",
@@ -26,7 +27,8 @@
    "y": -18834.79,
    "z": 2242.15,
    "cell": "B5EX0_L0_X-20_Y-2",
-   "level": "Chapter5_ZhenLiZM_YHXYZ_AI"
+   "level": "Chapter5_ZhenLiZM_YHXYZ_AI",
+   "bossdoor": "bossdoor_yhxyz"
   },
   {
    "id": "Chapter5_YuRenJT_logic/BP_treasurebox_C_0",

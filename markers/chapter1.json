@@ -14,7 +14,8 @@
    "y": -13905.21,
    "z": -7641.22,
    "cell": "B1EX0_L0_X1_Y-2",
-   "level": "Chapter1_DGong_Boss_AI"
+   "level": "Chapter1_DGong_Boss_AI",
+   "bossdoor": "bossdoor_dyy"
   },
   {
    "id": "Chapter1_FoYuanZ_BOSS_AI/Boss_Luhongliu_FirstStage_01_C_2",
@@ -26,7 +27,8 @@
    "y": 10638.71,
    "z": 4325.11,
    "cell": "B1EX0_L0_X1_Y1",
-   "level": "Chapter1_FoYuanZ_BOSS_AI"
+   "level": "Chapter1_FoYuanZ_BOSS_AI",
+   "bossdoor": "bossdoor_lhl"
   },
   {
    "id": "Chapter1_Hanguang_Boss_AI/BP_toutuo_AI_C_1",
@@ -38,7 +40,8 @@
    "y": -12162.95,
    "z": -496.04,
    "cell": "B1EX0_L0_X1_Y-2",
-   "level": "Chapter1_Hanguang_Boss_AI"
+   "level": "Chapter1_Hanguang_Boss_AI",
+   "bossdoor": "bossdoor_tt"
   },
   {
    "id": "Chapter1_Hanguang_GongNv_AI/BP_YHGN_AI_Special_C_1",
@@ -50,7 +53,8 @@
    "y": -24921.89,
    "z": 1846.94,
    "cell": "B1EX0_L0_X2_Y-3",
-   "level": "Chapter1_Hanguang_GongNv_AI"
+   "level": "Chapter1_Hanguang_GongNv_AI",
+   "bossdoor": "bossdoor_yhgn"
   },
   {
    "id": "Chapter1_Shuwang_Boss_AI/AI_YHJS_BP_C_0",
@@ -62,7 +66,8 @@
    "y": 4435.81,
    "z": 3494.29,
    "cell": "B1EX0_L0_X1_Y0",
-   "level": "Chapter1_Shuwang_Boss_AI"
+   "level": "Chapter1_Shuwang_Boss_AI",
+   "bossdoor": "bossdoor_yhjs"
   },
   {
    "id": "Chapter1_TangW_AI/BP_YHGN_AI_Special_C_1",
@@ -74,7 +79,8 @@
    "y": 11672.66,
    "z": 2182.53,
    "cell": "B1EX0_L0_X0_Y1",
-   "level": "Chapter1_TangW_AI"
+   "level": "Chapter1_TangW_AI",
+   "bossdoor": "bossdoor_twgn"
   },
   {
    "id": "Chapter1_TangW_BOSS_AI/BP_Honglan_BossAI_C_1",
@@ -86,7 +92,8 @@
    "y": 4405.83,
    "z": 1733.26,
    "cell": "B1EX0_L0_X0_Y0",
-   "level": "Chapter1_TangW_BOSS_AI"
+   "level": "Chapter1_TangW_BOSS_AI",
+   "bossdoor": "bossdoor_hl"
   },
   {
    "id": "Chapter1_Wanrenk_BOSS_AI/BP_Dashuguai_AI_C_1",
@@ -98,7 +105,8 @@
    "y": -26412.49,
    "z": -6329.02,
    "cell": "B1EX0_L0_X-2_Y-3",
-   "level": "Chapter1_Wanrenk_BOSS_AI"
+   "level": "Chapter1_Wanrenk_BOSS_AI",
+   "bossdoor": "bossdoor_fhm"
   },
   {
    "id": "Chapter1_special_LHL_AI/BP_BKL_AI_Special_C_1",

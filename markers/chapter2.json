@@ -14,7 +14,8 @@
    "y": -37311.22,
    "z": 3014.45,
    "cell": "B2EX0_L0_X6_Y-4",
-   "level": "Chapter2_ShuJing_YHXN_AI"
+   "level": "Chapter2_ShuJing_YHXN_AI",
+   "bossdoor": "bossdoor_fl"
   },
   {
    "id": "Chapter2_ShuJing_YHXN_AI/B_XBXN02_C_1",
@@ -26,7 +27,8 @@
    "y": -40552.1,
    "z": 3000.11,
    "cell": "B2EX0_L0_X6_Y-4",
-   "level": "Chapter2_ShuJing_YHXN_AI"
+   "level": "Chapter2_ShuJing_YHXN_AI",
+   "bossdoor": "bossdoor_fl"
   },
   {
    "id": "Chapter2_YunDingCN_XBFR_AI/BP_XBFR_AI_C_1",
@@ -38,7 +40,8 @@
    "y": -43010.62,
    "z": 18009.79,
    "cell": "B2EX0_L0_X6_Y-5",
-   "level": "Chapter2_YunDingCN_XBFR_AI"
+   "level": "Chapter2_YunDingCN_XBFR_AI",
+   "bossdoor": "bossdoor_hy"
   },
   {
    "id": "Chapter2_YunDingCW_ANQ_AI/B_ANQ_C_2",
@@ -50,7 +53,8 @@
    "y": -63519.72,
    "z": 10542.06,
    "cell": "B2EX0_L0_X0_Y-7",
-   "level": "Chapter2_YunDingCW_ANQ_AI"
+   "level": "Chapter2_YunDingCW_ANQ_AI",
+   "bossdoor": "bossdoor_anq"
   },
   {
    "id": "Chapter2_YunDingCW_JianJun_AI/BP_MJJJ_AI_New_C_0",
@@ -62,7 +66,8 @@
    "y": -57205.53,
    "z": 11603.92,
    "cell": "B2EX0_L0_X4_Y-6",
-   "level": "Chapter2_YunDingCW_JianJun_AI"
+   "level": "Chapter2_YunDingCW_JianJun_AI",
+   "bossdoor": "bossdoor_lce"
   },
   {
    "id": "Chapter2_DaXiJYD_logic/BP_ItemRedBox_C_0",

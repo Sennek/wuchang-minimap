@@ -1,0 +1,398 @@
+{
+ "bosses_total": 28,
+ "bosses_with_a_door": 26,
+ "bosses_without_a_door": [
+  "Chapter1_special_LHL_AI/BP_BKL_AI_Special_C_1",
+  "ChapterDLC_BOSS_ZhuoJinEL_AI/BP_Honglan_BossAI_C_1"
+ ],
+ "count": 23,
+ "doors": {
+  "bossdoor_anq": {
+   "abbr_in_class": true,
+   "chapter": 2,
+   "cls": "B_ANQ_C",
+   "level": "Chapter2_YunDingCW_ANQ_AI",
+   "logic": "Chapter2_YunDingCW_logic",
+   "marker": "Chapter2_YunDingCW_ANQ_AI/B_ANQ_C_2",
+   "name": "General of the North - Ai Nengqi",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter2_YunDingCW_ANQ_AI/B_ANQ_C_2",
+   "obj": "B_ANQ_C_2"
+  },
+  "bossdoor_bkl": {
+   "abbr_in_class": true,
+   "chapter": 3,
+   "cls": "BP_BKL_AI_C",
+   "level": "Chapter3_WuChangJZ_BaiKeL_AI",
+   "logic": "Chapter3_WuChangJZ_logic",
+   "marker": "Chapter3_WuChangJZ_BaiKeL_AI/BP_BKL_AI_C_0",
+   "name": "Monstrous Toddler - Bai Kru",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter3_WuChangJZ_BaiKeL_AI/BP_BKL_AI_C_0",
+   "obj": "BP_BKL_AI_C_0"
+  },
+  "bossdoor_brgw": {
+   "abbr_in_class": false,
+   "chapter": 3,
+   "cls": "BP_NRSL01_AI_C",
+   "level": "Chapter3_NiaoRenJL_NiaoRenSL_AI",
+   "logic": "Chapter3_NiaoRenJL_logic",
+   "marker": "Chapter3_NiaoRenJL_NiaoRenSL_AI/BP_NRSL01_AI_C_2",
+   "name": "Bo Sorcerer",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter3_NiaoRenJL_NiaoRenSL_AI/BP_NRSL01_AI_C_2",
+   "obj": "BP_NRSL01_AI_C_2"
+  },
+  "bossdoor_brwz": {
+   "abbr_in_class": false,
+   "chapter": 4,
+   "cls": "B_NW_C",
+   "level": "Chapter4_DiGong_NW_AI",
+   "logic": "Chapter4_DiGong_logic",
+   "marker": "Chapter4_DiGong_NW_AI/B_NW_C_0",
+   "name": "Bo Magus",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter4_DiGong_NW_AI/B_NW_C_0",
+   "obj": "B_NW_C_0"
+  },
+  "bossdoor_cyhl": {
+   "abbr_in_class": false,
+   "chapter": 4,
+   "cls": "BP_YHHL_BossAI_C",
+   "level": "Chapter4_HuiLiuT_YHHL_AI",
+   "logic": "Chapter4_HuiLiuT_logic",
+   "marker": "Chapter4_HuiLiuT_YHHL_AI/BP_YHHL_BossAI_C_1",
+   "name": "Vermilion Feathers - Honglan",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter4_HuiLiuT_YHHL_AI/BP_YHHL_BossAI_C_1",
+   "obj": "BP_YHHL_BossAI_C_1"
+  },
+  "bossdoor_cz": {
+   "abbr_in_class": true,
+   "chapter": 4,
+   "cls": "BP_CZ_AI_2_C",
+   "level": "Chapter4_RanDengD_CZ_AI",
+   "logic": "Chapter4_PuYuanS_logic",
+   "marker": "Chapter4_RanDengD_CZ_AI/BP_CZ_AI_2_C_1",
+   "name": "The Reborn",
+   "nearest_agrees": false,
+   "nearest_says": "Chapter4_RanDengD_CZ_AI/BP_CZ_AI_C_1",
+   "obj": "BP_CZ_AI_2_C_1"
+  },
+  "bossdoor_dyy": {
+   "abbr_in_class": false,
+   "chapter": 1,
+   "cls": "BP_DaYouYan_AI_C",
+   "level": "Chapter1_DGong_Boss_AI",
+   "logic": "Chapter1_DGong_logic",
+   "marker": "Chapter1_DGong_Boss_AI/BP_DaYouYan_AI_C_3",
+   "name": "Blightweaver - Great Centipede",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter1_DGong_Boss_AI/BP_DaYouYan_AI_C_3",
+   "obj": "BP_DaYouYan_AI_C_3"
+  },
+  "bossdoor_fhm": {
+   "abbr_in_class": false,
+   "chapter": 1,
+   "cls": "BP_Dashuguai_AI_C",
+   "level": "Chapter1_Wanrenk_BOSS_AI",
+   "logic": "Chapter1_Wanrenk_logic",
+   "marker": "Chapter1_Wanrenk_BOSS_AI/BP_Dashuguai_AI_C_1",
+   "name": "Reborn Treant - Soulwood",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter1_Wanrenk_BOSS_AI/BP_Dashuguai_AI_C_1",
+   "obj": "BP_Dashuguai_AI_C_1"
+  },
+  "bossdoor_fl": {
+   "abbr_in_class": false,
+   "chapter": 2,
+   "cls": "B_XBXN02_C",
+   "level": "Chapter2_ShuJing_YHXN_AI",
+   "logic": "Chapter2_ShuJing_logic",
+   "marker": "Chapter2_ShuJing_YHXN_AI/B_XBXN02_C_1",
+   "name": "Chimera - Fang Ling",
+   "nearest_agrees": false,
+   "nearest_says": "Chapter2_YunDingCN_XBFR_AI/BP_XBFR_AI_C_1",
+   "obj": "B_XBXN02_C_1"
+  },
+  "bossdoor_hl": {
+   "abbr_in_class": false,
+   "chapter": 1,
+   "cls": "BP_Honglan_BossAI_C",
+   "level": "Chapter1_TangW_BOSS_AI",
+   "logic": "Chapter1_TangW_logic",
+   "marker": "Chapter1_TangW_BOSS_AI/BP_Honglan_BossAI_C_1",
+   "name": "Commander - Honglan",
+   "nearest_agrees": false,
+   "nearest_says": "Chapter1_TangW_AI/BP_YHGN_AI_Special_C_1",
+   "obj": "BP_Honglan_BossAI_C_1"
+  },
+  "bossdoor_hy": {
+   "abbr_in_class": false,
+   "chapter": 2,
+   "cls": "BP_XBFR_AI_C",
+   "level": "Chapter2_YunDingCN_XBFR_AI",
+   "logic": "Chapter2_YunDingCN_logic",
+   "marker": "Chapter2_YunDingCN_XBFR_AI/BP_XBFR_AI_C_1",
+   "name": "Mistress of the Night - Huang Yan",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter2_YunDingCN_XBFR_AI/BP_XBFR_AI_C_1",
+   "obj": "BP_XBFR_AI_C_1"
+  },
+  "bossdoor_lce": {
+   "abbr_in_class": false,
+   "chapter": 2,
+   "cls": "BP_MJJJ_AI_New_C",
+   "level": "Chapter2_YunDingCW_JianJun_AI",
+   "logic": "Chapter2_YunDingCW_logic",
+   "marker": "Chapter2_YunDingCW_JianJun_AI/BP_MJJJ_AI_New_C_0",
+   "name": "Ming General - Liu Cheng'en",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter2_YunDingCW_JianJun_AI/BP_MJJJ_AI_New_C_0",
+   "obj": "BP_MJJJ_AI_New_C_0"
+  },
+  "bossdoor_lhl": {
+   "abbr_in_class": false,
+   "chapter": 1,
+   "cls": "Boss_Luhongliu_FirstStage_01_C",
+   "level": "Chapter1_FoYuanZ_BOSS_AI",
+   "logic": "Chapter1_FoYuanZ_logic",
+   "marker": "Chapter1_FoYuanZ_BOSS_AI/Boss_Luhongliu_FirstStage_01_C_2",
+   "name": "Gluttonous Monstrosity - Lu Hongliu",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter1_FoYuanZ_BOSS_AI/Boss_Luhongliu_FirstStage_01_C_2",
+   "obj": "Boss_Luhongliu_FirstStage_01_C_2"
+  },
+  "bossdoor_lwx": {
+   "abbr_in_class": true,
+   "chapter": 3,
+   "cls": "BP_E_LWX_AI_C",
+   "level": "Chapter3_ZhenWuG_LiuWenXiu_AI",
+   "logic": "Chapter3_ZhenWuG_logic",
+   "marker": "Chapter3_ZhenWuG_LiuWenXiu_AI/BP_E_LWX_AI_C_2",
+   "name": "South General - Liu Wenxiu",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter3_ZhenWuG_LiuWenXiu_AI/BP_E_LWX_AI_C_2",
+   "obj": "BP_E_LWX_AI_C_2"
+  },
+  "bossdoor_myxm": {
+   "abbr_in_class": false,
+   "chapter": 4,
+   "cls": "BP_XMWC_AI_New_C",
+   "level": "Chapter4_FoYuanZ_XM_AI",
+   "logic": "Chapter4_FoYuanZ_logic",
+   "marker": "Chapter4_FoYuanZ_XM_AI/BP_XMWC_AI_New_C_0",
+   "name": "Demon of Obsession",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter4_FoYuanZ_XM_AI/BP_XMWC_AI_New_C_0",
+   "obj": "BP_XMWC_AI_New_C_0"
+  },
+  "bossdoor_tt": {
+   "abbr_in_class": false,
+   "chapter": 1,
+   "cls": "BP_toutuo_AI_C",
+   "level": "Chapter1_Hanguang_Boss_AI",
+   "logic": "Chapter1_Hanguang_logic",
+   "marker": "Chapter1_Hanguang_Boss_AI/BP_toutuo_AI_C_1",
+   "name": "Master Raider - Man-eating Dhutanga",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter1_Hanguang_Boss_AI/BP_toutuo_AI_C_1",
+   "obj": "BP_toutuo_AI_C_1"
+  },
+  "bossdoor_twgn": {
+   "abbr_in_class": false,
+   "chapter": 1,
+   "cls": "BP_YHGN_AI_Special_C",
+   "level": "Chapter1_TangW_AI",
+   "logic": "Chapter1_TangW_logic",
+   "marker": "Chapter1_TangW_AI/BP_YHGN_AI_Special_C_1",
+   "name": "Tang Palace Maid",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter1_TangW_AI/BP_YHGN_AI_Special_C_1",
+   "obj": "BP_YHGN_AI_Special_C_1"
+  },
+  "bossdoor_yhgn": {
+   "abbr_in_class": true,
+   "chapter": 1,
+   "cls": "BP_YHGN_AI_Special_C",
+   "level": "Chapter1_Hanguang_GongNv_AI",
+   "logic": "Chapter1_Hanguang_logic",
+   "marker": "Chapter1_Hanguang_GongNv_AI/BP_YHGN_AI_Special_C_1",
+   "name": "Tang Palace Maid",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter1_Hanguang_GongNv_AI/BP_YHGN_AI_Special_C_1",
+   "obj": "BP_YHGN_AI_Special_C_1"
+  },
+  "bossdoor_yhjs": {
+   "abbr_in_class": true,
+   "chapter": 1,
+   "cls": "AI_YHJS_BP_C",
+   "level": "Chapter1_Shuwang_Boss_AI",
+   "logic": "Chapter1_Shuwang_logic",
+   "marker": "Chapter1_Shuwang_Boss_AI/AI_YHJS_BP_C_0",
+   "name": "Feathered Priest - Lu Bingzhang",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter1_Shuwang_Boss_AI/AI_YHJS_BP_C_0",
+   "obj": "AI_YHJS_BP_C_0"
+  },
+  "bossdoor_yhxyz": {
+   "abbr_in_class": false,
+   "chapter": 5,
+   "cls": "BP_XYZ_AI_S_C",
+   "level": "Chapter5_ZhenLiZM_YHXYZ_AI",
+   "logic": "Chapter5_ZhenLiZM_logic",
+   "marker": "Chapter5_ZhenLiZM_YHXYZ_AI/BP_XYZ_AI_S_C_1",
+   "name": "Feathery Ambition - Xuanyangzi",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter5_ZhenLiZM_YHXYZ_AI/BP_XYZ_AI_S_C_1",
+   "obj": "BP_XYZ_AI_S_C_1"
+  },
+  "bossdoor_znxm": {
+   "abbr_in_class": false,
+   "chapter": 5,
+   "cls": "BP_XMWC_LS_AI_C",
+   "level": "Chapter5_HaiBbaiHJS_LSXM_AI",
+   "logic": "Chapter5_HaiBbaiHJS_logic",
+   "marker": "Chapter5_HaiBbaiHJS_LSXM_AI/BP_XMWC_LS_AI_C_1",
+   "name": "Demon of Obsession",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter5_HaiBbaiHJS_LSXM_AI/BP_XMWC_LS_AI_C_1",
+   "obj": "BP_XMWC_LS_AI_C_1"
+  },
+  "bossdoor_zxz": {
+   "abbr_in_class": true,
+   "chapter": 3,
+   "cls": "BP_Anim_ZXZ_StepB_C",
+   "level": "Chapter3_ZhenWuG_ZhangXianZ_AI",
+   "logic": "Chapter3_ZhenWuG_logic",
+   "marker": "Chapter3_ZhenWuG_ZhangXianZ_AI/DT_Anim_MJJJ_StepB_C_0",
+   "name": "Sovereign - Zhang Xianzhong's Obsession",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter3_ZhenWuG_ZhangXianZ_AI/DT_Anim_MJJJ_StepB_C_0",
+   "obj": "DT_Anim_MJJJ_StepB_C_0"
+  },
+  "bossdoor_zy": {
+   "abbr_in_class": true,
+   "chapter": 3,
+   "cls": "BP_ZY_AI_C",
+   "level": "Chapter3_NiaoRenJL_ZhaoY_AI",
+   "logic": "Chapter3_NiaoRenJL_logic",
+   "marker": "Chapter3_NiaoRenJL_ZhaoY_AI/BP_ZY_AI_C_1",
+   "name": "Eternal Glory - Zhao Yun's Spirit",
+   "nearest_agrees": true,
+   "nearest_says": "Chapter3_NiaoRenJL_ZhaoY_AI/BP_ZY_AI_C_1",
+   "obj": "BP_ZY_AI_C_1"
+  }
+ },
+ "inherited": 3,
+ "markers": {
+  "Chapter1_DGong_Boss_AI/BP_DaYouYan_AI_C_3": {
+   "bossdoor": "bossdoor_dyy",
+   "via": "authored"
+  },
+  "Chapter1_FoYuanZ_BOSS_AI/Boss_Luhongliu_FirstStage_01_C_2": {
+   "bossdoor": "bossdoor_lhl",
+   "via": "authored"
+  },
+  "Chapter1_Hanguang_Boss_AI/BP_toutuo_AI_C_1": {
+   "bossdoor": "bossdoor_tt",
+   "via": "authored"
+  },
+  "Chapter1_Hanguang_GongNv_AI/BP_YHGN_AI_Special_C_1": {
+   "bossdoor": "bossdoor_yhgn",
+   "via": "authored"
+  },
+  "Chapter1_Shuwang_Boss_AI/AI_YHJS_BP_C_0": {
+   "bossdoor": "bossdoor_yhjs",
+   "via": "authored"
+  },
+  "Chapter1_TangW_AI/BP_YHGN_AI_Special_C_1": {
+   "bossdoor": "bossdoor_twgn",
+   "via": "authored"
+  },
+  "Chapter1_TangW_BOSS_AI/BP_Honglan_BossAI_C_1": {
+   "bossdoor": "bossdoor_hl",
+   "via": "authored"
+  },
+  "Chapter1_Wanrenk_BOSS_AI/BP_Dashuguai_AI_C_1": {
+   "bossdoor": "bossdoor_fhm",
+   "via": "authored"
+  },
+  "Chapter2_ShuJing_YHXN_AI/BP_YuHuaXNAI_C_1": {
+   "bossdoor": "bossdoor_fl",
+   "via": "level"
+  },
+  "Chapter2_ShuJing_YHXN_AI/B_XBXN02_C_1": {
+   "bossdoor": "bossdoor_fl",
+   "via": "authored"
+  },
+  "Chapter2_YunDingCN_XBFR_AI/BP_XBFR_AI_C_1": {
+   "bossdoor": "bossdoor_hy",
+   "via": "authored"
+  },
+  "Chapter2_YunDingCW_ANQ_AI/B_ANQ_C_2": {
+   "bossdoor": "bossdoor_anq",
+   "via": "authored"
+  },
+  "Chapter2_YunDingCW_JianJun_AI/BP_MJJJ_AI_New_C_0": {
+   "bossdoor": "bossdoor_lce",
+   "via": "authored"
+  },
+  "Chapter3_NiaoRenJL_NiaoRenSL_AI/BP_NRSL01_AI_C_2": {
+   "bossdoor": "bossdoor_brgw",
+   "via": "authored"
+  },
+  "Chapter3_NiaoRenJL_ZhaoY_AI/BP_ZY_AI_C_1": {
+   "bossdoor": "bossdoor_zy",
+   "via": "authored"
+  },
+  "Chapter3_WuChangJZ_BaiKeL_AI/BP_BKL_AI_C_0": {
+   "bossdoor": "bossdoor_bkl",
+   "via": "authored"
+  },
+  "Chapter3_ZhenWuG_LiuWenXiu_AI/BP_E_LWX_AI_C_2": {
+   "bossdoor": "bossdoor_lwx",
+   "via": "authored"
+  },
+  "Chapter3_ZhenWuG_ZhangXianZ_AI/DT_Anim_MJJJ_StepA_C_0": {
+   "bossdoor": "bossdoor_zxz",
+   "via": "level"
+  },
+  "Chapter3_ZhenWuG_ZhangXianZ_AI/DT_Anim_MJJJ_StepB_C_0": {
+   "bossdoor": "bossdoor_zxz",
+   "via": "authored"
+  },
+  "Chapter4_DiGong_NW_AI/B_NW_C_0": {
+   "bossdoor": "bossdoor_brwz",
+   "via": "authored"
+  },
+  "Chapter4_FoYuanZ_XM_AI/BP_XMWC_AI_New_C_0": {
+   "bossdoor": "bossdoor_myxm",
+   "via": "authored"
+  },
+  "Chapter4_HuiLiuT_YHHL_AI/BP_YHHL_BossAI_C_1": {
+   "bossdoor": "bossdoor_cyhl",
+   "via": "authored"
+  },
+  "Chapter4_RanDengD_CZ_AI/BP_CZ_AI_2_C_1": {
+   "bossdoor": "bossdoor_cz",
+   "via": "authored"
+  },
+  "Chapter4_RanDengD_CZ_AI/BP_CZ_AI_C_1": {
+   "bossdoor": "bossdoor_cz",
+   "via": "level"
+  },
+  "Chapter5_HaiBbaiHJS_LSXM_AI/BP_XMWC_LS_AI_C_1": {
+   "bossdoor": "bossdoor_znxm",
+   "via": "authored"
+  },
+  "Chapter5_ZhenLiZM_YHXYZ_AI/BP_XYZ_AI_S_C_1": {
+   "bossdoor": "bossdoor_yhxyz",
+   "via": "authored"
+  }
+ },
+ "schema": "wuchang-minimap-bossdoors/1",
+ "source": "cooked *_logic.umap level-script exports (ST_LevelScriptBossData: Boss门坐佛点 + the boss' FSoftObjectPath), joined to markers/chapter*.json boss ids",
+ "witness_abbr_in_class": 8,
+ "witness_nearest_agrees": 20
+}

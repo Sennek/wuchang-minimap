@@ -20,6 +20,12 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   than on your first attempt, so a boss you fought and did not beat may read as
   defeated. It is worked out fresh every time and never written to the collection file,
   so `boss_defeat_from_save = 0` undoes it completely.
+- **An NPC who has left is no longer drawn where they stood.** This has been chased
+  three times, and the reason it kept coming back is that the game does not do what was
+  assumed: a used-up NPC is not moved and not deleted, it keeps its actor and its exact
+  authored position and is simply made **invisible**, while the person you meet next is a
+  different character somewhere else. The mod now reads the actor's own visibility, and
+  an invisible one neither draws a marker, nor shows in the x-ray, nor counts as met.
 - **A Bindings tab in the F2 panel.** Every hotkey - settings panel, full map, recentre,
   minimap zoom, reload, map-to-clipboard and the x-ray hold key - is rebound by clicking
   it and pressing the new key (Esc cancels), with a reset per row, a **Reset every

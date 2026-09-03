@@ -460,6 +460,10 @@ namespace mdb
         // stands: the position read failed, or it read the (0,0,0) parking spot this
         // game uses for a used-up actor. See the comment on case (b) below.
         bool live_twin_unlocatable = false;
+        // A live actor answered for this id this round, we know exactly where it stands,
+        // and it is INVISIBLE (`AActor::bHidden` / the game's own `bLocalHidden`, or the
+        // root component's `bHiddenInGame` / `!bVisible`). See case (e).
+        bool live_twin_invisible = false;
         bool level_known = false;              // the marker's level is in the loaded set
         bool full_round_since_level_load = false;
     };
@@ -486,11 +490,35 @@ namespace mdb
     //   (c) no live twin, level loaded
     //       and a full round has passed -> HIDE (nobody answered, so nobody is there)
     //   (d) no live twin, level unknown -> KEEP. We have not looked; a hint is all we have.
+    //   (e) a locatable live twin that
+    //       is HIDDEN in the game       -> HIDE. Case (a) assumed that an actor standing
+    //                                    where it was authored is a person standing
+    //                                    there, and run 4 disproved it: `people - static
+    //                                    53, live 24, joined 21, superseded 0, walked
+    //                                    away 0, hidden 0` while the user was still
+    //                                    seeing an NPC drawn at a spot they had left.
+    //                                    Every joined twin answered WITH a good position
+    //                                    at its authored spot, so none of (b), (c) or (d)
+    //                                    could fire. This game does not park or move a
+    //                                    used-up NPC - it makes the actor INVISIBLE and
+    //                                    puts the person you meet next somewhere else as
+    //                                    a different placed actor. (The same mechanism is
+    //                                    authored for bosses: `ST_LevelScriptBossData`
+    //                                    has a `隐藏击败过的尸体` - "hide the corpse of a
+    //                                    defeated boss" - flag.) An invisible actor is
+    //                                    not a person you can walk up to, so it must
+    //                                    neither be drawn nor count as MET.
+    //
+    // (e) is tested before (a) for exactly that reason.
     constexpr bool mobile_twin_is_stale(const MobileTwinFacts& f)
     {
         if (!f.mobile)
         {
             return false;
+        }
+        if (f.live_twin_invisible)
+        {
+            return true; // (e)
         }
         if (f.live_twin_this_round)
         {

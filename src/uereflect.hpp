@@ -29,6 +29,7 @@
 
 namespace uer
 {
+    using RC::Unreal::FBoolProperty;
     using RC::Unreal::FField;
     using RC::Unreal::FFieldAccess;
     using RC::Unreal::FProperty;
@@ -41,6 +42,12 @@ namespace uer
     {
         std::size_t offset = 0;
         int size = 0;
+        // The reflected FProperty itself, kept so a read that needs more than the
+        // offset and the size can ask for it later - today that is only the bool
+        // BITFIELD decode (see bool_info). UClasses and their FProperties are never
+        // moved or freed while instances exist, which is the same reason the layout
+        // cache is keyed on the UClass pointer.
+        FProperty* field = nullptr;
     };
 
     struct ClassLayout
@@ -73,7 +80,8 @@ namespace uer
                     std::wstring name = field->GetName();
                     if (!name.empty() && !out.props.contains(name))
                     {
-                        out.props.emplace(std::move(name), Prop{static_cast<std::size_t>(offset), size});
+                        out.props.emplace(std::move(name),
+                                          Prop{static_cast<std::size_t>(offset), size, prop});
                     }
                 }
                 field = FFieldAccess::next(field);
@@ -128,6 +136,83 @@ namespace uer
         }
         const auto it = layout->props.find(name);
         return it == layout->props.end() ? nullptr : &it->second;
+    }
+
+    // ---- a reflected BOOL is a bitfield -------------------------------------------
+    //
+    // `uint8 bHidden : 1` on AActor shares its byte with a dozen other flags, so reading
+    // the byte at the property offset and testing it for non-zero answers a different
+    // question ("is any flag in this byte set?"). The bit is named by
+    // `FBoolProperty::ByteOffset` + `FieldMask`.
+    //
+    // Since we cannot ask whether an FProperty IS an FBoolProperty without guessing an
+    // engine struct's layout (see the note on the class in ue_min.hpp), the answer is
+    // validated instead. All four constraints have to hold, and for a genuine bool they
+    // always do:
+    //
+    //   * the property's element size is 1 (a bitfield's storage is one byte);
+    //   * FieldSize is 1 for the same reason;
+    //   * ByteOffset is small (it indexes a byte inside the bitfield's storage);
+    //   * FieldMask is a single set bit, or 0xFF for a native `bool` member.
+    //
+    // `ok == false` therefore means "this is not a bool I can read", never "false".
+    struct BoolInfo
+    {
+        bool ok = false;
+        std::uint8_t byte_off = 0;
+        std::uint8_t mask = 0;
+    };
+
+    inline BoolInfo bool_info(const Prop* p)
+    {
+        BoolInfo bi{};
+        if (p == nullptr || p->field == nullptr || p->size != 1)
+        {
+            return bi;
+        }
+        auto* bp = static_cast<FBoolProperty*>(p->field);
+        std::uint8_t mask = 0;
+        std::uint8_t byte_off = 0;
+        std::uint8_t field_size = 0;
+        if (!mem::copy(&bp->GetFieldMask(), &mask, sizeof(mask)) ||
+            !mem::copy(&bp->GetByteOffset(), &byte_off, sizeof(byte_off)) ||
+            !mem::copy(&bp->GetFieldSize(), &field_size, sizeof(field_size)))
+        {
+            return bi;
+        }
+        const bool one_bit = mask != 0 && (mask & static_cast<std::uint8_t>(mask - 1)) == 0;
+        if (field_size != 1 || byte_off >= 8 || !(one_bit || mask == 0xFF))
+        {
+            return bi;
+        }
+        bi.ok = true;
+        bi.byte_off = byte_off;
+        bi.mask = mask;
+        return bi;
+    }
+
+    // Reads a reflected bool (bitfield or native). Returns false when the property is
+    // absent, is not a readable bool, or the memory read faulted - `out` is untouched.
+    inline bool read_bool_prop(const ClassLayout* layout, const void* obj, const wchar_t* name,
+                               bool& out)
+    {
+        const Prop* p = find_prop(layout, name);
+        if (p == nullptr || obj == nullptr)
+        {
+            return false;
+        }
+        const BoolInfo bi = bool_info(p);
+        if (!bi.ok)
+        {
+            return false;
+        }
+        std::uint8_t byte = 0;
+        if (!mem::read_at(obj, p->offset + bi.byte_off, byte))
+        {
+            return false;
+        }
+        out = (byte & bi.mask) != 0;
+        return true;
     }
 
     // ---- typed property reads (all guarded; a wrong offset returns false) ----------

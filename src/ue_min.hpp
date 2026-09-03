@@ -225,6 +225,37 @@ namespace RC::Unreal
         const int& GetElementSize() const;
     };
 
+    // A reflected bool is a BITFIELD, and its byte offset alone does not identify it.
+    // `uint8 bHidden : 1` shares a byte with `bNetTemporary`, `bTearOff` and the rest, so
+    // `GetOffset_Internal()` names the byte and these three name the bit inside it:
+    // address = obj + Offset_Internal + ByteOffset, value = (*address & FieldMask) != 0.
+    // A native `bool` member has FieldMask 0xFF.
+    //
+    // Only the three accessors are declared, and they are the CONST overloads returning
+    // `const uint8&` - the mangled name carries the access specifier and the constness,
+    // so both halves matter (`QEBAAEBEXZ`, from `sdk/UE4SS.def`).
+    //
+    // NOTE ON SAFETY. There is no cheap way to ask UE4SS "is this FProperty an
+    // FBoolProperty?" - `FField::IsA` and `FBoolProperty::StaticClass` both traffic in
+    // `FFieldClassVariant`, a struct whose layout we would have to guess, which is
+    // exactly the mistake `lessons.md` records for `FPImplRecastNavMesh`. So these are
+    // called on any FProperty and the ANSWER is validated instead
+    // (uer::bool_info): element size 1, field size 1, byte offset < 8, and a mask that is
+    // a single set bit or 0xFF. Taking the address of the returned reference does not
+    // dereference it, and the read itself goes through the SEH-guarded mem::read_at.
+    class FBoolProperty : public FProperty
+    {
+      public:
+        // ?GetFieldMask@FBoolProperty@Unreal@RC@@QEBAAEBEXZ
+        const unsigned char& GetFieldMask() const;
+
+        // ?GetByteOffset@FBoolProperty@Unreal@RC@@QEBAAEBEXZ
+        const unsigned char& GetByteOffset() const;
+
+        // ?GetFieldSize@FBoolProperty@Unreal@RC@@QEBAAEBEXZ
+        const unsigned char& GetFieldSize() const;
+    };
+
     namespace UObjectGlobals
     {
         // ?FindAllOf@UObjectGlobals@Unreal@RC@@YAXV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@

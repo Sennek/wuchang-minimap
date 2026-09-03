@@ -451,6 +451,10 @@ namespace markers
             // the "dead enemies do not disappear" the rule exists to fix. A dead entry
             // suppresses both halves at the publish point.
             bool dead = false;
+            // The actor answered a visibility read this round, and what it said. Only
+            // filled for the mobile ("walks away") categories - see actor_is_invisible.
+            bool invisible_known = false;
+            bool invisible = false;
             std::uint64_t round = 0;
             // The display name, when one could be resolved for a LIVE-ONLY actor (an
             // enemy's dropped loot). Empty means "nothing better than the category word
@@ -524,6 +528,13 @@ namespace markers
         std::atomic<int> g_mobile_joined{0};      // static markers whose live twin answered
         std::atomic<int> g_mobile_superseded{0};  // ... and stands more than kMovedUu away
         std::atomic<int> g_mobile_walked{0};      // a live twin answered but is unlocatable
+        // A live twin standing at its authored spot that the game has made INVISIBLE -
+        // the mechanism run 4 proved is the real one - and how many twins could be asked
+        // the question at all. `invisible 0 of 0 asked` is a dead rule; `0 of 21` is a
+        // live rule saying the flags are false.
+        std::atomic<int> g_mobile_invisible{0};
+        std::atomic<int> g_mobile_vis_known{0};
+        std::atomic<int> g_mobile_hidden_invis{0};  // ... and was hidden for it
         std::atomic<int> g_mobile_hidden_walked{0}; // ... and was hidden for it
         std::atomic<int> g_mobile_hidden_absent{0}; // hidden because nobody answered at all
         std::atomic<int> g_mobile_level_known{0}; // ... whose own level is resident
@@ -644,9 +655,22 @@ namespace markers
         // Raw reads on the game thread
         //==============================================================================
 
+        // A reflected bool. BITFIELD-AWARE: this used to read the byte at the property
+        // offset and test it for non-zero, which is right for a blueprint-authored bool
+        // (each gets its own byte with mask 0x01) and WRONG for a native engine
+        // bitfield - `uint8 bHidden : 1` on AActor shares its byte with `bNetTemporary`,
+        // `bTearOff` and a dozen others, so the old read answered "is any flag in this
+        // byte set?". `uer::read_bool_prop` asks `FBoolProperty` for the bit. The byte
+        // test survives only as the fallback for a property whose bool info does not
+        // validate, so the four blueprint flags this file has always read (`Used`,
+        // `DoorOpen`, `Active`, `dying`) cannot regress.
         bool read_bool_prop(UObject* obj, const wchar_t* name, bool& out)
         {
             const uer::ClassLayout* layout = g_layouts.get(obj);
+            if (uer::read_bool_prop(layout, obj, name, out))
+            {
+                return true;
+            }
             std::uint8_t b = 0;
             if (!uer::read_prop(layout, obj, name, b, 1))
             {
@@ -654,6 +678,164 @@ namespace markers
             }
             out = (b != 0);
             return true;
+        }
+
+        //==============================================================================
+        // IS THIS PERSON ACTUALLY THERE? (game thread)
+        //==============================================================================
+        //
+        // Run 4's census killed the theory the moved-NPC rules were built on:
+        //
+        //   markers: people - static 53, live 24, joined 21, superseded 0,
+        //                     walked away 0, level resident 21, hidden 0
+        //
+        // while the user was still seeing an NPC drawn where one used to stand. Every
+        // one of the 21 joined twins answered WITH a usable position, and not one stood
+        // more than 3 m from where it was authored - so cases (b), (c) and (d) of
+        // `mdb::mobile_twin_is_stale` are all unreachable for them and case (a) drew the
+        // marker. In other words this game does NOT park or destroy a used-up NPC (the
+        // way it parks a collected pickup at the origin): the actor stays exactly where
+        // it was placed and is made INVISIBLE, and the person you meet later is a
+        // different placed actor in another sublevel. The same mechanism is authored for
+        // bosses - `ST_LevelScriptBossData` carries a `隐藏击败过的尸体` ("hide the
+        // corpse of a defeated boss") flag - so it is the game's idiom, not a guess.
+        //
+        // THE ROUTES, best first, and every one of them is a raw read:
+        //   1. `bHidden` - AActor's own flag, what `SetActorHiddenInGame` writes. It is a
+        //      native bitfield, which is why the bool read above had to learn about masks.
+        //   2. `bLocalHidden` - the game's own addition, listed in every F8 dump right
+        //      after `bHidden` and beside `DCSHiddenStateTypes`. A DCS-specific hide is
+        //      exactly the sort of thing a quest system would use.
+        //   3. the root component's `bHiddenInGame`, then `bVisible` (inverted) - if the
+        //      game hides the mesh rather than the actor.
+        //
+        // DELIBERATELY NOT `bPerformanceHidden`. It is on almost every actor in this game
+        // and it is the LOD / distance hide (it is the one property that differed between
+        // three lit shrines - `lessons.md`), so believing it would delete the marker for
+        // every NPC who is merely far away. Its value IS logged in the route line, so if
+        // the next run shows the other four flat and this one moving, that is the answer
+        // and it is one line of code away.
+        //
+        // The winning route is cached per UClass* and logged once, the same shape as the
+        // health-component and item-name discoveries in this file.
+
+        // Defined below, next to the health diagnostic that first needed it.
+        std::wstring safe_class_name(UObject* obj);
+
+        constexpr const wchar_t* kActorHiddenProps[] = {L"bHidden", L"bLocalHidden"};
+        constexpr int kActorHiddenCount = static_cast<int>(std::size(kActorHiddenProps));
+        constexpr const wchar_t* kRootComponentProp = L"RootComponent";
+        constexpr const wchar_t* kCompHiddenProp = L"bHiddenInGame";
+        constexpr const wchar_t* kCompVisibleProp = L"bVisible";
+
+        // UClass* -> which route answered:
+        //   0..kActorHiddenCount-1  an actor flag, by index into kActorHiddenProps
+        //   -2                      the root component's bHiddenInGame
+        //   -3                      the root component's bVisible, inverted
+        //   -1                      nothing on this class answers
+        std::unordered_map<const void*, int> g_hidden_route;
+
+        constexpr int kHiddenRouteNone = -1;
+        constexpr int kHiddenRouteCompHidden = -2;
+        constexpr int kHiddenRouteCompVisible = -3;
+
+        // Is this actor invisible in the game right now? `answered` says whether any
+        // route could be read at all - and as everywhere else in this file, "could not
+        // read" is its own answer and never gets collapsed into a state.
+        bool actor_is_invisible(UObject* actor, bool& answered)
+        {
+            answered = false;
+            if (actor == nullptr)
+            {
+                return false;
+            }
+            UClass* cls = actor->GetClassPrivate();
+            const uer::ClassLayout* layout = g_layouts.get(actor);
+            bool value = false;
+
+            const auto try_route = [&](int route) -> bool {
+                if (route >= 0 && route < kActorHiddenCount)
+                {
+                    return uer::read_bool_prop(layout, actor, kActorHiddenProps[route], value);
+                }
+                if (route == kHiddenRouteCompHidden || route == kHiddenRouteCompVisible)
+                {
+                    UObject* root = uer::read_object_prop(layout, actor, kRootComponentProp);
+                    if (root == nullptr)
+                    {
+                        return false;
+                    }
+                    const uer::ClassLayout* rl = g_layouts.get(root);
+                    if (route == kHiddenRouteCompHidden)
+                    {
+                        return uer::read_bool_prop(rl, root, kCompHiddenProp, value);
+                    }
+                    bool visible = true;
+                    if (!uer::read_bool_prop(rl, root, kCompVisibleProp, visible))
+                    {
+                        return false;
+                    }
+                    value = !visible;
+                    return true;
+                }
+                return false;
+            };
+
+            const auto cached = cls != nullptr ? g_hidden_route.find(cls) : g_hidden_route.end();
+            if (cached != g_hidden_route.end())
+            {
+                if (cached->second == kHiddenRouteNone || !try_route(cached->second))
+                {
+                    return false;
+                }
+                answered = true;
+                return value;
+            }
+
+            static const int kRoutes[] = {0, 1, kHiddenRouteCompHidden, kHiddenRouteCompVisible};
+            int winner = kHiddenRouteNone;
+            for (const int r : kRoutes)
+            {
+                if (r < kActorHiddenCount && try_route(r))
+                {
+                    winner = r;
+                    break;
+                }
+                if (r < 0 && try_route(r))
+                {
+                    winner = r;
+                    break;
+                }
+            }
+            if (cls != nullptr)
+            {
+                if (g_hidden_route.size() > g_class_cache_max)
+                {
+                    g_hidden_route.clear();
+                }
+                g_hidden_route.emplace(cls, winner);
+                const wchar_t* name = winner >= 0 && winner < kActorHiddenCount
+                                          ? kActorHiddenProps[winner]
+                                          : (winner == kHiddenRouteCompHidden
+                                                 ? L"RootComponent -> bHiddenInGame"
+                                                 : (winner == kHiddenRouteCompVisible
+                                                        ? L"RootComponent -> !bVisible"
+                                                        : L"(none)"));
+                // `bPerformanceHidden` is reported and NOT believed - see the note above.
+                bool perf = false;
+                const bool perf_ok = uer::read_bool_prop(layout, actor, L"bPerformanceHidden", perf);
+                mm::logf(L"markers: visibility route on '{}' is {} (reads {}; "
+                         L"bPerformanceHidden {})",
+                         safe_class_name(actor), name,
+                         winner == kHiddenRouteNone ? L"nothing" : (value ? L"hidden" : L"visible"),
+                         perf_ok ? (perf ? L"true" : L"false") : L"unreadable");
+            }
+            if (winner == kHiddenRouteNone)
+            {
+                return false;
+            }
+            answered = true;
+            return value;
         }
 
         // Is this character dead? (game thread)
@@ -1531,10 +1713,26 @@ namespace markers
             }
             case Rule::Proximity:
             {
-                // "Met" = this actor was loaded within kMetRadius of the player. It is
-                // one-way: e.found is only ever SET here, and note_found() below makes
-                // it durable, so walking away does not un-meet anybody.
-                if (g_player_ok && e.pos_valid)
+                // IS THE PERSON ACTUALLY THERE? A used-up NPC in this game keeps its
+                // actor, its position and its id and is simply made INVISIBLE (see
+                // actor_is_invisible - run 4's census is the proof). So the visibility
+                // read comes first, and it does two things: it hides the marker at the
+                // publish point (case (e) of mdb::mobile_twin_is_stale) and it stops
+                // `met` firing for somebody you cannot walk up to.
+                //
+                // Only for the MOBILE categories, i.e. `npc`. A note (`DKDC_NPC_C`) is a
+                // thing on a wall whose blueprint references no character mesh at all, so
+                // whatever its visibility flags say is not evidence about a person, and
+                // believing them could silently un-meet all 76 of them. The one rule, one
+                // meaning: the same predicate decides drawing and meeting.
+                if (mdb::is_mobile_category(e.cat))
+                {
+                    bool answered = false;
+                    const bool hidden = actor_is_invisible(actor, answered);
+                    e.invisible_known = answered;
+                    e.invisible = answered && hidden;
+                }
+                if (g_player_ok && e.pos_valid && !e.invisible)
                 {
                     const double dx = e.x - g_player_x;
                     const double dy = e.y - g_player_y;
@@ -1891,8 +2089,11 @@ namespace markers
                 int mobile_joined = 0;
                 int mobile_superseded = 0;
                 int mobile_walked = 0;         // a live twin answered but is unlocatable
+                int mobile_invisible = 0;      // a live twin is standing there, invisible
+                int mobile_vis_known = 0;      // ... twins whose visibility could be READ
                 int mobile_hidden_walked = 0;  // ... and was therefore hidden
                 int mobile_hidden_absent = 0;  // hidden because nobody answered at all
+                int mobile_hidden_invis = 0;   // hidden because the actor is invisible
                 int mobile_level_known = 0;
                 int met_found = 0;
                 int met_total = 0;
@@ -2062,6 +2263,11 @@ namespace markers
                     // for the other 32 the level-based clause could never be reached.
                     mob.live_twin_unlocatable =
                         live != nullptr && live->round == g_round && !live->pos_valid;
+                    // Case (e): the actor is standing right there and is invisible. This
+                    // is the case run 4 proved is the real one - `joined 21, superseded 0,
+                    // walked away 0, hidden 0` with the user still seeing the marker.
+                    mob.live_twin_invisible =
+                        live != nullptr && live->round == g_round && live->invisible;
                     if (mli >= 0 && g_level_known[static_cast<std::size_t>(mli)] != 0)
                     {
                         mob.level_known = true;
@@ -2091,6 +2297,19 @@ namespace markers
                         {
                             ++mobile_walked;
                         }
+                        if (mob.live_twin_invisible)
+                        {
+                            ++mobile_invisible;
+                        }
+                        // How many twins could be ASKED at all. `invisible 0` with
+                        // `visibility known 0` means no route reads on this build and the
+                        // rule is dead; `invisible 0` with `visibility known 21` means the
+                        // flags are genuinely all false and the mechanism is a different
+                        // one. That is the difference a single run has to be able to tell.
+                        if (live != nullptr && live->round == g_round && live->invisible_known)
+                        {
+                            ++mobile_vis_known;
+                        }
                         if (mob.level_known)
                         {
                             ++mobile_level_known;
@@ -2099,7 +2318,11 @@ namespace markers
                     if (mdb::mobile_twin_is_stale(mob))
                     {
                         g_mobile_hidden.fetch_add(1, std::memory_order_relaxed);
-                        if (mob.live_twin_unlocatable)
+                        if (mob.live_twin_invisible)
+                        {
+                            ++mobile_hidden_invis;
+                        }
+                        else if (mob.live_twin_unlocatable)
                         {
                             ++mobile_hidden_walked;
                         }
@@ -2191,6 +2414,9 @@ namespace markers
                 g_mobile_joined.store(mobile_joined, std::memory_order_relaxed);
                 g_mobile_superseded.store(mobile_superseded, std::memory_order_relaxed);
                 g_mobile_walked.store(mobile_walked, std::memory_order_relaxed);
+                g_mobile_invisible.store(mobile_invisible, std::memory_order_relaxed);
+                g_mobile_vis_known.store(mobile_vis_known, std::memory_order_relaxed);
+                g_mobile_hidden_invis.store(mobile_hidden_invis, std::memory_order_relaxed);
                 g_mobile_hidden_walked.store(mobile_hidden_walked, std::memory_order_relaxed);
                 g_mobile_hidden_absent.store(mobile_hidden_absent, std::memory_order_relaxed);
                 g_mobile_level_known.store(mobile_level_known, std::memory_order_relaxed);
@@ -2953,14 +3179,18 @@ namespace markers
                 // halves of `hidden` say which clause did it. `hidden walked` climbing
                 // while `level resident` stays low is the case run 3 could not express.
                 mm::logf(L"markers: people - static {}, live {}, joined {}, superseded {}, "
-                         L"walked away {}, level resident {}, hidden {} ({} walked + {} absent)",
+                         L"walked away {}, invisible {} of {} asked, level resident {}, "
+                         L"hidden {} ({} invisible + {} walked + {} absent)",
                          g_mobile_static.load(std::memory_order_relaxed),
                          g_mobile_live.load(std::memory_order_relaxed),
                          g_mobile_joined.load(std::memory_order_relaxed),
                          g_mobile_superseded.load(std::memory_order_relaxed),
                          g_mobile_walked.load(std::memory_order_relaxed),
+                         g_mobile_invisible.load(std::memory_order_relaxed),
+                         g_mobile_vis_known.load(std::memory_order_relaxed),
                          g_mobile_level_known.load(std::memory_order_relaxed),
                          g_mobile_hidden.load(std::memory_order_relaxed),
+                         g_mobile_hidden_invis.load(std::memory_order_relaxed),
                          g_mobile_hidden_walked.load(std::memory_order_relaxed),
                          g_mobile_hidden_absent.load(std::memory_order_relaxed));
             }
@@ -3026,6 +3256,7 @@ namespace markers
         g_class_spec.clear();
         g_health_prop.clear();   // the discovered route is keyed to a UClass* of that world
         g_health_fields.clear(); // ditto: the field spelling is cached per component class
+        g_hidden_route.clear();  // ditto for the visibility route (keyed per UClass*)
         g_drop_name.clear();     // keyed on the ACTOR: a recycled allocation must not
         g_item_prop.clear();     // hand a new drop the old one's item name
         g_id_cache.clear();

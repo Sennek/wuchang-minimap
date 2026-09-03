@@ -3336,6 +3336,37 @@ namespace
             g = mdb::MobileTwinFacts{};
             g.live_twin_unlocatable = true;
             CHECK(!mdb::mobile_twin_is_stale(g)); // mobile == false
+
+            // CASE (e), THE ONE RUN 4 PROVED IS THE REAL MECHANISM. The census read
+            // `static 53, live 24, joined 21, superseded 0, walked away 0, hidden 0`
+            // while the user was still seeing an NPC drawn at a spot they had left: every
+            // joined twin answered WITH a usable position, standing where it was
+            // authored, so (b), (c) and (d) were all unreachable and (a) drew it. The
+            // actor is not parked and not destroyed - it is made INVISIBLE.
+            g = mdb::MobileTwinFacts{};
+            g.mobile = true;
+            g.live_twin_this_round = true; // located, at its authored position
+            g.live_twin_invisible = true;
+            CHECK(mdb::mobile_twin_is_stale(g));
+            // ...which means (e) has to be tested BEFORE (a), or the located answer
+            // would win and nothing would change. That ordering IS the fix, so it is
+            // pinned here rather than left to the reading of the function.
+            CHECK(g.live_twin_this_round && mdb::mobile_twin_is_stale(g));
+            // With no level knowledge at all - the same independence (b) needed, and for
+            // the same reason.
+            g.level_known = false;
+            g.full_round_since_level_load = false;
+            CHECK(mdb::mobile_twin_is_stale(g));
+            // A visible located twin is still drawn.
+            g.live_twin_invisible = false;
+            CHECK(!mdb::mobile_twin_is_stale(g));
+            // And invisibility is a rule about people only: a note is a thing on a wall
+            // whose blueprint references no character mesh, so its visibility flags are
+            // not evidence about anybody and must not delete 76 markers.
+            g = mdb::MobileTwinFacts{};
+            g.live_twin_invisible = true;
+            g.live_twin_this_round = true;
+            CHECK(!mdb::mobile_twin_is_stale(g)); // mobile == false
         }
         // Nothing is hidden by default: a zeroed fact set must be a no-op.
         CHECK(!mdb::mobile_twin_is_stale(mdb::MobileTwinFacts{}));

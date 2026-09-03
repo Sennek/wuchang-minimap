@@ -1114,12 +1114,24 @@ namespace
 
         // The table is a fixed array: registering past it is refused, never written.
         perf::Table full{};
-        // Distinct pointers, so nothing is deduplicated by the name check.
-        static char storage[perf::kMaxCounters + 4][2] = {};
+        // Distinct NAMES, because the name check compares content, not the pointer: the
+        // same literal in two translation units is two addresses and used to make two
+        // rows for one activity.
+        static char storage[perf::kMaxCounters + 4][4] = {};
+        for (int i = 0; i < perf::kMaxCounters + 4; ++i)
+        {
+            storage[i][0] = 'c';
+            storage[i][1] = static_cast<char>('0' + i / 10);
+            storage[i][2] = static_cast<char>('0' + i % 10);
+        }
         for (int i = 0; i < perf::kMaxCounters; ++i)
         {
             CHECK(perf::register_counter(full, storage[i], perf::Thread::Loop) == i);
         }
+        // A second buffer holding the same TEXT as row 0 is row 0, not a new row - even
+        // with the table full, because the name lookup runs before the cap.
+        static char alias[4] = {'c', '0', '0', 0};
+        CHECK(perf::register_counter(full, alias, perf::Thread::Loop) == 0);
         CHECK(full.count == perf::kMaxCounters);
         CHECK(perf::register_counter(full, storage[perf::kMaxCounters], perf::Thread::Loop) == -1);
         CHECK(full.count == perf::kMaxCounters);

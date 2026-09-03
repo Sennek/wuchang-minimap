@@ -34,8 +34,10 @@
 // still a diagnostic. Nothing here is ever used to make a decision.
 //
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 namespace perf
 {
@@ -106,35 +108,49 @@ namespace perf
         double win_total_ms = 0.0;
     };
 
-    // The table. `count` only ever grows, and only at registration time.
+    // The table. `count` only ever grows, and only at registration time. It is ATOMIC
+    // because it is the only thing that publishes a row to the reader: the F2 panel walks
+    // `[0, count)` on the render thread while a registration is running on the game
+    // thread (A.28). A plain store could become visible before the row's `name` pointer
+    // was written, and the panel would then print a null name.
     struct Table
     {
         Counter c[kMaxCounters]{};
-        int count = 0;
+        std::atomic<int> count{0};
     };
 
     // Registers a counter and returns its index, or -1 when the table is full.
     // `name` must have static storage - the table keeps the pointer.
     inline int register_counter(Table& t, const char* name, Thread thread)
     {
-        if (name == nullptr || t.count >= kMaxCounters)
+        if (name == nullptr)
         {
             return -1;
         }
-        // Registering the same name twice hands back the same counter, so a static
-        // local `id` in each call site cannot be duplicated by a reload.
-        for (int i = 0; i < t.count; ++i)
+        const int have = t.count.load(std::memory_order_acquire);
+        // Registering the same name twice hands back the same counter, so a call site
+        // that re-registers after a reload cannot duplicate its row. COMPARED BY CONTENT:
+        // the same literal in two translation units is two different addresses, so a
+        // pointer compare silently made two rows for one activity (A.28). The lookup runs
+        // BEFORE the cap, so an already-registered activity keeps working even once the
+        // table is full.
+        for (int i = 0; i < have; ++i)
         {
-            if (t.c[i].name == name)
+            if (t.c[i].name != nullptr && std::strcmp(t.c[i].name, name) == 0)
             {
                 return i;
             }
         }
-        const int id = t.count;
+        if (have >= kMaxCounters)
+        {
+            return -1;
+        }
+        const int id = have;
         t.c[id] = Counter{};
         t.c[id].name = name;
         t.c[id].thread = thread;
-        t.count = id + 1;
+        // RELEASE: everything above is visible to any reader that sees this count.
+        t.count.store(id + 1, std::memory_order_release);
         return id;
     }
 
@@ -144,7 +160,7 @@ namespace perf
     // sample to the stall columns instead of to the peak the table shows.
     inline void record(Table& t, int id, double ms, std::uint64_t now_ms, bool calm = true)
     {
-        if (id < 0 || id >= t.count)
+        if (id < 0 || id >= t.count.load(std::memory_order_acquire))
         {
             return;
         }
@@ -206,7 +222,8 @@ namespace perf
     // during loading hides every later regression behind it.
     inline void reset_peaks(Table& t)
     {
-        for (int i = 0; i < t.count; ++i)
+        const int have = t.count.load(std::memory_order_acquire);
+        for (int i = 0; i < have; ++i)
         {
             t.c[i].peak_ms = 0.0;
             t.c[i].peak_calm_ms = 0.0;

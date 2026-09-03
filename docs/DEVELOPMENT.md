@@ -25,54 +25,176 @@ start-up log line, the F2 panel header and `tools/package.ps1` all read it, and
 
 ## Build
 
-Prerequisites, all already in place on this machine:
+Numbered because the interesting part is the order, and because nothing here is
+discoverable: this project cannot `include("RE-UE4SS")` the way the UE4SS docs describe
+(see [Why an import library?](#why-an-import-library)), so the toolchain has to be
+assembled by hand once.
 
-| Thing | Where | Notes |
-|---|---|---|
-| MSVC toolset **14.40.33807** | `C:\Program Files\Microsoft Visual Studio\18\Insiders` | VS 2026 Insiders. There is no `vcvars64.bat`; use `Microsoft.VisualStudio.DevShell.dll` + `Enter-VsDevShell`. |
-| Windows SDK 10.0.26100.0 | `E:\Windows Kits\10` | supplies `d3d12.h` / `dxgi.h` |
-| xmake **3.1.1** | `F:\Tools\xmake\xmake.exe` | portable, extracted from the release zip |
-| RE-UE4SS checkout | `F:\Tools\RE-UE4SS` | commit `97b7e501c19d8b2b7c662feee73aaa0dc1f0a4d1`, headers only |
-| UE4SS release binaries | `F:\Tools\ue4ss\rel\ue4ss\UE4SS.dll` | `v3.0.1-1111-g97b7e501` (`experimental-latest`) |
+A clean Windows 10/11 x64 box, start to finish, is steps 1-6. After that, `.\build.ps1`.
 
-### One-time: generate the UE4SS import library
+### 1. Visual Studio with the C++ toolchain
+
+<https://visualstudio.microsoft.com/downloads/> — any edition, including Community.
+Install the **"Desktop development with C++"** workload; that also brings the Windows
+SDK, which supplies `d3d12.h` / `dxgi.h`.
+
+The mod is built and tested with **MSVC toolset 14.40.33807**. `build.ps1` prefers that
+toolset when it is installed and otherwise takes the newest one on the box, warning that
+the choice is untested (`tools\vs_detect.ps1` does the discovery, via `vswhere`). To pin
+it yourself:
 
 ```powershell
-.\tools\gen_ue4ss_importlib.ps1 -Ue4ssDll 'F:\Tools\ue4ss\rel\ue4ss\UE4SS.dll'
+.\build.ps1 -Toolset 14.40.33807
+$env:WUCHANG_MSVC_TOOLSET = '14.40.33807'    # or set it once for the session
 ```
 
-Writes `sdk\UE4SS.def` and `sdk\lib\UE4SS.lib`. Both are committed, so you only need to
-re-run this when you move to a different UE4SS build. See
-[Why an import library?](#why-an-import-library) below.
+If 14.40.33807 is not offered by your VS version, it is under *Individual components* in
+the VS Installer as "MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.40-17.10)".
 
-### Build
+> The original dev box runs **VS 2026 Insiders**, which ships **no `vcvars64.bat`**. That
+> is why `gen_ue4ss_importlib.ps1` enters the developer environment through
+> `Microsoft.VisualStudio.DevShell.dll` + `Enter-VsDevShell` rather than by calling a
+> batch file. It works the same on a normal VS install.
+
+### 2. xmake 3.1.1
+
+<https://github.com/xmake-io/xmake/releases/tag/v3.1.1> — the portable
+`xmake-v3.1.1.win64.zip` is enough; extract it anywhere. **3.1.1 is the only version
+this project has been built with**, and `xmake.lua` pins it with `set_xmakever("3.1.1")`.
+
+`build.ps1` looks for `xmake.exe` at `F:\Tools\xmake\xmake.exe` (the dev box) and then
+on `PATH`. Point it at yours with either:
+
+```powershell
+.\build.ps1 -Xmake xmake.exe            # anything on PATH
+$env:WUCHANG_XMAKE = 'C:\tools\xmake\xmake.exe'
+```
+
+### 3. Install UE4SS into the game
+
+Download **UE4SS for Wuchang: Fallen Feathers**, Nexus mod **384**, and take the
+**`experimental-latest`** asset. That is build **`v3.0.1-1111-g97b7e501`**, and it is not
+interchangeable: the mod links against this DLL's export table, so any other build fails
+to load. Unzip it into
+
+```
+<Game>\Project_Plague\Binaries\Win64\
+```
+
+Then set `HookInitGameState = 0` in `ue4ss\UE4SS-settings.ini`, or the game crashes a
+third of a second into loading with or without this mod.
+
+You need the installed `UE4SS.dll` for step 5 whether or not you intend to run the game.
+
+### 4. Clone RE-UE4SS at the matching commit
+
+The build needs UE4SS's **headers** at exactly the commit the installed DLL was built
+from. The `-g97b7e501` suffix in the release name *is* that commit:
+
+```powershell
+git clone https://github.com/UE4SS-RE/RE-UE4SS F:\Tools\RE-UE4SS
+cd F:\Tools\RE-UE4SS
+git checkout 97b7e501c19d8b2b7c662feee73aaa0dc1f0a4d1
+git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init --recursive
+```
+
+Two things about that last line:
+
+- RE-UE4SS declares its submodules with `git@github.com:` URLs, so the `-c url...`
+  rewrite is what lets them clone over HTTPS without editing your global git config.
+- **`deps/first/Unreal` will fail to clone, and that is expected.** It points at the
+  private `Re-UE4SS/UEPseudo` repository (Epic Games GitHub org access). Nothing on the
+  C++ mod API path needs it. `deps/first/patternsleuth` may fail too; also fine.
+
+`build.ps1` checks for `UE4SS/include/Mod/CppUserModBase.hpp` under the root and tells
+you if the path is wrong. Point it at your clone with:
+
+```powershell
+.\build.ps1 -Ue4ssRoot D:\src\RE-UE4SS
+$env:WUCHANG_UE4SS_ROOT = 'D:\src\RE-UE4SS'
+```
+
+### 5. Generate the import library (once per UE4SS build)
+
+There is no import library in any UE4SS release asset, so one is synthesised from the
+installed DLL's export table:
+
+```powershell
+.\tools\gen_ue4ss_importlib.ps1 -Ue4ssDll '<Game>\Project_Plague\Binaries\Win64\ue4ss\UE4SS.dll'
+```
+
+It finds Visual Studio itself (`vswhere`; override with `-VsPath` or `WUCHANG_VS_PATH`),
+runs `dumpbin /exports`, writes a `.def` and feeds it to `lib.exe`. Expected output:
+
+```
+Wrote <repo>\sdk\UE4SS.def (4239 exports)
+Wrote <repo>\sdk\lib\UE4SS.lib (2213 KB)
+```
+
+`-Ue4ssDll` has **no default** on purpose: it must be the DLL out of the game folder you
+will actually run, and defaulting it would quietly build an import library for the wrong
+UE4SS. `WUCHANG_UE4SS_DLL` works instead of the parameter.
+
+Both outputs are committed, so you only need this step if you are moving to a different
+UE4SS build — see [Why `sdk/lib/UE4SS.lib` is committed](#why-sdklibue4sslib-is-committed).
+
+### 6. Build
 
 ```powershell
 .\build.ps1
 ```
 
-or, spelled out:
+or, spelled out — this is what the wrapper runs:
 
 ```powershell
-F:\Tools\xmake\xmake.exe f -m Game__Shipping__Win64 -p windows -a x64 `
-    --vs_toolset=14.40.33807 --ue4ss_root=F:/Tools/RE-UE4SS -y
-F:\Tools\xmake\xmake.exe -j 8
+xmake f -m Game__Shipping__Win64 -p windows -a x64 `
+        --vs_toolset=14.40.33807 --ue4ss_root=F:/Tools/RE-UE4SS -y
+xmake -j 8
+xmake build markers_test
+xmake run markers_test <repo>\markers
 ```
 
-Debug configuration: `.\build.ps1 -Mode Game__Debug__Win64`.
-Full rebuild: `.\build.ps1 -Rebuild`.
+| Want | Command |
+|---|---|
+| Debug configuration | `.\build.ps1 -Mode Game__Debug__Win64` |
+| Full rebuild | `.\build.ps1 -Rebuild` |
+| Skip the offline tests | `.\build.ps1 -NoTests` |
 
-### Output
+> `xmake clean --all` discards xmake's cached Visual Studio environment along with the
+> intermediates, so it has to run **before** `xmake f`, never after — otherwise the next
+> compile starts with an empty `INCLUDE` and dies on `#include <memory>`.
+> `.\build.ps1 -Rebuild` already does it in that order.
+
+### Expected output
 
 ```
-build\windows\x64\Game__Shipping__Win64\main.dll     (~2.9 MB)
-build\windows\x64\Game__Shipping__Win64\main.pdb
+build\windows\x64\Game__Shipping__Win64\main.dll     3.76 MB
+build\windows\x64\Game__Shipping__Win64\main.pdb     24.3 MB
 ```
 
-`main.dll` exports `start_mod` / `uninstall_mod` and imports 16 symbols from `UE4SS.dll`.
+and, from the tests, `10075 check(s), 0 failure(s)`.
 
-A clean build takes about 4 seconds. Our own target is built with `set_warnings("all")`
-and is warning-free; `third_party/` is left at the default warning level.
+A full rebuild takes about 20 seconds. `main.dll` exports `start_mod` / `uninstall_mod`
+and imports 16 symbols from `UE4SS.dll`.
+
+Both our own targets are built with `set_warnings("all", "error")` — that is `/W3 /WX`,
+so a warning in `src/` or `tests/` fails the build. `third_party/` is compiled by its own
+targets at the default warning level, so churn in ImGui or MinHook cannot break us. The
+mod DLL additionally gets `/guard:cf`, `/DYNAMICBASE`, `/HIGHENTROPYVA` and
+`/PDBALTPATH:%_PDB%`; see the comment on `hardened_link()` in `xmake.lua` for why CFG is
+safe in a process we hook, and note the two xmake flag-plumbing traps recorded there.
+
+### Troubleshooting a first build
+
+| Symptom | Cause |
+|---|---|
+| `'<path>' does not look like an RE-UE4SS checkout` | step 4, or `-Ue4ssRoot` points at the wrong folder |
+| `sdk\lib\UE4SS.lib is missing` | step 5 has not been run and the file is not in your clone |
+| `No MSVC x64 toolset found` | step 1, or the C++ workload was not selected |
+| `xmake not found at ...` | step 2, or pass `-Xmake` |
+| `#include <memory>` cannot be found | `xmake clean --all` was run *after* `xmake f`; re-run `.\build.ps1 -Rebuild` |
+| `static_assert ... requires compiling with /utf-8` | building without `xmake.lua`'s flags; fmt's `base.h` hard-requires `/utf-8` |
+| Link errors on `RC::` symbols | the RE-UE4SS checkout and `sdk/lib/UE4SS.lib` are from different UE4SS builds; redo steps 4 and 5 together |
 
 `build.ps1` also builds and runs the **offline tests** (`-NoTests` skips them). They link only
 `src/markers_db.cpp` and `src/mapview.cpp`, so they need neither UE4SS nor Direct3D and run with the
@@ -130,27 +252,44 @@ present.
 
 ## Release packaging
 
+The full procedure, in order, is **`docs/RELEASE.md`**. In short:
+
 ```powershell
-.\tools\package.ps1                  # package whatever src\version.hpp says
-.\tools\package.ps1 -Version 0.9.1   # stamp a new version first, then package
+.\tools\package.ps1 -StampOnly -Version 1.0.1   # rewrite version.hpp + xmake.lua, stop
+git commit -am "release 1.0.1"; git tag v1.0.1
+.\tools\package.ps1                             # build, assemble, check, zip
 ```
+
+`-StampOnly` exists because the script refuses a dirty tree (`BUILD_INFO.txt` names a
+commit hash, which a dirty tree would make a lie) while `-Version` dirties the tree
+itself — so stamping and packaging in one run always recorded the commit from *before*
+the stamp. Stamp, commit, tag, then package with no `-Version`.
 
 It runs `build.ps1` (so a release always compiles and passes the offline tests), then
 assembles `dist\WuchangMinimap-<version>\` — a tree that mirrors **exactly** what a player
 copies into `...\Project_Plague\Binaries\Win64\` — and zips it:
 
 ```
-WuchangMinimap-0.9.0\
+WuchangMinimap-1.0.0\
   INSTALL_GUIDE.html                   from tools\INSTALL_GUIDE.html, @@VERSION@@/@@DATE@@ substituted
   CHANGELOG.md                         from tools\CHANGELOG.template.md
+  README.md  LICENSE  THIRD_PARTY_NOTICES.md    copied from the repo root
+  BUILD_INFO.txt                       version, commit, branch, mode, DLL size, UE4SS build
   ue4ss\Mods\WuchangMinimap\
     dlls\main.dll                      no .pdb
     maps\maps.json, maps\chapter1..5\*.png
     markers\chapter{1..5,dlc}.json     chapter1.sample.json is excluded
+    markers\shrines.json               required; markers\items.json when present
     config_wuchang_minimap.txt
     config.ini
     enabled.txt                        empty; UE4SS's "load me" opt-in
 ```
+
+A second archive comes out beside it: **`dist\WuchangMinimap-<version>-symbols.zip`**,
+holding `main.pdb` and the same `BUILD_INFO.txt`. It is the only way to read a crash dump
+from that exact build — `main.pdb` otherwise lives only in the gitignored `build\` folder
+and is gone as soon as the tree moves on. It is staged in a temp folder so a `.pdb` never
+touches the package tree even briefly, and it must never be uploaded as the main file.
 
 Nothing else ships: no `main.pdb`, no `navmesh\` dumps, and none of the player-state files
 (`wuchang_minimap_found.txt`, `wuchang_minimap_waypoint.txt`) — the script fails the build
@@ -164,7 +303,27 @@ discovering a missing PNG:
   literally the list `mapdata.cpp` walks at start-up (45 PNG at 0.9.0), and a PNG in
   `maps\` that the manifest does *not* name is warned about as dead download weight;
 * the five chapter marker manifests are present and are schema `wuchang-minimap-markers/1`;
-* `main.dll`, both config files and `enabled.txt` are present.
+* `shrines.json` is present, is schema `wuchang-minimap-shrines/1` and holds at least 40
+  real shrines (fewer means the extractor regressed);
+* `main.dll`, both config files and `enabled.txt` are present;
+* an **allow-list** on the package root and the mod folder, so any file this script has
+  not been taught about is a leak by definition.
+
+**Consistency check** (`tools\check_release.ps1`), run over the assembled tree as part of
+the same step, and runnable on its own against the repo before a release starts:
+
+* one version across `src\version.hpp`, `xmake.lua`'s `set_version`, the top *released*
+  changelog heading and the package folder name;
+* one UE4SS build string across `BUILD_INFO.txt`, `README.md`,
+  `THIRD_PARTY_NOTICES.md`, `INSTALL_GUIDE.html` and `docs\NEXUS.md` — a *different*
+  `v3.0.x-...-g...` string anywhere is a failure, not just a missing one;
+* no unfilled placeholders: `@@...@@`, `<ALLCAPS>` template slots, `TODO`/`FIXME`;
+* every relative link in a shipped document resolves to a file actually in the package.
+
+The last two are not hypothetical: 1.0.0 shipped a `LICENSE` reading
+`Copyright (c) 2026 <AUTHOR>`, and a `README.md` whose two "details" links pointed at
+files that are not in the package. The old check was a regex for `@@[A-Z]+@@` over two
+files, and `LICENSE` was not one of them.
 
 **Zip round-trip**: entry count and every entry's uncompressed length are compared against
 the tree on disk, and `maps.json` is actually decompressed and re-parsed, so a corrupt
@@ -172,8 +331,10 @@ stream cannot pass on metadata alone.
 
 `-Version x.y.z` rewrites `src/version.hpp` (the source of truth) and `xmake.lua`'s
 `set_version` together; without it the script reads the header and warns if the two have
-drifted apart. `-NoBuild` packages the existing `build\` output — for iterating on the
-packaging script itself, never for a release. `dist\` is gitignored.
+drifted apart. Pair it with `-StampOnly` for a release. `-NoBuild` packages the existing
+`build\` output — for iterating on the packaging script itself, never for a release.
+`-OutDir` writes somewhere other than `dist\` (`dist-test\` is gitignored for exactly
+this). Both `dist\` and `dist-test\` are gitignored.
 
 ---
 
@@ -285,6 +446,40 @@ Because headers and DLL come from one commit, the ABI matches by construction - 
 actually a *stronger* guarantee than building UE4SS yourself from a possibly-drifted
 checkout. `RC::CppUserModBase` is used verbatim from the real header, so its vtable and
 member layout are identical to the one inside `UE4SS.dll`.
+
+### Why `sdk/lib/UE4SS.lib` is committed
+
+A 2.2 MB binary in version control needs a reason. Both `sdk/UE4SS.def` (374 KB of text)
+and `sdk/lib/UE4SS.lib` (2.2 MB) are tracked, even though `tools/gen_ue4ss_importlib.ps1`
+can regenerate them, because regenerating requires **the exact `UE4SS.dll` from an
+installed copy of the game**. That is a file nobody can fetch: it is not in this repo, it
+is not downloadable without going through Nexus, and CI has no game install. Committing
+the library is what makes `git clone` + `.\build.ps1` work — and what lets a GitHub
+Actions runner link at all.
+
+Two smaller reasons: the `.def` is a readable, greppable record of the ABI this build is
+tied to (`src/ue_min.hpp` names the symbols it must match, and they can be checked
+against it), and having the pair in the tree means a `git log` on them shows exactly when
+the mod moved between UE4SS builds.
+
+`sdk/lib/UE4SS.exp` is the byproduct `lib.exe` leaves behind and is **not** needed to
+link; `.gitignore` drops it.
+
+**To regenerate** — necessary only when moving to a different UE4SS build:
+
+```powershell
+.\tools\gen_ue4ss_importlib.ps1 -Ue4ssDll '<Game>\Project_Plague\Binaries\Win64\ue4ss\UE4SS.dll'
+```
+
+Step 5 of [Build](#build) has the details. Do it **together with** re-checking out
+RE-UE4SS at the new build's commit (step 4): headers and import library must come from
+the same UE4SS, or you get link errors on `RC::` symbols at best and an ABI mismatch at
+worst.
+
+`UE4SS.def` regenerates **byte-identically** from the same DLL, so a diff on it is a real
+signal that the DLL changed. `UE4SS.lib` does not: `lib.exe` embeds a timestamp, so it
+differs on every run even from identical input. Do not read a `UE4SS.lib` diff as
+evidence of anything; check the `.def`.
 
 ### Two things this setup depends on
 

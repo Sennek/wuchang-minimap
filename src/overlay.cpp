@@ -2223,13 +2223,30 @@ namespace overlay
         // glyph, edge-clamped, so the two views agree on what a waypoint looks like.
         void draw_waypoint_glyph(ImDrawList* dl, ImVec2 p, float r, int alpha);
 
+        // THE LOOK, cached once per frame (build_ui) so nothing on a draw path has to
+        // take a config copy to know what colour to be. Render thread only.
+        //
+        // `g_palette` is the marker hue set and `g_plate` the theme's dark label plate;
+        // the theme's other colours are resolved into the ordinary colour config keys at
+        // load time (mmstate.cpp's apply_theme_defaults), which is what lets an explicit
+        // key in the file override a theme.
+        gly::Palette g_palette = gly::Palette::Default;
+        mdb::Rgb g_plate = gly::theme_colors(gly::Theme::Neutral).plate;
+
         // The hue table lives in the PURE header src/glyphs.hpp, next to the shape
         // table, because "no two categories share a shape and a colour" is a property
         // of the two together and is asserted offline.
         ImU32 marker_color(mdb::Cat cat, int alpha)
         {
-            const mdb::Rgb c = gly::marker_rgb(cat, gly::Palette::Default);
+            const mdb::Rgb c = gly::marker_rgb(cat, g_palette);
             return IM_COL32(c.r, c.g, c.b, alpha);
+        }
+
+        // The dark box behind a label, the compass strip and the waypoint's distance -
+        // one colour, from the theme, instead of the same literal in five places.
+        ImU32 plate_color(int alpha)
+        {
+            return IM_COL32(g_plate.r, g_plate.g, g_plate.b, alpha);
         }
 
         // Category colour, or the ITEM QUALITY colour when the caller has quality
@@ -2889,7 +2906,7 @@ namespace overlay
                     const ImVec2 ts = ImGui::CalcTextSize(label.c_str());
                     const ImVec2 tp{wp_pos.x - ts.x * 0.5f, wp_pos.y + wr * 1.6f};
                     dl->AddRectFilled(ImVec2{tp.x - 3.0f, tp.y - 1.0f}, ImVec2{tp.x + ts.x + 3.0f, tp.y + ts.y + 1.0f},
-                                      IM_COL32(8, 10, 14, alpha(0.7f)), 3.0f);
+                                      plate_color(alpha(0.7f)), 3.0f);
                     dl->AddText(tp, IM_COL32(255, 190, 235, alpha(1.0f)), label.c_str());
                 }
             }
@@ -2968,7 +2985,7 @@ namespace overlay
             const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
             const ImVec2 tp{at.x - ts.x * 0.5f, at.y};
             dl->AddRectFilled(ImVec2{tp.x - 4.0f, tp.y - 1.0f}, ImVec2{tp.x + ts.x + 4.0f, tp.y + ts.y + 1.0f},
-                              IM_COL32(8, 10, 14, static_cast<int>(alpha * 0.62f)), 3.0f);
+                              plate_color(static_cast<int>(alpha * 0.62f)), 3.0f);
             dl->AddText(tp, col, text.c_str());
         }
 
@@ -4565,6 +4582,61 @@ namespace overlay
             }
 
             //--------------------------------------------------------------------------
+            // Look: theme and palette
+            //--------------------------------------------------------------------------
+            //
+            // In the FILE a theme only fills in colours the file does not mention; in
+            // the PANEL choosing one is an explicit act, so it writes the theme's
+            // colours into the five colour keys there and then (they are on the Advanced
+            // tab, and the change is visible on the next frame). Anything else would
+            // make the combo look broken for a player whose config happens to spell one
+            // of those keys out.
+            ImGui::SeparatorText("Look");
+            int theme_i = static_cast<int>(cfg.theme);
+            const char* themes[] = {"neutral", "ink"};
+            if (ImGui::Combo("Theme (frame / backdrop / plates / fill)", &theme_i, themes, 2))
+            {
+                cfg.theme = static_cast<gly::Theme>(theme_i);
+                const gly::ThemeColors tc = gly::theme_colors(cfg.theme);
+                cfg.minimap_frame_r = static_cast<float>(tc.frame.r);
+                cfg.minimap_frame_g = static_cast<float>(tc.frame.g);
+                cfg.minimap_frame_b = static_cast<float>(tc.frame.b);
+                cfg.minimap_frame_alpha = tc.frame_alpha;
+                cfg.minimap_backdrop_r = static_cast<float>(tc.backdrop.r);
+                cfg.minimap_backdrop_g = static_cast<float>(tc.backdrop.g);
+                cfg.minimap_backdrop_b = static_cast<float>(tc.backdrop.b);
+                cfg.minimap_backdrop = tc.backdrop_alpha;
+                cfg.floor_base_r = static_cast<float>(tc.floor_base.r);
+                cfg.floor_base_g = static_cast<float>(tc.floor_base.g);
+                cfg.floor_base_b = static_cast<float>(tc.floor_base.b);
+            }
+            int pal_i = static_cast<int>(cfg.palette);
+            const char* pals[] = {"default", "colorblind"};
+            if (ImGui::Combo("Marker palette", &pal_i, pals, 2))
+            {
+                const gly::Palette was = cfg.palette;
+                cfg.palette = static_cast<gly::Palette>(pal_i);
+                // The item-quality tiers follow the palette only while they are still
+                // the OTHER palette's set - a hand-picked xray_rarity_colors survives.
+                bool untouched = true;
+                const mdb::Rgb* old_set = gly::rarity_colors(was);
+                for (int i = 0; i < mdb::kRarityCount; ++i)
+                {
+                    untouched = untouched && cfg.xray_rarity_colors[i] == old_set[i];
+                }
+                if (untouched)
+                {
+                    const mdb::Rgb* now = gly::rarity_colors(cfg.palette);
+                    for (int i = 0; i < mdb::kRarityCount; ++i)
+                    {
+                        cfg.xray_rarity_colors[i] = now[i];
+                    }
+                }
+            }
+            ImGui::TextDisabled("shapes never change with the palette - every category has its own, "
+                                "which is what tells two categories apart when a hue is reused");
+
+            //--------------------------------------------------------------------------
             // Minimap
             //--------------------------------------------------------------------------
             ImGui::SeparatorText("Minimap");
@@ -5416,6 +5488,10 @@ namespace overlay
             // being written back into the config file.
             const mm::Config& raw = mm::cfg_cached();
             const mm::Config cfg = ui_scaled(raw, g_ui_scale);
+            // The look, once per frame: every draw path below reads these two globals
+            // instead of asking the config what colour it is.
+            g_palette = raw.palette;
+            g_plate = gly::theme_colors(raw.theme).plate;
             // The disc-drawing helpers take geometry, not the config, so the live
             // roundness is cached here once per frame (render thread only).
             mm::Snapshot snap{};

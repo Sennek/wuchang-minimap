@@ -404,7 +404,7 @@ namespace
         CHECK(gly::shape_of(static_cast<mdb::Cat>(mdb::kCatCount)) == gly::Shape::SmallSquare);
         CHECK(gly::shape_of(static_cast<mdb::Cat>(200)) == gly::Shape::SmallSquare);
 
-        const gly::Palette palettes[] = {gly::Palette::Default};
+        const gly::Palette palettes[] = {gly::Palette::Default, gly::Palette::Colorblind};
         for (const gly::Palette pal : palettes)
         {
             // THE PROPERTY. Two categories may share a hue (the ladder and the lift do)
@@ -431,6 +431,85 @@ namespace
         CHECK(gly::shape_of(mdb::Cat::Boss) != gly::shape_of(mdb::Cat::Elite));
         CHECK(gly::shape_of(mdb::Cat::Elite) != gly::shape_of(mdb::Cat::Enemy));
         CHECK(gly::shape_of(mdb::Cat::Hidden) != gly::shape_of(mdb::Cat::Shrine));
+
+        // ---- palette and theme names -------------------------------------------------
+        //
+        // Both values come out of a hand-edited text file, so the parsers have to be
+        // forgiving about case, spaces and the British spelling, and must leave the
+        // caller's value alone when they do not recognise one (the loader then logs and
+        // keeps whatever was in force).
+        gly::Palette pal = gly::Palette::Default;
+        CHECK(gly::palette_from_name("colorblind", pal) && pal == gly::Palette::Colorblind);
+        CHECK(gly::palette_from_name("  Colour-Blind ", pal) && pal == gly::Palette::Colorblind);
+        CHECK(gly::palette_from_name("DEFAULT", pal) && pal == gly::Palette::Default);
+        pal = gly::Palette::Colorblind;
+        CHECK(!gly::palette_from_name("nonsense", pal));
+        CHECK(pal == gly::Palette::Colorblind); // untouched on a bad value
+        CHECK(!gly::palette_from_name("", pal));
+        CHECK(std::strcmp(gly::palette_name(gly::Palette::Colorblind), "colorblind") == 0);
+        CHECK(std::strcmp(gly::palette_name(gly::Palette::Default), "default") == 0);
+
+        gly::Theme th = gly::Theme::Neutral;
+        CHECK(gly::theme_from_name("ink", th) && th == gly::Theme::Ink);
+        CHECK(gly::theme_from_name(" Neutral ", th) && th == gly::Theme::Neutral);
+        th = gly::Theme::Ink;
+        CHECK(!gly::theme_from_name("bronze", th));
+        CHECK(th == gly::Theme::Ink);
+        CHECK(std::strcmp(gly::theme_name(gly::Theme::Ink), "ink") == 0);
+        // Both names round-trip, which is what save_config_file() writes out.
+        for (const gly::Theme t : {gly::Theme::Neutral, gly::Theme::Ink})
+        {
+            gly::Theme back = gly::Theme::Neutral;
+            CHECK(gly::theme_from_name(gly::theme_name(t), back) && back == t);
+        }
+        for (const gly::Palette p2 : {gly::Palette::Default, gly::Palette::Colorblind})
+        {
+            gly::Palette back = gly::Palette::Default;
+            CHECK(gly::palette_from_name(gly::palette_name(p2), back) && back == p2);
+        }
+
+        // ---- themes -------------------------------------------------------------------
+        //
+        // `neutral` must be EXACTLY what 0.9.2 shipped, or every existing config file
+        // silently changes appearance on upgrade.
+        const gly::ThemeColors neutral = gly::theme_colors(gly::Theme::Neutral);
+        CHECK(neutral.frame == (mdb::Rgb{168, 176, 186}));
+        CHECK(neutral.frame_alpha == 0.85f);
+        CHECK(neutral.backdrop == (mdb::Rgb{6, 9, 13}));
+        CHECK(neutral.backdrop_alpha == 0.86f);
+        CHECK(neutral.floor_base == (mdb::Rgb{214, 208, 196}));
+        const gly::ThemeColors ink = gly::theme_colors(gly::Theme::Ink);
+        CHECK(!(ink.frame == neutral.frame));
+        CHECK(!(ink.backdrop == neutral.backdrop));
+        CHECK(!(ink.plate == neutral.plate));
+        // A plate is a DARK box behind light text, and a frame is a light ring on it.
+        for (const gly::ThemeColors& t2 : {neutral, ink})
+        {
+            const int plate_sum = static_cast<int>(t2.plate.r) + t2.plate.g + t2.plate.b;
+            const int frame_sum = static_cast<int>(t2.frame.r) + t2.frame.g + t2.frame.b;
+            CHECK(plate_sum < 120);
+            CHECK(frame_sum > 300);
+            CHECK(t2.frame_alpha > 0.0f && t2.frame_alpha <= 1.0f);
+            CHECK(t2.backdrop_alpha > 0.0f && t2.backdrop_alpha <= 1.0f);
+        }
+
+        // ---- the item-quality tiers ---------------------------------------------------
+        //
+        // The default set is the GAME's own pickup-beam palette and must not be
+        // rewritten here; the colour-blind set has to be three genuinely different
+        // colours, which the pastel default barely is.
+        CHECK(gly::rarity_colors(gly::Palette::Default) == mdb::kDefaultRarityColors);
+        const mdb::Rgb* cb = gly::rarity_colors(gly::Palette::Colorblind);
+        for (int i = 0; i < mdb::kRarityCount; ++i)
+        {
+            for (int j = i + 1; j < mdb::kRarityCount; ++j)
+            {
+                const int d = std::abs(static_cast<int>(cb[i].r) - static_cast<int>(cb[j].r)) +
+                              std::abs(static_cast<int>(cb[i].g) - static_cast<int>(cb[j].g)) +
+                              std::abs(static_cast<int>(cb[i].b) - static_cast<int>(cb[j].b));
+                CHECK(d > 150);
+            }
+        }
     }
 
     void test_categories()

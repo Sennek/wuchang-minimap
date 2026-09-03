@@ -78,6 +78,8 @@ namespace cfgkeys
         {"mod_enabled", Tier::Player},
         {"overlay_enabled", Tier::Player},
         {"show_minimap", Tier::Player},
+        {"theme", Tier::Player},
+        {"palette", Tier::Player},
         {"ui_scale", Tier::Player},
         {"hud_preset", Tier::Player},
         {"minimap_size", Tier::Player},

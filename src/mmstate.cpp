@@ -193,6 +193,17 @@ namespace mm
             return std::string{v.substr(a, b - a)};
         }
 
+        std::wstring widen_ascii(std::string_view v)
+        {
+            std::wstring out;
+            out.reserve(v.size());
+            for (const char c : v)
+            {
+                out.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+            }
+            return out;
+        }
+
         bool parse_bool(const std::string& v, bool fallback)
         {
             if (v == "1" || v == "true" || v == "yes" || v == "on")
@@ -588,6 +599,25 @@ namespace mm
             else if (key == "hud_preset")
             {
                 cfg.hud_preset = preset_from_name(value, cfg.hud_preset);
+            }
+            // theme / palette. A bad value keeps whatever is already in force and says
+            // so, rather than silently reverting the look to the default.
+            else if (key == "theme")
+            {
+                if (!gly::theme_from_name(value, cfg.theme))
+                {
+                    logf(L"config: theme = '{}' is not a theme (expected ink or neutral) - keeping {}",
+                         widen_ascii(value), widen_ascii(gly::theme_name(cfg.theme)));
+                }
+            }
+            else if (key == "palette")
+            {
+                if (!gly::palette_from_name(value, cfg.palette))
+                {
+                    logf(L"config: palette = '{}' is not a palette (expected default or colorblind) - "
+                         L"keeping {}",
+                         widen_ascii(value), widen_ascii(gly::palette_name(cfg.palette)));
+                }
             }
             else if (key == "minimap_size")
             {
@@ -1444,17 +1474,6 @@ namespace mm
             }
         }
 
-        std::wstring widen_ascii(std::string_view v)
-        {
-            std::wstring out;
-            out.reserve(v.size());
-            for (const char c : v)
-            {
-                out.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
-            }
-            return out;
-        }
-
         // Applies one config file's text onto `cfg`. Returns how many `key = value`
         // lines it understood. The line rules are mirrored EXACTLY in
         // cfgkeys::keys_in(), which is what the offline drift test parses files with.
@@ -1517,6 +1536,71 @@ namespace mm
                 apply_setting(cfg, key, value);
             }
             return lines;
+        }
+
+        //==============================================================================
+        // THEME PRECEDENCE
+        //==============================================================================
+        //
+        // A theme supplies a colour ONLY where the config file is silent. `seen` is
+        // every key name that appeared in either file, so a value the player wrote out
+        // by hand always wins - and because this runs after the whole file has been
+        // parsed, it does not matter whether the `theme` line sits above or below the
+        // colour it would otherwise preset.
+        //
+        // With `theme = neutral` (the shipped default) every value below is what 0.9.2
+        // already had, so a config that never mentions a theme is bit-for-bit unchanged.
+        void apply_theme_defaults(Config& cfg, const std::vector<std::string>& seen)
+        {
+            const auto mentioned = [&seen](std::string_view k) {
+                for (const std::string& s : seen)
+                {
+                    if (s == k)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            const gly::ThemeColors tc = gly::theme_colors(cfg.theme);
+            if (!mentioned("minimap_frame_color"))
+            {
+                cfg.minimap_frame_r = static_cast<float>(tc.frame.r);
+                cfg.minimap_frame_g = static_cast<float>(tc.frame.g);
+                cfg.minimap_frame_b = static_cast<float>(tc.frame.b);
+            }
+            if (!mentioned("minimap_frame_alpha"))
+            {
+                cfg.minimap_frame_alpha = tc.frame_alpha;
+            }
+            if (!mentioned("minimap_backdrop_color"))
+            {
+                cfg.minimap_backdrop_r = static_cast<float>(tc.backdrop.r);
+                cfg.minimap_backdrop_g = static_cast<float>(tc.backdrop.g);
+                cfg.minimap_backdrop_b = static_cast<float>(tc.backdrop.b);
+            }
+            if (!mentioned("minimap_backdrop"))
+            {
+                cfg.minimap_backdrop = tc.backdrop_alpha;
+            }
+            if (!mentioned("floor_base_color"))
+            {
+                cfg.floor_base_r = static_cast<float>(tc.floor_base.r);
+                cfg.floor_base_g = static_cast<float>(tc.floor_base.g);
+                cfg.floor_base_b = static_cast<float>(tc.floor_base.b);
+            }
+            // The item-quality tiers follow the PALETTE, not the theme: the shipped
+            // defaults are the game's own pale pickup-beam colours, which are the one
+            // place a colour-blind player is left with hue as the only channel.
+            if (!mentioned("xray_rarity_colors"))
+            {
+                const mdb::Rgb* src = gly::rarity_colors(cfg.palette);
+                for (int i = 0; i < mdb::kRarityCount; ++i)
+                {
+                    cfg.xray_rarity_colors[i] = src[i];
+                }
+            }
         }
 
         void clamp_config(Config& cfg)
@@ -1638,12 +1722,14 @@ namespace mm
         {
             logf(L"config: {} not found - using defaults (a file is written when you press Save in the F2 panel)",
                  path);
+            apply_theme_defaults(cfg, std::vector<std::string>{});
             clamp_config(cfg);
             set_config(cfg);
             return;
         }
 
         const int lines = apply_text(cfg, text);
+        std::vector<std::string> seen = cfgkeys::keys_in(text);
 
         // The dev overlay, if the developer put one there. Loaded second on purpose: a
         // dev file is a deliberate override of whatever the shipped file says.
@@ -1654,8 +1740,15 @@ namespace mm
         {
             have_dev = true;
             dev_lines = apply_text(cfg, dev_text);
+            for (std::string& k : cfgkeys::keys_in(dev_text))
+            {
+                seen.push_back(std::move(k));
+            }
         }
 
+        // The theme fills in the colour keys the two files did not mention - after both
+        // of them have been read, so the order of the lines cannot matter.
+        apply_theme_defaults(cfg, seen);
         clamp_config(cfg);
         set_config(cfg);
         if (have_dev)
@@ -1702,6 +1795,8 @@ namespace mm
         add("show_minimap", b(cfg.show_minimap));
         add("ui_scale", cfg.ui_scale_auto ? std::string{"auto"} : f2(cfg.ui_scale));
         add("hud_preset", preset_name(cfg.hud_preset));
+        add("theme", gly::theme_name(cfg.theme));
+        add("palette", gly::palette_name(cfg.palette));
         add("minimap_size", f3(cfg.size_frac));
         add("minimap_zoom", f1(cfg.zoom_uu_per_px));
         add("minimap_shape", cfg.round ? "round" : "square");

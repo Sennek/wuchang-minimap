@@ -53,6 +53,31 @@ overlay_enabled = 1
 show_minimap = 1
 
 ; ---------------------------------------------------------------------------------
+; LOOK: THEME AND PALETTE
+; ---------------------------------------------------------------------------------
+; THEME - the CHROME, i.e. everything drawn that is not a marker: the minimap's
+; frame and disc backdrop, the dark plate behind every label and the compass strip,
+; and the walkable fill the height slicer paints.
+;   neutral  what the mod has always looked like: a cold blue-grey frame on a
+;            blue-black disc, light warm grey fill.
+;   ink      bronze frame on near-black, warmer parchment fill.
+; PRECEDENCE: a theme only supplies a colour this file does NOT mention. If you
+; write out minimap_frame_color, minimap_frame_alpha, minimap_backdrop_color,
+; minimap_backdrop or floor_base_color (all in the ADVANCED section), your value
+; wins under every theme - so switching themes can never overwrite a tuned config.
+; Deleting the line (or commenting it out) hands that colour back to the theme.
+theme = neutral
+
+; PALETTE - the MARKER HUE SET (the shapes never change; every category has its own,
+; which is what carries the identity when a hue is reused).
+;   default     the 14 hues the mod has always used.
+;   colorblind  an Okabe-Ito-derived set that stays distinguishable under
+;               deuteranopia / protanopia / tritanopia. It also swaps in
+;               colour-blind-safe item-quality tier colours, unless
+;               xray_rarity_colors is written out in the ADVANCED section.
+palette = default
+
+; ---------------------------------------------------------------------------------
 ; SCALE AND PLACEMENT
 ; ---------------------------------------------------------------------------------
 ; UI SCALE. ImGui draws at 13 px, which is a quarter of the intended physical size

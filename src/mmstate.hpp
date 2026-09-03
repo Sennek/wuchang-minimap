@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "glyphs.hpp"
 #include "mapview.hpp"
 #include "markers_db.hpp"
 #include "perf.hpp"
@@ -169,6 +170,24 @@ namespace mm
         // Scaled: markers_size, map_marker_size, highlight_size, compass_height,
         // compass_offset_y, minimap_offset_x/y, minimap_min_px, minimap_arrow_min_px.
         // NOT scaled: minimap_size and compass_width, which are fractions already.
+        //==============================================================================
+        // Theme and palette (review-0.9.1 items 7 and 8)
+        //==============================================================================
+        //
+        // TWO AXES, deliberately separate. `theme` is the CHROME - the minimap frame,
+        // the disc backdrop, the dark plate behind every label and the walkable fill -
+        // and `palette` is the MARKER HUE SET. They are independent because a player who
+        // needs the colour-blind hues does not thereby want a different frame.
+        //
+        // PRECEDENCE: a theme only supplies a colour key the config file does not
+        // mention. `minimap_frame_color` written out in the file wins over every theme,
+        // for ever; the same holds for `minimap_backdrop_color`, `minimap_frame_alpha`,
+        // `minimap_backdrop`, `floor_base_color` and `xray_rarity_colors`. That is
+        // resolved once, in load_config_file(), and is order-independent - the theme
+        // line may sit anywhere in the file.
+        gly::Theme theme = gly::Theme::Neutral;
+        gly::Palette palette = gly::Palette::Default;
+
         bool ui_scale_auto = true;
         float ui_scale = 1.0f; // only consulted when ui_scale_auto is false
         HudPreset hud_preset = HudPreset::Custom;

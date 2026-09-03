@@ -1,0 +1,519 @@
+{
+ "base": "BP_NPC_C",
+ "count": 74,
+ "dt_aitable_rows": 0,
+ "localised": 67,
+ "npcs": {
+  "AWS_N_NPC_C": {
+   "dir": "NPC_AWS",
+   "key": "npc_Dianame_15",
+   "name": "Magalhaes",
+   "via": "own"
+  },
+  "BP_NPC_cunmin2_C": {
+   "key": null,
+   "name": "Villager",
+   "via": "pinyin"
+  },
+  "BP_NPC_cunmin_C": {
+   "key": null,
+   "name": "Villager",
+   "via": "pinyin"
+  },
+  "BP_NPC_xuanyangzi_1_C": {
+   "key": "npc_Dianame_05",
+   "name": "Xuanyangzi",
+   "via": "ref:NPC_XuanYangZi"
+  },
+  "BP_NPC_xuanyangzi_yandou_1_C": {
+   "key": "npc_Dianame_05",
+   "name": "Xuanyangzi",
+   "via": "ref:NPC_XuanYangZi"
+  },
+  "BP_NPC_xuanyangzi_yandou_C": {
+   "key": "npc_Dianame_05",
+   "name": "Xuanyangzi",
+   "via": "ref:NPC_XuanYangZi"
+  },
+  "BP_WeaponRefrom_C": {
+   "key": null,
+   "name": "Workbench",
+   "via": "no-name"
+  },
+  "BRWZ_N_NPC_C": {
+   "dir": "NPC_NW",
+   "key": "npc_Dianame_37",
+   "name": "Red-Clad Lady",
+   "via": "own"
+  },
+  "BRWZ_N_NPC_Fazhang_C": {
+   "dir": "NPC_NW",
+   "key": "npc_Dianame_37",
+   "name": "Red-Clad Lady",
+   "via": "own"
+  },
+  "CF_NPC_C": {
+   "dir": "NPC_CF",
+   "key": "npc_Dianame_31",
+   "name": "Boatman",
+   "via": "own"
+  },
+  "CF_NPC_TieQiao_C": {
+   "dir": "NPC_CF",
+   "key": "npc_Dianame_31",
+   "name": "Boatman",
+   "via": "own"
+  },
+  "CF_N_NPC_C": {
+   "dir": "NPC_CF",
+   "key": "npc_Dianame_31",
+   "name": "Boatman",
+   "via": "own"
+  },
+  "CF_N_NPC_Tieqiao_C": {
+   "dir": "NPC_CF",
+   "key": "npc_Dianame_31",
+   "name": "Boatman",
+   "via": "own"
+  },
+  "Cunminlaofu_NPC_C": {
+   "dir": "NPC_Cunminlaofu",
+   "key": "npc_Dianame_22",
+   "name": "Qiao Ying",
+   "via": "own"
+  },
+  "DKDC_NPC_C": {
+   "dir": "NPC_DKDC",
+   "key": null,
+   "name": "Reading point",
+   "via": "read-point"
+  },
+  "DY_NPC_C": {
+   "dir": "NPC_DY",
+   "key": "npc_Dianame_34",
+   "name": "Storyteller",
+   "via": "own"
+  },
+  "DY_NPC_ErHu_C": {
+   "dir": "NPC_DY",
+   "key": "npc_Dianame_34",
+   "name": "Storyteller",
+   "via": "folder:NPC_DY"
+  },
+  "DY_N_NPC_Erhu_C": {
+   "dir": "NPC_DY",
+   "key": "npc_Dianame_34",
+   "name": "Storyteller",
+   "via": "own"
+  },
+  "DY_N_NPC_Erhuxian_C": {
+   "dir": "NPC_DY",
+   "key": "npc_Dianame_34",
+   "name": "Storyteller",
+   "via": "own"
+  },
+  "DY_N_NPC_Quanzhang_C": {
+   "dir": "NPC_DY",
+   "key": "npc_Dianame_34",
+   "name": "Storyteller",
+   "via": "own"
+  },
+  "FY_NPC_C": {
+   "dir": "NPC_FY",
+   "key": "npc_Dianame_11",
+   "name": "Fang Yao",
+   "via": "own"
+  },
+  "FY_NPC_Cry_C": {
+   "dir": "NPC_FY",
+   "key": "npc_Dianame_11",
+   "name": "Fang Yao",
+   "via": "own"
+  },
+  "FY_NPC_Toulu_C": {
+   "dir": "NPC_FY",
+   "key": "npc_Dianame_11",
+   "name": "Fang Yao",
+   "via": "own"
+  },
+  "FY_N_NPC_C": {
+   "dir": "NPC_FY",
+   "key": "npc_Dianame_11",
+   "name": "Fang Yao",
+   "via": "own"
+  },
+  "HJE_NPC_NoWeapon_C": {
+   "dir": "NPC_HuangJianE",
+   "key": "npc_Dianame_01",
+   "name": "Huang Jian'e",
+   "via": "own"
+  },
+  "HJE_N_NPC_Dazuo_C": {
+   "dir": "NPC_HuangJianE",
+   "key": "npc_Dianame_01",
+   "name": "Huang Jian'e",
+   "via": "own"
+  },
+  "HL_N_NPC_C": {
+   "dir": "NPC_HL",
+   "key": "npc_Dianame_10",
+   "name": "Honglan",
+   "via": "own"
+  },
+  "HYZ_N_NPC_C": {
+   "dir": "NPC_Heyouzai",
+   "key": "npc_Dianame_24",
+   "name": "He Youzai",
+   "via": "own"
+  },
+  "HY_N_NPC_C": {
+   "dir": "NPC_XBFR",
+   "key": "npc_Dianame_09",
+   "name": "Huang Yan",
+   "via": "own"
+  },
+  "Heyouzai_NPC_C": {
+   "dir": "NPC_Heyouzai",
+   "key": "npc_Dianame_24",
+   "name": "He Youzai",
+   "via": "own"
+  },
+  "HuangJianE_NPC_C": {
+   "dir": "NPC_HuangJianE",
+   "key": "npc_Dianame_01",
+   "name": "Huang Jian'e",
+   "via": "own"
+  },
+  "LDG_N_NPC_C": {
+   "dir": "NPC_LDG",
+   "key": "npc_Dianame_13",
+   "name": "Li Dingguo",
+   "via": "own"
+  },
+  "LLS_N_NPC_C": {
+   "dir": "NPC_LLS",
+   "key": "npc_Dianame_14",
+   "name": "Buglio",
+   "via": "own"
+  },
+  "LWS_N_NPC_C": {
+   "dir": "NPC_XBZF",
+   "key": "npc_Dianame_32",
+   "name": "Li Wansan",
+   "via": "own"
+  },
+  "Letter01_NPC_C": {
+   "dir": "NPC_DKDC",
+   "key": null,
+   "name": "Reading point",
+   "via": "read-point"
+  },
+  "MG_NPC_C": {
+   "dir": "NPC_CSB_MG",
+   "key": "npc_Dianame_07",
+   "name": "Matchstick",
+   "via": "own"
+  },
+  "MG_N_NPC_C": {
+   "dir": "NPC_CSB_MG",
+   "key": "npc_Dianame_07",
+   "name": "Matchstick",
+   "via": "own"
+  },
+  "NJ_NPC_C": {
+   "dir": "NPC_NJ",
+   "key": "npc_Dianame_41",
+   "name": "Hillswatch's Female Servant",
+   "via": "own"
+  },
+  "NJ_N_NPC_C": {
+   "dir": "NPC_NJ",
+   "key": "npc_Dianame_41",
+   "name": "Hillswatch's Female Servant",
+   "via": "own"
+  },
+  "NPC_LCE_C": {
+   "dir": "NPC_LCE",
+   "key": "npc_Dianame_42",
+   "name": "Liu Cheng'en",
+   "via": "own"
+  },
+  "NPC_LWX_C": {
+   "dir": "NPC_LWX",
+   "key": "npc_Dianame_43",
+   "name": "Liu Wenxiu",
+   "via": "own"
+  },
+  "NPC_PoPoZhiZi_2_C": {
+   "dir": "NPC_PoPoZhiZi",
+   "key": "npc_Dianame_04",
+   "name": "Qiao Lin",
+   "via": "own"
+  },
+  "NSC_NPC_C": {
+   "dir": "NPC_NSC",
+   "key": "npc_Dianame_02",
+   "name": "Nian Suichang",
+   "via": "own"
+  },
+  "NSC_N_NPC_C": {
+   "dir": "NPC_NSC",
+   "key": "npc_Dianame_02",
+   "name": "Nian Suichang",
+   "via": "own"
+  },
+  "NW_NPC_NoWeapon_C": {
+   "dir": "NPC_NW",
+   "key": "npc_Dianame_37",
+   "name": "Red-Clad Lady",
+   "via": "own"
+  },
+  "PangZi_NPC_C": {
+   "dir": "NPC_CSB_PZ",
+   "key": "npc_Dianame_08",
+   "name": "Glut",
+   "via": "own"
+  },
+  "QH_N_NPC_C": {
+   "dir": "NPC_BH",
+   "key": "npc_Dianame_19",
+   "name": "Qianhu",
+   "via": "own"
+  },
+  "QL_N_NPC_C": {
+   "dir": "NPC_PoPoZhiZi",
+   "key": "npc_Dianame_04",
+   "name": "Qiao Lin",
+   "via": "own"
+  },
+  "QY_N_NPC_C": {
+   "dir": "NPC_Cunminlaofu",
+   "key": "npc_Dianame_22",
+   "name": "Qiao Ying",
+   "via": "own"
+  },
+  "ReadPointSP_NPC_C": {
+   "dir": "NPC_ReadPoint",
+   "key": null,
+   "name": "Reading point",
+   "via": "read-point"
+  },
+  "SJA_NPC_C": {
+   "dir": "NPC_CSB_SJA",
+   "key": "npc_Dianame_25",
+   "name": "Shen Jing'an",
+   "via": "own"
+  },
+  "SJA_N_NPC_C": {
+   "dir": "NPC_CSB_SJA",
+   "key": "npc_Dianame_25",
+   "name": "Shen Jing'an",
+   "via": "own"
+  },
+  "SKW_NPC_C": {
+   "dir": "NPC_SKW",
+   "key": "npc_Dianame_12",
+   "name": "Sun Kewang",
+   "via": "own"
+  },
+  "SKW_N_NPC_C": {
+   "dir": "NPC_SKW",
+   "key": "npc_Dianame_12",
+   "name": "Sun Kewang",
+   "via": "own"
+  },
+  "SKW_N_NPC_Changdao_C": {
+   "dir": "NPC_SKW",
+   "key": "npc_Dianame_12",
+   "name": "Sun Kewang",
+   "via": "own"
+  },
+  "WTDD_N_NPC_C": {
+   "dir": "NPC_WuTouDiDi",
+   "key": "npc_Dianame_39",
+   "name": "Child in the Jar",
+   "via": "own"
+  },
+  "XBGJ_N_NPC_C": {
+   "dir": "NPC_XBGJ",
+   "key": "npc_Dianame_33",
+   "name": "Shen Yanping",
+   "via": "own"
+  },
+  "XBZF_NPC_C": {
+   "dir": "NPC_XBZF",
+   "key": "npc_Dianame_32",
+   "name": "Li Wansan",
+   "via": "own"
+  },
+  "XM_NPC_C": {
+   "dir": "NPC_XM",
+   "key": null,
+   "name": "Inner Demon",
+   "via": "pinyin"
+  },
+  "XP_N_NPC_C": {
+   "dir": "NPC_CSB_PZ",
+   "key": "npc_Dianame_08",
+   "name": "Glut",
+   "via": "own"
+  },
+  "XYZ_N_NPC_C": {
+   "dir": "NPC_XuanYangZi",
+   "key": "npc_Dianame_05",
+   "name": "Xuanyangzi",
+   "via": "own"
+  },
+  "XYZ_N_NPC_Yandou_C": {
+   "dir": "NPC_XuanYangZi",
+   "key": "npc_Dianame_05",
+   "name": "Xuanyangzi",
+   "via": "own"
+  },
+  "YT_N_NPC_Fengche_C": {
+   "dir": "NPC_YaoTong",
+   "key": "npc_Dianame_20",
+   "name": "Young Boy",
+   "via": "own"
+  },
+  "YX_NPC_C": {
+   "dir": "NPC_YX",
+   "key": "npc_Dianame_18",
+   "name": "Yu Xia",
+   "via": "own"
+  },
+  "YX_N_NPC_C": {
+   "dir": "NPC_YX",
+   "key": "npc_Dianame_18",
+   "name": "Yu Xia",
+   "via": "own"
+  },
+  "YaoTong_NPC_C": {
+   "dir": "NPC_YaoTong",
+   "key": "npc_Dianame_20",
+   "name": "Young Boy",
+   "via": "own"
+  },
+  "ZNXM_N_NPC_C": {
+   "dir": "NPC_LSXM",
+   "key": "npc_Dianame_38",
+   "name": "Plain Warrioress",
+   "via": "own"
+  },
+  "ZR_NPC_C": {
+   "dir": "NPC_ZR",
+   "key": "npc_Dianame_17",
+   "name": "Wu Gang",
+   "via": "own"
+  },
+  "ZY_NPC_C": {
+   "dir": "NPC_ZY",
+   "key": "npc_Dianame_36",
+   "name": "White-Robed Elder",
+   "via": "own"
+  },
+  "ZY_NPC_Weapon_C": {
+   "dir": "NPC_ZY",
+   "key": "npc_Dianame_36",
+   "name": "White-Robed Elder",
+   "via": "own"
+  },
+  "ZY_N_NPC_C": {
+   "dir": "NPC_ZY",
+   "key": "npc_Dianame_36",
+   "name": "White-Robed Elder",
+   "via": "own"
+  },
+  "ZY_N_NPC_ChangQiang_C": {
+   "dir": "NPC_ZY",
+   "key": "npc_Dianame_36",
+   "name": "White-Robed Elder",
+   "via": "own"
+  },
+  "Zhangfangxiansheng_NPC_C": {
+   "dir": "NPC_GuDongShang",
+   "key": "npc_Dianame_06",
+   "name": "Tao Qing",
+   "via": "own"
+  },
+  "ZhuRu_NPC_C": {
+   "dir": "NPC_ZhuRu",
+   "key": "npc_Dianame_17",
+   "name": "Wu Gang",
+   "via": "own"
+  }
+ },
+ "schema": "wuchang-minimap-npcs/1",
+ "source": "cooked .uasset export maps (class graph) + the npc_Dianame_* / npc_name_* FText keys embedded in each NPC blueprint + MMGame.locres, offline pak extraction",
+ "via": {
+  "folder": 1,
+  "no-name": 1,
+  "own": 63,
+  "pinyin": 3,
+  "read-point": 3,
+  "ref": 3
+ },
+ "witness": {
+  "ambiguous_keys": [],
+  "dirs_disagreeing": {},
+  "dirs_multi_blueprint": 19,
+  "initials": {
+   "agree": 14,
+   "checked": 17,
+   "disagree": [
+    {
+     "cls": "WTDD_N_NPC_C",
+     "code": "WTDD",
+     "name": "Child in the Jar"
+    },
+    {
+     "cls": "YT_N_NPC_Fengche_C",
+     "code": "YT",
+     "name": "Young Boy"
+    },
+    {
+     "cls": "ZR_NPC_C",
+     "code": "ZR",
+     "name": "Wu Gang"
+    }
+   ]
+  },
+  "spelled_out_matches": [
+   {
+    "cls": "HJE_NPC_NoWeapon_C",
+    "name": "Huang Jian'e",
+    "token": "HuangJianE"
+   },
+   {
+    "cls": "HJE_N_NPC_Dazuo_C",
+    "name": "Huang Jian'e",
+    "token": "HuangJianE"
+   },
+   {
+    "cls": "HYZ_N_NPC_C",
+    "name": "He Youzai",
+    "token": "Heyouzai"
+   },
+   {
+    "cls": "Heyouzai_NPC_C",
+    "name": "He Youzai",
+    "token": "Heyouzai"
+   },
+   {
+    "cls": "HuangJianE_NPC_C",
+    "name": "Huang Jian'e",
+    "token": "HuangJianE"
+   },
+   {
+    "cls": "XYZ_N_NPC_C",
+    "name": "Xuanyangzi",
+    "token": "XuanYangZi"
+   },
+   {
+    "cls": "XYZ_N_NPC_Yandou_C",
+    "name": "Xuanyangzi",
+    "token": "XuanYangZi"
+   }
+  ]
+ }
+}

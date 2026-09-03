@@ -19,6 +19,11 @@ five slots into that block.
 Join key with the runtime: `obj` -- the cooked export name, which is exactly
 what `FindAllOf` reports in-game (`...PersistentLevel.BP_RebornFire_C_0`).
 
+NPC and merchant markers carry the character's real English name from
+`markers/npcs.json` (`build_npcs.py`: the `npc_Dianame_<nn>` / `npc_name_<nn>`
+FText key embedded in the NPC blueprint -> `MMGame.locres`), so a marker reads
+"Huang Jian'e" instead of "NPC".
+
 Pickups additionally carry their real item names.  `item_ids()` scans the actor
 export for the inline `Items` array and `markers/items.json` (built by
 `build_items.py`) turns the first id into a display name, so a pickup marker
@@ -537,10 +542,29 @@ def boss_names() -> dict[str, str]:
     return {c: b["name"] for c, b in doc.get("bosses", {}).items() if b.get("name")}
 
 
+def npc_names() -> dict[str, str]:
+    """class -> display name from markers/npcs.json, or {} if it is absent.
+
+    The same deal as bosses.json: a toolchain artifact (`build_npcs.py`), read
+    only here, baked into chapter*.json, never shipped.  Missing it degrades
+    npc/merchant labels to "NPC" / "Merchant", nothing else.
+    """
+    p = os.path.join(_HERE, "..", "..", "markers", "npcs.json")
+    if not os.path.exists(p):
+        print(f"  ! {p} not found - run build_npcs.py; npcs stay unnamed",
+              file=sys.stderr)
+        return {}
+    with open(p, encoding="utf-8") as f:
+        doc = json.load(f)
+    return {c: e["name"] for c, e in doc.get("npcs", {}).items() if e.get("name")}
+
+
 def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None,
-            bosses: "dict[str, str] | None" = None):
+            bosses: "dict[str, str] | None" = None,
+            npcs: "dict[str, str] | None" = None):
     items = items if items is not None else itemdb.ItemDB.load()
     bosses = bosses if bosses is not None else boss_names()
+    npcs = npcs if npcs is not None else npc_names()
     keys = chapter_packages(ms, chapter)
     t0 = time.time()
     pkgs = {}
@@ -613,6 +637,18 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                     stats["boss-named"] += 1
                 else:
                     stats["boss-unnamed:" + actor.class_name] += 1
+            # NPCs and merchants get the game's own English name from
+            # markers/npcs.json (`build_npcs.py`: the `npc_Dianame_<nn>` /
+            # `npc_name_<nn>` FText key embedded in the NPC blueprint ->
+            # MMGame.locres), so an npc marker reads "Huang Jian'e" rather
+            # than "NPC".
+            if cat in ("npc", "merchant"):
+                nname = npcs.get(actor.class_name)
+                if nname:
+                    name = nname
+                    stats["npc-named"] += 1
+                else:
+                    stats["npc-unnamed:" + actor.class_name] += 1
             ids = item_ids(lvl.pkg, actor, items) if cat == "pickup" else []
             rarity = 0
             if cat == "pickup":
@@ -748,6 +784,7 @@ def main(argv=None):
 
     items = itemdb.ItemDB.load(a.items)
     bosses = boss_names()
+    npcs = npc_names()
     if not len(items):
         print(f"  ! no item database at {a.items} -- pickups keep the generic label "
               f"(run build_items.py first)", file=sys.stderr)
@@ -755,7 +792,8 @@ def main(argv=None):
     chapters = ["1", "2", "3", "4", "5", "DLC"] if a.all_chapters else [a.chapter]
     os.makedirs(a.out, exist_ok=True)
     for ch in chapters:
-        markers, stats, _schema, _pkgs = extract(ms, ch, items=items, bosses=bosses)
+        markers, stats, _schema, _pkgs = extract(ms, ch, items=items, bosses=bosses,
+                                                 npcs=npcs)
         if not markers:
             print(f"  chapter {ch}: nothing extracted, skipped")
             continue

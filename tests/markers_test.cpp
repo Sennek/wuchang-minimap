@@ -676,6 +676,14 @@ namespace
             // hues differ - but never both.
             CHECK(gly::palette_is_separable(pal));
 
+            // AND THE STRONGER ONE (review B.7). Separability is satisfied by
+            // construction while all fourteen shapes are distinct, so on its own it
+            // could not catch the colour-blind palette drawing Boss and Enemy in the
+            // same vermillion - which it did in 1.0.0, with a comment above the table
+            // claiming the opposite. The pairs a player compares in one glance are
+            // listed as data in glyphs.hpp and must differ by HUE.
+            CHECK(gly::palette_competing_hues_ok(pal));
+
             for (int i = 0; i < mdb::kCatCount; ++i)
             {
                 const mdb::Rgb c = gly::marker_rgb(static_cast<mdb::Cat>(i), pal);
@@ -695,6 +703,9 @@ namespace
         CHECK(gly::shape_of(mdb::Cat::Boss) != gly::shape_of(mdb::Cat::Elite));
         CHECK(gly::shape_of(mdb::Cat::Elite) != gly::shape_of(mdb::Cat::Enemy));
         CHECK(gly::shape_of(mdb::Cat::Hidden) != gly::shape_of(mdb::Cat::Shrine));
+        // Boss vs Enemy in the colour-blind set: the pair review B.7 was about.
+        CHECK(gly::marker_rgb(mdb::Cat::Boss, gly::Palette::Colorblind) !=
+              gly::marker_rgb(mdb::Cat::Enemy, gly::Palette::Colorblind));
 
         // ---- the note category ----------------------------------------------------
         // A note gets its OWN hue in both palettes, distinct from the categories that

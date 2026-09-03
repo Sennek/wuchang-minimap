@@ -1237,6 +1237,169 @@ namespace overlay
             return raw_kind(msg, lparam, false).mouse;
         }
 
+        //==============================================================================
+        // The game thread's window messages, REPLAYED on the render thread
+        //==============================================================================
+        //
+        // WHY THIS EXISTS AT ALL. `hooked_wndproc` runs on the thread that owns the
+        // game's window - the GAME thread - and it used to hand every message straight
+        // to `ImGui_ImplWin32_WndProcHandler`. That function mutates the Dear ImGui
+        // context: `io.AddKeyEvent` / `AddMousePosEvent` / `AddMouseButtonEvent` all
+        // push onto `ImGuiContext::InputEventsQueue`, which is an `ImVector` - a raw
+        // pointer, a Size and a Capacity, grown with a realloc and no synchronisation
+        // whatsoever. Meanwhile the RENDER thread is inside `ImGui::NewFrame()`, whose
+        // `UpdateInputEvents` READS that queue and then `resize(0)`s it, and inside
+        // `build_ui()` / `ImGui::Render()`, which read and write the rest of the same
+        // context.
+        //
+        // So two threads were growing and clearing one ImVector. The failure that
+        // follows is not a torn read: `push_back` on a stale `Data` pointer writes into
+        // a block the other thread has just freed, and a `Size++` that races a
+        // `resize(0)` writes one element PAST the capacity. Both land in the CRT heap,
+        // and a corrupted free list is a hard, dumpless hang - every thread that then
+        // allocates blocks inside the heap lock for ever. That is the exact shape of the
+        // 2026-09-03 20:56 freeze: the render thread stopped within a second, the game
+        // thread with it, no crash dump, no exception, and the loop thread lived just
+        // long enough to flush a log buffer that needed no allocation.
+        //
+        // THE FIX IS THE ONLY CORRECT ONE: exactly one thread may touch the ImGui
+        // context, and that thread is the one that renders. The WndProc hook now only
+        // RECORDS the message into a fixed-size ring - no allocation, no ImGui call, a
+        // few instructions under a spinlock the render thread holds only for the length
+        // of a memcpy - and `replay_imgui_messages()` feeds them to the backend at the
+        // top of the frame, before `ImGui_ImplWin32_NewFrame()`. The swallow decision
+        // stays on the game thread and no longer reads the context: `WantCaptureKeyboard`
+        // is published to an atomic once per frame.
+        //
+        // WHAT THIS COSTS. Three things in the backend's handler are thread-affine and
+        // now answer differently, all of them cosmetic:
+        //   * `::GetMessageExtraInfo()` is per-thread and only meaningful while that
+        //     thread is dispatching, so every mouse event is reported as a MOUSE rather
+        //     than as a pen or a touch. This mod has no pen or touch behaviour.
+        //   * `::SetCapture()` / `::GetCapture()` fail on a window owned by another
+        //     thread, so a drag that leaves the client area stops being tracked. The
+        //     game runs fullscreen and the panel is drawn inside it, so the cursor
+        //     cannot leave the client area in the first place.
+        //   * `::TrackMouseEvent()` may refuse, in which case WM_MOUSELEAVE never
+        //     arrives - but the mouse position keeps coming from the replayed
+        //     WM_MOUSEMOVE messages, which is where it comes from today.
+        // A one-frame delay on input is the other cost, and it is not observable: the
+        // messages are replayed in order, in the same frame the game thread's own
+        // dispatch would have been drawn.
+
+        struct PendingMsg
+        {
+            HWND hwnd = nullptr;
+            UINT msg = 0;
+            WPARAM wparam = 0;
+            LPARAM lparam = 0;
+        };
+
+        // 512 is a sanity cap, not a working limit: a 60 Hz frame sees a handful of
+        // coalesced WM_MOUSEMOVEs and a key event or two. Overflow is counted and
+        // logged rather than overwriting an unreplayed message - dropping the NEWEST
+        // keeps the order of what does get through.
+        constexpr int kMsgRing = 512;
+        Spinlock g_msg_lock;
+        PendingMsg g_msg_ring[kMsgRing];
+        int g_msg_head = 0;  // oldest unreplayed slot
+        int g_msg_count = 0; // slots in use
+        std::atomic<std::uint64_t> g_msg_dropped{0};
+
+        // Published by the render thread once per frame so the game thread's swallow
+        // decision never has to read the ImGui context. `WantCaptureMouse` is not needed
+        // here - the panel owns the WHOLE mouse whenever it is open (lessons.md).
+        std::atomic<bool> g_imgui_want_keyboard{false};
+
+        // Does the backend's handler do anything with this message? Recording only what
+        // it handles keeps the ring from filling with WM_TIMER / WM_PAINT traffic. The
+        // list is `ImGui_ImplWin32_WndProcHandlerEx`'s switch, verbatim.
+        bool imgui_handles(UINT msg)
+        {
+            switch (msg)
+            {
+            case WM_MOUSEMOVE:
+            case WM_NCMOUSEMOVE:
+            case WM_MOUSELEAVE:
+            case WM_NCMOUSELEAVE:
+            case WM_DESTROY:
+            case WM_LBUTTONDOWN:
+            case WM_LBUTTONDBLCLK:
+            case WM_RBUTTONDOWN:
+            case WM_RBUTTONDBLCLK:
+            case WM_MBUTTONDOWN:
+            case WM_MBUTTONDBLCLK:
+            case WM_XBUTTONDOWN:
+            case WM_XBUTTONDBLCLK:
+            case WM_LBUTTONUP:
+            case WM_RBUTTONUP:
+            case WM_MBUTTONUP:
+            case WM_XBUTTONUP:
+            case WM_MOUSEWHEEL:
+            case WM_MOUSEHWHEEL:
+            case WM_KEYDOWN:
+            case WM_KEYUP:
+            case WM_SYSKEYDOWN:
+            case WM_SYSKEYUP:
+            case WM_SETFOCUS:
+            case WM_KILLFOCUS:
+            case WM_INPUTLANGCHANGE:
+            case WM_CHAR:
+            case WM_IME_COMPOSITION:
+            case WM_IME_CHAR:
+            case WM_SETCURSOR:
+            case WM_DEVICECHANGE:
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        // GAME THREAD (the window's owner). Nothing but a bounds check and a 24-byte
+        // copy under a spinlock that is never held across anything that can block.
+        void record_imgui_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+        {
+            if (!imgui_handles(msg))
+            {
+                return;
+            }
+            SpinGuard guard(g_msg_lock);
+            if (g_msg_count >= kMsgRing)
+            {
+                g_msg_dropped.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            g_msg_ring[(g_msg_head + g_msg_count) % kMsgRing] = PendingMsg{hwnd, msg, wparam, lparam};
+            ++g_msg_count;
+        }
+
+        // RENDER THREAD, at the top of the frame and BEFORE ImGui_ImplWin32_NewFrame.
+        // Bounded by the count read at entry, so a game thread that keeps posting
+        // cannot keep this loop alive.
+        void replay_imgui_messages()
+        {
+            int budget = 0;
+            {
+                SpinGuard guard(g_msg_lock);
+                budget = g_msg_count;
+            }
+            for (int i = 0; i < budget; ++i)
+            {
+                PendingMsg m{};
+                {
+                    SpinGuard guard(g_msg_lock);
+                    if (g_msg_count == 0)
+                    {
+                        break;
+                    }
+                    m = g_msg_ring[g_msg_head];
+                    g_msg_head = (g_msg_head + 1) % kMsgRing;
+                    --g_msg_count;
+                }
+                ImGui_ImplWin32_WndProcHandler(m.hwnd, m.msg, m.wparam, m.lparam);
+            }
+        }
+
         LRESULT CALLBACK hooked_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
             // ALT+F4 / the close button: write the terminal crash-breadcrumb stage while
@@ -1248,9 +1411,12 @@ namespace overlay
             {
                 crumb::mark_closing();
             }
-            if (g_imgui_ready && ImGui::GetCurrentContext() != nullptr)
+            if (g_imgui_ready)
             {
-                ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam);
+                // RECORD ONLY. The ImGui context belongs to the render thread; see the
+                // comment on record_imgui_message above for what happened when this
+                // line called into the backend from here.
+                record_imgui_message(hwnd, msg, wparam, lparam);
 
                 // Input is only ever taken away from the game while the F2 panel or
                 // the full map is up. With both closed the minimap is a pure overlay
@@ -1290,7 +1456,9 @@ namespace overlay
                     // the same reason. The keyboard still goes to the game except while
                     // ImGui wants it (a text field), so the panel key - sampled with
                     // GetAsyncKeyState on the loop thread - always closes it again.
-                    const ImGuiIO& io = ImGui::GetIO();
+                    // Published by the render thread at the end of its frame - never
+                    // read off the context from this thread (see record_imgui_message).
+                    const bool want_keys = g_imgui_want_keyboard.load(std::memory_order_relaxed);
                     const bool capturing = mm::g_key_capture.load(std::memory_order_relaxed);
 
                     // ESC CLOSES THE PANEL, AND THE GAME MUST NOT SEE IT. Without this
@@ -1310,7 +1478,7 @@ namespace overlay
                         mm::log(L"settings panel closed (Esc)");
                     }
                     if (is_mouse_message(msg) || msg == WM_SETCURSOR || raw.mouse || esc ||
-                        ((io.WantCaptureKeyboard || capturing) && is_keyboard_message(msg)) ||
+                        ((want_keys || capturing) && is_keyboard_message(msg)) ||
                         (capturing && msg == WM_INPUT))
                     {
                         return 1;
@@ -8446,6 +8614,9 @@ namespace overlay
             }
             {
                 const mm::PerfScope nf(g_pf_newframe);
+                // The game thread's window messages, in order, on the one thread that
+                // is allowed to touch the ImGui context.
+                replay_imgui_messages();
                 ImGui_ImplWin32_NewFrame();
             }
             ImGui_ImplDX12_NewFrame();
@@ -8455,6 +8626,8 @@ namespace overlay
                 build_ui();
             }
             ImGui::Render();
+            // The game thread's swallow decision reads this instead of the context.
+            g_imgui_want_keyboard.store(ImGui::GetIO().WantCaptureKeyboard, std::memory_order_relaxed);
             mm::perf_record(g_pf_frame, frame_t0);
 
             if (FAILED(frame.allocator->Reset()) || FAILED(g_cmd_list->Reset(frame.allocator, nullptr)))

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 
 #include "json.hpp"
 
@@ -514,5 +515,42 @@ namespace mdb
         out.push_back('/');
         out.append(on);
         return out;
+    }
+
+    std::string lower_ascii(std::string_view v)
+    {
+        std::string out;
+        out.reserve(v.size());
+        for (char c : v)
+        {
+            out.push_back(c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c);
+        }
+        return out;
+    }
+
+    void intern_levels(const std::vector<StaticMarker>& markers, std::vector<std::string>& levels,
+                       std::vector<int>& marker_level)
+    {
+        levels.clear();
+        marker_level.assign(markers.size(), -1);
+        std::unordered_map<std::string, int> ids;
+        for (std::size_t i = 0; i < markers.size(); ++i)
+        {
+            if (markers[i].level.empty())
+            {
+                continue;
+            }
+            std::string key = lower_ascii(markers[i].level);
+            const auto it = ids.find(key);
+            if (it != ids.end())
+            {
+                marker_level[i] = it->second;
+                continue;
+            }
+            const int id = static_cast<int>(levels.size());
+            levels.push_back(key);
+            ids.emplace(std::move(key), id);
+            marker_level[i] = id;
+        }
     }
 } // namespace mdb

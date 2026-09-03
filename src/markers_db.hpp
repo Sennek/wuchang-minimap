@@ -302,4 +302,24 @@ namespace mdb
     // `<level short name>/<object name>`, or just `<object name>` when the level could
     // not be determined - never an empty string for a non-empty object name.
     std::string stable_id(std::string_view level, std::string_view object_name);
+
+    // ASCII lower-case. The marker DB's level names and the ones UObject::GetFullName()
+    // reports need not agree on case, so every level-name comparison in this mod goes
+    // through this.
+    std::string lower_ascii(std::string_view v);
+
+    //==================================================================================
+    // Level-name interning
+    //==================================================================================
+    //
+    // publish_round() asks "is this marker's level loaded, and since when" for every
+    // marker of every round. Answering it per marker means a lower-cased copy plus a
+    // string hash per marker per second; interning turns it into one hash per UNIQUE
+    // level name per round plus an array index per marker.
+    //
+    // Fills `levels` with the unique lower-cased level names in first-appearance order
+    // and `marker_level` with one entry per marker: its index into `levels`, or -1 when
+    // the marker names no level. Both outputs are overwritten.
+    void intern_levels(const std::vector<StaticMarker>& markers, std::vector<std::string>& levels,
+                       std::vector<int>& marker_level);
 } // namespace mdb

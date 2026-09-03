@@ -244,6 +244,16 @@ namespace markers
         {
             std::vector<mdb::StaticMarker> markers;
             std::unordered_map<std::string, int> by_id;
+
+            // INTERNING, done once at load. `publish_round` used to hash a
+            // std::string per marker per round (the found set, the live twins, the
+            // absence streak) and to build a lower-cased copy of every marker's level
+            // name; at 700-1500 markers a second that is the whole cost of the round.
+            // These turn all of it into array indexing:
+            //   levels        - the unique lower-cased level short names
+            //   marker_level  - per marker, its index into `levels` (-1 = no level)
+            std::vector<std::string> levels;
+            std::vector<int> marker_level;
         };
 
         std::atomic<const StaticDb*> g_db{nullptr};
@@ -392,20 +402,41 @@ namespace markers
         // id. An entry is erased the moment a round does not confirm, so the map only
         // ever holds markers that are on their way to being marked.
         std::unordered_map<std::string, std::uint64_t> g_levels;
-        std::unordered_map<std::string, int> g_absent_streak;
         std::atomic<int> g_absence_marks{0};
         std::atomic<int> g_levels_loaded{0};
 
-        std::string lower_ascii(std::string_view v)
-        {
-            std::string out;
-            out.reserve(v.size());
-            for (const char c : v)
-            {
-                out.push_back((c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c);
-            }
-            return out;
-        }
+        //==============================================================================
+        // The per-round index over the static DB (game thread)
+        //==============================================================================
+        //
+        // All of these are sized to `g_idx_db->markers` (or to its `levels`) and are
+        // rebuilt whenever the database pointer changes. They exist so that a publish is
+        // array indexing rather than string hashing - see StaticDb above.
+        const StaticDb* g_idx_db = nullptr;
+        std::vector<std::uint8_t> g_found_static;   // per marker: it is in the found set
+        std::vector<int> g_absent_streak_idx;       // per marker: confirming rounds in a row
+        std::vector<const LiveEntry*> g_live_of_static; // per marker: this round's live twin
+        std::vector<std::uint8_t> g_level_known;    // per unique level: is it loaded?
+        std::vector<std::uint64_t> g_level_round;   // per unique level: round first seen loaded
+        // The chapter-filtered subrange. Only recomputed when the detected chapter moves.
+        std::vector<int> g_chapter_subset;
+        int g_subset_chapter = chid::kNone;
+        bool g_subset_valid = false;
+        // The found set changed wholesale (a reload of wuchang_minimap_found.txt), so
+        // g_found_static must be rebuilt before the next publish.
+        bool g_found_index_dirty = true;
+
+        // publish_round timing (game thread writes, F2 and the log read).
+        std::atomic<double> g_publish_ms{0.0};
+        std::atomic<double> g_publish_ms_avg{0.0};
+        std::atomic<double> g_publish_ms_peak{0.0};
+        double g_publish_ms_sum = 0.0;
+        std::uint64_t g_publish_count = 0;
+
+        // One definition, in the tested pure layer: the marker DB's level names and
+        // UObject::GetFullName()'s need not agree on case, and both sides of that join
+        // must lower-case identically.
+        using mdb::lower_ascii;
 
         // The chunked object-array walk (game thread only).
         scan::Cursor g_cursor{};
@@ -591,6 +622,17 @@ namespace markers
                 return;
             }
             g_found_gt.insert(id);
+            // Keep the interned found flags in step. One hash lookup for a find that
+            // has just happened, instead of a lookup per marker per round.
+            if (g_idx_db != nullptr)
+            {
+                const auto it = g_idx_db->by_id.find(id);
+                if (it != g_idx_db->by_id.end() && it->second >= 0 &&
+                    static_cast<std::size_t>(it->second) < g_found_static.size())
+                {
+                    g_found_static[static_cast<std::size_t>(it->second)] = 1;
+                }
+            }
             {
                 Guard guard(g_outbox_lock);
                 if (g_outbox.size() < 8192)
@@ -623,6 +665,9 @@ namespace markers
             {
                 g_found_gt.insert(std::move(id));
             }
+            // The whole set was replaced: rebuild the interned flags before the next
+            // publish rather than doing a lookup per id here.
+            g_found_index_dirty = true;
         }
 
         //==============================================================================
@@ -843,8 +888,76 @@ namespace markers
             return mapdata::detected_chapter();
         }
 
+        //==============================================================================
+        // The per-round index (game thread)
+        //==============================================================================
+
+        // Size every per-marker array to the database that is actually loaded. Called
+        // from publish_round when the pointer differs from the one the arrays describe,
+        // which happens once at start-up and once per F5 reload.
+        void rebuild_static_index(const StaticDb* db)
+        {
+            g_idx_db = db;
+            const std::size_t n = db != nullptr ? db->markers.size() : 0;
+            const std::size_t levels = db != nullptr ? db->levels.size() : 0;
+            g_found_static.assign(n, 0);
+            g_absent_streak_idx.assign(n, 0);
+            g_live_of_static.assign(n, nullptr);
+            g_level_known.assign(levels, 0);
+            g_level_round.assign(levels, 0);
+            g_chapter_subset.clear();
+            g_subset_valid = false;
+            g_found_index_dirty = true;
+        }
+
+        // Recompute the found flags from the authoritative string set. Only on a reload
+        // of wuchang_minimap_found.txt or a database swap - a single new find sets its
+        // own flag in note_found().
+        void refresh_found_index(const StaticDb* db)
+        {
+            g_found_index_dirty = false;
+            if (db == nullptr)
+            {
+                return;
+            }
+            std::fill(g_found_static.begin(), g_found_static.end(), static_cast<std::uint8_t>(0));
+            for (const std::string& id : g_found_gt)
+            {
+                const auto it = db->by_id.find(id);
+                if (it != db->by_id.end() && it->second >= 0 &&
+                    static_cast<std::size_t>(it->second) < g_found_static.size())
+                {
+                    g_found_static[static_cast<std::size_t>(it->second)] = 1;
+                }
+            }
+        }
+
+        // The chapter-filtered subrange. The static DB holds all six chapters in one
+        // flat set and only one of them is ever drawn, so the filter is applied ONCE per
+        // chapter change instead of once per marker per round.
+        void refresh_chapter_subset(const StaticDb* db, int filter_chapter)
+        {
+            g_subset_chapter = filter_chapter;
+            g_subset_valid = true;
+            g_chapter_subset.clear();
+            if (db == nullptr)
+            {
+                return;
+            }
+            g_chapter_subset.reserve(db->markers.size());
+            for (int i = 0; i < static_cast<int>(db->markers.size()); ++i)
+            {
+                if (mdb::marker_in_chapter(db->markers[static_cast<std::size_t>(i)].chapter, filter_chapter))
+                {
+                    g_chapter_subset.push_back(i);
+                }
+            }
+        }
+
         void publish_round()
         {
+            const std::uint64_t t0 = qpc_us();
+
             // Drop live actors that have not answered for two rounds: their level was
             // unloaded, or (for an enemy) they died. Absence is NEVER treated as
             // "collected" - only the state flags do that.
@@ -861,6 +974,8 @@ namespace markers
             }
 
             std::vector<DrawMarker>& dst = g_slot[g_slot_next];
+            // clear() keeps the capacity, so after the first round this allocates
+            // nothing at all.
             dst.clear();
 
             // The static DB holds ALL six chapters' markers in one flat set, and the
@@ -872,15 +987,49 @@ namespace markers
             const int filter_chapter = filter_chapter_now();
 
             const StaticDb* db = g_db.load(std::memory_order_acquire);
+            if (db != g_idx_db)
+            {
+                rebuild_static_index(db);
+            }
             if (db != nullptr)
             {
-                dst.reserve(db->markers.size() + g_live.size());
-                for (const mdb::StaticMarker& sm : db->markers)
+                if (g_found_index_dirty)
                 {
-                    if (!mdb::marker_in_chapter(sm.chapter, filter_chapter))
+                    refresh_found_index(db);
+                }
+                if (!g_subset_valid || g_subset_chapter != filter_chapter)
+                {
+                    refresh_chapter_subset(db, filter_chapter);
+                }
+
+                // The live twins, resolved the cheap way round: one hash lookup per LIVE
+                // actor (a few hundred) instead of one per STATIC marker (up to 3 601).
+                std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);
+                for (const auto& kv : g_live)
+                {
+                    const auto sit = db->by_id.find(kv.first);
+                    if (sit != db->by_id.end() && sit->second >= 0 &&
+                        static_cast<std::size_t>(sit->second) < g_live_of_static.size())
                     {
-                        continue;
+                        g_live_of_static[static_cast<std::size_t>(sit->second)] = &kv.second;
                     }
+                }
+
+                // The loaded-level state, resolved once per UNIQUE level name rather
+                // than once per marker (and with no lower_ascii() allocation per marker:
+                // the names were interned lower-cased at load).
+                for (std::size_t i = 0; i < g_level_known.size(); ++i)
+                {
+                    const auto lit = g_levels.find(db->levels[i]);
+                    g_level_known[i] = lit != g_levels.end() ? 1 : 0;
+                    g_level_round[i] = lit != g_levels.end() ? lit->second : 0;
+                }
+
+                dst.reserve(g_chapter_subset.size() + g_live.size());
+                for (const int mi : g_chapter_subset)
+                {
+                    const std::size_t idx = static_cast<std::size_t>(mi);
+                    const mdb::StaticMarker& sm = db->markers[idx];
                     DrawMarker d{};
                     d.x = sm.x;
                     d.y = sm.y;
@@ -888,21 +1037,21 @@ namespace markers
                     d.cat = static_cast<std::uint8_t>(sm.cat);
                     d.rarity = sm.rarity;
                     d.flags = kFlagStatic;
-                    if (g_found_gt.contains(sm.id))
+                    if (g_found_static[idx] != 0)
                     {
                         d.flags |= kFlagFound;
                     }
-                    const auto live = g_live.find(sm.id);
-                    if (live != g_live.end())
+                    const LiveEntry* live = g_live_of_static[idx];
+                    if (live != nullptr)
                     {
                         d.flags |= kFlagLive;
-                        if (live->second.pos_valid)
+                        if (live->pos_valid)
                         {
-                            d.x = live->second.x;
-                            d.y = live->second.y;
-                            d.z = live->second.z;
+                            d.x = live->x;
+                            d.y = live->y;
+                            d.z = live->z;
                         }
-                        if (live->second.found)
+                        if (live->found)
                         {
                             d.flags |= kFlagFound;
                         }
@@ -912,32 +1061,30 @@ namespace markers
                     //
                     // Everything the pure predicate needs is here: this round has just
                     // walked the whole object array, `live` is what it found for this
-                    // id, and g_levels says whether the marker's level is loaded and
-                    // for how long. See mdb::absence_marks() for the rule and the
+                    // id, and the level table says whether the marker's level is loaded
+                    // and for how long. See mdb::absence_marks() for the rule and the
                     // reason absence is normally NOT evidence.
                     mdb::AbsenceFacts facts{};
                     facts.feature_on = g_absence_on;
                     facts.cat_selected = mdb::cat_enabled(g_absence_cats, sm.cat);
                     facts.already_found = (d.flags & kFlagFound) != 0;
-                    if (!sm.level.empty())
+                    const int li = db->marker_level[idx];
+                    if (li >= 0 && g_level_known[static_cast<std::size_t>(li)] != 0)
                     {
-                        const auto lit = g_levels.find(lower_ascii(sm.level));
-                        if (lit != g_levels.end())
-                        {
-                            facts.level_known = true;
-                            facts.full_round_since_level_load = g_round > lit->second;
-                        }
+                        facts.level_known = true;
+                        facts.full_round_since_level_load =
+                            g_round > g_level_round[static_cast<std::size_t>(li)];
                     }
-                    facts.twin_alive = live != g_live.end() && live->second.round == g_round &&
-                                       live->second.pos_valid && !live->second.found;
+                    facts.twin_alive = live != nullptr && live->round == g_round && live->pos_valid &&
+                                       !live->found;
 
+                    int& streak = g_absent_streak_idx[idx];
                     if (!mdb::absence_round_confirms(facts))
                     {
-                        g_absent_streak.erase(sm.id);
+                        streak = 0;
                     }
                     else
                     {
-                        int& streak = g_absent_streak[sm.id];
                         if (streak < 1000000)
                         {
                             ++streak;
@@ -945,7 +1092,7 @@ namespace markers
                         if (mdb::absence_marks(facts, streak, g_absence_rounds))
                         {
                             d.flags |= kFlagFound;
-                            g_absent_streak.erase(sm.id);
+                            streak = 0;
                             g_absence_marks.fetch_add(1, std::memory_order_relaxed);
                             note_found(sm.id);
                         }
@@ -1009,6 +1156,20 @@ namespace markers
             g_live_count.store(static_cast<int>(g_live.size()), std::memory_order_relaxed);
             g_slot_published.store(g_slot_next, std::memory_order_release);
             g_slot_next = (g_slot_next + 1) % kSlots;
+
+            // What the publish cost. It was the one unsliced, unmeasured game-thread
+            // burst left; the F2 round line and the periodic log print all three
+            // numbers so a regression here is visible without a play session.
+            const double ms = static_cast<double>(qpc_us() - t0) / 1000.0;
+            g_publish_ms.store(ms, std::memory_order_relaxed);
+            g_publish_ms_sum += ms;
+            ++g_publish_count;
+            g_publish_ms_avg.store(g_publish_ms_sum / static_cast<double>(g_publish_count),
+                                   std::memory_order_relaxed);
+            if (ms > g_publish_ms_peak.load(std::memory_order_relaxed))
+            {
+                g_publish_ms_peak.store(ms, std::memory_order_relaxed);
+            }
         }
 
         //==============================================================================
@@ -1131,6 +1292,9 @@ namespace markers
             s.scan_slice_ms_peak = g_scan_slice_ms_peak.load(std::memory_order_relaxed);
             s.scan_slice_ms_max = g_scan_slice_ms_max.load(std::memory_order_relaxed);
             s.scan_round_ms = g_scan_round_ms.load(std::memory_order_relaxed);
+            s.publish_ms = g_publish_ms.load(std::memory_order_relaxed);
+            s.publish_ms_avg = g_publish_ms_avg.load(std::memory_order_relaxed);
+            s.publish_ms_peak = g_publish_ms_peak.load(std::memory_order_relaxed);
             s.scan_round_slices = g_scan_round_slices.load(std::memory_order_relaxed);
             s.scan_round_objects = g_scan_round_objects.load(std::memory_order_relaxed);
             s.scan_total = g_scan_total.load(std::memory_order_relaxed);
@@ -1229,6 +1393,12 @@ namespace markers
             {
                 mm::logf(L"markers: {} duplicate id(s) in the database - the first one wins", duplicates);
             }
+
+            // Intern the level names. The absence rule asks "is this marker's level
+            // loaded, and since when" for every marker of every round; interning turns
+            // that from a lower_ascii() allocation plus a string hash per marker into one
+            // hash per UNIQUE level per round and an array index per marker.
+            mdb::intern_levels(db->markers, db->levels, db->marker_level);
 
             if (files == 0)
             {
@@ -1432,6 +1602,27 @@ namespace markers
             save_found_file();
         }
 
+        // One periodic line so the round's cost is in the log as well as in F2 - an
+        // in-game session reports a log file, not a screenshot of the panel.
+        static std::uint64_t last_round_log = 0;
+        if (now - last_round_log >= 30000)
+        {
+            last_round_log = now;
+            if (g_rounds.load(std::memory_order_relaxed) != 0)
+            {
+                mm::logf(L"markers: round {} - scan {:.1f} ms over {} pump(s), publish {:.3f} ms "
+                         L"(avg {:.3f}, peak {:.3f}); {} published, {} live",
+                         g_rounds.load(std::memory_order_relaxed),
+                         g_scan_round_ms.load(std::memory_order_relaxed),
+                         g_scan_round_slices.load(std::memory_order_relaxed),
+                         g_publish_ms.load(std::memory_order_relaxed),
+                         g_publish_ms_avg.load(std::memory_order_relaxed),
+                         g_publish_ms_peak.load(std::memory_order_relaxed),
+                         g_published_count.load(std::memory_order_relaxed),
+                         g_live_count.load(std::memory_order_relaxed));
+            }
+        }
+
         // Cheap counters the panel shows; recomputing the whole per-chapter table is
         // only worth it when the found set changed, which is handled above.
         static std::uint64_t last_light = 0;
@@ -1449,6 +1640,9 @@ namespace markers
             g_stats.scan_slice_ms_peak = g_scan_slice_ms_peak.load(std::memory_order_relaxed);
             g_stats.scan_slice_ms_max = g_scan_slice_ms_max.load(std::memory_order_relaxed);
             g_stats.scan_round_ms = g_scan_round_ms.load(std::memory_order_relaxed);
+            g_stats.publish_ms = g_publish_ms.load(std::memory_order_relaxed);
+            g_stats.publish_ms_avg = g_publish_ms_avg.load(std::memory_order_relaxed);
+            g_stats.publish_ms_peak = g_publish_ms_peak.load(std::memory_order_relaxed);
             g_stats.scan_round_slices = g_scan_round_slices.load(std::memory_order_relaxed);
             g_stats.scan_round_objects = g_scan_round_objects.load(std::memory_order_relaxed);
             g_stats.scan_total = g_scan_total.load(std::memory_order_relaxed);
@@ -1490,7 +1684,10 @@ namespace markers
         // Both are keyed to the world that just went: a level name means nothing in the
         // next one, and a half-finished absence streak must not survive a load.
         g_levels.clear();
-        g_absent_streak.clear();
+        std::fill(g_absent_streak_idx.begin(), g_absent_streak_idx.end(), 0);
+        std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);
+        std::fill(g_level_known.begin(), g_level_known.end(), static_cast<std::uint8_t>(0));
+        g_subset_valid = false; // the chapter is re-detected in the next world
         g_levels_loaded.store(0, std::memory_order_relaxed);
         g_world = nullptr;
         g_next_class = 0;

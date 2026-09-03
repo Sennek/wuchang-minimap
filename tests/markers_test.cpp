@@ -472,6 +472,67 @@ namespace
         CHECK_STR(crlf[1], "digong02");
     }
 
+    //======================================================================================
+    // Level-name interning (mdb::lower_ascii / mdb::intern_levels)
+    //======================================================================================
+    //
+    // publish_round() indexes its per-round level state by these ids instead of hashing
+    // a lower-cased copy of every marker's level name every round. The join is
+    // case-insensitive because the marker DB and UObject::GetFullName() need not agree
+    // on case, so getting the folding wrong would silently disable the absence rule.
+
+    void test_intern_levels()
+    {
+        section("level-name interning");
+
+        CHECK_STR(mdb::lower_ascii("Chapter1_DGong_logic"), "chapter1_dgong_logic");
+        CHECK_STR(mdb::lower_ascii(""), "");
+        CHECK_STR(mdb::lower_ascii("A-Z0_9[]"), "a-z0_9[]"); // only A-Z is touched
+
+        std::vector<mdb::StaticMarker> markers(5);
+        markers[0].level = "Chapter1_DGong_logic";
+        markers[1].level = "chapter1_dgong_LOGIC"; // the same level, different case
+        markers[2].level = "";                     // no level at all
+        markers[3].level = "Chapter2_Temple_logic";
+        markers[4].level = "Chapter1_DGong_logic";
+
+        std::vector<std::string> levels;
+        std::vector<int> marker_level;
+        mdb::intern_levels(markers, levels, marker_level);
+
+        CHECK(levels.size() == 2);
+        CHECK_STR(levels[0], "chapter1_dgong_logic");
+        CHECK_STR(levels[1], "chapter2_temple_logic");
+        CHECK(marker_level.size() == markers.size());
+        CHECK(marker_level[0] == 0);
+        CHECK(marker_level[1] == 0); // case-folded onto the same id
+        CHECK(marker_level[2] == -1);
+        CHECK(marker_level[3] == 1);
+        CHECK(marker_level[4] == 0);
+
+        // Every id is a valid index into `levels` or -1, and it names the marker's own
+        // level - the invariant publish_round() indexes on.
+        for (std::size_t i = 0; i < markers.size(); ++i)
+        {
+            const int id = marker_level[i];
+            CHECK(id >= -1 && id < static_cast<int>(levels.size()));
+            if (id >= 0)
+            {
+                CHECK_STR(levels[static_cast<std::size_t>(id)], mdb::lower_ascii(markers[i].level));
+            }
+            else
+            {
+                CHECK(markers[i].level.empty());
+            }
+        }
+
+        // The outputs are overwritten, never appended to.
+        std::vector<mdb::StaticMarker> none;
+        mdb::intern_levels(none, levels, marker_level);
+        CHECK(levels.empty());
+        CHECK(marker_level.empty());
+    }
+
     void test_ids()
     {
         section("stable ids");
@@ -1917,6 +1978,7 @@ int main(int argc, char** argv)
     test_categories();
     test_found_file();
     test_ids();
+    test_intern_levels();
     test_mapview();
     test_scan_sched();
     test_sweep_sched();

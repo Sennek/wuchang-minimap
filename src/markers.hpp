@@ -106,6 +106,12 @@ namespace markers
         double scan_slice_ms_peak = 0.0; // worst slice of the last completed round
         double scan_slice_ms_max = 0.0;  // worst slice since the mod loaded
         double scan_round_ms = 0.0;      // summed slice time of the last completed round
+        // What publish_round() costs. It runs once per round on the game thread, is not
+        // sliced, and used to be invisible - these three are the guard against it
+        // growing back.
+        double publish_ms = 0.0;      // the most recent publish
+        double publish_ms_avg = 0.0;  // mean since the mod loaded
+        double publish_ms_peak = 0.0; // worst since the mod loaded
         int scan_round_slices = 0;       // slices the last completed round took
         int scan_round_objects = 0;      // object-array slots it visited
         int scan_total = 0;              // GUObjectArray size at the last slice

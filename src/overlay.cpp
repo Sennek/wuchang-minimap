@@ -3850,6 +3850,10 @@ namespace overlay
                             st.scan_total,
                             st.scan_chunk,
                             static_cast<unsigned long long>(st.rounds));
+                ImGui::Text("publish %.3f ms (avg %.3f, peak %.3f)",
+                            st.publish_ms,
+                            st.publish_ms_avg,
+                            st.publish_ms_peak);
                 ImGui::Text("drawn %d of %d (%d clamped, %d filtered)",
                             g_marker_draw.drawn,
                             g_marker_draw.total,

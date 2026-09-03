@@ -3081,6 +3081,17 @@ namespace overlay
             return g_stats_cache;
         }
 
+        // THE CATEGORIES THE COLLECTION PAGE COUNTS, and the order they are shown in.
+        // The map knows fourteen; only these six are things a player collects or ticks
+        // off, and the other eight were what made the matrix wider than a 1080p panel.
+        // Fixed, not derived from the DB, so a chapter with none of a category still
+        // gets its column and the layout does not move between chapters.
+        constexpr mdb::Cat kStatsCats[] = {
+            mdb::Cat::Shrine, mdb::Cat::Chest, mdb::Cat::Pickup,
+            mdb::Cat::Boss,   mdb::Cat::Npc,   mdb::Cat::Merchant,
+        };
+        constexpr int kStatsCatCount = static_cast<int>(std::size(kStatsCats));
+
         // Draws into whatever window is current. `compact` drops the per-chapter matrix
         // and keeps the summary, for the F2 panel where vertical space is scarce.
         void draw_collection_stats(std::uint64_t now, bool compact)
@@ -3167,16 +3178,22 @@ namespace overlay
                 ImGui::TableSetupColumn("Total");
                 ImGui::TableSetupColumn("%");
                 ImGui::TableHeadersRow();
-                for (int i = 0; i < mdb::kCatCount; ++i)
+                for (const mdb::Cat cat : kStatsCats)
                 {
-                    if (st.cat[i].total == 0)
-                    {
-                        continue; // a category with nothing in the DB is noise, not a zero
-                    }
+                    const int i = static_cast<int>(cat);
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
-                    ImGui::Text("%s", mdb::cat_label(static_cast<mdb::Cat>(i)));
+                    ImGui::Text("%s", mdb::cat_label(cat));
                     ImGui::TableNextColumn();
+                    if (st.cat[i].total == 0)
+                    {
+                        ImGui::TextDisabled("-");
+                        ImGui::TableNextColumn();
+                        ImGui::TextDisabled("-");
+                        ImGui::TableNextColumn();
+                        ImGui::TextDisabled("-");
+                        continue;
+                    }
                     ImGui::Text("%d", st.cat[i].found);
                     ImGui::TableNextColumn();
                     ImGui::Text("%d", st.cat[i].total);
@@ -3194,33 +3211,21 @@ namespace overlay
 
             // ---- per chapter x category ----------------------------------------------
             //
-            // Only the categories that exist anywhere in the DB get a column, so the
-            // matrix is as wide as the data and not as wide as the enum; it still scrolls
-            // horizontally, because 14 columns will not fit a 1080p panel.
-            int cols[mdb::kCatCount]{};
-            int ncols = 0;
-            for (int i = 0; i < mdb::kCatCount; ++i)
-            {
-                if (st.cat[i].total > 0)
-                {
-                    cols[ncols++] = i;
-                }
-            }
+            // The six collectable categories, always all six, and nothing else: with the
+            // full enum this was 15 columns and had to scroll sideways inside a 1080p
+            // panel, which made the numbers on the right unreachable in practice.
             ImGui::Spacing();
             ImGui::TextDisabled("per chapter");
-            if (ncols > 0 &&
-                ImGui::BeginTable("stats_matrix", ncols + 2,
+            if (ImGui::BeginTable("stats_matrix", kStatsCatCount + 1,
                                   ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
-                                      ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollX,
+                                      ImGuiTableFlags_BordersInnerV,
                                   ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 11.0f)))
             {
-                ImGui::TableSetupScrollFreeze(1, 1);
                 ImGui::TableSetupColumn("Chapter");
-                for (int i = 0; i < ncols; ++i)
+                for (const mdb::Cat cat : kStatsCats)
                 {
-                    ImGui::TableSetupColumn(mdb::cat_label(static_cast<mdb::Cat>(cols[i])));
+                    ImGui::TableSetupColumn(mdb::cat_label(cat));
                 }
-                ImGui::TableSetupColumn("all");
                 ImGui::TableHeadersRow();
 
                 const auto cell = [](const markers::CatStat& cs) {
@@ -3275,11 +3280,10 @@ namespace overlay
                     {
                         ImGui::TextUnformatted(label);
                     }
-                    for (int i = 0; i < ncols; ++i)
+                    for (const mdb::Cat cat : kStatsCats)
                     {
-                        cell(st.chapter[ch][cols[i]]);
+                        cell(st.chapter[ch][static_cast<int>(cat)]);
                     }
-                    cell(row);
                 }
                 ImGui::EndTable();
             }

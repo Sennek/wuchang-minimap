@@ -26,9 +26,14 @@ import os
 import re
 import sys
 
-DUMPS = (r"E:\Program Files (x86)\Steam\steamapps\common\Wuchang Fallen Feathers"
-         r"\Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangRecon\out"
-         r"\dump_*_world.txt")
+# Machine-specific: where WuchangRecon drops its dumps inside the game folder on the
+# original dev box. Override the whole glob with WUCHANG_RECON_DUMPS, or just the
+# install folder with WUCHANG_GAME_ROOT (or pass --dumps).
+_FALLBACK_GAME_ROOT = r"E:\Program Files (x86)\Steam\steamapps\common\Wuchang Fallen Feathers"
+DUMPS = os.environ.get("WUCHANG_RECON_DUMPS") or os.path.join(
+    os.environ.get("WUCHANG_GAME_ROOT", _FALLBACK_GAME_ROOT),
+    "Project_Plague", "Binaries", "Win64", "ue4ss", "Mods", "WuchangRecon", "out",
+    "dump_*_world.txt")
 
 LINE = re.compile(
     r"^\s{2}(\S+)\s+(\S+)\s+\|\s+loc\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*$")

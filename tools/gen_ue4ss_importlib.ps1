@@ -15,8 +15,12 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Ue4ssDll  = "F:\Tools\ue4ss\rel\ue4ss\UE4SS.dll",
-    [string]$VsPath    = "C:\Program Files\Microsoft Visual Studio\18\Insiders",
+    # Both defaults are machine-specific (the original dev box). Override with the
+    # parameters, or with the WUCHANG_UE4SS_DLL / WUCHANG_VS_PATH environment variables.
+    [string]$Ue4ssDll  = $(if ($env:WUCHANG_UE4SS_DLL) { $env:WUCHANG_UE4SS_DLL }
+                           else { "F:\Tools\ue4ss\rel\ue4ss\UE4SS.dll" }),
+    [string]$VsPath    = $(if ($env:WUCHANG_VS_PATH) { $env:WUCHANG_VS_PATH }
+                           else { "C:\Program Files\Microsoft Visual Studio\18\Insiders" }),
     [string]$Toolset   = "14.40"
 )
 

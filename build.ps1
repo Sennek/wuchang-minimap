@@ -13,6 +13,15 @@
 .PARAMETER Mode
     Game__Shipping__Win64 (default) or Game__Debug__Win64.
 
+.PARAMETER Ue4ssRoot
+    The RE-UE4SS checkout the headers come from. Machine-specific: the default is where
+    it lives on the original dev box. Override with -Ue4ssRoot or by setting the
+    WUCHANG_UE4SS_ROOT environment variable.
+
+.PARAMETER Xmake
+    xmake.exe. Machine-specific like the above; override with -Xmake or WUCHANG_XMAKE
+    (or just put xmake on PATH and pass -Xmake xmake.exe).
+
 .PARAMETER Rebuild
     Wipe intermediates first.
 #>
@@ -20,8 +29,8 @@
 param(
     [ValidateSet('Game__Shipping__Win64', 'Game__Debug__Win64')]
     [string]$Mode      = 'Game__Shipping__Win64',
-    [string]$Ue4ssRoot = 'F:/Tools/RE-UE4SS',
-    [string]$Xmake     = 'F:\Tools\xmake\xmake.exe',
+    [string]$Ue4ssRoot = $(if ($env:WUCHANG_UE4SS_ROOT) { $env:WUCHANG_UE4SS_ROOT } else { 'F:/Tools/RE-UE4SS' }),
+    [string]$Xmake     = $(if ($env:WUCHANG_XMAKE)      { $env:WUCHANG_XMAKE }      else { 'F:\Tools\xmake\xmake.exe' }),
     [string]$Toolset   = '14.40.33807',
     [int]   $Jobs      = 8,
     [switch]$Rebuild,
@@ -31,7 +40,12 @@ param(
 $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {
-    if (-not (Test-Path $Xmake)) { throw "xmake not found at '$Xmake'" }
+    if (-not (Test-Path $Xmake)) {
+        # Also accept a bare name that is on PATH, so -Xmake xmake.exe works.
+        $onPath = Get-Command $Xmake -ErrorAction SilentlyContinue
+        if (-not $onPath) { throw "xmake not found at '$Xmake' (set -Xmake or `$env:WUCHANG_XMAKE)" }
+        $Xmake = $onPath.Source
+    }
     if (-not (Test-Path (Join-Path $Ue4ssRoot 'UE4SS/include/Mod/CppUserModBase.hpp'))) {
         throw "'$Ue4ssRoot' does not look like an RE-UE4SS checkout (Mod/CppUserModBase.hpp missing)."
     }

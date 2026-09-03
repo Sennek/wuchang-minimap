@@ -22,7 +22,10 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$GameRoot = 'E:\Program Files (x86)\Steam\steamapps\common\Wuchang Fallen Feathers',
+    # Machine-specific default (the original dev box's Steam library). Override with
+    # -GameRoot or the WUCHANG_GAME_ROOT environment variable.
+    [string]$GameRoot = $(if ($env:WUCHANG_GAME_ROOT) { $env:WUCHANG_GAME_ROOT }
+                          else { 'E:\Program Files (x86)\Steam\steamapps\common\Wuchang Fallen Feathers' }),
     [switch]$Clean,
     [switch]$Pull
 )

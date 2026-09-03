@@ -20,9 +20,12 @@ sys.path.insert(0, os.path.join(_HERE, "..", "navmesh", "offline"))
 import pak as pakmod        # noqa: E402
 import uasset               # noqa: E402
 
-DEFAULT_PAK = (r"E:\Program Files (x86)\Steam\steamapps\common"
-               r"\Wuchang Fallen Feathers\Project_Plague\Content\Paks"
-               r"\Project_Plague-Windows.pak")
+# Machine-specific: the game's base pak on the original dev box. Point WUCHANG_PAK at
+# the .pak (or WUCHANG_GAME_ROOT at the install folder) to run this anywhere else.
+_FALLBACK_GAME_ROOT = r"E:\Program Files (x86)\Steam\steamapps\common\Wuchang Fallen Feathers"
+DEFAULT_PAK = os.environ.get("WUCHANG_PAK") or os.path.join(
+    os.environ.get("WUCHANG_GAME_ROOT", _FALLBACK_GAME_ROOT),
+    "Project_Plague", "Content", "Paks", "Project_Plague-Windows.pak")
 
 _PREFIX = "Project_Plague/"
 

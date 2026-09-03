@@ -14,7 +14,9 @@
     exactly what ends up in the game.
 
 .PARAMETER GameRoot
-    The game's install directory (the one containing Project_Plague).
+    The game's install directory (the one containing Project_Plague). Machine-specific:
+    the default is the Steam library on the original dev box. Override with -GameRoot or
+    by setting the WUCHANG_GAME_ROOT environment variable.
 
 .PARAMETER Force
     Overwrite even if the target dlls folder does not exist yet (it is created either
@@ -27,7 +29,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$GameRoot = 'E:\Program Files (x86)\Steam\steamapps\common\Wuchang Fallen Feathers',
+    [string]$GameRoot = $(if ($env:WUCHANG_GAME_ROOT) { $env:WUCHANG_GAME_ROOT }
+                          else { 'E:\Program Files (x86)\Steam\steamapps\common\Wuchang Fallen Feathers' }),
     [ValidateSet('Game__Shipping__Win64', 'Game__Debug__Win64')]
     [string]$Mode     = 'Game__Shipping__Win64',
     [switch]$NoPdb,

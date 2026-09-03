@@ -23,13 +23,18 @@ set_allowedarchs("x64")
 set_allowedmodes("Game__Shipping__Win64", "Game__Debug__Win64")
 set_defaultmode("Game__Shipping__Win64")
 
+-- Machine-specific: where the RE-UE4SS checkout lives. The default is the original dev
+-- box; set the WUCHANG_UE4SS_ROOT environment variable, or pass
+-- `--ue4ss_root=<path>` to `xmake f` (build.ps1 -Ue4ssRoot does this), to move it.
+local ue4ss_default = os.getenv("WUCHANG_UE4SS_ROOT") or "F:/Tools/RE-UE4SS"
+
 option("ue4ss_root")
-    set_default("F:/Tools/RE-UE4SS")
+    set_default(ue4ss_default)
     set_showmenu(true)
     set_description("Path to the RE-UE4SS checkout (pinned to the commit of the installed UE4SS.dll).")
 option_end()
 
-local ue4ss_root = get_config("ue4ss_root") or "F:/Tools/RE-UE4SS"
+local ue4ss_root = get_config("ue4ss_root") or ue4ss_default
 
 -- Every UE4SS header we need, in lookup order. sdk/shim MUST come first: it supplies a
 -- stand-in for <GUI/GUI.hpp> whose real version drags in the unavailable UEPseudo headers.

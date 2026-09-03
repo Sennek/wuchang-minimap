@@ -59,6 +59,26 @@ tools/navmesh/out_offline/*
 /deploy/**/maps/
 /deploy/**/markers/
 
-# The player's collection tracker. Written by the mod at runtime and specific to one
-# save - never committed, and deploy.ps1 never overwrites it either.
-wuchang_minimap_found.txt
+# Everything the MOD ITSELF writes at runtime, next to its own DLL. These appear in the
+# repo only when someone launches the game from the deploy\ mirror (or copies a mod
+# folder back), but when they do they must never be committed: the collection tracker
+# and the waypoint are one player's save state, the rest are diagnostics.
+#   wuchang_minimap_found*.txt      collection tracker (per save slot)
+#   wuchang_minimap_waypoint.txt    full-map waypoint
+#   wuchang_minimap.log*            the mod log (and its rotated copies)
+#   wuchang_minimap_firstrun.txt    first-run marker
+#   wuchang_minimap_hookaddr.txt    resolved hook addresses
+#   wuchang_minimap_last_stage.txt  crash breadcrumb: how far start-up got
+#   wuchang_minimap_watchdog.txt    stall watchdog report
+#   wuchang_minimap_recon_*.txt     in-game recon dumps
+wuchang_minimap*.txt
+wuchang_minimap.log
+wuchang_minimap.log.*
+
+# Packaging scratch: tools\package.ps1 -OutDir dist-test (a full 50 MB package tree).
+/dist-test/
+
+# Editor / merge leftovers
+*.bak
+*.orig
+*.rej

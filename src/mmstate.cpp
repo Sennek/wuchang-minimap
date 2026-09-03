@@ -1177,6 +1177,10 @@ namespace mm
     // the config being read - neither is reachable before that anyway.
     std::atomic<bool> g_mod_active{true};
 
+    // Bumped by every set_config; read by cfg_cached() on each thread. Starts at 1 so
+    // that a thread-local generation of 0 always means "never loaded".
+    std::atomic<std::uint32_t> g_cfg_gen{1};
+
     std::atomic<bool> g_panel_open{false};
     std::atomic<bool> g_map_open{false};
     std::atomic<bool> g_reload_config{false};
@@ -1231,8 +1235,31 @@ namespace mm
 
     void set_config(const Config& cfg)
     {
-        SpinGuard guard(g_cfg_lock);
-        g_cfg = cfg;
+        {
+            SpinGuard guard(g_cfg_lock);
+            g_cfg = cfg;
+        }
+        // Bump AFTER the store so a reader that sees the new generation is guaranteed to
+        // copy the new value. A reader that reads the generation first and then copies
+        // may pick up an even newer struct while recording the older generation - it
+        // simply refreshes once more on the next call, which is harmless.
+        g_cfg_gen.fetch_add(1, std::memory_order_release);
+    }
+
+    const Config& cfg_cached()
+    {
+        // Generation 0 is never published (g_cfg_gen starts at 1), so a thread that has
+        // never asked before always takes the slow path exactly once.
+        static thread_local Config tls_cfg{};
+        static thread_local std::uint32_t tls_gen = 0;
+
+        const std::uint32_t gen = g_cfg_gen.load(std::memory_order_acquire);
+        if (tls_gen != gen)
+        {
+            tls_cfg = config();
+            tls_gen = gen;
+        }
+        return tls_cfg;
     }
 
     std::wstring mod_dir()

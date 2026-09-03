@@ -836,7 +836,7 @@ namespace markers
         // `mapdata` already logs the switch itself.
         int filter_chapter_now()
         {
-            if (!mm::config().markers_filter_chapter)
+            if (!mm::cfg_cached().markers_filter_chapter)
             {
                 return chid::kNone;
             }
@@ -1425,7 +1425,7 @@ namespace markers
             }
         }
 
-        const mm::Config cfg = mm::config();
+        const mm::Config& cfg = mm::cfg_cached();
         if (g_found_dirty && cfg.found_tracker &&
             now - g_found_dirty_ms >= static_cast<std::uint64_t>(cfg.found_save_debounce_ms))
         {
@@ -1535,8 +1535,9 @@ namespace markers
         }
         s_gate_us = now_us;
 
-        // 2.
-        const mm::Config cfg = mm::config();
+        // 2. The generation-cached, per-thread copy: one relaxed atomic load unless
+        //    the config actually changed (see mm::cfg_cached).
+        const mm::Config& cfg = mm::cfg_cached();
         g_grace_rounds = static_cast<std::uint64_t>(cfg.markers_live_grace_rounds);
         g_absence_on = cfg.markers_absence_marks;
         g_absence_rounds = cfg.markers_absence_rounds;

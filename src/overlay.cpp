@@ -529,7 +529,7 @@ namespace overlay
             {
                 return; // flapping between two states we already reported
             }
-            if (now - g_reason_log_ms < static_cast<std::uint64_t>(mm::config().hide_reason_log_ms))
+            if (now - g_reason_log_ms < static_cast<std::uint64_t>(mm::cfg_cached().hide_reason_log_ms))
             {
                 ++g_reason_suppressed;
                 return;
@@ -4234,7 +4234,7 @@ namespace overlay
 
         void build_ui()
         {
-            const mm::Config cfg = mm::config();
+            const mm::Config& cfg = mm::cfg_cached();
             // The disc-drawing helpers take geometry, not the config, so the live
             // roundness is cached here once per frame (render thread only).
             g_circle_segments = cfg.minimap_circle_segments;
@@ -5011,7 +5011,7 @@ namespace overlay
         static std::uint64_t last_key = 0;
         static bool logged_first_present = false;
 
-        const mm::Config cfg = mm::config();
+        const mm::Config& cfg = mm::cfg_cached();
         const std::uint64_t now = ::GetTickCount64();
 
         const HWND fg = ::GetForegroundWindow();

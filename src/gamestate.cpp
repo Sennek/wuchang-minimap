@@ -171,7 +171,7 @@ namespace gamestate
                 return;
             }
             g_tune_ms = now;
-            const mm::Config cfg = mm::config();
+            const mm::Config& cfg = mm::cfg_cached();
             g_tune.position_ms = static_cast<std::uint64_t>(cfg.reader_position_period_ms);
             g_tune.resolve_ms = static_cast<std::uint64_t>(cfg.reader_resolve_period_ms);
             g_tune.widget_sweep_ms = static_cast<std::uint64_t>(cfg.reader_widget_sweep_period_ms);

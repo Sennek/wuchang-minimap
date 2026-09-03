@@ -468,6 +468,28 @@ namespace mm
     void set_config(const Config& cfg);
 
     //==================================================================================
+    // The generation-cached config (the ONLY form allowed on a hot path)
+    //==================================================================================
+    //
+    // `config()` takes a spinlock and copies ~1 KB of struct. The game thread used to do
+    // that 1 000 times a second, the loop thread once per UE4SS iteration and the render
+    // thread once per frame, all for a struct that changes when the user presses Save,
+    // F5, or once a second at most (the config-file mtime watcher).
+    //
+    // `cfg_cached()` instead keeps a per-THREAD copy and refreshes it only when
+    // `set_config` has bumped `g_cfg_gen`. Steady state is one relaxed atomic load and a
+    // reference return; a real change costs exactly one spinlocked copy per thread that
+    // asks. Every writer goes through `set_config`, so F5 and the 1 Hz mtime reload keep
+    // working unchanged.
+    //
+    // The reference is valid until the next `cfg_cached()` call ON THE SAME THREAD, and
+    // must never be handed to another thread. Cold paths (file I/O, panel Save, one-off
+    // setup) may keep using `config()`.
+    extern std::atomic<std::uint32_t> g_cfg_gen;
+
+    const Config& cfg_cached();
+
+    //==================================================================================
     // The master switch, as a lock-free flag
     //==================================================================================
     //

@@ -989,6 +989,23 @@ namespace overlay
                    msg == WM_CHAR || msg == WM_SETCURSOR;
         }
 
+        // RAW INPUT. UE reads the mouse through WM_INPUT, not only through WM_MOUSEMOVE,
+        // so swallowing the window messages alone still lets the camera turn under an
+        // open overlay. One RID_HEADER read says which device a message came from, which
+        // is what lets the panel take the mouse and leave the keyboard with the game.
+        bool is_raw_mouse_message(UINT msg, LPARAM lparam)
+        {
+            if (msg != WM_INPUT)
+            {
+                return false;
+            }
+            RAWINPUTHEADER hdr{};
+            UINT size = sizeof(hdr);
+            const UINT got = ::GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_HEADER, &hdr, &size,
+                                               sizeof(RAWINPUTHEADER));
+            return got == sizeof(RAWINPUTHEADER) && hdr.dwType == RIM_TYPEMOUSE;
+        }
+
         LRESULT CALLBACK hooked_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
             if (g_imgui_ready && ImGui::GetCurrentContext() != nullptr)
@@ -1009,15 +1026,23 @@ namespace overlay
                     // canvas deliberately reads raw keys rather than focusing a widget.
                     // The map's own toggle key is sampled with GetAsyncKeyState on the
                     // loop thread, so it still closes the map from here.
-                    if (is_mouse_message(msg) || is_keyboard_message(msg))
+                    if (is_mouse_message(msg) || is_keyboard_message(msg) || msg == WM_INPUT)
                     {
                         return 1;
                     }
                 }
-                if (mm::g_panel_open.load(std::memory_order_relaxed))
+                else if (mm::g_panel_open.load(std::memory_order_relaxed))
                 {
+                    // THE PANEL OWNS THE MOUSE, ALL OF IT. io.WantCaptureMouse is only
+                    // true over an ImGui window, so with it as the gate every drag that
+                    // started a pixel outside the panel turned the game camera while the
+                    // player was reading the settings. Raw mouse input is swallowed for
+                    // the same reason. The keyboard still goes to the game except while
+                    // ImGui wants it (a text field), so the panel key - sampled with
+                    // GetAsyncKeyState on the loop thread - always closes it again.
                     const ImGuiIO& io = ImGui::GetIO();
-                    if ((io.WantCaptureMouse && is_mouse_message(msg)) ||
+                    if (is_mouse_message(msg) || msg == WM_SETCURSOR ||
+                        is_raw_mouse_message(msg, lparam) ||
                         (io.WantCaptureKeyboard && is_keyboard_message(msg)))
                     {
                         return 1;
@@ -6941,9 +6966,15 @@ namespace overlay
             bool open = true;
             ImGui::SetNextWindowSize(ImVec2{520.0f * g_ui_scale, 620.0f * g_ui_scale},
                                      ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowPos(ImVec2{ImGui::GetMainViewport()->Pos.x + 60.0f,
-                                           ImGui::GetMainViewport()->Pos.y + 60.0f},
-                                    ImGuiCond_FirstUseEver);
+            // CENTRED, every time it opens. `Appearing` rather than `FirstUseEver` so a
+            // panel that was dragged to a corner and closed comes back in the middle of
+            // the screen; the pivot is the window's own centre, so its size does not
+            // change where it lands. Dragging it still works - the position is only
+            // written on the frame the window appears.
+            const ImGuiViewport* pvp = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(ImVec2{pvp->Pos.x + pvp->Size.x * 0.5f,
+                                           pvp->Pos.y + pvp->Size.y * 0.5f},
+                                    ImGuiCond_Appearing, ImVec2{0.5f, 0.5f});
             if (!ImGui::Begin("Wuchang Minimap  v" WUCHANG_MINIMAP_VERSION
                               "###wuchang_minimap_panel",
                               &open, ImGuiWindowFlags_NoCollapse))

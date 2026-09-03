@@ -2,6 +2,43 @@
 
 All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Fixed
+- **The DLC's items are no longer all called "Ancient Chisel".** Every one of the 77
+  named pickups in the DLC area claimed to be the same item, which made the loot labels
+  worse than useless there - the one thing they told you was wrong. It turns out the DLC
+  levels simply never had an item filled in: they all carry the very first row of the
+  game's item table, which is what an unconfigured pickup gets. Those markers now read
+  "Pickup", which is true.
+- **The seven DLC shrines are in the shrine list.** They were missing from it entirely, so
+  the full map's Shrines panel had no DLC section and the DLC's rest points never counted
+  towards "shrines lit". They are listed now, with their positions. The game ships no name
+  for them, so they read as their own rest-point id; two of them share one id because the
+  game itself gives them one, and lighting either really does light both.
+- **Chests, doors, lifts, ladders and pickups the mod used to walk straight past.** The
+  list of things it recognised was hand-written and had gaps, which is why some areas
+  showed no lifts at all. It is now read out of the game's own blueprint hierarchy, so
+  every kind of chest, door, lift, ladder and pickup in the game is picked up: 20 more
+  pickups, 5 more lifts and 27 markers overall, and nothing moved.
+- **Traps that look like items have their own filter row again.** `Hidden` and `Elite`
+  were in the legend and the filter list but nothing ever produced them. Item-shaped traps
+  are now `Hidden` (22 of them), and the game's tougher enemy variants - the ones it
+  itself files as "high" or "special" versions of an ordinary enemy - are now `Elite`
+  (55 of them) instead of hiding among the 1 700 plain enemies.
+
+### Changed
+- **Marker files now record which game build they came from.** Each one carries the game
+  executable's version and fingerprint, the fingerprints of the pak files it was read
+  from, and the exact version of the tool that read them - so after a game patch the mod
+  can tell you your marker data is from a different build instead of quietly pointing at
+  the wrong place.
+- **Enemies stay "Enemy", and that is the honest answer.** Wuchang has an English name for
+  every boss and every NPC and none at all for its ordinary enemies - no name in its text
+  files, none in its AI table, none in the enemy blueprints. Eight enemy types that ARE
+  named characters' variants now show their real names; the rest keep the generic label
+  rather than a made-up one.
+
 ## 1.0.0 - 2026-09-03
 
 **The first public release.** Everything below is the work between the last internal

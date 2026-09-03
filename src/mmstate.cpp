@@ -1289,6 +1289,14 @@ namespace mm
             {
                 cfg.compass_max_pips = parse_int(value, cfg.compass_max_pips);
             }
+            else if (key == "compass_pip_labels")
+            {
+                cfg.compass_pip_labels = parse_bool(value, cfg.compass_pip_labels);
+            }
+            else if (key == "compass_pip_height_uu")
+            {
+                cfg.compass_pip_height_uu = parse_float(value, cfg.compass_pip_height_uu);
+            }
             else
             {
                 return false;
@@ -1863,6 +1871,8 @@ namespace mm
             cfg.highlight_pov_bad_reads = (std::max)(1, (std::min)(64, cfg.highlight_pov_bad_reads));
             cfg.compass_tick_step_deg = (std::max)(1.0f, (std::min)(90.0f, cfg.compass_tick_step_deg));
             cfg.compass_max_pips = (std::max)(0, (std::min)(256, cfg.compass_max_pips));
+            cfg.compass_pip_height_uu =
+                (std::max)(0.0f, (std::min)(10000.0f, cfg.compass_pip_height_uu));
         }
     } // namespace
 
@@ -2019,6 +2029,7 @@ namespace mm
         add("compass_span_deg", f0(cfg.compass_span_deg));
         add("compass_opacity", f2(cfg.compass_opacity));
         add("compass_categories", mdb::format_category_mask(cfg.compass_categories));
+        add("compass_pip_labels", b(cfg.compass_pip_labels));
         add("panel_key", vk(cfg.panel_key));
         add("map_key", vk(cfg.map_key));
         add("map_recenter_key", vk(cfg.map_recenter_key));
@@ -2082,6 +2093,7 @@ namespace mm
         add("compass_show_waypoint", b(cfg.compass_show_waypoint));
         add("compass_tick_step_deg", f0(cfg.compass_tick_step_deg));
         add("compass_max_pips", std::to_string(cfg.compass_max_pips));
+        add("compass_pip_height_uu", f0(cfg.compass_pip_height_uu));
         add("crash_breadcrumb", b(cfg.crash_breadcrumb));
         add("fast_travel_enabled", b(cfg.fast_travel_enabled));
 

@@ -280,6 +280,9 @@ compass_opacity = 0.90
 ; Which markers get a bearing pip, and how far away they may be (uu).
 compass_categories = shrine,boss,elite,fog_gate
 
+; Write the distance in metres under each pip.
+compass_pip_labels = 1
+
 ; Show the shrine list on the full map: every shrine of the chapter with its in-game
 ; name, chapter and distance. Click a row to set a waypoint on it, double-click to
 ; centre the map there. Travelling to one needs fast_travel_enabled (ADVANCED).
@@ -542,6 +545,10 @@ compass_tick_step_deg = 15
 
 ; Hard cap on marker pips, nearest first.
 compass_max_pips = 32
+
+; A pip gets an up / down arrow once the marker is this far off the player's own
+; height, in uu (1 uu = 1 cm, so 300 = 3 m). 0 turns the arrows off.
+compass_pip_height_uu = 300
 
 ; ---------------------------------------------------------------------------------
 ; DIAGNOSTICS AND FAST TRAVEL

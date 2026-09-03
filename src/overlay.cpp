@@ -4481,6 +4481,7 @@ namespace overlay
                 {
                     float d2 = 0.0f; // squared: only ever compared and sorted on
                     double x = 0.0;  // where on the strip it lands, in screen px
+                    float dz = 0.0f; // marker Z minus player Z, uu (signed)
                     std::uint8_t cat = 0;
                     std::uint8_t rarity = 0;
                     bool found = false;
@@ -4514,6 +4515,7 @@ namespace overlay
                     Pip p{};
                     p.d2 = fc.d2_xy;
                     p.x = px;
+                    p.dz = static_cast<float>(m.z - snap.z);
                     p.cat = fc.cat;
                     p.rarity = fc.rarity;
                     p.found = fc.found;
@@ -4568,9 +4570,66 @@ namespace overlay
                     const ImU32 col = marker_color_q(static_cast<mdb::Cat>(p.cat), p.rarity, a,
                                                      cfg.markers_rarity_tint, cfg.xray_rarity_colors);
                     const ImVec2 at{static_cast<float>(p.x), y1 - height * 0.30f};
-                    draw_marker_glyph(dl, static_cast<mdb::Cat>(p.cat), at, height * 0.22f, col,
+                    const float gr = height * 0.22f;
+                    draw_marker_glyph(dl, static_cast<mdb::Cat>(p.cat), at, gr, col,
                                       IM_COL32(10, 12, 16, a), p.found);
+                    // ABOVE / BELOW. A bearing alone sends the player at a wall when the
+                    // chest is on the floor over their head, so a marker further than
+                    // compass_pip_height_uu off the player's own Z gets an arrow beside
+                    // its glyph. Within that band it is treated as "this floor" and
+                    // nothing is drawn - an arrow on every pip would say nothing.
+                    const float thr = cfg.compass_pip_height_uu;
+                    if (thr > 0.0f && (p.dz > thr || p.dz < -thr))
+                    {
+                        const float ar = (std::max)(2.5f, height * 0.15f);
+                        const float ax = at.x + gr + ar * 0.9f;
+                        const float up = p.dz > 0.0f ? -1.0f : 1.0f;
+                        const ImU32 acol = IM_COL32(246, 246, 250, a);
+                        dl->AddTriangleFilled(ImVec2{ax, at.y + up * ar},
+                                              ImVec2{ax - ar * 0.8f, at.y - up * ar * 0.55f},
+                                              ImVec2{ax + ar * 0.8f, at.y - up * ar * 0.55f}, acol);
+                    }
                     ++g_compass_debug.pips;
+                }
+
+                // THE DISTANCE LABELS, nearest first so a crowded strip keeps the ones
+                // that matter. They sit OUTSIDE the strip (below it, or above it when
+                // the strip is anchored to the bottom edge), where they cannot collide
+                // with the ticks and the cardinal letters, and each one reserves its own
+                // x range so two labels never overlap.
+                if (cfg.compass_pip_labels && !pips.empty())
+                {
+                    const bool at_bottom = compass_at_bottom(cfg);
+                    const float text_h = ImGui::GetTextLineHeight();
+                    const float label_y = at_bottom ? y0 - text_h - 1.0f : y1 + 1.0f;
+                    static std::vector<std::pair<float, float>> taken; // render thread only
+                    taken.clear();
+                    for (const Pip& p : pips)
+                    {
+                        char text[16]{};
+                        ::_snprintf_s(text, sizeof(text), _TRUNCATE, "%.0fm",
+                                      static_cast<double>(std::sqrt(p.d2)) / 100.0);
+                        const float tw = ImGui::CalcTextSize(text).x;
+                        const float lx = static_cast<float>(p.x) - tw * 0.5f;
+                        const float rx = lx + tw;
+                        bool crowded = false;
+                        for (const std::pair<float, float>& r : taken)
+                        {
+                            if (lx < r.second + 2.0f && r.first < rx + 2.0f)
+                            {
+                                crowded = true;
+                                break;
+                            }
+                        }
+                        if (crowded)
+                        {
+                            continue;
+                        }
+                        taken.emplace_back(lx, rx);
+                        const int la = p.found ? alpha(0.45f) : alpha(0.9f);
+                        dl->AddText(ImVec2{lx + 1.0f, label_y + 1.0f}, IM_COL32(0, 0, 0, la), text);
+                        dl->AddText(ImVec2{lx, label_y}, IM_COL32(226, 230, 236, la), text);
+                    }
                 }
             }
 
@@ -6411,6 +6470,7 @@ namespace overlay
             ImGui::SliderFloat("Distance from that edge (px)", &cfg.compass_offset_y, 0.0f, 400.0f, "%.0f");
             ImGui::SliderFloat("Degrees across the strip", &cfg.compass_span_deg, 30.0f, 360.0f, "%.0f");
             ImGui::SliderFloat("Compass opacity", &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");
+            ImGui::Checkbox("Distance in metres under each pip", &cfg.compass_pip_labels);
             category_filter("Compass", "compass_categories", cfg.compass_categories, 3000, wrap);
 
             //--------------------------------------------------------------------------
@@ -6602,6 +6662,10 @@ namespace overlay
                                    60000.0f, "%.0f");
                 ImGui::SliderFloat("Minor tick spacing (deg)", &cfg.compass_tick_step_deg, 1.0f, 90.0f, "%.0f");
                 ImGui::SliderInt("Max bearing pips", &cfg.compass_max_pips, 0, 256);
+                ImGui::SliderFloat("Above / below arrow from (uu)", &cfg.compass_pip_height_uu, 0.0f,
+                                   3000.0f, "%.0f");
+                ImGui::SameLine();
+                ImGui::TextDisabled("= %.1f m", static_cast<double>(cfg.compass_pip_height_uu) / 100.0);
             }
         }
 

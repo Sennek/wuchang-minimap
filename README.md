@@ -766,6 +766,8 @@ Two keys were added in 0.9.2, both Player:
 | `highlight_pov_scan_bytes`, `highlight_pov_bad_reads` | 192, 8 | how far into `CameraCachePrivate` the POV block is looked for, and how many insane reads drop the pin |
 | `compass_tick_step_deg` | 15 | minor-tick spacing (45 = labelled, 90 = a cardinal letter) |
 | `compass_max_pips` | 32 | cap on marker pips, nearest first |
+| `compass_pip_labels` | `1` | write the distance in metres under each pip |
+| `compass_pip_height_uu` | 300 | a pip gets an up / down arrow once the marker is this far off the player's Z; 0 = no arrows |
 
 The full map block:
 
@@ -945,6 +947,12 @@ bearing pips for nearby markers of `compass_categories` plus the waypoint (which
 edge with an arrow rather than being culled - being told which way to walk while it is off the strip is
 the point). `compass_span_deg` decides how much of the world the strip covers; 360 turns it into a full
 ring.
+
+Each pip carries the **horizontal distance in metres** just outside the strip (below it, or above it on a
+bottom-anchored strip), nearest first, with each label reserving its own x range so two never overlap -
+turn them off with `compass_pip_labels = 0`. A marker more than `compass_pip_height_uu` (300 uu = 3 m)
+off the player's own height also gets an up or down arrow beside its glyph, so a bearing cannot send you
+at a wall when the chest is on the floor above.
 
 The heading is the **camera's** yaw when a pose is fresh and the pawn's yaw otherwise, so the compass
 works with `highlight_enabled = 0` and during the camera reader's warm-up; the F2 panel says which one

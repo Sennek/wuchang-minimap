@@ -471,6 +471,14 @@ namespace mm
         // marker pips it draws, nearest first.
         float compass_tick_step_deg = 15.0f;
         int compass_max_pips = 32;
+        // A pip on its own says "there is a chest that way"; the two keys below make it
+        // say "there is a chest 42 m that way, one floor up". The label is the
+        // horizontal distance in metres under (or over, on a bottom-anchored strip) the
+        // glyph, and the arrow appears only once the height difference is worth walking
+        // to - within compass_pip_height_uu the marker is treated as being on this
+        // floor and no arrow is drawn.
+        bool compass_pip_labels = true;
+        float compass_pip_height_uu = 300.0f; // 3 m
 
         //==============================================================================
         // Minimap look

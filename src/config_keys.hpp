@@ -124,6 +124,7 @@ namespace cfgkeys
         {"compass_span_deg", Tier::Player},
         {"compass_opacity", Tier::Player},
         {"compass_categories", Tier::Player},
+        {"compass_pip_labels", Tier::Player},
         {"panel_key", Tier::Player},
         {"map_key", Tier::Player},
         {"map_recenter_key", Tier::Player},
@@ -190,6 +191,7 @@ namespace cfgkeys
         {"compass_show_waypoint", Tier::Advanced},
         {"compass_tick_step_deg", Tier::Advanced},
         {"compass_max_pips", Tier::Advanced},
+        {"compass_pip_height_uu", Tier::Advanced},
         {"crash_breadcrumb", Tier::Advanced},
         {"fast_travel_enabled", Tier::Advanced},
 

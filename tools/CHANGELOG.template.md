@@ -2,6 +2,26 @@
 
 All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Fixed
+- Switching to fullscreen (or back) no longer kills the minimap for the rest of
+  the session - the overlay now grows with the extra frame buffer the game asks for
+  instead of drawing into nothing.
+- If your driver resets or crashes and recovers, the minimap comes back on its own a
+  frame later. Before, it stayed gone until you restarted the game.
+- ALT+F4 works with the map open. It used to be swallowed, so the game never closed -
+  and the next launch told you the previous session had crashed. ALT+ENTER
+  (fullscreen) is let through the same way.
+- Copying the map to the clipboard no longer causes a stutter when it happens at the
+  same moment as a resolution change.
+- The mod can no longer take the game down with it: an internal error inside the
+  overlay's own frame now switches the overlay off and writes one log line, instead
+  of crashing inside the graphics driver where nothing in the report points at this
+  mod.
+- If another overlay (ReShade, the Steam overlay) attaches to the game window after
+  us, turning the minimap off no longer uninstalls theirs.
+
 ## 1.0.0 - 2026-09-03
 
 **The first public release.** Everything below is the work between the last internal

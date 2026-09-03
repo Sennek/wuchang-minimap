@@ -1,5 +1,5 @@
 {
- "schema": "wuchang-minimap-maps/3",
+ "schema": "wuchang-minimap-maps/4",
  "chapters": {
   "chapter1": {
    "image": "chapter1/small.png",
@@ -16,12 +16,12 @@
    "agent": "Small",
    "tile_count": 10037,
    "poly_count": 152447,
-   "png_bytes": 2714196,
+   "png_bytes": 1578863,
    "z_min": -11649.0,
    "z_max": 38871.0,
-   "z_step_uu": 0.770897549363689,
+   "z_step_uu": 12.340009770395701,
    "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 65534) ; 0 = no surface",
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 1,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -64,25 +64,15 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
-   "height_maps": [
-    "chapter1/small_z0.png",
-    "chapter1/small_z1.png",
-    "chapter1/small_z2.png",
-    "chapter1/small_z3.png",
-    "chapter1/small_z4.png",
-    "chapter1/small_z5.png",
-    "chapter1/small_z6.png",
-    "chapter1/small_z7.png"
-   ],
    "height_map_bytes": [
-    3975107,
-    2236122,
-    1162779,
-    594659,
-    304105,
-    160882,
-    90812,
-    59020
+    2257022,
+    1423300,
+    796689,
+    431893,
+    232640,
+    129664,
+    78060,
+    54243
    ],
    "height_map_raw_bytes": 342965616,
    "surface_hist": [
@@ -95,7 +85,31 @@
     48228,
     17921,
     10741
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 649,
+    "palette_colours": 256,
+    "max_channel_delta": 3,
+    "mean_channel_delta": 0.1849
+   },
+   "z_bits": 12,
+   "z_code_max": 4095,
+   "height_planes": [
+    "chapter1/small_h0.png",
+    "chapter1/small_h1.png",
+    "chapter1/small_h2.png",
+    "chapter1/small_h3.png",
+    "chapter1/small_h4.png",
+    "chapter1/small_h5.png",
+    "chapter1/small_h6.png",
+    "chapter1/small_h7.png"
+   ],
+   "height_tile_px": 128,
+   "height_tiles_128": 2766,
+   "height_tiles_128_total": 10608,
+   "height_tile_ram_bytes": 90636288,
+   "z_requantise_worst_uu": 6.17
   },
   "chapter2": {
    "image": "chapter2/small.png",
@@ -112,12 +126,12 @@
    "agent": "Small",
    "tile_count": 9140,
    "poly_count": 130591,
-   "png_bytes": 2352354,
+   "png_bytes": 1297346,
    "z_min": -11209.0,
    "z_max": 38871.0,
-   "z_step_uu": 0.7641834772789697,
+   "z_step_uu": 12.232535417684415,
    "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 65534) ; 0 = no surface",
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 2,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -160,25 +174,15 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
-   "height_maps": [
-    "chapter2/small_z0.png",
-    "chapter2/small_z1.png",
-    "chapter2/small_z2.png",
-    "chapter2/small_z3.png",
-    "chapter2/small_z4.png",
-    "chapter2/small_z5.png",
-    "chapter2/small_z6.png",
-    "chapter2/small_z7.png"
-   ],
    "height_map_bytes": [
-    3316426,
-    1683557,
-    738873,
-    340695,
-    179307,
-    104060,
-    66552,
-    49645
+    1980476,
+    1136817,
+    542415,
+    268293,
+    147188,
+    90549,
+    61612,
+    48307
    ],
    "height_map_raw_bytes": 355828368,
    "surface_hist": [
@@ -191,7 +195,31 @@
     31859,
     11178,
     3459
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 649,
+    "palette_colours": 256,
+    "max_channel_delta": 3,
+    "mean_channel_delta": 0.2047
+   },
+   "z_bits": 12,
+   "z_code_max": 4095,
+   "height_planes": [
+    "chapter2/small_h0.png",
+    "chapter2/small_h1.png",
+    "chapter2/small_h2.png",
+    "chapter2/small_h3.png",
+    "chapter2/small_h4.png",
+    "chapter2/small_h5.png",
+    "chapter2/small_h6.png",
+    "chapter2/small_h7.png"
+   ],
+   "height_tile_px": 128,
+   "height_tiles_128": 2215,
+   "height_tiles_128_total": 11248,
+   "height_tile_ram_bytes": 72581120,
+   "z_requantise_worst_uu": 6.116
   },
   "chapter3": {
    "image": "chapter3/small.png",
@@ -208,12 +236,12 @@
    "agent": "Small",
    "tile_count": 11653,
    "poly_count": 152693,
-   "png_bytes": 2524328,
+   "png_bytes": 1417234,
    "z_min": -12054.117918570008,
    "z_max": 38871.0,
-   "z_step_uu": 0.7770793468820766,
+   "z_step_uu": 12.438963829645825,
    "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 65534) ; 0 = no surface",
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 3,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -256,25 +284,15 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
-   "height_maps": [
-    "chapter3/small_z0.png",
-    "chapter3/small_z1.png",
-    "chapter3/small_z2.png",
-    "chapter3/small_z3.png",
-    "chapter3/small_z4.png",
-    "chapter3/small_z5.png",
-    "chapter3/small_z6.png",
-    "chapter3/small_z7.png"
-   ],
    "height_map_bytes": [
-    3424039,
-    1781405,
-    777769,
-    352189,
-    173552,
-    107260,
-    72481,
-    55904
+    2009214,
+    1171367,
+    551008,
+    265684,
+    139146,
+    89279,
+    63668,
+    51406
    ],
    "height_map_raw_bytes": 355888320,
    "surface_hist": [
@@ -287,7 +305,31 @@
     28136,
     13489,
     7612
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 651,
+    "palette_colours": 256,
+    "max_channel_delta": 2,
+    "mean_channel_delta": 0.1935
+   },
+   "z_bits": 12,
+   "z_code_max": 4095,
+   "height_planes": [
+    "chapter3/small_h0.png",
+    "chapter3/small_h1.png",
+    "chapter3/small_h2.png",
+    "chapter3/small_h3.png",
+    "chapter3/small_h4.png",
+    "chapter3/small_h5.png",
+    "chapter3/small_h6.png",
+    "chapter3/small_h7.png"
+   ],
+   "height_tile_px": 128,
+   "height_tiles_128": 2366,
+   "height_tiles_128_total": 11040,
+   "height_tile_ram_bytes": 77529088,
+   "z_requantise_worst_uu": 6.219
   },
   "chapter4": {
    "image": "chapter4/small.png",
@@ -304,12 +346,12 @@
    "agent": "Small",
    "tile_count": 6697,
    "poly_count": 94722,
-   "png_bytes": 1856029,
+   "png_bytes": 1049479,
    "z_min": -8809.0,
    "z_max": 20911.0,
-   "z_step_uu": 0.45350505081331827,
+   "z_step_uu": 7.259404005862238,
    "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 65534) ; 0 = no surface",
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 4,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -352,25 +394,15 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
-   "height_maps": [
-    "chapter4/small_z0.png",
-    "chapter4/small_z1.png",
-    "chapter4/small_z2.png",
-    "chapter4/small_z3.png",
-    "chapter4/small_z4.png",
-    "chapter4/small_z5.png",
-    "chapter4/small_z6.png",
-    "chapter4/small_z7.png"
-   ],
    "height_map_bytes": [
-    2850767,
-    1101167,
-    498953,
-    221203,
-    100089,
-    55865,
-    44711,
-    43442
+    1716530,
+    758335,
+    361987,
+    173018,
+    85865,
+    52804,
+    44394,
+    43405
    ],
    "height_map_raw_bytes": 355869088,
    "surface_hist": [
@@ -383,7 +415,31 @@
     5643,
     391,
     67
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 644,
+    "palette_colours": 256,
+    "max_channel_delta": 3,
+    "mean_channel_delta": 0.189
+   },
+   "z_bits": 12,
+   "z_code_max": 4095,
+   "height_planes": [
+    "chapter4/small_h0.png",
+    "chapter4/small_h1.png",
+    "chapter4/small_h2.png",
+    "chapter4/small_h3.png",
+    "chapter4/small_h4.png",
+    "chapter4/small_h5.png",
+    "chapter4/small_h6.png",
+    "chapter4/small_h7.png"
+   ],
+   "height_tile_px": 128,
+   "height_tiles_128": 1644,
+   "height_tiles_128_total": 11232,
+   "height_tile_ram_bytes": 53870592,
+   "z_requantise_worst_uu": 3.63
   },
   "chapter5": {
    "image": "chapter5/small.png",
@@ -400,12 +456,12 @@
    "agent": "Small",
    "tile_count": 12986,
    "poly_count": 152963,
-   "png_bytes": 1581948,
+   "png_bytes": 828992,
    "z_min": -2521.65241364577,
    "z_max": 13752.367487815143,
-   "z_step_uu": 0.2483294152876509,
+   "z_step_uu": 3.9750903520910876,
    "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 65534) ; 0 = no surface",
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 5,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -448,25 +504,15 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
-   "height_maps": [
-    "chapter5/small_z0.png",
-    "chapter5/small_z1.png",
-    "chapter5/small_z2.png",
-    "chapter5/small_z3.png",
-    "chapter5/small_z4.png",
-    "chapter5/small_z5.png",
-    "chapter5/small_z6.png",
-    "chapter5/small_z7.png"
-   ],
    "height_map_bytes": [
-    2208028,
-    1367482,
-    744978,
-    429291,
-    256786,
-    161773,
-    110143,
-    72420
+    1475244,
+    1016712,
+    592381,
+    355761,
+    220357,
+    143641,
+    99563,
+    67400
    ],
    "height_map_raw_bytes": 355822688,
    "surface_hist": [
@@ -479,7 +525,31 @@
     25712,
     13368,
     14119
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 651,
+    "palette_colours": 256,
+    "max_channel_delta": 2,
+    "mean_channel_delta": 0.1996
+   },
+   "z_bits": 12,
+   "z_code_max": 4095,
+   "height_planes": [
+    "chapter5/small_h0.png",
+    "chapter5/small_h1.png",
+    "chapter5/small_h2.png",
+    "chapter5/small_h3.png",
+    "chapter5/small_h4.png",
+    "chapter5/small_h5.png",
+    "chapter5/small_h6.png",
+    "chapter5/small_h7.png"
+   ],
+   "height_tile_px": 128,
+   "height_tiles_128": 1515,
+   "height_tiles_128_total": 11136,
+   "height_tile_ram_bytes": 49643520,
+   "z_requantise_worst_uu": 1.987
   }
  }
 }

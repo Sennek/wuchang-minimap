@@ -310,8 +310,8 @@ if any of them turn up in the tree.
 **Smoke check**, run before the zip is created, because the alternative is a player
 discovering a missing PNG:
 
-* `maps.json` parses, is schema `wuchang-minimap-maps/3`, and lists five chapters;
-* every `image` and every `height_maps` entry it names exists and is non-empty — this is
+* `maps.json` parses, is schema `wuchang-minimap-maps/4`, and lists five chapters;
+* every `image` and every `height_planes` entry it names exists and is non-empty — this is
   literally the list `mapdata.cpp` walks at start-up (45 PNG at 0.9.0), and a PNG in
   `maps\` that the manifest does *not* name is warned about as dead download weight;
 * the five chapter marker manifests are present and are schema `wuchang-minimap-markers/1`;
@@ -357,7 +357,9 @@ src/dllmain.cpp            RC::CppUserModBase subclass, start_mod/uninstall_mod
 src/overlay.{hpp,cpp}      DX12 hooks + ImGui + the minimap, the full map and the F2 panel
 src/gamestate.{hpp,cpp}    game-thread reader (pawn, view target, widgets)
 src/mmstate.{hpp,cpp}      snapshot seqlock, config file, cross-thread log queue
-src/mapdata.{hpp,cpp}      maps.json parser + WIC PNG decode
+src/mapdata.{hpp,cpp}      chapter residency + the sparse height-plane store
+src/mapmanifest.hpp        maps.json parser (pure; tested offline)
+src/pngdecode.hpp          the WIC PNG decode, shared with markers_test
 src/markers_db.{hpp,cpp}   PURE marker model: markers/<chapter>.json, category masks,
                            the found-file round-trip. No Windows, no UE4SS - which is
                            what lets tests/markers_test.cpp link it
@@ -408,7 +410,9 @@ tools/package.ps1          the RELEASE packager: build + assemble + smoke check 
 tools/INSTALL_GUIDE.html   the player-facing guide; @@VERSION@@ / @@DATE@@ are substituted
 tools/CHANGELOG.template.md the changelog stub dropped at the package root
 tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
-tools/navmesh/build_map.py tile JSON -> composite + multi-surface height maps + maps/maps.json
+tools/navmesh/build_map.py tile JSON -> composite + multi-surface height planes + maps/maps.json
+tools/navmesh/mapfmt.py    the ON-DISK format: schema, palette PNG, 12-bit height codes
+tools/navmesh/repack_maps.py re-encode a shipped maps/ tree (no dumps needed)
 tools/navmesh/slice_preview.py the runtime's height-slicing rule, offline, for any (x, y, z)
 maps/                      the shipped map assets (deployed into the mod folder)
 markers/                   the static marker database (deployed into the mod folder);
@@ -643,17 +647,23 @@ python build_map.py --input dumps_offline --chapter chapter1 --out ..\..\maps
 ```
 
 `build_map.py` imports `render.py`, so the loader, the richest-copy dedupe and the flat-plane filter are
-shared. It writes three things (schema `wuchang-minimap-maps/3`):
+shared, and `mapfmt.py`, which owns the ON-DISK format (the schema string, the palette encoder, the
+height quantisation) so that a fresh build and a re-encode cannot disagree. It writes three things
+(schema `wuchang-minimap-maps/4`):
 
-1. **`chapter1/small.png`** - the Z-shaded RGBA composite of every storey, transparent background.
-   Chapter 1 at 0.06 px/uu is 4947 x 4333 px, 3.2 MB PNG, 82 MB as RGBA8. It is only the *fallback* for
-   a chapter with no height maps, and is not loaded unless `fallback_use_composite = 1`.
-2. **`chapter1/small_z0.png` .. `_z7.png`** - the **multi-surface height map**: eight 16-bit grayscale
+1. **`chapter1/small.png`** - the Z-shaded composite of every storey, transparent background, as a
+   **256-colour palette PNG** with a tRNS array. The render is flat-filled from a five-stop grey ramp
+   with a darkened outline per polygon, so the whole picture only ever uses 643..651 distinct RGBA
+   values and its alpha is binary (0 background, 235 fill): quantising to 255 colours + transparent
+   costs at most 3/255 on one channel (0.19/255 mean) and saves 44 % of the bytes. Chapter 1 at
+   0.06 px/uu is 4947 x 4333 px, **1.5 MB PNG**, 82 MB as RGBA8 in VRAM. It is only the *fallback* for
+   a chapter with no height planes, and is not loaded unless `fallback_use_composite = 1`.
+2. **`chapter1/small_h0.png` .. `_h7.png`** - the **multi-surface height map**: eight 16-bit grayscale
    PNGs where plane k holds, at every pixel, the Z of the k-th walkable surface counted from the bottom.
-   `code = 1 + round((Z - z_min) / (z_max - z_min) * 65534)`, and **code 0 means "no surface"**. All
+   `code = 1 + round((Z - z_min) / (z_max - z_min) * 4094)`, and **code 0 means "no surface"**. All
    eight share one size, one `px_per_uu` and one set of bounds - no per-layer crops, no per-layer
-   scales. Chapter 1: **4947 x 4333, 10.2 MB of PNG, 327 MB of RAM** (`z_min` -15089, `z_max` 38871,
-   0.82 uu per step). Properties that matter:
+   scales. Chapter 1: **4947 x 4333, 5.2 MB of PNG, 86 MB of RAM** (`z_min` -11649, `z_max` 38871,
+   12.34 uu per step). Properties that matter:
    * **Fill only, no outlines.** Coverage is "the sample point is inside the polygon, or within
      `--seam-px` (0.5) of its boundary", which closes the sub-pixel gaps that made the old layers look
      like a triangle mesh. The ~1 px overlap that creates is absorbed by `--merge-tol` (120 uu): a
@@ -668,8 +678,86 @@ shared. It writes three things (schema `wuchang-minimap-maps/3`):
      cost two thirds of the floor (5 655 opaque px vs 17 807). Eight is within 2 % of sixteen. The top
      slot is the **overflow** slot and keeps the *highest* Z, so the top of a deep stack is never what
      gets dropped. `--max-surfaces 4` halves the RAM if needed.
-3. **`maps.json`** - per chapter the bounds, scale, mapping, `z_min` / `z_max` / `z_step_uu`,
-   `max_surfaces` and the `height_maps` list (the array index IS the surface slot). 1 kB.
+3. **`maps.json`** - per chapter the bounds, scale, mapping, `z_min` / `z_max` / `z_bits` /
+   `z_code_max` / `z_step_uu`, `max_surfaces`, the `height_planes` list (the array index IS the surface
+   slot) and the measured tile-store cost (`height_tiles_128`, `height_tile_ram_bytes`). 11 kB.
+
+### Formats and sizes (schema /4)
+
+| | chapter 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| `px_per_uu` | 0.0600 | 0.0553 | 0.0483 | 0.0523 | 0.0320 |
+| pixels | 4947x4333 | 4821x4613 | 3812x5835 | 4898x4541 | 3029x7342 |
+| composite PNG | 1.51 MiB | 1.24 | 1.35 | 1.00 | 0.79 |
+| height planes, PNG | 5.15 MiB | 4.08 | 4.14 | 3.09 | 3.79 |
+| Z step | 12.34 uu | 12.23 | 12.44 | 7.26 | 3.98 |
+| 128-px blocks lit | 2766/10608 | 2215/11248 | 2366/11040 | 1644/11232 | 1515/11136 |
+| **RAM resident** | **86 MiB** | 69 | 74 | 51 | 47 |
+| (dense would be) | 327 MiB | 339 | 339 | 339 | 339 |
+
+`maps/` is **26.1 MiB** in total (was 41.1 MiB at schema /3: RGBA8 composites and 16-bit height codes).
+
+**Why 12 bits.** The slicer's decision is `|Z - feetZ| <= floor_z_tolerance` with a 200 uu tolerance and
+an 800 uu fade, and the pipeline's own storey separator (`--floor-band-gap`) is 250 uu. 16-bit codes gave
+a 0.25..0.78 uu step, which is three orders of magnitude finer than any of those; 12-bit gives
+3.98..12.44 uu, i.e. at worst 3.1 % of the tolerance and 2.5 % of a storey gap, and buys 35 % of the
+plane bytes. 10-bit (49 uu, a quarter of the tolerance) would start to matter, so 12 is the last step
+that is unarguably free. `repack_maps.py` measures the error it actually introduced over every lit pixel
+and stamps it into the manifest as `z_requantise_worst_uu`; `markers_test` fails if it exceeds 20 uu.
+
+**Why 128-px blocks.** The planes are read by a CPU loop, never sampled by the GPU, so they live in
+ordinary RAM - and three quarters of a dense plane is the code 0, because a chapter's walkable area is a
+quarter of its bounding box and the deeper surfaces are rarer still (plane 0 lights 62 % of the blocks,
+plane 7 lights 3 %). `mapdata::build_plane()` allocates only the non-empty 128-px blocks plus an int32
+index per slot. Cropping to a bounding box and 512-px tiling were both measured WORSE
+(`.workspace/wuchang-minimap/lessons.md`): the lit pixels are scattered through every building on the
+map rather than clustered. Consequence for readers: a row of the picture crosses several blocks, so
+there is no row pointer - gather a row with `HeightMaps::gather_row(k, sy, col_x, n, dst)`, which also
+returns `false` for a row with no surface at all so the caller can skip it.
+
+**The version is enforced in both directions.** `mapmanifest::parse()` refuses any schema that is not
+exactly `kSchema` - there is no "read it anyway" branch, because a /3 plane read by a /4 decoder puts
+every surface sixteen times too low and looks like an empty map rather than like an error. The other
+direction cannot be fixed in 1.0.0's parser, so /4 also renamed the manifest key (`height_maps` ->
+`height_planes`) and the files (`_z<k>.png` -> `_h<k>.png`): the old parser then finds no list, guesses
+the `_z` names, finds nothing on disk and logs `NO height plane decoded ... build them with
+build_map.py`. Change the schema string in `tools/navmesh/mapfmt.py` and `src/mapmanifest.hpp` together,
+and `tools/package.ps1` with them.
+
+### Re-encoding what already ships: `repack_maps.py`
+
+```powershell
+python tools\navmesh\repack_maps.py --dry-run          # measure, write nothing
+python tools\navmesh\repack_maps.py --skip-heights     # composites only
+python tools\navmesh\repack_maps.py                    # in place, maps\
+```
+
+`build_map.py` needs `tools/navmesh/dumps_offline/` - 400 MB of extracted tile JSON that is
+deliberately not in the repo. A pure FORMAT change does not: the composite is re-palettised from its own
+pixels and the planes are re-scaled from their own codes, so `repack_maps.py` turns a /3 tree into a /4
+tree with nothing but `maps/` on disk, in about 45 seconds, verifying every PNG by decoding the bytes
+back before they land. Reach for it whenever only the encoding changes; reach for `build_map.py` when
+the geometry, the filters or the RESOLUTION change.
+
+### Resolution is not uniform, and cannot be inside the download budget
+
+Each chapter is scaled to its own RAM budget, so `px_per_uu` runs 0.032 (chapter 5) to 0.060 (chapter
+1) - chapter 5 has half chapter 1's detail. Raising every chapter to 0.060 was costed on the /4
+encodings and does not fit:
+
+| uniform `px_per_uu` | `maps/` | worst chapter RAM |
+|---|---|---|
+| as shipped (0.032..0.060) | 26.1 MiB | 86 MiB (ch 1) |
+| 0.060 everywhere | **42.8 MiB** | **166 MiB** (ch 5 at 5674x13754) |
+| 0.049 everywhere (the most that fits 30 MB) | 28.6 MiB | 114 MiB (ch 3) |
+
+0.060 is over both a 30 MB download budget and the ~90-100 MB resident target, and the largest uniform
+scale that fits 30 MB would REDUCE chapters 1, 2 and 4. Spending the whole remaining budget on chapter 5
+alone would take it from 0.032 to 0.0398 (+24 % linear, 73 MiB resident) - a real but small improvement
+that costs 4 MB of download, so it is a decision rather than a fix. If it is wanted, the dumps are
+reproducible from the paks in minutes (see the commands at the top of this section) and the command is
+`python build_map.py --input dumps_offline --chapter chapter5 --px-per-uu 0.0398 --max-ram-mb 1200`
+(the `--max-ram-mb` fitter still assumes a DENSE store, so it has to be raised for the sparse one).
 
 Superseded, kept reachable behind `--legacy-layers`: the **per-pixel surface-ordinal** layers
 (`small_f0..f7.png`, 8-bit coverage masks) plus the 640-uu **surface-band grid**. They separated storeys
@@ -689,7 +777,9 @@ maps - so a "the floor looks wrong at X" report can be reproduced and fixed with
 `slice_window()` + `shade()` are the reference implementation of the slicing rule; keep them and
 `overlay.cpp`'s `slice_window()` in step.
 
-`--px-per-uu` is a request - the scale halves until neither dimension exceeds `--max-dim` (8192).
+`--px-per-uu` is a request - it is first scaled CONTINUOUSLY to fit `--max-ram-mb`, then halved until
+neither dimension exceeds `--max-dim` (8192). That order matters: clamping first charged chapter 5 a
+full halving and then left it under budget.
 
 `deploy.ps1` copies `maps\` into the mod folder every time (add `-NoMaps` to skip).
 
@@ -832,7 +922,7 @@ The other keys: `overlay_enabled`, `ui_scale`, `hud_preset`,
 | `slice_hz` | 12 | CPU re-slices per second (2..30) |
 | `feet_z_smooth_ms` | 100 | EMA time constant on feet Z |
 | `player_z_offset` | 90 | uu subtracted from the pawn's capsule centre to get feet Z |
-| `fallback_use_composite` | 0 | also load `small.png` (+82 MB VRAM); only useful with no height maps |
+| `fallback_use_composite` | 0 | also load `small.png` (+82 MB VRAM, ~1.5 MB on disk); only useful with no height planes |
 
 Removed in the height-slicing rewrite: `floor_hysteresis` and `floor_fallback_hold_ms` - there is no
 band grid to be off any more, and the only smoothing left is `feet_z_smooth_ms`.
@@ -1050,7 +1140,8 @@ Every control has a keyboard **and** a gamepad route on purpose: the mouse curso
 this that depends on what the game does with the OS cursor while we hold the input, so the map stays
 fully usable if the cursor turns out to be locked.
 
-**Memory: the map adds no copy of the asset.** The height planes (~327 MB of RAM for Chapter 1) are
+**Memory: the map adds no copy of the asset.** The height planes (86 MB of RAM for Chapter 1, in
+128-px blocks) are
 read in place; the map cuts its own small dynamic RGBA texture (768 x ~430 x 2 buffers, ~2.6 MB) out of
 the same planes the minimap slices. The cut is *decimated* - one texture pixel covers `step` source
 pixels - and covers the visible viewport plus a 30 % margin, so a small pan needs no new cut at all.

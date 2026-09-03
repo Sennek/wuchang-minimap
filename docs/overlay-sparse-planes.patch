@@ -1,0 +1,212 @@
+The call-site change for the SPARSE height planes, plus the shim removal.
+=======================================================================
+
+    git apply docs/overlay-sparse-planes.patch
+
+APPLY THIS AS PART OF THE MERGE, NOT AFTER IT. master builds WuchangMinimap and
+markers_test with /WX (warnings as errors, added on the fix-release branch), and the
+compatibility shim this patch deletes is marked [[deprecated]] - so on a /WX build the
+three call sites in overlay.cpp are ERRORS until this lands. That is deliberate: the
+shim is empty, and a build that merely warned would ship a minimap with no floor on it.
+
+WHY IT IS A PATCH AND NOT A COMMIT
+----------------------------------
+src/overlay.cpp is owned by another workstream in this release, so the branch that made
+the height planes sparse (src/mapdata.*, review item C.14) could not edit it. Everything
+else is done, committed and green; these are the last hunks.
+
+WHAT CHANGED UNDER IT
+---------------------
+The height planes were eight dense `width * height` uint16 arrays - 343 MB for chapter
+1, of which 74 % was the code 0, "no surface here". They are now 128-px blocks with an
+int32 index per slot, and only the non-empty blocks are allocated: 86 MB for chapter 1,
+47..74 MB for chapters 2-5. An absent block reads as code 0, so no ANSWER changes.
+
+What does change is that a row of the picture crosses several blocks, so there is no row
+pointer to hand out. `hm.plane[k].data()` + `plane + sy * hm.width` becomes
+`hm.gather_row(k, sy, col_x, w, scratch)`, which fills one destination row of height
+codes - the same `w` reads per plane per row the dense version did, plus one index
+lookup per 128 columns - and returns false when the row carries no surface at all, which
+lets the slicer skip most rows of the deeper planes outright.
+
+THE HUNKS
+---------
+  src/overlay.cpp
+    1. `SliceScratch` gains `std::vector<std::uint16_t> gather` (and clears it).
+    2. It is sized next to `col_x`, which is already per-slicer.
+    3. `slice_region()`'s plane loop: `plane_empty(k)` instead of `plane[k].empty()`,
+       `gather_row()` instead of the row pointer, and the inner loop reads
+       `gathered[col]` instead of `src[col_x[col]]` - so the `sx < 0` test disappears,
+       because a column outside the asset gathers as code 0.
+    4. The slicer self-test's "find a lit pixel" scan becomes `hm.first_lit(0, ...)`,
+       which the block index answers directly instead of striding over 43 MB.
+  src/mapdata.hpp
+    5. Deletes the deprecated, empty `plane[]` shim.
+  src/mapdata.cpp
+    6. Deletes the "overlay.cpp still reads the dense plane[] member" log line.
+
+VERIFIED: with this patch applied, build.ps1 is clean - no C4996, no other warning - and
+markers_test passes 10 275 checks. Without it the tree still builds (three C4996
+warnings naming the call sites) but the minimap draws no floor, and mapdata.cpp says so
+in the log at every chapter load.
+
+STILL NEEDS AN IN-GAME CHECK (nothing here can be verified without launching):
+  * the minimap and the full map still draw the floor the player is standing on with the
+    storeys above/below dimmed - i.e. gather_row() agrees with the old row pointer on the
+    real asset at a real position. markers_test proves it byte-for-byte on chapter 1's
+    eight planes, but not through the slicer.
+  * the slice timing in the F2 dev overlay. The block index adds one lookup per 128
+    columns and skipping empty rows should make the deeper planes cheaper, so the ~4 ms
+    slice should not get slower. Any stall belongs to the loop thread, never to Present.
+  * the height-slicer self-test line at the main menu ("slice: self-test sliced a ...
+    window") must still report opaque pixels - it now finds its probe pixel through
+    first_lit().
+
+diff --git a/src/mapdata.cpp b/src/mapdata.cpp
+index 17a205d..561f8f6 100644
+--- a/src/mapdata.cpp
++++ b/src/mapdata.cpp
+@@ -355,14 +355,6 @@ namespace mapdata
+                      kTilePx,
+                      sparse / (1024 * 1024),
+                      dense / (1024 * 1024));
+-            // The shim in mapdata.hpp: until src/overlay.cpp gathers its rows through
+-            // HeightMaps::gather_row(), its slicer sees eight empty dense planes and
+-            // draws nothing. Said here, at every chapter load, because a missing
+-            // minimap with no explanation is the one failure this project keeps paying
+-            // for twice.
+-            mm::log(L"maps: NOTE the height slicer in overlay.cpp still reads the dense "
+-                    L"`plane[]` member, which is empty in this build - apply "
+-                    L"docs/overlay-sparse-planes.patch or the minimap will show no floor");
+             return hm.release();
+         }
+ 
+diff --git a/src/mapdata.hpp b/src/mapdata.hpp
+index 8db226c..8973de9 100644
+--- a/src/mapdata.hpp
++++ b/src/mapdata.hpp
+@@ -169,21 +169,6 @@ namespace mapdata
+         // The sparse planes, lowest surface first. Read through gather_row().
+         HeightPlane layer[kMaxSurfaces];
+ 
+-        // COMPATIBILITY SHIM - REMOVE WITH THE overlay.cpp CALL-SITE CHANGE.
+-        //
+-        // The dense member `plane[k]` is what src/overlay.cpp's slicer still reads
+-        // (`hm.plane[k].data()` plus `plane + sy * hm.width`), and that expression
+-        // cannot be made to work over a block store: a row crosses several blocks and
+-        // the absent ones have no address. It is kept, EMPTY, so the file still
+-        // compiles, and marked deprecated so the three call sites are named in the
+-        // build output. An empty plane makes the slicer skip that surface, so the
+-        // minimap draws nothing until docs/overlay-sparse-planes.patch is applied -
+-        // which is deliberately the loudest failure available from this side of the
+-        // boundary, and mapdata.cpp logs it at every chapter load as well.
+-        [[deprecated("the height planes are sparse now - gather a row with "
+-                     "HeightMaps::gather_row(); apply docs/overlay-sparse-planes.patch")]]
+-        std::vector<std::uint16_t> plane[kMaxSurfaces];
+-
+         // uu per quantisation step - reported once, so a "the gradient is banded"
+         // report can be checked against the asset instead of the renderer.
+         float z_step() const
+diff --git a/src/overlay.cpp b/src/overlay.cpp
+index fbfb097..9ce567c 100644
+--- a/src/overlay.cpp
++++ b/src/overlay.cpp
+@@ -694,6 +694,11 @@ namespace overlay
+             std::vector<float> best_d;
+             std::vector<int> col_x;
+             std::vector<int> row_y;
++            // One destination row of height codes, gathered out of the sparse block
++            // store (mapdata::HeightMaps::gather_row). The planes have no row pointer
++            // any more: a row of the picture crosses several 128-px blocks and the
++            // absent ones have no address.
++            std::vector<std::uint16_t> gather;
+ 
+             void clear()
+             {
+@@ -702,6 +707,7 @@ namespace overlay
+                 best_d.clear();
+                 col_x.clear();
+                 row_y.clear();
++                gather.clear();
+             }
+         };
+ 
+@@ -2136,6 +2142,7 @@ namespace overlay
+             if (sc.col_x.size() != static_cast<std::size_t>(w))
+             {
+                 sc.col_x.resize(static_cast<std::size_t>(w));
++                sc.gather.resize(static_cast<std::size_t>(w));
+             }
+             if (sc.row_y.size() != static_cast<std::size_t>(h))
+             {
+@@ -2161,11 +2168,11 @@ namespace overlay
+ 
+             for (int k = 0; k < planes; ++k)
+             {
+-                const std::uint16_t* plane = hm.plane[k].data();
+-                if (hm.plane[k].empty())
++                if (hm.plane_empty(k))
+                 {
+                     continue;
+                 }
++                std::uint16_t* gathered = sc.gather.data();
+                 for (int row = 0; row < h; ++row)
+                 {
+                     const int sy = row_y[row];
+@@ -2173,17 +2180,20 @@ namespace overlay
+                     {
+                         continue;
+                     }
+-                    const std::uint16_t* src =
+-                        plane + static_cast<std::size_t>(sy) * static_cast<std::size_t>(hm.width);
++                    // Gather the row's codes out of the block store. `false` means
++                    // no surface anywhere on this row of this plane, which in the
++                    // deeper planes is most rows - and skipping them here is where the
++                    // sparse store gives some of the RAM saving back as speed. Columns
++                    // outside the asset (col_x < 0) and absent blocks both come back
++                    // as code 0, which is exactly what the dense plane held there.
++                    if (!hm.gather_row(k, sy, col_x, w, gathered))
++                    {
++                        continue;
++                    }
+                     const std::size_t out_base = static_cast<std::size_t>(row) * static_cast<std::size_t>(w);
+                     for (int col = 0; col < w; ++col)
+                     {
+-                        const int sx = col_x[col];
+-                        if (sx < 0)
+-                        {
+-                            continue;
+-                        }
+-                        const std::uint16_t code = src[sx];
++                        const std::uint16_t code = gathered[col];
+                         if (code == 0)
+                         {
+                             continue; // no surface in this slot here
+@@ -2543,18 +2553,16 @@ namespace overlay
+             int sx0 = wx0;
+             int sy0 = wy0;
+             {
+-                const std::vector<std::uint16_t>& p0 = hm.plane[0];
+-                for (std::size_t i = 0; i < p0.size(); i += 97) // a coarse stride is plenty
++                // The block store knows where its first lit pixel is, so this no
++                // longer has to stride over a 43 MB dense plane to find one.
++                int px = 0;
++                int py = 0;
++                std::uint16_t code = 0;
++                if (hm.first_lit(0, px, py, code))
+                 {
+-                    if (p0[i] != 0)
+-                    {
+-                        const int px = static_cast<int>(i % static_cast<std::size_t>(hm.width));
+-                        const int py = static_cast<int>(i / static_cast<std::size_t>(hm.width));
+-                        probe_z = hm.decode(p0[i]);
+-                        sx0 = px - b.w / 2;
+-                        sy0 = py - b.w / 2;
+-                        break;
+-                    }
++                    probe_z = hm.decode(code);
++                    sx0 = px - b.w / 2;
++                    sy0 = py - b.w / 2;
+                 }
+             }
+             slice_window(hm, sx0, sy0, b.w, b.mapped + b.footprint.Offset,

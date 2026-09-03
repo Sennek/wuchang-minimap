@@ -231,4 +231,8 @@ target("markers_test")
     hardened_link()
     add_includedirs("src")
     add_files("src/markers_db.cpp", "src/mapview.cpp", "src/compass.cpp", "tests/markers_test.cpp")
+    -- The one Windows dependency the offline tests do have: src/pngdecode.hpp, so
+    -- test_map_assets() can decode the SHIPPED map PNGs through exactly the code the
+    -- mod uses. WIC is part of Windows - no UE4SS, no D3D12, still no game needed.
+    add_syslinks("windowscodecs", "ole32")
 target_end()

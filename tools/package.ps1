@@ -35,7 +35,7 @@
             enabled.txt
 
     Before zipping, the script smoke-checks that everything the runtime enumerates is
-    actually in the tree: maps.json parses, every image and height-map PNG it names
+    actually in the tree: maps.json parses, every image and height-plane PNG it names
     exists and is non-empty, the five chapter marker manifests are there and parse, and
     the config / enabled.txt / main.dll are present. It then runs
     tools\check_release.ps1 over the assembled tree - one version everywhere, one UE4SS
@@ -366,14 +366,16 @@ try {
     $pngCount = 0
     if (Require-File $manifestPath 'maps.json') {
         $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-        if ($manifest.schema -ne 'wuchang-minimap-maps/3') {
-            $problems.Add("maps.json schema is '$($manifest.schema)', expected 'wuchang-minimap-maps/3'")
+        if ($manifest.schema -ne 'wuchang-minimap-maps/4') {
+            $problems.Add("maps.json schema is '$($manifest.schema)', expected 'wuchang-minimap-maps/4'")
         }
         $chapters = @($manifest.chapters.PSObject.Properties)
         if ($chapters.Count -lt 5) { $problems.Add("maps.json lists $($chapters.Count) chapters, expected 5") }
         foreach ($ch in $chapters) {
             $c = $ch.Value
-            foreach ($rel in @($c.image) + @($c.height_maps)) {
+            # `height_planes` since schema /4 (it was `height_maps` in /3, and the
+            # rename is deliberate - see src/mapmanifest.hpp).
+            foreach ($rel in @($c.image) + @($c.height_planes)) {
                 if (-not $rel) { continue }
                 $p = Join-Path (Join-Path $modDir 'maps') ($rel -replace '/', '\')
                 if (Require-File $p "map image for $($ch.Name)") { $pngCount++ }

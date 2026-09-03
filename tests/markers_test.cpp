@@ -46,9 +46,16 @@
 #include "glyphs.hpp"
 #include "label_layout.hpp"
 #include "mapmanifest.hpp"
+#include "mapdata.hpp"
 #include "mapview.hpp"
 #include "atomicfile.hpp"
 #include "marker_dedupe.hpp"
+// Brings in <Windows.h> - which is why the two #undefs below exist. `near` and `far`
+// are 16-bit-era keyword macros windef.h still defines (WIN32_LEAN_AND_MEAN does not
+// drop them), and test_glyphs() has a local array called `near`.
+#include "pngdecode.hpp"
+#undef near
+#undef far
 #include "markers_db.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
@@ -56,10 +63,6 @@
 #include "scan_sched.hpp"
 #include "shrines_db.hpp"
 
-// atomicfile.hpp pulls in <windows.h>, whose legacy `near` / `far` no-op macros collide
-// with a local array called `near` further down this file.
-#undef near
-#undef far
 
 namespace
 {
@@ -2393,24 +2396,25 @@ namespace
 
     void test_map_manifest(const std::string& markers_dir)
     {
-        std::printf("mapmanifest: schema /3, five chapters, and the ways it can be wrong\n");
+        std::printf("mapmanifest: schema /4, five chapters, and the ways it can be wrong\n");
 
         // --- the minimal well-formed document ----------------------------------------
         {
             const char* text = R"({
-              "schema": "wuchang-minimap-maps/3",
+              "schema": "wuchang-minimap-maps/4",
               "chapters": {
                 "chapter1": { "chapter": 1, "image": "chapter1/small.png",
                               "image_width": 100, "image_height": 200,
                               "min_x": -10, "min_y": -20, "max_x": 30, "max_y": 40,
                               "px_per_uu": 0.06, "z_min": -5, "z_max": 15,
+                              "z_bits": 12, "z_code_max": 4095,
                               "max_surfaces": 2,
-                              "height_maps": ["chapter1/small_z0.png", "chapter1/small_z1.png"] },
+                              "height_planes": ["chapter1/small_h0.png", "chapter1/small_h1.png"] },
                 "chapterdlc": { "chapter": 0, "image": "dlc/small.png",
                                 "image_width": 10, "image_height": 10,
                                 "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1,
                                 "px_per_uu": 0.5, "z_min": 0, "z_max": 1,
-                                "max_surfaces": 1, "height_maps": ["dlc/small_z0.png"] }
+                                "max_surfaces": 1, "height_planes": ["dlc/small_h0.png"] }
               } })";
             mapmanifest::Manifest m{};
             std::vector<std::string> problems;
@@ -2424,6 +2428,11 @@ namespace
             CHECK(m.chapters[0].geometry_ok());
             CHECK(m.chapters[0].heights_ok());
             CHECK(!m.chapters[0].height_maps_guessed);
+            CHECK(m.schema_ok());
+            CHECK_EQ(m.chapters[0].z_bits, 12);
+            CHECK_EQ(m.chapters[0].z_code_max, 4095);
+            // 20 uu of span over 4094 steps.
+            CHECK_NEAR(m.chapters[0].z_step_uu(), 20.0 / 4094.0, 1e-9);
             CHECK_EQ(m.index_of_number(1), 0);
             CHECK_EQ(m.index_of_number(chid::kDlc), 1);
             CHECK_EQ(m.index_of_number(4), -1);
@@ -2433,13 +2442,14 @@ namespace
             CHECK_EQ(m.default_index(), 0);
         }
 
-        // --- backward compatibility: the ONE-CHAPTER file this schema shipped with ---
+        // --- a chapter that states max_surfaces but no plane list --------------------
         //
-        // No "chapter" field and no "height_maps" array existed then. Both have to be
-        // recovered, or a mod update silently loses the map of an unchanged install.
+        // The names then have to be recovered from the composite's, with the /4 `_h`
+        // spelling - and the chapter number from the key. Anything else silently
+        // loses the map of an install whose manifest was hand-edited.
         {
             const char* text = R"({
-              "schema": "wuchang-minimap-maps/3",
+              "schema": "wuchang-minimap-maps/4",
               "chapters": {
                 "chapter1": { "image": "chapter1/small.png",
                               "image_width": 4947, "image_height": 4333,
@@ -2454,9 +2464,67 @@ namespace
             CHECK_EQ(m.chapters[0].chapter, 1); // derived from the key
             CHECK(m.chapters[0].height_maps_guessed);
             CHECK_EQ(static_cast<long long>(m.chapters[0].height_maps.size()), 8);
-            CHECK_STR(m.chapters[0].height_maps[0], std::string("chapter1/small_z0.png"));
-            CHECK_STR(m.chapters[0].height_maps[7], std::string("chapter1/small_z7.png"));
+            CHECK_STR(m.chapters[0].height_maps[0], std::string("chapter1/small_h0.png"));
+            CHECK_STR(m.chapters[0].height_maps[7], std::string("chapter1/small_h7.png"));
             CHECK(m.chapters[0].heights_ok());
+            // Absent z_bits / z_code_max default to what THIS build reads, which is
+            // only safe because the schema string was checked first.
+            CHECK_EQ(m.chapters[0].z_code_max, mapmanifest::kZCodeMax);
+        }
+
+        // --- THE VERSION GATE, both directions ---------------------------------------
+        //
+        // A /3 tree read here would put every surface sixteen times too low and look
+        // like an empty map, so a wrong (or missing) schema is fatal and says so. The
+        // other direction - a /3 build reading this /4 file - is covered by the plane
+        // list having moved to "height_planes": that parser finds none, guesses the
+        // "_z" names it used to write, and fails loudly on a missing file.
+        {
+            const char* v3 = R"({
+              "schema": "wuchang-minimap-maps/3",
+              "chapters": {
+                "chapter1": { "chapter": 1, "image": "chapter1/small.png",
+                              "image_width": 100, "image_height": 200,
+                              "min_x": -10, "min_y": -20, "max_x": 30, "max_y": 40,
+                              "px_per_uu": 0.06, "z_min": -5, "z_max": 15,
+                              "max_surfaces": 1,
+                              "height_maps": ["chapter1/small_z0.png"] }
+              } })";
+            mapmanifest::Manifest m{};
+            std::vector<std::string> problems;
+            CHECK(!mapmanifest::parse(v3, m, problems));
+            CHECK_EQ(static_cast<long long>(problems.size()), 1);
+            CHECK(!m.schema_ok());
+            CHECK(m.chapters.empty()); // nothing is drawn from a file we cannot read
+            // The message has to name BOTH strings and what to do; a bare "bad
+            // manifest" would send the reader to the wrong half of the mod.
+            CHECK(problems[0].find("wuchang-minimap-maps/3") != std::string::npos);
+            CHECK(problems[0].find("wuchang-minimap-maps/4") != std::string::npos);
+            CHECK(problems[0].find("build_map.py") != std::string::npos);
+
+            // No schema at all is the same answer.
+            problems.clear();
+            CHECK(!mapmanifest::parse(R"({"chapters":{}})", m, problems));
+            CHECK_EQ(static_cast<long long>(problems.size()), 1);
+            CHECK(problems[0].find("(none)") != std::string::npos);
+
+            // And a /4 file whose plane list is still spelled the /3 way loses the
+            // list, which is exactly the fallback that makes the missing files loud.
+            problems.clear();
+            const char* mixed_key = R"({
+              "schema": "wuchang-minimap-maps/4",
+              "chapters": {
+                "chapter1": { "chapter": 1, "image": "chapter1/small.png",
+                              "image_width": 100, "image_height": 200,
+                              "min_x": -10, "min_y": -20, "max_x": 30, "max_y": 40,
+                              "px_per_uu": 0.06, "z_min": -5, "z_max": 15,
+                              "max_surfaces": 1,
+                              "height_maps": ["chapter1/small_z0.png"] }
+              } })";
+            CHECK(mapmanifest::parse(mixed_key, m, problems));
+            CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
+            CHECK(m.chapters[0].height_maps_guessed);
+            CHECK_STR(m.chapters[0].height_maps[0], std::string("chapter1/small_h0.png"));
         }
 
         // --- the ways it can be wrong -------------------------------------------------
@@ -2467,15 +2535,18 @@ namespace
             CHECK(!problems.empty());
 
             problems.clear();
-            CHECK(!mapmanifest::parse(R"({"schema":"wuchang-minimap-maps/3"})", m, problems));
+            CHECK(!mapmanifest::parse(R"({"schema":"wuchang-minimap-maps/4"})", m, problems));
             CHECK(!problems.empty());
 
             problems.clear();
-            CHECK(!mapmanifest::parse(R"({"chapters": []})", m, problems)); // array, not object
+            // array, not object
+            CHECK(!mapmanifest::parse(
+                R"({"schema":"wuchang-minimap-maps/4","chapters": []})", m, problems));
 
             // A broken chapter is skipped and REPORTED, and its siblings still load.
             problems.clear();
             const char* mixed = R"({
+              "schema": "wuchang-minimap-maps/4",
               "chapters": {
                 "broken_no_image": { "chapter": 2, "image_width": 4, "image_height": 4,
                                      "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1,
@@ -2487,23 +2558,22 @@ namespace
                                      "image_width": 4, "image_height": 4,
                                      "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1,
                                      "px_per_uu": 0.5, "z_min": 0, "z_max": 1,
-                                     "height_maps": ["chapter4/small_z0.png"] }
+                                     "height_planes": ["chapter4/small_h0.png"] }
               } })";
             CHECK(mapmanifest::parse(mixed, m, problems));
             CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
             CHECK_EQ(static_cast<long long>(problems.size()), 2);
             CHECK_STR(m.chapters[0].key, std::string("chapter4"));
             CHECK_EQ(m.default_index(), 0);
-            // No schema string at all is not fatal - the mod logs and reads on.
-            CHECK_STR(m.schema, std::string(""));
         }
 
         // --- a chapter with no z range has geometry but no usable height maps ---------
         {
-            const char* text = R"({"chapters": {"chapter1": {
+            const char* text = R"({"schema": "wuchang-minimap-maps/4",
+              "chapters": {"chapter1": {
                 "chapter": 1, "image": "c/s.png", "image_width": 4, "image_height": 4,
                 "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1, "px_per_uu": 0.5,
-                "height_maps": ["c/s_z0.png"] }}})";
+                "height_planes": ["c/s_h0.png"] }}})";
             mapmanifest::Manifest m{};
             std::vector<std::string> problems;
             CHECK(mapmanifest::parse(text, m, problems));
@@ -2549,8 +2619,15 @@ namespace
                     CHECK(!e.height_maps_guessed);
                     CHECK_EQ(static_cast<long long>(e.height_maps.size()), 8);
                     CHECK(e.px_per_uu > 0.02 && e.px_per_uu <= 0.06);
-                    // Every plane is 16-bit and the whole set has to fit the RAM budget
-                    // build_map.py enforced (--max-ram-mb 340).
+                    // Every shipped chapter is 12-bit, and every plane is named the
+                    // /4 way - the two things a half-applied repack would get wrong.
+                    CHECK_EQ(e.z_bits, mapmanifest::kZBits);
+                    CHECK_EQ(e.z_code_max, mapmanifest::kZCodeMax);
+                    CHECK(e.height_maps[0].find("_h0.png") != std::string::npos);
+                    CHECK(e.z_step_uu() > 0.0 && e.z_step_uu() < 20.0);
+                    // The DENSE size still has to fit the budget build_map.py enforced
+                    // (--max-ram-mb 340); what is actually allocated is the sparse tile
+                    // subset, which test_map_assets() checks against the manifest.
                     const std::size_t bytes = static_cast<std::size_t>(e.image_width) *
                                               static_cast<std::size_t>(e.image_height) * 2u *
                                               e.height_maps.size();
@@ -2564,6 +2641,573 @@ namespace
                 // Maps/Generate/ChapterDLC cells, so there is no cooked navmesh for it.
                 CHECK_EQ(m.index_of_number(chid::kDlc), -1);
             }
+        }
+    }
+
+    //==================================================================================
+    // The SPARSE height-plane store (src/mapdata.hpp: build_plane + gather_row)
+    //==================================================================================
+    //
+    // The planes used to be eight dense `width * height` uint16 arrays - 343 MB for
+    // chapter 1, three quarters of it the code 0 - and are now 128-px blocks with an
+    // index. The contract is that NO ANSWER CHANGES: an absent block must read as code
+    // 0, which is what the dense array held there. So the test is a differential one
+    // against a dense reference, over patterns that hit every edge the indexing has:
+    // a partial block at the right and bottom edge, an empty block between two full
+    // ones, a row that is empty in one plane and not in another, and columns marked
+    // "outside the asset" (col_x < 0) interleaved with real ones.
+    //
+    // It is also the only place the block store's ARITHMETIC is checkable at all - the
+    // alternative is reading a minimap in-game and guessing.
+
+    void test_height_planes()
+    {
+        section("the sparse height-plane store: gather_row vs a dense reference");
+
+        // 600x500 is 5 x 4 blocks of 128 px with a partial block at the right (88 px)
+        // and at the bottom (116 px), so every combination of full and partial block
+        // is present - and it is big enough that the block store is a saving, which
+        // 300x200 would not have been (6 whole blocks is more cells than the picture).
+        const int w = 600;
+        const int h = 500;
+        std::vector<std::uint16_t> dense(static_cast<std::size_t>(w) * h, 0);
+        // A pattern with structure rather than noise: a diagonal band plus a solid
+        // square in the bottom-right partial block, with block COLUMN 1 (x 128..255)
+        // and block ROW 2 (y 256..383) left deliberately empty. That gives absent
+        // interior blocks in both axes, and 128 rows that are empty across the whole
+        // picture - which is the case gather_row() reports by returning false.
+        for (int y = 0; y < h; ++y)
+        {
+            if (y >= 256 && y < 384)
+            {
+                continue; // the empty block row
+            }
+            for (int x = 0; x < w; ++x)
+            {
+                if (x >= 128 && x < 256)
+                {
+                    continue; // the empty block column
+                }
+                const bool band = ((x + y) % 37) < 7;
+                const bool square = x >= 520 && y >= 400;
+                if (band || square)
+                {
+                    dense[static_cast<std::size_t>(y) * w + x] =
+                        static_cast<std::uint16_t>(1 + ((x * 7 + y * 13) % 4095));
+                }
+            }
+        }
+
+        mapdata::HeightPlane p{};
+        mapdata::build_plane(p, dense.data(), w, h);
+        CHECK_EQ(p.ntx, 5); // ceil(600 / 128)
+        CHECK_EQ(p.nty, 4); // ceil(500 / 128)
+        // Twelve of the twenty: the empty block column and the empty block row are
+        // not allocated at all.
+        CHECK_EQ(p.tiles, 12);
+        CHECK(p.block(1, 0) == nullptr); // the empty column
+        CHECK(p.block(0, 2) == nullptr); // the empty row
+        CHECK(p.block(0, 0) != nullptr);
+        CHECK(!p.empty());
+        // Only the present blocks are paid for.
+        CHECK_EQ(static_cast<long long>(p.data.size()),
+                 static_cast<long long>(p.tiles) * mapdata::kTileCells);
+        CHECK(p.bytes() < dense.size() * sizeof(std::uint16_t));
+
+        mapdata::HeightMaps hm{};
+        hm.width = w;
+        hm.height = h;
+        hm.count = 1;
+        hm.z_min = -1000.0f;
+        hm.z_max = 3000.0f;
+        hm.z_code_max = 4095;
+        hm.layer[0] = p;
+
+        CHECK(!hm.plane_empty(0));
+        CHECK(hm.plane_empty(1));
+        CHECK(hm.plane_empty(-1));
+        CHECK(hm.plane_empty(mapdata::kMaxSurfaces));
+
+        // ---- code_at, everywhere ----------------------------------------------------
+        long long mismatches = 0;
+        for (int y = 0; y < h; ++y)
+        {
+            for (int x = 0; x < w; ++x)
+            {
+                if (hm.code_at(0, x, y) != dense[static_cast<std::size_t>(y) * w + x])
+                {
+                    ++mismatches;
+                }
+            }
+        }
+        CHECK_EQ(mismatches, 0);
+        // Out of bounds is "no surface", not a crash and not a wrap.
+        CHECK_EQ(hm.code_at(0, -1, 0), 0);
+        CHECK_EQ(hm.code_at(0, 0, -1), 0);
+        CHECK_EQ(hm.code_at(0, w, 0), 0);
+        CHECK_EQ(hm.code_at(0, 0, h), 0);
+        CHECK_EQ(hm.code_at(1, 10, 10), 0); // an empty plane
+
+        // ---- gather_row, against the dense reference --------------------------------
+        // Three column sets: 1:1, decimating (the full map's src_step > 1), and one
+        // with out-of-asset columns at both ends and in the middle.
+        std::vector<std::vector<int>> col_sets;
+        {
+            std::vector<int> ones(w);
+            for (int i = 0; i < w; ++i)
+            {
+                ones[static_cast<std::size_t>(i)] = i;
+            }
+            col_sets.push_back(ones);
+
+            std::vector<int> deci(220);
+            for (int i = 0; i < 220; ++i)
+            {
+                const int sx = i * 3 + 1;
+                deci[static_cast<std::size_t>(i)] = sx < w ? sx : -1;
+            }
+            col_sets.push_back(deci);
+
+            std::vector<int> holes(w + 20);
+            for (std::size_t i = 0; i < holes.size(); ++i)
+            {
+                const int sx = static_cast<int>(i) - 10;
+                holes[i] = (sx >= 0 && sx < w && (sx < 300 || sx > 320)) ? sx : -1;
+            }
+            col_sets.push_back(holes);
+        }
+
+        long long gathered_rows = 0;
+        long long skipped_rows = 0;
+        for (const std::vector<int>& cols : col_sets)
+        {
+            const int n = static_cast<int>(cols.size());
+            std::vector<std::uint16_t> got(static_cast<std::size_t>(n), 0xFFFF);
+            for (int y = 0; y < h; ++y)
+            {
+                std::fill(got.begin(), got.end(), static_cast<std::uint16_t>(0xFFFF));
+                const bool any = hm.gather_row(0, y, cols.data(), n, got.data());
+                bool want_any = false;
+                for (int i = 0; i < n; ++i)
+                {
+                    const int sx = cols[static_cast<std::size_t>(i)];
+                    const std::uint16_t want =
+                        sx < 0 ? 0 : dense[static_cast<std::size_t>(y) * w + sx];
+                    want_any = want_any || want != 0;
+                    if (got[static_cast<std::size_t>(i)] != want)
+                    {
+                        ++mismatches;
+                    }
+                }
+                // The return value is "this row contributed something", and the caller
+                // uses it to skip the row - so a false when the row DOES carry a
+                // surface would silently erase a floor.
+                if (any != want_any)
+                {
+                    ++mismatches;
+                }
+                if (any)
+                {
+                    ++gathered_rows;
+                }
+                else
+                {
+                    ++skipped_rows;
+                }
+            }
+        }
+        CHECK_EQ(mismatches, 0);
+        CHECK(gathered_rows > 0);
+        CHECK(skipped_rows > 0); // the empty strip has to produce some
+
+        // A row outside the picture, an empty plane and a nonsense argument all say
+        // "nothing here" rather than reading anything.
+        std::vector<std::uint16_t> one(8, 0xFFFF);
+        const int cols8[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+        CHECK(!hm.gather_row(0, -1, cols8, 8, one.data()));
+        CHECK(!hm.gather_row(0, h, cols8, 8, one.data()));
+        CHECK(!hm.gather_row(1, 0, cols8, 8, one.data()));
+        CHECK(!hm.gather_row(0, 0, cols8, 0, one.data()));
+        CHECK(!hm.gather_row(0, 0, nullptr, 8, one.data()));
+        CHECK(!hm.gather_row(0, 0, cols8, 8, nullptr));
+
+        // ---- first_lit ---------------------------------------------------------------
+        int px = -1;
+        int py = -1;
+        std::uint16_t code = 0;
+        CHECK(hm.first_lit(0, px, py, code));
+        CHECK(px >= 0 && px < w && py >= 0 && py < h);
+        CHECK(code != 0);
+        CHECK_EQ(code, dense[static_cast<std::size_t>(py) * w + px]);
+        CHECK(!hm.first_lit(1, px, py, code)); // an empty plane has none
+
+        // ---- the decode the slicer uses ----------------------------------------------
+        CHECK_NEAR(hm.z_step(), 4000.0f / 4094.0f, 1e-4);
+        CHECK_NEAR(hm.decode(1), -1000.0, 1e-3);   // code 1 is exactly z_min
+        CHECK_NEAR(hm.decode(4095), 3000.0, 1e-2); // and the top code is z_max
+        // 12 bits over this span: the step has to stay far under the slicer's 200 uu
+        // floor tolerance.
+        CHECK(hm.z_step() < 20.0f);
+
+        // ---- an all-empty plane costs the index and nothing else ---------------------
+        std::vector<std::uint16_t> nothing(static_cast<std::size_t>(w) * h, 0);
+        mapdata::HeightPlane blank{};
+        mapdata::build_plane(blank, nothing.data(), w, h);
+        CHECK(blank.empty());
+        CHECK_EQ(static_cast<long long>(blank.tiles), 0);
+        CHECK_EQ(static_cast<long long>(blank.data.size()), 0);
+        CHECK(blank.block(0, 0) == nullptr);
+        // And a degenerate call builds nothing rather than reading a null pointer.
+        mapdata::build_plane(blank, nullptr, w, h);
+        CHECK(blank.empty());
+        mapdata::build_plane(blank, nothing.data(), 0, h);
+        CHECK(blank.empty());
+
+        std::printf("  %dx%d reference: %d/%d blocks of %d px, %llu KB against %llu KB dense; "
+                    "%lld rows gathered, %lld skipped\n",
+                    w, h, p.tiles, p.ntx * p.nty, mapdata::kTilePx,
+                    static_cast<unsigned long long>(p.bytes() / 1024),
+                    static_cast<unsigned long long>(dense.size() * 2 / 1024), gathered_rows,
+                    skipped_rows);
+    }
+
+    //==================================================================================
+    // The SHIPPED PNGs, through the runtime's own decode (src/pngdecode.hpp)
+    //==================================================================================
+    //
+    // This is the only test in this file that touches Windows, and it is here because
+    // the alternative is a play session. The two things it proves cannot be proven by
+    // reading maps.json:
+    //
+    //   * THE COMPOSITE IS READABLE AS RGBA even though it is now PNG colour type 3
+    //     (256-colour palette) with a tRNS ARRAY. WIC is supposed to expand an indexed
+    //     frame through its own palette; if it did not - or if Pillow wrote a
+    //     single-index tRNS instead of the array - the map would come back fully
+    //     opaque or fully transparent, and the first person to find out would be a
+    //     player with `fallback_use_composite = 1`.
+    //
+    //   * THE HEIGHT CODES ARE IN RANGE AND IN THE RIGHT BYTE ORDER. PNG stores 16-bit
+    //     samples big-endian and WIC hands them back native-endian; a decoder that did
+    //     not would produce byte-swapped garbage whose only in-game symptom is a map
+    //     that looks empty. With 12-bit codes that is a hard test rather than a
+    //     plausibility one: 4095 byte-swapped is 65295, so a single swapped pixel puts
+    //     the maximum past `z_code_max`.
+    //
+    // And one cross-check that ties the asset to the manifest: `surface_hist[k]` counts
+    // pixels with EXACTLY k surfaces, so plane z0's lit-pixel count must equal
+    // sum(surface_hist[1:]) exactly. That one number exercises the dimensions, the
+    // sentinel and the decode in a single comparison.
+
+    void test_map_assets(const std::string& markers_dir)
+    {
+        section("the shipped map PNGs, decoded through src/pngdecode.hpp");
+
+        const std::string maps_dir = markers_dir + "/../maps";
+        std::string text;
+        if (!read_file(maps_dir + "/maps.json", text))
+        {
+            std::printf("  (skipped: %s/maps.json not readable)\n", maps_dir.c_str());
+            return;
+        }
+        mapmanifest::Manifest m{};
+        std::vector<std::string> problems;
+        if (!mapmanifest::parse(text, m, problems) || m.chapters.empty())
+        {
+            std::printf("  (skipped: the manifest did not parse)\n");
+            return;
+        }
+
+        // The per-chapter numbers this test compares against are in maps.json but not
+        // in mapmanifest::Entry (the runtime has no use for them), so they are picked
+        // out of the raw text with a small scan rather than by growing the parser.
+        const auto number_in_chapter = [&text](const std::string& key, const char* field,
+                                               double fallback) {
+            const std::size_t at = text.find("\"" + key + "\"");
+            if (at == std::string::npos)
+            {
+                return fallback;
+            }
+            const std::string needle = std::string("\"") + field + "\"";
+            const std::size_t f = text.find(needle, at);
+            if (f == std::string::npos)
+            {
+                return fallback;
+            }
+            const std::size_t colon = text.find(':', f + needle.size());
+            if (colon == std::string::npos)
+            {
+                return fallback;
+            }
+            return std::strtod(text.c_str() + colon + 1, nullptr);
+        };
+        const auto sum_surface_hist_tail = [&text](const std::string& key) -> long long {
+            const std::size_t at = text.find("\"" + key + "\"");
+            const std::size_t h =
+                at == std::string::npos ? std::string::npos : text.find("\"surface_hist\"", at);
+            if (h == std::string::npos)
+            {
+                return -1;
+            }
+            const std::size_t open = text.find('[', h);
+            const std::size_t close = text.find(']', open);
+            if (open == std::string::npos || close == std::string::npos)
+            {
+                return -1;
+            }
+            long long total = 0;
+            int index = 0;
+            const char* p = text.c_str() + open + 1;
+            const char* end = text.c_str() + close;
+            while (p < end)
+            {
+                while (p < end && (*p == ' ' || *p == ',' || *p == '\n' || *p == '\r' || *p == '\t'))
+                {
+                    ++p;
+                }
+                if (p >= end)
+                {
+                    break;
+                }
+                char* stop = nullptr;
+                const long long v = std::strtoll(p, &stop, 10);
+                if (stop == p)
+                {
+                    break;
+                }
+                if (index > 0) // hist[0] = pixels with NO surface
+                {
+                    total += v;
+                }
+                ++index;
+                p = stop;
+            }
+            return total;
+        };
+        const auto widen = [](const std::string& narrow) {
+            return std::wstring(narrow.begin(), narrow.end());
+        };
+
+        for (const mapmanifest::Entry& e : m.chapters)
+        {
+            // ---- the composite ------------------------------------------------------
+            std::vector<std::uint8_t> px;
+            const std::wstring cpath = widen(maps_dir + "/" + e.image);
+            const pngdec::Result cr = pngdec::decode(cpath.c_str(), pngdec::kRgba, px);
+            ++g_checks;
+            if (!cr.ok())
+            {
+                ++g_failures;
+                std::printf("  FAIL  %s did not decode (0x%08X)\n", e.image.c_str(),
+                            static_cast<unsigned>(cr.hr));
+                continue;
+            }
+            CHECK_EQ(cr.width, e.image_width);
+            CHECK_EQ(cr.height, e.image_height);
+            CHECK_EQ(static_cast<long long>(px.size()),
+                     static_cast<long long>(e.image_width) * e.image_height * 4);
+
+            // Alpha must be exactly two values: 0 for the background and the fill
+            // alpha for everything walkable. A lost tRNS array shows up as one value.
+            int alpha_lo = 256;
+            int alpha_hi = -1;
+            std::size_t opaque = 0;
+            std::size_t distinct_alpha = 0;
+            bool seen[256] = {};
+            for (std::size_t i = 3; i < px.size(); i += 4)
+            {
+                const int a = px[i];
+                if (!seen[a])
+                {
+                    seen[a] = true;
+                    ++distinct_alpha;
+                }
+                alpha_lo = a < alpha_lo ? a : alpha_lo;
+                alpha_hi = a > alpha_hi ? a : alpha_hi;
+                if (a != 0)
+                {
+                    ++opaque;
+                }
+            }
+            CHECK_EQ(static_cast<long long>(distinct_alpha), 2);
+            CHECK_EQ(alpha_lo, 0);
+            CHECK_EQ(alpha_hi, 235); // build_map.py's FILL_ALPHA
+            // A composite that decoded to "all transparent" or "all opaque" would pass
+            // every check above except this one.
+            const std::size_t total_px =
+                static_cast<std::size_t>(e.image_width) * static_cast<std::size_t>(e.image_height);
+            CHECK(opaque > total_px / 100 && opaque < total_px * 9 / 10);
+
+            // ---- height plane z0 ----------------------------------------------------
+            const int z_code_max = e.z_code_max;
+            std::vector<std::uint8_t> raw;
+            const std::wstring hpath = widen(maps_dir + "/" + e.height_maps[0]);
+            const pngdec::Result hres = pngdec::decode(hpath.c_str(), pngdec::kGray16, raw);
+            ++g_checks;
+            if (!hres.ok())
+            {
+                ++g_failures;
+                std::printf("  FAIL  %s did not decode (0x%08X)\n", e.height_maps[0].c_str(),
+                            static_cast<unsigned>(hres.hr));
+                continue;
+            }
+            CHECK_EQ(hres.width, e.image_width);
+            CHECK_EQ(hres.height, e.image_height);
+
+            const std::uint16_t* code = reinterpret_cast<const std::uint16_t*>(raw.data());
+            const std::size_t n = raw.size() / 2;
+            long long lit = 0;
+            int code_hi = 0;
+            int code_lo = 0x10000;
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                const int c = code[i];
+                if (c == 0)
+                {
+                    continue;
+                }
+                ++lit;
+                code_hi = c > code_hi ? c : code_hi;
+                code_lo = c < code_lo ? c : code_lo;
+            }
+            CHECK(lit > 0);
+            // THE byte-order / format test.
+            CHECK(code_hi <= z_code_max);
+            CHECK(code_lo >= 1);
+            // And the manifest's own histogram has to predict that count exactly.
+            const long long want_lit = sum_surface_hist_tail(e.key);
+            if (want_lit >= 0)
+            {
+                CHECK_EQ(lit, want_lit);
+            }
+
+            // The Z the runtime will read back, over the same [z_min, z_max] the
+            // manifest states, must land inside those bounds.
+            const double step = (e.z_max - e.z_min) / static_cast<double>(z_code_max - 1);
+            const double z_lo = e.z_min + (code_lo - 1) * step;
+            const double z_hi = e.z_min + (code_hi - 1) * step;
+            CHECK(z_lo >= e.z_min - 1.0 && z_hi <= e.z_max + 1.0);
+
+            // The error the requantisation actually introduced, as measured by
+            // tools/navmesh/repack_maps.py over every lit pixel. The slicer's floor
+            // tolerance is 200 uu, so anything above 20 uu here is a format change
+            // that has stopped being free.
+            const double shift = number_in_chapter(e.key, "z_requantise_worst_uu", 0.0);
+            CHECK(shift < 20.0);
+
+            // What the runtime will actually allocate: the pipeline measured the
+            // non-empty 128-px tiles, and that is the number the review's 343 MB ->
+            // ~90 MB item is about. Checked here so a rebuild that quietly went back
+            // to a dense-ish asset cannot slip through.
+            const double tiles = number_in_chapter(e.key, "height_tiles_128", 0.0);
+            const double tile_ram = number_in_chapter(e.key, "height_tile_ram_bytes", 0.0);
+            const double dense_ram = number_in_chapter(e.key, "height_map_raw_bytes", 0.0);
+            CHECK(tiles > 0.0);
+            CHECK_NEAR(tile_ram, tiles * 128.0 * 128.0 * 2.0, 1.0);
+            CHECK(tile_ram > 0.0 && tile_ram <= 100.0 * 1024.0 * 1024.0);
+            CHECK(dense_ram > 3.0 * tile_ram); // the whole point of the tile store
+
+            // END TO END, on the FIRST chapter only (eight more PNG decodes): put
+            // every shipped plane through pngdec + mapdata::build_plane - the exact
+            // pair the mod runs at a chapter load - and check two things the manifest
+            // cannot check itself.
+            //
+            //   1. The block count the runtime will allocate is the one the pipeline
+            //      measured. If those two ever disagree, one of them is computing
+            //      occupancy differently and the RAM figure in the log is fiction.
+            //   2. gather_row() over the real asset answers exactly what the dense
+            //      buffer it was built from holds, on a sample of rows spread over the
+            //      picture. That is the claim the whole sparse store rests on, and the
+            //      synthetic test in test_height_planes() proves it only for a
+            //      pattern this test's author chose.
+            if (&e == &m.chapters.front())
+            {
+                mapdata::HeightMaps hm{};
+                hm.width = e.image_width;
+                hm.height = e.image_height;
+                hm.z_min = static_cast<float>(e.z_min);
+                hm.z_max = static_cast<float>(e.z_max);
+                hm.z_code_max = e.z_code_max;
+                long long tiles_built = 0;
+                long long mismatches = 0;
+                long long sampled = 0;
+                std::vector<int> col_x(static_cast<std::size_t>(hm.width));
+                for (int i = 0; i < hm.width; ++i)
+                {
+                    col_x[static_cast<std::size_t>(i)] = i;
+                }
+                std::vector<std::uint16_t> got(static_cast<std::size_t>(hm.width), 0);
+                for (std::size_t k = 0; k < e.height_maps.size() && k < mapdata::kMaxSurfaces; ++k)
+                {
+                    std::vector<std::uint8_t> plane_raw;
+                    const std::wstring pp = widen(maps_dir + "/" + e.height_maps[k]);
+                    const pngdec::Result pr = pngdec::decode(pp.c_str(), pngdec::kGray16, plane_raw);
+                    ++g_checks;
+                    if (!pr.ok() || pr.width != hm.width || pr.height != hm.height)
+                    {
+                        ++g_failures;
+                        std::printf("  FAIL  %s did not decode to %dx%d\n",
+                                    e.height_maps[k].c_str(), hm.width, hm.height);
+                        break;
+                    }
+                    const std::uint16_t* src =
+                        reinterpret_cast<const std::uint16_t*>(plane_raw.data());
+                    mapdata::build_plane(hm.layer[k], src, hm.width, hm.height);
+                    hm.count = static_cast<int>(k + 1);
+                    tiles_built += hm.layer[k].tiles;
+
+                    // 37 rows, prime-strided so the sample is not aligned to the
+                    // 128-px block grid.
+                    for (int row = 0; row < 37; ++row)
+                    {
+                        const int sy = (row * 4093) % hm.height;
+                        const bool any =
+                            hm.gather_row(static_cast<int>(k), sy, col_x.data(), hm.width, got.data());
+                        bool want_any = false;
+                        const std::uint16_t* want_row =
+                            src + static_cast<std::size_t>(sy) * static_cast<std::size_t>(hm.width);
+                        for (int x = 0; x < hm.width; ++x)
+                        {
+                            want_any = want_any || want_row[x] != 0;
+                            if (got[static_cast<std::size_t>(x)] != want_row[x])
+                            {
+                                ++mismatches;
+                            }
+                        }
+                        if (any != want_any)
+                        {
+                            ++mismatches;
+                        }
+                        ++sampled;
+                    }
+                }
+                CHECK_EQ(mismatches, 0);
+                CHECK(sampled > 0);
+                CHECK_EQ(tiles_built, static_cast<long long>(tiles));
+                // The manifest's `height_tile_ram_bytes` is the block PAYLOAD; the
+                // runtime also holds one int32 per block slot as the index, which is
+                // 0.05 % on top and is what makes the two numbers differ.
+                const double tiles_total = number_in_chapter(e.key, "height_tiles_128_total", 0.0);
+                CHECK(tiles_total > 0.0);
+                CHECK_EQ(static_cast<long long>(hm.bytes()),
+                         static_cast<long long>(tile_ram + tiles_total * 4.0));
+                CHECK_EQ(static_cast<long long>(hm.dense_bytes()),
+                         static_cast<long long>(dense_ram));
+                std::printf("    %s end to end: %d plane(s) built, %lld block(s) = %llu MB "
+                            "(manifest says %.0f blocks / %.0f MB), %lld row(s) gathered "
+                            "byte-for-byte\n",
+                            e.key.c_str(), hm.count, tiles_built,
+                            static_cast<unsigned long long>(hm.bytes() / (1024 * 1024)), tiles,
+                            tile_ram / (1024.0 * 1024.0), sampled);
+            }
+
+            std::printf("  %s: composite %dx%d, %llu opaque px (%.0f %%), z0 %lld lit px, "
+                        "codes %d..%d of %d, step %.2f uu, requantise shift %.2f uu, "
+                        "%.0f tiles = %.0f MB resident against %.0f MB dense\n",
+                        e.key.c_str(), cr.width, cr.height,
+                        static_cast<unsigned long long>(opaque),
+                        100.0 * static_cast<double>(opaque) / static_cast<double>(total_px), lit,
+                        code_lo, code_hi, z_code_max, step, shift, tiles,
+                        tile_ram / (1024.0 * 1024.0), dense_ram / (1024.0 * 1024.0));
         }
     }
 
@@ -4000,6 +4644,8 @@ int main(int argc, char** argv)
     test_chapter_id();
     test_marker_chapter_filter();
     test_map_manifest(markers_dir);
+    test_height_planes();
+    test_map_assets(markers_dir);
     test_config_keys(markers_dir);
     test_config_rewrite(markers_dir);
     test_absence();

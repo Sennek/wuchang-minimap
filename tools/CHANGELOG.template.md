@@ -79,6 +79,24 @@ Entries accumulate here and become the next version's section when it is cut.
   show a row with no name.
 
 ### Changed
+- **The download is a third smaller and the map looks exactly the same.** The map files
+  went from 41 MB to 26 MB: the background picture now ships with a fixed set of 256
+  greys instead of a full-colour one (it only ever used about 650 of them), and the
+  floor heights are stored a little more coarsely - by about 4 to 12 game units, where
+  the mod treats anything within 200 units as the floor you are standing on. Nothing
+  about what is drawn changes.
+- **The mod uses about 250 MB less memory while you play.** The floor-height data for
+  the chapter you are in is kept in memory so the minimap can slice it, and three
+  quarters of it was empty space - the map's own bounding box, outside the walkable
+  area. Only the parts that have a floor in them are loaded now: 86 MB for chapter 1
+  instead of 343 MB, and 47 to 74 MB for the others.
+- **The log now says how long the map took to load, and how much it is using.** One
+  line per chapter, plus one per picture, so a "the map takes ages to come back after a
+  loading screen" report can be answered with a number instead of a guess.
+- **A half-updated install says so instead of showing an empty map.** If the map files
+  and the mod DLL are from different versions, the mod now refuses the map and names
+  both versions in the log. Before, it would have drawn every floor at the wrong height,
+  which looks exactly like a map with nothing on it.
 
 ## 1.0.0 - 2026-09-03
 

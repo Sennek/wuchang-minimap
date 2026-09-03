@@ -10,6 +10,7 @@
 #include <format>
 
 #include "mapmanifest.hpp"
+#include "pngdecode.hpp"
 #include "breadcrumb.hpp"
 #include "mmstate.hpp"
 
@@ -111,113 +112,33 @@ namespace mapdata
         }
 
         //==============================================================================
-        // PNG -> RGBA8 via WIC
+        // PNG -> pixels
         //==============================================================================
         //
-        // WIC rather than a vendored stb_image: it is part of Windows, needs no new
-        // third-party code, and handles the 8-bit RGBA PNGs build_map.py writes
-        // directly. This runs on the loop thread, so the ~90 MB decode never stalls
-        // Present.
+        // The WIC decode itself lives in pngdecode.hpp - pure Windows, no UE4SS - so
+        // tests/markers_test.cpp can put a SHIPPED PNG through exactly this path on
+        // the build machine. What is left here is the logging and the timing, which
+        // are the mod's business and not the decoder's.
+        //
+        // It runs on the loop thread, so the decode never stalls Present.
 
-        // `channels`: 4 -> 32bpp RGBA (the Z-shaded composite), 2 -> 16bpp gray (one
-        // height plane; WIC gives native-endian uint16 per pixel, i.e. little-endian
-        // in memory on x64, which is what `HeightMaps::plane` wants), 1 -> 8bpp gray.
-        bool decode_raw(const std::wstring& path, int channels, int& out_w, int& out_h,
-                        std::vector<std::uint8_t>& out_pixels)
+        // Returns the wall time the decode took, in ms, or a negative value on
+        // failure - so a caller can log "how long did the map cost" (C.15) without
+        // timing the call itself at every site.
+        double decode_raw_ms(const std::wstring& path, int channels, int& out_w, int& out_h,
+                             std::vector<std::uint8_t>& out_pixels)
         {
-            // The loop thread may or may not already have COM up; RPC_E_CHANGED_MODE
-            // just means someone else picked the other apartment model, which is fine
-            // for WIC. Deliberately never uninitialised - we do not own this thread.
-            const HRESULT co = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-            if (FAILED(co) && co != RPC_E_CHANGED_MODE)
+            const std::uint64_t t0 = ::GetTickCount64();
+            const pngdec::Result r = pngdec::decode(path.c_str(), channels, out_pixels);
+            if (!r.ok())
             {
-                mm::logf(L"maps: CoInitializeEx failed (0x{:08X})", static_cast<unsigned>(co));
-                return false;
+                mm::logf(L"maps: PNG decode of {} failed (0x{:08X})", path,
+                         static_cast<unsigned>(r.hr));
+                return -1.0;
             }
-
-            IWICImagingFactory* factory = nullptr;
-            IWICBitmapDecoder* decoder = nullptr;
-            IWICBitmapFrameDecode* frame = nullptr;
-            IWICFormatConverter* converter = nullptr;
-            bool ok = false;
-
-            HRESULT hr = ::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                            IID_PPV_ARGS(&factory));
-            if (SUCCEEDED(hr))
-            {
-                hr = factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
-                                                        WICDecodeMetadataCacheOnDemand, &decoder);
-            }
-            if (SUCCEEDED(hr))
-            {
-                hr = decoder->GetFrame(0, &frame);
-            }
-            UINT w = 0;
-            UINT h = 0;
-            if (SUCCEEDED(hr))
-            {
-                hr = frame->GetSize(&w, &h);
-            }
-            if (SUCCEEDED(hr) && (w == 0 || h == 0 || w > 16384 || h > 16384))
-            {
-                mm::logf(L"maps: refusing a {}x{} image", w, h);
-                hr = E_FAIL;
-            }
-            if (SUCCEEDED(hr))
-            {
-                hr = factory->CreateFormatConverter(&converter);
-            }
-            if (SUCCEEDED(hr))
-            {
-                // GUID_WICPixelFormat32bppRGBA, not BGRA: the ImGui DX12 backend's
-                // sampler and our DXGI_FORMAT_R8G8B8A8_UNORM texture both want RGBA.
-                const WICPixelFormatGUID want = channels == 1   ? GUID_WICPixelFormat8bppGray
-                                                : channels == 2 ? GUID_WICPixelFormat16bppGray
-                                                                : GUID_WICPixelFormat32bppRGBA;
-                hr = converter->Initialize(frame,
-                                           want,
-                                           WICBitmapDitherTypeNone,
-                                           nullptr,
-                                           0.0,
-                                           WICBitmapPaletteTypeCustom);
-            }
-            if (SUCCEEDED(hr))
-            {
-                const UINT stride = w * static_cast<UINT>(channels);
-                out_w = static_cast<int>(w);
-                out_h = static_cast<int>(h);
-                out_pixels.resize(static_cast<std::size_t>(stride) * h);
-                hr = converter->CopyPixels(nullptr, stride, static_cast<UINT>(out_pixels.size()),
-                                           out_pixels.data());
-                ok = SUCCEEDED(hr);
-            }
-            if (!ok)
-            {
-                mm::logf(L"maps: PNG decode of {} failed (0x{:08X})", path, static_cast<unsigned>(hr));
-            }
-
-            if (converter != nullptr)
-            {
-                converter->Release();
-            }
-            if (frame != nullptr)
-            {
-                frame->Release();
-            }
-            if (decoder != nullptr)
-            {
-                decoder->Release();
-            }
-            if (factory != nullptr)
-            {
-                factory->Release();
-            }
-            return ok;
-        }
-
-        bool decode_png(const std::wstring& path, PendingImage& out)
-        {
-            return decode_raw(path, out.channels, out.width, out.height, out.pixels);
+            out_w = r.width;
+            out_h = r.height;
+            return static_cast<double>(::GetTickCount64() - t0);
         }
 
         std::wstring widen(std::string_view narrow)
@@ -266,8 +187,8 @@ namespace mapdata
             return path;
         }
 
-        // Decodes one chapter's 16-bit height planes. Returns nullptr when nothing
-        // usable came back; it logs why.
+        // Decodes one chapter's height planes into the sparse block store. Returns
+        // nullptr when nothing usable came back; it logs why.
         HeightMaps* decode_heights(const Chapter& ch, const mapmanifest::Entry& e)
         {
             auto hm = std::make_unique<HeightMaps>();
@@ -278,6 +199,7 @@ namespace mapdata
             hm->px_per_uu = ch.px_per_uu;
             hm->z_min = static_cast<float>(e.z_min);
             hm->z_max = static_cast<float>(e.z_max);
+            hm->z_code_max = e.z_code_max;
 
             if (hm->z_max <= hm->z_min)
             {
@@ -289,15 +211,23 @@ namespace mapdata
                 return nullptr;
             }
 
+            // C.15: the whole decode is ~430 MB of PNG work and nothing measured it,
+            // so "the map takes a while to appear" had no number attached. Every
+            // plane and the composite are timed, and the per-plane line also carries
+            // what the block store allocated for it - which is the only place the
+            // 26 % occupancy is visible on a player's machine.
+            double total_ms = 0.0;
+            std::vector<std::uint8_t> raw;
             for (std::size_t k = 0; k < ch.height_files.size() && k < kMaxSurfaces; ++k)
             {
                 int w = 0;
                 int h = 0;
-                std::vector<std::uint8_t> raw;
-                if (!decode_raw(png_path(ch.height_files[k]), 2, w, h, raw))
+                const double ms = decode_raw_ms(png_path(ch.height_files[k]), 2, w, h, raw);
+                if (ms < 0.0)
                 {
                     break; // a gap in the planes would misorder the surfaces
                 }
+                total_ms += ms;
                 if (hm->width == 0)
                 {
                     hm->width = w;
@@ -305,7 +235,7 @@ namespace mapdata
                 }
                 else if (w != hm->width || h != hm->height)
                 {
-                    mm::logf(L"maps: height plane z{} is {}x{} but z0 is {}x{} - stopping here",
+                    mm::logf(L"maps: height plane {} is {}x{} but the first is {}x{} - stopping here",
                              k,
                              w,
                              h,
@@ -313,11 +243,36 @@ namespace mapdata
                              hm->height);
                     break;
                 }
-                const std::size_t n_px = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
-                hm->plane[k].resize(n_px);
-                std::memcpy(hm->plane[k].data(), raw.data(), n_px * sizeof(std::uint16_t));
+                if (raw.size() < static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 2u)
+                {
+                    mm::logf(L"maps: height plane {} decoded {} byte(s) for {}x{} - refusing it",
+                             k,
+                             raw.size(),
+                             w,
+                             h);
+                    break;
+                }
+                const std::uint64_t t0 = ::GetTickCount64();
+                build_plane(hm->layer[k], reinterpret_cast<const std::uint16_t*>(raw.data()),
+                            w, h);
+                const double tile_ms = static_cast<double>(::GetTickCount64() - t0);
+                total_ms += tile_ms;
                 hm->count = static_cast<int>(k + 1);
+                mm::logf(L"maps:   plane {} {}x{} decoded in {:.0f} ms, tiled in {:.0f} ms -> "
+                         L"{}/{} tile(s) of {} px, {} KB (dense would be {} KB)",
+                         k,
+                         w,
+                         h,
+                         ms,
+                         tile_ms,
+                         hm->layer[k].tiles,
+                         hm->layer[k].tile.size(),
+                         kTilePx,
+                         hm->layer[k].bytes() / 1024,
+                         (static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 2u) / 1024);
             }
+            raw.clear();
+            raw.shrink_to_fit();
 
             if (hm->count == 0)
             {
@@ -327,46 +282,87 @@ namespace mapdata
                 return nullptr;
             }
 
-            // SANITY CHECK ON THE BYTE ORDER. PNG stores 16-bit samples big-endian;
-            // WIC's 16bppGray converter hands them back in native (little-endian)
-            // order, but a decoder that did not would produce codes that are
-            // byte-swapped garbage - and the only symptom would be a map that looks
-            // like noise. So decode plane 0's actual Z range and log it: it must land
-            // inside [z_min, z_max] and be broad. A swapped buffer shows up immediately
-            // as a range that fills the whole span with a nonsense distribution.
+            // SANITY CHECK ON THE BYTE ORDER AND THE QUANTISATION. PNG stores 16-bit
+            // samples big-endian; WIC's 16bppGray converter hands them back in native
+            // (little-endian) order, but a decoder that did not would produce codes
+            // that are byte-swapped garbage - and the only symptom would be a map that
+            // looks like noise. Since schema /4 that is a hard test rather than a
+            // plausibility one: the codes only go up to `z_code_max` (4095), and 4095
+            // byte-swapped is 65295, so ONE swapped pixel puts the maximum out of
+            // range. Decode plane 0's actual Z range and lit count and log both.
             float lo = hm->z_max;
             float hi = hm->z_min;
             std::size_t lit = 0;
-            for (std::uint16_t code : hm->plane[0])
+            int code_hi = 0;
+            const HeightPlane& p0 = hm->layer[0];
+            for (std::int32_t idx : p0.tile)
             {
-                if (code == 0)
+                if (idx < 0)
                 {
                     continue;
                 }
-                const float z = hm->decode(code);
-                lo = z < lo ? z : lo;
-                hi = z > hi ? z : hi;
-                ++lit;
+                const std::uint16_t* b = p0.data.data() + static_cast<std::size_t>(idx) * kTileCells;
+                for (int i = 0; i < kTileCells; ++i)
+                {
+                    const std::uint16_t code = b[i];
+                    if (code == 0)
+                    {
+                        continue;
+                    }
+                    code_hi = code > code_hi ? code : code_hi;
+                    const float z = hm->decode(code);
+                    lo = z < lo ? z : lo;
+                    hi = z > hi ? z : hi;
+                    ++lit;
+                }
             }
-            mm::logf(L"maps: height plane z0 has {} lit pixel(s) ({}%), decoded Z {:.0f}..{:.0f} "
-                     L"(manifest says {:.0f}..{:.0f}) - a byte-swapped decode would not fit this",
+            const std::size_t px_total =
+                static_cast<std::size_t>(hm->width) * static_cast<std::size_t>(hm->height);
+            mm::logf(L"maps: height plane 0 has {} lit pixel(s) ({}%), codes up to {} of {}, "
+                     L"decoded Z {:.0f}..{:.0f} (manifest says {:.0f}..{:.0f}) - a byte-swapped "
+                     L"decode would not fit this",
                      lit,
-                     hm->plane[0].empty() ? 0 : (lit * 100) / hm->plane[0].size(),
+                     px_total == 0 ? 0 : (lit * 100) / px_total,
+                     code_hi,
+                     hm->z_code_max,
                      static_cast<double>(lo),
                      static_cast<double>(hi),
                      static_cast<double>(hm->z_min),
                      static_cast<double>(hm->z_max));
-            mm::logf(L"maps: decoded {}/{} height plane(s) of \"{}\" ({}x{}, Z {:.0f}..{:.0f} "
-                     L"in steps of {:.1f} uu), {} MB of RAM, 0 MB of VRAM",
+            if (code_hi > hm->z_code_max)
+            {
+                mm::logf(L"maps: plane 0 carries code {} but maps.json says the maximum is {} - "
+                         L"this asset is not the format this build reads; refusing it",
+                         code_hi,
+                         hm->z_code_max);
+                return nullptr;
+            }
+            const std::size_t dense = hm->dense_bytes();
+            const std::size_t sparse = hm->bytes();
+            mm::logf(L"maps: decoded {}/{} height plane(s) of \"{}\" in {:.0f} ms ({}x{}, Z "
+                     L"{:.0f}..{:.0f} in steps of {:.2f} uu), {} tile(s) of {} px = {} MB of RAM "
+                     L"instead of {} MB dense, 0 MB of VRAM",
                      hm->count,
                      ch.height_files.size(),
                      widen(ch.key),
+                     total_ms,
                      hm->width,
                      hm->height,
                      static_cast<double>(hm->z_min),
                      static_cast<double>(hm->z_max),
                      static_cast<double>(hm->z_step()),
-                     hm->bytes() / (1024 * 1024));
+                     hm->tiles(),
+                     kTilePx,
+                     sparse / (1024 * 1024),
+                     dense / (1024 * 1024));
+            // The shim in mapdata.hpp: until src/overlay.cpp gathers its rows through
+            // HeightMaps::gather_row(), its slicer sees eight empty dense planes and
+            // draws nothing. Said here, at every chapter load, because a missing
+            // minimap with no explanation is the one failure this project keeps paying
+            // for twice.
+            mm::log(L"maps: NOTE the height slicer in overlay.cpp still reads the dense "
+                    L"`plane[]` member, which is empty in this build - apply "
+                    L"docs/overlay-sparse-planes.patch or the minimap will show no floor");
             return hm.release();
         }
 
@@ -433,15 +429,13 @@ namespace mapdata
         {
             return;
         }
-        if (parsed_manifest.schema != mapmanifest::kSchema)
-        {
-            // Not fatal: every field this build reads was already in schema /3 and a
-            // newer writer is expected to stay additive. Say so once, loudly.
-            mm::logf(L"maps: manifest schema is \"{}\", this build was written for \"{}\" - "
-                     L"reading it anyway",
-                     widen(parsed_manifest.schema),
-                     widen(mapmanifest::kSchema));
-        }
+        // NOTE there is no "schema mismatch, reading it anyway" branch any more:
+        // mapmanifest::parse() refuses a manifest whose schema is not exactly
+        // kSchema and puts the reason in `problems`, which was logged above. The /3
+        // and /4 height encodings differ by a factor of sixteen in one scale, so
+        // reading the wrong one draws a map that looks empty rather than reporting a
+        // version error - and an asset tree that old cannot be fixed by being
+        // tolerant of it.
         if (parsed_manifest.chapters.empty())
         {
             mm::log(L"maps: no usable chapter in the manifest");
@@ -482,7 +476,8 @@ namespace mapdata
                  ch.height_files.size()) /
                 (1024u * 1024u);
             mm::logf(L"maps: chapter \"{}\" (chapter {}) {} {}x{} px @ {:.4f} px/uu, world X {:.0f}..{:.0f} "
-                     L"Y {:.0f}..{:.0f}, Z {:.0f}..{:.0f}, {} height plane(s), {} MB when resident",
+                     L"Y {:.0f}..{:.0f}, Z {:.0f}..{:.0f} in {}-bit steps of {:.2f} uu, "
+                     L"{} height plane(s), {} MB when resident",
                      widen(ch.key),
                      ch.chapter,
                      widen(ch.image),
@@ -495,6 +490,8 @@ namespace mapdata
                      ch.max_y,
                      e.z_min,
                      e.z_max,
+                     e.z_bits,
+                     e.z_step_uu(),
                      ch.height_files.size(),
                      resident_mb);
             parsed.push_back(std::move(ch));
@@ -623,6 +620,12 @@ namespace mapdata
         g_pending_chapter = -1;
         Chapter& ch = (*g_chapters_mut)[static_cast<std::size_t>(index)];
         const mapmanifest::Entry& entry = g_manifest.chapters[static_cast<std::size_t>(index)];
+        // C.15: the load is the largest and slowest thing this mod does and nothing
+        // measured it, so "the map took a while to come back after a loading screen"
+        // arrived with no number attached. Every plane is timed inside
+        // decode_heights(); this is the wall clock for the whole chapter, composite
+        // included, logged once at normal level.
+        const std::uint64_t load_t0 = ::GetTickCount64();
         HeightMaps* planes = decode_heights(ch, entry);
         ch.heights = planes;
         g_active.store(index, std::memory_order_release);
@@ -637,8 +640,14 @@ namespace mapdata
             auto img = std::make_unique<PendingImage>();
             img->chapter_key = ch.key;
             img->channels = 4;
-            if (decode_png(png_path(ch.image), *img))
+            int cw = 0;
+            int chh = 0;
+            const double composite_ms =
+                decode_raw_ms(png_path(ch.image), img->channels, cw, chh, img->pixels);
+            if (composite_ms >= 0.0)
             {
+                img->width = cw;
+                img->height = chh;
                 if (img->width != ch.image_width || img->height != ch.image_height)
                 {
                     mm::logf(L"maps: {} is {}x{} but maps.json says {}x{} - trusting the PNG",
@@ -650,11 +659,12 @@ namespace mapdata
                     ch.image_width = img->width;
                     ch.image_height = img->height;
                 }
-                mm::logf(L"maps: decoded the composite {} -> {}x{} RGBA ({} MB){}",
+                mm::logf(L"maps: decoded the composite {} -> {}x{} RGBA ({} MB) in {:.0f} ms{}",
                          widen(ch.image),
                          img->width,
                          img->height,
                          img->pixels.size() / (1024 * 1024),
+                         composite_ms,
                          planes == nullptr ? L" - the only thing there is to draw" : L"");
                 pending_push(std::move(img));
             }
@@ -664,6 +674,13 @@ namespace mapdata
             mm::log(L"maps: composite texture not loaded (fallback_use_composite = 0); the height "
                     L"slicer does not need it");
         }
+        mm::logf(L"maps: chapter \"{}\" ready in {} ms ({} height plane(s) + {}, {} MB resident)",
+                 widen(ch.key),
+                 ::GetTickCount64() - load_t0,
+                 planes != nullptr ? planes->count : 0,
+                 mm::config().fallback_use_composite || planes == nullptr ? L"the composite"
+                                                                        : L"no composite",
+                 planes != nullptr ? planes->bytes() / (1024 * 1024) : std::size_t{0});
     }
 
     std::unique_ptr<PendingImage> take_pending()

@@ -9,7 +9,17 @@
 // The chapter ships a MULTI-SURFACE HEIGHT MAP: `max_surfaces` (8) 16-bit grayscale
 // PNGs of identical size and bounds, where plane k at pixel (px, py) holds the Z of
 // the k-th walkable surface at that spot, lowest first, quantised over the chapter's
-// [z_min, z_max] into 1..65535 - and 0 means "no surface here".
+// [z_min, z_max] into 1..`z_code_max` - and 0 means "no surface here".
+//
+// TWELVE BITS, not sixteen (schema /4). Only 1..4095 of the 16-bit sample is used,
+// which is a third off the PNG (32.07 -> 21.23 MB over the five chapters) for a Z
+// step of 3.98..12.44 uu depending on the chapter's span. The slicer's floor
+// tolerance is 200 uu and its fade 800 uu, so the worst error (+/- 6.22 uu) is 3 %
+// of the decision it feeds; the pipeline's own storey separator is 250 uu. The
+// divisor comes from the manifest (`z_code_max`), so a wider asset needs no code
+// change - and the schema string is checked for EXACT equality, because a /3 plane
+// read here would put every surface sixteen times too low and look like an empty map
+// rather than like a version error. See src/mapmanifest.hpp.
 //
 // EIGHT, not four: four slots hold 93 % of the chapter's lit pixels but only 50 % of
 // them in the Digong-spiral / Hanguang-temple block, where a pixel can carry up to
@@ -61,6 +71,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -82,6 +93,63 @@ namespace mapdata
     // The multi-surface height map
     //==================================================================================
 
+    // How big a block the sparse store allocates in. 128 px measured best of the
+    // sizes tried: chapter 1's eight planes light 2 766 of 10 608 blocks (26.1 %),
+    // and 512 px measured WORSE than dense cropping did (see lessons.md) because the
+    // lit pixels are scattered through every building on the map, not clustered.
+    constexpr int kTilePx = 128;
+    constexpr int kTileShift = 7; // 1 << 7 == kTilePx
+    constexpr int kTileMask = kTilePx - 1;
+    constexpr int kTileCells = kTilePx * kTilePx;
+
+    // ONE SURFACE LAYER, STORED SPARSELY.
+    //
+    // The dense version resized eight `width * height` uint16 planes: 343 MB for
+    // chapter 1, of which 74 % was the code 0 - "no surface here" - because a
+    // chapter's walkable area is a quarter of its bounding box and the deeper
+    // surfaces are rarer still (plane 0 lights 62 % of the blocks, plane 7 lights
+    // 3 %). Only the non-empty blocks are allocated now, and `tile` is a
+    // block-resolution index into them: 86 MB for chapter 1, 47..74 MB for the rest.
+    //
+    // Nothing about the runtime's ANSWERS changes - an absent block reads as code 0,
+    // which is what a dense plane held there - so this is purely an allocation
+    // change. What does change is the ACCESS: a row of the picture crosses several
+    // blocks, so there is no `row pointer` to hand out any more and readers gather a
+    // row through `HeightMaps::gather_row()`.
+    struct HeightPlane
+    {
+        static constexpr std::int32_t kEmpty = -1;
+
+        // tile[ty * ntx + tx] = the block's index in `data`, or kEmpty.
+        std::vector<std::int32_t> tile;
+        // kTileCells codes per present block, in `tile`'s index order.
+        std::vector<std::uint16_t> data;
+        int ntx = 0;
+        int nty = 0;
+        int tiles = 0; // present blocks
+
+        bool empty() const
+        {
+            return tiles == 0;
+        }
+
+        std::size_t bytes() const
+        {
+            return data.size() * sizeof(std::uint16_t) + tile.size() * sizeof(std::int32_t);
+        }
+
+        const std::uint16_t* block(int tx, int ty) const
+        {
+            if (tx < 0 || ty < 0 || tx >= ntx || ty >= nty)
+            {
+                return nullptr;
+            }
+            const std::int32_t idx = tile[static_cast<std::size_t>(ty) * ntx + tx];
+            return idx < 0 ? nullptr
+                           : data.data() + static_cast<std::size_t>(idx) * kTileCells;
+        }
+    };
+
     struct HeightMaps
     {
         int width = 0;
@@ -94,15 +162,35 @@ namespace mapdata
         double px_per_uu = 0.0;
         float z_min = 0.0f;
         float z_max = 0.0f;
+        // Highest height code the asset uses; 0 always means "no surface". From
+        // maps.json (`z_code_max`), 4095 since schema /4.
+        int z_code_max = mapmanifest::kZCodeMax;
 
-        // plane[k][py * width + px]; 0 = no surface, else 1 + round(t * 65534).
+        // The sparse planes, lowest surface first. Read through gather_row().
+        HeightPlane layer[kMaxSurfaces];
+
+        // COMPATIBILITY SHIM - REMOVE WITH THE overlay.cpp CALL-SITE CHANGE.
+        //
+        // The dense member `plane[k]` is what src/overlay.cpp's slicer still reads
+        // (`hm.plane[k].data()` plus `plane + sy * hm.width`), and that expression
+        // cannot be made to work over a block store: a row crosses several blocks and
+        // the absent ones have no address. It is kept, EMPTY, so the file still
+        // compiles, and marked deprecated so the three call sites are named in the
+        // build output. An empty plane makes the slicer skip that surface, so the
+        // minimap draws nothing until docs/overlay-sparse-planes.patch is applied -
+        // which is deliberately the loudest failure available from this side of the
+        // boundary, and mapdata.cpp logs it at every chapter load as well.
+        [[deprecated("the height planes are sparse now - gather a row with "
+                     "HeightMaps::gather_row(); apply docs/overlay-sparse-planes.patch")]]
         std::vector<std::uint16_t> plane[kMaxSurfaces];
 
         // uu per quantisation step - reported once, so a "the gradient is banded"
         // report can be checked against the asset instead of the renderer.
         float z_step() const
         {
-            return count > 0 ? (z_max - z_min) / 65534.0f : 0.0f;
+            return count > 0 && z_code_max > 1
+                       ? (z_max - z_min) / static_cast<float>(z_code_max - 1)
+                       : 0.0f;
         }
 
         float decode(std::uint16_t code) const
@@ -118,14 +206,155 @@ namespace mapdata
             py = (max_x - wx) * px_per_uu;
         }
 
+        bool plane_empty(int k) const
+        {
+            return k < 0 || k >= kMaxSurfaces || layer[k].empty();
+        }
+
+        // GATHER ONE DESTINATION ROW of surface `k`: `dst[i]` becomes the height code
+        // at source pixel (`col_x[i]`, `sy`), or 0 where `col_x[i]` is negative (the
+        // caller's "outside the asset" marker) or the block is absent.
+        //
+        // This is the block store's answer to `plane + sy * width`, and it is the same
+        // amount of memory traffic: `n` codes read per plane per row, one index lookup
+        // per block crossed. `col_x` is monotonic in practice, but nothing here needs
+        // it to be - the inner run only requires that consecutive columns in the same
+        // block are consecutive in `col_x`, which is what makes the common case one
+        // index lookup per 128 columns.
+        //
+        // Returns false when the row contributed no surface at all (every code 0),
+        // which lets the caller skip the whole row: in the deeper planes that is the
+        // overwhelming majority of rows.
+        bool gather_row(int k, int sy, const int* col_x, int n, std::uint16_t* dst) const
+        {
+            if (dst == nullptr || col_x == nullptr || n <= 0 || plane_empty(k) || sy < 0 ||
+                sy >= height)
+            {
+                return false;
+            }
+            const HeightPlane& p = layer[k];
+            const int ty = sy >> kTileShift;
+            if (ty >= p.nty)
+            {
+                return false;
+            }
+            const std::int32_t* trow = p.tile.data() + static_cast<std::size_t>(ty) * p.ntx;
+            const std::size_t row_off = static_cast<std::size_t>(sy & kTileMask) * kTilePx;
+            bool any = false;
+            int i = 0;
+            while (i < n)
+            {
+                const int sx = col_x[i];
+                if (sx < 0)
+                {
+                    dst[i] = 0;
+                    ++i;
+                    continue;
+                }
+                const int tx = sx >> kTileShift;
+                const std::int32_t idx = tx < p.ntx ? trow[tx] : HeightPlane::kEmpty;
+                if (idx < 0)
+                {
+                    do
+                    {
+                        dst[i] = 0;
+                        ++i;
+                    } while (i < n && col_x[i] >= 0 && (col_x[i] >> kTileShift) == tx);
+                    continue;
+                }
+                const std::uint16_t* src =
+                    p.data.data() + static_cast<std::size_t>(idx) * kTileCells + row_off;
+                do
+                {
+                    const std::uint16_t code = src[col_x[i] & kTileMask];
+                    dst[i] = code;
+                    any = any || code != 0;
+                    ++i;
+                } while (i < n && col_x[i] >= 0 && (col_x[i] >> kTileShift) == tx);
+            }
+            return any;
+        }
+
+        // One code, for the odd single lookup (diagnostics, the self-test). Not the
+        // path to use per pixel - gather_row() amortises the index lookup.
+        std::uint16_t code_at(int k, int px, int py) const
+        {
+            if (plane_empty(k) || px < 0 || py < 0 || px >= width || py >= height)
+            {
+                return 0;
+            }
+            const std::uint16_t* b = layer[k].block(px >> kTileShift, py >> kTileShift);
+            return b == nullptr
+                       ? std::uint16_t{0}
+                       : b[static_cast<std::size_t>(py & kTileMask) * kTilePx + (px & kTileMask)];
+        }
+
+        // The first lit pixel of surface `k`, for a caller that needs a window with
+        // geometry in it (the slicer self-test). False when the plane is empty.
+        bool first_lit(int k, int& out_px, int& out_py, std::uint16_t& out_code) const
+        {
+            if (plane_empty(k))
+            {
+                return false;
+            }
+            const HeightPlane& p = layer[k];
+            for (int ty = 0; ty < p.nty; ++ty)
+            {
+                for (int tx = 0; tx < p.ntx; ++tx)
+                {
+                    const std::uint16_t* b = p.block(tx, ty);
+                    if (b == nullptr)
+                    {
+                        continue;
+                    }
+                    for (int i = 0; i < kTileCells; ++i)
+                    {
+                        if (b[i] == 0)
+                        {
+                            continue;
+                        }
+                        const int px = (tx << kTileShift) + (i & kTileMask);
+                        const int py = (ty << kTileShift) + (i >> kTileShift);
+                        if (px >= width || py >= height)
+                        {
+                            continue; // the block's padding past the image edge
+                        }
+                        out_px = px;
+                        out_py = py;
+                        out_code = b[i];
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        int tiles() const
+        {
+            int n = 0;
+            for (int i = 0; i < kMaxSurfaces; ++i)
+            {
+                n += layer[i].tiles;
+            }
+            return n;
+        }
+
         std::size_t bytes() const
         {
             std::size_t n = 0;
             for (int i = 0; i < kMaxSurfaces; ++i)
             {
-                n += plane[i].size() * sizeof(std::uint16_t);
+                n += layer[i].bytes();
             }
             return n;
+        }
+
+        // What the dense planes WOULD have cost, for the log line that reports the
+        // saving. Nothing allocates this.
+        std::size_t dense_bytes() const
+        {
+            return static_cast<std::size_t>(width) * static_cast<std::size_t>(height) *
+                   sizeof(std::uint16_t) * static_cast<std::size_t>(count > 0 ? count : 0);
         }
 
         bool ready() const
@@ -133,6 +362,89 @@ namespace mapdata
             return count > 0 && width > 0 && height > 0 && z_max > z_min;
         }
     };
+
+    // Fills one sparse plane from a DENSE decoded buffer (`w * h` height codes,
+    // row-major), allocating only the 128-px blocks that carry a surface.
+    //
+    // Inline and here rather than inside mapdata.cpp because it is half of the
+    // format: tests/markers_test.cpp builds a plane with THIS function and then
+    // compares gather_row() against the dense buffer it came from, which is the only
+    // way to prove the block indexing without launching the game. The dense buffer is
+    // transient - the caller frees it per plane - so the peak cost of a chapter load
+    // is the sparse set so far plus one dense plane (~43 MB), not the ~340 MB the
+    // dense store used to hold for the whole session.
+    inline void build_plane(HeightPlane& out, const std::uint16_t* src, int w, int h)
+    {
+        out = HeightPlane{};
+        if (src == nullptr || w <= 0 || h <= 0)
+        {
+            return;
+        }
+        out.ntx = (w + kTilePx - 1) / kTilePx;
+        out.nty = (h + kTilePx - 1) / kTilePx;
+        out.tile.assign(static_cast<std::size_t>(out.ntx) * static_cast<std::size_t>(out.nty),
+                        HeightPlane::kEmpty);
+
+        // Two passes: mark the non-empty blocks, then allocate exactly that many and
+        // copy. One pass with push_back would reallocate a ~50 MB vector repeatedly
+        // on the loop thread.
+        for (int ty = 0; ty < out.nty; ++ty)
+        {
+            const int y0 = ty << kTileShift;
+            const int y1 = (y0 + kTilePx) < h ? (y0 + kTilePx) : h;
+            for (int tx = 0; tx < out.ntx; ++tx)
+            {
+                const int x0 = tx << kTileShift;
+                const int x1 = (x0 + kTilePx) < w ? (x0 + kTilePx) : w;
+                bool lit = false;
+                for (int y = y0; y < y1 && !lit; ++y)
+                {
+                    const std::uint16_t* row = src + static_cast<std::size_t>(y) * w;
+                    for (int x = x0; x < x1; ++x)
+                    {
+                        if (row[x] != 0)
+                        {
+                            lit = true;
+                            break;
+                        }
+                    }
+                }
+                if (lit)
+                {
+                    out.tile[static_cast<std::size_t>(ty) * out.ntx + tx] = out.tiles++;
+                }
+            }
+        }
+        if (out.tiles == 0)
+        {
+            return;
+        }
+        // Zero-initialised, so the padding of an edge block - and any hole inside a
+        // block - reads as "no surface", exactly as the dense plane did.
+        out.data.assign(static_cast<std::size_t>(out.tiles) * kTileCells, 0);
+        for (int ty = 0; ty < out.nty; ++ty)
+        {
+            const int y0 = ty << kTileShift;
+            const int y1 = (y0 + kTilePx) < h ? (y0 + kTilePx) : h;
+            for (int tx = 0; tx < out.ntx; ++tx)
+            {
+                const std::int32_t idx = out.tile[static_cast<std::size_t>(ty) * out.ntx + tx];
+                if (idx < 0)
+                {
+                    continue;
+                }
+                const int x0 = tx << kTileShift;
+                const int x1 = (x0 + kTilePx) < w ? (x0 + kTilePx) : w;
+                std::uint16_t* dst = out.data.data() + static_cast<std::size_t>(idx) * kTileCells;
+                for (int y = y0; y < y1; ++y)
+                {
+                    std::memcpy(dst + static_cast<std::size_t>(y - y0) * kTilePx,
+                                src + static_cast<std::size_t>(y) * w + x0,
+                                static_cast<std::size_t>(x1 - x0) * sizeof(std::uint16_t));
+                }
+            }
+        }
+    }
 
     struct Chapter
     {

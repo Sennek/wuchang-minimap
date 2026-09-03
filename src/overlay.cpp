@@ -991,21 +991,76 @@ namespace overlay
                    msg == WM_CHAR || msg == WM_SETCURSOR;
         }
 
+        // ESCAPE, as a WINDOW MESSAGE. WM_CHAR carries the control character (0x1B), the
+        // key messages carry the virtual key - two different numbers that happen to be
+        // the same one here, which is worth spelling out rather than relying on.
+        bool is_escape_message(UINT msg, WPARAM wparam)
+        {
+            if (msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP)
+            {
+                return wparam == VK_ESCAPE;
+            }
+            if (msg == WM_CHAR || msg == WM_SYSCHAR)
+            {
+                return wparam == 0x1B;
+            }
+            return false;
+        }
+
+        bool is_escape_key_down(UINT msg, WPARAM wparam)
+        {
+            return (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == VK_ESCAPE;
+        }
+
         // RAW INPUT. UE reads the mouse through WM_INPUT, not only through WM_MOUSEMOVE,
         // so swallowing the window messages alone still lets the camera turn under an
         // open overlay. One RID_HEADER read says which device a message came from, which
         // is what lets the panel take the mouse and leave the keyboard with the game.
-        bool is_raw_mouse_message(UINT msg, LPARAM lparam)
+        //
+        // A RAW KEYBOARD packet needs a second, bigger read (RID_INPUT) to see WHICH key
+        // it was, so the header is read first and the payload only for the keyboard - the
+        // mouse half must not pay for the Esc half, it runs on every mouse move.
+        struct RawKind
         {
+            bool mouse = false;
+            bool keyboard = false;
+            bool escape = false; // keyboard && VKey == VK_ESCAPE
+        };
+
+        RawKind raw_kind(UINT msg, LPARAM lparam, bool want_key)
+        {
+            RawKind out{};
             if (msg != WM_INPUT)
             {
-                return false;
+                return out;
             }
             RAWINPUTHEADER hdr{};
             UINT size = sizeof(hdr);
             const UINT got = ::GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_HEADER, &hdr, &size,
                                                sizeof(RAWINPUTHEADER));
-            return got == sizeof(RAWINPUTHEADER) && hdr.dwType == RIM_TYPEMOUSE;
+            if (got != sizeof(RAWINPUTHEADER))
+            {
+                return out;
+            }
+            out.mouse = hdr.dwType == RIM_TYPEMOUSE;
+            out.keyboard = hdr.dwType == RIM_TYPEKEYBOARD;
+            if (out.keyboard && want_key)
+            {
+                RAWINPUT ri{};
+                UINT rsize = sizeof(ri);
+                if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &ri, &rsize,
+                                      sizeof(RAWINPUTHEADER)) != static_cast<UINT>(-1) &&
+                    ri.header.dwType == RIM_TYPEKEYBOARD)
+                {
+                    out.escape = ri.data.keyboard.VKey == VK_ESCAPE;
+                }
+            }
+            return out;
+        }
+
+        bool is_raw_mouse_message(UINT msg, LPARAM lparam)
+        {
+            return raw_kind(msg, lparam, false).mouse;
         }
 
         LRESULT CALLBACK hooked_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -1028,6 +1083,16 @@ namespace overlay
                     // canvas deliberately reads raw keys rather than focusing a widget.
                     // The map's own toggle key is sampled with GetAsyncKeyState on the
                     // loop thread, so it still closes the map from here.
+                    // ESC. The map already swallows every key, so the game's pause menu
+                    // never saw it; what was missing is the other half - the key that a
+                    // player expects to CLOSE a full-screen overlay. Closing is a plain
+                    // store on the same flag the swallow condition reads, so the input is
+                    // back on the very next message (lessons.md: nothing latched here).
+                    if (is_escape_key_down(msg, wparam))
+                    {
+                        mm::g_map_open.store(false);
+                        mm::log(L"full map closed (Esc)");
+                    }
                     if (is_mouse_message(msg) || is_keyboard_message(msg) || msg == WM_INPUT)
                     {
                         return 1;
@@ -1044,8 +1109,24 @@ namespace overlay
                     // GetAsyncKeyState on the loop thread - always closes it again.
                     const ImGuiIO& io = ImGui::GetIO();
                     const bool capturing = mm::g_key_capture.load(std::memory_order_relaxed);
-                    if (is_mouse_message(msg) || msg == WM_SETCURSOR ||
-                        is_raw_mouse_message(msg, lparam) ||
+
+                    // ESC CLOSES THE PANEL, AND THE GAME MUST NOT SEE IT. Without this
+                    // the one key everybody presses to dismiss a settings window opened
+                    // the game's pause menu on top of it. Esc is therefore swallowed in
+                    // all four shapes it can arrive in - WM_KEYDOWN / WM_KEYUP / WM_CHAR
+                    // and a raw-input keyboard packet - and the key-DOWN closes the panel.
+                    //
+                    // While a binding capture is armed, Esc keeps its existing meaning
+                    // (cancel the capture, handled on the render thread) and the panel
+                    // stays open; the capture already swallows the whole keyboard.
+                    const RawKind raw = raw_kind(msg, lparam, true);
+                    const bool esc = is_escape_message(msg, wparam) || raw.escape;
+                    if (esc && !capturing && is_escape_key_down(msg, wparam))
+                    {
+                        mm::g_panel_open.store(false);
+                        mm::log(L"settings panel closed (Esc)");
+                    }
+                    if (is_mouse_message(msg) || msg == WM_SETCURSOR || raw.mouse || esc ||
                         ((io.WantCaptureKeyboard || capturing) && is_keyboard_message(msg)) ||
                         (capturing && msg == WM_INPUT))
                     {

@@ -427,6 +427,13 @@ namespace markers
             bool found = false;
             bool persist = false;
             bool pos_valid = false;
+            // The health read answered "zero". The entry is KEPT rather than erased,
+            // because erasing it only removes the live position - the enemy's authored
+            // spawn point is in the static DB too, and with the live entry gone the
+            // corpse's static twin was drawn again at the spawn point, which is exactly
+            // the "dead enemies do not disappear" the rule exists to fix. A dead entry
+            // suppresses both halves at the publish point.
+            bool dead = false;
             std::uint64_t round = 0;
         };
 
@@ -456,6 +463,27 @@ namespace markers
         // Static NPC / merchant markers hidden this round because the person has moved
         // on (their level is loaded and no live actor answers for the id).
         std::atomic<int> g_mobile_hidden{0};
+
+        // ---- THE PER-ROUND CENSUSES ------------------------------------------------
+        //
+        // Every one of these is a GAUGE - "how many right now" - not a running total.
+        // The distinction is the whole reason `shrines lit` read 0 for a session with
+        // nineteen lit shrines: a total of new marks is zero on every session after the
+        // one that discovered them. A gauge cannot lie that way.
+        std::atomic<int> g_shrine_lit_found{0}; // shrines in this chapter that are lit AND found
+        std::atomic<int> g_shrine_total{0};     // shrines in this chapter's static DB
+        std::atomic<int> g_mobile_static{0};      // npc/merchant static markers considered
+        std::atomic<int> g_mobile_live{0};        // npc/merchant live entries held
+        std::atomic<int> g_mobile_joined{0};      // static markers whose live twin answered
+        std::atomic<int> g_mobile_superseded{0};  // ... and stands more than kMovedUu away
+        std::atomic<int> g_mobile_level_known{0}; // ... whose own level is resident
+        std::atomic<int> g_dead_hidden{0};        // markers suppressed because they are dead
+
+        // How far a live person has to stand from their authored position before the
+        // census calls the static hint superseded. 3 m: further than the metre or two
+        // of idle wander, closer than any relocation worth reporting.
+        constexpr double kMovedUu = 300.0;
+        constexpr double kMovedUuSq = kMovedUu * kMovedUu;
 
         //==============================================================================
         // Live copies of the sweep's caps (game thread)
@@ -614,14 +642,45 @@ namespace markers
         // name is `Health` when a character carries several stats. The winning property
         // NAME is cached per UClass*, so the walk happens once per class per world and
         // every read after that is the same three cached-offset raw reads as before.
+        //
+        // WHAT WENT WRONG THE SECOND TIME (run 2, 2026-09-03): stage one now SUCCEEDED -
+        // `health component route on 'Impl_BaseAIController_C' is property 'Health' ->
+        // Health (class ExtendedStatComponent_C)` - and the read failed one stage later,
+        // at `the component has no float 'Current' / 'Max'`. Same root cause as the first
+        // failure, one level down: `Current=` / `Max=` in the recon dump are the LUA
+        // SCRIPT'S OWN LABELS. `WuchangRecon/Scripts/main.lua` reads
+        // `read_prop_str(s, "CurrentValue")` and `read_prop_str(s, "MaxValue")` and prints
+        // them as `Current=%s Max=%s`, so the dump never named a property at all. The
+        // component's reflected floats are `CurrentValue` / `MaxValue`.
+        //
+        // Both spellings are tried, in that order, and the winning PAIR is cached per
+        // component class - so a build that renames them costs one extra pair of missed
+        // lookups per class instead of the whole feature. And the failure diagnostic for
+        // this stage now lists the class' FOUR-BYTE properties with the float each one
+        // reads back, because "it has no property called X" is only useful next to the
+        // list of properties it does have.
 
         constexpr const wchar_t* kHealthProp = L"Health";
         constexpr const wchar_t* kStatComponentSubstr = L"ExtendedStatComponent";
+
+        // The candidate spellings of the component's two reflected floats, best first.
+        struct HealthFields
+        {
+            const wchar_t* current;
+            const wchar_t* max;
+        };
+        constexpr HealthFields kHealthFields[] = {
+            {L"CurrentValue", L"MaxValue"}, // the names main.lua actually reads
+            {L"Current", L"Max"},           // what the dump's labels looked like
+        };
+        constexpr int kHealthFieldCount = static_cast<int>(std::size(kHealthFields));
 
         // UClass* -> the property name that reaches its health component; an empty
         // string means "walked, and there is none". Keyed on the class, dropped with
         // every other world-keyed cache in drop_caches().
         std::unordered_map<const void*, std::wstring> g_health_prop;
+        // Component UClass* -> index into kHealthFields, or -1 for "no pair reads back".
+        std::unordered_map<const void*, int> g_health_fields;
         bool g_health_diag_done = false; // the one-shot failure diagnostic has been printed
 
         // The object's class name, or an empty string. Safe on a captured object only.
@@ -640,7 +699,8 @@ namespace markers
         // run has to be able to fix this without a third one - every pointer-sized
         // property on the class whose value is a live UObject, with its class and object
         // name. That table is the answer to "what is this component actually called".
-        void log_health_failure(UObject* owner, const uer::ClassLayout* layout, const wchar_t* stage)
+        void log_health_failure(UObject* owner, const uer::ClassLayout* layout, const wchar_t* stage,
+                                bool list_floats = false)
         {
             if (g_health_diag_done)
             {
@@ -648,13 +708,42 @@ namespace markers
             }
             g_health_diag_done = true;
             const std::wstring cls = safe_class_name(owner);
-            mm::logf(L"markers: HEALTH READ FAILED on class '{}' at stage '{}' - listing the object-valued "
+            mm::logf(L"markers: HEALTH READ FAILED on class '{}' at stage '{}' - listing the {} "
                      L"properties of that class so the route can be fixed:",
                      cls.empty() ? std::wstring{L"<unknown>"} : cls,
-                     stage);
+                     stage,
+                     list_floats ? L"four-byte" : L"object-valued");
             if (layout == nullptr)
             {
                 mm::log(L"markers:   (the class has no readable property layout at all)");
+                return;
+            }
+            // THE FLOAT TABLE. When the component is in hand and only the field names
+            // are wrong, the answer is the list of its four-byte properties and what
+            // each one reads back - a `MaxValue` of 269.1 beside a `CurrentValue` of
+            // 269.1 names the pair without a third play session.
+            if (list_floats)
+            {
+                int floats = 0;
+                for (const auto& kv : layout->props)
+                {
+                    if (kv.second.size != static_cast<int>(sizeof(float)) || floats >= 64)
+                    {
+                        continue;
+                    }
+                    float v = 0.0f;
+                    if (!uer::read_prop(layout, owner, kv.first.c_str(), v,
+                                        static_cast<int>(sizeof(float))))
+                    {
+                        continue;
+                    }
+                    ++floats;
+                    mm::logf(L"markers:   {} = {}", kv.first, static_cast<double>(v));
+                }
+                if (floats == 0)
+                {
+                    mm::log(L"markers:   (that class has no readable four-byte property)");
+                }
                 return;
             }
             int listed = 0;
@@ -769,6 +858,58 @@ namespace markers
             return found;
         }
 
+        // The component's current / max health, whichever pair of names this build
+        // spells them with. The winning pair is cached per component class, and the
+        // route is logged once so the next log says which spelling won.
+        bool read_health_pair(UObject* health, const uer::ClassLayout* hl, float& current, float& max)
+        {
+            if (health == nullptr || hl == nullptr)
+            {
+                return false;
+            }
+            const void* cls = health->GetClassPrivate();
+            const auto cached = cls != nullptr ? g_health_fields.find(cls) : g_health_fields.end();
+            if (cached != g_health_fields.end())
+            {
+                if (cached->second < 0)
+                {
+                    return false;
+                }
+                const HealthFields& f = kHealthFields[cached->second];
+                return uer::read_prop(hl, health, f.current, current, static_cast<int>(sizeof(float))) &&
+                       uer::read_prop(hl, health, f.max, max, static_cast<int>(sizeof(float)));
+            }
+            int winner = -1;
+            for (int i = 0; i < kHealthFieldCount; ++i)
+            {
+                const HealthFields& f = kHealthFields[i];
+                if (uer::read_prop(hl, health, f.current, current, static_cast<int>(sizeof(float))) &&
+                    uer::read_prop(hl, health, f.max, max, static_cast<int>(sizeof(float))))
+                {
+                    winner = i;
+                    break;
+                }
+            }
+            if (cls != nullptr)
+            {
+                if (g_health_fields.size() > g_class_cache_max)
+                {
+                    g_health_fields.clear();
+                }
+                g_health_fields.emplace(cls, winner);
+                if (winner >= 0)
+                {
+                    mm::logf(L"markers: health fields on '{}' are '{}' / '{}' (read {} / {})",
+                             safe_class_name(health),
+                             kHealthFields[winner].current,
+                             kHealthFields[winner].max,
+                             static_cast<double>(current),
+                             static_cast<double>(max));
+                }
+            }
+            return winner >= 0;
+        }
+
         bool controller_says_dead(UObject* controller, bool& answered)
         {
             answered = false;
@@ -786,10 +927,12 @@ namespace markers
             const uer::ClassLayout* hl = g_layouts.get(health);
             float current = 0.0f;
             float max = 0.0f;
-            if (!uer::read_prop(hl, health, L"Current", current, static_cast<int>(sizeof(float))) ||
-                !uer::read_prop(hl, health, L"Max", max, static_cast<int>(sizeof(float))))
+            if (!read_health_pair(health, hl, current, max))
             {
-                log_health_failure(health, hl, L"the component has no float 'Current' / 'Max'");
+                log_health_failure(health, hl,
+                                   L"the component has no float 'CurrentValue' / 'MaxValue' (nor "
+                                   L"'Current' / 'Max')",
+                                   true);
                 return false;
             }
             if (!std::isfinite(current) || !std::isfinite(max) || max <= 0.0f)
@@ -1054,9 +1197,33 @@ namespace markers
                 }
                 if (answered && dead)
                 {
+                    // MARKED DEAD, NOT ERASED. See LiveEntry::dead: an enemy's spawn
+                    // point is a static marker, so erasing the live entry brings the
+                    // static one back at the spawn point instead of clearing the map.
+                    // The entry is refreshed every round the corpse is still in the
+                    // object array and ages out with everything else once a GC takes it
+                    // (at which point a respawned enemy's spawn hint is right again).
                     const std::string& dead_id = id_for(actor);
-                    if (g_live.erase(dead_id) != 0)
+                    const auto it = g_live.find(dead_id);
+                    if (it != g_live.end())
                     {
+                        if (!it->second.dead)
+                        {
+                            g_dead_dropped.fetch_add(1, std::memory_order_relaxed);
+                        }
+                        it->second.dead = true;
+                        it->second.pos_valid = false; // never drawn, wherever it fell
+                        it->second.round = g_round;
+                    }
+                    else if (g_live.size() < g_live_max)
+                    {
+                        LiveEntry d{};
+                        d.cls = s.name;
+                        d.cat = s.cat;
+                        d.persist = s.persist;
+                        d.dead = true;
+                        d.round = g_round;
+                        g_live.emplace(dead_id, d);
                         g_dead_dropped.fetch_add(1, std::memory_order_relaxed);
                     }
                     return;
@@ -1474,6 +1641,17 @@ namespace markers
 
                 // A gauge, not a total: it is "how many are hidden right now".
                 g_mobile_hidden.store(0, std::memory_order_relaxed);
+                // The per-round censuses, all gauges. `shrines lit` used to be a
+                // count of NEW marks, which reads as 0 for every session after the
+                // first - the shrines were already in the found set, so the else-if
+                // that increments it never ran. See the g_shrine_lit_marks comment.
+                int lit_found = 0;
+                int lit_total = 0;
+                int mobile_static = 0;
+                int mobile_joined = 0;
+                int mobile_superseded = 0;
+                int mobile_level_known = 0;
+                int dead_hidden = 0;
                 dst.reserve(g_chapter_subset.size() + g_live.size());
                 for (const int mi : g_chapter_subset)
                 {
@@ -1508,22 +1686,65 @@ namespace markers
                     {
                         d.flags |= kFlagFound;
                         g_found_static[idx] = 1;
-                        g_shrine_lit_marks.fetch_add(1, std::memory_order_relaxed);
                         note_found(sm.id);
                     }
+                    // ---- THE SHRINE CENSUS IS A GAUGE, NOT A COUNT OF NEW MARKS ----
+                    //
+                    // `shrines lit` was incremented inside the else-if above, i.e. only
+                    // when a shrine was marked for the FIRST time. The found file is
+                    // persistent, so on the second and every later session every lit
+                    // shrine is already in the found set, the else-if never runs, and
+                    // the diagnostic reads `shrines lit 0` beside `shrines: 19 unlocked`
+                    // in the same log - which is what a broken join looks like. Counted
+                    // here instead, over the chapter's shrines, whichever branch marked
+                    // them: `lit N of M` answers "did the join work" directly.
+                    if (sm.cat == mdb::Cat::Shrine)
+                    {
+                        ++lit_total;
+                        if (shrine_is_lit(sm.id) && (d.flags & kFlagFound) != 0)
+                        {
+                            ++lit_found;
+                        }
+                    }
                     const LiveEntry* live = g_live_of_static[idx];
+
+                    // ---- A CORPSE HIDES ITS SPAWN POINT TOO -----------------------
+                    //
+                    // An enemy's authored position is in the static DB as well, so
+                    // dropping only the live entry redrew the dead enemy at its spawn
+                    // point. Whatever the health read declared dead is not on the map
+                    // at all until the corpse is collected and the entry ages out.
+                    if (live != nullptr && live->dead)
+                    {
+                        ++dead_hidden;
+                        continue;
+                    }
+
+                    // ---- "LIVE" MEANS AN ACTOR ANSWERED THIS ROUND, WITH A POSITION -
+                    //
+                    // For a category that does not move, a twin from a round or two ago
+                    // is as good as this round's - that debounce is what stops a chest
+                    // flickering when the sweep races level streaming. For a category
+                    // that DOES move it is not: a stale entry, or one whose position
+                    // read failed (`pos_valid == false` leaves the AUTHORED position in
+                    // place), used to be published with kFlagLive set - and kFlagLive is
+                    // exactly what the x-ray takes as permission to draw a person
+                    // through a wall. That is how "NPC 2 m (found)" survived at a spot
+                    // the NPC had left even after the static hint itself was dropped.
+                    const bool live_here = live != nullptr && live->pos_valid &&
+                                           (live->round == g_round || !mdb::is_mobile_category(sm.cat));
                     if (live != nullptr)
                     {
-                        d.flags |= kFlagLive;
-                        if (live->pos_valid)
-                        {
-                            d.x = live->x;
-                            d.y = live->y;
-                            d.z = live->z;
-                        }
                         if (live->found)
                         {
                             d.flags |= kFlagFound;
+                        }
+                        if (live_here)
+                        {
+                            d.flags |= kFlagLive;
+                            d.x = live->x;
+                            d.y = live->y;
+                            d.z = live->z;
                         }
                     }
 
@@ -1542,12 +1763,39 @@ namespace markers
                     const int mli = db->marker_level[idx];
                     mdb::MobileTwinFacts mob{};
                     mob.mobile = mdb::is_mobile_category(sm.cat);
-                    mob.live_twin_this_round = live != nullptr && live->round == g_round;
+                    // A twin that answered but could not be located is NOT an answer -
+                    // it leaves the authored position on the entry, which is the thing
+                    // this rule exists to stop being drawn.
+                    mob.live_twin_this_round = live != nullptr && live->round == g_round && live->pos_valid;
                     if (mli >= 0 && g_level_known[static_cast<std::size_t>(mli)] != 0)
                     {
                         mob.level_known = true;
                         mob.full_round_since_level_load =
                             g_round > g_level_round[static_cast<std::size_t>(mli)];
+                    }
+                    // The per-round census behind the `people -` log line. It is what
+                    // tells the next in-game run WHICH half of the join is failing:
+                    // a static count with no joins means the ids do not match, joins
+                    // with no supersedes means nobody has moved, and level_known 0
+                    // means the hide rule can never fire whatever else is true.
+                    if (mob.mobile)
+                    {
+                        ++mobile_static;
+                        if (mob.live_twin_this_round)
+                        {
+                            ++mobile_joined;
+                            const double dx = live->x - sm.x;
+                            const double dy = live->y - sm.y;
+                            const double dz = live->z - sm.z;
+                            if (dx * dx + dy * dy + dz * dz > kMovedUuSq)
+                            {
+                                ++mobile_superseded;
+                            }
+                        }
+                        if (mob.level_known)
+                        {
+                            ++mobile_level_known;
+                        }
                     }
                     if (mdb::mobile_twin_is_stale(mob))
                     {
@@ -1601,14 +1849,26 @@ namespace markers
                     copy_id(d.label, sizeof(d.label), sm.name.empty() ? sm.cls : sm.name);
                     dst.push_back(d);
                 }
+                g_shrine_lit_found.store(lit_found, std::memory_order_relaxed);
+                g_shrine_total.store(lit_total, std::memory_order_relaxed);
+                g_mobile_static.store(mobile_static, std::memory_order_relaxed);
+                g_mobile_joined.store(mobile_joined, std::memory_order_relaxed);
+                g_mobile_superseded.store(mobile_superseded, std::memory_order_relaxed);
+                g_mobile_level_known.store(mobile_level_known, std::memory_order_relaxed);
+                g_dead_hidden.store(dead_hidden, std::memory_order_relaxed);
             }
 
             // Live actors the static DB does not know about - which is everything
             // until tools/markers has produced markers/<chapter>.json, and always the
             // enemies.
+            int mobile_live = 0;
             for (const auto& kv : g_live)
             {
-                if (!kv.second.pos_valid)
+                if (mdb::is_mobile_category(kv.second.cat))
+                {
+                    ++mobile_live;
+                }
+                if (!kv.second.pos_valid || kv.second.dead)
                 {
                     continue; // no usable position and no static entry to fall back on
                 }
@@ -1645,6 +1905,7 @@ namespace markers
                 dst.push_back(d);
             }
 
+            g_mobile_live.store(mobile_live, std::memory_order_relaxed);
             g_published_count.store(static_cast<int>(dst.size()), std::memory_order_relaxed);
             g_live_count.store(static_cast<int>(g_live.size()), std::memory_order_relaxed);
             g_slot_published.store(g_slot_next, std::memory_order_release);
@@ -2250,13 +2511,31 @@ namespace markers
                 // five together answer "which rule fired and which one cannot read its
                 // property": a climbing `health unknown` with zero dead/defeated means
                 // the Health component route is wrong on this build.
-                mm::logf(L"markers: rules - shrines lit {}, met {}, bosses defeated {}, "
-                         L"dead enemies dropped {}, health unknown {}, moved npc/merchant hidden {}",
+                mm::logf(L"markers: rules - shrines lit {} of {} ({} marked this session), met {}, "
+                         L"bosses defeated {}, dead hidden {} ({} newly dead), health unknown {}",
+                         g_shrine_lit_found.load(std::memory_order_relaxed),
+                         g_shrine_total.load(std::memory_order_relaxed),
                          g_shrine_lit_marks.load(std::memory_order_relaxed),
                          g_met_marks.load(std::memory_order_relaxed),
                          g_boss_defeated.load(std::memory_order_relaxed),
+                         g_dead_hidden.load(std::memory_order_relaxed),
                          g_dead_dropped.load(std::memory_order_relaxed),
-                         g_health_unknown.load(std::memory_order_relaxed),
+                         g_health_unknown.load(std::memory_order_relaxed));
+                // THE NPC / MERCHANT CENSUS, one line, so the next run pins which half
+                // of the join fails. static = markers of those two categories in the
+                // chapter; live = live entries held; joined = static markers a live
+                // actor answered for THIS round with a usable position; superseded =
+                // those standing more than 3 m from where they were authored (i.e. the
+                // person has walked); level = static markers whose own sublevel is
+                // resident (the hide rule cannot fire below that); hidden = static hints
+                // dropped because the level is resident and nobody answered.
+                mm::logf(L"markers: people - static {}, live {}, joined {}, superseded {}, "
+                         L"level resident {}, hidden {}",
+                         g_mobile_static.load(std::memory_order_relaxed),
+                         g_mobile_live.load(std::memory_order_relaxed),
+                         g_mobile_joined.load(std::memory_order_relaxed),
+                         g_mobile_superseded.load(std::memory_order_relaxed),
+                         g_mobile_level_known.load(std::memory_order_relaxed),
                          g_mobile_hidden.load(std::memory_order_relaxed));
             }
         }
@@ -2319,7 +2598,8 @@ namespace markers
         shr::drop_caches();
         g_layouts.clear();
         g_class_spec.clear();
-        g_health_prop.clear(); // the discovered route is keyed to a UClass* of that world
+        g_health_prop.clear();   // the discovered route is keyed to a UClass* of that world
+        g_health_fields.clear(); // ditto: the field spelling is cached per component class
         g_id_cache.clear();
         g_live.clear();
         // Both are keyed to the world that just went: a level name means nothing in the

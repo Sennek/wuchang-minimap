@@ -4148,8 +4148,14 @@ namespace overlay
                 // have lit, a boss you have beaten, an NPC you have met and a merchant
                 // you have traded with are still landmarks worth seeing through a wall -
                 // and hiding them was why holding the key near a shrine showed nothing.
+                // A DEFEATED BOSS IS NOT A LANDMARK EITHER. It is not loot - the map
+                // keeps its hollow "found" glyph, which is the point of the collection
+                // tracker - but an arena you have cleared has nothing in it to see
+                // through a wall, and a boss label hanging over an empty arena is the
+                // same lie as an NPC label at a spot the NPC has left.
                 if (!cfg.highlight_show_found && fc.found &&
-                    is_loot_category(static_cast<mdb::Cat>(fc.cat)))
+                    (is_loot_category(static_cast<mdb::Cat>(fc.cat)) ||
+                     static_cast<mdb::Cat>(fc.cat) == mdb::Cat::Boss))
                 {
                     continue;
                 }

@@ -239,7 +239,7 @@ highlight_radius = 3000
 ; Which categories. Same names as markers_categories: shrine, chest, pickup, boss,
 ; elite, enemy, npc, note, door, ladder, lift, fog_gate, hidden, other (or
 ; `all` / `none`).
-highlight_categories = chest,pickup,shrine,boss,npc
+highlight_categories = chest,pickup,shrine,boss,npc,note
 highlight_labels = 1
 
 ; Glyph radius on screen, in pixels, and whether the name + distance is drawn.

@@ -2344,10 +2344,9 @@ namespace overlay
         // THE CATEGORIES "found" MEANS SOMETHING FOR. Collecting a chest, a pickup or a
         // hidden item consumes it, so a found one is finished business. Every other
         // category's "found" is a visit, not a removal, and the thing is still there.
-        bool is_loot_category(mdb::Cat cat)
-        {
-            return cat == mdb::Cat::Chest || cat == mdb::Cat::Pickup || cat == mdb::Cat::Hidden;
-        }
+        // The rule itself now lives in mdb::is_loot_cat, beside the x-ray gate that is
+        // its only caller and beside the offline test that pins it.
+        using mdb::is_loot_cat;
 
         void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge,
                                bool hollow = false)
@@ -4076,11 +4075,20 @@ namespace overlay
         {
             bool active = false;
             bool have_camera = false;
-            int considered = 0;
+            int gated = 0;      // rows the gate looked at (= the published buffer)
+            int considered = 0; // rows that passed the gate
             int drawn = 0;
             int on_screen = 0;
             int edge = 0;
             int labels = 0; // how many actually got a label after the overlap pass
+            // Why the others were dropped, indexed by mdb::XrayDrop. [Drawn] is unused.
+            int dropped[5]{};
+            // ...and the reasons that are about DRAWING rather than about the marker: a
+            // point behind the camera or off screen with the rim arrows switched off, and
+            // one faded past invisibility by the distance ramp.
+            int no_projection = 0;
+            int offscreen_no_arrow = 0;
+            int faded_out = 0;
             std::uint64_t cam_age_ms = 0;
         };
 
@@ -4184,41 +4192,27 @@ namespace overlay
             // that are actually drawn, where metres are needed.
             const double radius = static_cast<double>(cfg.highlight_radius);
             const float radius2 = static_cast<float>(radius * radius);
+            // ONE GATE, AND IT NAMES ITS REASON. "It is on the minimap and not in the
+            // x-ray" has been reported twice (a chest in a house 11 m away; a pre-placed
+            // pickup lying on the ground in front of the player) and each guess at which
+            // condition did it costs a play session. The conditions now live in the pure,
+            // offline-tested mdb::xray_gate() and every rejection is counted, so the
+            // per-round line below answers it from the log instead.
             for (const FrameCand& fc : g_frame_cands)
             {
-                if (!mdb::cat_enabled(cfg.highlight_categories, static_cast<mdb::Cat>(fc.cat)))
+                const mdb::Cat cat = static_cast<mdb::Cat>(fc.cat);
+                mdb::XrayFacts xf{};
+                xf.cat = cat;
+                xf.cat_selected = mdb::cat_enabled(cfg.highlight_categories, cat);
+                xf.found = fc.found;
+                xf.show_found = cfg.highlight_show_found;
+                xf.live = (fc.flags & markers::kFlagLive) != 0;
+                xf.within_radius = fc.d2_3d <= radius2;
+                ++g_hl_debug.gated;
+                const mdb::XrayDrop drop = mdb::xray_gate(xf);
+                if (drop != mdb::XrayDrop::Drawn)
                 {
-                    continue;
-                }
-                // FOUND ONLY HIDES LOOT. A chest you have opened is noise; a shrine you
-                // have lit, a boss you have beaten, an NPC you have met and a note
-                // you have read are still landmarks worth seeing through a wall -
-                // and hiding them was why holding the key near a shrine showed nothing.
-                // A DEFEATED BOSS IS NOT A LANDMARK EITHER. It is not loot - the map
-                // keeps its hollow "found" glyph, which is the point of the collection
-                // tracker - but an arena you have cleared has nothing in it to see
-                // through a wall, and a boss label hanging over an empty arena is the
-                // same lie as an NPC label at a spot the NPC has left.
-                if (!cfg.highlight_show_found && fc.found &&
-                    (is_loot_category(static_cast<mdb::Cat>(fc.cat)) ||
-                     static_cast<mdb::Cat>(fc.cat) == mdb::Cat::Boss))
-                {
-                    continue;
-                }
-                // PEOPLE ARE HIGHLIGHTED WHERE THEY ARE, OR NOT AT ALL. An NPC
-                // that has moved leaves the authored position behind, and
-                // seeing an "NPC 2 m" label through a wall at a spot the NPC has left is
-                // worse than seeing nothing: the whole point of the x-ray is that it
-                // tells you where a thing IS. publish_round already drops such a hint
-                // once its level is loaded; this covers the rest - a hint whose level is
-                // not resident is a guess, and a guess does not get drawn through walls.
-                if (mdb::is_mobile_category(static_cast<mdb::Cat>(fc.cat)) &&
-                    (fc.flags & markers::kFlagLive) == 0)
-                {
-                    continue;
-                }
-                if (fc.d2_3d > radius2)
-                {
+                    ++g_hl_debug.dropped[static_cast<int>(drop)];
                     continue;
                 }
                 cands.push_back(Cand{fc.d2_3d, fc.m});
@@ -4271,6 +4265,7 @@ namespace overlay
                 const proj::Result pr = proj::project(cam, m.x, m.y, m.z, screen_w, screen_h);
                 if (!pr.valid)
                 {
+                    ++g_hl_debug.no_projection;
                     continue;
                 }
 
@@ -4285,6 +4280,7 @@ namespace overlay
                 const int alpha = static_cast<int>((std::min)(1.0, (std::max)(0.0, a)) * 255.0 + 0.5);
                 if (alpha <= 4)
                 {
+                    ++g_hl_debug.faded_out;
                     continue;
                 }
                 const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
@@ -4309,6 +4305,7 @@ namespace overlay
                 }
                 if (!cfg.highlight_edge_arrows)
                 {
+                    ++g_hl_debug.offscreen_no_arrow;
                     continue;
                 }
                 // Off screen (or behind): an arrow on the rim pointing the way to turn.
@@ -4421,6 +4418,36 @@ namespace overlay
                     }
                     draw_label(dl, ImVec2{sh.sx, at_y}, text, sh.col, sh.alpha);
                     ++g_hl_debug.labels;
+                }
+            }
+
+            // ONE LINE PER SECOND WHILE THE KEY IS HELD, and only then. Every gate has a
+            // number, so "the chest is on the minimap but not in the x-ray" is answered
+            // by reading the log rather than by another in-game session. Throttled
+            // because this runs on the render thread once per Present (lessons.md).
+            {
+                static std::uint64_t last_log = 0;
+                if (now - last_log >= 1000)
+                {
+                    last_log = now;
+                    mm::logf(L"x-ray: {} published, dropped {} by category / {} found / {} not live / "
+                             L"{} out of radius ({:.0f} m); of {} left, {} drawn ({} on screen, "
+                             L"{} rim arrow, {} labelled), skipped {} behind the camera, {} off "
+                             L"screen with arrows off, {} faded out",
+                             g_hl_debug.gated,
+                             g_hl_debug.dropped[static_cast<int>(mdb::XrayDrop::Category)],
+                             g_hl_debug.dropped[static_cast<int>(mdb::XrayDrop::Found)],
+                             g_hl_debug.dropped[static_cast<int>(mdb::XrayDrop::Live)],
+                             g_hl_debug.dropped[static_cast<int>(mdb::XrayDrop::Radius)],
+                             radius / 100.0,
+                             g_hl_debug.considered,
+                             g_hl_debug.drawn,
+                             g_hl_debug.on_screen,
+                             g_hl_debug.edge,
+                             g_hl_debug.labels,
+                             g_hl_debug.no_projection,
+                             g_hl_debug.offscreen_no_arrow,
+                             g_hl_debug.faded_out);
                 }
             }
         }
@@ -6191,6 +6218,7 @@ namespace overlay
             const std::uint32_t elite = mdb::cat_bit(mdb::Cat::Elite);
             const std::uint32_t fog = mdb::cat_bit(mdb::Cat::FogGate);
             const std::uint32_t npc = mdb::cat_bit(mdb::Cat::Npc);
+            const std::uint32_t note = mdb::cat_bit(mdb::Cat::Note);
             const std::uint32_t door = mdb::cat_bit(mdb::Cat::Door);
             const std::uint32_t ladder = mdb::cat_bit(mdb::Cat::Ladder);
             const std::uint32_t lift = mdb::cat_bit(mdb::Cat::Lift);
@@ -6246,7 +6274,9 @@ namespace overlay
                 cfg.markers_clamp_to_edge = true;
                 cfg.compass_enabled = true;
                 cfg.compass_categories = shrine | boss | elite | fog | door | ladder | lift | npc;
-                cfg.highlight_categories = chest | pickup | shrine | boss | npc;
+                // `note` is in the x-ray set: a readable sign is exactly the thing you
+                // want pointed out while you are standing in front of one.
+                cfg.highlight_categories = chest | pickup | shrine | boss | npc | note;
                 break;
             }
         }

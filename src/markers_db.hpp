@@ -427,6 +427,93 @@ namespace mdb
         return f.level_known && f.full_round_since_level_load; // (c) / (d)
     }
 
+    //==========================================================================
+    // WHICH GATE DROPPED THIS MARKER FROM THE X-RAY? (pure, tested offline)
+    //==========================================================================
+    //
+    // The x-ray draws from the SAME published buffer as the minimap, so "it is on the
+    // minimap and not in the x-ray" is always one of a handful of extra conditions - and
+    // the user has now reported it twice (a chest in a house 11 m away, and a pre-placed
+    // pickup lying on the ground in front of them). Guessing which one costs a play
+    // session each time, so the gate is one function that NAMES its reason and the
+    // drawing code counts the reasons per round.
+    //
+    // The gate is deliberately the minimap's, plus the radius:
+    //   * `Category`  - `highlight_categories`, its own key on purpose (the x-ray is a
+    //                   different question from the map);
+    //   * `Found`     - only LOOT (a consumed thing) and a DEFEATED BOSS, and only while
+    //                   "Hide collected loot" is on. A lit shrine, a met NPC and a read
+    //                   note are still landmarks worth seeing through a wall;
+    //   * `Live`      - people only. A static hint for somebody who has walked away must
+    //                   never be drawn through a wall;
+    //   * `Radius`    - 3D distance from the PLAYER, the only gate the minimap has not
+    //                   got.
+    // Nothing else may be added here without a counter to go with it.
+    enum class XrayDrop : std::uint8_t
+    {
+        Drawn = 0,
+        Category,
+        Found,
+        Live,
+        Radius,
+    };
+
+    struct XrayFacts
+    {
+        Cat cat = Cat::Other;
+        bool cat_selected = false;  // cat_enabled(highlight_categories, cat)
+        bool found = false;         // the published row carries kFlagFound
+        bool show_found = false;    // !highlight_show_found is "hide collected loot"
+        bool live = false;          // the published row carries kFlagLive
+        bool within_radius = false; // 3D distance from the player <= highlight_radius
+    };
+
+    // Loot is a category where FINDING the thing consumes it, so a found one is noise.
+    constexpr bool is_loot_cat(Cat cat)
+    {
+        return cat == Cat::Chest || cat == Cat::Pickup || cat == Cat::Hidden;
+    }
+
+    constexpr XrayDrop xray_gate(const XrayFacts& f)
+    {
+        if (!f.cat_selected)
+        {
+            return XrayDrop::Category;
+        }
+        if (!f.show_found && f.found && (is_loot_cat(f.cat) || f.cat == Cat::Boss))
+        {
+            return XrayDrop::Found;
+        }
+        if (is_mobile_category(f.cat) && !f.live)
+        {
+            return XrayDrop::Live;
+        }
+        if (!f.within_radius)
+        {
+            return XrayDrop::Radius;
+        }
+        return XrayDrop::Drawn;
+    }
+
+    // For the diagnostic line.
+    constexpr const char* xray_drop_name(XrayDrop d)
+    {
+        switch (d)
+        {
+        case XrayDrop::Category:
+            return "category";
+        case XrayDrop::Found:
+            return "found";
+        case XrayDrop::Live:
+            return "not live";
+        case XrayDrop::Radius:
+            return "radius";
+        case XrayDrop::Drawn:
+        default:
+            return "drawn";
+        }
+    }
+
     struct ParseReport
     {
         std::string schema;      // the file's own "schema" string

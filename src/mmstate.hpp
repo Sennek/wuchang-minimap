@@ -385,10 +385,13 @@ namespace mm
         float highlight_radius = 3000.0f; // uu (30 m)
         // Loot plus the people and landmarks worth spotting through a wall. Everything
         // mdb knows about is selectable; this is only the shipped starting point.
+        // `Note` is in here because a readable sign is exactly the kind of thing you
+        // want the x-ray to point at while you are standing in front of it - the user
+        // asked for it after round 4.
         std::uint32_t highlight_categories =
             mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup) |
             mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Boss) |
-            mdb::cat_bit(mdb::Cat::Npc);
+            mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note);
         // Draw collected loot too. Only chests, pickups and hidden items are ever
         // suppressed by this: a lit shrine, a beaten boss or an NPC you have met is
         // still a landmark, and is highlighted whatever its found state.

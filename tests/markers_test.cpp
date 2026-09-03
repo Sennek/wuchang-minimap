@@ -2282,6 +2282,21 @@ namespace
             return;
         }
 
+        // THE SHIPPED X-RAY SET AND THE COMPILED DEFAULT MUST AGREE, and both must carry
+        // the readable notes (the user's round-4 call: a sign you are standing in front of
+        // is exactly what the x-ray should point at). The shipped file WINS over the
+        // compiled default for anyone who already has a config, which is why both halves
+        // are pinned here rather than one.
+        {
+            std::string header;
+            const bool have_header = read_file(root + "/src/mmstate.hpp", header);
+            CHECK(have_header);
+            CHECK(shipped.find("highlight_categories = chest,pickup,shrine,boss,npc,note") !=
+                  std::string::npos);
+            CHECK(header.find("mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note);") !=
+                  std::string::npos);
+        }
+
         const std::vector<std::string> player = cfgkeys::keys_of(cfgkeys::Tier::Player);
         const std::vector<std::string> advanced = cfgkeys::keys_of(cfgkeys::Tier::Advanced);
         const std::vector<std::string> dev_keys = cfgkeys::keys_of(cfgkeys::Tier::Dev);
@@ -2883,6 +2898,80 @@ namespace
             // 7: a twin is alive -> reset. 8: streak 1. 9: MARK. 10: streak 1.
             CHECK_EQ(marks, 2);
             CHECK_EQ(streak, 1);
+        }
+
+        section("which gate drops a marker from the x-ray");
+
+        {
+            // A chest 11 m away, in the x-ray set, not collected: it must be DRAWN. This
+            // is the exact case the user reported twice.
+            mdb::XrayFacts f{};
+            f.cat = mdb::Cat::Chest;
+            f.cat_selected = true;
+            f.within_radius = true;
+            CHECK(mdb::xray_gate(f) == mdb::XrayDrop::Drawn);
+
+            // ...and each way it can be dropped, one at a time, so a future extra
+            // condition cannot hide inside another one's counter.
+            mdb::XrayFacts g = f;
+            g.cat_selected = false;
+            CHECK(mdb::xray_gate(g) == mdb::XrayDrop::Category);
+
+            g = f;
+            g.within_radius = false;
+            CHECK(mdb::xray_gate(g) == mdb::XrayDrop::Radius);
+
+            g = f;
+            g.found = true; // an opened chest, with "hide collected loot" on
+            CHECK(mdb::xray_gate(g) == mdb::XrayDrop::Found);
+            g.show_found = true;
+            CHECK(mdb::xray_gate(g) == mdb::XrayDrop::Drawn);
+
+            // FOUND ONLY HIDES LOOT AND A DEFEATED BOSS. A lit shrine, a met NPC and a
+            // read note are landmarks, and hiding them is what made the x-ray look dead
+            // near a shrine in round 1.
+            for (int c = 0; c < mdb::kCatCount; ++c)
+            {
+                const auto cat = static_cast<mdb::Cat>(c);
+                mdb::XrayFacts h{};
+                h.cat = cat;
+                h.cat_selected = true;
+                h.within_radius = true;
+                h.found = true;
+                h.live = true; // so the people rule is not what answers
+                const bool expect_hidden = mdb::is_loot_cat(cat) || cat == mdb::Cat::Boss;
+                CHECK_EQ(mdb::xray_gate(h) == mdb::XrayDrop::Found, expect_hidden);
+            }
+
+            // A person is highlighted where they stand or not at all - and no other
+            // category may ever need the live flag, which is what used to keep static
+            // loot out of the x-ray in principle.
+            for (int c = 0; c < mdb::kCatCount; ++c)
+            {
+                const auto cat = static_cast<mdb::Cat>(c);
+                mdb::XrayFacts h{};
+                h.cat = cat;
+                h.cat_selected = true;
+                h.within_radius = true;
+                h.live = false;
+                CHECK_EQ(mdb::xray_gate(h) == mdb::XrayDrop::Live, mdb::is_mobile_category(cat));
+            }
+
+            // Order matters for the DIAGNOSTIC, not just for the answer: a marker that
+            // fails several gates is reported under the first one, so the counters add up
+            // to the published total.
+            g = f;
+            g.cat_selected = false;
+            g.within_radius = false;
+            g.found = true;
+            CHECK(mdb::xray_gate(g) == mdb::XrayDrop::Category);
+
+            // Every reason has a name for the log line.
+            CHECK_STR(mdb::xray_drop_name(mdb::XrayDrop::Category), "category");
+            CHECK_STR(mdb::xray_drop_name(mdb::XrayDrop::Found), "found");
+            CHECK_STR(mdb::xray_drop_name(mdb::XrayDrop::Live), "not live");
+            CHECK_STR(mdb::xray_drop_name(mdb::XrayDrop::Radius), "radius");
+            CHECK_STR(mdb::xray_drop_name(mdb::XrayDrop::Drawn), "drawn");
         }
 
         section("no user-facing label is ever a class name");

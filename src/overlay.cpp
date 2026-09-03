@@ -328,14 +328,17 @@ namespace overlay
             out.minimap_min_px *= s;
             out.minimap_arrow_min_px *= s;
             // THE TWO ZOOM KEYS (review B.12). `zoom_uu_per_px` and `map_zoom` are world
-            // units per SCREEN PIXEL, so leaving them alone means a 4K minimap - twice as
-            // many pixels across - shows twice the world radius at the same setting. That
-            // is a different view, not a bigger one, and it is not what "a config tuned at
-            // 1080p is correct at 4K" promises anywhere else in this function.
+            // units per SCREEN PIXEL, and the disc's SIZE is a fraction of the screen -
+            // so leaving them alone means a 4K minimap, twice as many pixels across,
+            // shows twice the world radius at the same setting. That is a different view,
+            // not a bigger one, and it is not what "a config tuned at 1080p is correct at
+            // 4K" promises anywhere else in this function.
             //
-            // Scaling them keeps the WORLD COVERAGE identical at every resolution: the
-            // disc is 2x the pixels and each pixel covers 2x the ground. `zoom_dpi_scaled
-            // = 0` restores 1.0.0's literal behaviour for anyone who preferred it.
+            // Coverage is pixels x uu-per-pixel, and the pixels went up by `s`, so the
+            // uu per pixel has to come DOWN by `s` to keep the coverage identical: the
+            // 4K disc is twice as wide and each of its pixels covers half as much ground,
+            // which is the same picture at twice the detail. `zoom_dpi_scaled = 0`
+            // restores 1.0.0's literal behaviour for anyone who preferred it.
             //
             // The zoom LADDER (minimap_zoom_presets) is deliberately not touched here: it
             // is the set of values the zoom key writes back into zoom_uu_per_px, i.e. a
@@ -346,9 +349,9 @@ namespace overlay
             // unscaled config on purpose (its filter chips write back into it, and a
             // scaled number must never reach the config file), so it applies the same
             // factor at the point of use - see `zscale` in draw_full_map.
-            if (cfg.zoom_dpi_scaled)
+            if (cfg.zoom_dpi_scaled && s > 0.0f)
             {
-                out.zoom_uu_per_px *= s;
+                out.zoom_uu_per_px /= s;
             }
             return out;
         }
@@ -6263,7 +6266,10 @@ namespace overlay
             // minimap's zoom key gets through ui_scaled() is applied here at the point of
             // use instead. Same promise: one config file shows the same area of the world
             // at 1080p and at 2160p.
-            const float zscale = cfg.zoom_dpi_scaled ? ui_scale : 1.0f;
+            // 1/ui_scale, not ui_scale: the canvas is `ui_scale` times as many pixels
+            // across, so uu-per-pixel has to come down by the same factor for the view to
+            // cover the same ground. See the derivation in ui_scaled().
+            const float zscale = (cfg.zoom_dpi_scaled && ui_scale > 0.0f) ? 1.0f / ui_scale : 1.0f;
             if (!g_mv_init)
             {
                 g_mv.cx = snap.x;

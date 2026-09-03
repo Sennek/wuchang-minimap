@@ -623,8 +623,8 @@ ui_font = C:\Windows\Fonts\segoeui.ttf
 
 ; Scale the two ZOOM keys with ui_scale as well (minimap_zoom and map_zoom).
 ;   1  one config file shows the SAME AREA OF THE WORLD at every resolution: at 4K the
-;      minimap disc is twice as many pixels across and each pixel covers twice as much
-;      ground, so the picture matches what you tuned at 1080p.
+;      minimap disc is twice as many pixels across and each of those pixels covers half
+;      as much ground, so you get the picture you tuned at 1080p at twice the detail.
 ;   0  uu/px is literal, so a bigger screen shows more of the world at the same
 ;      setting. This is what 1.0.0 did - set it to 0 to get that back.
 zoom_dpi_scaled = 1

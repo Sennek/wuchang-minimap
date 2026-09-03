@@ -4,6 +4,52 @@ All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 
 ## @@VERSION@@ - @@DATE@@
 
+A legibility release. Everything you look at got easier to read; nothing about the map,
+the markers or the tracker changed.
+
+### Added
+- **Every marker category now has its own SHAPE.** Boss, elite and enemy used to be the
+  same triangle at three sizes - a three-pixel difference - and "hidden" was a shrine
+  with the fill switched off. Fourteen categories, fourteen shapes, each with a dark
+  halo behind it so it survives on a bright scene.
+- **`theme = ink | neutral`** presets the frame, the disc backdrop, the label plates and
+  the walkable fill in one setting. `neutral` is exactly what 0.9.2 looked like; `ink` is
+  bronze on near-black with a warmer parchment fill. Any colour you have written out in
+  the config file still wins over the theme.
+- **`palette = default | colorblind`** switches the marker hues to an Okabe-Ito-derived
+  set (and the item-quality colours with them). The shapes never change, which is what
+  keeps two categories apart when a hue is reused.
+- **`zoom_key`** (default `N`) cycles the minimap zoom through **`minimap_zoom_presets`**
+  (13 / 26 / 52). The mouse wheel over the minimap does the same, but only while the F2
+  panel is open - during play the wheel belongs to the game.
+- **The full map has a legend**, on the right, which is also the filter: the glyph, the
+  category, and how many of them you have found in this chapter. Clicking a row toggles
+  it. The row of fourteen coloured buttons is gone.
+- **Fit** (button, or `Home`) zooms the full map to the whole chapter, and **`?`** (or
+  the gamepad's Back button) shows the controls as a two-column legend - the gamepad
+  half only when a pad is plugged in.
+- **`compass_plate = 0`** turns off the filled plate behind the compass strip, leaving
+  ticks and letters with a shadow, so it sits more lightly over the game's own HUD.
+- **`highlight_labels_max`** (12) caps the x-ray NAMES separately from the glyphs (60).
+- Small things that move: the HUD fades in over 150 ms (it still disappears instantly),
+  the waypoint pulses, and a marker you have just collected gets a brief ring.
+
+### Changed
+- **Found markers are hidden by default** and are drawn as an outline, not a dim blob,
+  when you switch them back on ("Show found markers" on the F2 Player tab).
+- The minimap always shows **north**: an `N` and four ticks on the rim, which rotate with
+  you in rotate mode. Before, the north dot only existed if you had turned rotation on.
+- X-ray labels no longer stack on top of each other: the nearest markers get the names,
+  never two for glyphs a few pixels apart, and a label that has to move down draws a line
+  back to its glyph.
+- The full map shows the floor offset in metres (`+2.0 m`), and a right-click on the
+  waypoint you already placed clears it, with a one-second "waypoint cleared" message.
+- The compass is a little narrower by default (0.34 of the screen), and bearing pips of
+  the same category within three pixels of each other collapse into one.
+- The marker id in the full map's tooltip is now only shown with `debug_readout`.
+
+## 0.9.2 - 2026-09-03
+
 A settings and legibility release. Nothing about the map, the markers or the tracker
 changed; everything here is about the parts you look at and edit.
 

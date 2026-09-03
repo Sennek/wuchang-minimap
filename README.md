@@ -187,9 +187,18 @@ src/scan_sched.hpp         PURE scan scheduler: which object-array slots this pu
                            has the round wrapped, is it time yet. No engine types,
                            so markers_test covers the live sweep's pacing
 src/mapview.{hpp,cpp}      PURE full-map layer: the north-up viewport transform and its
-                           exact inverse, the zoom clamp / step, the waypoint file
-                           round-trip. Same "no Windows, no UE4SS" rule as markers_db,
-                           so markers_test links it too
+                           exact inverse, the zoom clamp / step, zoom-to-fit, the
+                           minimap's zoom-preset ladder, the waypoint file round-trip.
+                           Same "no Windows, no UE4SS" rule as markers_db, so
+                           markers_test links it too
+src/glyphs.hpp             PURE shape-per-category and hue-per-category tables plus the
+                           themes. The property that no two categories share a shape AND
+                           a colour is a property of two tables, so markers_test asserts
+                           it for every palette
+src/label_layout.hpp       PURE greedy label placement for the x-ray highlight: an
+                           occupied-rectangle list, push each box down until it clears,
+                           refuse past a cap. Tested on the property that matters - no
+                           two placed labels ever overlap
 src/gamepad.{hpp,cpp}      XInput, dynamically loaded, polled on the LOOP thread only
 src/projection.hpp         PURE world -> camera -> NDC -> screen math for the x-ray
                            highlight (UE basis, horizontal FOV, behind-camera case).
@@ -604,7 +613,7 @@ The marker block:
 | `markers_scan_chunk` | 8192 | object slots the sweep visits per game-thread pump (512..131072) - the frame-cost dial |
 | `markers_scan_period_ms` | 8 | minimum milliseconds between pumps (1..500) |
 | `markers_categories` | all but `enemy` | comma-separated category names, or `all` / `none`; the F2 checkboxes edit the same setting |
-| `markers_hide_found` | 0 | 0 = dim a found marker, 1 = hide it |
+| `markers_hide_found` | 1 | 0 = draw a found marker dimmed and as an OUTLINE of its glyph, 1 = hide it. The F2 Player tab offers the inverse, "Show found markers". |
 | `markers_found_alpha` | 0.30 | how dim, as a multiple of `opacity` |
 | `markers_size` | 6.5 | glyph radius in minimap pixels |
 | `markers_clamp_to_edge` | 0 | keep out-of-range markers on the rim, drawn smaller |
@@ -653,6 +662,17 @@ F5 or by turning `mod_enabled` off and on. The rows marked *dev* live in
 tiers pairwise disjoint, no removed or renamed key in either file, and the shipped file's
 `; ---- PLAYER SETTINGS ----` / `; ---- ADVANCED ----` banner order matching the tier tags key for
 key. So no layout, no table and no parser branch can drift away from the others.
+
+Six keys were added in 0.9.3 - three Player, three Advanced:
+
+| key | tier | default | meaning |
+|---|---|---|---|
+| `theme` | Player | `neutral` | The CHROME: the minimap's frame and disc backdrop, the dark plate behind labels and the compass strip, and the walkable fill. `neutral` is 0.9.2's look; `ink` is a bronze frame on near-black with a warmer parchment fill. **Precedence:** a theme only supplies a colour the config file does not mention, so an explicit `minimap_frame_color` / `minimap_frame_alpha` / `minimap_backdrop_color` / `minimap_backdrop` / `floor_base_color` always wins - resolved after both files are parsed, so the line's position does not matter. Choosing a theme in the F2 panel, by contrast, writes those five keys outright. |
+| `palette` | Player | `default` | The MARKER HUE SET. `colorblind` is an Okabe-Ito-derived set and also swaps in colour-blind item-quality tier colours (unless `xray_rarity_colors` is written out). Shapes never change with the palette: every category has its own, which is what keeps two categories apart when a hue is reused - `gly::palette_is_separable()` asserts that offline for every palette. |
+| `zoom_key` | Player | `N` | Cycles `minimap_zoom_presets` and wraps. The mouse wheel over the minimap does the same, but **only while the F2 panel is open**: nothing in the mod swallows the wheel during play, so reading it in-world would zoom the minimap *and* work the game's own wheel binding. |
+| `minimap_zoom_presets` | Advanced | `13, 26, 52` | The ladder `zoom_key` steps through, in uu per minimap pixel. One to eight numbers between 2 and 400, in any order (sorted, duplicates dropped); a bad entry is named in the log and does not consume a rung. |
+| `compass_plate` | Advanced | `1` | `0` = ticks and letters only, each with a one-pixel shadow, so the strip sits more lightly on the game's own top-centre HUD. |
+| `highlight_labels_max` | Advanced | `12` | Cap on x-ray **labels**, separate from `highlight_max_draw` (60) which caps glyphs - sixty names do not fit on a screen. Labels go to the nearest markers, never two for glyphs within `highlight_size * 2` of each other, and are laid out top to bottom by `src/label_layout.hpp` so no two boxes overlap; one that had to move draws a leader line to its glyph. |
 
 Two keys were added in 0.9.2, both Player:
 

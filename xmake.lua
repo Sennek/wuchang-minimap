@@ -12,7 +12,7 @@
 set_project("WuchangMinimap")
 -- Metadata only. The version the DLL, the F2 panel and tools/package.ps1 all use is
 -- the single #define in src/version.hpp; package.ps1 -Version rewrites both.
-set_version("0.9.2")
+set_version("0.9.3")
 set_xmakever("2.9.3")
 
 set_allowedplats("windows")

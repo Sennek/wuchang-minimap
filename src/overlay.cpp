@@ -1887,6 +1887,77 @@ namespace overlay
             double py = 0.0;
         };
 
+        //==============================================================================
+        // WORLD -> MINIMAP OFFSET, and the edge clamp (review B.22)
+        //==============================================================================
+        //
+        // Three copies of this arithmetic lived inside draw_minimap: one in draw_markers,
+        // one in the found-ring projector and one in the waypoint block - the same
+        // rotate-and-divide, then the same round-or-square limit test, then the same
+        // scale-onto-the-rim. Three copies of a coordinate transform is three chances for
+        // the waypoint to sit a pixel off the marker it was set on.
+        //
+        // The three callers differ only in what they want done when the point falls
+        // OUTSIDE the disc, so that is the parameter: `clamp_to_edge` false means "tell
+        // me it is out" (the rings, and markers with markers_clamp_to_edge off) and true
+        // means "put it on the rim and tell me you did" (the waypoint, which is never
+        // culled).
+        struct MiniOffset
+        {
+            double dx = 0.0;
+            double dy = 0.0;
+            bool visible = false; // may be drawn at (dx, dy)
+            bool clamped = false; // ...but it was pushed onto the rim to get there
+        };
+
+        MiniOffset mini_offset(const MiniGeom& g, double wx, double wy, bool round, float limit,
+                               bool clamp_to_edge)
+        {
+            const double wdx = wx - g.px;
+            const double wdy = wy - g.py;
+            const double zz = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
+            MiniOffset out{};
+            // Screen up is the player's forward (rotate mode) or world +X (north-up);
+            // see uv_at() below for the derivation of these two rows.
+            out.dx = (-g.sin_yaw * wdx + g.cos_yaw * wdy) / zz;
+            out.dy = (-g.cos_yaw * wdx - g.sin_yaw * wdy) / zz;
+            const double lim = static_cast<double>(limit);
+            if (round)
+            {
+                const double d2 = out.dx * out.dx + out.dy * out.dy;
+                if (d2 <= lim * lim)
+                {
+                    out.visible = true;
+                    return out;
+                }
+                const double d = std::sqrt(d2);
+                if (!clamp_to_edge || d <= 0.0001)
+                {
+                    return out;
+                }
+                out.dx = out.dx * lim / d;
+                out.dy = out.dy * lim / d;
+            }
+            else
+            {
+                if (std::abs(out.dx) <= lim && std::abs(out.dy) <= lim)
+                {
+                    out.visible = true;
+                    return out;
+                }
+                if (!clamp_to_edge)
+                {
+                    return out;
+                }
+                const double sc = lim / (std::max)(std::abs(out.dx), std::abs(out.dy));
+                out.dx *= sc;
+                out.dy *= sc;
+            }
+            out.visible = true;
+            out.clamped = true;
+            return out;
+        }
+
         // Screen offset (dx, dy) in minimap pixels -> texture uv.
         //
         // Screen up is the player's forward when rotate_with_player is on, and world +X
@@ -2901,8 +2972,18 @@ namespace overlay
                                bool hollow = false)
         {
             const int ca = static_cast<int>((col >> IM_COL32_A_SHIFT) & 0xFFu);
-            dl->AddCircleFilled(p, r + 1.0f, IM_COL32(0, 0, 0, (ca * 120) / 255), 12);
+            // THE HALO COVERS THE SHAPE (review B.17). It used to be a fixed r + 1
+            // circle, which the chest's box CORNERS stuck out of - so the one glyph most
+            // often drawn over a bright floor lost its edge exactly where its outline
+            // turns. gly::shape_extent() is how far this shape actually reaches; 16
+            // segments rather than 12, because a bigger circle shows its facets.
+            const gly::Shape shape = gly::shape_of(cat);
+            dl->AddCircleFilled(p, r * gly::shape_extent(shape) + 1.0f,
+                                IM_COL32(0, 0, 0, (ca * 120) / 255), 16);
 
+            // Below ~7 px the fine detail inside a glyph is a smudge rather than a
+            // silhouette, so the three complex shapes have a simplified form.
+            const bool simple = r < gly::kSimpleGlyphRadius;
             const float w = hollow ? 1.7f : 1.2f;
             // A filled shape when the marker is live, the same shape as an outline when
             // it is found. Both take the SAME geometry, so the two states are the same
@@ -2963,7 +3044,7 @@ namespace overlay
                 dl->AddCircleFilled(p, r * rad, hollow ? col : edge, 8);
             };
 
-            switch (gly::shape_of(cat))
+            switch (shape)
             {
             case gly::Shape::Diamond:
                 // AddNgon starts at angle 0, so a 4-gon has its vertices on the axes.
@@ -3030,11 +3111,16 @@ namespace overlay
                             ink, w);
                 dl->AddLine(ImVec2{p.x + hw - fold, p.y - hh + fold}, ImVec2{p.x + hw, p.y - hh + fold},
                             ink, w);
-                // Two rules of "writing", inset from the edges.
-                for (int i = 0; i < 2; ++i)
+                // Two rules of "writing", inset from the edges - dropped in the
+                // simplified form, where they are 2 px apart inside a 5 px page and
+                // fill it in. The folded corner is the identity and it survives.
+                if (!simple)
                 {
-                    const float y = p.y + r * (i == 0 ? 0.10f : 0.45f);
-                    dl->AddLine(ImVec2{p.x - hw * 0.6f, y}, ImVec2{p.x + hw * 0.6f, y}, ink, w * 0.8f);
+                    for (int i = 0; i < 2; ++i)
+                    {
+                        const float y = p.y + r * (i == 0 ? 0.10f : 0.45f);
+                        dl->AddLine(ImVec2{p.x - hw * 0.6f, y}, ImVec2{p.x + hw * 0.6f, y}, ink, w * 0.8f);
+                    }
                 }
                 break;
             }
@@ -3044,26 +3130,46 @@ namespace overlay
             case gly::Shape::Ladder:
                 dl->AddLine(ImVec2{p.x - r * 0.5f, p.y - r}, ImVec2{p.x - r * 0.5f, p.y + r}, col, 1.6f);
                 dl->AddLine(ImVec2{p.x + r * 0.5f, p.y - r}, ImVec2{p.x + r * 0.5f, p.y + r}, col, 1.6f);
-                for (int i = -1; i <= 1; ++i)
+                // SIMPLIFIED: one rung, not three. At r = 6.5 the three rungs are ~3.5
+                // px apart and the 1.2 px lines merge into a filled box - which is the
+                // chest's silhouette. One rung keeps the H that says "ladder".
+                if (simple)
                 {
-                    const float y = p.y + static_cast<float>(i) * r * 0.55f;
-                    dl->AddLine(ImVec2{p.x - r * 0.5f, y}, ImVec2{p.x + r * 0.5f, y}, col, 1.2f);
-                }
-                break;
-            case gly::Shape::Lift:
-                rect(0.85f, 0.5f);
-                if (hollow)
-                {
-                    dl->AddTriangle(ImVec2{p.x, p.y - r * 1.35f}, ImVec2{p.x - r * 0.5f, p.y - r * 0.6f},
-                                    ImVec2{p.x + r * 0.5f, p.y - r * 0.6f}, col, w);
+                    dl->AddLine(ImVec2{p.x - r * 0.5f, p.y}, ImVec2{p.x + r * 0.5f, p.y}, col, 1.2f);
                 }
                 else
                 {
-                    dl->AddTriangleFilled(ImVec2{p.x, p.y - r * 1.35f},
-                                          ImVec2{p.x - r * 0.5f, p.y - r * 0.6f},
-                                          ImVec2{p.x + r * 0.5f, p.y - r * 0.6f}, col);
+                    for (int i = -1; i <= 1; ++i)
+                    {
+                        const float y = p.y + static_cast<float>(i) * r * 0.55f;
+                        dl->AddLine(ImVec2{p.x - r * 0.5f, y}, ImVec2{p.x + r * 0.5f, y}, col, 1.2f);
+                    }
                 }
                 break;
+            case gly::Shape::Lift:
+            {
+                // SIMPLIFIED: a flatter platform and a taller, narrower arrow, drawn
+                // FILLED even when the marker is found. The two shapes are 1 px apart at
+                // r = 6.5, and an outlined arrow over an outlined box at that size is a
+                // grey blob; the arrow is the whole difference from the chest's box, so
+                // it is the part that must stay solid.
+                const float box_hh = simple ? 0.36f : 0.5f;
+                rect(0.85f, box_hh);
+                const float tip = p.y - r * (simple ? 1.2f : 1.35f);
+                const float base = p.y - r * (simple ? 0.5f : 0.6f);
+                const float half_w = r * (simple ? 0.42f : 0.5f);
+                if (hollow && !simple)
+                {
+                    dl->AddTriangle(ImVec2{p.x, tip}, ImVec2{p.x - half_w, base},
+                                    ImVec2{p.x + half_w, base}, col, w);
+                }
+                else
+                {
+                    dl->AddTriangleFilled(ImVec2{p.x, tip}, ImVec2{p.x - half_w, base},
+                                          ImVec2{p.x + half_w, base}, col);
+                }
+                break;
+            }
             case gly::Shape::RingBar:
                 dl->AddCircle(p, r, col, 14, 2.0f);
                 dl->AddLine(ImVec2{p.x - r * 0.7f, p.y}, ImVec2{p.x + r * 0.7f, p.y}, col, 1.4f);
@@ -3239,29 +3345,38 @@ namespace overlay
         std::vector<std::uint8_t> g_shot_dib;
         std::atomic<bool> g_shot_dib_ready{false};
 
-        // loop -> render: what to say in the toast. The loop thread owns the clipboard
-        // call, but toasts are drawn by the render thread, so the text comes back the
-        // same way everything else does - a buffer plus a flag.
-        // The loop thread posts toast text here; the render thread picks it up in
-        // build_ui. Used by the clipboard result AND by the first-run tip, because a
-        // toast may only be raised where toasts are drawn.
-        char g_shot_toast[160]{};
-        unsigned g_shot_toast_ms = 2500;
-        std::atomic<bool> g_shot_toast_ready{false};
         // loop -> render: the handover is complete, so the next request may be recorded.
         // Without it a failed clipboard write would leave the state machine parked in
         // Waiting for ever and the key would silently stop working.
         std::atomic<bool> g_shot_stage_done{false};
 
+        //==============================================================================
+        // THE TOAST MAILBOX (review B.22)
+        //==============================================================================
+        //
+        // One slot, one lock, and it is ITS OWN. post_toast() used to take the
+        // SCREENSHOT's spinlock and write into a buffer that lived among the screenshot
+        // state, so an unrelated notice ("first run: these are your keys", "minimap zoom
+        // 26 uu/px") contended with a full-resolution DIB hand-off and read as part of
+        // the clipboard machinery. They share nothing but a direction: loop -> render.
+        //
+        // A toast may only be RAISED where toasts are drawn (the render thread owns
+        // g_toast), so this is how the loop thread asks. Newest wins: a toast is a
+        // notice, and a queue of stale notices is worse than the latest one.
+        Spinlock g_toast_lock;
+        char g_toast_pending[160]{};
+        unsigned g_toast_pending_ms = 2500;
+        std::atomic<bool> g_toast_pending_ready{false};
+
         // ANY THREAD. Queues a toast for the render thread to draw.
         void post_toast(const char* text, unsigned ms)
         {
             {
-                SpinGuard guard(g_shot_lock);
-                ::strncpy_s(g_shot_toast, sizeof(g_shot_toast), text, _TRUNCATE);
-                g_shot_toast_ms = ms;
+                SpinGuard guard(g_toast_lock);
+                ::strncpy_s(g_toast_pending, sizeof(g_toast_pending), text, _TRUNCATE);
+                g_toast_pending_ms = ms;
             }
-            g_shot_toast_ready.store(true, std::memory_order_release);
+            g_toast_pending_ready.store(true, std::memory_order_release);
         }
 
         void shot_fail(const char* why)
@@ -3491,7 +3606,12 @@ namespace overlay
                 double dist;
                 bool unlocked;
             };
-            std::vector<Row> rows;
+            // REUSED FRAME TO FRAME (review B.18): the shrine window is open while the
+            // player reads it, so this vector was allocated and freed on the render
+            // thread at frame rate. Render thread only, like every other static in this
+            // file. (`Shrine::label()` returns a reference and allocates nothing.)
+            static std::vector<Row> rows;
+            rows.clear();
             rows.reserve(table->size());
             for (const shdb::Shrine& sh : *table)
             {
@@ -3931,6 +4051,11 @@ namespace overlay
             const std::uint64_t left = g_toast_until - now;
             const float a = left >= 300 ? 1.0f : static_cast<float>(left) / 300.0f;
             const ImGuiViewport* vp = ImGui::GetMainViewport();
+            // The one thing that KEEPS the foreground list (review B.20 moved the HUD
+            // off it): a toast is a two-second notice about something the player just
+            // did, and it has to be readable over the panel and over the full map -
+            // "map copied to clipboard" is raised by a key that only works while the map
+            // is open.
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             const ImVec2 ts = ImGui::CalcTextSize(g_toast);
             const float pad = ImGui::GetTextLineHeight() * 0.5f;
@@ -4115,9 +4240,6 @@ namespace overlay
                 return;
             }
 
-            const double c = g.cos_yaw;
-            const double s = g.sin_yaw;
-            const double z = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
             const float r = cfg.markers_size;
             const float limit = (std::max)(4.0f, g.half - r - 2.0f);
 
@@ -4156,46 +4278,21 @@ namespace overlay
                 // The minimap is centred on the position the RENDER side works from,
                 // so the on-screen offset is still computed here; the distance used for
                 // the cap and the sort comes from the shared pass.
-                const double wdx = m.x - g.px;
-                const double wdy = m.y - g.py;
-                double dx = (-s * wdx + c * wdy) / z;
-                double dy = (-c * wdx - s * wdy) / z;
-
-                bool clamped = false;
-                if (round)
+                const MiniOffset off =
+                    mini_offset(g, m.x, m.y, round, limit, cfg.markers_clamp_to_edge);
+                if (!off.visible)
                 {
-                    const double d = std::sqrt(dx * dx + dy * dy);
-                    if (d > limit)
-                    {
-                        if (!cfg.markers_clamp_to_edge || d <= 0.0001)
-                        {
-                            continue;
-                        }
-                        dx = dx * limit / d;
-                        dy = dy * limit / d;
-                        clamped = true;
-                    }
-                }
-                else if (std::abs(dx) > limit || std::abs(dy) > limit)
-                {
-                    if (!cfg.markers_clamp_to_edge)
-                    {
-                        continue;
-                    }
-                    const double scale = limit / (std::max)(std::abs(dx), std::abs(dy));
-                    dx *= scale;
-                    dy *= scale;
-                    clamped = true;
+                    continue;
                 }
 
                 Cand cand{};
-                cand.dx = static_cast<float>(dx);
-                cand.dy = static_cast<float>(dy);
+                cand.dx = static_cast<float>(off.dx);
+                cand.dy = static_cast<float>(off.dy);
                 cand.d2 = fc.d2_xy;
                 cand.cat = fc.cat;
                 cand.rarity = fc.rarity;
                 cand.found = found;
-                cand.clamped = clamped;
+                cand.clamped = off.clamped;
                 cand.id = m.id;
                 cands.push_back(cand);
             }
@@ -4399,7 +4496,15 @@ namespace overlay
             const ImU32 tint_slice = IM_COL32(255, 255, 255, alpha(1.0f));
             const ImU32 tint_composite = IM_COL32(255, 255, 255, alpha(cfg.minimap_composite_alpha));
 
-            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            // THE HUD DRAWS UNDER OUR OWN WINDOWS (review B.20). ImGui renders the
+            // background draw list first, then every window, then the foreground list -
+            // so a HUD on the FOREGROUND list painted over the centred F2 panel
+            // whatever order the calls were made in. The background list is still over
+            // the game (everything ImGui draws is), it is just under the panel, the full
+            // map and the tooltips. Suppressing the HUD while the panel is open was the
+            // other option and it is worse: the panel is where the minimap's own sliders
+            // live, and you cannot tune a picture you cannot see.
+            ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
             if (cfg.round)
             {
@@ -4451,25 +4556,16 @@ namespace overlay
             // (or behind the player) still registers on the minimap.
             draw_found_rings(dl, now, (std::max)(4.0f, cfg.markers_size * 1.4f),
                              [&](double wx, double wy, float& sx, float& sy) {
-                                 const double wdx = wx - g.px;
-                                 const double wdy = wy - g.py;
-                                 const double zz = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
-                                 const double dx = (-g.sin_yaw * wdx + g.cos_yaw * wdy) / zz;
-                                 const double dy = (-g.cos_yaw * wdx - g.sin_yaw * wdy) / zz;
-                                 const double lim = static_cast<double>(g.half) - 2.0;
-                                 if (cfg.round)
-                                 {
-                                     if (dx * dx + dy * dy > lim * lim)
-                                     {
-                                         return false;
-                                     }
-                                 }
-                                 else if (std::abs(dx) > lim || std::abs(dy) > lim)
+                                 // A ring is never clamped: it says "that was collected
+                                 // THERE", and a ring on the rim would be a lie.
+                                 const MiniOffset off =
+                                     mini_offset(g, wx, wy, cfg.round, g.half - 2.0f, false);
+                                 if (!off.visible)
                                  {
                                      return false;
                                  }
-                                 sx = g.center.x + static_cast<float>(dx);
-                                 sy = g.center.y + static_cast<float>(dy);
+                                 sx = g.center.x + static_cast<float>(off.dx);
+                                 sy = g.center.y + static_cast<float>(off.dy);
                                  return true;
                              });
 
@@ -4521,41 +4617,31 @@ namespace overlay
                 const mv::Waypoint wp = mm::waypoint();
                 if (wp.set)
                 {
-                    const double wdx = wp.x - g.px;
-                    const double wdy = wp.y - g.py;
-                    const double zz = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
-                    double dx = (-g.sin_yaw * wdx + g.cos_yaw * wdy) / zz;
-                    double dy = (-g.cos_yaw * wdx - g.sin_yaw * wdy) / zz;
                     const float wr = (std::max)(5.0f, cfg.markers_size * cfg.waypoint_size_scale);
                     const float lim = (std::max)(4.0f, g.half - wr - 3.0f);
-                    bool clamped = false;
-                    if (cfg.round)
-                    {
-                        const double d = std::sqrt(dx * dx + dy * dy);
-                        if (d > lim && d > 0.0001)
-                        {
-                            dx = dx * lim / d;
-                            dy = dy * lim / d;
-                            clamped = true;
-                        }
-                    }
-                    else if (std::abs(dx) > lim || std::abs(dy) > lim)
-                    {
-                        const double sc = lim / (std::max)(std::abs(dx), std::abs(dy));
-                        dx *= sc;
-                        dy *= sc;
-                        clamped = true;
-                    }
-                    const ImVec2 wp_pos{g.center.x + static_cast<float>(dx), g.center.y + static_cast<float>(dy)};
-                    draw_waypoint_glyph(dl, wp_pos, clamped ? wr * 0.85f : wr, alpha(1.0f));
+                    // ALWAYS clamped: the whole point of setting a waypoint is to be
+                    // told which way to walk while it is off the map.
+                    const MiniOffset off = mini_offset(g, wp.x, wp.y, cfg.round, lim, true);
+                    const ImVec2 wp_pos{g.center.x + static_cast<float>(off.dx),
+                                        g.center.y + static_cast<float>(off.dy)};
+                    draw_waypoint_glyph(dl, wp_pos, off.clamped ? wr * 0.85f : wr, alpha(1.0f));
+                    const double wdx = wp.x - g.px;
+                    const double wdy = wp.y - g.py;
                     const double dist_m = std::sqrt(wdx * wdx + wdy * wdy) / 100.0;
-                    const std::string label =
-                        dist_m >= 1000.0 ? std::format("{:.1f} km", dist_m / 1000.0) : std::format("{:.0f} m", dist_m);
-                    const ImVec2 ts = ImGui::CalcTextSize(label.c_str());
+                    char label[32]{};
+                    if (dist_m >= 1000.0)
+                    {
+                        (void)std::snprintf(label, sizeof(label), "%.1f km", dist_m / 1000.0);
+                    }
+                    else
+                    {
+                        (void)std::snprintf(label, sizeof(label), "%.0f m", dist_m);
+                    }
+                    const ImVec2 ts = ImGui::CalcTextSize(label);
                     const ImVec2 tp{wp_pos.x - ts.x * 0.5f, wp_pos.y + wr * 1.6f};
                     dl->AddRectFilled(ImVec2{tp.x - 3.0f, tp.y - 1.0f}, ImVec2{tp.x + ts.x + 3.0f, tp.y + ts.y + 1.0f},
                                       plate_color(alpha(0.7f)), 3.0f);
-                    dl->AddText(tp, IM_COL32(255, 190, 235, alpha(1.0f)), label.c_str());
+                    dl->AddText(tp, IM_COL32(255, 190, 235, alpha(1.0f)), label);
                 }
             }
 
@@ -4660,17 +4746,19 @@ namespace overlay
             dl->AddTriangle(tip, a, b, edge, 1.2f);
         }
 
-        void draw_label(ImDrawList* dl, ImVec2 at, const std::string& text, ImU32 col, int alpha)
+        // `const char*`, not std::string (review B.18): every caller of this is inside
+        // Present, and the x-ray builds up to twelve of these a frame.
+        void draw_label(ImDrawList* dl, ImVec2 at, const char* text, ImU32 col, int alpha)
         {
-            if (text.empty())
+            if (text == nullptr || text[0] == '\0')
             {
                 return;
             }
-            const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
+            const ImVec2 ts = ImGui::CalcTextSize(text);
             const ImVec2 tp{at.x - ts.x * 0.5f, at.y};
             dl->AddRectFilled(ImVec2{tp.x - 4.0f, tp.y - 1.0f}, ImVec2{tp.x + ts.x + 4.0f, tp.y + ts.y + 1.0f},
                               plate_color(static_cast<int>(alpha * 0.62f)), 3.0f);
-            dl->AddText(tp, col, text.c_str());
+            dl->AddText(tp, col, text);
         }
 
         void draw_highlight(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
@@ -4782,7 +4870,15 @@ namespace overlay
                 std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
             }
 
-            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            // THE HUD DRAWS UNDER OUR OWN WINDOWS (review B.20). ImGui renders the
+            // background draw list first, then every window, then the foreground list -
+            // so a HUD on the FOREGROUND list painted over the centred F2 panel
+            // whatever order the calls were made in. The background list is still over
+            // the game (everything ImGui draws is), it is just under the panel, the full
+            // map and the tooltips. Suppressing the HUD while the panel is open was the
+            // other option and it is worse: the panel is where the minimap's own sliders
+            // live, and you cannot tune a picture you cannot see.
+            ImDrawList* dl = ImGui::GetBackgroundDrawList();
             const float r = cfg.highlight_size;
             const float pad = r * 2.4f;
 
@@ -4949,9 +5045,13 @@ namespace overlay
                     // one (an enemy's dropped loot used to read `BP_PickupActor_C 1 m`)
                     // and falls back to the category's plain singular word.
                     const char* name = mdb::display_label(cat, sh.m->label);
-                    const std::string text =
-                        std::format("{}  {:.0f} m{}", name, sh.dist / 100.0, sh.found ? "  (found)" : "");
-                    const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
+                    // A STACK BUFFER, not std::format (review B.18): this ran up to
+                    // twelve times per frame on the render thread, i.e. twelve heap
+                    // allocations inside Present for a string nobody keeps.
+                    char text[128]{};
+                    (void)std::snprintf(text, sizeof(text), "%s  %.0f m%s", name, sh.dist / 100.0,
+                                        sh.found ? "  (found)" : "");
+                    const ImVec2 ts = ImGui::CalcTextSize(text);
                     const float want_y = sh.sy + r + 3.0f;
                     float at_y = want_y;
                     if (!layout.place(sh.sx - ts.x * 0.5f - 4.0f, want_y, ts.x + 8.0f, ts.y + 2.0f, max_push,
@@ -5081,7 +5181,15 @@ namespace overlay
             const float op = cfg.compass_opacity;
             const auto alpha = [op](float a) { return static_cast<int>((std::min)(1.0f, op * a) * 255.0f + 0.5f); };
 
-            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            // THE HUD DRAWS UNDER OUR OWN WINDOWS (review B.20). ImGui renders the
+            // background draw list first, then every window, then the foreground list -
+            // so a HUD on the FOREGROUND list painted over the centred F2 panel
+            // whatever order the calls were made in. The background list is still over
+            // the game (everything ImGui draws is), it is just under the panel, the full
+            // map and the tooltips. Suppressing the HUD while the panel is open was the
+            // other option and it is worse: the panel is where the minimap's own sliders
+            // live, and you cannot tune a picture you cannot see.
+            ImDrawList* dl = ImGui::GetBackgroundDrawList();
             // THE PLATE. `compass_plate = 0` leaves ticks and letters only, which is what
             // the strip needs to sit lightly over the game's own top-centre HUD; with no
             // plate every glyph gets a one-pixel shadow instead, or a bright scene
@@ -5331,8 +5439,15 @@ namespace overlay
                 const double dxw = wp.x - snap.x;
                 const double dyw = wp.y - snap.y;
                 const double metres = std::sqrt(dxw * dxw + dyw * dyw) / 100.0;
-                const std::string text =
-                    metres >= 1000.0 ? std::format("{:.1f} km", metres / 1000.0) : std::format("{:.0f} m", metres);
+                char text[32]{};
+                if (metres >= 1000.0)
+                {
+                    (void)std::snprintf(text, sizeof(text), "%.1f km", metres / 1000.0);
+                }
+                else
+                {
+                    (void)std::snprintf(text, sizeof(text), "%.0f m", metres);
+                }
                 draw_label(dl, ImVec2{wx, y1 + 9.0f}, text, IM_COL32(255, 190, 235, alpha(1.0f)), alpha(1.0f));
                 ++g_compass_debug.pips;
             }
@@ -5920,12 +6035,36 @@ namespace overlay
                     // The leading spaces are the glyph's gutter: the glyph is drawn over
                     // the row afterwards, so a Selectable still owns the whole width and
                     // the hit area is the row, not the text.
-                    const std::string text =
-                        cs.total > 0 ? std::format("      {}   {}/{}", mdb::cat_label(cat), cs.found, cs.total)
-                                     : std::format("      {}", mdb::cat_label(cat));
+                    //
+                    // CACHED (review B.18). These fourteen strings were fourteen
+                    // std::format calls - fourteen heap allocations - on the render
+                    // thread on every frame the map was open, for text that changes when
+                    // a marker is found (about once a minute) or the chapter changes.
+                    // The cache is keyed on exactly what the text is made of.
+                    static char row_text[mdb::kCatCount][64]{};
+                    static int row_found[mdb::kCatCount]{};
+                    static int row_total[mdb::kCatCount]{};
+                    static bool row_valid[mdb::kCatCount]{};
+                    if (!row_valid[i] || row_found[i] != cs.found || row_total[i] != cs.total)
+                    {
+                        row_valid[i] = true;
+                        row_found[i] = cs.found;
+                        row_total[i] = cs.total;
+                        if (cs.total > 0)
+                        {
+                            (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s   %d/%d",
+                                                mdb::cat_label(cat), cs.found, cs.total);
+                        }
+                        else
+                        {
+                            (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s",
+                                                mdb::cat_label(cat));
+                        }
+                    }
+                    const char* const text = row_text[i];
                     ImGui::PushStyleColor(ImGuiCol_Text,
                                           on ? marker_color(cat, 255) : IM_COL32(150, 150, 150, 170));
-                    if (ImGui::Selectable(text.c_str(), on))
+                    if (ImGui::Selectable(text, on))
                     {
                         cfg.markers_categories ^= mdb::cat_bit(cat);
                     }
@@ -6460,11 +6599,48 @@ namespace overlay
                     std::string control;
                     std::string action;
                 };
-                std::vector<Row> left;
-                std::vector<Row> right;
+                // BUILT ONCE, NOT PER FRAME (review B.18). This is ~28 strings in two
+                // vectors, i.e. ~30 heap allocations on the render thread inside Present,
+                // for text whose content only changes when a binding changes or a pad is
+                // plugged in. The vectors are static (so their capacity survives too) and
+                // the signature below is exactly what the text is made of.
+                struct HelpKey
+                {
+                    int panel = 0;
+                    int map = 0;
+                    int recenter = 0;
+                    int zoom = 0;
+                    int reload = 0;
+                    int shot = 0;
+                    int highlight = 0;
+                    bool hl_on = false;
+                    bool hl_hold = false;
+                    bool pad = false;
+                    // Defaulted, not memcmp: padding bytes in an aggregate are
+                    // unspecified, and a spurious "changed" here would silently put the
+                    // per-frame allocations back (the same trap as review B.19).
+                    bool operator==(const HelpKey&) const = default;
+                };
+                const HelpKey want{cfg.panel_key,     cfg.map_key,
+                                   cfg.map_recenter_key, cfg.zoom_key,
+                                   cfg.reload_key,    cfg.screenshot_key,
+                                   cfg.highlight_key, cfg.highlight_enabled,
+                                   cfg.highlight_mode == mm::HighlightMode::Hold,
+                                   cfg.map_gamepad && gp.connected};
+                static std::vector<Row> left;
+                static std::vector<Row> right;
+                static HelpKey have{};
+                static bool built = false;
+                const bool rebuild = !built || !(want == have);
                 const auto add = [](std::vector<Row>& into, std::string c, std::string a) {
                     into.push_back(Row{std::move(c), std::move(a)});
                 };
+                if (rebuild)
+                {
+                built = true;
+                have = want;
+                left.clear();
+                right.clear();
                 add(left, "mouse / keyboard", "");
                 add(left, "drag, WASD, arrows", "pan");
                 add(left, "wheel, + / -", "zoom");
@@ -6503,6 +6679,12 @@ namespace overlay
                             key_name_ascii(cfg.highlight_key),
                         "x-ray nearby markers");
                 }
+                if (cfg.map_gamepad && cfg.map_pad_open_chord != 0)
+                {
+                    add(right, wide_to_ascii(mm::pad_chord_name(cfg.map_pad_open_chord, false, false)),
+                        "open / close the map (pad)");
+                }
+                } // rebuild
 
                 const float line = ImGui::GetTextLineHeightWithSpacing();
                 const float pad_px = ImGui::GetTextLineHeight();
@@ -8390,14 +8572,14 @@ namespace overlay
 
             // The clipboard result comes back from the loop thread as text plus a flag;
             // turn it into a toast here, where toasts live.
-            if (g_shot_toast_ready.exchange(false, std::memory_order_acquire))
+            if (g_toast_pending_ready.exchange(false, std::memory_order_acquire))
             {
                 char text[160]{};
                 unsigned ms = 2500;
                 {
-                    SpinGuard guard(g_shot_lock);
-                    ::strncpy_s(text, sizeof(text), g_shot_toast, _TRUNCATE);
-                    ms = g_shot_toast_ms;
+                    SpinGuard guard(g_toast_lock);
+                    ::strncpy_s(text, sizeof(text), g_toast_pending, _TRUNCATE);
+                    ms = g_toast_pending_ms;
                 }
                 toast_for(text, ms);
             }

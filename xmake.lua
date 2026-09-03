@@ -96,6 +96,13 @@ target("imgui")
     set_group("third_party")
     common_settings()
     add_includedirs("third_party/imgui", {public = true})
+    -- XINPUT IS THE LOOP THREAD'S JOB (lessons.md, and src/gamepad.cpp is where it is
+    -- done). With ImGuiConfigFlags_NavEnableGamepad set, imgui_impl_win32 polls XInput
+    -- itself from ImGui_ImplWin32_NewFrame - i.e. from inside Present, where polling an
+    -- empty slot costs about a millisecond. The mod already has the pad state and feeds
+    -- it into io itself (overlay.cpp, feed_pad_nav), so the backend's copy is switched
+    -- off rather than left to duplicate the work on the wrong thread.
+    add_defines("IMGUI_IMPL_WIN32_DISABLE_GAMEPAD", {public = true})
     add_files(
         "third_party/imgui/imgui.cpp",
         "third_party/imgui/imgui_draw.cpp",

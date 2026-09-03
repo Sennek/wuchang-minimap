@@ -134,10 +134,165 @@ namespace overlay
             return std::round(s * 100.0f) / 100.0f;
         }
 
+        //==============================================================================
+        // THE FONT (review B.11)
+        //==============================================================================
+        //
+        // ImGui's built-in font is ProggyClean, a 13-pixel BITMAP. At 1080p that is the
+        // size it was drawn for; at 2160p `style.FontScaleMain = 2` magnifies the bitmap,
+        // which is the one part of the HUD a resolution-independent design cannot fake -
+        // every number in the panel and every marker label came out soft and blocky.
+        //
+        // So a real TTF is loaded and rasterised at 13 px, and ImGui 1.92's dynamic atlas
+        // re-rasterises it at 13 * ui_scale when the scale changes (the backend declares
+        // ImGuiBackendFlags_RendererHasTextures, so there is no atlas of ours to rebuild
+        // and no texture of ours to release - which is also why this is the only place
+        // that has to react to a scale change at all).
+        //
+        // RENDER THREAD ONLY, and at the top of the frame: io.Fonts is read by
+        // ImGui::NewFrame and by every draw-list text call, so it may only be swapped
+        // here - the same rule the F5 texture drop obeys.
+        char g_font_loaded[192]{};   // the path the atlas currently holds
+        bool g_font_checked = false; // false = the config's path has not been tried yet
+
+        bool font_path_is_none(const char* path)
+        {
+            if (path == nullptr || path[0] == 0)
+            {
+                return true;
+            }
+            return ::_stricmp(path, "none") == 0 || ::_stricmp(path, "off") == 0;
+        }
+
+        void ensure_ui_font(const mm::Config& cfg)
+        {
+            if (g_font_checked && ::strcmp(g_font_loaded, cfg.ui_font) == 0)
+            {
+                return; // steady state: one strcmp of a short string per frame
+            }
+            g_font_checked = true;
+            ::strncpy_s(g_font_loaded, sizeof(g_font_loaded), cfg.ui_font, _TRUNCATE);
+
+            ImGuiIO& io = ImGui::GetIO();
+            io.Fonts->Clear();
+            if (font_path_is_none(cfg.ui_font))
+            {
+                io.Fonts->AddFontDefault();
+                mm::log(L"ui font: the built-in bitmap font (ui_font = none)");
+                return;
+            }
+            // 13 px is the BASE size; style.FontScaleMain multiplies it, so this number
+            // stays 13 at every resolution and the scaling lives in one place.
+            const ImFont* f = io.Fonts->AddFontFromFileTTF(cfg.ui_font, 13.0f);
+            const std::wstring shown(cfg.ui_font, cfg.ui_font + ::strlen(cfg.ui_font));
+            if (f == nullptr)
+            {
+                // A wrong path is one log line and a working mod, never a mod with no
+                // text in it.
+                io.Fonts->Clear();
+                io.Fonts->AddFontDefault();
+                mm::logf(L"ui font: could not read '{}' - using the built-in bitmap font", shown);
+                return;
+            }
+            mm::logf(L"ui font: {} at 13 px (x ui scale {:.2f})", shown, static_cast<double>(g_ui_scale));
+        }
+
+        //==============================================================================
+        // KEYBOARD AND GAMEPAD NAVIGATION (review B.8)
+        //==============================================================================
+        //
+        // Called once from the D3D12 init, straight after CreateContext. The F2 panel was
+        // mouse-only: a player on a controller could open it and then not move inside it.
+        //
+        // NavEnableGamepad makes ImGui read io's gamepad buttons. It does NOT make
+        // anything poll XInput here: the backend's own XInput code is compiled out (see
+        // xmake.lua) because that runs inside Present, and feed_pad_nav() below hands
+        // ImGui the state the loop thread has already sampled.
+        //
+        // NavEnableSetMousePos is deliberately NOT set - it would warp the OS cursor to
+        // the focused widget, and the game owns that cursor.
+        void ui_init_io(ImGuiIO& io)
+        {
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+        }
+
+        // RENDER THREAD. The pad state comes from gamepad.cpp on the loop thread; this
+        // only translates it into io events.
+        //
+        // ONLY WHILE THE PANEL IS OPEN. The full map reads the pad directly (it is a
+        // canvas, not a widget tree, and it has its own bindings for the sticks and the
+        // triggers), and during play the pad belongs to the game - a stick push must
+        // never move a focus rectangle nobody can see.
+        void feed_pad_nav(const mm::Config& cfg)
+        {
+            static bool fed_last_frame = false;
+            static const ImGuiKey kAllPadKeys[] = {
+                ImGuiKey_GamepadFaceDown,   ImGuiKey_GamepadFaceRight,  ImGuiKey_GamepadFaceLeft,
+                ImGuiKey_GamepadFaceUp,     ImGuiKey_GamepadDpadUp,     ImGuiKey_GamepadDpadDown,
+                ImGuiKey_GamepadDpadLeft,   ImGuiKey_GamepadDpadRight,  ImGuiKey_GamepadL1,
+                ImGuiKey_GamepadR1,         ImGuiKey_GamepadStart,      ImGuiKey_GamepadBack,
+                ImGuiKey_GamepadLStickUp,   ImGuiKey_GamepadLStickDown, ImGuiKey_GamepadLStickLeft,
+                ImGuiKey_GamepadLStickRight};
+
+            const pad::State gp = pad::state();
+            const bool want = cfg.map_gamepad && gp.connected &&
+                              mm::g_panel_open.load(std::memory_order_relaxed);
+            if (!want)
+            {
+                if (fed_last_frame)
+                {
+                    // Release everything ONCE. Without this ImGui keeps whatever was
+                    // last held for ever, and nav stays stuck in a direction - the same
+                    // "nothing latched" rule the rest of the input obeys.
+                    ImGuiIO& io = ImGui::GetIO();
+                    for (const ImGuiKey k : kAllPadKeys)
+                    {
+                        io.AddKeyEvent(k, false);
+                    }
+                    fed_last_frame = false;
+                }
+                return;
+            }
+            fed_last_frame = true;
+            ImGuiIO& io = ImGui::GetIO();
+            const auto btn = [&io, &gp](ImGuiKey key, std::uint16_t bit) {
+                io.AddKeyEvent(key, (gp.held & bit) != 0);
+            };
+            // A activates, B cancels: the Xbox layout, which is what ImGui's own nav
+            // key names mean.
+            btn(ImGuiKey_GamepadFaceDown, pad::kA);
+            btn(ImGuiKey_GamepadFaceRight, pad::kB);
+            btn(ImGuiKey_GamepadFaceLeft, pad::kX);
+            btn(ImGuiKey_GamepadFaceUp, pad::kY);
+            btn(ImGuiKey_GamepadDpadUp, pad::kDpadUp);
+            btn(ImGuiKey_GamepadDpadDown, pad::kDpadDown);
+            btn(ImGuiKey_GamepadDpadLeft, pad::kDpadLeft);
+            btn(ImGuiKey_GamepadDpadRight, pad::kDpadRight);
+            btn(ImGuiKey_GamepadL1, pad::kLeftShoulder);
+            btn(ImGuiKey_GamepadR1, pad::kRightShoulder);
+            btn(ImGuiKey_GamepadStart, pad::kStart);
+            btn(ImGuiKey_GamepadBack, pad::kBack);
+            // The left stick moves the focus. ImGui wants an analogue value for a
+            // directional nav key (0 = not pressed, 1 = fully pushed); the deadzone has
+            // already been applied and the range rescaled by gamepad.cpp.
+            const auto axis = [&io](ImGuiKey key, float v) {
+                const float a = v > 0.0f ? (v > 1.0f ? 1.0f : v) : 0.0f;
+                io.AddKeyAnalogEvent(key, a > 0.1f, a);
+            };
+            axis(ImGuiKey_GamepadLStickRight, gp.lx);
+            axis(ImGuiKey_GamepadLStickLeft, -gp.lx);
+            axis(ImGuiKey_GamepadLStickUp, gp.ly);
+            axis(ImGuiKey_GamepadLStickDown, -gp.ly);
+        }
+
         // Render thread. Rebuilds the ImGui style FROM SCRATCH at the new scale - never
         // ScaleAllSizes on the already-scaled style, which would compound every time.
         void apply_ui_scale(float scale)
         {
+            // The font rides along here because this is the one function that runs on
+            // the render thread at the top of every frame, before a draw list exists.
+            ensure_ui_font(mm::cfg_cached());
             if (scale == g_ui_scale_applied)
             {
                 return;
@@ -172,6 +327,29 @@ namespace overlay
             out.offset_y *= s;
             out.minimap_min_px *= s;
             out.minimap_arrow_min_px *= s;
+            // THE TWO ZOOM KEYS (review B.12). `zoom_uu_per_px` and `map_zoom` are world
+            // units per SCREEN PIXEL, so leaving them alone means a 4K minimap - twice as
+            // many pixels across - shows twice the world radius at the same setting. That
+            // is a different view, not a bigger one, and it is not what "a config tuned at
+            // 1080p is correct at 4K" promises anywhere else in this function.
+            //
+            // Scaling them keeps the WORLD COVERAGE identical at every resolution: the
+            // disc is 2x the pixels and each pixel covers 2x the ground. `zoom_dpi_scaled
+            // = 0` restores 1.0.0's literal behaviour for anyone who preferred it.
+            //
+            // The zoom LADDER (minimap_zoom_presets) is deliberately not touched here: it
+            // is the set of values the zoom key writes back into zoom_uu_per_px, i.e. a
+            // config value, and scaling it would feed a scaled number into the config
+            // file the next time the key was pressed.
+            //
+            // Only the MINIMAP's key is scaled here. The full map is handed the
+            // unscaled config on purpose (its filter chips write back into it, and a
+            // scaled number must never reach the config file), so it applies the same
+            // factor at the point of use - see `zscale` in draw_full_map.
+            if (cfg.zoom_dpi_scaled)
+            {
+                out.zoom_uu_per_px *= s;
+            }
             return out;
         }
 
@@ -5905,13 +6083,19 @@ namespace overlay
             // First frame after opening: centre on the player, reset the zoom and the
             // floor offset, and drop any gamepad edges from while it was closed.
             //--------------------------------------------------------------------------
+            // DPI AND THE MAP'S ZOOM (review B.12). This view gets the UNSCALED config -
+            // the legend's filter chips write back into it - so the ui-scale factor the
+            // minimap's zoom key gets through ui_scaled() is applied here at the point of
+            // use instead. Same promise: one config file shows the same area of the world
+            // at 1080p and at 2160p.
+            const float zscale = cfg.zoom_dpi_scaled ? ui_scale : 1.0f;
             if (!g_mv_init)
             {
                 g_mv.cx = snap.x;
                 g_mv.cy = snap.y;
-                g_mv.uu_per_px = mv::clamp_zoom(static_cast<double>(cfg.map_zoom),
-                                                static_cast<double>(cfg.map_zoom_min),
-                                                static_cast<double>(cfg.map_zoom_max));
+                g_mv.uu_per_px = mv::clamp_zoom(static_cast<double>(cfg.map_zoom * zscale),
+                                                static_cast<double>(cfg.map_zoom_min * zscale),
+                                                static_cast<double>(cfg.map_zoom_max * zscale));
                 g_map_floor_off = 0.0f;
                 g_map_recut.store(true, std::memory_order_release);
                 g_mv_init = true;
@@ -6097,8 +6281,8 @@ namespace overlay
             }
             ImGui::EndChild();
 
-            const double zmin = static_cast<double>(cfg.map_zoom_min);
-            const double zmax = static_cast<double>(cfg.map_zoom_max);
+            const double zmin = static_cast<double>(cfg.map_zoom_min * zscale);
+            const double zmax = static_cast<double>(cfg.map_zoom_max * zscale);
             g_mv.uu_per_px = mv::clamp_zoom(g_mv.uu_per_px, zmin, zmax);
 
             //--------------------------------------------------------------------------
@@ -8501,6 +8685,10 @@ namespace overlay
             // back.
             ImGui::GetIO().MouseDrawCursor = map_open || mm::g_panel_open.load(std::memory_order_relaxed);
 
+            // The pad, into ImGui's own nav (review B.8). Only while the panel is open,
+            // and from the state the loop thread sampled - never a poll from here.
+            feed_pad_nav(raw);
+
             // THE ONE MARKER PASS. The minimap, the full map, the compass pips and the
             // x-ray highlight all read the same published buffer; walking it once here
             // and letting each of them filter the result replaces three (four with the
@@ -8677,6 +8865,8 @@ namespace overlay
             // We draw our own software cursor for the panel; never let ImGui fight the
             // game over the OS cursor shape.
             io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            // [fix-ui] keyboard + gamepad navigation for the F2 panel (review B.8).
+            ui_init_io(io);
             ImGui::StyleColorsDark();
             ImGui::GetStyle().WindowRounding = 4.0f;
 

@@ -782,6 +782,9 @@ namespace overlay
         mv::View g_mv{};
         bool g_mv_init = false;
         float g_map_floor_off = 0.0f; // uu added to feet Z by the floor adjustment
+        // The full map's controls legend (`?` / pad Back). Render thread only, and
+        // deliberately NOT config: it is a thing you glance at, not a setting.
+        bool g_map_help = false;
         bool g_map_was_open = false;
         // Set by the loop thread when the recentre key is pressed; consumed by the map.
         std::atomic<bool> g_map_recenter{false};
@@ -3962,13 +3965,21 @@ namespace overlay
             //--------------------------------------------------------------------------
             ImGui::Text("Wuchang map");
             ImGui::SameLine();
-            ImGui::TextDisabled("%s   |   %.0f uu/px   |   floor %+0.0f uu   |   X %.0f  Y %.0f",
+            // The floor offset in METRES, and named as a storey delta: `floor +200 uu`
+            // was a number in the engine's unit that meant nothing to a player standing
+            // one storey up. 1 uu = 1 cm.
+            ImGui::TextDisabled("%s   |   %.0f uu/px   |   floor %+.1f m   |   X %.0f  Y %.0f",
                                 chapter_ptr != nullptr ? chapter_ptr->key.c_str() : "no chapter here",
                                 g_mv.uu_per_px,
-                                static_cast<double>(g_map_floor_off),
+                                static_cast<double>(g_map_floor_off) / 100.0,
                                 snap.x,
                                 snap.y);
-            ImGui::SameLine((std::max)(200.0f, ImGui::GetWindowWidth() - 170.0f));
+            ImGui::SameLine((std::max)(200.0f, ImGui::GetWindowWidth() -
+                                                   ImGui::CalcTextSize("FitRecentreClose").x - 90.0f));
+            // ZOOM TO FIT. The chapter's bounds are in the manifest, so this is the one
+            // view control that cannot be reached by panning and zooming by hand.
+            bool want_fit = ImGui::SmallButton("Fit");
+            ImGui::SameLine();
             if (ImGui::SmallButton("Recentre"))
             {
                 g_map_recenter.store(true, std::memory_order_relaxed);
@@ -3979,49 +3990,96 @@ namespace overlay
                 close_map(L"the Close button");
             }
 
-            for (int i = 0; i < mdb::kCatCount; ++i)
-            {
-                const mdb::Cat cat = static_cast<mdb::Cat>(i);
-                const bool on = mdb::cat_enabled(cfg.markers_categories, cat);
-                const ImU32 col = marker_color(cat, on ? 210 : 60);
-                ImGui::PushID(i);
-                ImGui::PushStyleColor(ImGuiCol_Button, col);
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, marker_color(cat, 255));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, marker_color(cat, 255));
-                ImGui::PushStyleColor(ImGuiCol_Text, on ? IM_COL32(12, 12, 12, 255) : IM_COL32(220, 220, 220, 190));
-                if (ImGui::SmallButton(mdb::cat_label(cat)))
-                {
-                    cfg.markers_categories ^= mdb::cat_bit(cat);
-                }
-                ImGui::PopStyleColor(4);
-                ImGui::PopID();
-                if (i + 1 < mdb::kCatCount)
-                {
-                    ImGui::SameLine();
-                }
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("all"))
-            {
-                cfg.markers_categories = mdb::kAllCats;
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("none"))
-            {
-                cfg.markers_categories = 0u;
-            }
-
             //--------------------------------------------------------------------------
-            // The canvas
+            // The canvas, with the legend column reserved on its right
             //--------------------------------------------------------------------------
+            //
+            // The 14 saturated `SmallButton`s that used to sit here (black text on a
+            // filled category colour, no wrapping, no counts) are gone: the LEGEND is
+            // the filter now. It says what each glyph means, how many of that category
+            // this chapter has and how many are found, and clicking a row toggles it -
+            // which is three answers from the space one of them used to take.
             const float footer_h = ImGui::GetTextLineHeightWithSpacing() * 2.2f;
             const ImVec2 avail = ImGui::GetContentRegionAvail();
-            const ImVec2 csize{(std::max)(64.0f, avail.x), (std::max)(64.0f, avail.y - footer_h)};
+            // Sized from the text, so it is right at every ui_scale.
+            const float legend_w =
+                ImGui::CalcTextSize("      merchant   9999/9999").x + ImGui::GetStyle().FramePadding.x * 4.0f;
+            const ImVec2 csize{(std::max)(64.0f, avail.x - legend_w - ImGui::GetStyle().ItemSpacing.x),
+                               (std::max)(64.0f, avail.y - footer_h)};
             const ImVec2 cpos = ImGui::GetCursorScreenPos();
             ImGui::InvisibleButton("##canvas", csize, ImGuiButtonFlags_MouseButtonLeft);
             const bool canvas_hovered = ImGui::IsItemHovered();
             const bool canvas_active = ImGui::IsItemActive();
             const mv::Rect canvas{cpos.x, cpos.y, cpos.x + csize.x, cpos.y + csize.y};
+
+            //--------------------------------------------------------------------------
+            // The legend, which IS the category filter
+            //--------------------------------------------------------------------------
+            //
+            // One row per category: the glyph as it is actually drawn on the map, the
+            // name, and `found / total` from markers::stats() - counted for the CHAPTER
+            // in force when the marker filter is on, because a whole-DB total would
+            // count five chapters the player cannot see. Clicking a row toggles that
+            // category in `markers_categories`, the same mask the minimap, the compass
+            // and the F2 chips share.
+            ImGui::SameLine();
+            if (ImGui::BeginChild("##legend", ImVec2{legend_w, csize.y}, ImGuiChildFlags_None,
+                                  ImGuiWindowFlags_NoSavedSettings))
+            {
+                const markers::Stats lst = markers::stats();
+                const int fch = lst.filter_chapter;
+                const bool per_chapter = fch >= 0 && fch <= 8;
+                ImGui::TextDisabled(per_chapter ? "legend - chapter" : "legend - all chapters");
+                ImDrawList* ldl = ImGui::GetWindowDrawList();
+                const float glyph_r = (std::max)(4.0f, ImGui::GetTextLineHeight() * 0.34f);
+                for (int i = 0; i < mdb::kCatCount; ++i)
+                {
+                    const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                    const bool on = mdb::cat_enabled(cfg.markers_categories, cat);
+                    const markers::CatStat& cs =
+                        per_chapter ? lst.chapter[fch][i] : lst.cat[i];
+                    const ImVec2 row = ImGui::GetCursorScreenPos();
+                    ImGui::PushID(i);
+                    // The leading spaces are the glyph's gutter: the glyph is drawn over
+                    // the row afterwards, so a Selectable still owns the whole width and
+                    // the hit area is the row, not the text.
+                    const std::string text =
+                        cs.total > 0 ? std::format("      {}   {}/{}", mdb::cat_label(cat), cs.found, cs.total)
+                                     : std::format("      {}", mdb::cat_label(cat));
+                    ImGui::PushStyleColor(ImGuiCol_Text,
+                                          on ? marker_color(cat, 255) : IM_COL32(150, 150, 150, 170));
+                    if (ImGui::Selectable(text.c_str(), on))
+                    {
+                        cfg.markers_categories ^= mdb::cat_bit(cat);
+                    }
+                    ImGui::PopStyleColor();
+                    ImGui::PopID();
+                    const ImVec2 at{row.x + glyph_r + 4.0f, row.y + ImGui::GetTextLineHeight() * 0.5f};
+                    draw_marker_glyph(ldl, cat, at, glyph_r, marker_color(cat, on ? 255 : 90),
+                                      IM_COL32(14, 16, 20, on ? 220 : 80));
+                }
+                ImGui::Spacing();
+                if (ImGui::SmallButton("all"))
+                {
+                    cfg.markers_categories = mdb::kAllCats;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("none"))
+                {
+                    cfg.markers_categories = 0u;
+                }
+                ImGui::SameLine();
+                bool show_found = !cfg.markers_hide_found;
+                if (ImGui::Checkbox("found", &show_found))
+                {
+                    cfg.markers_hide_found = !show_found;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("show markers already found (they are drawn hollow)");
+                }
+            }
+            ImGui::EndChild();
 
             const double zmin = static_cast<double>(cfg.map_zoom_min);
             const double zmax = static_cast<double>(cfg.map_zoom_max);
@@ -4111,6 +4169,19 @@ namespace overlay
             {
                 close_map(L"Escape");
             }
+            // Home = Fit, the same action as the header button. Safe as a bare key: the
+            // full map swallows the keyboard for as long as it is open (lessons.md), so
+            // nothing here can leak into the game.
+            if (ImGui::IsKeyPressed(ImGuiKey_Home, false))
+            {
+                want_fit = true;
+            }
+            // `?` (and pad Back, below) toggles the controls legend. One long
+            // TextDisabled sentence in the footer was unreadable and could not grow.
+            if (ImGui::IsKeyPressed(ImGuiKey_Slash, false))
+            {
+                g_map_help = !g_map_help;
+            }
             // Keyboard equivalents of the two mouse actions, at the view centre. They
             // exist because the mouse cursor is the one part of this that depends on
             // what the game does with the cursor while we hold the input - with these
@@ -4169,6 +4240,10 @@ namespace overlay
                 {
                     close_map(L"the gamepad B button");
                 }
+                if ((pressed & pad::kBack) != 0)
+                {
+                    g_map_help = !g_map_help;
+                }
             }
 
             if (g_map_recenter.exchange(false, std::memory_order_relaxed))
@@ -4176,6 +4251,32 @@ namespace overlay
                 g_mv.cx = snap.x;
                 g_mv.cy = snap.y;
                 g_map_floor_off = 0.0f;
+            }
+            // FIT. The chapter's bounds come from maps.json, and mv::fit_zoom() spends
+            // world X on the canvas height and world Y on its width (the map is
+            // north-up) - crossing those over gives a fit that is right on a square
+            // canvas and wrong on a 16:9 one.
+            if (want_fit)
+            {
+                if (chapter_ptr == nullptr)
+                {
+                    mm::log(L"full map: Fit needs a chapter, and none covers this position");
+                }
+                else
+                {
+                    const double z = mv::fit_zoom(chapter_ptr->max_x - chapter_ptr->min_x,
+                                                  chapter_ptr->max_y - chapter_ptr->min_y,
+                                                  static_cast<double>(csize.x),
+                                                  static_cast<double>(csize.y));
+                    if (z > 0.0)
+                    {
+                        g_mv.uu_per_px = mv::clamp_zoom(z, zmin, zmax);
+                        g_mv.cx = (chapter_ptr->min_x + chapter_ptr->max_x) * 0.5;
+                        g_mv.cy = (chapter_ptr->min_y + chapter_ptr->max_y) * 0.5;
+                        g_map_floor_off = 0.0f;
+                        g_map_recut.store(true, std::memory_order_release);
+                    }
+                }
             }
             g_map_floor_off = (std::max)(-20000.0f, (std::min)(20000.0f, g_map_floor_off));
 
@@ -4370,6 +4471,108 @@ namespace overlay
             }
 
             //--------------------------------------------------------------------------
+            // The controls legend (`?` / pad Back)
+            //--------------------------------------------------------------------------
+            //
+            // What used to be one long TextDisabled sentence in the footer. Two columns,
+            // built from the CONFIG (so a rebound key is what the player is told), with
+            // the gamepad column present only while a pad is actually connected -
+            // telling a keyboard player about LB/RB is noise, and XInput already knows
+            // the answer.
+            if (g_map_help)
+            {
+                struct Row
+                {
+                    std::string control;
+                    std::string action;
+                };
+                std::vector<Row> left;
+                std::vector<Row> right;
+                const auto add = [](std::vector<Row>& into, std::string c, std::string a) {
+                    into.push_back(Row{std::move(c), std::move(a)});
+                };
+                add(left, "mouse / keyboard", "");
+                add(left, "drag, WASD, arrows", "pan");
+                add(left, "wheel, + / -", "zoom");
+                add(left, "ctrl+wheel, Q / E", "floor down / up");
+                add(left, "Home", "zoom to fit the chapter");
+                add(left, key_name_ascii(cfg.map_recenter_key), "recentre on the player");
+                add(left, "right-click, Space", "set a waypoint");
+                add(left, "left-click, F", "toggle found");
+                add(left, "click a legend row", "filter that category");
+                add(left, "?", "this legend");
+                add(left, key_name_ascii(cfg.map_key) + ", Esc", "close the map");
+                if (cfg.map_gamepad && gp.connected)
+                {
+                    add(right, "gamepad", "");
+                    add(right, "left stick", "pan");
+                    add(right, "triggers, right stick", "zoom");
+                    add(right, "LB / RB", "floor down / up");
+                    add(right, "A", "set a waypoint");
+                    add(right, "X", "toggle found");
+                    add(right, "Y", "recentre");
+                    add(right, "Back", "this legend");
+                    add(right, "B", "close the map");
+                    add(right, "", "");
+                }
+                add(right, "outside the map", "");
+                add(right, key_name_ascii(cfg.panel_key), "settings panel");
+                add(right, key_name_ascii(cfg.zoom_key), "cycle the minimap zoom");
+                add(right, key_name_ascii(cfg.reload_key), "reload config, maps and markers");
+                if (cfg.highlight_enabled)
+                {
+                    add(right, "hold " + key_name_ascii(cfg.highlight_key), "x-ray nearby markers");
+                }
+
+                const float line = ImGui::GetTextLineHeightWithSpacing();
+                const float pad_px = ImGui::GetTextLineHeight();
+                float ctrl_w[2] = {0.0f, 0.0f};
+                float act_w[2] = {0.0f, 0.0f};
+                const std::vector<Row>* cols[2] = {&left, &right};
+                for (int c = 0; c < 2; ++c)
+                {
+                    for (const Row& row : *cols[c])
+                    {
+                        ctrl_w[c] = (std::max)(ctrl_w[c], ImGui::CalcTextSize(row.control.c_str()).x);
+                        act_w[c] = (std::max)(act_w[c], ImGui::CalcTextSize(row.action.c_str()).x);
+                    }
+                }
+                const float gap = pad_px;
+                const float col_w[2] = {ctrl_w[0] + gap + act_w[0], ctrl_w[1] + gap + act_w[1]};
+                const float box_w = col_w[0] + col_w[1] + pad_px * 3.0f;
+                const std::size_t rows =
+                    (std::max)(left.size(), right.size());
+                const float box_h = static_cast<float>(rows) * line + pad_px * 2.0f;
+                const ImVec2 tl{canvas.cx() - box_w * 0.5f, canvas.cy() - box_h * 0.5f};
+                dl->AddRectFilled(tl, ImVec2{tl.x + box_w, tl.y + box_h}, plate_color(235), 5.0f);
+                dl->AddRect(tl, ImVec2{tl.x + box_w, tl.y + box_h}, IM_COL32(150, 158, 168, 200), 5.0f, 0,
+                            1.4f);
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float x = tl.x + pad_px + (c == 1 ? col_w[0] + pad_px : 0.0f);
+                    float y = tl.y + pad_px;
+                    for (const Row& row : *cols[c])
+                    {
+                        // A row with no action is a heading, and is the only thing in
+                        // here drawn bright.
+                        const bool heading = row.action.empty();
+                        if (!row.control.empty())
+                        {
+                            dl->AddText(ImVec2{x, y},
+                                        heading ? IM_COL32(255, 226, 160, 255) : IM_COL32(226, 230, 236, 235),
+                                        row.control.c_str());
+                        }
+                        if (!heading)
+                        {
+                            dl->AddText(ImVec2{x + ctrl_w[c] + gap, y}, IM_COL32(180, 186, 196, 220),
+                                        row.action.c_str());
+                        }
+                        y += line;
+                    }
+                }
+            }
+
+            //--------------------------------------------------------------------------
             // Footer
             //--------------------------------------------------------------------------
             if (!have_picture)
@@ -4381,21 +4584,12 @@ namespace overlay
             }
             else
             {
-                ImGui::TextDisabled("drag / WASD / arrows pan   wheel or +- zoom   ctrl+wheel or Q/E floor   "
-                                    "%s recentre   right-click or Space waypoint   click a marker or F "
-                                    "toggles found   %s or Esc closes",
-                                    key_name_ascii(cfg.map_recenter_key).c_str(),
+                ImGui::TextDisabled("? (or pad Back) shows the controls   %s or Esc closes the map",
                                     key_name_ascii(cfg.map_key).c_str());
             }
-            // The same key hints the F2 panel shows, from the same builder and the same
-            // config - so the map's footer cannot go stale when a key is rebound.
-            ImGui::TextDisabled("%s", bindings_hint(cfg).c_str());
             ImGui::TextDisabled("%d of %d marker(s)   cut %dx%d @ %.2f ms%s", g_map_markers_drawn,
                                 g_map_markers_total, g_mslice[0].w, g_mslice[0].h, g_mslice_ms,
-                                cfg.map_gamepad && gp.connected
-                                    ? "   pad: stick pan, triggers zoom, LB/RB floor, A waypoint, X found, "
-                                      "Y recentre, B close"
-                                    : "");
+                                cfg.map_gamepad && gp.connected ? "   gamepad connected" : "");
 
             ImGui::End();
 

@@ -29,6 +29,7 @@
 //
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -386,6 +387,52 @@ namespace
     // `zoom_key` (and the wheel over the disc while the panel is open) steps through
     // `minimap_zoom_presets`. Both halves are pure, so both are proven here: the parse
     // of a hand-edited list, and the wrap-around step.
+    // Zoom to fit, the full map's Fit button / Home key. The failure this pins is the
+    // classic one: the map is north-up, so world X is spent on the canvas HEIGHT and
+    // world Y on its WIDTH, and crossing the two over is right on a square canvas and
+    // wrong on every other one.
+    void test_fit_zoom()
+    {
+        section("full map - zoom to fit");
+
+        // A 16:9 canvas and a square world: the fit is decided by the SHORT side.
+        const double z = mv::fit_zoom(1000.0, 1000.0, 1600.0, 900.0, 0.0);
+        CHECK(std::abs(z - 1000.0 / 900.0) < 1e-9);
+        // A wide world (big Y span) on the same canvas is decided by the width.
+        CHECK(std::abs(mv::fit_zoom(100.0, 3200.0, 1600.0, 900.0, 0.0) - 2.0) < 1e-9);
+        // A tall world (big X span) by the height.
+        CHECK(std::abs(mv::fit_zoom(1800.0, 100.0, 1600.0, 900.0, 0.0) - 2.0) < 1e-9);
+        // The fitted rectangle really does fit, both ways round, with the margin on.
+        {
+            const double sx = 45000.0;
+            const double sy = 30000.0;
+            const double cw = 1200.0;
+            const double chh = 800.0;
+            const double zz = mv::fit_zoom(sx, sy, cw, chh);
+            CHECK(zz > 0.0);
+            CHECK(sx / zz <= chh + 1e-6); // north-south inside the canvas height
+            CHECK(sy / zz <= cw + 1e-6);  // east-west inside its width
+            // ...and the margin means it is strictly inside, not flush against the edge.
+            CHECK(sx / zz < chh || sy / zz < cw);
+        }
+        // Degenerate input leaves the caller's zoom alone rather than dividing by zero:
+        // a chapter with no bounds and a collapsed canvas are both reachable (a map
+        // opened before maps.json loaded, a window dragged to nothing).
+        CHECK(mv::fit_zoom(0.0, 1000.0, 800.0, 600.0) == 0.0);
+        CHECK(mv::fit_zoom(1000.0, 0.0, 800.0, 600.0) == 0.0);
+        CHECK(mv::fit_zoom(1000.0, 1000.0, 0.0, 600.0) == 0.0);
+        CHECK(mv::fit_zoom(1000.0, 1000.0, 800.0, 1.0) == 0.0);
+        CHECK(mv::fit_zoom(-5.0, 1000.0, 800.0, 600.0) == 0.0);
+
+        // The real thing: Chapter 1 is roughly 450 x 300 m, and fitting it into a 1080p
+        // window has to land inside the shipped map_zoom_min/max (4 .. 240).
+        {
+            const double zz = mv::fit_zoom(45000.0, 30000.0, 1700.0, 900.0);
+            CHECK(zz > 4.0 && zz < 240.0);
+            CHECK(mv::clamp_zoom(zz, 4.0, 240.0) == zz);
+        }
+    }
+
     void test_zoom_presets()
     {
         section("minimap zoom presets");
@@ -2579,6 +2626,7 @@ int main(int argc, char** argv)
     test_real_db(markers_dir);
     test_categories();
     test_glyphs();
+    test_fit_zoom();
     test_zoom_presets();
     test_found_file();
     test_ids();

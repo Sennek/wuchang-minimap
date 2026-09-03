@@ -105,6 +105,29 @@ namespace mv
     }
 
     //==================================================================================
+    // Zoom to fit
+    //==================================================================================
+
+    double fit_zoom(double span_x_uu, double span_y_uu, double canvas_w_px, double canvas_h_px,
+                    double margin)
+    {
+        if (!finite(span_x_uu) || !finite(span_y_uu) || !finite(canvas_w_px) || !finite(canvas_h_px))
+        {
+            return 0.0;
+        }
+        if (span_x_uu <= 0.0 || span_y_uu <= 0.0 || canvas_w_px <= 1.0 || canvas_h_px <= 1.0)
+        {
+            return 0.0;
+        }
+        const double m = (margin > 0.0 && margin < 0.5) ? margin : 0.0;
+        const double h = canvas_h_px * (1.0 - m);
+        const double w = canvas_w_px * (1.0 - m);
+        const double by_x = span_x_uu / h; // north-south spans the canvas height
+        const double by_y = span_y_uu / w; // east-west spans the canvas width
+        return by_x > by_y ? by_x : by_y;  // the bigger uu/px is the one that fits both
+    }
+
+    //==================================================================================
     // Minimap zoom presets
     //==================================================================================
 

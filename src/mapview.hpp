@@ -96,6 +96,22 @@ namespace mv
     double zoom_by(double z, double notches, double factor, double lo, double hi);
 
     //==================================================================================
+    // Zoom to fit
+    //==================================================================================
+    //
+    // The zoom at which a world rectangle exactly fills a canvas. The map is north-up,
+    // so world X (north-south) is spent on the canvas HEIGHT and world Y (east-west) on
+    // its WIDTH - crossing those two over is the classic way to get a fit that is right
+    // on a square canvas and wrong on every other one.
+    //
+    // Returns 0 when either span or either canvas side is unusable, so the caller can
+    // leave the zoom alone rather than dividing by zero. `margin` (0.02 = 2 %) leaves
+    // the fitted rectangle slightly inside the canvas, because a chapter's outermost
+    // markers sit exactly on its bounds.
+    double fit_zoom(double span_x_uu, double span_y_uu, double canvas_w_px, double canvas_h_px,
+                    double margin = 0.02);
+
+    //==================================================================================
     // Minimap zoom presets
     //==================================================================================
     //

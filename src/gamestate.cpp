@@ -101,12 +101,28 @@ namespace gamestate
         const void* g_world = nullptr; // the pawn's UWorld*, as a transition token
 
         std::uint64_t g_last_position = 0;
-        std::uint64_t g_last_resolve = 0;
+        // ONE BUDGET PER THING RESOLVED. These used to be a single `g_last_resolve`
+        // shared by the controller step and the pawn step, and that is what left the
+        // overlay reading `pawn NO` forever after a fast travel taken from the shrine
+        // menu (2026-09-03 run 1, 15:46:01 onwards): the controller step runs FIRST and
+        // stamps the shared timestamp, so whenever the controller cannot be re-captured
+        // the pawn step's `now - g_last_resolve >= resolve_ms` was false on every single
+        // pump and `resolve_pawn()` was never called again - silently, because none of
+        // its log lines can fire from a function that is not entered. Two independent
+        // timestamps mean the pawn is re-acquired at 2 Hz whatever the controller does,
+        // which is the honest dependency: `FindAllOf(BP_CombatCharacter_Player_Final_C)`
+        // is the primary route and needs no controller at all.
+        std::uint64_t g_last_resolve_pawn = 0;
+        std::uint64_t g_last_resolve_ctrl = 0;
         std::uint64_t g_cooldown_until = 0;
         std::uint64_t g_state_ok_since = 0;
 
         std::uint64_t g_log_no_pawn = 0;
         std::uint64_t g_log_rejected = 0;
+        std::uint64_t g_log_capture_failed = 0;
+        std::uint64_t g_log_no_controller = 0;
+        std::uint64_t g_log_stuck = 0;
+        std::uint64_t g_no_pawn_since = 0;
         std::wstring g_rejected_class;
 
         bool g_menu_open = true; // safe default: "a menu is up" hides the minimap
@@ -274,10 +290,21 @@ namespace gamestate
             g_pawn_full_name.clear();
             g_pawn_short_name.clear();
             g_state_ok_since = 0;
-            g_menu_open = true;
+            // THE MENU STATE IS NOT ALLOWED TO OUTLIVE ITS EVIDENCE. This used to latch
+            // `true` here as a "safe default", and with the watchlist and the root cache
+            // both emptied on the same line there was nothing left that could ever flip
+            // it back: run 1's log read `menu OPEN (last change 138734 ms ago, 0 cached
+            // root(s))` for the rest of the session. A menu is open because a widget
+            // says so; with zero widgets the only honest answer is CLOSED. Nothing is
+            // shown on the strength of it either - the pawn gate and the grace timer are
+            // what keep the overlay off at the main menu and across a load.
+            g_menu_open = false;
             g_menu_change_ms = now;
             g_menu_roots.clear(); // the widgets belonged to the world that just went
             g_menu_watch.clear();
+            // The controller belonged to that world too. Resetting it here (rather than
+            // waiting for uer::alive() to notice) is what re-arms its own resolve.
+            g_controller.reset();
             g_menu_holder.clear();
             g_force_widget_sweep = true;
             g_have_last_pos = false;
@@ -330,6 +357,12 @@ namespace gamestate
             if (controller == nullptr || !UObjectGlobals::IsValidObjectForFindXOf(controller))
             {
                 g_controller.reset();
+                if (throttled(g_log_no_controller, ::GetTickCount64()))
+                {
+                    mm::logf(L"no player controller in the world (needs '{}' or any 'PlayerController') - "
+                             L"the pawn is resolved by class instead",
+                             kControllerClass);
+                }
                 return;
             }
             uer::ObjRef ref{};
@@ -340,6 +373,11 @@ namespace gamestate
             else
             {
                 g_controller.reset();
+                if (throttled(g_log_no_controller, ::GetTickCount64()))
+                {
+                    mm::log(L"player controller found but not capturable (GUObjectArray says it is not a "
+                            L"live object) - the pawn is resolved by class instead");
+                }
             }
         }
 
@@ -378,6 +416,11 @@ namespace gamestate
             uer::ObjRef ref{};
             if (!uer::capture(candidate, ref))
             {
+                if (throttled(g_log_capture_failed, now))
+                {
+                    mm::log(L"pawn candidate found but not capturable (GUObjectArray says it is not a live "
+                            L"object yet) - retrying");
+                }
                 return;
             }
 
@@ -1004,6 +1047,17 @@ namespace gamestate
             snap.transition = transition;
             snap.widgets_seen = g_widgets_seen;
             snap.menu_change_ms = g_menu_change_ms;
+            // DIAGNOSTICS MUST DESCRIBE THE READER, NOT THE STRUCT'S DEFAULTS. The
+            // hidden snapshot used to leave these at zero, so the 10 s state line read
+            // `menu OPEN ... 0 cached root(s) | sweep every 0 ms (watchlist 0)` while the
+            // reader was in fact simply pawn-less - three numbers that all pointed at the
+            // widget code and none of which were about it. has_pawn is still false, so
+            // nothing is shown on the strength of any of them.
+            snap.menu_open = g_menu_open;
+            snap.menu_roots_cached = static_cast<std::uint32_t>(g_menu_roots.size());
+            snap.menu_watch_count = static_cast<std::uint32_t>(g_menu_watch.size());
+            snap.widget_sweep_period_ms = static_cast<std::uint32_t>(scan::sweep_period_ms(g_sweep, now));
+            snap.widgets_visible_in_viewport = g_widgets_visible;
             mm::publish(snap);
             g_publishes.fetch_add(1, std::memory_order_relaxed);
             g_report_pending.store(true, std::memory_order_relaxed);
@@ -1073,9 +1127,9 @@ namespace gamestate
             if (!uer::alive(g_controller))
             {
                 g_controller.reset();
-                if (now - g_last_resolve >= g_tune.resolve_ms)
+                if (now - g_last_resolve_ctrl >= g_tune.resolve_ms)
                 {
-                    g_last_resolve = now;
+                    g_last_resolve_ctrl = now;
                     resolve_controller();
                 }
             }
@@ -1127,23 +1181,41 @@ namespace gamestate
             }
 
             // ---- 3. (re-)acquire a gameplay pawn ------------------------------------
-            if (!pawn_ok && now - g_last_resolve >= g_tune.resolve_ms)
+            //
+            // NEVER gated on the controller, on the menu state or on the widget sweep.
+            // The pawn is the thing everything else hangs off, so its 2 Hz budget is its
+            // own (see the comment on g_last_resolve_pawn) and the controller is only a
+            // fallback route for finding it.
+            if (!pawn_ok && now - g_last_resolve_pawn >= g_tune.resolve_ms)
             {
-                g_last_resolve = now;
-                if (!uer::alive(g_controller))
-                {
-                    resolve_controller();
-                }
+                g_last_resolve_pawn = now;
                 resolve_pawn(now);
                 pawn_ok = g_pawn_is_gameplay && uer::alive(g_pawn);
             }
 
             if (!pawn_ok)
             {
+                // ONE LINE THAT SAYS THE READER IS STUCK. Run 1's log went two full
+                // minutes printing `pawn NO` with nothing to say why, because every
+                // diagnostic lived inside a resolve_pawn() that was never entered.
+                if (g_no_pawn_since == 0)
+                {
+                    g_no_pawn_since = now;
+                }
+                else if (now - g_no_pawn_since >= 10000 && throttled(g_log_stuck, now))
+                {
+                    mm::logf(L"no gameplay pawn for {} ms (controller {}, resolve every {} ms) - "
+                             L"the reader is retrying FindAllOf('{}') and the AController::Pawn fallback",
+                             now - g_no_pawn_since,
+                             uer::alive(g_controller) ? L"alive" : L"NOT resolved",
+                             g_tune.resolve_ms,
+                             kPlayerPawnClass);
+                }
                 g_state_ok_since = 0;
                 publish_hidden(now, false);
                 return;
             }
+            g_no_pawn_since = 0;
 
             // ---- 4. from here on the pawn is validated: UFunctions are allowed -------
             //

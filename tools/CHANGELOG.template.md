@@ -65,6 +65,12 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   map-to-clipboard key stays a binding.
 
 ### Fixed
+- **The minimap no longer stays away for good after a fast travel taken from the shrine
+  menu.** In that one case the mod could lose the player and never find them again: the
+  minimap and the compass stayed hidden, the full map refused to open ("there is no
+  gameplay pawn") and only restarting the game brought them back. The reader now looks for
+  the player twice a second whatever else it has or has not found, and it says in the log
+  when it has been looking for more than ten seconds.
 - **Dead enemies no longer sit on the minimap.** A corpse keeps its position in the game
   for a while after it dies; enemies are now dropped from the map as soon as their health
   reads zero, and a live enemy marker that stops being seen is dropped after one sweep

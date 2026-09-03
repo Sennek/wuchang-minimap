@@ -188,10 +188,23 @@ namespace gamestate
         std::uint64_t g_wslice_us = 0;     // QPC of the last slice
         std::uint32_t g_wseen_round = 0;   // UserWidget instances this round has seen
         std::uint32_t g_wcand_dropped = 0; // candidates the cap refused this round
-        // Candidates are held as ObjRefs, not raw pointers: a round takes ~350 ms of wall
-        // time to walk, and a widget captured in slice 1 must be proved still live before
-        // the commit issues a ProcessEvent at it.
-        std::vector<uer::ObjRef> g_wcandidates;
+        std::uint32_t g_wcand_round = 0;   // byte-Visible candidates this round produced
+        // Candidates are held as ObjRefs, not raw pointers: even one pump of delay is
+        // enough for a widget to die, and the commit issues a ProcessEvent at them.
+        //
+        // THEY ARE COMMITTED ON THE NEXT VALIDATED PUMP, NOT AT THE END OF THE ROUND.
+        // Waiting for the round put up to ~350 ms (and, when only the 10 Hz pump is
+        // slicing, several seconds) between reading a widget's Visibility byte and asking
+        // it `IsInViewport()` - and a menu that opens and closes inside that window is
+        // byte-Visible for the slice and out of the viewport for the commit, so it is
+        // never confirmed and never joins the watchlist, which then misses every later
+        // opening of the same menu too. See scan::menu_open_from.
+        std::vector<uer::ObjRef> g_wpending;
+        // The same three numbers, published for the loop thread's 10 s state line. The
+        // vector and the counters above are game-thread-only, so the log reads copies.
+        std::atomic<std::uint32_t> g_wcand_round_pub{0};
+        std::atomic<std::uint32_t> g_wpending_pub{0};
+        std::atomic<std::uint32_t> g_wcand_dropped_pub{0};
         // "Is this UClass* a UUserWidget descendant?" - one super-chain name walk per
         // class per level, then a hash lookup per object. The cap has to clear the whole
         // GAME's class count, not the widget classes': this walk asks about every class
@@ -365,13 +378,14 @@ namespace gamestate
             // candidate ObjRefs, the round's counts and the UClass* memo (classes are
             // unloaded with their packages, and a recycled UClass* address would answer
             // from the wrong entry). The cursor restarts rather than resuming mid-array.
-            g_wcandidates.clear();
+            g_wpending.clear();
             g_wclass.clear();
             g_wcursor = scan::Cursor{};
             g_wround_active = false;
             g_wround_ready = false;
             g_wseen_round = 0;
             g_wcand_dropped = 0;
+            g_wcand_round = 0;
             g_widgets_seen = 0;
             g_widgets_visible = 0;
             // The controller belonged to that world too. Resetting it here (rather than
@@ -968,7 +982,7 @@ namespace gamestate
                 {
                     continue;
                 }
-                if (g_wcandidates.size() >= static_cast<std::size_t>(scan::kWidgetCandidateMax))
+                if (g_wpending.size() >= static_cast<std::size_t>(scan::kWidgetCandidateMax))
                 {
                     ++g_wcand_dropped;
                     continue;
@@ -976,7 +990,8 @@ namespace gamestate
                 uer::ObjRef ref{};
                 if (uer::capture(obj, ref))
                 {
-                    g_wcandidates.push_back(ref);
+                    ++g_wcand_round;
+                    g_wpending.push_back(ref);
                 }
             }
         }
@@ -1008,9 +1023,12 @@ namespace gamestate
                 }
                 g_wround_active = true;
                 g_wcursor = scan::Cursor{};
-                g_wcandidates.clear();
+                // `g_wpending` is deliberately NOT cleared: a candidate this round's
+                // predecessor found in its last slice is still waiting for its commit,
+                // and throwing it away is exactly the discovery hole this rework closes.
                 g_wseen_round = 0;
                 g_wcand_dropped = 0;
+                g_wcand_round = 0;
             }
             if (!scan::slice_due(now_us, g_wslice_us, scan::kWidgetSlicePeriodMs))
             {
@@ -1039,31 +1057,45 @@ namespace gamestate
             }
         }
 
-        // THE COMMIT. The round's byte-`Visible` candidates are the only widgets that pay
-        // for an `IsInViewport()` ProcessEvent, and this runs on the 10 Hz pump where the
-        // pawn was validated in the same call - the ProcessEvent calls in here are as
-        // dangerous during a level transition as the location read is.
+        // THE COMMIT, ON EVERY VALIDATED PUMP.
         //
-        // REBUILDS `g_menu_roots` from scratch, exactly as the one-call sweep did: a root
-        // that does not confirm here is gone. Nothing is merged and nothing is OR-ed.
-        bool commit_widget_round(std::wstring& holder, bool& discovered_new)
+        // The byte-`Visible` candidates the slices have collected since the last pump are
+        // the only widgets that pay for an `IsInViewport()` ProcessEvent, and this runs on
+        // the 10 Hz pump where the pawn was validated in the same call - the ProcessEvent
+        // calls in here are as dangerous during a level transition as the location read.
+        //
+        // WHY NOT AT THE END OF THE ROUND (which is what broke menu detection): the round
+        // takes ~350 ms on the fast path and can take seconds when only the 10 Hz pump is
+        // slicing, so a menu that opens and closes inside one round is byte-Visible for
+        // the slice and out of the viewport by the time the commit asks - never confirmed,
+        // never added to the watchlist, and therefore missed on every later opening of the
+        // same menu as well. Committing per pump bounds that gap at one pump.
+        //
+        // IT CAN ONLY ADD. A confirmed root goes on the watchlist AND into `g_menu_roots`,
+        // and the watchlist re-test (menu_from_cached_roots, which rebuilds `g_menu_roots`
+        // from live `IsInViewport()` calls on every pump) remains the complete answer for
+        // everything already known. Both halves are fresh in the same pump, so there is no
+        // cached value to latch - see scan::menu_open_from.
+        bool commit_widget_candidates(std::wstring& holder, bool& discovered_new)
         {
             discovered_new = false;
-            std::vector<uer::ObjRef> confirmed;
-            std::uint32_t visible_in_viewport = 0;
             bool menu = false;
-
-            for (const uer::ObjRef& ref : g_wcandidates)
+            if (g_wpending.empty())
             {
+                return false;
+            }
+            const int take = scan::commit_batch(static_cast<int>(g_wpending.size()),
+                                                scan::kWidgetCommitPerPump);
+            for (int i = 0; i < take; ++i)
+            {
+                const uer::ObjRef& ref = g_wpending[static_cast<std::size_t>(i)];
                 if (!uer::alive(ref))
                 {
-                    continue; // captured earlier in the round, dead by now
+                    continue; // captured a pump ago, dead by now
                 }
                 UObject* w = ref.obj;
-                // Re-read the byte rather than trusting the slice's: the round took a few
-                // hundred ms to walk, and a widget that was Visible in slice 3 may not be
-                // now. Same rule as the per-pump re-test - the authoritative answer is
-                // always the fresh one.
+                // Re-read the byte rather than trusting the slice's: the authoritative
+                // answer is always the fresh one, however short the gap.
                 bool has_byte = false;
                 const bool byte_visible = widget_is_visible_byte(w, has_byte);
                 if (has_byte)
@@ -1088,7 +1120,6 @@ namespace gamestate
                 {
                     continue;
                 }
-                ++visible_in_viewport;
                 if (!menu)
                 {
                     holder = w->GetName();
@@ -1098,30 +1129,42 @@ namespace gamestate
                 // time this menu opens the minimap hides within ~100 ms and the discovery
                 // walk no longer has to run often for its sake.
                 discovered_new = watch_menu_root(w) || discovered_new;
-                confirmed.push_back(ref);
+                // And count it as open NOW - `g_menu_roots` is the set of roots open this
+                // pump, and this one was just proved to be in the viewport.
+                bool already = false;
+                for (const uer::ObjRef& open : g_menu_roots)
+                {
+                    already = already || open.obj == w;
+                }
+                if (!already)
+                {
+                    g_menu_roots.push_back(ref);
+                    ++g_widgets_visible;
+                }
             }
+            g_wpending.erase(g_wpending.begin(), g_wpending.begin() + static_cast<std::ptrdiff_t>(take));
+            return menu;
+        }
 
-            if (confirmed.size() != g_menu_roots.size())
-            {
-                mm::logf(L"menu root cache rebuilt by the sweep: {} -> {} root(s)",
-                         g_menu_roots.size(),
-                         confirmed.size());
-            }
-            g_menu_roots = std::move(confirmed);
-
+        // End-of-round bookkeeping: the counts the state line reports, and the one place
+        // an over-full candidate list is shouted about. The ANSWER does not come from here
+        // any more (see commit_widget_candidates).
+        void finish_widget_round()
+        {
             g_widgets_seen = g_wseen_round;
-            g_widgets_visible = visible_in_viewport;
             if (g_wcand_dropped != 0)
             {
                 // Never silently truncate the answer: if this ever fires the cap is wrong
-                // for this game, and the number says by how much.
+                // for this game, and the number says by how much. This is the counter that
+                // would have named the 64-candidate cap as the reason menus stopped being
+                // detected, so it is worth a line every time.
                 mm::logf(L"widget scan: {} byte-Visible widget(s) exceeded the {}-candidate "
-                         L"cap this round and were not tested",
+                         L"cap this round and were not tested (a menu root is constructed "
+                         L"late, i.e. at a HIGH object-array index, so it is the most likely "
+                         L"one to be cut)",
                          g_wcand_dropped,
                          scan::kWidgetCandidateMax);
             }
-            g_wcandidates.clear();
-            return menu;
         }
 
         //==============================================================================
@@ -1552,24 +1595,31 @@ namespace gamestate
 
             // ---- 4. from here on the pawn is validated: UFunctions are allowed -------
             //
-            // The menu test: the cheap cached-root pass runs on EVERY pump, and the
-            // full sweep only every kWidgetFullPeriodMs. Either one saying "a menu is
-            // up" is enough, and the answer is published in this same snapshot - so
-            // the overlay hides on the next frame, not seconds later.
+            // THE MENU TEST HAS TWO HALVES AND BOTH RUN ON EVERY PUMP.
+            //   a) the WATCHLIST re-test: `IsInViewport()` over every root ever confirmed
+            //      this session, which is the complete authoritative answer for everything
+            //      already known and rebuilds `g_menu_roots` from scratch;
+            //   b) the COMMIT of whatever the sliced discovery walk has newly seen as
+            //      byte-`Visible`, which can only ADD a root - and adds it to the
+            //      watchlist at the same time, so (a) owns it from the next pump on.
+            // Both are live `IsInViewport()` calls made in THIS pump, so OR-ing them is
+            // not the cached-over-fresh latch lessons.md condemns; there is no cached
+            // answer left anywhere in this path (scan::menu_open_from).
             std::uint32_t roots_visible = 0;
             std::wstring holder;
-            bool menu = false;
+            bool watch_menu = false;
             {
                 if (g_pf_retest < 0)
                 {
                     g_pf_retest = mm::perf_register("menu root re-test", perf::Thread::Game);
                 }
                 const mm::PerfScope scope(g_pf_retest);
-                menu = menu_from_cached_roots(roots_visible, holder);
+                watch_menu = menu_from_cached_roots(roots_visible, holder);
             }
+            g_widgets_visible = roots_visible;
 
-            // The discovery sweep's cadence. Every event that can have created a menu
-            // root we have never seen re-arms the fast cadence (and makes a sweep due
+            // The discovery walk's cadence. Every event that can have created a menu
+            // root we have never seen re-arms the fast cadence (and makes a round due
             // now); a quiet, warm reader lets the period double up to
             // reader_widget_sweep_max_period_ms. The latency this schedule bounds is ONLY
             // "a menu whose root has never been seen this session opened" - everything
@@ -1579,28 +1629,16 @@ namespace gamestate
                 g_force_widget_sweep = false;
                 scan::sweep_arm(g_sweep, now);
             }
-            //
-            // A "sweep" is now one complete round of the sliced GUObjectArray walk, so
-            // this is where a FINISHED round is turned into an answer - the walking
-            // itself happened on the fast path, a slice at a time. `g_wfallback` is the
-            // only path that still issues the whole-array FindAllOf, and only on a build
-            // where GUObjectArray could not be read at all.
-            bool swept = false;
+
+            bool commit_menu = false;
+            std::wstring commit_holder;
+            bool discovered_new = false;
             if (g_wfallback)
             {
-                swept = scan::sweep_due(g_sweep, now);
-            }
-            else
-            {
-                widget_scan_pump(now, mm::qpc_us());
-                swept = g_wround_ready;
-            }
-            if (swept)
-            {
-                std::wstring sweep_holder;
-                bool discovered_new = false;
-                bool sweep_menu = false;
-                if (g_wfallback)
+                // No GUObjectArray on this build: the whole-array FindAllOf is the only
+                // discovery route left, and it is still scheduled rather than per pump
+                // because it costs ~25 ms of game thread every time it runs.
+                if (scan::sweep_due(g_sweep, now))
                 {
                     if (g_pf_sweep < 0)
                     {
@@ -1608,39 +1646,50 @@ namespace gamestate
                             mm::perf_register("widget sweep (FindAllOf, fallback)", perf::Thread::Game);
                     }
                     const std::uint64_t sweep_t0 = mm::qpc_us();
-                    sweep_menu = update_widgets(sweep_holder, discovered_new);
+                    commit_menu = update_widgets(commit_holder, discovered_new);
                     mm::perf_record(g_pf_sweep, sweep_t0);
+                    scan::sweep_done(g_sweep, now, discovered_new, g_menu_watch.empty());
+                    roots_visible = g_widgets_visible;
                 }
-                else
-                {
-                    g_wround_ready = false;
-                    if (g_pf_wcommit < 0)
-                    {
-                        g_pf_wcommit = mm::perf_register("widget round commit", perf::Thread::Game);
-                    }
-                    const mm::PerfScope commit_scope(g_pf_wcommit);
-                    sweep_menu = commit_widget_round(sweep_holder, discovered_new);
-                }
-                scan::sweep_done(g_sweep, now, discovered_new, g_menu_watch.empty());
-                // After a sweep the sweep IS the answer. OR-ing the cached pass's older
-                // answer over it - which is what the first version did - lets a root the
-                // sweep has just dropped win, and that is the latch that hid the minimap
-                // for the rest of run 2. Never OR a cached answer over a fresh sweep.
-                menu = sweep_menu;
-                roots_visible = g_widgets_visible;
-                holder = sweep_holder;
             }
             else
             {
-                g_widgets_visible = roots_visible;
+                widget_scan_pump(now, mm::qpc_us());
+                if (g_pf_wcommit < 0)
+                {
+                    g_pf_wcommit = mm::perf_register("widget round commit", perf::Thread::Game);
+                }
+                {
+                    const mm::PerfScope commit_scope(g_pf_wcommit);
+                    commit_menu = commit_widget_candidates(commit_holder, discovered_new);
+                }
+                roots_visible = g_widgets_visible;
+                g_wcand_round_pub.store(g_wcand_round, std::memory_order_relaxed);
+                g_wpending_pub.store(static_cast<std::uint32_t>(g_wpending.size()),
+                                     std::memory_order_relaxed);
+                g_wcand_dropped_pub.store(g_wcand_dropped, std::memory_order_relaxed);
+                if (g_wround_ready)
+                {
+                    // The round has wrapped: report its counts and let the schedule back
+                    // off. The ANSWER did not wait for this (see above), which is the
+                    // whole point of the rework.
+                    g_wround_ready = false;
+                    finish_widget_round();
+                    scan::sweep_done(g_sweep, now, discovered_new, g_menu_watch.empty());
+                }
+            }
+            const bool menu = scan::menu_open_from(watch_menu, commit_menu);
+            if (!watch_menu && commit_menu)
+            {
+                holder = commit_holder;
             }
             g_menu_holder = holder;
             set_menu_open(menu,
                           now,
-                          menu ? (swept ? L"the full sweep found an in-viewport Visible root"
-                                        : L"a cached root is in the viewport and Visible")
-                               : (swept ? L"the full sweep found no in-viewport Visible root"
-                                        : L"no cached root is in the viewport and Visible"));
+                          menu ? (watch_menu ? L"a watchlist root is in the viewport and Visible"
+                                             : L"the discovery walk just confirmed a new in-viewport "
+                                               L"Visible root")
+                               : L"no root is in the viewport and Visible");
 
             // Which chapter's map asset should be resident. Slow (1 Hz) and cheap, and
             // it runs on the same validated state the rest of the pump uses.
@@ -1830,7 +1879,8 @@ namespace gamestate
         mm::logf(L"state: pawn {} pos {:.0f} {:.0f} {:.0f} yaw {:.0f} ({}) | chapter {} ({} level(s), "
                  L"map \"{}\") | pawn-view {} | menu {} "
                  L"(last change {} ms ago, {} cached root(s)) | widgets {}/{} | "
-                 L"sweep every {} ms (watchlist {}) | {}{} publishes",
+                 L"sweep every {} ms (watchlist {}) | byte-Visible {} last round, {} awaiting "
+                 L"a commit, {} over the cap | {}{} publishes",
                  snap.has_pawn ? L"yes" : L"NO",
                  snap.x,
                  snap.y,
@@ -1853,6 +1903,13 @@ namespace gamestate
                  snap.widgets_seen,
                  snap.widget_sweep_period_ms,
                  snap.menu_watch_count,
+                 // THE THREE NUMBERS THAT WOULD HAVE NAMED THE CAP. `byte-Visible` is the
+                 // population the candidate cap applies to, and it is NOT the 5-6
+                 // in-viewport roots the cap was sized from; `over the cap` is how many
+                 // were never tested.
+                 g_wcand_round_pub.load(std::memory_order_relaxed),
+                 g_wpending_pub.load(std::memory_order_relaxed),
+                 g_wcand_dropped_pub.load(std::memory_order_relaxed),
                  snap.transition ? L"TRANSITION | " : L"",
                  g_publishes.load());
     }

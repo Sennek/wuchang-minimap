@@ -345,10 +345,75 @@ namespace scan
     constexpr int kWidgetChunkDefault = 8192;
     constexpr int kWidgetSlicePeriodMs = 8;
 
-    // How many byte-`Visible` widgets one round may hand to the commit pass. Only the
-    // survivors of the Visibility-byte prefilter get an `IsInViewport()` ProcessEvent,
-    // and the game only ever has 5-6 in-viewport roots out of ~1 700 instances, so this
-    // is a sanity cap and not a working limit. Overflow is counted and logged rather
-    // than silently truncating the answer.
-    constexpr int kWidgetCandidateMax = 64;
+    // How many byte-`Visible` widgets may be waiting for a commit at once.
+    //
+    // THIS WAS 64 AND THAT IS WHY MENUS STOPPED BEING DETECTED. The number was taken
+    // from "the game only ever has 5-6 in-viewport roots out of ~1 700 instances" - but
+    // the candidate list is not the in-viewport roots, it is every widget whose
+    // **Visibility byte** says `Visible`, which is a completely different population:
+    // this game leaves `Visibility` at `Visible` on widgets it has REMOVED from the
+    // viewport (that is the whole reason `IsInViewport()` is the authoritative test), and
+    // an open menu's child panels are `Visible` too. A cap sized from the in-viewport
+    // count therefore truncated the candidate list in object-array INDEX order - and a
+    // menu root is constructed lazily, i.e. LATE, i.e. at a high index. So the one widget
+    // the pass existed to find was the most likely one to be cut.
+    //
+    // 512 is a sanity cap, not a working limit, and overflow is still counted and logged.
+    constexpr int kWidgetCandidateMax = 512;
+
+    // How many `IsInViewport()` ProcessEvent calls a single 10 Hz pump may issue. The
+    // remainder stays pending and is tested on the next pump, so a burst of candidates
+    // costs latency rather than a frame.
+    constexpr int kWidgetCommitPerPump = 128;
+
+    // THE MENU ANSWER, and the reason it is a function.
+    //
+    // The 2026-09-03 rework made "a sweep" mean one complete ROUND of the sliced walk and
+    // committed the round's candidates only when the cursor wrapped - which put up to a
+    // whole round (~350 ms on the fast path, seconds if the reader is only slicing at
+    // 10 Hz) between reading a widget's Visibility byte and asking it `IsInViewport()`.
+    // A menu that opens and closes inside that window is byte-`Visible` when the slice
+    // sees it and out of the viewport when the commit asks - so it is never confirmed,
+    // never joins the watchlist, and every later opening of that same menu is missed as
+    // well. The old whole-array `FindAllOf` sweep did both reads in the same instant and
+    // could not have this failure.
+    //
+    // So candidates are committed on the very next validated pump instead of at the end
+    // of the round, and the answer has two sources that are BOTH fresh this pump:
+    //   * the watchlist re-test - the complete, authoritative answer over every root ever
+    //     confirmed, rebuilt from `IsInViewport()` on every pump;
+    //   * this pump's commit of newly-seen candidates, which can only ADD a root (and
+    //     adds it to the watchlist at the same time).
+    // Neither is a cached value, so OR-ing them is not the latch `lessons.md` condemns -
+    // that rule is about OR-ing a STALE answer over a fresh one, and there is no stale
+    // answer left in this design.
+    constexpr bool menu_open_from(bool watchlist_open, bool commit_confirmed) noexcept
+    {
+        return watchlist_open || commit_confirmed;
+    }
+
+    // The slots of `pending` a pump takes, given the per-pump cap. Pure so the latency
+    // contract can be arithmetic in a test rather than a claim in a comment.
+    constexpr int commit_batch(int pending, int cap) noexcept
+    {
+        if (pending <= 0 || cap <= 0)
+        {
+            return 0;
+        }
+        return pending < cap ? pending : cap;
+    }
+
+    // Worst-case pumps needed to drain `pending` at `cap` per pump.
+    constexpr int commit_pumps_needed(int pending, int cap) noexcept
+    {
+        if (pending <= 0)
+        {
+            return 0;
+        }
+        if (cap <= 0)
+        {
+            return -1; // never
+        }
+        return (pending + cap - 1) / cap;
+    }
 } // namespace scan

@@ -1555,7 +1555,57 @@ namespace
             CHECK(static_cast<std::uint64_t>(slices * scan::kWidgetSlicePeriodMs) < def.unknown_ms);
             CHECK(static_cast<std::uint64_t>(slices * scan::kWidgetSlicePeriodMs) > def.fast_ms);
         }
-        CHECK(scan::kWidgetCandidateMax >= 32);
+        // THE CANDIDATE CAP, AND WHY IT IS NOT 64 ANY MORE. It applies to every widget
+        // whose Visibility BYTE says Visible - which this game leaves set on widgets it
+        // has removed from the viewport, and which an open menu's child panels have too -
+        // not to the 5-6 in-viewport roots the old value was derived from. The list is
+        // filled in object-array INDEX order and a menu root is constructed lazily, i.e.
+        // late, i.e. at a high index, so a cap sized from the wrong population cut
+        // precisely the widget the pass exists to find.
+        CHECK(scan::kWidgetCandidateMax >= 256);
+
+        // THE MENU ANSWER IS AN OR OF TWO FRESH TESTS, and both directions matter: a
+        // watchlist root in the viewport is a menu even if the discovery walk found
+        // nothing new this pump, and a newly discovered root is a menu even though the
+        // watchlist had never heard of it.
+        CHECK(!scan::menu_open_from(false, false));
+        CHECK(scan::menu_open_from(true, false));
+        CHECK(scan::menu_open_from(false, true));
+        CHECK(scan::menu_open_from(true, true));
+
+        // THE COMMIT BATCH. A pump tests at most kWidgetCommitPerPump candidates and the
+        // rest stay pending, so a burst costs latency and not a frame.
+        CHECK_EQ(scan::commit_batch(0, 128), 0);
+        CHECK_EQ(scan::commit_batch(5, 128), 5);
+        CHECK_EQ(scan::commit_batch(300, 128), 128);
+        CHECK_EQ(scan::commit_batch(128, 128), 128);
+        CHECK_EQ(scan::commit_batch(-3, 128), 0);
+        CHECK_EQ(scan::commit_batch(10, 0), 0);
+
+        // THE LATENCY CONTRACT, as arithmetic rather than as a claim in a comment.
+        //
+        //   * a menu whose root is already on the watchlist, and a menu CLOSING: one pump
+        //     (~100 ms), because the watchlist re-test runs on every pump and needs no
+        //     commit at all;
+        //   * a menu whose root has NEVER been seen: one quiet period (the schedule's
+        //     backed-off cadence) + one round of the walk + the pumps needed to commit a
+        //     full candidate list.
+        {
+            constexpr int kPositionMs = 100;
+            const scan::SweepSched def{};
+            CHECK_EQ(scan::commit_pumps_needed(0, scan::kWidgetCommitPerPump), 0);
+            const int drain_pumps =
+                scan::commit_pumps_needed(scan::kWidgetCandidateMax, scan::kWidgetCommitPerPump);
+            CHECK(drain_pumps >= 1);
+            const std::uint64_t worst_first_seen_ms =
+                def.unknown_ms + static_cast<std::uint64_t>(44 * scan::kWidgetSlicePeriodMs) +
+                static_cast<std::uint64_t>(drain_pumps * kPositionMs);
+            // <= ~1.4 s is the contract the round-3 perf work wrote down; the per-pump
+            // commit must not have made it worse.
+            CHECK(worst_first_seen_ms <= 1800);
+            // And a KNOWN menu is still one pump, whatever the discovery walk is doing.
+            CHECK(scan::menu_open_from(true, false));
+        }
     }
     //======================================================================================
     // src/projection.hpp - world -> screen

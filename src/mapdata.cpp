@@ -141,17 +141,6 @@ namespace mapdata
             return static_cast<double>(::GetTickCount64() - t0);
         }
 
-        bool decode_raw(const std::wstring& path, int channels, int& out_w, int& out_h,
-                        std::vector<std::uint8_t>& out_pixels)
-        {
-            return decode_raw_ms(path, channels, out_w, out_h, out_pixels) >= 0.0;
-        }
-
-        bool decode_png(const std::wstring& path, PendingImage& out)
-        {
-            return decode_raw(path, out.channels, out.width, out.height, out.pixels);
-        }
-
         std::wstring widen(std::string_view narrow)
         {
             return std::wstring{narrow.begin(), narrow.end()};
@@ -631,6 +620,12 @@ namespace mapdata
         g_pending_chapter = -1;
         Chapter& ch = (*g_chapters_mut)[static_cast<std::size_t>(index)];
         const mapmanifest::Entry& entry = g_manifest.chapters[static_cast<std::size_t>(index)];
+        // C.15: the load is the largest and slowest thing this mod does and nothing
+        // measured it, so "the map took a while to come back after a loading screen"
+        // arrived with no number attached. Every plane is timed inside
+        // decode_heights(); this is the wall clock for the whole chapter, composite
+        // included, logged once at normal level.
+        const std::uint64_t load_t0 = ::GetTickCount64();
         HeightMaps* planes = decode_heights(ch, entry);
         ch.heights = planes;
         g_active.store(index, std::memory_order_release);
@@ -645,8 +640,14 @@ namespace mapdata
             auto img = std::make_unique<PendingImage>();
             img->chapter_key = ch.key;
             img->channels = 4;
-            if (decode_png(png_path(ch.image), *img))
+            int cw = 0;
+            int chh = 0;
+            const double composite_ms =
+                decode_raw_ms(png_path(ch.image), img->channels, cw, chh, img->pixels);
+            if (composite_ms >= 0.0)
             {
+                img->width = cw;
+                img->height = chh;
                 if (img->width != ch.image_width || img->height != ch.image_height)
                 {
                     mm::logf(L"maps: {} is {}x{} but maps.json says {}x{} - trusting the PNG",
@@ -658,11 +659,12 @@ namespace mapdata
                     ch.image_width = img->width;
                     ch.image_height = img->height;
                 }
-                mm::logf(L"maps: decoded the composite {} -> {}x{} RGBA ({} MB){}",
+                mm::logf(L"maps: decoded the composite {} -> {}x{} RGBA ({} MB) in {:.0f} ms{}",
                          widen(ch.image),
                          img->width,
                          img->height,
                          img->pixels.size() / (1024 * 1024),
+                         composite_ms,
                          planes == nullptr ? L" - the only thing there is to draw" : L"");
                 pending_push(std::move(img));
             }
@@ -672,6 +674,13 @@ namespace mapdata
             mm::log(L"maps: composite texture not loaded (fallback_use_composite = 0); the height "
                     L"slicer does not need it");
         }
+        mm::logf(L"maps: chapter \"{}\" ready in {} ms ({} height plane(s) + {}, {} MB resident)",
+                 widen(ch.key),
+                 ::GetTickCount64() - load_t0,
+                 planes != nullptr ? planes->count : 0,
+                 mm::config().fallback_use_composite || planes == nullptr ? L"the composite"
+                                                                        : L"no composite",
+                 planes != nullptr ? planes->bytes() / (1024 * 1024) : std::size_t{0});
     }
 
     std::unique_ptr<PendingImage> take_pending()

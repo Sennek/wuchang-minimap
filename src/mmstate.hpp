@@ -903,6 +903,13 @@ namespace mm
     // The file is CAPPED at `kModLogMaxBytes` per session: at the cap it writes one
     // "log capped" line and stops writing, so a runaway diagnostic cannot fill a disk.
     // The `.1` / `.2` / `.3` rotation is unaffected.
+    // A.20: does the shipped marker / map data name the game build it was dumped
+    // from, and is that the build now running? One line, once, at startup: markers move
+    // when the game is patched and "my markers are all in the wrong place" is otherwise
+    // an unanswerable bug report. Silent at the normal level when the data carries no
+    // stamp (every 1.0.0 data file predates it). Loop thread; plain Win32 file I/O.
+    void check_game_build();
+
     void modlog_flush();
     void modlog_tick(std::uint64_t now_ms);
     std::wstring modlog_path();

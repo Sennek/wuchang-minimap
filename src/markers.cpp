@@ -367,6 +367,10 @@ namespace markers
         std::unordered_set<std::string> g_found_master; // loop thread only
         std::unordered_set<std::string> g_found_gt;     // game thread only
         bool g_found_dirty = false;                     // loop thread only
+        // Marks (auto or manual) added since the found-tracker save line was last
+        // printed. The save line reports and clears it, so at the default log level one
+        // line per half-minute says everything the fifty-odd suppressed ones would have.
+        std::uint32_t g_marks_since_log = 0;
         std::uint64_t g_found_dirty_ms = 0;
 
         //==============================================================================
@@ -568,6 +572,23 @@ namespace markers
         std::size_t g_live_max = 8192;
         std::size_t g_id_cache_max = 8192;
         std::size_t g_class_cache_max = 262144;
+        // FIRST OCCURRENCE MEANS ONCE PER SESSION.
+        //
+        // The four "route on <class> is <property>" diagnostics are exactly the lines a
+        // bug report needs - they say which reflected property answered for visibility,
+        // health and item names on this build - and each used to be printed once per
+        // entry in its UClass*-keyed cache. Those caches are performance caches: they are
+        // dropped on every level transition, so run 5 printed the same ~20 lines seven
+        // times over, ~120 lines of a 2600-line log.
+        //
+        // This set is keyed by the route plus the class NAME, is never cleared, and costs
+        // a few dozen short strings for the life of the session.
+        std::unordered_set<std::wstring> g_route_logged;
+
+        bool first_time(const wchar_t* route, const std::wstring& cls)
+        {
+            return g_route_logged.insert(std::wstring{route} + L'\t' + cls).second;
+        }
         std::size_t g_fallback_max_per_class = 4096;
 
         //==============================================================================
@@ -822,13 +843,17 @@ namespace markers
                                                         ? L"RootComponent -> !bVisible"
                                                         : L"(none)"));
                 // `bPerformanceHidden` is reported and NOT believed - see the note above.
-                bool perf = false;
-                const bool perf_ok = uer::read_bool_prop(layout, actor, L"bPerformanceHidden", perf);
-                mm::logf(L"markers: visibility route on '{}' is {} (reads {}; "
-                         L"bPerformanceHidden {})",
-                         safe_class_name(actor), name,
-                         winner == kHiddenRouteNone ? L"nothing" : (value ? L"hidden" : L"visible"),
-                         perf_ok ? (perf ? L"true" : L"false") : L"unreadable");
+                if (first_time(L"vis", safe_class_name(actor)))
+                {
+                    bool perf = false;
+                    const bool perf_ok =
+                        uer::read_bool_prop(layout, actor, L"bPerformanceHidden", perf);
+                    mm::logf(L"markers: visibility route on '{}' is {} (reads {}; "
+                             L"bPerformanceHidden {})",
+                             safe_class_name(actor), name,
+                             winner == kHiddenRouteNone ? L"nothing" : (value ? L"hidden" : L"visible"),
+                             perf_ok ? (perf ? L"true" : L"false") : L"unreadable");
+                }
             }
             if (winner == kHiddenRouteNone)
             {
@@ -1105,7 +1130,7 @@ namespace markers
                 g_health_prop.clear();
             }
             g_health_prop.emplace(cls, winner);
-            if (found != nullptr)
+            if (found != nullptr && first_time(L"healthcomp", safe_class_name(owner)))
             {
                 uer::ObjRef fref{};
                 (void)uer::capture(found, fref);
@@ -1161,14 +1186,17 @@ namespace markers
                 if (winner >= 0)
                 {
                     g_health_width = width;
-                    mm::logf(L"markers: health fields on '{}' are '{}' / '{}', {} bytes wide "
-                             L"(read {} / {})",
-                             safe_class_name(health),
-                             kHealthFields[winner].current,
-                             kHealthFields[winner].max,
-                             width,
-                             current,
-                             max);
+                    if (first_time(L"healthfields", safe_class_name(health)))
+                    {
+                        mm::logf(L"markers: health fields on '{}' are '{}' / '{}', {} bytes wide "
+                                 L"(read {} / {})",
+                                 safe_class_name(health),
+                                 kHealthFields[winner].current,
+                                 kHealthFields[winner].max,
+                                 width,
+                                 current,
+                                 max);
+                    }
                 }
             }
             return winner >= 0;
@@ -1340,11 +1368,14 @@ namespace markers
                         g_item_prop.clear();
                     }
                     g_item_prop.emplace(cls, winner);
-                    mm::logf(L"markers: item-name route on '{}' is {} (first resolved name '{}')",
-                             safe_class_name(actor),
-                             winner >= 0 ? std::wstring{kItemArrayProps[winner]}
-                                         : std::wstring{L"(none - no array holds a known item id)"},
-                             widen(name));
+                    if (first_time(L"itemname", safe_class_name(actor)))
+                    {
+                        mm::logf(L"markers: item-name route on '{}' is {} (first resolved name '{}')",
+                                 safe_class_name(actor),
+                                 winner >= 0 ? std::wstring{kItemArrayProps[winner]}
+                                             : std::wstring{L"(none - no array holds a known item id)"},
+                                 widen(name));
+                    }
                 }
             }
             if (g_drop_name.size() > g_id_cache_max)
@@ -2940,7 +2971,31 @@ namespace markers
             const std::wstring path = found_path();
             if (write_whole_file(path, text))
             {
-                mm::logf(L"markers: found tracker saved ({} id(s)) -> {}", g_found_master.size(), path);
+                // ONE LINE PER 30 s, NOT PER SAVE. The write is debounced already, but a
+                // player looting a room still triggers one every few seconds (52 lines in
+                // run 5). The line that survives carries everything the suppressed ones
+                // would have said: the total, how many marks were added since it was last
+                // printed, and how many saves it stands for.
+                static std::uint64_t last_log = 0;
+                static std::uint32_t coalesced = 0;
+                const std::uint64_t now = ::GetTickCount64();
+                if (last_log == 0 || now - last_log >= 30000)
+                {
+                    mm::logf(L"markers: found tracker saved ({} id(s), {} new since the last line{}) "
+                             L"-> {}",
+                             g_found_master.size(),
+                             g_marks_since_log,
+                             coalesced != 0 ? std::format(L", {} earlier save(s) coalesced", coalesced)
+                                            : std::wstring{},
+                             path);
+                    last_log = now;
+                    coalesced = 0;
+                    g_marks_since_log = 0;
+                }
+                else
+                {
+                    ++coalesced;
+                }
             }
             else
             {
@@ -3069,8 +3124,14 @@ namespace markers
             {
                 g_found_dirty = true;
                 g_found_dirty_ms = now;
-                mm::logf(L"markers: auto-marked {} new marker(s) as found ({} total)", added,
-                         g_found_master.size());
+                // VERBOSE, and COUNTED. Auto-marks arrive in ones and twos as the
+                // player walks (55 lines in run 5) and every one of them is followed
+                // within a second by the save line below, which is the thing that
+                // actually changed persisted state - so the count rides on that line
+                // instead of getting one of its own.
+                g_marks_since_log += static_cast<std::uint32_t>(added);
+                MM_LOGV(L"markers: auto-marked {} new marker(s) as found ({} total)", added,
+                        g_found_master.size());
                 recompute_stats();
             }
         }
@@ -3113,6 +3174,7 @@ namespace markers
                 }
                 publish_inbox(std::move(all), true);
                 recompute_stats();
+                g_marks_since_log += static_cast<std::uint32_t>(changed);
                 mm::logf(L"markers: {} manual found change(s) from the map ({} total)", changed,
                          g_found_master.size());
             }
@@ -3127,22 +3189,28 @@ namespace markers
 
         // One periodic line so the round's cost is in the log as well as in F2 - an
         // in-game session reports a log file, not a screenshot of the panel.
+        // THE PERIODIC HEALTH SUMMARY. At `normal` this is once a minute and it is the
+        // only recurring thing the mod writes: the found-rule counters and the NPC census
+        // are what a bug report needs to see moving. The per-round TIMINGS below are the
+        // running commentary and are `verbose`. Run 5 wrote 240 lines here; at `normal`
+        // the same session writes 82.
         static std::uint64_t last_round_log = 0;
-        if (now - last_round_log >= 30000)
+        const std::uint64_t census_period = mm::log_enabled(mm::LogLv::Verbose) ? 30000 : 60000;
+        if (now - last_round_log >= census_period)
         {
             last_round_log = now;
             if (g_rounds.load(std::memory_order_relaxed) != 0)
             {
-                mm::logf(L"markers: round {} - scan {:.1f} ms over {} pump(s), publish {:.3f} ms "
-                         L"(avg {:.3f}, peak {:.3f}); {} published, {} live",
-                         g_rounds.load(std::memory_order_relaxed),
-                         g_scan_round_ms.load(std::memory_order_relaxed),
-                         g_scan_round_slices.load(std::memory_order_relaxed),
-                         g_publish_ms.load(std::memory_order_relaxed),
-                         g_publish_ms_avg.load(std::memory_order_relaxed),
-                         g_publish_ms_peak.load(std::memory_order_relaxed),
-                         g_published_count.load(std::memory_order_relaxed),
-                         g_live_count.load(std::memory_order_relaxed));
+                MM_LOGV(L"markers: round {} - scan {:.1f} ms over {} pump(s), publish {:.3f} ms "
+                        L"(avg {:.3f}, peak {:.3f}); {} published, {} live",
+                        g_rounds.load(std::memory_order_relaxed),
+                        g_scan_round_ms.load(std::memory_order_relaxed),
+                        g_scan_round_slices.load(std::memory_order_relaxed),
+                        g_publish_ms.load(std::memory_order_relaxed),
+                        g_publish_ms_avg.load(std::memory_order_relaxed),
+                        g_publish_ms_peak.load(std::memory_order_relaxed),
+                        g_published_count.load(std::memory_order_relaxed),
+                        g_live_count.load(std::memory_order_relaxed));
                 // The 2026-09-03 found-rules, in the same log a session reports. All
                 // five together answer "which rule fired and which one cannot read its
                 // property": a climbing `health unknown` with zero dead/defeated means

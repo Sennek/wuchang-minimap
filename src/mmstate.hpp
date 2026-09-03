@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <format>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -135,6 +136,16 @@ namespace mm
     {
         Top = 0,
         Bottom = 1,
+    };
+
+    // How much the mod says. Declared here because it is a Config field; the whole
+    // logging contract, and the macros that make a suppressed line free, are in the
+    // LOGGING block near the bottom of this file.
+    enum class LogLv : int
+    {
+        Normal = 0,
+        Verbose = 1,
+        Trace = 2,
     };
 
     struct Config
@@ -619,6 +630,10 @@ namespace mm
         // overlay stage transition. The UE4SS log buffer can be lost when the process
         // dies; a file closed after each write cannot be.
         bool crash_breadcrumb = true;
+        // How much the mod writes to UE4SS.log and wuchang_minimap.log. `normal` is
+        // what a bug report needs; `verbose` adds the running commentary; `trace` adds
+        // the per-publish censuses. See the LOGGING block further down this file.
+        LogLv log_level = LogLv::Normal;
         // Shrine fast travel. OFF until the in-game reflection self-check in
         // context/extras-test-instructions.md has confirmed the call route.
         bool fast_travel_enabled = false;
@@ -828,6 +843,50 @@ namespace mm
     // Output::send touches fmt and, through it, the C++ locale, which is fatal on the
     // game thread. So every thread except the loop thread only queues text; the loop
     // thread drains the queue in on_update.
+    //
+    // THE QUEUE IS BOUNDED AND NEVER BLOCKS. A thread that is not the loop thread takes
+    // a spinlock, pushes one string and leaves; past `kLogQueueMax` entries the line is
+    // DROPPED and counted, and the loop thread prints "log: dropped N line(s)" the next
+    // time it drains. A log call can therefore never grow without bound and can never
+    // wait on the disk (the file buffer is behind a lock of its own - see mmstate.cpp).
+    //
+    // THREE LEVELS, ONE KEY (`log_level`, Advanced tier).
+    //
+    //   normal   (default) - what a bug report needs and nothing else: the startup
+    //                        header, config / map / marker / shrine loads, chapter,
+    //                        level and save-slot changes, hook installation, every
+    //                        error and warning, every FIRST-OCCURRENCE diagnostic (the
+    //                        visibility / item-name / health routes, the not-a-menu
+    //                        list), the watchdog, the breadcrumb, persisted-state
+    //                        changes, and a health summary at most once a minute.
+    //   verbose            - the periodic running commentary: the `state:` line at its
+    //                        real cadence, the per-round marker timings, menu-state
+    //                        transitions, minimap hide/show reasons, x-ray toggles,
+    //                        panel and full-map open/close.
+    //   trace              - everything, including per-publish censuses.
+    //
+    // A SUPPRESSED LINE COSTS ONE RELAXED ATOMIC LOAD. Use the macros: they wrap the
+    // whole call, so neither `std::format` nor the argument expressions run when the
+    // level is off. `mm::log` / `mm::logf` with no macro around them are the NORMAL
+    // level and always emit - which keeps the default level's call sites unadorned.
+    //
+    //   MM_LOGV(fmt, ...)  / MM_LOGVS(str)   - verbose
+    //   MM_LOGT(fmt, ...)  / MM_LOGTS(str)   - trace
+
+    // Set from the config on every load; read by every log macro. Relaxed because a
+    // line logged one microsecond either side of a level change is not a correctness
+    // question.
+    extern std::atomic<int> g_log_level;
+
+    inline bool log_enabled(LogLv lv) noexcept
+    {
+        return static_cast<int>(lv) <= g_log_level.load(std::memory_order_relaxed);
+    }
+
+    // "normal" / "verbose" / "trace" <-> LogLv, for the config parser, the writer and
+    // the F2 panel. Pure; unknown names leave the fallback in place and return false.
+    const char* log_level_name(LogLv lv) noexcept;
+    bool log_level_from_name(std::string_view name, LogLv& out) noexcept;
 
     void log(const std::wstring& line);
     void set_loop_thread();
@@ -840,6 +899,10 @@ namespace mm
     // buffered; `modlog_flush()` is safe from any thread (the crash breadcrumb calls it,
     // so the log and the breadcrumb always agree about the last thing that happened) and
     // `modlog_tick()` flushes it every few seconds from the loop thread.
+    //
+    // The file is CAPPED at `kModLogMaxBytes` per session: at the cap it writes one
+    // "log capped" line and stops writing, so a runaway diagnostic cannot fill a disk.
+    // The `.1` / `.2` / `.3` rotation is unaffected.
     void modlog_flush();
     void modlog_tick(std::uint64_t now_ms);
     std::wstring modlog_path();
@@ -849,4 +912,52 @@ namespace mm
     {
         log(std::format(fmt, std::forward<Args>(args)...));
     }
+
+    // Level-checked forms, for the rare site where a macro will not do (inside a
+    // lambda argument list, say). The check is inside, so the format never runs - but
+    // the ARGUMENTS still do, which is why the macros are the default.
+    template <typename... Args>
+    void logf_at(LogLv lv, std::wformat_string<Args...> fmt, Args&&... args)
+    {
+        if (log_enabled(lv))
+        {
+            log(std::format(fmt, std::forward<Args>(args)...));
+        }
+    }
 } // namespace mm
+
+#define MM_LOGV(...)                                                                                 \
+    do                                                                                               \
+    {                                                                                                \
+        if (::mm::log_enabled(::mm::LogLv::Verbose))                                                 \
+        {                                                                                            \
+            ::mm::logf(__VA_ARGS__);                                                                 \
+        }                                                                                            \
+    } while (false)
+
+#define MM_LOGVS(line)                                                                               \
+    do                                                                                               \
+    {                                                                                                \
+        if (::mm::log_enabled(::mm::LogLv::Verbose))                                                 \
+        {                                                                                            \
+            ::mm::log(line);                                                                         \
+        }                                                                                            \
+    } while (false)
+
+#define MM_LOGT(...)                                                                                 \
+    do                                                                                               \
+    {                                                                                                \
+        if (::mm::log_enabled(::mm::LogLv::Trace))                                                   \
+        {                                                                                            \
+            ::mm::logf(__VA_ARGS__);                                                                 \
+        }                                                                                            \
+    } while (false)
+
+#define MM_LOGTS(line)                                                                               \
+    do                                                                                               \
+    {                                                                                                \
+        if (::mm::log_enabled(::mm::LogLv::Trace))                                                   \
+        {                                                                                            \
+            ::mm::log(line);                                                                         \
+        }                                                                                            \
+    } while (false)

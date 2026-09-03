@@ -94,6 +94,12 @@ namespace mm
         Spinlock g_log_lock;
         std::vector<std::wstring> g_log_queue;
         DWORD g_loop_thread = 0;
+        // Lines the queue refused because it was already full. DROPPED, never blocked
+        // and never grown: the game thread must not wait on the loop thread, and a
+        // runaway diagnostic must not eat memory. The count is reported (and reset) by
+        // the next drain, so a drop is always visible in the log rather than silent.
+        constexpr std::size_t kLogQueueMax = 4096;
+        std::size_t g_log_dropped = 0;
 
         //==============================================================================
         // Paths
@@ -918,6 +924,22 @@ namespace mm
             {
                 cfg.shrine_list = parse_bool(value, cfg.shrine_list);
             }
+            // How much the mod says. A bad value keeps the level already in force and
+            // names the three that exist, rather than silently going quiet.
+            else if (key == "log_level")
+            {
+                LogLv lv = cfg.log_level;
+                if (log_level_from_name(value, lv))
+                {
+                    cfg.log_level = lv;
+                }
+                else
+                {
+                    logf(L"config: log_level = '{}' is not a level (expected normal, verbose or "
+                         L"trace) - keeping {}",
+                         widen_ascii(value), widen_ascii(log_level_name(cfg.log_level)));
+                }
+            }
             else if (key == "crash_breadcrumb")
             {
                 cfg.crash_breadcrumb = parse_bool(value, cfg.crash_breadcrumb);
@@ -1457,6 +1479,11 @@ namespace mm
             SpinGuard guard(g_cfg_lock);
             g_cfg = cfg;
         }
+        // The log macros read this one atomic instead of taking the config lock, so a
+        // suppressed line costs a relaxed load and nothing else. Published here, which
+        // is the single place every config change goes through - a reload, an F5 or the
+        // panel's Save all change the level immediately, with no restart.
+        g_log_level.store(static_cast<int>(cfg.log_level), std::memory_order_relaxed);
         // Bump AFTER the store so a reader that sees the new generation is guaranteed to
         // copy the new value. A reader that reads the generation first and then copies
         // may pick up an even newer struct while recording the older generation - it
@@ -2165,6 +2192,7 @@ namespace mm
         add("compass_tick_step_deg", f0(cfg.compass_tick_step_deg));
         add("compass_max_pips", std::to_string(cfg.compass_max_pips));
         add("compass_pip_height_uu", f0(cfg.compass_pip_height_uu));
+        add("log_level", log_level_name(cfg.log_level));
         add("crash_breadcrumb", b(cfg.crash_breadcrumb));
         add("fast_travel_enabled", b(cfg.fast_travel_enabled));
 
@@ -2473,6 +2501,42 @@ namespace mm
     // Logging
     //==================================================================================
 
+    std::atomic<int> g_log_level{static_cast<int>(LogLv::Normal)};
+
+    const char* log_level_name(LogLv lv) noexcept
+    {
+        switch (lv)
+        {
+        case LogLv::Verbose:
+            return "verbose";
+        case LogLv::Trace:
+            return "trace";
+        case LogLv::Normal:
+        default:
+            return "normal";
+        }
+    }
+
+    bool log_level_from_name(std::string_view name, LogLv& out) noexcept
+    {
+        if (name == "normal")
+        {
+            out = LogLv::Normal;
+            return true;
+        }
+        if (name == "verbose")
+        {
+            out = LogLv::Verbose;
+            return true;
+        }
+        if (name == "trace")
+        {
+            out = LogLv::Trace;
+            return true;
+        }
+        return false;
+    }
+
     void set_loop_thread()
     {
         g_loop_thread = ::GetCurrentThreadId();
@@ -2507,6 +2571,11 @@ namespace mm
     namespace
     {
         constexpr std::size_t kModLogFlushAt = 8192;
+        // PER-SESSION CAP. A 40-minute session at the default level is a few hundred
+        // kilobytes; 20 MB is two orders of magnitude of headroom and still small enough
+        // to attach to a bug report. At the cap one line says so and writing stops - the
+        // rotation (.1 / .2 / .3) is untouched, so the previous sessions are still there.
+        constexpr std::uint64_t kModLogMaxBytes = 20ull * 1024ull * 1024ull;
         constexpr const wchar_t* kModLogName = L"\\wuchang_minimap.log";
 
         // A LOCK OF ITS OWN, not the log QUEUE's.
@@ -2524,6 +2593,8 @@ namespace mm
         HANDLE g_modlog = INVALID_HANDLE_VALUE;
         std::string g_modlog_buf;
         bool g_modlog_opened = false;
+        bool g_modlog_capped = false;
+        std::uint64_t g_modlog_bytes = 0;
         std::uint64_t g_modlog_last_flush_ms = 0;
 
         std::string utf8_of(const std::wstring& w)
@@ -2588,6 +2659,7 @@ namespace mm
             DWORD written = 0;
             ::WriteFile(g_modlog, g_modlog_buf.data(), static_cast<DWORD>(g_modlog_buf.size()), &written,
                         nullptr);
+            g_modlog_bytes += g_modlog_buf.size();
             g_modlog_buf.clear();
         }
 
@@ -2606,8 +2678,20 @@ namespace mm
             {
                 return;
             }
+            if (g_modlog_capped)
+            {
+                return;
+            }
             g_modlog_buf.append(text);
             g_modlog_buf.append("\r\n");
+            if (g_modlog_bytes + g_modlog_buf.size() >= kModLogMaxBytes)
+            {
+                g_modlog_buf.append("--- log capped at 20 MB for this session; nothing more is written "
+                                    "to this file (the .1 / .2 / .3 rotation is unaffected) ---\r\n");
+                modlog_write_locked();
+                g_modlog_capped = true;
+                return;
+            }
             if (g_modlog_buf.size() >= kModLogFlushAt)
             {
                 modlog_write_locked();
@@ -2645,9 +2729,13 @@ namespace mm
         if (g_loop_thread == 0 || ::GetCurrentThreadId() != g_loop_thread)
         {
             SpinGuard guard(g_log_lock);
-            if (g_log_queue.size() < 4096)
+            if (g_log_queue.size() < kLogQueueMax)
             {
                 g_log_queue.push_back(line);
+            }
+            else
+            {
+                ++g_log_dropped;
             }
             return;
         }
@@ -2658,13 +2746,25 @@ namespace mm
     void drain_log()
     {
         std::vector<std::wstring> lines;
+        std::size_t dropped = 0;
         {
             SpinGuard guard(g_log_lock);
-            if (g_log_queue.empty())
+            if (g_log_queue.empty() && g_log_dropped == 0)
             {
                 return;
             }
             lines.swap(g_log_queue);
+            dropped = g_log_dropped;
+            g_log_dropped = 0;
+        }
+        if (dropped != 0)
+        {
+            const std::wstring note =
+                std::format(L"log: dropped {} line(s) - the queue was full (the loop thread was not "
+                            L"draining, or something is logging far too fast)",
+                            dropped);
+            Output::send<LogLevel::Warning>(STR("[minimap] {}\n"), note);
+            modlog_line(note);
         }
         for (const std::wstring& l : lines)
         {

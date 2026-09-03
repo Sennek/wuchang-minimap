@@ -468,7 +468,9 @@ namespace hl
     {
         const bool on = !g_xray_latch.load(std::memory_order_relaxed);
         g_xray_latch.store(on, std::memory_order_relaxed);
-        mm::logf(L"x-ray highlight toggled {}", on ? L"on" : L"off");
+        // VERBOSE: a hotkey the player may hit dozens of times an hour (81 lines in
+        // run 5), and the panel and the HUD both already say whether it is on.
+        MM_LOGV(L"x-ray highlight toggled {}", on ? L"on" : L"off");
         return on;
     }
 
@@ -476,7 +478,7 @@ namespace hl
     {
         if (g_xray_latch.exchange(false, std::memory_order_relaxed))
         {
-            mm::logf(L"x-ray highlight off ({})", why != nullptr ? why : L"cleared");
+            MM_LOGV(L"x-ray highlight off ({})", why != nullptr ? why : L"cleared");
         }
     }
 

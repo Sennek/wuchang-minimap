@@ -9,6 +9,7 @@
 #include <iterator>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "chapterid.hpp"
@@ -141,7 +142,6 @@ namespace gamestate
         std::uint64_t g_log_rejected = 0;
         std::uint64_t g_log_capture_failed = 0;
         std::uint64_t g_log_no_controller = 0;
-        std::uint64_t g_log_stuck = 0;
         std::uint64_t g_no_pawn_since = 0;
         std::wstring g_rejected_class;
         // How long the reader tolerates having no gameplay pawn before it stops trusting
@@ -235,6 +235,13 @@ namespace gamestate
         // exactly the negative answers that make the walk cheap (lessons.md).
         std::unordered_map<RC::Unreal::UClass*, unsigned char> g_wclass;
         constexpr std::size_t kWidgetClassCacheMax = 262144;
+        // Class NAMES whose not-a-menu line has already been printed. Separate from
+        // g_wclass on purpose: that map is a performance cache and is dropped on every
+        // level transition and on any pawn change, so riding on it turned a
+        // once-per-class diagnostic into the same thirteen lines seven times over in a
+        // 41-minute session. This set is never cleared - it is a few dozen short
+        // strings and it is what makes "once per session" true.
+        std::unordered_set<std::wstring> g_non_menu_logged;
         // Set once if `FUObjectArray::GetNumElements()` cannot answer - i.e. UE4SS did not
         // resolve GUObjectArray on this build. The old whole-array `FindAllOf` sweep stays
         // in the file as that fallback, so a menu is still detected (expensively) rather
@@ -344,6 +351,63 @@ namespace gamestate
         // levels" instead of a debugging session: 0 = none yet, 1 = UWorld::Levels,
         // 2 = UWorld::StreamingLevels -> ULevelStreaming::LoadedLevel, 3 = FindAllOf.
         int g_chapter_route = 0;
+
+        // A "SAY IT ONCE, THEN RARELY" THROTTLE, for a condition that can persist for
+        // minutes. `reader_log_throttle_ms` (5 s) is right for a condition that flickers;
+        // it is wrong for one that simply stays true - "no gameplay pawn" printed 41
+        // lines in run 5 saying the same thing. Here the FIRST occurrence always prints,
+        // and after that at most one line per kPersistentLogMs, carrying how many were
+        // suppressed in between. `rare_reset` is called when the condition clears, so the
+        // next occurrence is a first occurrence again.
+        constexpr std::uint64_t kPersistentLogMs = 30000;
+
+        struct Rare
+        {
+            std::uint64_t last = 0;
+            std::uint64_t suppressed = 0;
+            bool seen = false;
+        };
+
+        bool rare(Rare& r, std::uint64_t now)
+        {
+            if (!r.seen)
+            {
+                r.seen = true;
+                r.last = now;
+                return true;
+            }
+            if (now - r.last < kPersistentLogMs)
+            {
+                ++r.suppressed;
+                return false;
+            }
+            r.last = now;
+            return true;
+        }
+
+        // "" or ", N more suppressed" - and it clears the counter, so it must be called
+        // exactly once per line that `rare()` let through.
+        std::wstring rare_note(Rare& r)
+        {
+            if (r.suppressed == 0)
+            {
+                return {};
+            }
+            const std::wstring note = std::format(L", {} more suppressed", r.suppressed);
+            r.suppressed = 0;
+            return note;
+        }
+
+        void rare_reset(Rare& r)
+        {
+            r = Rare{};
+        }
+
+        // The two conditions that can hold for a whole loading screen, and one that -
+        // if it ever fires - holds for the whole session.
+        Rare g_rare_ctrl_drop;
+        Rare g_rare_stuck;
+        Rare g_rare_wcap;
 
         bool throttled(std::uint64_t& last, std::uint64_t now)
         {
@@ -875,9 +939,11 @@ namespace gamestate
                 // may have added a root we have never seen, and closing one leaves a
                 // root behind that must be re-confirmed against the live viewport.
                 g_force_widget_sweep = true;
-                mm::logf(L"menu state -> {} ({}); a full widget sweep is queued",
-                         open ? L"OPEN" : L"closed",
-                         why);
+                // VERBOSE. It is a per-menu-press transition (54 lines in run 5) and
+                // the state it reports is in the snapshot the F2 panel prints live.
+                MM_LOGV(L"menu state -> {} ({}); a full widget sweep is queued",
+                        open ? L"OPEN" : L"closed",
+                        why);
             }
         }
 
@@ -918,11 +984,12 @@ namespace gamestate
             if (uer::capture(w, ref))
             {
                 g_menu_watch.push_back(ref);
-                mm::logf(L"menu root discovered: {} (watchlist now {} widget(s); they are "
-                         L"re-tested at 10 Hz, so this menu is caught within one pump from "
-                         L"now on)",
-                         w->GetName(),
-                         g_menu_watch.size());
+                // VERBOSE: the watchlist churns with every menu the player opens.
+                MM_LOGV(L"menu root discovered: {} (watchlist now {} widget(s); they are "
+                        L"re-tested at 10 Hz, so this menu is caught within one pump from "
+                        L"now on)",
+                        w->GetName(),
+                        g_menu_watch.size());
                 return true;
             }
             return false;
@@ -973,8 +1040,8 @@ namespace gamestate
                 {
                     g_menu_watch.erase(g_menu_watch.begin() + static_cast<std::ptrdiff_t>(i));
                     g_force_widget_sweep = true;
-                    mm::logf(L"menu root dropped (the widget object died); watchlist now {}",
-                             g_menu_watch.size());
+                    MM_LOGV(L"menu root dropped (the widget object died); watchlist now {}",
+                            g_menu_watch.size());
                     continue;
                 }
                 bool has_byte = false;
@@ -1097,9 +1164,9 @@ namespace gamestate
             // that was in the cache and is not in here has left the viewport.
             if (confirmed.size() != g_menu_roots.size())
             {
-                mm::logf(L"menu root cache rebuilt by the sweep: {} -> {} root(s)",
-                         g_menu_roots.size(),
-                         confirmed.size());
+                MM_LOGV(L"menu root cache rebuilt by the sweep: {} -> {} root(s)",
+                        g_menu_roots.size(),
+                        confirmed.size());
             }
             g_menu_roots = std::move(confirmed);
 
@@ -1163,13 +1230,16 @@ namespace gamestate
                 if (why != nullptr)
                 {
                     kind = 2;
-                    // Once per class per session, and it names the reason: this is the
+                    // Once per class per SESSION, and it names the reason: this is the
                     // line that says the deny-list did something, so a minimap that
                     // stops hiding on a real menu can be traced to an over-broad entry.
-                    mm::logf(L"menu detector: '{}' is on the not-a-menu list ({}) - it can never "
-                             L"hide the minimap",
-                             cname,
-                             std::wstring(why, why + std::strlen(why)));
+                    if (g_non_menu_logged.insert(cname).second)
+                    {
+                        mm::logf(L"menu detector: '{}' is on the not-a-menu list ({}) - it can never "
+                                 L"hide the minimap",
+                                 cname,
+                                 std::wstring(why, why + std::strlen(why)));
+                    }
                 }
             }
             if (g_wclass.size() > kWidgetClassCacheMax)
@@ -1421,13 +1491,19 @@ namespace gamestate
                 // Never silently truncate the answer: if this ever fires the cap is wrong
                 // for this game, and the number says by how much. This is the counter that
                 // would have named the 64-candidate cap as the reason menus stopped being
-                // detected, so it is worth a line every time.
-                mm::logf(L"widget scan: {} byte-Visible widget(s) exceeded the {}-candidate "
-                         L"cap this round and were not tested (a menu root is constructed "
-                         L"late, i.e. at a HIGH object-array index, so it is the most likely "
-                         L"one to be cut)",
-                         g_wcand_dropped,
-                         scan::kWidgetCandidateMax);
+                // detected. But the sweep runs up to four times a second, and a cap that
+                // is wrong is wrong for the whole session - so it is the first occurrence
+                // and then once per 30 s, never once per round.
+                if (rare(g_rare_wcap, ::GetTickCount64()))
+                {
+                    mm::logf(L"widget scan: {} byte-Visible widget(s) exceeded the {}-candidate "
+                             L"cap this round and were not tested (a menu root is constructed "
+                             L"late, i.e. at a HIGH object-array index, so it is the most likely "
+                             L"one to be cut){}",
+                             g_wcand_dropped,
+                             scan::kWidgetCandidateMax,
+                             rare_note(g_rare_wcap));
+                }
             }
         }
 
@@ -1858,10 +1934,17 @@ namespace gamestate
                     now - g_last_ctrl_drop >= kNoPawnCtrlDropMs)
                 {
                     g_last_ctrl_drop = now;
-                    mm::logf(L"no gameplay pawn for {} ms - dropping the cached player controller and "
-                             L"re-resolving it from UWorld -> OwningGameInstance -> LocalPlayers[0] "
-                             L"-> PlayerController",
-                             now - g_no_pawn_since);
+                    // The DROP happens every three seconds because that is the recovery
+                    // timing; the LINE about it does not, or a two-minute loading screen
+                    // writes forty of them.
+                    if (rare(g_rare_ctrl_drop, now))
+                    {
+                        mm::logf(L"no gameplay pawn for {} ms - dropping the cached player controller "
+                                 L"and re-resolving it from UWorld -> OwningGameInstance -> "
+                                 L"LocalPlayers[0] -> PlayerController{}",
+                                 now - g_no_pawn_since,
+                                 rare_note(g_rare_ctrl_drop));
+                    }
                     g_controller.reset();
                     g_funcs.clear();
                     resolve_controller();
@@ -1873,15 +1956,16 @@ namespace gamestate
                     g_pawnless_diag_done = true;
                     log_pawnless_diagnosis();
                 }
-                if (now - g_no_pawn_since >= 10000 && throttled(g_log_stuck, now))
+                if (now - g_no_pawn_since >= 10000 && rare(g_rare_stuck, now))
                 {
                     mm::logf(L"no gameplay pawn for {} ms (controller {}, resolve every {} ms) - "
                              L"the reader is retrying the controller's Pawn / AcknowledgedPawn / "
-                             L"Character and FindAllOf('{}')",
+                             L"Character and FindAllOf('{}'){}",
                              now - g_no_pawn_since,
                              uer::alive(g_controller) ? L"alive" : L"NOT resolved",
                              g_tune.resolve_ms,
-                             kPlayerPawnClass);
+                             kPlayerPawnClass,
+                             rare_note(g_rare_stuck));
                 }
                 g_state_ok_since = 0;
                 publish_hidden(now, false);
@@ -1889,8 +1973,11 @@ namespace gamestate
             }
             g_no_pawn_since = 0;
             // A pawn is standing again, so the next stall gets its own diagnosis rather
-            // than being silent because an earlier one used the one shot up.
+            // than being silent because an earlier one used the one shot up - and its own
+            // first-occurrence log lines, for the same reason.
             g_pawnless_diag_done = false;
+            rare_reset(g_rare_ctrl_drop);
+            rare_reset(g_rare_stuck);
 
             // ---- 4. from here on the pawn is validated: UFunctions are allowed -------
             //
@@ -2169,7 +2256,17 @@ namespace gamestate
     {
         // Loop thread. One summary line every 10 s so the log shows the reader is alive
         // without drowning it.
+        // TWO CADENCES, ONE FUNCTION.
+        //
+        // The "is the pump alive?" check keeps its 10-second window whatever the log
+        // level - it is the only thing that notices the game-thread reader has stopped,
+        // and it is silent unless something is wrong.
+        //
+        // The `state:` line itself is the running commentary: at `verbose` it keeps the
+        // 10-second cadence it has always had, and at `normal` it is the periodic HEALTH
+        // SUMMARY, once a minute. Run 5 spent 236 of its 2600 lines on it.
         static std::uint64_t last_report = 0;
+        static std::uint64_t last_state = 0;
         const std::uint64_t now = ::GetTickCount64();
         if (now - last_report < 10000)
         {
@@ -2181,6 +2278,12 @@ namespace gamestate
             mm::log(L"game-state reader: no snapshot in the last 10 s (the ProcessEvent pump is not firing)");
             return;
         }
+        const std::uint64_t state_period = mm::log_enabled(mm::LogLv::Verbose) ? 10000 : 60000;
+        if (last_state != 0 && now - last_state < state_period)
+        {
+            return;
+        }
+        last_state = now;
         mm::Snapshot snap{};
         if (!mm::read_snapshot(snap))
         {

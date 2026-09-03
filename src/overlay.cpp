@@ -3035,8 +3035,7 @@ namespace overlay
             ImGui::EndTable();
             if (!cfg.fast_travel_enabled)
             {
-                ImGui::TextDisabled("Fast travel is off. Turn on fast_travel_enabled (Advanced) to add a "
-                                    "Travel button; it is refused unless a reflection self-check passes.");
+                ImGui::TextDisabled("Fast travel is off (fast_travel_enabled, Advanced tab).");
             }
         }
 
@@ -5185,7 +5184,7 @@ namespace overlay
                 }
                 if (ImGui::IsItemHovered())
                 {
-                    ImGui::SetTooltip("show markers already found (they are drawn hollow)");
+                    ImGui::SetTooltip("show markers already found");
                 }
             }
             ImGui::EndChild();
@@ -6078,8 +6077,7 @@ namespace overlay
             const float wrap = ImGui::GetContentRegionAvail().x;
 
             ImGui::SeparatorText("Presets");
-            ImGui::TextDisabled("set several settings on this tab at once; hotkeys, the UI scale and "
-                                "the Advanced tab are never touched");
+            ImGui::TextDisabled("set several of the settings on this tab at once");
             if (ImGui::Button("Minimal HUD"))
             {
                 apply_preset(cfg, Preset::Minimal);
@@ -6147,8 +6145,7 @@ namespace overlay
                     }
                 }
             }
-            ImGui::TextDisabled("shapes never change with the palette - every category has its own, "
-                                "which is what tells two categories apart when a hue is reused");
+            ImGui::TextDisabled("every category has its own glyph shape");
 
             //--------------------------------------------------------------------------
             // Minimap
@@ -6209,7 +6206,7 @@ namespace overlay
             ImGui::EndDisabled();
             ImGui::DragFloat("Offset X", &cfg.offset_x, 1.0f, 0.0f, 2000.0f, "%.0f px");
             ImGui::DragFloat("Offset Y", &cfg.offset_y, 1.0f, 0.0f, 2000.0f, "%.0f px");
-            ImGui::TextDisabled("offsets are in 1080p pixels; the UI scale multiplies them");
+            ImGui::TextDisabled("in 1080p pixels");
 
             // UI SCALE. `auto` is a checkbox over the slider rather than a magic value
             // inside the number, so the slider always says what is actually in force.
@@ -6275,8 +6272,7 @@ namespace overlay
             {
                 ImGui::SetTooltip("auto = one file per save slot (recommended)\n"
                                   "shared = one file for every save\n"
-                                  "anything else = wuchang_minimap_found_<name>.txt\n"
-                                  "Takes effect on Save or F5.");
+                                  "anything else = wuchang_minimap_found_<name>.txt");
             }
             // The whole collection-statistics page, shared with the full map's Stats
             // panel. One function, so the two views can never disagree about a number.
@@ -6286,7 +6282,7 @@ namespace overlay
             // Full map
             //--------------------------------------------------------------------------
             ImGui::SeparatorText("Full map");
-            ImGui::TextDisabled("Press %s in-world. The minimap hides while it is open.",
+            ImGui::TextDisabled("Press %s in-world.",
                                 key_name_ascii(cfg.map_key).c_str());
             ImGui::SliderFloat("Zoom on open (uu per screen px)", &cfg.map_zoom, cfg.map_zoom_min,
                                cfg.map_zoom_max, "%.0f");
@@ -6308,8 +6304,7 @@ namespace overlay
             }
             else
             {
-                ImGui::TextDisabled("no waypoint (right-click on the full map sets one; right-click it "
-                                    "again to clear it)");
+                ImGui::TextDisabled("no waypoint - right-click on the full map to set one");
             }
 
             //--------------------------------------------------------------------------
@@ -6323,9 +6318,7 @@ namespace overlay
                                                                      cfg.highlight_pad_lt,
                                                                      cfg.highlight_pad_rt));
             }
-            ImGui::TextWrapped("HOLD %s in-world: every uncollected marker of the categories below, "
-                               "within the radius, is drawn through walls at its position on screen.",
-                               hold.c_str());
+            ImGui::TextWrapped("Hold %s in-world to see nearby markers through walls.", hold.c_str());
             ImGui::Checkbox("Enabled##xray", &cfg.highlight_enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Gamepad chord", &cfg.highlight_gamepad);
@@ -6338,8 +6331,7 @@ namespace overlay
             ImGui::Checkbox("Colour by item quality", &cfg.xray_rarity_colors_enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Also tint the minimap / map / compass", &cfg.markers_rarity_tint);
-            ImGui::TextDisabled("Wuchang has no rarity ladder - these are the game's own pickup-beam "
-                                "groups (E_ItemType). Tier 0 keeps its category colour.");
+            ImGui::TextDisabled("colours pickups by the game's own item-type grouping");
             chips_with_all_none("highlight_categories", cfg.highlight_categories, 2000, wrap);
 
             //--------------------------------------------------------------------------
@@ -6380,7 +6372,7 @@ namespace overlay
         {
             const float wrap = ImGui::GetContentRegionAvail().x;
 
-            ImGui::TextDisabled("Correct as shipped. Change one of these to answer a symptom.");
+            ImGui::TextDisabled("Correct as shipped.");
 
             if (ImGui::CollapsingHeader("When the overlay is allowed on screen"))
             {
@@ -6514,7 +6506,7 @@ namespace overlay
                 ImGui::SliderInt("Max drawn (nearest first)", &cfg.highlight_max_draw, 1, 400);
                 ImGui::SliderInt("Max labelled (nearest first)", &cfg.highlight_labels_max, 0, 40);
                 ImGui::SameLine();
-                ImGui::TextDisabled("names only; the glyph cap is separate");
+                ImGui::TextDisabled("names only");
                 ImGui::SliderFloat("Alpha at the camera", &cfg.highlight_alpha_near, 0.1f, 1.0f, "%.2f");
                 ImGui::SliderFloat("Alpha at the radius", &cfg.highlight_alpha_far, 0.0f, 1.0f, "%.2f");
                 ImGui::SliderInt("Camera read rate (Hz)", &cfg.highlight_camera_hz, 5, 240);
@@ -6565,8 +6557,7 @@ namespace overlay
             {
                 return;
             }
-            ImGui::TextDisabled("Saved to the dev file, never into the player config. Deleting that "
-                                "file restores every default here.");
+            ImGui::TextDisabled("Saved to config_wuchang_minimap_dev.txt.");
             ImGui::Checkbox("Debug readout (this tab)", &cfg.debug_readout);
             ImGui::SameLine();
             ImGui::Checkbox("Open the panel on start", &cfg.debug_show_panel_on_start);
@@ -6981,9 +6972,7 @@ namespace overlay
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Rewrites only the values on the existing `key = value` lines.\n"
-                                  "Comments, ordering and keys this build does not know are kept.\n"
-                                  "Debug-tab settings go to config_wuchang_minimap_dev.txt instead.");
+                ImGui::SetTooltip("Write the current settings back to the config file.");
             }
             ImGui::SameLine();
             if (ImGui::Button("Revert"))
@@ -6992,7 +6981,7 @@ namespace overlay
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Re-read both config files and throw away every unsaved change here.");
+                ImGui::SetTooltip("Re-read the config files and discard unsaved changes.");
             }
             ImGui::SameLine();
             if (ImGui::Button("Reload settings + maps"))
@@ -7033,9 +7022,7 @@ namespace overlay
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Stops everything now, exactly like mod_enabled = 0, but leaves the\n"
-                                  "config file alone. Saving or editing the file turns it back on within\n"
-                                  "a second - F5 cannot, because with the mod off nothing reads the keyboard.");
+                ImGui::SetTooltip("Stop the mod until the config file is saved or edited again.");
             }
 
             ImGui::End();

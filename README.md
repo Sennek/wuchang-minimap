@@ -110,8 +110,11 @@ throws away what you were fiddling with.
 
 **Save never rewrites your file.** It replaces the values on the existing `key = value`
 lines and leaves every comment, blank line, your ordering and any key it does not
-recognise exactly where they were. Installing an update does not overwrite an edited
-config either — the packaged config is only laid down where none exists yet.
+recognise exactly where they were, so the documented file you were shipped stays
+documented however often you press Save. An **update** is a different matter: the download
+carries a fresh config, so merging the `ue4ss\` folder will ask whether to replace it — if
+you have edited yours, keep yours. Unknown keys are ignored with one line in the log and
+missing ones take their defaults, so neither file can break the mod.
 
 `mod_enabled = 0` makes the mod completely inert (no graphics hook, no scanning, no map in
 memory) without uninstalling it; setting it back to `1` and saving starts it again within

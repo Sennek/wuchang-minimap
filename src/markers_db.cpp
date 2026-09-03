@@ -19,7 +19,7 @@ namespace mdb
 
         constexpr const char* kCatLabels[kCatCount] = {
             "Shrines", "Chests", "Pickups", "Bosses", "Elites",  "Enemies", "NPCs",
-            "Notes",   "Doors",  "Ladders", "Lifts",  "Fog gates", "Hidden", "Other",
+            "Notes",   "Doors",  "Ladders", "Lifts",  "Fog gates", "Traps", "Other",
         };
 
         // The last-resort SINGULAR word for one marker, used when nothing better is

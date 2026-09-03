@@ -120,6 +120,15 @@ namespace mm
         BottomRight = 4,
     };
 
+    // How the x-ray highlight is armed. Toggle is the default: one press turns it on,
+    // the next turns it off. Hold is the original behaviour - it is only on while the
+    // key (or the pad chord) is physically down.
+    enum class HighlightMode : int
+    {
+        Toggle = 0,
+        Hold = 1,
+    };
+
     // Which edge the compass strip hangs off. `compass_offset_y` is the distance from
     // that edge, so the key means the same thing in both directions.
     enum class VAnchor : int
@@ -365,16 +374,21 @@ namespace mm
         // Hold-key x-ray highlight (master plan step 7, v1)
         //==============================================================================
         //
-        // While `highlight_key` is HELD (or the gamepad chord is), every marker of an
-        // enabled category within `highlight_radius` is drawn at its projected screen
-        // position - glyph, name and distance in metres - fading with distance. The
-        // overlay draws over the scene, so "through walls" costs nothing extra; there is
-        // no occlusion test and no render state anywhere near the game's.
+        // While the highlight is ON, every marker of an enabled category within
+        // `highlight_radius` is drawn at its projected screen position - glyph, name and
+        // distance in metres - fading with distance. The overlay draws over the scene, so
+        // "through walls" costs nothing extra; there is no occlusion test and no render
+        // state anywhere near the game's.
         //
-        // It is a HOLD, not a toggle: a toggle would be one more piece of latched state
-        // to unlatch when a menu opens, and lessons.md is unambiguous about those.
+        // `highlight_mode` says how it is armed. HOLD is the original: on only while the
+        // key is physically down, which needs no unlatching. TOGGLE is the default the
+        // user asked for, and it obeys the same rule lessons.md sets for every latched
+        // input state - it is cleared from LIVE state, not remembered: hl::drop_caches()
+        // (a level transition, a dropped pawn) turns it off, and so does turning the
+        // feature off. Nothing else may latch it on.
 
         bool highlight_enabled = true;
+        HighlightMode highlight_mode = HighlightMode::Toggle;
         int highlight_key = 0xA4; // VK_LMENU - left Alt
         bool highlight_gamepad = true;
         // XInput chord (pad::kLeftShoulder | pad::kRightShoulder by default). The
@@ -651,6 +665,23 @@ namespace mm
     // The table, for the F2 panel. Read-only by convention.
     const perf::Table& perf_table();
     void perf_reset_peaks();
+
+    // THE STALL GATE. Any thread. `perf_note_stall` says "the process is not running
+    // normally for the next `ms` milliseconds" - a loading screen, a swapchain resize, a
+    // reload, a clipboard copy - and every perf_record taken inside that window is
+    // counted as a stall instead of setting the peak the F2 table shows. It exists
+    // because all three of this mod's threads measure WALL CLOCK: while the game thread
+    // is inside a synchronous load, a cross-thread user32 call (which is most of what
+    // ImGui_ImplWin32_NewFrame and GetForegroundWindow do) blocks for as long as the
+    // load takes, and the resulting 350 ms "peak" is not this mod's cost at all.
+    //
+    // It deliberately does NOT infer a stall from the sample's own duration - "this was
+    // slow so it must have been a stall" is circular. Only externally attributable
+    // events call it.
+    void perf_note_stall(const wchar_t* why, unsigned ms);
+    bool perf_in_stall();
+    // What the last note said, for the F2 table's footnote. Never null.
+    const wchar_t* perf_last_stall();
 
     // RAII: times the enclosing scope into counter `id`.
     class PerfScope

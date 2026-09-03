@@ -84,6 +84,11 @@ namespace hl
 
         std::atomic<bool> g_held{false};
         std::atomic<bool> g_compass{false};
+        // The toggle mode's latch. It is the ONE piece of latched input state in this
+        // mod, so it obeys the rule that goes with that (lessons.md): it is cleared from
+        // live state - drop_caches() below, i.e. every level transition and every dropped
+        // pawn - and nothing anywhere may set it except the hotkey sampler.
+        std::atomic<bool> g_xray_latch{false};
         std::atomic<int> g_route{static_cast<int>(Route::None)};
         std::atomic<int> g_pov_offset_pub{-1};
         std::atomic<int> g_cache_offset_pub{-1};
@@ -454,8 +459,34 @@ namespace hl
         return g_held.load(std::memory_order_relaxed);
     }
 
+    bool xray_latched()
+    {
+        return g_xray_latch.load(std::memory_order_relaxed);
+    }
+
+    bool xray_latch_flip()
+    {
+        const bool on = !g_xray_latch.load(std::memory_order_relaxed);
+        g_xray_latch.store(on, std::memory_order_relaxed);
+        mm::logf(L"x-ray highlight toggled {}", on ? L"on" : L"off");
+        return on;
+    }
+
+    void xray_latch_clear(const wchar_t* why)
+    {
+        if (g_xray_latch.exchange(false, std::memory_order_relaxed))
+        {
+            mm::logf(L"x-ray highlight off ({})", why != nullptr ? why : L"cleared");
+        }
+    }
+
     void drop_caches()
     {
+        // THE LATCH GOES WITH THE WORLD. This function is called by
+        // markers::drop_caches(), which gamestate calls whenever it drops the pawn or the
+        // world changes - so a toggled-on x-ray never survives a level transition, a
+        // death or a fast travel that reloads.
+        xray_latch_clear(L"the pawn or the world went");
         g_pcm.reset();
         g_world = nullptr;
         g_funcs.clear();

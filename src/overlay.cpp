@@ -302,6 +302,167 @@ namespace overlay
                                reinterpret_cast<std::uintptr_t>(addr) - reinterpret_cast<std::uintptr_t>(mod));
         }
 
+        //==============================================================================
+        // WHOSE FUNCTION IS THIS, AND WAS SOMEBODY ALREADY THERE
+        //==============================================================================
+        //
+        // Three overlays live in this process - ReShade (this game's dxgi.dll IS a
+        // ReShade proxy), Steam's GameOverlayRenderer64 and us - and all three want
+        // IDXGISwapChain::Present. When the Steam FPS counter stops appearing the first
+        // question is always "is our hook ON TOP of Steam's, UNDER it, or did we replace
+        // it", and that is answerable in one line: read the first bytes of the function
+        // BEFORE hooking it. A jmp already sitting there names the module that put it
+        // there - which is the proof that our MinHook trampoline chains INTO that module
+        // rather than around it.
+        //
+        // MinHook is a trampoline on the function, never a vtable patch, so a detour
+        // installed before ours ends up downstream of ours (its bytes are relocated into
+        // our trampoline) and one installed after ours ends up upstream. Either way the
+        // chain is intact, and hk_Present / hk_ResizeBuffers / hk_Present1 call the
+        // original unconditionally, for every swapchain, ours or not.
+
+        struct ModuleId
+        {
+            wchar_t name[64]{};      // file name only, lower case
+            std::uint32_t size = 0;  // SizeOfImage
+            std::uint32_t stamp = 0; // TimeDateStamp
+            std::uint32_t sum = 0;   // CheckSum
+            std::uint32_t rva = 0;   // the address's offset into the module
+            HMODULE base = nullptr;
+        };
+
+        // The three PE fields that identify a BUILD of a DLL. All of them are baked into
+        // the file, so they are identical on every launch - which is what makes an RVA
+        // captured in one session safe to reuse in the next.
+        bool module_identity(HMODULE mod, ModuleId& out)
+        {
+            if (mod == nullptr)
+            {
+                return false;
+            }
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(mod);
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+            {
+                return false;
+            }
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
+                reinterpret_cast<const std::uint8_t*>(mod) + dos->e_lfanew);
+            if (nt->Signature != IMAGE_NT_SIGNATURE)
+            {
+                return false;
+            }
+            out.base = mod;
+            out.size = nt->OptionalHeader.SizeOfImage;
+            out.stamp = nt->FileHeader.TimeDateStamp;
+            out.sum = nt->OptionalHeader.CheckSum;
+
+            wchar_t path[MAX_PATH * 2]{};
+            if (::GetModuleFileNameW(mod, path, static_cast<DWORD>(std::size(path))) == 0)
+            {
+                return false;
+            }
+            std::wstring p{path};
+            const auto slash = p.find_last_of(L'\\');
+            std::wstring name = slash == std::wstring::npos ? p : p.substr(slash + 1);
+            for (wchar_t& c : name)
+            {
+                if (c >= L'A' && c <= L'Z')
+                {
+                    c = static_cast<wchar_t>(c + 32);
+                }
+            }
+            if (name.size() + 1 >= std::size(out.name))
+            {
+                return false;
+            }
+            std::memcpy(out.name, name.c_str(), (name.size() + 1) * sizeof(wchar_t));
+            return true;
+        }
+
+        bool module_id_of(const void* addr, ModuleId& out)
+        {
+            HMODULE mod = nullptr;
+            if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                     reinterpret_cast<LPCWSTR>(addr),
+                                     &mod) == 0 ||
+                !module_identity(mod, out))
+            {
+                return false;
+            }
+            out.rva = static_cast<std::uint32_t>(reinterpret_cast<const std::uint8_t*>(addr) -
+                                                 reinterpret_cast<const std::uint8_t*>(mod));
+            return true;
+        }
+
+        // "ALREADY DETOURED -> <module>+<offset>" or "no detour", plus the raw bytes.
+        std::wstring detour_report(const void* addr)
+        {
+            if (addr == nullptr)
+            {
+                return L"<null>";
+            }
+            const auto* p = reinterpret_cast<const std::uint8_t*>(addr);
+            std::wstring bytes;
+            for (int i = 0; i < 8; ++i)
+            {
+                bytes += std::format(L"{:02X} ", p[i]);
+            }
+            const std::uint8_t* target = nullptr;
+            if (p[0] == 0xE9) // jmp rel32 - MinHook's own shape, and Steam's
+            {
+                std::int32_t rel = 0;
+                std::memcpy(&rel, p + 1, sizeof(rel));
+                target = p + 5 + rel;
+            }
+            else if (p[0] == 0xFF && p[1] == 0x25) // jmp [rip+disp32]
+            {
+                std::int32_t disp = 0;
+                std::memcpy(&disp, p + 2, sizeof(disp));
+                const void* const* slot = reinterpret_cast<const void* const*>(p + 6 + disp);
+                target = reinterpret_cast<const std::uint8_t*>(*slot);
+            }
+            else if (p[0] == 0x48 && p[1] == 0xB8) // mov rax, imm64 (followed by jmp rax)
+            {
+                std::uint64_t imm = 0;
+                std::memcpy(&imm, p + 2, sizeof(imm));
+                target = reinterpret_cast<const std::uint8_t*>(imm);
+            }
+            if (target != nullptr)
+            {
+                return std::format(L"[{}] ALREADY DETOURED -> {}", bytes, module_of(target));
+            }
+            return std::format(L"[{}] no detour", bytes);
+        }
+
+        // The overlays sharing this process, with their bases - so "who is here" sits in
+        // the log next to the hook report instead of being guessed at.
+        void log_overlay_modules()
+        {
+            static const wchar_t* const names[] = {L"dxgi.dll",
+                                                   L"d3d12.dll",
+                                                   L"GameOverlayRenderer64.dll",
+                                                   L"ReShade64.dll",
+                                                   L"nvngx_dlssg.dll",
+                                                   L"sl.interposer.dll"};
+            for (const wchar_t* name : names)
+            {
+                const HMODULE mod = ::GetModuleHandleW(name);
+                if (mod == nullptr)
+                {
+                    continue;
+                }
+                ModuleId id{};
+                module_identity(mod, id);
+                mm::logf(L"  module {} @ {:p}  size 0x{:X}  stamp 0x{:08X}  sum 0x{:08X}",
+                         name,
+                         static_cast<void*>(mod),
+                         id.size,
+                         id.stamp,
+                         id.sum);
+            }
+        }
+
         const wchar_t* format_name(DXGI_FORMAT f)
         {
             switch (f)
@@ -830,7 +991,20 @@ namespace overlay
         // synchronisation needed - but it is also logged once from the loop thread, so
         // keep it a fixed buffer rather than a std::string being reallocated.
         wchar_t g_hide_reason[96] = L"not evaluated yet";
+        // The one-off blocking jobs that used to hide inside `loop input + file I/O`
+        // (a 366 ms peak against a ~0 ms average) and inside the render frame.
+        int g_pf_newframe = -1; // ImGui_ImplWin32_NewFrame - cross-thread user32
+        int g_pf_buildui = -1;  // build_ui() - our own drawing
+        int g_pf_clip = -1;     // the map -> clipboard hand-off
+        int g_pf_save = -1;     // config / waypoint file writes
+        int g_pf_reload = -1;   // F5: config + maps + markers
+
         std::wstring g_hook_report = L"not installed";
+        // True when this launch hooked the addresses out of wuchang_minimap_hookaddr.txt
+        // instead of discovering them with a dummy device + queue + swapchain. It is what
+        // the watchdog needs: no Present with cached addresses means the cache is stale,
+        // and deleting it makes the next launch rediscover them.
+        bool g_hooks_from_cache = false;
 
         // Every hide/show transition is logged with its reason, so one line in the log
         // pins "why did the minimap vanish" without a screenshot. Rate-limited: a
@@ -991,21 +1165,76 @@ namespace overlay
                    msg == WM_CHAR || msg == WM_SETCURSOR;
         }
 
+        // ESCAPE, as a WINDOW MESSAGE. WM_CHAR carries the control character (0x1B), the
+        // key messages carry the virtual key - two different numbers that happen to be
+        // the same one here, which is worth spelling out rather than relying on.
+        bool is_escape_message(UINT msg, WPARAM wparam)
+        {
+            if (msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP)
+            {
+                return wparam == VK_ESCAPE;
+            }
+            if (msg == WM_CHAR || msg == WM_SYSCHAR)
+            {
+                return wparam == 0x1B;
+            }
+            return false;
+        }
+
+        bool is_escape_key_down(UINT msg, WPARAM wparam)
+        {
+            return (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == VK_ESCAPE;
+        }
+
         // RAW INPUT. UE reads the mouse through WM_INPUT, not only through WM_MOUSEMOVE,
         // so swallowing the window messages alone still lets the camera turn under an
         // open overlay. One RID_HEADER read says which device a message came from, which
         // is what lets the panel take the mouse and leave the keyboard with the game.
-        bool is_raw_mouse_message(UINT msg, LPARAM lparam)
+        //
+        // A RAW KEYBOARD packet needs a second, bigger read (RID_INPUT) to see WHICH key
+        // it was, so the header is read first and the payload only for the keyboard - the
+        // mouse half must not pay for the Esc half, it runs on every mouse move.
+        struct RawKind
         {
+            bool mouse = false;
+            bool keyboard = false;
+            bool escape = false; // keyboard && VKey == VK_ESCAPE
+        };
+
+        RawKind raw_kind(UINT msg, LPARAM lparam, bool want_key)
+        {
+            RawKind out{};
             if (msg != WM_INPUT)
             {
-                return false;
+                return out;
             }
             RAWINPUTHEADER hdr{};
             UINT size = sizeof(hdr);
             const UINT got = ::GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_HEADER, &hdr, &size,
                                                sizeof(RAWINPUTHEADER));
-            return got == sizeof(RAWINPUTHEADER) && hdr.dwType == RIM_TYPEMOUSE;
+            if (got != sizeof(RAWINPUTHEADER))
+            {
+                return out;
+            }
+            out.mouse = hdr.dwType == RIM_TYPEMOUSE;
+            out.keyboard = hdr.dwType == RIM_TYPEKEYBOARD;
+            if (out.keyboard && want_key)
+            {
+                RAWINPUT ri{};
+                UINT rsize = sizeof(ri);
+                if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &ri, &rsize,
+                                      sizeof(RAWINPUTHEADER)) != static_cast<UINT>(-1) &&
+                    ri.header.dwType == RIM_TYPEKEYBOARD)
+                {
+                    out.escape = ri.data.keyboard.VKey == VK_ESCAPE;
+                }
+            }
+            return out;
+        }
+
+        bool is_raw_mouse_message(UINT msg, LPARAM lparam)
+        {
+            return raw_kind(msg, lparam, false).mouse;
         }
 
         LRESULT CALLBACK hooked_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -1037,6 +1266,16 @@ namespace overlay
                     // canvas deliberately reads raw keys rather than focusing a widget.
                     // The map's own toggle key is sampled with GetAsyncKeyState on the
                     // loop thread, so it still closes the map from here.
+                    // ESC. The map already swallows every key, so the game's pause menu
+                    // never saw it; what was missing is the other half - the key that a
+                    // player expects to CLOSE a full-screen overlay. Closing is a plain
+                    // store on the same flag the swallow condition reads, so the input is
+                    // back on the very next message (lessons.md: nothing latched here).
+                    if (is_escape_key_down(msg, wparam))
+                    {
+                        mm::g_map_open.store(false);
+                        mm::log(L"full map closed (Esc)");
+                    }
                     if (is_mouse_message(msg) || is_keyboard_message(msg) || msg == WM_INPUT)
                     {
                         return 1;
@@ -1053,8 +1292,24 @@ namespace overlay
                     // GetAsyncKeyState on the loop thread - always closes it again.
                     const ImGuiIO& io = ImGui::GetIO();
                     const bool capturing = mm::g_key_capture.load(std::memory_order_relaxed);
-                    if (is_mouse_message(msg) || msg == WM_SETCURSOR ||
-                        is_raw_mouse_message(msg, lparam) ||
+
+                    // ESC CLOSES THE PANEL, AND THE GAME MUST NOT SEE IT. Without this
+                    // the one key everybody presses to dismiss a settings window opened
+                    // the game's pause menu on top of it. Esc is therefore swallowed in
+                    // all four shapes it can arrive in - WM_KEYDOWN / WM_KEYUP / WM_CHAR
+                    // and a raw-input keyboard packet - and the key-DOWN closes the panel.
+                    //
+                    // While a binding capture is armed, Esc keeps its existing meaning
+                    // (cancel the capture, handled on the render thread) and the panel
+                    // stays open; the capture already swallows the whole keyboard.
+                    const RawKind raw = raw_kind(msg, lparam, true);
+                    const bool esc = is_escape_message(msg, wparam) || raw.escape;
+                    if (esc && !capturing && is_escape_key_down(msg, wparam))
+                    {
+                        mm::g_panel_open.store(false);
+                        mm::log(L"settings panel closed (Esc)");
+                    }
+                    if (is_mouse_message(msg) || msg == WM_SETCURSOR || raw.mouse || esc ||
                         ((io.WantCaptureKeyboard || capturing) && is_keyboard_message(msg)) ||
                         (capturing && msg == WM_INPUT))
                     {
@@ -2245,7 +2500,9 @@ namespace overlay
                                         key_name_ascii(cfg.reload_key));
             if (cfg.highlight_enabled)
             {
-                s += std::format("   hold {} x-ray", key_name_ascii(cfg.highlight_key));
+                s += std::format("   {} {} x-ray",
+                                 cfg.highlight_mode == mm::HighlightMode::Hold ? "hold" : "press",
+                                 key_name_ascii(cfg.highlight_key));
                 if (cfg.highlight_gamepad &&
                     (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt))
                 {
@@ -5917,7 +6174,10 @@ namespace overlay
                 add(right, key_name_ascii(cfg.reload_key), "reload config, maps and markers");
                 if (cfg.highlight_enabled)
                 {
-                    add(right, "hold " + key_name_ascii(cfg.highlight_key), "x-ray nearby markers");
+                    add(right,
+                        (cfg.highlight_mode == mm::HighlightMode::Hold ? "hold " : "press ") +
+                            key_name_ascii(cfg.highlight_key),
+                        "x-ray nearby markers");
                 }
 
                 const float line = ImGui::GetTextLineHeightWithSpacing();
@@ -6030,8 +6290,23 @@ namespace overlay
             }
             ImGui::SameLine();
             ImGui::TextDisabled("a peak from a loading screen otherwise hides every later one");
+            // WHAT `peak ms` MEANS. All three of this mod's threads measure wall clock,
+            // so a sample taken while the game thread is inside a synchronous load, or
+            // while the swapchain is being resized, or while the mod is doing a one-off
+            // blocking job, is time spent WAITING - and one of those hides every later
+            // regression behind it. Those samples are counted in `stalls` instead, with
+            // their own worst case, and nothing is thrown away: hover a peak for the raw
+            // one that includes them.
+            ImGui::TextDisabled("peak ms = the worst sample OUTSIDE a load / resize / one-off job; "
+                                "the rest are counted under stalls (hover a peak for the raw one)");
+            {
+                char why[128]{};
+                ::WideCharToMultiByte(CP_UTF8, 0, mm::perf_last_stall(), -1, why, sizeof(why) - 1, nullptr,
+                                      nullptr);
+                ImGui::TextDisabled("last stall: %s%s", why, mm::perf_in_stall() ? " (now)" : "");
+            }
 
-            if (ImGui::BeginTable("perf", 6,
+            if (ImGui::BeginTable("perf", 7,
                                   ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                       ImGuiTableFlags_SizingStretchProp))
             {
@@ -6039,6 +6314,7 @@ namespace overlay
                 ImGui::TableSetupColumn("Hz");
                 ImGui::TableSetupColumn("avg ms");
                 ImGui::TableSetupColumn("peak ms");
+                ImGui::TableSetupColumn("stalls");
                 ImGui::TableSetupColumn("last ms");
                 ImGui::TableSetupColumn("thread");
                 ImGui::TableHeadersRow();
@@ -6063,17 +6339,32 @@ namespace overlay
                     ImGui::TableNextColumn();
                     // The one number worth colouring: anything over a millisecond on a
                     // periodic path is a frame-time or game-thread problem.
-                    if (c.peak_ms >= 4.0)
+                    if (c.peak_calm_ms >= 4.0)
                     {
-                        ImGui::TextColored(ImVec4{1.0f, 0.45f, 0.35f, 1.0f}, "%.3f", c.peak_ms);
+                        ImGui::TextColored(ImVec4{1.0f, 0.45f, 0.35f, 1.0f}, "%.3f", c.peak_calm_ms);
                     }
-                    else if (c.peak_ms >= 1.0)
+                    else if (c.peak_calm_ms >= 1.0)
                     {
-                        ImGui::TextColored(ImVec4{1.0f, 0.85f, 0.4f, 1.0f}, "%.3f", c.peak_ms);
+                        ImGui::TextColored(ImVec4{1.0f, 0.85f, 0.4f, 1.0f}, "%.3f", c.peak_calm_ms);
                     }
                     else
                     {
-                        ImGui::Text("%.3f", c.peak_ms);
+                        ImGui::Text("%.3f", c.peak_calm_ms);
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("raw peak including stalls: %.3f ms", c.peak_ms);
+                    }
+                    ImGui::TableNextColumn();
+                    if (c.stalls == 0)
+                    {
+                        ImGui::TextDisabled("-");
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("%llu / %.0f ms",
+                                            static_cast<unsigned long long>(c.stalls),
+                                            c.peak_stall_ms);
                     }
                     ImGui::TableNextColumn();
                     ImGui::Text("%.3f", c.last_ms);
@@ -6297,11 +6588,19 @@ namespace overlay
         // Each tab is its own function for a reason beyond tidiness: MSVC counts nested
         // blocks and C1061'd this file once already (lessons.md).
 
-        void panel_player(mm::Config& cfg)
-        {
-            const float wrap = ImGui::GetContentRegionAvail().x;
+        // ONE PLAYER-TAB SECTION EACH. They were one 300-line function with
+        // SeparatorText between the blocks; the user asked for the Advanced tab's
+        // collapsible sections here too, and a CollapsingHeader has to be able to
+        // SKIP its contents - which a separator cannot. Splitting the blocks into
+        // functions is what makes that possible without wrapping 300 lines in an if.
+        //
+        // The open state is not persisted, exactly as on the Advanced tab: ImGui's ini
+        // file is disabled (io.IniFilename = nullptr), so every header opens at its
+        // default - open here, because a player tab that starts collapsed hides the
+        // settings it exists for.
 
-            ImGui::SeparatorText("Presets");
+        void player_presets(mm::Config& cfg)
+        {
             ImGui::TextDisabled("set several of the settings on this tab at once");
             if (ImGui::Button("Minimal HUD"))
             {
@@ -6317,18 +6616,20 @@ namespace overlay
             {
                 apply_preset(cfg, Preset::Exploration);
             }
+        }
 
-            //--------------------------------------------------------------------------
-            // Look: theme and palette
-            //--------------------------------------------------------------------------
-            //
-            // In the FILE a theme only fills in colours the file does not mention; in
-            // the PANEL choosing one is an explicit act, so it writes the theme's
-            // colours into the five colour keys there and then (they are on the Advanced
-            // tab, and the change is visible on the next frame). Anything else would
-            // make the combo look broken for a player whose config happens to spell one
-            // of those keys out.
-            ImGui::SeparatorText("Look");
+        //--------------------------------------------------------------------------
+        // Look: theme and palette
+        //--------------------------------------------------------------------------
+        //
+        // In the FILE a theme only fills in colours the file does not mention; in
+        // the PANEL choosing one is an explicit act, so it writes the theme's
+        // colours into the five colour keys there and then (they are on the Advanced
+        // tab, and the change is visible on the next frame). Anything else would
+        // make the combo look broken for a player whose config happens to spell one
+        // of those keys out.
+        void player_look(mm::Config& cfg)
+        {
             int theme_i = static_cast<int>(cfg.theme);
             const char* themes[] = {"neutral", "ink"};
             if (ImGui::Combo("Theme (frame / backdrop / plates / fill)", &theme_i, themes, 2))
@@ -6371,11 +6672,13 @@ namespace overlay
                 }
             }
             ImGui::TextDisabled("every category has its own glyph shape");
+        }
 
-            //--------------------------------------------------------------------------
-            // Minimap
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Minimap");
+        //--------------------------------------------------------------------------
+        // Minimap
+        //--------------------------------------------------------------------------
+        void player_minimap(mm::Config& cfg)
+        {
             // THE ONE LINE THAT ANSWERS "why is the minimap not there", on the tab a
             // PLAYER actually opens. It used to live only on the Debug tab, which since
             // 0.9.2 is hidden unless the unshipped dev config turns it on - so the
@@ -6407,11 +6710,13 @@ namespace overlay
             ImGui::SameLine();
             ImGui::Checkbox("Hide while a menu is open", &cfg.hide_in_menus);
             ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 20.0f, 800.0f, "%.0f");
+        }
 
-            //--------------------------------------------------------------------------
-            // Placement and scale
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Placement and scale");
+        //--------------------------------------------------------------------------
+        // Placement and scale
+        //--------------------------------------------------------------------------
+        void player_placement(mm::Config& cfg)
+        {
             // ONE key that moves the whole HUD. `custom` keeps the three placement keys
             // below in force; anything else overrides the minimap's corner and puts the
             // compass on the same vertical side.
@@ -6449,11 +6754,13 @@ namespace overlay
             ImGui::BeginDisabled(cfg.ui_scale_auto);
             ImGui::SliderFloat("UI scale", &cfg.ui_scale, kUiScaleMin, kUiScaleMax, "%.2f");
             ImGui::EndDisabled();
+        }
 
-            //--------------------------------------------------------------------------
-            // Markers
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Markers");
+        //--------------------------------------------------------------------------
+        // Markers
+        //--------------------------------------------------------------------------
+        void player_markers(mm::Config& cfg, float wrap)
+        {
             ImGui::Checkbox("Show markers", &cfg.markers_enabled);
             ImGui::SameLine();
             // The INVERSE of markers_hide_found. The config key is phrased as "hide",
@@ -6472,11 +6779,13 @@ namespace overlay
             // The chips ARE the legend: each one is filled with the colour that category
             // is drawn in on the map.
             category_filter("Map & minimap", "markers_categories", cfg.markers_categories, 1000, wrap);
+        }
 
-            //--------------------------------------------------------------------------
-            // Collection tracker
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Collection tracker");
+        //--------------------------------------------------------------------------
+        // Collection tracker
+        //--------------------------------------------------------------------------
+        void player_tracker(mm::Config& cfg)
+        {
             ImGui::Checkbox("Remember what I have collected", &cfg.found_tracker);
             ImGui::SameLine();
             ImGui::Checkbox("Mark items whose level is loaded but absent", &cfg.markers_absence_marks);
@@ -6502,11 +6811,13 @@ namespace overlay
             // The whole collection-statistics page, shared with the full map's Stats
             // panel. One function, so the two views can never disagree about a number.
             draw_collection_stats(::GetTickCount64(), false);
+        }
 
-            //--------------------------------------------------------------------------
-            // Full map
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Full map");
+        //--------------------------------------------------------------------------
+        // Full map
+        //--------------------------------------------------------------------------
+        void player_fullmap(mm::Config& cfg)
+        {
             ImGui::TextDisabled("Press %s in-world.",
                                 key_name_ascii(cfg.map_key).c_str());
             ImGui::SliderFloat("Zoom on open (uu per screen px)", &cfg.map_zoom, cfg.map_zoom_min,
@@ -6531,11 +6842,13 @@ namespace overlay
             {
                 ImGui::TextDisabled("no waypoint - right-click on the full map to set one");
             }
+        }
 
-            //--------------------------------------------------------------------------
-            // The hold-key x-ray highlight
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("X-ray highlight (hold a key)");
+        //--------------------------------------------------------------------------
+        // The hold-key x-ray highlight
+        //--------------------------------------------------------------------------
+        void player_xray(mm::Config& cfg, float wrap)
+        {
             std::string hold = key_name_ascii(cfg.highlight_key);
             if (cfg.highlight_gamepad)
             {
@@ -6543,7 +6856,31 @@ namespace overlay
                                                                      cfg.highlight_pad_lt,
                                                                      cfg.highlight_pad_rt));
             }
-            ImGui::TextWrapped("Hold %s in-world to see nearby markers through walls.", hold.c_str());
+            // The MODE, next to the key it applies to, because "press or hold?" is the
+            // first thing a player asks about the line above.
+            int hl_mode = cfg.highlight_mode == mm::HighlightMode::Hold ? 1 : 0;
+            ImGui::TextUnformatted("Mode");
+            ImGui::SameLine();
+            // Both radios must be DRAWN every frame, so neither call may sit behind a
+            // short-circuiting || - the second one would disappear on the frame the
+            // first was clicked.
+            bool hl_mode_changed = ImGui::RadioButton("Toggle", &hl_mode, 0);
+            ImGui::SameLine();
+            hl_mode_changed = ImGui::RadioButton("Hold", &hl_mode, 1) || hl_mode_changed;
+            if (hl_mode_changed)
+            {
+                cfg.highlight_mode = hl_mode == 1 ? mm::HighlightMode::Hold : mm::HighlightMode::Toggle;
+            }
+            if (cfg.highlight_mode == mm::HighlightMode::Hold)
+            {
+                ImGui::TextWrapped("Hold %s in-world to see nearby markers through walls.", hold.c_str());
+            }
+            else
+            {
+                ImGui::TextWrapped("Press %s in-world to see nearby markers through walls, and again to "
+                                   "hide them. A level transition turns it off.",
+                                   hold.c_str());
+            }
             ImGui::Checkbox("Enabled##xray", &cfg.highlight_enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Gamepad chord", &cfg.highlight_gamepad);
@@ -6559,11 +6896,13 @@ namespace overlay
             ImGui::TextDisabled("colours pickups by the game's own item-type grouping");
             category_filter("X-ray highlight", "highlight_categories", cfg.highlight_categories, 2000,
                             wrap);
+        }
 
-            //--------------------------------------------------------------------------
-            // The compass strip
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Compass");
+        //--------------------------------------------------------------------------
+        // The compass strip
+        //--------------------------------------------------------------------------
+        void player_compass(mm::Config& cfg, float wrap)
+        {
             ImGui::Checkbox("Enabled##compass", &cfg.compass_enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Show the waypoint bearing", &cfg.compass_show_waypoint);
@@ -6583,15 +6922,73 @@ namespace overlay
             ImGui::SliderFloat("Compass opacity", &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");
             ImGui::Checkbox("Distance in metres under each pip", &cfg.compass_pip_labels);
             category_filter("Compass", "compass_categories", cfg.compass_categories, 3000, wrap);
+        }
 
-            //--------------------------------------------------------------------------
-            // Keys
-            //--------------------------------------------------------------------------
-            // Read from the config by the SAME builder the full map's footer uses, so a
-            // rebind cannot make one of the two lie.
-            ImGui::SeparatorText("Keys");
+        //--------------------------------------------------------------------------
+        // Keys
+        //--------------------------------------------------------------------------
+        // Read from the config by the SAME builder the full map's footer uses, so a
+        // rebind cannot make one of the two lie.
+        void player_keys(mm::Config& cfg)
+        {
             ImGui::TextWrapped("%s", bindings_hint(cfg).c_str());
             ImGui::TextDisabled("rebind them on the Bindings tab");
+        }
+
+        void panel_player(mm::Config& cfg)
+        {
+            const float wrap = ImGui::GetContentRegionAvail().x;
+            constexpr ImGuiTreeNodeFlags kOpen = ImGuiTreeNodeFlags_DefaultOpen;
+
+            if (ImGui::CollapsingHeader("Presets", kOpen))
+            {
+                player_presets(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Look", kOpen))
+            {
+                player_look(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Minimap", kOpen))
+            {
+                player_minimap(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Placement and scale", kOpen))
+            {
+                player_placement(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Markers", kOpen))
+            {
+                player_markers(cfg, wrap);
+            }
+
+            if (ImGui::CollapsingHeader("Collection tracker", kOpen))
+            {
+                player_tracker(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Full map", kOpen))
+            {
+                player_fullmap(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("X-ray highlight", kOpen))
+            {
+                player_xray(cfg, wrap);
+            }
+
+            if (ImGui::CollapsingHeader("Compass", kOpen))
+            {
+                player_compass(cfg, wrap);
+            }
+
+            if (ImGui::CollapsingHeader("Keys", kOpen))
+            {
+                player_keys(cfg);
+            }
         }
 
         void panel_advanced(mm::Config& cfg)
@@ -6860,7 +7257,7 @@ namespace overlay
             {"Cycle the minimap zoom", "zoom_key", &mm::Config::zoom_key},
             {"Reload settings, maps and markers", "reload_key", &mm::Config::reload_key},
             {"Copy the full map to the clipboard", "screenshot_key", &mm::Config::screenshot_key},
-            {"Hold for the x-ray highlight", "highlight_key", &mm::Config::highlight_key},
+            {"X-ray highlight", "highlight_key", &mm::Config::highlight_key},
         };
         constexpr int kKeyBindCount = static_cast<int>(std::size(kKeyBinds));
 
@@ -7749,6 +8146,44 @@ namespace overlay
                 return false;
             }
 
+            // WHICH DEVICES THE GAME READS THROUGH WM_INPUT. This decides whether
+            // swallowing a key as a window message is enough: a game that registers a
+            // raw KEYBOARD also has to have the raw packet filtered (which the panel's
+            // Esc path does), and one that registers only the mouse does not. It is one
+            // call, once, and it turns "does UE read Esc through raw input?" from a
+            // guess into a log line.
+            {
+                UINT count = 0;
+                if (::GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) == 0 &&
+                    count > 0 && count < 64)
+                {
+                    std::vector<RAWINPUTDEVICE> devs(count);
+                    if (::GetRegisteredRawInputDevices(devs.data(), &count, sizeof(RAWINPUTDEVICE)) !=
+                        static_cast<UINT>(-1))
+                    {
+                        std::wstring list;
+                        for (UINT i = 0; i < count && i < devs.size(); ++i)
+                        {
+                            list += std::format(L"{}usage {:#x}/{:#x} flags {:#x}",
+                                                list.empty() ? L"" : L", ",
+                                                devs[i].usUsagePage,
+                                                devs[i].usUsage,
+                                                devs[i].dwFlags);
+                        }
+                        mm::logf(L"raw input: the game has {} device(s) registered ({}). Usage 1/6 is a "
+                                 L"KEYBOARD - if it is in that list, keys reach the game through WM_INPUT "
+                                 L"as well as WM_KEYDOWN.",
+                                 count,
+                                 list);
+                    }
+                }
+                else
+                {
+                    mm::log(L"raw input: the game has no raw-input devices registered - every key and "
+                            L"mouse move reaches it as a window message only");
+                }
+            }
+
             g_prev_wndproc = reinterpret_cast<WNDPROC>(
                 ::SetWindowLongPtrW(g_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&hooked_wndproc)));
             if (g_prev_wndproc == nullptr)
@@ -7971,6 +8406,9 @@ namespace overlay
                 if (slicer_pause_begin(kSlicerPauseMs))
                 {
                     g_drop_textures.store(false, std::memory_order_release);
+                    // A full GPU flush plus ~340 MB of releases: a one-off, and one that
+                    // must not become the peak every later frame is judged against.
+                    mm::perf_note_stall(L"a map texture reload (F5)", 2000);
                     wait_for_gpu();
                     destroy_all_map_textures();
                     slicer_pause_end();
@@ -7994,10 +8432,28 @@ namespace overlay
             // frame's draw lists exist. ResizeBuffers changes g_height, and a config
             // change comes through cfg_cached, so both re-enter here on their own.
             apply_ui_scale(wanted_ui_scale(mm::cfg_cached(), static_cast<float>(g_height)));
-            ImGui_ImplWin32_NewFrame();
+            // TWO SUB-COUNTERS, because the 358 ms peak this row showed after 30 minutes
+            // had to be attributed to one side or the other. ImGui_ImplWin32_NewFrame is
+            // the suspect: it reads and writes the CURSOR and the client rect of a window
+            // owned by the GAME thread, and a cross-thread user32 call blocks until that
+            // thread pumps messages - which it does not do while it is inside a
+            // synchronous level load. build_ui() is our own drawing and touches no OS
+            // handle at all. Whichever one carries the peak, the table now says so.
+            if (g_pf_newframe < 0)
+            {
+                g_pf_newframe = mm::perf_register("render NewFrame (win32)", perf::Thread::Render);
+                g_pf_buildui = mm::perf_register("render build_ui", perf::Thread::Render);
+            }
+            {
+                const mm::PerfScope nf(g_pf_newframe);
+                ImGui_ImplWin32_NewFrame();
+            }
             ImGui_ImplDX12_NewFrame();
             ImGui::NewFrame();
-            build_ui();
+            {
+                const mm::PerfScope bu(g_pf_buildui);
+                build_ui();
+            }
             ImGui::Render();
             mm::perf_record(g_pf_frame, frame_t0);
 
@@ -8109,6 +8565,10 @@ namespace overlay
                 return o_ResizeBuffers(sc, count, w, h, format, flags);
             }
             g_resize_count.fetch_add(1, std::memory_order_relaxed);
+            // A resize means a device-level stall (a resolution or fullscreen change, or
+            // the tail of a level load): the frames around it are wall-clock waits, not
+            // this mod's cost, so they go to the stall columns of the F2 table.
+            mm::perf_note_stall(L"a swapchain resize", 2000);
             {
                 SpinGuard guard(g_render_lock);
                 mm::logf(L"ResizeBuffers({} buffers, {}x{}, {}) - releasing render targets",
@@ -8160,7 +8620,317 @@ namespace overlay
         // Hook installation via a throwaway device + swapchain
         //==============================================================================
 
-        bool install_hooks()
+        //==============================================================================
+        // THE HOOK-ADDRESS CACHE (and why the Steam overlay wants it)
+        //==============================================================================
+        //
+        // Discovery creates a throwaway D3D12 device, a DIRECT command queue and a 64x64
+        // swapchain on a hidden window, reads four vtable slots and destroys all three.
+        // That is the hudhook recipe and it is what found the addresses in the first
+        // place - but Steam's GameOverlayRenderer64 hooks the device-, queue- and
+        // swapchain-creating entry points and re-targets its overlay onto what it sees
+        // created. Ours are created LATER than the game's (this runs from
+        // on_unreal_init, long after RHI init) and are then destroyed, which is a
+        // textbook way to leave the Steam overlay pointed at a dead object - the
+        // reported symptom, "the Steam FPS counter stopped rendering with the mod".
+        //
+        // The addresses, though, are a property of the DLL and not of the session: the
+        // first launch writes them down as module + RVA, and every launch after that
+        // hooks them directly and creates NOTHING. The cache is keyed to the module's
+        // SizeOfImage, TimeDateStamp and CheckSum - all three baked into the file - so a
+        // ReShade, driver or Windows update invalidates it and discovery runs once more.
+        // If cached addresses ever produce no Present at all, the watchdog deletes the
+        // file, so a stale cache costs one launch and heals itself.
+
+        constexpr int kHookCount = 4;
+        const wchar_t* const kHookNames[kHookCount] = {L"present", L"resize", L"present1", L"execute"};
+
+        std::wstring hook_cache_path()
+        {
+            return mm::mod_dir() + L"\\wuchang_minimap_hookaddr.txt";
+        }
+
+        bool write_hook_cache(const ModuleId* ids)
+        {
+            std::wstring text = L"; WuchangMinimap - the DX12 hook addresses found on a previous launch.\n"
+                                L"; Deleting this file forces a fresh discovery; it is rewritten by itself\n"
+                                L"; whenever one of these modules changes. schema 1\n"
+                                L"; <what> = <module> <rva> <SizeOfImage> <TimeDateStamp> <CheckSum>\n";
+            for (int i = 0; i < kHookCount; ++i)
+            {
+                if (ids[i].name[0] == L'\0' || ids[i].rva == 0)
+                {
+                    return false;
+                }
+                text += std::format(L"{} = {} 0x{:X} 0x{:X} 0x{:08X} 0x{:08X}\n",
+                                    kHookNames[i],
+                                    ids[i].name,
+                                    ids[i].rva,
+                                    ids[i].size,
+                                    ids[i].stamp,
+                                    ids[i].sum);
+            }
+            HANDLE h = ::CreateFileW(hook_cache_path().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                     FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return false;
+            }
+            std::string narrow;
+            narrow.reserve(text.size());
+            for (const wchar_t c : text)
+            {
+                narrow.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
+            }
+            DWORD wrote = 0;
+            const bool ok =
+                ::WriteFile(h, narrow.data(), static_cast<DWORD>(narrow.size()), &wrote, nullptr) != 0;
+            ::CloseHandle(h);
+            return ok;
+        }
+
+        // A hex field ("0x1F" or "1F"). False on anything else, so a hand-edited or
+        // truncated file is refused rather than half-read.
+        bool parse_hex_field(std::string_view t, std::uint64_t& out)
+        {
+            if (t.size() > 2 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X'))
+            {
+                t.remove_prefix(2);
+            }
+            if (t.empty() || t.size() > 16)
+            {
+                return false;
+            }
+            std::uint64_t v = 0;
+            for (const char c : t)
+            {
+                int d = -1;
+                if (c >= '0' && c <= '9')
+                {
+                    d = c - '0';
+                }
+                else if (c >= 'a' && c <= 'f')
+                {
+                    d = c - 'a' + 10;
+                }
+                else if (c >= 'A' && c <= 'F')
+                {
+                    d = c - 'A' + 10;
+                }
+                if (d < 0)
+                {
+                    return false;
+                }
+                v = v * 16 + static_cast<std::uint64_t>(d);
+            }
+            out = v;
+            return true;
+        }
+
+        // Resolves every entry against the module loaded RIGHT NOW. Any mismatch refuses
+        // the WHOLE cache: a half-valid one would hook an address inside the wrong DLL,
+        // which is a crash rather than a missing overlay.
+        bool read_hook_cache(void** addr)
+        {
+            HANDLE h = ::CreateFileW(hook_cache_path().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return false;
+            }
+            char buf[4096]{};
+            DWORD got = 0;
+            const bool read_ok = ::ReadFile(h, buf, sizeof(buf) - 1, &got, nullptr) != 0;
+            ::CloseHandle(h);
+            if (!read_ok || got == 0)
+            {
+                return false;
+            }
+            const std::string text{buf, buf + got};
+
+            for (int i = 0; i < kHookCount; ++i)
+            {
+                addr[i] = nullptr;
+            }
+            int found = 0;
+            std::size_t at = 0;
+            while (at < text.size())
+            {
+                std::size_t nl = text.find('\n', at);
+                if (nl == std::string::npos)
+                {
+                    nl = text.size();
+                }
+                std::string_view line{text.data() + at, nl - at};
+                at = nl + 1;
+                while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+                {
+                    line.remove_suffix(1);
+                }
+                if (line.empty() || line.front() == ';')
+                {
+                    continue;
+                }
+                const std::size_t eq = line.find(" = ");
+                if (eq == std::string_view::npos)
+                {
+                    continue;
+                }
+                const std::string_view key = line.substr(0, eq);
+                std::string_view rest = line.substr(eq + 3);
+
+                int slot = -1;
+                for (int i = 0; i < kHookCount; ++i)
+                {
+                    std::string want;
+                    for (const wchar_t* p = kHookNames[i]; *p != L'\0'; ++p)
+                    {
+                        want.push_back(static_cast<char>(*p));
+                    }
+                    if (key == want)
+                    {
+                        slot = i;
+                        break;
+                    }
+                }
+                if (slot < 0)
+                {
+                    continue;
+                }
+
+                std::string_view field[5];
+                int n = 0;
+                while (n < 5 && !rest.empty())
+                {
+                    const std::size_t sp = rest.find(' ');
+                    field[n++] = rest.substr(0, sp);
+                    rest = sp == std::string_view::npos ? std::string_view{} : rest.substr(sp + 1);
+                }
+                std::uint64_t rva = 0;
+                std::uint64_t size = 0;
+                std::uint64_t stamp = 0;
+                std::uint64_t sum = 0;
+                if (n != 5 || field[0].empty() || field[0].size() + 1 >= 64 ||
+                    !parse_hex_field(field[1], rva) || !parse_hex_field(field[2], size) ||
+                    !parse_hex_field(field[3], stamp) || !parse_hex_field(field[4], sum))
+                {
+                    mm::log(L"hook cache: a malformed line - falling back to discovery");
+                    return false;
+                }
+
+                wchar_t wname[64]{};
+                for (std::size_t k = 0; k < field[0].size(); ++k)
+                {
+                    wname[k] = static_cast<wchar_t>(field[0][k]);
+                }
+                const HMODULE mod = ::GetModuleHandleW(wname);
+                ModuleId live{};
+                if (mod == nullptr || !module_identity(mod, live))
+                {
+                    mm::logf(L"hook cache: '{}' is not loaded - falling back to discovery", wname);
+                    return false;
+                }
+                if (live.size != static_cast<std::uint32_t>(size) ||
+                    live.stamp != static_cast<std::uint32_t>(stamp) ||
+                    live.sum != static_cast<std::uint32_t>(sum))
+                {
+                    mm::logf(L"hook cache: {} is a different build now (size 0x{:X} vs 0x{:X}, stamp "
+                             L"0x{:08X} vs 0x{:08X}, sum 0x{:08X} vs 0x{:08X}) - falling back to discovery",
+                             wname,
+                             live.size,
+                             static_cast<std::uint32_t>(size),
+                             live.stamp,
+                             static_cast<std::uint32_t>(stamp),
+                             live.sum,
+                             static_cast<std::uint32_t>(sum));
+                    return false;
+                }
+                if (rva == 0 || rva >= live.size)
+                {
+                    return false;
+                }
+                addr[slot] = reinterpret_cast<std::uint8_t*>(mod) + rva;
+                ++found;
+            }
+            if (found != kHookCount)
+            {
+                mm::logf(L"hook cache: {} of {} entries resolved - falling back to discovery",
+                         found,
+                         kHookCount);
+                return false;
+            }
+            return true;
+        }
+
+        void delete_hook_cache(const wchar_t* why)
+        {
+            if (::DeleteFileW(hook_cache_path().c_str()) != 0)
+            {
+                mm::logf(L"hook cache: deleted ({}). The next launch rediscovers the addresses.", why);
+            }
+        }
+
+        // Both routes end here: four MH_CreateHook calls, one MH_EnableHook, one report.
+        bool create_and_enable(void** addr, const wchar_t* how)
+        {
+            const MH_STATUS s1 = MH_CreateHook(addr[0], reinterpret_cast<void*>(&hk_Present),
+                                               reinterpret_cast<void**>(&o_Present));
+            const MH_STATUS s2 = MH_CreateHook(addr[1], reinterpret_cast<void*>(&hk_ResizeBuffers),
+                                               reinterpret_cast<void**>(&o_ResizeBuffers));
+            const MH_STATUS s3 = MH_CreateHook(addr[2], reinterpret_cast<void*>(&hk_Present1),
+                                               reinterpret_cast<void**>(&o_Present1));
+            const MH_STATUS s4 = MH_CreateHook(addr[3], reinterpret_cast<void*>(&hk_ExecuteCommandLists),
+                                               reinterpret_cast<void**>(&o_ExecuteCommandLists));
+            const MH_STATUS en = MH_EnableHook(MH_ALL_HOOKS);
+
+            g_hook_report = std::format(L"{} | Present {} @ {} | ResizeBuffers {} @ {} | Present1 {} @ {} | "
+                                        L"ExecuteCommandLists {} @ {} | enable {}",
+                                        how,
+                                        static_cast<int>(s1),
+                                        module_of(addr[0]),
+                                        static_cast<int>(s2),
+                                        module_of(addr[1]),
+                                        static_cast<int>(s3),
+                                        module_of(addr[2]),
+                                        static_cast<int>(s4),
+                                        module_of(addr[3]),
+                                        static_cast<int>(en));
+            mm::logf(L"hooks: {}", g_hook_report);
+            mm::logf(L"hook addresses: Present {:p}  ResizeBuffers {:p}  Present1 {:p}  ExecuteCommandLists {:p}",
+                     addr[0],
+                     addr[1],
+                     addr[2],
+                     addr[3]);
+            log_overlay_modules();
+            const bool ok = (s1 == MH_OK && s4 == MH_OK && en == MH_OK);
+            if (!ok)
+            {
+                mm::log(L"at least one required hook did not install - the overlay will not draw");
+            }
+            return ok;
+        }
+
+        bool install_hooks_from_cache()
+        {
+            void* addr[kHookCount]{};
+            if (!read_hook_cache(addr))
+            {
+                return false;
+            }
+            // WHO WAS ALREADY THERE, read before we write a byte.
+            for (int i = 0; i < kHookCount; ++i)
+            {
+                mm::logf(L"hook cache: {} -> {} {}", kHookNames[i], module_of(addr[i]),
+                         detour_report(addr[i]));
+            }
+            mm::log(L"hook cache: the addresses came out of wuchang_minimap_hookaddr.txt, so NO dummy "
+                    L"device, queue, swapchain or window was created this launch - the Steam overlay has "
+                    L"nothing of ours to re-target onto");
+            g_hooks_from_cache = true;
+            return create_and_enable(addr, L"from the address cache");
+        }
+
+        bool install_hooks_by_discovery()
         {
             const MH_STATUS init = MH_Initialize();
             if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
@@ -8222,42 +8992,38 @@ namespace overlay
                 void** sc_vtable = *reinterpret_cast<void***>(swapchain);
                 void** q_vtable = *reinterpret_cast<void***>(queue);
 
-                void* present = sc_vtable[8];        // IDXGISwapChain::Present
-                void* resize = sc_vtable[13];        // IDXGISwapChain::ResizeBuffers
-                void* present1 = sc_vtable[22];      // IDXGISwapChain1::Present1
-                void* execute = q_vtable[10];        // ID3D12CommandQueue::ExecuteCommandLists
+                void* addr[kHookCount] = {
+                    sc_vtable[8],  // IDXGISwapChain::Present
+                    sc_vtable[13], // IDXGISwapChain::ResizeBuffers
+                    sc_vtable[22], // IDXGISwapChain1::Present1
+                    q_vtable[10],  // ID3D12CommandQueue::ExecuteCommandLists
+                };
 
-                const MH_STATUS s1 = MH_CreateHook(present, reinterpret_cast<void*>(&hk_Present),
-                                                   reinterpret_cast<void**>(&o_Present));
-                const MH_STATUS s2 = MH_CreateHook(resize, reinterpret_cast<void*>(&hk_ResizeBuffers),
-                                                   reinterpret_cast<void**>(&o_ResizeBuffers));
-                const MH_STATUS s3 = MH_CreateHook(present1, reinterpret_cast<void*>(&hk_Present1),
-                                                   reinterpret_cast<void**>(&o_Present1));
-                const MH_STATUS s4 = MH_CreateHook(execute, reinterpret_cast<void*>(&hk_ExecuteCommandLists),
-                                                   reinterpret_cast<void**>(&o_ExecuteCommandLists));
-                const MH_STATUS en = MH_EnableHook(MH_ALL_HOOKS);
-
-                g_hook_report = std::format(L"Present {} @ {} | ResizeBuffers {} @ {} | Present1 {} @ {} | "
-                                            L"ExecuteCommandLists {} @ {} | enable {}",
-                                            static_cast<int>(s1),
-                                            module_of(present),
-                                            static_cast<int>(s2),
-                                            module_of(resize),
-                                            static_cast<int>(s3),
-                                            module_of(present1),
-                                            static_cast<int>(s4),
-                                            module_of(execute),
-                                            static_cast<int>(en));
-                mm::logf(L"hooks: {}", g_hook_report);
-                mm::logf(L"hook addresses: Present {:p}  ResizeBuffers {:p}  Present1 {:p}  ExecuteCommandLists {:p}",
-                         present,
-                         resize,
-                         present1,
-                         execute);
-                ok = (s1 == MH_OK && s4 == MH_OK && en == MH_OK);
-                if (!ok)
+                // WHO WAS ALREADY THERE. Read before we write a byte: a jmp in front of
+                // Present names the module that installed it, and MinHook relocates
+                // those bytes into our trampoline - which is the proof that the other
+                // overlay stays in the chain below us instead of being replaced.
+                ModuleId ids[kHookCount]{};
+                bool all_identified = true;
+                for (int i = 0; i < kHookCount; ++i)
                 {
-                    mm::log(L"at least one required hook did not install - the overlay will not draw");
+                    mm::logf(L"hook discovery: {} -> {} {}",
+                             kHookNames[i],
+                             module_of(addr[i]),
+                             detour_report(addr[i]));
+                    all_identified = module_id_of(addr[i], ids[i]) && all_identified;
+                }
+
+                ok = create_and_enable(addr, L"by dummy-swapchain discovery");
+
+                // The addresses belong to the DLLs, so the next launch can hook them
+                // without creating (and then destroying) a device, a queue and a
+                // swapchain that Steam's overlay may have re-targeted itself onto.
+                if (ok && all_identified && write_hook_cache(ids))
+                {
+                    mm::logf(L"hook cache: written to {} - the next launch hooks these addresses directly "
+                             L"and creates no dummy objects at all",
+                             hook_cache_path());
                 }
             }
             else
@@ -8276,6 +9042,26 @@ namespace overlay
             g_hooks_installed = ok;
             g_hook_install_ms = ::GetTickCount64();
             return ok;
+        }
+
+        // THE ONE ENTRY POINT. The cache first (it creates nothing), the dummy-swapchain
+        // discovery as the fallback that also refreshes the cache.
+        bool install_hooks()
+        {
+            const MH_STATUS init = MH_Initialize();
+            if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
+            {
+                mm::logf(L"MH_Initialize failed: {}", static_cast<int>(init));
+                return false;
+            }
+            if (install_hooks_from_cache())
+            {
+                g_hooks_installed = true;
+                g_hook_install_ms = ::GetTickCount64();
+                return true;
+            }
+            g_hooks_from_cache = false;
+            return install_hooks_by_discovery();
         }
 
         //==============================================================================
@@ -8355,12 +9141,13 @@ namespace overlay
             mm::log(L"debug_show_panel_on_start = 1: the F2 panel starts open (turn it off for normal play)");
         }
         mm::logf(L"hotkeys: {} settings panel, {} full map ({} recentres it), {} reload "
-                 L"config + maps + markers, HOLD {} (pad {}) for the x-ray highlight [{}]; "
+                 L"config + maps + markers, {} {} (pad {}) for the x-ray highlight [{}]; "
                  L"compass {}",
                  mm::key_name(cfg.panel_key),
                  mm::key_name(cfg.map_key),
                  mm::key_name(cfg.map_recenter_key),
                  mm::key_name(cfg.reload_key),
+                 cfg.highlight_mode == mm::HighlightMode::Hold ? L"HOLD" : L"PRESS",
                  mm::key_name(cfg.highlight_key),
                  mm::pad_chord_name(cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt),
                  cfg.highlight_enabled ? L"on" : L"off",
@@ -8455,20 +9242,20 @@ namespace overlay
             return;
         }
         last_input_ms = now;
-        // ONE COUNTER CANNOT ANSWER TWO QUESTIONS (lessons.md). This scope reaches to the
-        // end of the function, so besides the ~8 GetAsyncKeyState calls it also times the
-        // first-run sentinel write, the map screenshot's clipboard hand-off (a
-        // full-resolution DIB through GlobalAlloc + SetClipboardData), the waypoint file
-        // write, `mm::save_config_file()` (a ~28 KB rewrite) and `pad::poll`. The
-        // 2026-09-03 in-game reading was a 32 ms PEAK against a negligible average, i.e.
-        // one of those one-off blocking things and not the per-sample cost - so the name
-        // now says what is being measured, and the gamepad poll (the only candidate that
-        // could recur, and the one lessons.md warns about for disconnected slots) gets its
-        // own row. Both are on the LOOP thread, where a stall costs no frame and no game
-        // tick.
+        // ONE COUNTER CANNOT ANSWER TWO QUESTIONS (lessons.md), and this row had to be
+        // told twice. It reaches to the end of the function, so it started out timing the
+        // hotkey samples together with the gamepad poll (32 ms peak, 2026-09-03) - which
+        // got its own row - and then read a 366 ms PEAK against a ~0 ms average, which
+        // was the other things sharing the scope: the map screenshot's clipboard hand-off
+        // (a full-resolution DIB through GlobalAlloc + SetClipboardData, which takes a
+        // window-station-wide lock), `mm::save_config_file()` (a ~28 KB rewrite) and the
+        // F5 reload (`mapdata::load` re-decodes up to ~340 MB of PNG). All three now have
+        // their own rows and all three declare a stall, so this row is the ~8
+        // GetAsyncKeyState calls and nothing else. Every one of them is on the LOOP
+        // thread, where a stall costs no frame and no game tick.
         if (g_pf_input < 0)
         {
-            g_pf_input = mm::perf_register("loop input + file I/O", perf::Thread::Loop);
+            g_pf_input = mm::perf_register("loop input (hotkeys)", perf::Thread::Loop);
         }
         const mm::PerfScope input_scope(g_pf_input);
 
@@ -8488,6 +9275,22 @@ namespace overlay
             fg_cached = (pid == ::GetCurrentProcessId());
         }
         const bool foreground = fg_cached;
+
+        // A LOADING SCREEN IS A STALL, and this is the cheapest honest place to notice
+        // one: the snapshot is a seqlock read, it is already published for the render
+        // thread, and "no validated gameplay pawn" is exactly the state the game is in
+        // while it blocks its own thread loading a level. The window is generous (1.5 s)
+        // because the frames on either side of a load are wall-clock waits too, and it
+        // is refreshed on every 60 Hz pass for as long as the condition holds.
+        {
+            mm::Snapshot snap{};
+            const bool have = mm::read_snapshot(snap);
+            if (!have || !snap.has_pawn || !snap.pawn_is_gameplay || snap.transition ||
+                snap.state_ok_since_ms == 0)
+            {
+                mm::perf_note_stall(L"a loading screen / no gameplay pawn", 1500);
+            }
+        }
 
         const bool panel_now = (::GetAsyncKeyState(cfg.panel_key) & 0x8000) != 0;
         if (panel_now && !panel_down && foreground && now - last_key > 250)
@@ -8603,6 +9406,12 @@ namespace overlay
         // Present.
         if (g_shot_dib_ready.exchange(false, std::memory_order_acquire))
         {
+            if (g_pf_clip < 0)
+            {
+                g_pf_clip = mm::perf_register("map -> clipboard", perf::Thread::Loop);
+            }
+            mm::perf_note_stall(L"the map -> clipboard hand-off", 500);
+            const mm::PerfScope clip_scope(g_pf_clip);
             std::vector<std::uint8_t> dib;
             {
                 SpinGuard guard(g_shot_lock);
@@ -8681,36 +9490,90 @@ namespace overlay
             pad::poll(want_pad, cfg.map_gamepad_deadzone);
         }
 
-        // THE X-RAY HIGHLIGHT'S HOLD KEY. A hold, not a toggle - so it is sampled as a
-        // level, never edge-detected, and it needs no debounce and no "close it again"
-        // path. The window must be in the foreground, or alt-tabbing away with the key
-        // down would leave the game thread reading the camera forever.
-        bool held = foreground && cfg.highlight_enabled &&
-                    (::GetAsyncKeyState(cfg.highlight_key) & 0x8000) != 0;
-        if (!held && foreground && cfg.highlight_enabled && cfg.highlight_gamepad)
+        // THE X-RAY HIGHLIGHT'S KEY. The key and the pad chord are always sampled as a
+        // LEVEL (`down` below); what `highlight_mode` decides is what that level means.
+        //
+        //   hold   - the original: on while down. No debounce, no "turn it off" path.
+        //   toggle - the default the user asked for: the RISING EDGE of the level flips
+        //            hl's latch. The latch is the one piece of latched input state in
+        //            the mod, so it follows the rule that goes with that (lessons.md):
+        //            it is cleared from live state by hl::drop_caches() - every level
+        //            transition and every dropped pawn - and by turning the feature off.
+        //
+        // Either way the DEMAND handed to hl needs the window in the foreground, or
+        // alt-tabbing would leave the game thread reading the camera for nothing.
+        bool down = cfg.highlight_enabled && (::GetAsyncKeyState(cfg.highlight_key) & 0x8000) != 0;
+        if (!down && cfg.highlight_enabled && cfg.highlight_gamepad)
         {
             const pad::State gp = pad::state();
             const bool chord = (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt) &&
                                (gp.held & cfg.highlight_pad_mask) == cfg.highlight_pad_mask &&
                                (!cfg.highlight_pad_lt || gp.lt > 0.5f) && (!cfg.highlight_pad_rt || gp.rt > 0.5f);
-            held = gp.connected && chord;
+            down = gp.connected && chord;
         }
+        static bool xray_down = false;
+        bool held = false;
+        if (!cfg.highlight_enabled)
+        {
+            hl::xray_latch_clear(L"the highlight was turned off");
+        }
+        else if (cfg.highlight_mode == mm::HighlightMode::Hold)
+        {
+            // Leaving hold mode armed would strand the latch on; clearing it here is
+            // also what makes switching the mode in the panel take effect at once.
+            hl::xray_latch_clear(L"switched to hold mode");
+            held = down;
+        }
+        else
+        {
+            if (down && !xray_down && foreground)
+            {
+                hl::xray_latch_flip();
+            }
+            held = hl::xray_latched();
+        }
+        xray_down = down;
+        held = held && foreground;
         // This is what makes the game thread read the camera at all: with neither the
         // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.
         hl::set_demand(held, cfg.overlay_enabled && cfg.compass_enabled);
 
-        // The waypoint is set on the render thread and written here, because the loop
-        // thread is the only one allowed to touch a file.
-        if (mm::g_waypoint_dirty.exchange(false))
+        // THE FILE WRITES. All of them are on this thread and none of them is anywhere
+        // near Present: the render thread only ever raises a flag (a waypoint drag, the
+        // panel's Save button, the screenshot request) and this is where the flag turns
+        // into a write. They share one row, because "the mod wrote a file" is one
+        // question, and they declare a stall, because a ~28 KB rewrite through
+        // CreateFile can block on a virus scanner for as long as it likes.
+        const bool wp_dirty = mm::g_waypoint_dirty.exchange(false);
+        const bool cfg_dirty = mm::g_save_config.load();
+        if (wp_dirty || cfg_dirty)
+        {
+            if (g_pf_save < 0)
+            {
+                g_pf_save = mm::perf_register("config / waypoint save", perf::Thread::Loop);
+            }
+            mm::perf_note_stall(L"a config / waypoint file write", 500);
+        }
+        if (wp_dirty)
         {
             if (cfg.map_waypoint_persist)
             {
+                const mm::PerfScope save_scope(g_pf_save);
                 mm::save_waypoint_file();
             }
         }
 
         if (mm::g_reload_config.exchange(false))
         {
+            if (g_pf_reload < 0)
+            {
+                g_pf_reload = mm::perf_register("reload (config+maps+markers)", perf::Thread::Loop);
+            }
+            // Hundreds of milliseconds by design: `mapdata::load` re-decodes the
+            // chapter's height PNGs. A one-off, and it must not set the peak every
+            // later sample of every other row is judged against.
+            mm::perf_note_stall(L"an F5 reload", 4000);
+            const mm::PerfScope reload_scope(g_pf_reload);
             mm::log(L"reloading config + maps + markers");
             mm::load_config_file();
             mm::load_waypoint_file();
@@ -8720,6 +9583,7 @@ namespace overlay
         }
         if (mm::g_save_config.exchange(false))
         {
+            const mm::PerfScope save_scope(g_pf_save);
             mm::save_config_file();
         }
         // REVERT: re-read the config files and publish them, throwing away every
@@ -8749,6 +9613,10 @@ namespace overlay
             now - g_hook_install_ms > 8000 && g_present_count.load() == 0)
         {
             g_watchdog_reported = true;
+            if (g_hooks_from_cache)
+            {
+                delete_hook_cache(L"8 s with the cached addresses and no Present at all");
+            }
             mm::log(L"WATCHDOG: 8 s after installing the hooks not a single Present has arrived. The game's "
                     L"swapchain is behind a proxy we did not create ours through (a DLSS frame-generation wrapper "
                     L"is the likely candidate). Loaded graphics modules follow:");

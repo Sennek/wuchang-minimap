@@ -4,7 +4,7 @@ A UE4SS C++ mod for **Wuchang: Fallen Feathers** (Unreal Engine 5.1.1, Windows x
 
 Current state: **v0.9.0, feature-complete beta.** Minimap, [full map](#the-full-map-m),
 [markers](#markers), collection tracker, [compass](#the-compass-strip) and
-[x-ray highlight](#the-x-ray-highlight-hold-lalt) all ship; the map background is built
+[x-ray highlight](#the-x-ray-highlight-lalt) all ship; the map background is built
 offline from the game's own navmesh. The mod loads under UE4SS and logs
 `WuchangMinimap v0.9.0 loaded`. Also in here: the opt-in [`navmesh_dump`](#navmesh-dumper)
 module that locates the game's Recast/Detour navmesh in memory and writes the streamed-in
@@ -496,7 +496,27 @@ the overlay draws before ReShade's effects. Two things that surprised us and are
 `swapchain->GetDevice(IID_ID3D12Device)` **fails** on the wrapper (the device is taken off the captured
 queue instead), and the game presents a decoy **144x8 D3D11** swapchain every frame next to the real
 **1920x1080 R10G10B10A2_UNORM** one, so the overlay picks one swapchain -
-`GetBuffer(0, IID_ID3D12Resource)` is the test - and ignores Presents from any other.
+`GetBuffer(0, IID_ID3D12Resource)` is the test - and ignores Presents from any other. A swapchain that
+is not ours is ignored for *drawing* only: `hk_Present`, `hk_Present1` and `hk_ResizeBuffers` call the
+original unconditionally, for every swapchain, so nothing else in the process ever loses a frame to us.
+
+**The hook-address cache, and coexisting with the Steam overlay.** Discovery creates a throwaway device,
+queue and swapchain and destroys them again. Steam's `GameOverlayRenderer64.dll` hooks the same creation
+entry points and re-targets its overlay onto what it sees created, so a dummy object created *after* the
+game's and then destroyed is a standard way to leave the Steam FPS counter pointing at nothing - and
+that is the reported symptom. The addresses are a property of the DLL, not of the session, so the first
+launch writes them to `wuchang_minimap_hookaddr.txt` next to the config as `module + RVA` and **every
+launch after that hooks them directly and creates nothing at all**. The cache is keyed to the module's
+`SizeOfImage`, `TimeDateStamp` and `CheckSum` (all three baked into the file), so a ReShade, driver or
+Windows update invalidates it and discovery runs once more; if cached addresses ever produce no Present,
+the 8 s watchdog deletes the file and the next launch rediscovers them. Delete it by hand to force that.
+
+The log also answers *who else is on this function*: before a byte is written, the first 8 bytes at each
+address are read and, if a `jmp` is already there, its target is resolved to `module+offset`
+(`ALREADY DETOURED -> GameOverlayRenderer64.dll+0x...`). MinHook is a trampoline on the function and
+never a vtable patch, so a detour installed before ours ends up *downstream* of ours - its bytes are
+relocated into our trampoline - and one installed after ours ends up *upstream*. Either way the chain is
+intact, and the log line proves which layer we are on instead of leaving it to be argued about.
 
 Rendering owns its own SRV descriptor heap (ImGui 1.92's `ImGui_ImplDX12_InitInfo` allocates through
 callbacks), one command allocator per back buffer fenced against reuse, and RTVs recreated lazily after
@@ -581,7 +601,7 @@ The other keys: `overlay_enabled`, `ui_scale`, `hud_preset`,
 `state_stale_ms`, `min_visible_after_state_ok_ms`, `menu_close_show_delay_ms`, `panel_key`,
 `reload_key`, `debug_readout` and `debug_show_panel_on_start` (both *dev*), the `highlight_*` block plus
 `xray_rarity_colors_enabled` / `xray_rarity_colors` / `markers_rarity_tint` (see
-[the x-ray highlight](#the-x-ray-highlight-hold-lalt)) and the `compass_*` block (9 keys - see
+[the x-ray highlight](#the-x-ray-highlight-lalt)) and the `compass_*` block (9 keys - see
 [the compass strip](#the-compass-strip)), plus the height-slicing block:
 
 | key | default | meaning |
@@ -858,7 +878,8 @@ with how long that state has held, and every transition is written to `UE4SS.log
 `minimap HIDDEN: <reason> (previous state held N ms)`, rate-limited to one line per 2 s. When the reason
 is a menu, the block also names the in-viewport widget holding it open.
 **F2** opens the panel, **M** opens the full map (**R** recentres it), **F5** reloads the config, the
-maps and the markers, and **holding LALT** turns on the x-ray highlight. The F2 panel's **Bindings**
+maps and the markers, and **LALT** toggles the x-ray highlight on and off (`highlight_mode = hold`
+makes it a hold instead). The F2 panel's **Bindings**
 tab rebinds every one of them: click the key, press the new one (Esc cancels), with a per-row reset and
 a warning when two actions land on the same key. Accepted hotkey names are F1-F5, F7, F8, any single
 letter or digit, TAB, SPACE, ENTER, BACKSPACE, the arrows, INSERT/DELETE/HOME/END/PAGEUP/PAGEDOWN,
@@ -868,9 +889,9 @@ console) and F12 (Steam) are rejected in code, not merely discouraged in a comme
 full map both print the live binding list, built from the config - so a rebound key is what you are
 told.
 
-## The x-ray highlight (hold `LALT`)
+## The x-ray highlight (`LALT`)
 
-Hold the key (or the gamepad chord, `LB+RB` by default) and every marker of the enabled categories
+Press the key (or the gamepad chord, `LB+RB` by default) and every marker of the enabled categories
 within `highlight_radius` of the player is drawn **at its position on screen** -
 category glyph, name, distance in metres - fading with distance, over the scene. "Through walls" is free
 here: the overlay is composited on the finished frame, so there is no occlusion test, no CustomDepth and
@@ -910,9 +931,15 @@ The derivation was checked against the game's own behaviour, not just asserted: 
 11/11 non-default beams (pink for the greataxe, the pendant, the blades, two gems and two armour sets;
 gold for `Faint Red Feather`, `Lost Remains`, `Broken Token`) and 7/7 default ones.
 
-It is a **hold, not a toggle**, so there is no visibility state to unstick, and it is gated by exactly
-the same evaluation as the minimap (`hud_gate()` in `overlay.cpp` - one function, asked by the minimap,
-the compass and the highlight; the minimap keeps ownership of the `hidden because:` readout).
+**Toggle or hold** (`highlight_mode`, Player tab, radio buttons next to the key). `toggle` is the
+default: one press turns the highlight on, the next turns it off. `hold` is the original behaviour - on
+only while the key or the pad chord is physically down. The toggle is the one piece of latched input
+state in the mod, so it obeys the rule that goes with that: it is **cleared from live state, never
+remembered** - `hl::drop_caches()` (which `markers::drop_caches()` calls on every level transition and
+every dropped pawn) turns it off, and so does turning the feature off or switching to hold mode. The
+highlight itself is gated by exactly the same evaluation as the minimap (`hud_gate()` in `overlay.cpp` -
+one function, asked by the minimap, the compass and the highlight; the minimap keeps ownership of the
+`hidden because:` readout).
 
 **The projection.** `src/projection.hpp` is dependency-free math with hand-computed tests in
 `markers_test`: UE's `FRotationMatrix` basis written out row by row, the horizontal FOV with the aspect
@@ -1060,7 +1087,7 @@ in a bug report.
       in-world, so round 3 replaced them with a **multi-surface height map sliced on the CPU** into a
       small double-buffered dynamic texture (`|Z - feetZ| <= 200 uu` opaque with a height gradient,
       +/-800 uu dimmed, nothing else drawn).
-- [x] X-ray highlight v1 (hold **LALT** / pad **LB+RB**): world-to-screen projection of every nearby
+- [x] X-ray highlight v1 (**LALT** / pad **LB+RB**, toggle or hold): world-to-screen projection of every nearby
       uncollected marker, with names, distances, distance fade and edge arrows, over the scene. The
       camera pose is read on the game thread from a **self-calibrated** offset inside
       `CameraCachePrivate`. **Not yet verified in-game.**

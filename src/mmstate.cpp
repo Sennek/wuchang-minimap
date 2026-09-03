@@ -1013,6 +1013,24 @@ namespace mm
             {
                 cfg.highlight_enabled = parse_bool(value, cfg.highlight_enabled);
             }
+            else if (key == "highlight_mode")
+            {
+                if (value == "toggle")
+                {
+                    cfg.highlight_mode = HighlightMode::Toggle;
+                }
+                else if (value == "hold")
+                {
+                    cfg.highlight_mode = HighlightMode::Hold;
+                }
+                else
+                {
+                    logf(L"config: highlight_mode = '{}' is not a mode (expected toggle or hold) - "
+                         L"keeping {}",
+                         widen_ascii(value),
+                         cfg.highlight_mode == HighlightMode::Hold ? L"hold" : L"toggle");
+                }
+            }
             else if (key == "highlight_key")
             {
                 cfg.highlight_key = vk_from_name(value, cfg.highlight_key, "highlight_key");
@@ -1449,6 +1467,15 @@ namespace mm
         return freq > 0 ? static_cast<std::uint64_t>(now.QuadPart * 1000000 / freq) : 0;
     }
 
+    namespace
+    {
+        // GetTickCount64() until which the process counts as stalled, and what said so.
+        // Only ever moved FORWARD, and only by an externally attributable event. The
+        // string is a pointer to a literal, so storing it is a relaxed pointer write.
+        std::atomic<std::uint64_t> g_perf_stall_until{0};
+        std::atomic<const wchar_t*> g_perf_stall_why{nullptr};
+    } // namespace
+
     int perf_register(const char* name, perf::Thread thread)
     {
         // Registration happens once per call site, from that call site's own thread,
@@ -1463,12 +1490,40 @@ namespace mm
     {
         const std::uint64_t now_us = qpc_us();
         const double ms = now_us > t0_us ? static_cast<double>(now_us - t0_us) / 1000.0 : 0.0;
-        perf::record(g_perf, id, ms, ::GetTickCount64());
+        const std::uint64_t now = ::GetTickCount64();
+        perf::record(g_perf, id, ms, now, now >= g_perf_stall_until.load(std::memory_order_relaxed));
     }
 
     void perf_record_ms(int id, double ms)
     {
-        perf::record(g_perf, id, ms, ::GetTickCount64());
+        const std::uint64_t now = ::GetTickCount64();
+        perf::record(g_perf, id, ms, now, now >= g_perf_stall_until.load(std::memory_order_relaxed));
+    }
+
+    void perf_note_stall(const wchar_t* why, unsigned ms)
+    {
+        const std::uint64_t until = ::GetTickCount64() + ms;
+        // Never shorten a window somebody else opened: two overlapping stalls are one
+        // stall, and the longer answer is the right one.
+        std::uint64_t was = g_perf_stall_until.load(std::memory_order_relaxed);
+        while (until > was && !g_perf_stall_until.compare_exchange_weak(was, until, std::memory_order_relaxed))
+        {
+        }
+        if (why != nullptr)
+        {
+            g_perf_stall_why.store(why, std::memory_order_relaxed);
+        }
+    }
+
+    bool perf_in_stall()
+    {
+        return ::GetTickCount64() < g_perf_stall_until.load(std::memory_order_relaxed);
+    }
+
+    const wchar_t* perf_last_stall()
+    {
+        const wchar_t* why = g_perf_stall_why.load(std::memory_order_relaxed);
+        return why != nullptr ? why : L"none";
     }
 
     const perf::Table& perf_table()
@@ -2004,6 +2059,7 @@ namespace mm
         add("map_waypoint_persist", b(cfg.map_waypoint_persist));
         add("shrine_list", b(cfg.shrine_list));
         add("highlight_enabled", b(cfg.highlight_enabled));
+        add("highlight_mode", std::string{cfg.highlight_mode == HighlightMode::Hold ? "hold" : "toggle"});
         add("highlight_key", vk(cfg.highlight_key));
         add("highlight_gamepad", b(cfg.highlight_gamepad));
         {

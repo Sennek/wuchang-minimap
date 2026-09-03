@@ -88,11 +88,21 @@ namespace hl
     bool camera(Pose& out);
     Stats stats();
 
-    // LOOP THREAD. `held` = the highlight key / pad chord is down right now (read at
-    // the full camera rate); `compass` = the compass wants a heading (read at 20 Hz).
-    // Both false = the reader does nothing at all, which is the normal state.
+    // LOOP THREAD. `held` = the highlight is ON right now - the key / pad chord is down
+    // in hold mode, or the toggle latch is set in toggle mode - read at the full camera
+    // rate; `compass` = the compass wants a heading (read at 20 Hz). Both false = the
+    // reader does nothing at all, which is the normal state.
     void set_demand(bool held, bool compass);
     bool held();
+
+    // THE TOGGLE LATCH (highlight_mode = toggle). Set by the hotkey sampler on the loop
+    // thread and cleared from live state - never remembered across a level transition or
+    // a dropped pawn, because drop_caches() below clears it. Any thread may read it.
+    bool xray_latched();
+    // Returns the new state. Loop thread (the hotkey sampler) only.
+    bool xray_latch_flip();
+    // `why` is logged when the latch was actually on. Any thread.
+    void xray_latch_clear(const wchar_t* why);
 
     // GAME THREAD ONLY, from the existing pump chain.
     // `now` is GetTickCount64 (used for the pose stamp and the resolve throttle);

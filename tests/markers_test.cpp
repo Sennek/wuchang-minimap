@@ -1083,6 +1083,35 @@ namespace
         CHECK(q.c[c].calls == 1);
         CHECK_NEAR(q.c[c].last_ms, 30.0, 1e-12);
 
+        // A STALLED SAMPLE (a loading screen, a swapchain resize, a one-off blocking
+        // job) still shows in `peak_ms` and `last_ms` - nothing is hidden - but it must
+        // not set `peak_calm_ms`, which is the number the F2 table shows, or a single
+        // 358 ms wall-clock wait hides every later regression behind it.
+        perf::Table r{};
+        const int d = perf::register_counter(r, "render frame", perf::Thread::Render);
+        perf::record(r, d, 1.5, 1000);              // calm by default
+        CHECK_NEAR(r.c[d].peak_calm_ms, 1.5, 1e-12);
+        CHECK(r.c[d].stalls == 0);
+        perf::record(r, d, 358.0, 1100, false);     // a loading screen
+        CHECK_NEAR(r.c[d].peak_ms, 358.0, 1e-12);   // the raw peak sees it
+        CHECK_NEAR(r.c[d].peak_calm_ms, 1.5, 1e-12); // the shown peak does not
+        CHECK(r.c[d].stalls == 1);
+        CHECK_NEAR(r.c[d].peak_stall_ms, 358.0, 1e-12);
+        CHECK_NEAR(r.c[d].last_ms, 358.0, 1e-12);
+        CHECK(r.c[d].calls == 2);
+        // A stalled sample is still part of the window average: it happened.
+        perf::record(r, d, 2.5, 1200);
+        CHECK_NEAR(r.c[d].peak_calm_ms, 2.5, 1e-12);
+        perf::record(r, d, 0.5, 4000);              // closes the window
+        CHECK_NEAR(r.c[d].avg_ms, (1.5 + 358.0 + 2.5 + 0.5) / 4.0, 1e-9);
+        // reset_peaks clears all three peaks and the stall count together, or the
+        // button would leave a stale "12 stalls" next to a fresh peak.
+        perf::reset_peaks(r);
+        CHECK_NEAR(r.c[d].peak_ms, 0.0, 1e-12);
+        CHECK_NEAR(r.c[d].peak_calm_ms, 0.0, 1e-12);
+        CHECK_NEAR(r.c[d].peak_stall_ms, 0.0, 1e-12);
+        CHECK(r.c[d].stalls == 0);
+
         // The table is a fixed array: registering past it is refused, never written.
         perf::Table full{};
         // Distinct pointers, so nothing is deduplicated by the name check.

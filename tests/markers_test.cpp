@@ -47,6 +47,12 @@
 #include "label_layout.hpp"
 #include "mapmanifest.hpp"
 #include "mapview.hpp"
+// Brings in <Windows.h> - which is why the two #undefs below exist. `near` and `far`
+// are 16-bit-era keyword macros windef.h still defines (WIN32_LEAN_AND_MEAN does not
+// drop them), and test_glyphs() has a local array called `near`.
+#include "pngdecode.hpp"
+#undef near
+#undef far
 #include "markers_db.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
@@ -2354,6 +2360,238 @@ namespace
     }
 
     //==================================================================================
+    // The SHIPPED PNGs, through the runtime's own decode (src/pngdecode.hpp)
+    //==================================================================================
+    //
+    // This is the only test in this file that touches Windows, and it is here because
+    // the alternative is a play session. The two things it proves cannot be proven by
+    // reading maps.json:
+    //
+    //   * THE COMPOSITE IS READABLE AS RGBA even though it is now PNG colour type 3
+    //     (256-colour palette) with a tRNS ARRAY. WIC is supposed to expand an indexed
+    //     frame through its own palette; if it did not - or if Pillow wrote a
+    //     single-index tRNS instead of the array - the map would come back fully
+    //     opaque or fully transparent, and the first person to find out would be a
+    //     player with `fallback_use_composite = 1`.
+    //
+    //   * THE HEIGHT CODES ARE IN RANGE AND IN THE RIGHT BYTE ORDER. PNG stores 16-bit
+    //     samples big-endian and WIC hands them back native-endian; a decoder that did
+    //     not would produce byte-swapped garbage whose only in-game symptom is a map
+    //     that looks empty. With 12-bit codes that is a hard test rather than a
+    //     plausibility one: 4095 byte-swapped is 65295, so a single swapped pixel puts
+    //     the maximum past `z_code_max`.
+    //
+    // And one cross-check that ties the asset to the manifest: `surface_hist[k]` counts
+    // pixels with EXACTLY k surfaces, so plane z0's lit-pixel count must equal
+    // sum(surface_hist[1:]) exactly. That one number exercises the dimensions, the
+    // sentinel and the decode in a single comparison.
+
+    void test_map_assets(const std::string& markers_dir)
+    {
+        section("the shipped map PNGs, decoded through src/pngdecode.hpp");
+
+        const std::string maps_dir = markers_dir + "/../maps";
+        std::string text;
+        if (!read_file(maps_dir + "/maps.json", text))
+        {
+            std::printf("  (skipped: %s/maps.json not readable)\n", maps_dir.c_str());
+            return;
+        }
+        mapmanifest::Manifest m{};
+        std::vector<std::string> problems;
+        if (!mapmanifest::parse(text, m, problems) || m.chapters.empty())
+        {
+            std::printf("  (skipped: the manifest did not parse)\n");
+            return;
+        }
+
+        // The per-chapter numbers this test compares against are in maps.json but not
+        // in mapmanifest::Entry (the runtime has no use for them), so they are picked
+        // out of the raw text with a small scan rather than by growing the parser.
+        const auto number_in_chapter = [&text](const std::string& key, const char* field,
+                                               double fallback) {
+            const std::size_t at = text.find("\"" + key + "\"");
+            if (at == std::string::npos)
+            {
+                return fallback;
+            }
+            const std::string needle = std::string("\"") + field + "\"";
+            const std::size_t f = text.find(needle, at);
+            if (f == std::string::npos)
+            {
+                return fallback;
+            }
+            const std::size_t colon = text.find(':', f + needle.size());
+            if (colon == std::string::npos)
+            {
+                return fallback;
+            }
+            return std::strtod(text.c_str() + colon + 1, nullptr);
+        };
+        const auto sum_surface_hist_tail = [&text](const std::string& key) -> long long {
+            const std::size_t at = text.find("\"" + key + "\"");
+            const std::size_t h =
+                at == std::string::npos ? std::string::npos : text.find("\"surface_hist\"", at);
+            if (h == std::string::npos)
+            {
+                return -1;
+            }
+            const std::size_t open = text.find('[', h);
+            const std::size_t close = text.find(']', open);
+            if (open == std::string::npos || close == std::string::npos)
+            {
+                return -1;
+            }
+            long long total = 0;
+            int index = 0;
+            const char* p = text.c_str() + open + 1;
+            const char* end = text.c_str() + close;
+            while (p < end)
+            {
+                while (p < end && (*p == ' ' || *p == ',' || *p == '\n' || *p == '\r' || *p == '\t'))
+                {
+                    ++p;
+                }
+                if (p >= end)
+                {
+                    break;
+                }
+                char* stop = nullptr;
+                const long long v = std::strtoll(p, &stop, 10);
+                if (stop == p)
+                {
+                    break;
+                }
+                if (index > 0) // hist[0] = pixels with NO surface
+                {
+                    total += v;
+                }
+                ++index;
+                p = stop;
+            }
+            return total;
+        };
+        const auto widen = [](const std::string& narrow) {
+            return std::wstring(narrow.begin(), narrow.end());
+        };
+
+        for (const mapmanifest::Entry& e : m.chapters)
+        {
+            // ---- the composite ------------------------------------------------------
+            std::vector<std::uint8_t> px;
+            const std::wstring cpath = widen(maps_dir + "/" + e.image);
+            const pngdec::Result cr = pngdec::decode(cpath.c_str(), pngdec::kRgba, px);
+            ++g_checks;
+            if (!cr.ok())
+            {
+                ++g_failures;
+                std::printf("  FAIL  %s did not decode (0x%08X)\n", e.image.c_str(),
+                            static_cast<unsigned>(cr.hr));
+                continue;
+            }
+            CHECK_EQ(cr.width, e.image_width);
+            CHECK_EQ(cr.height, e.image_height);
+            CHECK_EQ(static_cast<long long>(px.size()),
+                     static_cast<long long>(e.image_width) * e.image_height * 4);
+
+            // Alpha must be exactly two values: 0 for the background and the fill
+            // alpha for everything walkable. A lost tRNS array shows up as one value.
+            int alpha_lo = 256;
+            int alpha_hi = -1;
+            std::size_t opaque = 0;
+            std::size_t distinct_alpha = 0;
+            bool seen[256] = {};
+            for (std::size_t i = 3; i < px.size(); i += 4)
+            {
+                const int a = px[i];
+                if (!seen[a])
+                {
+                    seen[a] = true;
+                    ++distinct_alpha;
+                }
+                alpha_lo = a < alpha_lo ? a : alpha_lo;
+                alpha_hi = a > alpha_hi ? a : alpha_hi;
+                if (a != 0)
+                {
+                    ++opaque;
+                }
+            }
+            CHECK_EQ(static_cast<long long>(distinct_alpha), 2);
+            CHECK_EQ(alpha_lo, 0);
+            CHECK_EQ(alpha_hi, 235); // build_map.py's FILL_ALPHA
+            // A composite that decoded to "all transparent" or "all opaque" would pass
+            // every check above except this one.
+            const std::size_t total_px =
+                static_cast<std::size_t>(e.image_width) * static_cast<std::size_t>(e.image_height);
+            CHECK(opaque > total_px / 100 && opaque < total_px * 9 / 10);
+
+            // ---- height plane z0 ----------------------------------------------------
+            const int z_code_max = static_cast<int>(number_in_chapter(e.key, "z_code_max", 65535.0));
+            std::vector<std::uint8_t> raw;
+            const std::wstring hpath = widen(maps_dir + "/" + e.height_maps[0]);
+            const pngdec::Result hres = pngdec::decode(hpath.c_str(), pngdec::kGray16, raw);
+            ++g_checks;
+            if (!hres.ok())
+            {
+                ++g_failures;
+                std::printf("  FAIL  %s did not decode (0x%08X)\n", e.height_maps[0].c_str(),
+                            static_cast<unsigned>(hres.hr));
+                continue;
+            }
+            CHECK_EQ(hres.width, e.image_width);
+            CHECK_EQ(hres.height, e.image_height);
+
+            const std::uint16_t* code = reinterpret_cast<const std::uint16_t*>(raw.data());
+            const std::size_t n = raw.size() / 2;
+            long long lit = 0;
+            int code_hi = 0;
+            int code_lo = 0x10000;
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                const int c = code[i];
+                if (c == 0)
+                {
+                    continue;
+                }
+                ++lit;
+                code_hi = c > code_hi ? c : code_hi;
+                code_lo = c < code_lo ? c : code_lo;
+            }
+            CHECK(lit > 0);
+            // THE byte-order / format test.
+            CHECK(code_hi <= z_code_max);
+            CHECK(code_lo >= 1);
+            // And the manifest's own histogram has to predict that count exactly.
+            const long long want_lit = sum_surface_hist_tail(e.key);
+            if (want_lit >= 0)
+            {
+                CHECK_EQ(lit, want_lit);
+            }
+
+            // The Z the runtime will read back, over the same [z_min, z_max] the
+            // manifest states, must land inside those bounds.
+            const double step = (e.z_max - e.z_min) / static_cast<double>(z_code_max - 1);
+            const double z_lo = e.z_min + (code_lo - 1) * step;
+            const double z_hi = e.z_min + (code_hi - 1) * step;
+            CHECK(z_lo >= e.z_min - 1.0 && z_hi <= e.z_max + 1.0);
+
+            // The error the requantisation actually introduced, as measured by
+            // tools/navmesh/repack_maps.py over every lit pixel. The slicer's floor
+            // tolerance is 200 uu, so anything above 20 uu here is a format change
+            // that has stopped being free.
+            const double shift = number_in_chapter(e.key, "z_requantise_worst_uu", 0.0);
+            CHECK(shift < 20.0);
+
+            std::printf("  %s: composite %dx%d, %llu opaque px (%.0f %%), z0 %lld lit px, "
+                        "codes %d..%d of %d, step %.2f uu, requantise shift %.2f uu\n",
+                        e.key.c_str(), cr.width, cr.height,
+                        static_cast<unsigned long long>(opaque),
+                        100.0 * static_cast<double>(opaque) / static_cast<double>(total_px), lit,
+                        code_lo, code_hi, z_code_max, step, shift);
+        }
+    }
+
+    //==================================================================================
     // The config file's keys: shipped file == known keys == what the parser accepts
     //==================================================================================
     //
@@ -3783,6 +4021,7 @@ int main(int argc, char** argv)
     test_chapter_id();
     test_marker_chapter_filter();
     test_map_manifest(markers_dir);
+    test_map_assets(markers_dir);
     test_config_keys(markers_dir);
     test_config_rewrite(markers_dir);
     test_absence();

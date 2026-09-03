@@ -16,7 +16,7 @@
    "agent": "Small",
    "tile_count": 10037,
    "poly_count": 152447,
-   "png_bytes": 2714196,
+   "png_bytes": 1578863,
    "z_min": -11649.0,
    "z_max": 38871.0,
    "z_step_uu": 0.770897549363689,
@@ -95,7 +95,14 @@
     48228,
     17921,
     10741
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 649,
+    "palette_colours": 256,
+    "max_channel_delta": 3,
+    "mean_channel_delta": 0.1849
+   }
   },
   "chapter2": {
    "image": "chapter2/small.png",
@@ -112,7 +119,7 @@
    "agent": "Small",
    "tile_count": 9140,
    "poly_count": 130591,
-   "png_bytes": 2352354,
+   "png_bytes": 1297346,
    "z_min": -11209.0,
    "z_max": 38871.0,
    "z_step_uu": 0.7641834772789697,
@@ -191,7 +198,14 @@
     31859,
     11178,
     3459
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 649,
+    "palette_colours": 256,
+    "max_channel_delta": 3,
+    "mean_channel_delta": 0.2047
+   }
   },
   "chapter3": {
    "image": "chapter3/small.png",
@@ -208,7 +222,7 @@
    "agent": "Small",
    "tile_count": 11653,
    "poly_count": 152693,
-   "png_bytes": 2524328,
+   "png_bytes": 1417234,
    "z_min": -12054.117918570008,
    "z_max": 38871.0,
    "z_step_uu": 0.7770793468820766,
@@ -287,7 +301,14 @@
     28136,
     13489,
     7612
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 651,
+    "palette_colours": 256,
+    "max_channel_delta": 2,
+    "mean_channel_delta": 0.1935
+   }
   },
   "chapter4": {
    "image": "chapter4/small.png",
@@ -304,7 +325,7 @@
    "agent": "Small",
    "tile_count": 6697,
    "poly_count": 94722,
-   "png_bytes": 1856029,
+   "png_bytes": 1049479,
    "z_min": -8809.0,
    "z_max": 20911.0,
    "z_step_uu": 0.45350505081331827,
@@ -383,7 +404,14 @@
     5643,
     391,
     67
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 644,
+    "palette_colours": 256,
+    "max_channel_delta": 3,
+    "mean_channel_delta": 0.189
+   }
   },
   "chapter5": {
    "image": "chapter5/small.png",
@@ -400,7 +428,7 @@
    "agent": "Small",
    "tile_count": 12986,
    "poly_count": 152963,
-   "png_bytes": 1581948,
+   "png_bytes": 828992,
    "z_min": -2521.65241364577,
    "z_max": 13752.367487815143,
    "z_step_uu": 0.2483294152876509,
@@ -479,7 +507,14 @@
     25712,
     13368,
     14119
-   ]
+   ],
+   "composite_format": "png8-palette-trns",
+   "composite_quantisation": {
+    "unique_rgba_before": 651,
+    "palette_colours": 256,
+    "max_channel_delta": 2,
+    "mean_channel_delta": 0.1996
+   }
   }
  }
 }

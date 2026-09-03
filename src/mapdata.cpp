@@ -10,6 +10,7 @@
 #include <format>
 
 #include "mapmanifest.hpp"
+#include "pngdecode.hpp"
 #include "breadcrumb.hpp"
 #include "mmstate.hpp"
 
@@ -111,108 +112,39 @@ namespace mapdata
         }
 
         //==============================================================================
-        // PNG -> RGBA8 via WIC
+        // PNG -> pixels
         //==============================================================================
         //
-        // WIC rather than a vendored stb_image: it is part of Windows, needs no new
-        // third-party code, and handles the 8-bit RGBA PNGs build_map.py writes
-        // directly. This runs on the loop thread, so the ~90 MB decode never stalls
-        // Present.
+        // The WIC decode itself lives in pngdecode.hpp - pure Windows, no UE4SS - so
+        // tests/markers_test.cpp can put a SHIPPED PNG through exactly this path on
+        // the build machine. What is left here is the logging and the timing, which
+        // are the mod's business and not the decoder's.
+        //
+        // It runs on the loop thread, so the decode never stalls Present.
 
-        // `channels`: 4 -> 32bpp RGBA (the Z-shaded composite), 2 -> 16bpp gray (one
-        // height plane; WIC gives native-endian uint16 per pixel, i.e. little-endian
-        // in memory on x64, which is what `HeightMaps::plane` wants), 1 -> 8bpp gray.
+        // Returns the wall time the decode took, in ms, or a negative value on
+        // failure - so a caller can log "how long did the map cost" (C.15) without
+        // timing the call itself at every site.
+        double decode_raw_ms(const std::wstring& path, int channels, int& out_w, int& out_h,
+                             std::vector<std::uint8_t>& out_pixels)
+        {
+            const std::uint64_t t0 = ::GetTickCount64();
+            const pngdec::Result r = pngdec::decode(path.c_str(), channels, out_pixels);
+            if (!r.ok())
+            {
+                mm::logf(L"maps: PNG decode of {} failed (0x{:08X})", path,
+                         static_cast<unsigned>(r.hr));
+                return -1.0;
+            }
+            out_w = r.width;
+            out_h = r.height;
+            return static_cast<double>(::GetTickCount64() - t0);
+        }
+
         bool decode_raw(const std::wstring& path, int channels, int& out_w, int& out_h,
                         std::vector<std::uint8_t>& out_pixels)
         {
-            // The loop thread may or may not already have COM up; RPC_E_CHANGED_MODE
-            // just means someone else picked the other apartment model, which is fine
-            // for WIC. Deliberately never uninitialised - we do not own this thread.
-            const HRESULT co = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-            if (FAILED(co) && co != RPC_E_CHANGED_MODE)
-            {
-                mm::logf(L"maps: CoInitializeEx failed (0x{:08X})", static_cast<unsigned>(co));
-                return false;
-            }
-
-            IWICImagingFactory* factory = nullptr;
-            IWICBitmapDecoder* decoder = nullptr;
-            IWICBitmapFrameDecode* frame = nullptr;
-            IWICFormatConverter* converter = nullptr;
-            bool ok = false;
-
-            HRESULT hr = ::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                            IID_PPV_ARGS(&factory));
-            if (SUCCEEDED(hr))
-            {
-                hr = factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
-                                                        WICDecodeMetadataCacheOnDemand, &decoder);
-            }
-            if (SUCCEEDED(hr))
-            {
-                hr = decoder->GetFrame(0, &frame);
-            }
-            UINT w = 0;
-            UINT h = 0;
-            if (SUCCEEDED(hr))
-            {
-                hr = frame->GetSize(&w, &h);
-            }
-            if (SUCCEEDED(hr) && (w == 0 || h == 0 || w > 16384 || h > 16384))
-            {
-                mm::logf(L"maps: refusing a {}x{} image", w, h);
-                hr = E_FAIL;
-            }
-            if (SUCCEEDED(hr))
-            {
-                hr = factory->CreateFormatConverter(&converter);
-            }
-            if (SUCCEEDED(hr))
-            {
-                // GUID_WICPixelFormat32bppRGBA, not BGRA: the ImGui DX12 backend's
-                // sampler and our DXGI_FORMAT_R8G8B8A8_UNORM texture both want RGBA.
-                const WICPixelFormatGUID want = channels == 1   ? GUID_WICPixelFormat8bppGray
-                                                : channels == 2 ? GUID_WICPixelFormat16bppGray
-                                                                : GUID_WICPixelFormat32bppRGBA;
-                hr = converter->Initialize(frame,
-                                           want,
-                                           WICBitmapDitherTypeNone,
-                                           nullptr,
-                                           0.0,
-                                           WICBitmapPaletteTypeCustom);
-            }
-            if (SUCCEEDED(hr))
-            {
-                const UINT stride = w * static_cast<UINT>(channels);
-                out_w = static_cast<int>(w);
-                out_h = static_cast<int>(h);
-                out_pixels.resize(static_cast<std::size_t>(stride) * h);
-                hr = converter->CopyPixels(nullptr, stride, static_cast<UINT>(out_pixels.size()),
-                                           out_pixels.data());
-                ok = SUCCEEDED(hr);
-            }
-            if (!ok)
-            {
-                mm::logf(L"maps: PNG decode of {} failed (0x{:08X})", path, static_cast<unsigned>(hr));
-            }
-
-            if (converter != nullptr)
-            {
-                converter->Release();
-            }
-            if (frame != nullptr)
-            {
-                frame->Release();
-            }
-            if (decoder != nullptr)
-            {
-                decoder->Release();
-            }
-            if (factory != nullptr)
-            {
-                factory->Release();
-            }
-            return ok;
+            return decode_raw_ms(path, channels, out_w, out_h, out_pixels) >= 0.0;
         }
 
         bool decode_png(const std::wstring& path, PendingImage& out)

@@ -453,6 +453,9 @@ namespace markers
         std::atomic<int> g_boss_defeated{0};  // boss markers marked as defeated
         std::atomic<int> g_health_unknown{0}; // characters whose health could not be read
         std::atomic<int> g_shrine_lit_marks{0}; // shrine markers marked from UnlockedFirepoints
+        // Static NPC / merchant markers hidden this round because the person has moved
+        // on (their level is loaded and no live actor answers for the id).
+        std::atomic<int> g_mobile_hidden{0};
 
         //==============================================================================
         // Live copies of the sweep's caps (game thread)
@@ -1469,6 +1472,8 @@ namespace markers
                     g_level_round[i] = lit != g_levels.end() ? lit->second : 0;
                 }
 
+                // A gauge, not a total: it is "how many are hidden right now".
+                g_mobile_hidden.store(0, std::memory_order_relaxed);
                 dst.reserve(g_chapter_subset.size() + g_live.size());
                 for (const int mi : g_chapter_subset)
                 {
@@ -1522,6 +1527,34 @@ namespace markers
                         }
                     }
 
+                    // ---- A PERSON WHO HAS WALKED AWAY IS NOT DRAWN WHERE THEY WERE -
+                    //
+                    // NPCs and merchants move: talk to a quest NPC and it relocates,
+                    // usually to a different placed actor in a different sublevel and so
+                    // under a different marker id. The authored position then has no live
+                    // twin and never will, and the x-ray happily labelled it "NPC 2 m
+                    // (found)" at a spot the NPC had left. When the marker's own level is
+                    // loaded and a full round has finished since it loaded, "no live actor
+                    // answered" is not "I have not looked yet" - it is proof, and the hint
+                    // is dropped from the published set (so the minimap, the full map, the
+                    // compass and the x-ray all agree in one place). The met state is
+                    // untouched: it lives in the found set, not in this entry.
+                    const int mli = db->marker_level[idx];
+                    mdb::MobileTwinFacts mob{};
+                    mob.mobile = mdb::is_mobile_category(sm.cat);
+                    mob.live_twin_this_round = live != nullptr && live->round == g_round;
+                    if (mli >= 0 && g_level_known[static_cast<std::size_t>(mli)] != 0)
+                    {
+                        mob.level_known = true;
+                        mob.full_round_since_level_load =
+                            g_round > g_level_round[static_cast<std::size_t>(mli)];
+                    }
+                    if (mdb::mobile_twin_is_stale(mob))
+                    {
+                        g_mobile_hidden.fetch_add(1, std::memory_order_relaxed);
+                        continue;
+                    }
+
                     // ---- ABSENCE AS EVIDENCE OF A COLLECT -------------------------
                     //
                     // Everything the pure predicate needs is here: this round has just
@@ -1533,13 +1566,8 @@ namespace markers
                     facts.feature_on = g_absence_on;
                     facts.cat_selected = mdb::cat_enabled(g_absence_cats, sm.cat);
                     facts.already_found = (d.flags & kFlagFound) != 0;
-                    const int li = db->marker_level[idx];
-                    if (li >= 0 && g_level_known[static_cast<std::size_t>(li)] != 0)
-                    {
-                        facts.level_known = true;
-                        facts.full_round_since_level_load =
-                            g_round > g_level_round[static_cast<std::size_t>(li)];
-                    }
+                    facts.level_known = mob.level_known;
+                    facts.full_round_since_level_load = mob.full_round_since_level_load;
                     facts.twin_alive = live != nullptr && live->round == g_round && live->pos_valid &&
                                        !live->found;
 
@@ -2223,12 +2251,13 @@ namespace markers
                 // property": a climbing `health unknown` with zero dead/defeated means
                 // the Health component route is wrong on this build.
                 mm::logf(L"markers: rules - shrines lit {}, met {}, bosses defeated {}, "
-                         L"dead enemies dropped {}, health unknown {}",
+                         L"dead enemies dropped {}, health unknown {}, moved npc/merchant hidden {}",
                          g_shrine_lit_marks.load(std::memory_order_relaxed),
                          g_met_marks.load(std::memory_order_relaxed),
                          g_boss_defeated.load(std::memory_order_relaxed),
                          g_dead_dropped.load(std::memory_order_relaxed),
-                         g_health_unknown.load(std::memory_order_relaxed));
+                         g_health_unknown.load(std::memory_order_relaxed),
+                         g_mobile_hidden.load(std::memory_order_relaxed));
             }
         }
 

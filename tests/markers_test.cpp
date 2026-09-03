@@ -2739,6 +2739,50 @@ namespace
             CHECK_EQ(streak, 1);
         }
 
+        section("npc / merchant markers that have walked away");
+
+        // Only people move. Every other category's authored position is a fact about
+        // the level, so nothing else may ever be hidden by this rule - a chest that has
+        // not been seen yet is the ABSENCE rule's business, and that one marks it found
+        // rather than making it disappear.
+        for (int c = 0; c < mdb::kCatCount; ++c)
+        {
+            const auto cat = static_cast<mdb::Cat>(c);
+            const bool expect = cat == mdb::Cat::Npc || cat == mdb::Cat::Merchant;
+            CHECK_EQ(mdb::is_mobile_category(cat), expect);
+        }
+
+        {
+            mdb::MobileTwinFacts f{};
+            f.mobile = true;
+            f.live_twin_this_round = false;
+            f.level_known = true;
+            f.full_round_since_level_load = true;
+            CHECK(mdb::mobile_twin_is_stale(f)); // the one combination that hides
+
+            // A live actor answered: its position wins and the entry stays.
+            mdb::MobileTwinFacts g = f;
+            g.live_twin_this_round = true;
+            CHECK(!mdb::mobile_twin_is_stale(g));
+
+            // The level is not resident, so absence means nothing at all - keep the hint.
+            g = f;
+            g.level_known = false;
+            CHECK(!mdb::mobile_twin_is_stale(g));
+
+            // The level streamed in during this round: not looked at yet.
+            g = f;
+            g.full_round_since_level_load = false;
+            CHECK(!mdb::mobile_twin_is_stale(g));
+
+            // Not a person.
+            g = f;
+            g.mobile = false;
+            CHECK(!mdb::mobile_twin_is_stale(g));
+        }
+        // Nothing is hidden by default: a zeroed fact set must be a no-op.
+        CHECK(!mdb::mobile_twin_is_stale(mdb::MobileTwinFacts{}));
+
         // The join key the rule uses: the level short name out of a ULevel's full name,
         // which is the same helper the marker ids are built with.
         CHECK_STR(mdb::level_from_full_name(

@@ -776,6 +776,8 @@ def build_chapter(args: argparse.Namespace) -> dict:
             polys, seeds,
             grid=args.island_grid, z_tol=args.island_z_tol, min_area=args.island_min_area,
             seed_radius=args.island_seed_radius, require_seed=args.island_require_seed,
+            bridge_xy=args.island_bridge_xy, bridge_z=args.island_bridge_z,
+            cluster_area=args.island_cluster_area,
         )
         print(render.describe_islands(args.chapter, islands))
         if not polys:
@@ -901,8 +903,10 @@ def build_chapter(args: argparse.Namespace) -> dict:
         "surface_merge_tol_uu": args.merge_tol,
         "flat_plane_sheets_dropped": planes["dropped_sheets"],
         "island_filter": {k: islands[k] for k in
-                          ("components", "kept", "dropped", "polys_dropped", "area_dropped",
+                          ("components", "clusters", "clusters_kept", "clusters_detached_kept",
+                           "kept", "rescued_small", "dropped", "polys_dropped", "area_dropped",
                            "seeds", "seeded_components", "grid_uu", "z_tol_uu", "min_area_uu2",
+                           "cluster_area_uu2", "bridge_xy_uu", "bridge_z_uu",
                            "seed_radius_uu", "require_seed") if k in islands},
         "height_maps": height_maps,
         "height_map_bytes": height_bytes,

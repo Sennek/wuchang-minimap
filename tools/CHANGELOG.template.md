@@ -76,6 +76,13 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   stayed on the minimap and no boss was ever marked as defeated. The mod now finds the
   health component itself instead of assuming what it is called, and if it still
   cannot, it writes one line to the log saying exactly what it found instead.
+- **NPCs and merchants are shown where they are, not where they started.** People move
+  in this game - talk to a quest NPC and it relocates - and the mod was still drawing
+  the original spot, so the x-ray could label an "NPC 2 m" through a wall at a place
+  the NPC had left. A live NPC's own position always wins now; once the mod can see
+  that the area is loaded and nobody is there, the old spot is not drawn at all; and
+  the x-ray only ever highlights an NPC or a merchant it can actually see. Whether you
+  have met them is unaffected.
 - **Dead enemies no longer sit on the minimap.** A corpse keeps its position in the game
   for a while after it dies; enemies are now dropped from the map as soon as their health
   reads zero, and a live enemy marker that stops being seen is dropped after one sweep

@@ -84,7 +84,9 @@ def main(argv=None) -> int:
     if not a.no_filter and not a.no_islands:
         polys, st = render.filter_islands(
             polys, seeds, grid=a.island_grid, z_tol=a.island_z_tol, min_area=a.island_min_area,
-            seed_radius=a.island_seed_radius, require_seed=a.island_require_seed)
+            seed_radius=a.island_seed_radius, require_seed=a.island_require_seed,
+            bridge_xy=a.island_bridge_xy, bridge_z=a.island_bridge_z,
+            cluster_area=a.island_cluster_area)
         print(render.describe_islands(a.agent, st))
     print(f"{raw} polygons decoded, {len(polys)} after filtering")
 

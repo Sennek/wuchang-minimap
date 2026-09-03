@@ -87,9 +87,18 @@ Unreachable islands (`--drop-islands`)
 Recast leaves thousands of sub-square-metre scraps of navmesh under scenery, and they
 read as speckle on the minimap. `connected_components` recovers polygon adjacency
 geometrically (Detour's cross-tile links are in the part of the tile record the offline
-decoder does not parse) and `filter_islands` drops the components no player can stand
-on: a component is kept when a marker from `markers/chapter<N>.json` is within
-`--island-seed-radius` of it, else when its area clears `--island-min-area`.
+decoder does not parse), `bridge_components` then groups the components that are one
+PLACE - anything within `--island-bridge-xy` / `--island-bridge-z` of each other, a step,
+a ledge, a drop - and `filter_islands` keeps a cluster only when it holds the largest
+component, when its area clears `--island-cluster-area` (40 m2), or when a marker of any
+category is within `--island-seed-radius` of it. Sub-`--island-min-area` slivers are
+dropped outright unless one of them is the only surface under a marker.
+
+The bridging is what makes a strict threshold safe: on its own the graph leaves the
+world in ~30 000 components with the largest holding a fifth of the walkable area, so
+raising the per-component threshold punches holes in real floors (25 m2 costs 13-20 % of
+the area). Bridged, the largest cluster is 81 % of the area and 40 m2 costs 0.9 %.
+
 `--island-require-seed` is the strict "reachable from a shrine/marker only" mode; it
 drops ~56 % of Chapter 1's walkable area (off-mesh links - ladders, lifts, drops -
 are not in the data, so most of the map is not graph-connected to a shrine) and it eats
@@ -156,11 +165,27 @@ DEFAULT_PLANE_Z_TOL = 20.0  # uu; planes within this Z of each other are one she
 # island filter (see §"unreachable islands")
 DEFAULT_ISLAND_GRID = 64.0  # uu; XY grid the connectivity union-find runs on
 DEFAULT_ISLAND_Z_TOL = 150.0  # uu; two polys in one grid cell join if their Z ranges are this close
-DEFAULT_ISLAND_MIN_AREA = 40000.0  # uu2 (4 m2); a seedless component smaller than this is noise
+DEFAULT_ISLAND_MIN_AREA = 40000.0  # uu2 (4 m2); a component smaller than this never survives on size
 DEFAULT_ISLAND_SEED_RADIUS = 300.0  # uu (3 m); a marker this close to a component keeps it
 DEFAULT_ISLAND_SEED_Z = 600.0  # uu; ... and within this much Z of it
+# Bridging: two components whose polygons come this close are one PLACE even though the
+# navmesh graph does not join them - a step, a ledge, a drop. Measured (see
+# context/navmesh-arenas-and-islands.md §6): bridging at 200/1000 uu takes Chapter 1's
+# largest component from 20.7 % of the walkable area to 81 %, which is what makes a strict
+# area threshold safe. The vertical figure is 10 m because this game's traversal is
+# vertical (the Honglan arena is reached by a 16.6 m drop), and it is measured: 4 m leaves
+# 878 clusters and costs 2.2 % of the area, 10 m leaves 362 and costs 0.9 %.
+DEFAULT_ISLAND_BRIDGE_XY = 200.0  # uu (2 m); horizontal gap that still joins two components
+DEFAULT_ISLAND_BRIDGE_Z = 1000.0  # uu (10 m); vertical gap that still joins two components
+# ... and the area a bridged CLUSTER needs to survive without a marker on it. There is no
+# knee in the component-area histogram (it is scale-free: every octave from 4 m2 up carries
+# 8-30 k m2), so this is not read off the data - it is the smallest area that still reads as
+# a place rather than a scrap. 40 m2 is a 6 x 6 m room.
+DEFAULT_ISLAND_CLUSTER_AREA = 400000.0  # uu2 (40 m2)
 # marker categories that are evidence "a player can get here" (ladder / lift / door
-# reach places the navmesh graph cannot, because off-mesh links are not in our data)
+# reach places the navmesh graph cannot, because off-mesh links are not in our data).
+# Kept for callers that want the narrow set; the filter itself takes every category,
+# because an enemy or a trap standing on a surface also proves the surface is real.
 ISLAND_SEED_CATEGORIES = (
     "shrine", "chest", "pickup", "npc", "merchant", "boss", "ladder", "lift", "door", "fog_gate",
 )
@@ -594,6 +619,96 @@ def connected_components(
     return out
 
 
+def bridge_components(
+    polys: list[dict],
+    comps: list[dict],
+    min_area: float,
+    bridge_xy: float = DEFAULT_ISLAND_BRIDGE_XY,
+    bridge_z: float = DEFAULT_ISLAND_BRIDGE_Z,
+) -> list[dict]:
+    """Group components that are one PLACE into clusters; returns the clusters.
+
+    `connected_components` only joins polygons the navmesh graph really joins, and on this
+    map that leaves the world in ~30 000 pieces with the largest holding a fifth of the
+    walkable area - so *no* area threshold over components can be both strict and safe.
+    Two surfaces 2 m apart are one place whatever the graph says: a step, a ledge, a drop.
+    This pass unions components whose polygons come within `bridge_xy` horizontally and
+    `bridge_z` vertically, and the keep rules then run on the clusters.
+
+    Only components of at least `min_area` take part. The sub-4 m2 slivers Recast leaves
+    under every prop are *usually* within 2 m of a real floor, so letting them bridge would
+    keep the whole speckle field - which is the thing being removed.
+
+    The horizontal test is a grid, not an exact distance: cells are `bridge_xy / 2` uu and
+    a component is compared with everything within two cells, so a gap of `bridge_xy / 2`
+    is always caught and nothing beyond `bridge_xy * 1.42` ever is. `polys` must already
+    carry `comp` / `_zlo` / `_zhi` from `connected_components`.
+    """
+    part = {c["id"] for c in comps if c["area"] >= min_area}
+    dsu = _DSU(len(comps))
+    cell = max(bridge_xy * 0.5, 1.0)
+    radius = 2
+    # cell -> {component: [zlo, zhi]}
+    occ: dict[tuple[int, int], dict[int, list[float]]] = {}
+    for p in polys:
+        cid = p["comp"]
+        if cid not in part:
+            continue
+        xs = [q[0] for q in p["pts"]]
+        ys = [q[1] for q in p["pts"]]
+        for gx in range(int(math.floor(min(xs) / cell)), int(math.floor(max(xs) / cell)) + 1):
+            for gy in range(int(math.floor(min(ys) / cell)), int(math.floor(max(ys) / cell)) + 1):
+                d = occ.setdefault((gx, gy), {})
+                zr = d.get(cid)
+                if zr is None:
+                    d[cid] = [p["_zlo"], p["_zhi"]]
+                else:
+                    zr[0] = min(zr[0], p["_zlo"])
+                    zr[1] = max(zr[1], p["_zhi"])
+
+    # forward half of the (2*radius+1)^2 window, so every pair is visited once
+    offsets = [(dx, dy) for dx in range(-radius, radius + 1) for dy in range(0, radius + 1)
+               if (dy > 0 or dx > 0)]
+    for (gx, gy), here in occ.items():
+        groups = [here]
+        for dx, dy in offsets:
+            other = occ.get((gx + dx, gy + dy))
+            if other:
+                groups.append(other)
+        items = list(here.items())
+        for i, (ca, za) in enumerate(items):
+            # same cell
+            for cb, zb in items[i + 1:]:
+                if max(za[0] - zb[1], zb[0] - za[1], 0.0) <= bridge_z:
+                    dsu.union(ca, cb)
+            # neighbour cells
+            for other in groups[1:]:
+                for cb, zb in other.items():
+                    if cb != ca and max(za[0] - zb[1], zb[0] - za[1], 0.0) <= bridge_z:
+                        dsu.union(ca, cb)
+
+    clusters: dict[int, dict] = {}
+    for c in comps:
+        if c["id"] not in part:
+            c["cluster"] = None
+            continue
+        r = dsu.find(c["id"])
+        cl = clusters.get(r)
+        if cl is None:
+            cl = clusters[r] = {"root": r, "area": 0.0, "polys": 0, "members": [],
+                                "seeded": False, "seed_cats": set()}
+        cl["area"] += c["area"]
+        cl["polys"] += c["polys"]
+        cl["members"].append(c["id"])
+        c["cluster"] = r
+    out = sorted(clusters.values(), key=lambda c: -c["area"])
+    for n_, cl in enumerate(out):
+        cl["id"] = n_
+        for cid in cl["members"]:
+            comps[cid]["cluster"] = n_
+    return out
+
+
 def _point_in_poly(pts: list[list[float]], x: float, y: float) -> bool:
     inside = False
     n = len(pts)
@@ -605,9 +720,14 @@ def _point_in_poly(pts: list[list[float]], x: float, y: float) -> bool:
     return inside
 
 
-def load_marker_seeds(paths: Iterable[Path], categories: Iterable[str] = ISLAND_SEED_CATEGORIES) -> list[dict]:
-    """Marker positions that prove a component is reachable (`markers/chapter*.json`)."""
-    cats = set(categories)
+def load_marker_seeds(paths: Iterable[Path], categories: Iterable[str] | None = None) -> list[dict]:
+    """Marker positions that prove a component is reachable (`markers/chapter*.json`).
+
+    `categories=None` (the default) takes every category, `enemy` and `trap` included: an
+    enemy spawn or a trap standing on a surface is as good a proof that the surface is real
+    as a chest is. Pass `ISLAND_SEED_CATEGORIES` for the narrow "the player goes here" set.
+    """
+    cats = set(categories) if categories is not None else None
     seeds: list[dict] = []
     for path in paths:
         try:
@@ -616,7 +736,7 @@ def load_marker_seeds(paths: Iterable[Path], categories: Iterable[str] = ISLAND_
             print(f"  ! cannot read markers {path}: {exc}", file=sys.stderr)
             continue
         for m in doc.get("markers", []):
-            if m.get("cat") in cats and all(k in m for k in ("x", "y", "z")):
+            if (cats is None or m.get("cat") in cats) and all(k in m for k in ("x", "y", "z")):
                 seeds.append({"x": m["x"], "y": m["y"], "z": m["z"], "cat": m["cat"], "id": m.get("id", "")})
     return seeds
 
@@ -630,26 +750,42 @@ def filter_islands(
     seed_radius: float = DEFAULT_ISLAND_SEED_RADIUS,
     seed_z: float = DEFAULT_ISLAND_SEED_Z,
     require_seed: bool = False,
+    bridge_xy: float = DEFAULT_ISLAND_BRIDGE_XY,
+    bridge_z: float = DEFAULT_ISLAND_BRIDGE_Z,
+    cluster_area: float = DEFAULT_ISLAND_CLUSTER_AREA,
 ) -> tuple[list[dict], dict]:
-    """Drop the navmesh components no player can stand on.
+    """Drop the navmesh a player cannot stand on. Three rules, in this order.
 
-    A component is KEPT when a seed marker (cat shrine / chest / pickup / npc /
-    merchant / boss / ladder / lift / door) is within `seed_radius` uu horizontally
-    and `seed_z` uu vertically of one of its polygons - that is direct evidence the
-    place is reachable, including the small platforms only a ladder or a lift gets to.
-    Without a seed it survives on size alone (`min_area`), unless `require_seed`.
+    1. Components of at least `min_area` (4 m2) are BRIDGED into clusters - see
+       `bridge_components`: anything within 2 m horizontally and 10 m vertically is one
+       place, whatever the navmesh graph says. A cluster is kept when it holds the largest
+       component, when its total area clears `cluster_area` (40 m2), or when a marker of
+       ANY category is within `seed_radius` / `seed_z` of one of its polygons.
+    2. Everything smaller is a Recast sliver under a prop and is dropped - EXCEPT when
+       dropping it would strand a marker: a small component survives only if a marker is
+       within `seed_radius` / `seed_z` of it AND that marker has no kept surface within the
+       same distance. That is strictly narrower than "any marker is near it", which kept a
+       0.2 m2 scrap whenever a chest happened to stand on the floor 3 m away.
+    3. `require_seed` is the strict diagnostic mode: only clusters with a marker survive.
+       It costs ~56 % of Chapter 1's walkable area. Do not ship it.
+
+    `bridge_xy = 0` turns the bridging off and makes the area rules run per component,
+    which is what C2 shipped and why "the islands are still there".
     """
     comps = connected_components(polys, grid=grid, z_tol=z_tol)
     if not comps:
         return polys, {"components": 0}
 
-    # seed lookup: grid-hash the seeds, then test them against each polygon's bbox
-    shash: dict[tuple[int, int], list[dict]] = {}
+    # ---- marker seeds, per component ------------------------------------------------
+    shash: dict[tuple[int, int], list[int]] = {}
     cell = max(seed_radius, 1.0)
-    for s in seeds:
-        shash.setdefault((int(s["x"] // cell), int(s["y"] // cell)), []).append(s)
+    for i, s in enumerate(seeds):
+        shash.setdefault((int(s["x"] // cell), int(s["y"] // cell)), []).append(i)
     for c in comps:
         c["seeds"] = []
+        c["seeded"] = False
+        c["seed_ids"] = set()
+    seed_comps: list[set[int]] = [set() for _ in seeds]  # marker -> components under it
     for p in polys:
         c = comps[p["comp"]]
         xs = [q[0] for q in p["pts"]]
@@ -658,33 +794,80 @@ def filter_islands(
         y0, y1 = min(ys) - seed_radius, max(ys) + seed_radius
         for gx in range(int(x0 // cell), int(x1 // cell) + 1):
             for gy in range(int(y0 // cell), int(y1 // cell) + 1):
-                for s in shash.get((gx, gy), ()):
-                    if x0 <= s["x"] <= x1 and y0 <= s["y"] <= y1 and p["_zlo"] - seed_z <= s["z"] <= p["_zhi"] + seed_z:
+                for si in shash.get((gx, gy), ()):
+                    s = seeds[si]
+                    if x0 <= s["x"] <= x1 and y0 <= s["y"] <= y1 and                        p["_zlo"] - seed_z <= s["z"] <= p["_zhi"] + seed_z:
                         if len(c["seeds"]) < 8 and s["cat"] not in [q["cat"] for q in c["seeds"]]:
                             c["seeds"].append(s)
                         c["seeded"] = True
+                        c["seed_ids"].add(si)
+                        seed_comps[si].add(c["id"])
 
-    kept_comps, dropped = [], []
-    for i, c in enumerate(comps):
-        c["seeded"] = bool(c.get("seeded"))
-        if i == 0:
-            c["keep"], c["why"] = True, "largest"
-        elif c["seeded"]:
-            c["keep"], c["why"] = True, "seed:" + ",".join(sorted({s["cat"] for s in c["seeds"]}))
+    # ---- clusters -------------------------------------------------------------------
+    clusters = (bridge_components(polys, comps, min_area, bridge_xy=bridge_xy, bridge_z=bridge_z)
+                if bridge_xy > 0 else [])
+    if not clusters:  # bridging off: every eligible component is its own cluster
+        clusters = []
+        for c in comps:
+            if c["area"] >= min_area:
+                c["cluster"] = len(clusters)
+                clusters.append({"id": len(clusters), "area": c["area"], "polys": c["polys"],
+                                 "members": [c["id"]]})
+            else:
+                c["cluster"] = None
+    for cl in clusters:
+        cl["seeded"] = any(comps[cid]["seeded"] for cid in cl["members"])
+        cl["seed_cats"] = sorted({s["cat"] for cid in cl["members"] for s in comps[cid]["seeds"]})
+        cl["has_largest"] = 0 in cl["members"]
+
+    keep_ids: set[int] = set()
+    for cl in clusters:
+        if cl["has_largest"]:
+            cl["keep"], cl["why"] = True, "largest"
         elif require_seed:
-            c["keep"], c["why"] = False, "no seed"
-        elif c["area"] >= min_area:
-            c["keep"], c["why"] = True, "area"
+            cl["keep"], cl["why"] = bool(cl["seeded"]), ("seed" if cl["seeded"] else "no seed")
+        elif cl["area"] >= cluster_area:
+            cl["keep"], cl["why"] = True, "area"
+        elif cl["seeded"]:
+            cl["keep"], cl["why"] = True, "seed:" + ",".join(cl["seed_cats"])
         else:
-            c["keep"], c["why"] = False, f"area {c['area']:.0f} < {min_area:.0f}"
-        (kept_comps if c["keep"] else dropped).append(c)
+            cl["keep"], cl["why"] = False, f"area {cl['area']:.0f} < {cluster_area:.0f}"
+        for cid in cl["members"]:
+            c = comps[cid]
+            c["keep"], c["why"] = cl["keep"], cl["why"]
+            if cl["keep"]:
+                keep_ids.add(cid)
 
-    keep_ids = {c["id"] for c in kept_comps}
+    # ---- rule 2: rescue only the small components that hold up a marker alone -------
+    covered: set[int] = set()  # markers that already have kept ground under them
+    for cid in keep_ids:
+        covered |= comps[cid]["seed_ids"]
+    rescued = 0
+    for c in comps:  # descending area, so the biggest candidate wins a contested marker
+        if c["area"] >= min_area or c.get("keep"):
+            continue
+        stranded = sorted(c["seed_ids"] - covered)
+        if stranded:
+            c["keep"], c["why"] = True, "strands:" + ",".join(sorted({seeds[si]["cat"] for si in stranded}))
+            keep_ids.add(c["id"])
+            covered |= c["seed_ids"]
+            rescued += 1
+        else:
+            c["keep"] = False
+            c["why"] = f"area {c['area']:.0f} < {min_area:.0f}" + (" (marker already covered)" if c["seed_ids"] else "")
+
+    kept_comps = [c for c in comps if c["keep"]]
+    dropped = [c for c in comps if not c["keep"]]
     out = [p for p in polys if p["comp"] in keep_ids]
+    kept_cl = [cl for cl in clusters if cl["keep"]]
     stats = {
         "components": len(comps),
         "kept": len(kept_comps),
         "dropped": len(dropped),
+        "clusters": len(clusters),
+        "clusters_kept": len(kept_cl),
+        "clusters_detached_kept": sum(1 for cl in kept_cl if not cl["has_largest"]),
+        "rescued_small": rescued,
         "polys_before": len(polys),
         "polys_after": len(out),
         "polys_dropped": len(polys) - len(out),
@@ -695,6 +878,9 @@ def filter_islands(
         "grid_uu": grid,
         "z_tol_uu": z_tol,
         "min_area_uu2": min_area,
+        "cluster_area_uu2": cluster_area,
+        "bridge_xy_uu": bridge_xy,
+        "bridge_z_uu": bridge_z,
         "seed_radius_uu": seed_radius,
         "require_seed": require_seed,
         "biggest_dropped": [
@@ -712,13 +898,18 @@ def describe_islands(tag: str, st: dict) -> str:
     if not st.get("components"):
         return f"[{tag}] island filter: no components"
     return (
-        f"[{tag}] islands: {st['components']} components, kept {st['kept']}, dropped {st['dropped']}"
+        f"[{tag}] islands: {st['components']} components -> {st['clusters']} clusters,"
+        f" kept {st['clusters_kept']} ({st['clusters_detached_kept']} detached from the main one)"
+        f" = {st['kept']} components + {st['rescued_small']} rescued slivers,"
+        f" dropped {st['dropped']}"
         f" ({st['seeded_components']} seeded by {st['seeds']} markers); polygons"
         f" {st['polys_before']} -> {st['polys_after']}"
         f" (-{st['polys_dropped']}, -{100.0 * st['polys_dropped'] / max(1, st['polys_before']):.1f}%),"
         f" walkable area -{100.0 * st['area_dropped'] / max(1.0, st['area_before']):.2f}%"
         f"  [grid {st['grid_uu']:g} uu, z-tol {st['z_tol_uu']:g} uu,"
-        f" min area {st['min_area_uu2']:.0f} uu2, seed r {st['seed_radius_uu']:.0f} uu"
+        f" bridge {st['bridge_xy_uu']:g}/{st['bridge_z_uu']:g} uu,"
+        f" cluster area {st['cluster_area_uu2']:.0f} uu2, sliver floor {st['min_area_uu2']:.0f} uu2,"
+        f" seed r {st['seed_radius_uu']:.0f} uu"
         + (", require-seed" if st["require_seed"] else "") + "]"
     )
 
@@ -738,7 +929,16 @@ def add_island_args(ap: argparse.ArgumentParser, default_on: bool = False) -> No
     ap.add_argument("--island-z-tol", type=float, default=DEFAULT_ISLAND_Z_TOL,
                     help=f"Z tolerance that joins two polygons, uu (default {DEFAULT_ISLAND_Z_TOL:g})")
     ap.add_argument("--island-min-area", type=float, default=DEFAULT_ISLAND_MIN_AREA,
-                    help=f"seedless component smaller than this is dropped, uu2 (default {DEFAULT_ISLAND_MIN_AREA:.0f})")
+                    help=f"component smaller than this is a sliver: dropped unless it is the only "
+                         f"surface under a marker, uu2 (default {DEFAULT_ISLAND_MIN_AREA:.0f})")
+    ap.add_argument("--island-cluster-area", type=float, default=DEFAULT_ISLAND_CLUSTER_AREA,
+                    help=f"a bridged cluster with no marker on it needs this area, uu2 "
+                         f"(default {DEFAULT_ISLAND_CLUSTER_AREA:.0f} = 40 m2)")
+    ap.add_argument("--island-bridge-xy", type=float, default=DEFAULT_ISLAND_BRIDGE_XY,
+                    help=f"components this close horizontally are one place, uu "
+                         f"(default {DEFAULT_ISLAND_BRIDGE_XY:g}; 0 disables bridging)")
+    ap.add_argument("--island-bridge-z", type=float, default=DEFAULT_ISLAND_BRIDGE_Z,
+                    help=f"... and this close vertically, uu (default {DEFAULT_ISLAND_BRIDGE_Z:g})")
     ap.add_argument("--island-seed-radius", type=float, default=DEFAULT_ISLAND_SEED_RADIUS,
                     help=f"a marker this close keeps a component, uu (default {DEFAULT_ISLAND_SEED_RADIUS:g})")
     ap.add_argument("--island-require-seed", action="store_true",
@@ -1184,6 +1384,8 @@ def render_agent(agent: str, files: list[Path], args: argparse.Namespace, out_di
             polys, seeds,
             grid=args.island_grid, z_tol=args.island_z_tol, min_area=args.island_min_area,
             seed_radius=args.island_seed_radius, require_seed=args.island_require_seed,
+            bridge_xy=args.island_bridge_xy, bridge_z=args.island_bridge_z,
+            cluster_area=args.island_cluster_area,
         )
         print(describe_islands(agent, isl))
 

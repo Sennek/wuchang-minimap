@@ -2526,6 +2526,7 @@ namespace overlay
             float d2_3d = 0.0f; // squared 3D distance from the player
             std::uint8_t cat = 0;
             std::uint8_t rarity = 0;
+            std::uint8_t flags = 0; // markers::kFlag* of the published row
             bool found = false;
         };
 
@@ -3495,6 +3496,7 @@ namespace overlay
                 c.d2_3d = static_cast<float>(dx * dx + dy * dy + dz * dz);
                 c.cat = m.cat;
                 c.rarity = m.rarity;
+                c.flags = m.flags;
                 c.found = (m.flags & markers::kFlagFound) != 0;
                 g_frame_cands.push_back(c);
             }
@@ -4148,6 +4150,18 @@ namespace overlay
                 // and hiding them was why holding the key near a shrine showed nothing.
                 if (!cfg.highlight_show_found && fc.found &&
                     is_loot_category(static_cast<mdb::Cat>(fc.cat)))
+                {
+                    continue;
+                }
+                // PEOPLE ARE HIGHLIGHTED WHERE THEY ARE, OR NOT AT ALL. An NPC or a
+                // merchant that has moved leaves the authored position behind, and
+                // seeing an "NPC 2 m" label through a wall at a spot the NPC has left is
+                // worse than seeing nothing: the whole point of the x-ray is that it
+                // tells you where a thing IS. publish_round already drops such a hint
+                // once its level is loaded; this covers the rest - a hint whose level is
+                // not resident is a guess, and a guess does not get drawn through walls.
+                if (mdb::is_mobile_category(static_cast<mdb::Cat>(fc.cat)) &&
+                    (fc.flags & markers::kFlagLive) == 0)
                 {
                     continue;
                 }

@@ -256,6 +256,44 @@ namespace mdb
         return absence_round_confirms(f) && required_rounds >= 1 && streak >= required_rounds;
     }
 
+    //==========================================================================
+    // Categories that WALK AWAY (pure, tested offline)
+    //==========================================================================
+    //
+    // An NPC and a merchant are people. The static database records where one was
+    // AUTHORED, and the game moves them: talk to a quest NPC and it relocates,
+    // usually to a different sublevel with a different placed actor and therefore a
+    // different marker id. So the authored position is only ever a hint, and it goes
+    // stale silently - the user held the x-ray key and read "NPC 2 m (found)" at a
+    // spot the NPC had left.
+    //
+    // The rule, for these categories only:
+    //   * when a LIVE actor answered for the id, its position wins (that is already
+    //     how every category works);
+    //   * when the marker's own level is loaded and a full sweep round has finished
+    //     since it loaded, and STILL no live actor answered, the static twin is not
+    //     just unseen - the actor is provably not there, so it is not drawn at all;
+    //   * when the level is not loaded we know nothing, so the hint is kept.
+    // The found ("met") state is untouched either way: it lives in the found set.
+    constexpr bool is_mobile_category(Cat cat)
+    {
+        return cat == Cat::Npc || cat == Cat::Merchant;
+    }
+
+    struct MobileTwinFacts
+    {
+        bool mobile = false;                   // is_mobile_category(marker.cat)
+        bool live_twin_this_round = false;     // a live actor answered for this id
+        bool level_known = false;              // the marker's level is in the loaded set
+        bool full_round_since_level_load = false;
+    };
+
+    // Should this static marker be dropped from the published set entirely?
+    constexpr bool mobile_twin_is_stale(const MobileTwinFacts& f)
+    {
+        return f.mobile && !f.live_twin_this_round && f.level_known && f.full_round_since_level_load;
+    }
+
     struct ParseReport
     {
         std::string schema;      // the file's own "schema" string

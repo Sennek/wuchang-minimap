@@ -433,6 +433,17 @@ found_save_debounce_ms = 2000
 markers_absence_rounds = 2
 markers_absence_categories = chest,pickup
 
+; A boss you killed before installing the mod never spawns again, so nothing the mod
+; can read on the boss itself says "defeated". The save does carry a per-boss trace:
+; every boss arena has its own `bossdoor_*` respawn point, and the game keeps a list
+; of the ones it has unlocked. With this on, a boss whose door is in that list counts
+; as defeated even if the mod has never seen the boss.
+; It is not certain that the game unlocks the door on the KILL rather than on the
+; first attempt, so this may mark a boss you fought and did not beat. It is worked out
+; fresh every time, never written to the collection file, so setting this to 0 undoes
+; it completely.
+boss_defeat_from_save = 1
+
 ; ---------------------------------------------------------------------------------
 ; MINIMAP LOOK
 ; ---------------------------------------------------------------------------------

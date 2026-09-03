@@ -8,6 +8,18 @@ A pass over the first round of in-game feedback: the x-ray sees more, the panel 
 less, the numbers fit on the screen, and every hotkey can be rebound in the panel.
 
 ### Added
+- **Bosses you beat before installing the mod now show as defeated.** The mod used to
+  work this out by reading the boss' health, which needs the boss to be standing there -
+  and a boss you have already killed never comes back, so those markers stayed unticked
+  for ever. Every boss arena in the game has its own respawn point, the save remembers
+  which of those it has unlocked, and each one is now matched to its boss out of the
+  game's own level data (26 of the 28 boss markers; the Realm of Madness Bai Kru and the
+  DLC Honglan have no such point). The log line reads `bosses defeated N of M (K from
+  save, ...)`, so it says how much of the answer came from your save.
+  It is **not certain** that the game unlocks an arena's respawn point on the kill rather
+  than on your first attempt, so a boss you fought and did not beat may read as
+  defeated. It is worked out fresh every time and never written to the collection file,
+  so `boss_defeat_from_save = 0` undoes it completely.
 - **A Bindings tab in the F2 panel.** Every hotkey - settings panel, full map, recentre,
   minimap zoom, reload, map-to-clipboard and the x-ray hold key - is rebound by clicking
   it and pressing the new key (Esc cancels), with a reset per row, a **Reset every

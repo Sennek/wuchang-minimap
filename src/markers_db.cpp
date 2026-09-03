@@ -524,6 +524,11 @@ namespace mdb
             m.rarity = static_cast<std::uint8_t>(
                 rv != nullptr ? rarity_clamp(static_cast<int>(rv->number_or(0.0))) : 0);
 
+            // The boss' save-backed defeat signal. Additive and optional: a manifest
+            // built before build_bossdoors.py existed simply has no boss doors, and the
+            // rule then reads exactly as it did before.
+            m.bossdoor = str("bossdoor");
+
             // A per-marker "chapter" overrides the file's, so one file could in
             // principle carry several chapters.
             const mjson::JValue* mc = entry.find("chapter");

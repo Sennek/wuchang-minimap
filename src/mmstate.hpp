@@ -315,6 +315,15 @@ namespace mm
         // marked. The predicate is pure and tested - mdb::absence_marks().
         bool markers_absence_marks = true;
         int markers_absence_rounds = 2;
+        // A boss the player killed BEFORE installing the mod never spawns again, so the
+        // health-based defeat rule can never fire for it. With this on, a boss marker
+        // also counts as defeated when the `bossdoor_*` firepoint the game's own level
+        // script names for it is in the save's `UnlockedFirepoints`
+        // (mdb::boss_found_from_save). Derived on every publish and deliberately NOT
+        // written to the found file - what the id means exactly ("cleared" vs "fought
+        // and respawned here") is an open question, so the mark has to be undoable by
+        // flipping this key.
+        bool boss_defeat_from_save = true;
         // Chests keep their `Used` flag and pickups their `dying`, so those two are the
         // categories where absence really does mean "already taken". Shrines, doors and
         // fog gates are deliberately not in the default set.

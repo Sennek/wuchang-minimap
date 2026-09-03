@@ -505,6 +505,20 @@ namespace markers
         // one that discovered them. A gauge cannot lie that way.
         std::atomic<int> g_shrine_lit_found{0}; // shrines in this chapter that are lit AND found
         std::atomic<int> g_shrine_total{0};     // shrines in this chapter's static DB
+        // The boss gauge. `g_boss_found` / `g_boss_total` is "how many of this
+        // chapter's bosses read as found right now" whichever rule said so;
+        // `g_boss_from_save` is how many of those came from the save's boss doors
+        // rather than from a health read this session. Gauges, for the reason above:
+        // `g_boss_defeated` is a count of NEW marks and reads 0 in every session after
+        // the one that saw the kill - the third time this project has been bitten by
+        // exactly that (shrines lit, met, and now this).
+        std::atomic<int> g_boss_found{0};
+        std::atomic<int> g_boss_total{0};
+        std::atomic<int> g_boss_from_save{0};
+        // Bosses whose marker carries no `bossdoor_*` id at all, so the save can never
+        // speak for them (2 of 28 in the shipped manifests: the Realm of Madness Bai Kru
+        // variant and the DLC Honglan).
+        std::atomic<int> g_boss_no_door{0};
         std::atomic<int> g_mobile_static{0};      // npc static markers considered
         std::atomic<int> g_mobile_live{0};        // npc live entries held
         std::atomic<int> g_mobile_joined{0};      // static markers whose live twin answered
@@ -1883,6 +1897,14 @@ namespace markers
                 int met_found = 0;
                 int met_total = 0;
                 int dead_hidden = 0;
+                int boss_total = 0;
+                int boss_found = 0;
+                int boss_from_save = 0;
+                int boss_no_door = 0;
+                // Read once per round rather than per marker: mm::cfg_cached() is a
+                // thread_local copy behind a generation counter, but this is one
+                // question and asking it 3 601 times is 3 601 branches.
+                const bool boss_save_on = mm::cfg_cached().boss_defeat_from_save;
                 dst.reserve(g_chapter_subset.size() + g_live.size());
                 for (const int mi : g_chapter_subset)
                 {
@@ -1935,6 +1957,39 @@ namespace markers
                         if (shrine_is_lit(sm.id) && (d.flags & kFlagFound) != 0)
                         {
                             ++lit_found;
+                        }
+                    }
+
+                    // ---- A BOSS KILLED BEFORE THE MOD WAS INSTALLED ---------------
+                    //
+                    // `Rule::BossPawn` needs the boss ACTOR to exist and to be dead, and
+                    // a boss the player has already killed never spawns again - so for
+                    // every boss cleared before the mod existed that rule can never
+                    // fire. The save can speak for them: the boss arena's own
+                    // `bossdoor_*` respawn point is in `UnlockedFirepoints`, and
+                    // `markers/chapter*.json` carries that id per boss marker
+                    // (tools/markers/build_bossdoors.py, out of the game's own level
+                    // scripts - the mapping is authored, not inferred).
+                    //
+                    // DERIVED, NEVER PERSISTED. Unlike the shrine rule this does NOT
+                    // push the id into the found set: it is not certain that the game
+                    // unlocks a boss door on the KILL rather than on the first attempt
+                    // (context/boss-defeat-from-save.md), and a persisted mark from an
+                    // uncertain signal survives fixing the rule - which is exactly the
+                    // mess H4 left in wuchang_minimap_found_<slot>.txt. Recomputing it
+                    // costs one 40-char list lookup per boss marker, nine per chapter.
+                    if (sm.cat == mdb::Cat::Boss)
+                    {
+                        ++boss_total;
+                        if (sm.bossdoor.empty())
+                        {
+                            ++boss_no_door;
+                        }
+                        else if (mdb::boss_found_from_save(boss_save_on, true, true,
+                                                           shr::is_unlocked(sm.bossdoor.c_str())))
+                        {
+                            d.flags |= kFlagFound;
+                            ++boss_from_save;
                         }
                     }
                     const LiveEntry* live = g_live_of_static[idx];
@@ -2069,6 +2124,14 @@ namespace markers
                             ++met_found;
                         }
                     }
+                    // The boss gauge, counted HERE - after the found file, the save
+                    // door and this round's live health read have all had their say.
+                    // `boss_total` is incremented earlier because a boss that a later
+                    // `continue` drops from the buffer still exists on the map.
+                    if (sm.cat == mdb::Cat::Boss && (d.flags & kFlagFound) != 0)
+                    {
+                        ++boss_found;
+                    }
 
                     // ---- ABSENCE AS EVIDENCE OF A COLLECT -------------------------
                     //
@@ -2134,6 +2197,10 @@ namespace markers
                 g_met_found.store(met_found, std::memory_order_relaxed);
                 g_met_total.store(met_total, std::memory_order_relaxed);
                 g_dead_hidden.store(dead_hidden, std::memory_order_relaxed);
+                g_boss_total.store(boss_total, std::memory_order_relaxed);
+                g_boss_found.store(boss_found, std::memory_order_relaxed);
+                g_boss_from_save.store(boss_from_save, std::memory_order_relaxed);
+                g_boss_no_door.store(boss_no_door, std::memory_order_relaxed);
             }
 
             // Live actors the static DB does not know about - which is everything
@@ -2386,6 +2453,13 @@ namespace markers
                 s.db_loaded = true;
                 s.static_markers = static_cast<int>(db->markers.size());
                 std::unordered_set<int> chapters;
+                // EVERY DERIVED VIEW READS THE SAME RULES. The save-backed boss defeat
+                // is deliberately not in the found FILE (see the publish-time comment),
+                // so this table has to ask the same question the publish point does -
+                // otherwise the map draws a boss hollow while the statistics say 0 of 9,
+                // which is precisely the disagreement the shrine rule had to be fixed
+                // for (lessons.md: a state the mod reads is not a state the mod uses).
+                const bool boss_save_on = mm::cfg_cached().boss_defeat_from_save;
                 for (const mdb::StaticMarker& m : db->markers)
                 {
                     const int ci = static_cast<int>(m.cat);
@@ -2393,7 +2467,12 @@ namespace markers
                     {
                         continue;
                     }
-                    const bool found = g_found_master.contains(m.id);
+                    const bool found =
+                        g_found_master.contains(m.id) ||
+                        (m.cat == mdb::Cat::Boss &&
+                         mdb::boss_found_from_save(boss_save_on, true, !m.bossdoor.empty(),
+                                                   !m.bossdoor.empty() &&
+                                                       shr::is_unlocked(m.bossdoor.c_str())));
                     ++s.cat[ci].total;
                     s.cat[ci].found += found ? 1 : 0;
                     // Chapter 0 is the bucket for a manifest whose "chapter" is not a
@@ -2419,6 +2498,10 @@ namespace markers
             s.shrine_lit_marks = g_shrine_lit_marks.load(std::memory_order_relaxed);
             s.met_marks = g_met_marks.load(std::memory_order_relaxed);
             s.boss_defeated = g_boss_defeated.load(std::memory_order_relaxed);
+            s.boss_found = g_boss_found.load(std::memory_order_relaxed);
+            s.boss_total = g_boss_total.load(std::memory_order_relaxed);
+            s.boss_from_save = g_boss_from_save.load(std::memory_order_relaxed);
+            s.boss_no_door = g_boss_no_door.load(std::memory_order_relaxed);
             s.dead_dropped = g_dead_dropped.load(std::memory_order_relaxed);
             s.health_unknown = g_health_unknown.load(std::memory_order_relaxed);
             s.filter_chapter = filter_chapter_now();
@@ -2839,7 +2922,9 @@ namespace markers
                 // property": a climbing `health unknown` with zero dead/defeated means
                 // the Health component route is wrong on this build.
                 mm::logf(L"markers: rules - shrines lit {} of {} ({} marked this session), "
-                         L"met {} of {} ({} marked this session), bosses defeated {}, "
+                         L"met {} of {} ({} marked this session), "
+                         L"bosses defeated {} of {} ({} from save, {} with no door, "
+                         L"{} killed this session), "
                          L"dead hidden {} ({} newly dead), health unknown {} (health field width {})",
                          g_shrine_lit_found.load(std::memory_order_relaxed),
                          g_shrine_total.load(std::memory_order_relaxed),
@@ -2847,6 +2932,10 @@ namespace markers
                          g_met_found.load(std::memory_order_relaxed),
                          g_met_total.load(std::memory_order_relaxed),
                          g_met_marks.load(std::memory_order_relaxed),
+                         g_boss_found.load(std::memory_order_relaxed),
+                         g_boss_total.load(std::memory_order_relaxed),
+                         g_boss_from_save.load(std::memory_order_relaxed),
+                         g_boss_no_door.load(std::memory_order_relaxed),
                          g_boss_defeated.load(std::memory_order_relaxed),
                          g_dead_hidden.load(std::memory_order_relaxed),
                          g_dead_dropped.load(std::memory_order_relaxed),

@@ -228,6 +228,15 @@ namespace mdb
         // Item quality tier of what a pickup grants (see Rarity above). Absent from the
         // JSON == 0 == Common, which is what every non-pickup marker is.
         std::uint8_t rarity = 0;
+        // BOSS MARKERS ONLY: the `bossdoor_<abbr>` firepoint id the game's own level
+        // script names for this boss (`tools/markers/build_bossdoors.py` reads it out of
+        // the `_logic` level's `ST_LevelScriptBossData::Boss门坐佛点` beside the boss'
+        // own soft object path). It is the id to look for in the save's
+        // `UnlockedFirepoints`, and it is the ONLY per-boss state that outlives the
+        // encounter: a boss killed before the mod was installed never spawns again, so
+        // the health read can never fire for it. Empty for 2 of the 28 boss markers and
+        // for every other category. See boss_found_from_save().
+        std::string bossdoor;
     };
 
     // Does a static marker belong to the chapter the player is currently in?
@@ -344,6 +353,41 @@ namespace mdb
             return Health::Unknown;
         }
         return current <= 0.0 ? Health::Dead : Health::Alive;
+    }
+
+    //==========================================================================
+    // A BOSS KILLED BEFORE THE MOD EXISTED (pure, tested offline)
+    //==========================================================================
+    //
+    // `Rule::BossPawn` reads the boss pawn's health, so it needs the boss actor to
+    // exist AND to be dead. A boss the player killed before installing the mod never
+    // spawns again, so that rule can never fire for it and the marker draws as
+    // not-found for ever. The only per-boss state that outlives the encounter is in the
+    // SAVE: `RebornManagerComponent_C::UnlockedFirepoints` carries 24
+    // `bossdoor_<abbr>` pseudo-points beside the 57 real shrine ids, and
+    // `tools/markers/build_bossdoors.py` maps each one to its boss marker out of the
+    // game's own level scripts (the mapping is authored, not inferred - see that file).
+    //
+    // WHAT IS PROVEN AND WHAT IS NOT. Which boss a door belongs to is proven. WHEN the
+    // game unlocks one is NOT: the offline evidence
+    // (`context/boss-defeat-from-save.md`) shows the id is the boss encounter's
+    // respawn firepoint, written into `restart/bossdoorfirepoint` next to
+    // `PlayerInBossCombat` when the fight begins, and the death screen's
+    // `WB_BossRoomFirePoint` ("Retry boss") is the only non-shrine thing in the game
+    // that touches `OnRequestSetNewFirePoint` - the delegate the unlocked list is
+    // written from. So the id may well mean "fought and respawned here" rather than
+    // "defeated". It is treated as DEFEATED because that is what the player asked for
+    // and because the two sets coincide for almost every boss, but:
+    //
+    //   * it is behind `boss_defeat_from_save`, so it can be switched off; and
+    //   * it is NOT written to `wuchang_minimap_found_<slot>.txt`. It is DERIVED on
+    //     every publish from the live save state. That matters: a persisted mark from
+    //     an uncertain signal cannot be undone by fixing the rule, and this project has
+    //     already had to tell the user to delete that file once (H4).
+    constexpr bool boss_found_from_save(bool feature_on, bool is_boss, bool has_door,
+                                        bool door_unlocked)
+    {
+        return feature_on && is_boss && has_door && door_unlocked;
     }
 
     //==========================================================================

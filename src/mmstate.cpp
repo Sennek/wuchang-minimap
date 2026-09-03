@@ -1173,6 +1173,10 @@ namespace mm
             {
                 cfg.markers_absence_marks = parse_bool(value, cfg.markers_absence_marks);
             }
+            else if (key == "boss_defeat_from_save")
+            {
+                cfg.boss_defeat_from_save = parse_bool(value, cfg.boss_defeat_from_save);
+            }
             else if (key == "markers_absence_rounds")
             {
                 cfg.markers_absence_rounds = parse_int(value, cfg.markers_absence_rounds);
@@ -2115,6 +2119,7 @@ namespace mm
         add("markers_max_draw", std::to_string(cfg.markers_max_draw));
         add("found_save_debounce_ms", std::to_string(cfg.found_save_debounce_ms));
         add("markers_absence_rounds", std::to_string(cfg.markers_absence_rounds));
+        add("boss_defeat_from_save", b(cfg.boss_defeat_from_save));
         add("markers_absence_categories", mdb::format_category_mask(cfg.markers_absence_categories));
         add("minimap_backdrop", f2(cfg.minimap_backdrop));
         add("minimap_backdrop_color",

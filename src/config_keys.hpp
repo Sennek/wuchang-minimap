@@ -157,6 +157,7 @@ namespace cfgkeys
         {"found_save_debounce_ms", Tier::Advanced},
         {"markers_absence_rounds", Tier::Advanced},
         {"markers_absence_categories", Tier::Advanced},
+        {"boss_defeat_from_save", Tier::Advanced},
         {"minimap_zoom_presets", Tier::Advanced},
         {"minimap_backdrop", Tier::Advanced},
         {"minimap_backdrop_color", Tier::Advanced},

@@ -3177,6 +3177,51 @@ namespace
         static_assert(mdb::health_answer(false, 0.0, 10.0) == mdb::Health::Unknown);
         static_assert(mdb::health_answer(true, 0.0, 0.0) == mdb::Health::Unknown);
 
+        section("a boss killed before the mod existed (the save-backed rule)");
+
+        // The whole point: the health read needs the boss ACTOR, and a boss already
+        // killed never spawns again. The only state that outlives the encounter is the
+        // save's `UnlockedFirepoints`, and it can only speak for a boss whose marker
+        // carries the `bossdoor_*` id the game's level script names for it.
+        CHECK(mdb::boss_found_from_save(true, true, true, true));
+        // No door in the manifest (2 of the 28 boss markers) - the save cannot answer.
+        CHECK(!mdb::boss_found_from_save(true, true, false, true));
+        CHECK(!mdb::boss_found_from_save(true, true, false, false));
+        // The door exists and the save has not unlocked it: not defeated.
+        CHECK(!mdb::boss_found_from_save(true, true, true, false));
+        // The config key is a real off switch. It has to be, because what the unlocked
+        // id MEANS is an open question ("cleared" vs "fought and respawned here") and
+        // the mark is derived rather than persisted precisely so that flipping this
+        // undoes it completely.
+        CHECK(!mdb::boss_found_from_save(false, true, true, true));
+        // It never speaks for another category, whatever the door state says - a shrine
+        // has its own rule and a chest has no door.
+        CHECK(!mdb::boss_found_from_save(true, false, true, true));
+        static_assert(mdb::boss_found_from_save(true, true, true, true));
+        static_assert(!mdb::boss_found_from_save(true, true, true, false));
+        static_assert(!mdb::boss_found_from_save(false, true, true, true));
+
+        // The manifest side of it: `bossdoor` is additive and optional, so a manifest
+        // built before tools/markers/build_bossdoors.py existed parses exactly as it
+        // did and the rule simply never fires.
+        {
+            std::vector<mdb::StaticMarker> out;
+            mdb::ParseReport rep{};
+            CHECK(mdb::parse_markers_json(
+                R"({"schema":"wuchang-minimap-markers/1","chapter":1,"markers":[
+                     {"id":"L/BossA","cat":"boss","x":1,"y":2,"z":3,
+                      "bossdoor":"bossdoor_dyy"},
+                     {"id":"L/BossB","cat":"boss","x":4,"y":5,"z":6}]})",
+                out, rep));
+            CHECK_EQ(static_cast<int>(out.size()), 2);
+            CHECK_STR(out[0].bossdoor.c_str(), "bossdoor_dyy");
+            CHECK(out[1].bossdoor.empty());
+            CHECK(mdb::boss_found_from_save(true, out[0].cat == mdb::Cat::Boss,
+                                            !out[0].bossdoor.empty(), true));
+            CHECK(!mdb::boss_found_from_save(true, out[1].cat == mdb::Cat::Boss,
+                                             !out[1].bossdoor.empty(), true));
+        }
+
         section("a corpse has two halves and both must go");
 
         // THE END-TO-END CHAIN, as an invariant rather than a comment. An enemy is in the

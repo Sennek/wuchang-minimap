@@ -74,15 +74,26 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
 - **Killing something now actually registers.** The dead-enemy and boss-defeated rules
   both read the character's health, and on this build they never found it, so corpses
   stayed on the minimap and no boss was ever marked as defeated. The mod now finds the
-  health component itself instead of assuming what it is called, and if it still
-  cannot, it writes one line to the log saying exactly what it found instead.
+  health component itself instead of assuming what it is called, reads the two values
+  under both names the game could be using, and if it still cannot, it writes one line
+  to the log naming every number it did find on the component.
+- **A dead enemy no longer reappears at its spawn point.** Dropping the corpse only
+  removed the moving marker; the enemy's original spot is on the map as well, so the
+  marker jumped back there instead of going away. Both are hidden now until the game
+  clears the body away.
+- **A boss you have beaten is no longer highlighted through walls.** It keeps its
+  hollow "found" mark on the map, but there is nothing left in the arena to see.
+- **"Shrines lit" in the log was always zero** after the first session, because it
+  counted only shrines lit for the first time. It now reads `lit 8 of 12`.
 - **NPCs and merchants are shown where they are, not where they started.** People move
   in this game - talk to a quest NPC and it relocates - and the mod was still drawing
   the original spot, so the x-ray could label an "NPC 2 m" through a wall at a place
   the NPC had left. A live NPC's own position always wins now; once the mod can see
   that the area is loaded and nobody is there, the old spot is not drawn at all; and
   the x-ray only ever highlights an NPC or a merchant it can actually see. Whether you
-  have met them is unaffected.
+  have met them is unaffected. ("It can actually see" is now literal: an NPC whose
+  actor the mod found but could not locate no longer counts as seen - that was the
+  remaining way an "NPC 2 m" label could hang over an empty spot.)
 - **Dead enemies no longer sit on the minimap.** A corpse keeps its position in the game
   for a while after it dies; enemies are now dropped from the map as soon as their health
   reads zero, and a live enemy marker that stops being seen is dropped after one sweep

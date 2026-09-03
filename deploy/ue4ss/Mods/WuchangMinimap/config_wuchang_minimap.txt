@@ -485,7 +485,9 @@ map_gamepad_deadzone = 0.22
 ; ---------------------------------------------------------------------------------
 ; X-RAY TUNING
 ; ---------------------------------------------------------------------------------
-; 1 = also highlight things already collected / opened (dimmed).
+; 1 = also highlight loot you have already collected (dimmed). Only chests, pickups
+; and hidden items are affected: shrines, bosses, NPCs, merchants, doors and fog
+; gates are landmarks and are always highlighted, found or not.
 highlight_show_found = 0
 
 ; Hard cap on GLYPHS per frame, nearest first.

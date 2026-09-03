@@ -389,7 +389,10 @@ namespace mm
             mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup) |
             mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Boss) |
             mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Merchant);
-        bool highlight_show_found = false; // draw collected / opened ones too
+        // Draw collected loot too. Only chests, pickups and hidden items are ever
+        // suppressed by this: a lit shrine, a beaten boss or an NPC you have met is
+        // still a landmark, and is highlighted whatever its found state.
+        bool highlight_show_found = false;
         int highlight_max_draw = 60;       // nearest first
         float highlight_alpha_near = 1.0f; // at the camera
         float highlight_alpha_far = 0.25f; // at highlight_radius

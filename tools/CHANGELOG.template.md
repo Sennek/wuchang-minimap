@@ -30,6 +30,12 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   chests and pickups, so holding the key near a shrine or a merchant shows something. If
   your config already spells `highlight_categories` out, that line still wins - change it
   in the panel.
+- **"Hide collected loot" now only hides loot.** `highlight_show_found = 0` used to drop
+  every found marker from the x-ray, which meant a lit shrine or an NPC you had already
+  met disappeared. It now suppresses chests, pickups and hidden items only - the three
+  categories where finding a thing consumes it; shrines, bosses, NPCs, merchants, doors
+  and fog gates are landmarks and are always drawn. The **Loot hunting** and
+  **Exploration** presets pick x-ray sets to match.
 - **The F2 panel opens in the middle of the screen** and takes the whole mouse while it is
   open, raw mouse input included, so moving the mouse over the panel no longer turns the
   game camera. You can still drag the window anywhere; the keyboard still reaches the game

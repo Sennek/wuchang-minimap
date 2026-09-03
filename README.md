@@ -870,12 +870,17 @@ told.
 
 ## The x-ray highlight (hold `LALT`)
 
-Hold the key (or the gamepad chord, `LB+RB` by default) and every marker of the enabled categories that
-is still uncollected and within `highlight_radius` of the player is drawn **at its position on screen** -
+Hold the key (or the gamepad chord, `LB+RB` by default) and every marker of the enabled categories
+within `highlight_radius` of the player is drawn **at its position on screen** -
 category glyph, name, distance in metres - fading with distance, over the scene. "Through walls" is free
 here: the overlay is composited on the finished frame, so there is no occlusion test, no CustomDepth and
 no material - nothing that can disagree with the game's render state. Anything off screen or behind the
 camera gets an arrow on the screen edge pointing the way to turn (`highlight_edge_arrows`).
+
+`highlight_show_found = 0` (the default) hides **loot you have already collected** - chests, pickups and
+hidden items, the three categories where finding a thing consumes it. Shrines, bosses, NPCs, merchants,
+doors and fog gates are landmarks, not consumables, so they are highlighted whatever their found state:
+a lit shrine is still worth seeing through a wall.
 
 **Item quality colours.** Wuchang has **no rarity ladder** - there is no `E_ItemQuality` / `Rarity` /
 `Grade` enum anywhere in the paks, no quality word in `MMGame.locres`, and none of the six item row

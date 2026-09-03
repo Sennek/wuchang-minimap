@@ -2331,6 +2331,14 @@ namespace overlay
         // 0x000000_78)`), so a light glyph still has an edge against the parchment fill
         // and a dark one against a lit scene. Its alpha follows the glyph's, so a
         // faded-out marker does not leave a black dot behind.
+        // THE CATEGORIES "found" MEANS SOMETHING FOR. Collecting a chest, a pickup or a
+        // hidden item consumes it, so a found one is finished business. Every other
+        // category's "found" is a visit, not a removal, and the thing is still there.
+        bool is_loot_category(mdb::Cat cat)
+        {
+            return cat == mdb::Cat::Chest || cat == mdb::Cat::Pickup || cat == mdb::Cat::Hidden;
+        }
+
         void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge,
                                bool hollow = false)
         {
@@ -4134,9 +4142,14 @@ namespace overlay
                 {
                     continue;
                 }
-                if (!cfg.highlight_show_found && fc.found)
+                // FOUND ONLY HIDES LOOT. A chest you have opened is noise; a shrine you
+                // have lit, a boss you have beaten, an NPC you have met and a merchant
+                // you have traded with are still landmarks worth seeing through a wall -
+                // and hiding them was why holding the key near a shrine showed nothing.
+                if (!cfg.highlight_show_found && fc.found &&
+                    is_loot_category(static_cast<mdb::Cat>(fc.cat)))
                 {
-                    continue; // the point of the feature is what is still UNcollected
+                    continue;
                 }
                 if (fc.d2_3d > radius2)
                 {
@@ -6145,7 +6158,7 @@ namespace overlay
                 cfg.markers_clamp_to_edge = true;
                 cfg.compass_enabled = true;
                 cfg.compass_categories = chest | pickup;
-                cfg.highlight_categories = chest | pickup | hidden;
+                cfg.highlight_categories = chest | pickup;
                 cfg.highlight_radius = 5000.0f;
                 cfg.highlight_labels = true;
                 cfg.xray_rarity_colors_enabled = true;
@@ -6165,7 +6178,7 @@ namespace overlay
                 cfg.markers_clamp_to_edge = true;
                 cfg.compass_enabled = true;
                 cfg.compass_categories = shrine | boss | elite | fog | door | ladder | lift | npc;
-                cfg.highlight_categories = chest | pickup;
+                cfg.highlight_categories = chest | pickup | shrine | boss | npc | merchant;
                 break;
             }
         }
@@ -6616,7 +6629,13 @@ namespace overlay
 
             if (ImGui::CollapsingHeader("X-ray tuning"))
             {
-                ImGui::Checkbox("Include found", &cfg.highlight_show_found);
+                bool hide_loot = !cfg.highlight_show_found;
+                if (ImGui::Checkbox("Hide collected loot", &hide_loot))
+                {
+                    cfg.highlight_show_found = !hide_loot;
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("(chests, pickups, hidden items)");
                 ImGui::SameLine();
                 ImGui::Checkbox("Edge arrows (off screen / behind)", &cfg.highlight_edge_arrows);
                 ImGui::SliderInt("Max drawn (nearest first)", &cfg.highlight_max_draw, 1, 400);

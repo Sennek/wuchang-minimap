@@ -25,6 +25,7 @@
 #include "ue_min.hpp"
 #include "uereflect.hpp"
 
+using RC::Unreal::UClass;
 using RC::Unreal::UObject;
 using RC::Unreal::UStruct;
 namespace UObjectGlobals = RC::Unreal::UObjectGlobals;
@@ -589,6 +590,182 @@ namespace markers
         // Returns FALSE when the answer is unknown (no such property, an unreadable
         // component, a nonsensical Max) - never "dead". A guess in that direction would
         // hide living enemies, which is strictly worse than the bug it fixes.
+        //
+        // WHAT WENT WRONG THE FIRST TIME (run 1, 2026-09-03): `health unknown` climbed to
+        // 4 411 with `dead enemies dropped 0` and `bosses defeated 0` for a whole session
+        // of killing things - so the route never answered once. The reason is in the
+        // recon tool, not in the game: the dump line above was produced by
+        // `find_all("ExtendedStatComponent_C")` and printed the component's FULL NAME, so
+        // the `.Health` in `Impl_BaseAIController_C_<n>.Health` is the component's OBJECT
+        // NAME (its outer path), and nothing in any dump ever said that the owning class
+        // carries an `ObjectProperty` also called `Health`. `read_object_prop(controller,
+        // "Health")` therefore returned nullptr on stage one, every time - the same
+        // "a full name is not a property name" mistake as `APlayerCameraManager` having
+        // no `GetViewTarget()`.
+        //
+        // So the component is DISCOVERED rather than named: try the obvious property
+        // first, and when it is not there walk the class' own pointer-sized properties
+        // once, capture each value through GUObjectArray (which is SEH-guarded and proves
+        // the target is a live UObject before anything dereferences it) and accept the
+        // one whose class is an `ExtendedStatComponent` - preferring the one whose object
+        // name is `Health` when a character carries several stats. The winning property
+        // NAME is cached per UClass*, so the walk happens once per class per world and
+        // every read after that is the same three cached-offset raw reads as before.
+
+        constexpr const wchar_t* kHealthProp = L"Health";
+        constexpr const wchar_t* kStatComponentSubstr = L"ExtendedStatComponent";
+
+        // UClass* -> the property name that reaches its health component; an empty
+        // string means "walked, and there is none". Keyed on the class, dropped with
+        // every other world-keyed cache in drop_caches().
+        std::unordered_map<const void*, std::wstring> g_health_prop;
+        bool g_health_diag_done = false; // the one-shot failure diagnostic has been printed
+
+        // The object's class name, or an empty string. Safe on a captured object only.
+        std::wstring safe_class_name(UObject* obj)
+        {
+            uer::ObjRef ref{};
+            if (!uer::capture(obj, ref))
+            {
+                return {};
+            }
+            return uer::class_name(ref);
+        }
+
+        // ONE-SHOT DIAGNOSTIC. Printed the first time a health read fails, and never
+        // again: which object, which class, which stage, and - because the next in-game
+        // run has to be able to fix this without a third one - every pointer-sized
+        // property on the class whose value is a live UObject, with its class and object
+        // name. That table is the answer to "what is this component actually called".
+        void log_health_failure(UObject* owner, const uer::ClassLayout* layout, const wchar_t* stage)
+        {
+            if (g_health_diag_done)
+            {
+                return;
+            }
+            g_health_diag_done = true;
+            const std::wstring cls = safe_class_name(owner);
+            mm::logf(L"markers: HEALTH READ FAILED on class '{}' at stage '{}' - listing the object-valued "
+                     L"properties of that class so the route can be fixed:",
+                     cls.empty() ? std::wstring{L"<unknown>"} : cls,
+                     stage);
+            if (layout == nullptr)
+            {
+                mm::log(L"markers:   (the class has no readable property layout at all)");
+                return;
+            }
+            int listed = 0;
+            for (const auto& kv : layout->props)
+            {
+                if (kv.second.size != static_cast<int>(sizeof(void*)) || listed >= 64)
+                {
+                    continue;
+                }
+                UObject* value = uer::read_object_prop(layout, owner, kv.first.c_str());
+                uer::ObjRef ref{};
+                if (value == nullptr || !uer::capture(value, ref))
+                {
+                    continue;
+                }
+                ++listed;
+                mm::logf(L"markers:   {} -> {} (class {})",
+                         kv.first,
+                         ref.obj->GetName(),
+                         uer::class_name(ref));
+            }
+            if (listed == 0)
+            {
+                mm::log(L"markers:   (no property on that class holds a live UObject)");
+            }
+        }
+
+        // The health component of `owner`, discovered once per class. nullptr = there
+        // is none reachable, and the caller must then answer "unknown".
+        UObject* health_component(UObject* owner, const uer::ClassLayout* layout)
+        {
+            if (owner == nullptr || layout == nullptr)
+            {
+                return nullptr;
+            }
+            UClass* cls = owner->GetClassPrivate();
+            if (cls == nullptr)
+            {
+                return nullptr;
+            }
+            const auto cached = g_health_prop.find(cls);
+            if (cached != g_health_prop.end())
+            {
+                if (cached->second.empty())
+                {
+                    return nullptr;
+                }
+                return uer::read_object_prop(layout, owner, cached->second.c_str());
+            }
+
+            // 1. The obvious name, accepted only if the target really is a stat
+            //    component - a same-named property of some other type would otherwise
+            //    pin the wrong route for the rest of the session.
+            std::wstring winner;
+            UObject* found = nullptr;
+            UObject* direct = uer::read_object_prop(layout, owner, kHealthProp);
+            if (direct != nullptr && safe_class_name(direct).find(kStatComponentSubstr) != std::wstring::npos)
+            {
+                winner = kHealthProp;
+                found = direct;
+            }
+
+            // 2. Otherwise walk the class' pointer-sized properties once. A component
+            //    named `Health` wins outright; any other stat component is kept as a
+            //    fallback so a build that names it differently still answers.
+            if (found == nullptr)
+            {
+                for (const auto& kv : layout->props)
+                {
+                    if (kv.second.size != static_cast<int>(sizeof(void*)))
+                    {
+                        continue;
+                    }
+                    UObject* value = uer::read_object_prop(layout, owner, kv.first.c_str());
+                    uer::ObjRef ref{};
+                    if (value == nullptr || !uer::capture(value, ref))
+                    {
+                        continue;
+                    }
+                    if (uer::class_name(ref).find(kStatComponentSubstr) == std::wstring::npos)
+                    {
+                        continue;
+                    }
+                    const bool is_health = ref.obj->GetName() == kHealthProp;
+                    if (is_health || found == nullptr)
+                    {
+                        winner = kv.first;
+                        found = value;
+                    }
+                    if (is_health)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (g_health_prop.size() > g_class_cache_max)
+            {
+                g_health_prop.clear();
+            }
+            g_health_prop.emplace(cls, winner);
+            if (found != nullptr)
+            {
+                uer::ObjRef fref{};
+                (void)uer::capture(found, fref);
+                mm::logf(L"markers: health component route on '{}' is property '{}' -> {} (class {})",
+                         safe_class_name(owner),
+                         winner,
+                         fref.obj != nullptr ? fref.obj->GetName() : std::wstring{L"?"},
+                         safe_class_name(found));
+            }
+            return found;
+        }
+
         bool controller_says_dead(UObject* controller, bool& answered)
         {
             answered = false;
@@ -597,9 +774,10 @@ namespace markers
                 return false;
             }
             const uer::ClassLayout* layout = g_layouts.get(controller);
-            UObject* health = uer::read_object_prop(layout, controller, L"Health");
+            UObject* health = health_component(controller, layout);
             if (health == nullptr || !mem::readable(health, 0x40))
             {
+                log_health_failure(controller, layout, L"no ExtendedStatComponent reachable from this class");
                 return false;
             }
             const uer::ClassLayout* hl = g_layouts.get(health);
@@ -608,10 +786,12 @@ namespace markers
             if (!uer::read_prop(hl, health, L"Current", current, static_cast<int>(sizeof(float))) ||
                 !uer::read_prop(hl, health, L"Max", max, static_cast<int>(sizeof(float))))
             {
+                log_health_failure(health, hl, L"the component has no float 'Current' / 'Max'");
                 return false;
             }
             if (!std::isfinite(current) || !std::isfinite(max) || max <= 0.0f)
             {
+                log_health_failure(health, hl, L"'Current' / 'Max' read back as nonsense");
                 return false; // an uninitialised or hot-swapped component says nothing
             }
             answered = true;
@@ -861,7 +1041,15 @@ namespace markers
                 // is erased outright rather than left to age out, so the marker is gone
                 // on the very next publish.
                 bool answered = false;
-                if (controller_says_dead(obj, answered))
+                bool dead = controller_says_dead(obj, answered);
+                if (!answered)
+                {
+                    // The stat component was only ever SEEN on the controller; it is
+                    // asked of the pawn too so a build that hangs it off the character
+                    // still answers instead of counting into `health unknown` forever.
+                    dead = controller_says_dead(actor, answered);
+                }
+                if (answered && dead)
                 {
                     const std::string& dead_id = id_for(actor);
                     if (g_live.erase(dead_id) != 0)
@@ -950,13 +1138,21 @@ namespace markers
             }
             case Rule::BossPawn:
             {
-                // Defeated = the boss's own controller reports zero health. The pawn
-                // has no reflected health of its own; APawn::Controller does the one
-                // hop that reaches it.
+                // Defeated = zero health. The dumps only ever showed the stat component
+                // on the AI CONTROLLER, so `APawn::Controller` is the first hop - but a
+                // dead boss can have been unpossessed by the time we look, and nothing
+                // proves the component cannot also hang off the character, so the pawn
+                // itself is asked as well. Both answers come from the same discovered
+                // route, so neither costs a second walk.
                 const uer::ClassLayout* layout = g_layouts.get(actor);
                 UObject* controller = uer::read_object_prop(layout, actor, L"Controller");
                 bool answered = false;
-                if (controller_says_dead(controller, answered))
+                bool dead = controller_says_dead(controller, answered);
+                if (!answered)
+                {
+                    dead = controller_says_dead(actor, answered);
+                }
+                if (answered && dead)
                 {
                     e.found = true;
                 }
@@ -2094,6 +2290,7 @@ namespace markers
         shr::drop_caches();
         g_layouts.clear();
         g_class_spec.clear();
+        g_health_prop.clear(); // the discovered route is keyed to a UClass* of that world
         g_id_cache.clear();
         g_live.clear();
         // Both are keyed to the world that just went: a level name means nothing in the

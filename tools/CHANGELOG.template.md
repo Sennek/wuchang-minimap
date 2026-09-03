@@ -71,6 +71,11 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   gameplay pawn") and only restarting the game brought them back. The reader now looks for
   the player twice a second whatever else it has or has not found, and it says in the log
   when it has been looking for more than ten seconds.
+- **Killing something now actually registers.** The dead-enemy and boss-defeated rules
+  both read the character's health, and on this build they never found it, so corpses
+  stayed on the minimap and no boss was ever marked as defeated. The mod now finds the
+  health component itself instead of assuming what it is called, and if it still
+  cannot, it writes one line to the log saying exactly what it found instead.
 - **Dead enemies no longer sit on the minimap.** A corpse keeps its position in the game
   for a while after it dies; enemies are now dropped from the map as soon as their health
   reads zero, and a live enemy marker that stops being seen is dropped after one sweep

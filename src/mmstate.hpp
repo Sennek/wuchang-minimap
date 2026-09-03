@@ -663,6 +663,23 @@ namespace mm
     const perf::Table& perf_table();
     void perf_reset_peaks();
 
+    // THE STALL GATE. Any thread. `perf_note_stall` says "the process is not running
+    // normally for the next `ms` milliseconds" - a loading screen, a swapchain resize, a
+    // reload, a clipboard copy - and every perf_record taken inside that window is
+    // counted as a stall instead of setting the peak the F2 table shows. It exists
+    // because all three of this mod's threads measure WALL CLOCK: while the game thread
+    // is inside a synchronous load, a cross-thread user32 call (which is most of what
+    // ImGui_ImplWin32_NewFrame and GetForegroundWindow do) blocks for as long as the
+    // load takes, and the resulting 350 ms "peak" is not this mod's cost at all.
+    //
+    // It deliberately does NOT infer a stall from the sample's own duration - "this was
+    // slow so it must have been a stall" is circular. Only externally attributable
+    // events call it.
+    void perf_note_stall(const wchar_t* why, unsigned ms);
+    bool perf_in_stall();
+    // What the last note said, for the F2 table's footnote. Never null.
+    const wchar_t* perf_last_stall();
+
     // RAII: times the enclosing scope into counter `id`.
     class PerfScope
     {

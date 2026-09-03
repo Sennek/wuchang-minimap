@@ -991,6 +991,14 @@ namespace overlay
         // synchronisation needed - but it is also logged once from the loop thread, so
         // keep it a fixed buffer rather than a std::string being reallocated.
         wchar_t g_hide_reason[96] = L"not evaluated yet";
+        // The one-off blocking jobs that used to hide inside `loop input + file I/O`
+        // (a 366 ms peak against a ~0 ms average) and inside the render frame.
+        int g_pf_newframe = -1; // ImGui_ImplWin32_NewFrame - cross-thread user32
+        int g_pf_buildui = -1;  // build_ui() - our own drawing
+        int g_pf_clip = -1;     // the map -> clipboard hand-off
+        int g_pf_save = -1;     // config / waypoint file writes
+        int g_pf_reload = -1;   // F5: config + maps + markers
+
         std::wstring g_hook_report = L"not installed";
         // True when this launch hooked the addresses out of wuchang_minimap_hookaddr.txt
         // instead of discovering them with a dummy device + queue + swapchain. It is what
@@ -6243,8 +6251,23 @@ namespace overlay
             }
             ImGui::SameLine();
             ImGui::TextDisabled("a peak from a loading screen otherwise hides every later one");
+            // WHAT `peak ms` MEANS. All three of this mod's threads measure wall clock,
+            // so a sample taken while the game thread is inside a synchronous load, or
+            // while the swapchain is being resized, or while the mod is doing a one-off
+            // blocking job, is time spent WAITING - and one of those hides every later
+            // regression behind it. Those samples are counted in `stalls` instead, with
+            // their own worst case, and nothing is thrown away: hover a peak for the raw
+            // one that includes them.
+            ImGui::TextDisabled("peak ms = the worst sample OUTSIDE a load / resize / one-off job; "
+                                "the rest are counted under stalls (hover a peak for the raw one)");
+            {
+                char why[128]{};
+                ::WideCharToMultiByte(CP_UTF8, 0, mm::perf_last_stall(), -1, why, sizeof(why) - 1, nullptr,
+                                      nullptr);
+                ImGui::TextDisabled("last stall: %s%s", why, mm::perf_in_stall() ? " (now)" : "");
+            }
 
-            if (ImGui::BeginTable("perf", 6,
+            if (ImGui::BeginTable("perf", 7,
                                   ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                       ImGuiTableFlags_SizingStretchProp))
             {
@@ -6252,6 +6275,7 @@ namespace overlay
                 ImGui::TableSetupColumn("Hz");
                 ImGui::TableSetupColumn("avg ms");
                 ImGui::TableSetupColumn("peak ms");
+                ImGui::TableSetupColumn("stalls");
                 ImGui::TableSetupColumn("last ms");
                 ImGui::TableSetupColumn("thread");
                 ImGui::TableHeadersRow();
@@ -6276,17 +6300,32 @@ namespace overlay
                     ImGui::TableNextColumn();
                     // The one number worth colouring: anything over a millisecond on a
                     // periodic path is a frame-time or game-thread problem.
-                    if (c.peak_ms >= 4.0)
+                    if (c.peak_calm_ms >= 4.0)
                     {
-                        ImGui::TextColored(ImVec4{1.0f, 0.45f, 0.35f, 1.0f}, "%.3f", c.peak_ms);
+                        ImGui::TextColored(ImVec4{1.0f, 0.45f, 0.35f, 1.0f}, "%.3f", c.peak_calm_ms);
                     }
-                    else if (c.peak_ms >= 1.0)
+                    else if (c.peak_calm_ms >= 1.0)
                     {
-                        ImGui::TextColored(ImVec4{1.0f, 0.85f, 0.4f, 1.0f}, "%.3f", c.peak_ms);
+                        ImGui::TextColored(ImVec4{1.0f, 0.85f, 0.4f, 1.0f}, "%.3f", c.peak_calm_ms);
                     }
                     else
                     {
-                        ImGui::Text("%.3f", c.peak_ms);
+                        ImGui::Text("%.3f", c.peak_calm_ms);
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("raw peak including stalls: %.3f ms", c.peak_ms);
+                    }
+                    ImGui::TableNextColumn();
+                    if (c.stalls == 0)
+                    {
+                        ImGui::TextDisabled("-");
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("%llu / %.0f ms",
+                                            static_cast<unsigned long long>(c.stalls),
+                                            c.peak_stall_ms);
                     }
                     ImGui::TableNextColumn();
                     ImGui::Text("%.3f", c.last_ms);
@@ -8325,6 +8364,9 @@ namespace overlay
                 if (slicer_pause_begin(kSlicerPauseMs))
                 {
                     g_drop_textures.store(false, std::memory_order_release);
+                    // A full GPU flush plus ~340 MB of releases: a one-off, and one that
+                    // must not become the peak every later frame is judged against.
+                    mm::perf_note_stall(L"a map texture reload (F5)", 2000);
                     wait_for_gpu();
                     destroy_all_map_textures();
                     slicer_pause_end();
@@ -8348,10 +8390,28 @@ namespace overlay
             // frame's draw lists exist. ResizeBuffers changes g_height, and a config
             // change comes through cfg_cached, so both re-enter here on their own.
             apply_ui_scale(wanted_ui_scale(mm::cfg_cached(), static_cast<float>(g_height)));
-            ImGui_ImplWin32_NewFrame();
+            // TWO SUB-COUNTERS, because the 358 ms peak this row showed after 30 minutes
+            // had to be attributed to one side or the other. ImGui_ImplWin32_NewFrame is
+            // the suspect: it reads and writes the CURSOR and the client rect of a window
+            // owned by the GAME thread, and a cross-thread user32 call blocks until that
+            // thread pumps messages - which it does not do while it is inside a
+            // synchronous level load. build_ui() is our own drawing and touches no OS
+            // handle at all. Whichever one carries the peak, the table now says so.
+            if (g_pf_newframe < 0)
+            {
+                g_pf_newframe = mm::perf_register("render NewFrame (win32)", perf::Thread::Render);
+                g_pf_buildui = mm::perf_register("render build_ui", perf::Thread::Render);
+            }
+            {
+                const mm::PerfScope nf(g_pf_newframe);
+                ImGui_ImplWin32_NewFrame();
+            }
             ImGui_ImplDX12_NewFrame();
             ImGui::NewFrame();
-            build_ui();
+            {
+                const mm::PerfScope bu(g_pf_buildui);
+                build_ui();
+            }
             ImGui::Render();
             mm::perf_record(g_pf_frame, frame_t0);
 
@@ -8463,6 +8523,10 @@ namespace overlay
                 return o_ResizeBuffers(sc, count, w, h, format, flags);
             }
             g_resize_count.fetch_add(1, std::memory_order_relaxed);
+            // A resize means a device-level stall (a resolution or fullscreen change, or
+            // the tail of a level load): the frames around it are wall-clock waits, not
+            // this mod's cost, so they go to the stall columns of the F2 table.
+            mm::perf_note_stall(L"a swapchain resize", 2000);
             {
                 SpinGuard guard(g_render_lock);
                 mm::logf(L"ResizeBuffers({} buffers, {}x{}, {}) - releasing render targets",
@@ -9136,20 +9200,20 @@ namespace overlay
             return;
         }
         last_input_ms = now;
-        // ONE COUNTER CANNOT ANSWER TWO QUESTIONS (lessons.md). This scope reaches to the
-        // end of the function, so besides the ~8 GetAsyncKeyState calls it also times the
-        // first-run sentinel write, the map screenshot's clipboard hand-off (a
-        // full-resolution DIB through GlobalAlloc + SetClipboardData), the waypoint file
-        // write, `mm::save_config_file()` (a ~28 KB rewrite) and `pad::poll`. The
-        // 2026-09-03 in-game reading was a 32 ms PEAK against a negligible average, i.e.
-        // one of those one-off blocking things and not the per-sample cost - so the name
-        // now says what is being measured, and the gamepad poll (the only candidate that
-        // could recur, and the one lessons.md warns about for disconnected slots) gets its
-        // own row. Both are on the LOOP thread, where a stall costs no frame and no game
-        // tick.
+        // ONE COUNTER CANNOT ANSWER TWO QUESTIONS (lessons.md), and this row had to be
+        // told twice. It reaches to the end of the function, so it started out timing the
+        // hotkey samples together with the gamepad poll (32 ms peak, 2026-09-03) - which
+        // got its own row - and then read a 366 ms PEAK against a ~0 ms average, which
+        // was the other things sharing the scope: the map screenshot's clipboard hand-off
+        // (a full-resolution DIB through GlobalAlloc + SetClipboardData, which takes a
+        // window-station-wide lock), `mm::save_config_file()` (a ~28 KB rewrite) and the
+        // F5 reload (`mapdata::load` re-decodes up to ~340 MB of PNG). All three now have
+        // their own rows and all three declare a stall, so this row is the ~8
+        // GetAsyncKeyState calls and nothing else. Every one of them is on the LOOP
+        // thread, where a stall costs no frame and no game tick.
         if (g_pf_input < 0)
         {
-            g_pf_input = mm::perf_register("loop input + file I/O", perf::Thread::Loop);
+            g_pf_input = mm::perf_register("loop input (hotkeys)", perf::Thread::Loop);
         }
         const mm::PerfScope input_scope(g_pf_input);
 
@@ -9169,6 +9233,22 @@ namespace overlay
             fg_cached = (pid == ::GetCurrentProcessId());
         }
         const bool foreground = fg_cached;
+
+        // A LOADING SCREEN IS A STALL, and this is the cheapest honest place to notice
+        // one: the snapshot is a seqlock read, it is already published for the render
+        // thread, and "no validated gameplay pawn" is exactly the state the game is in
+        // while it blocks its own thread loading a level. The window is generous (1.5 s)
+        // because the frames on either side of a load are wall-clock waits too, and it
+        // is refreshed on every 60 Hz pass for as long as the condition holds.
+        {
+            mm::Snapshot snap{};
+            const bool have = mm::read_snapshot(snap);
+            if (!have || !snap.has_pawn || !snap.pawn_is_gameplay || snap.transition ||
+                snap.state_ok_since_ms == 0)
+            {
+                mm::perf_note_stall(L"a loading screen / no gameplay pawn", 1500);
+            }
+        }
 
         const bool panel_now = (::GetAsyncKeyState(cfg.panel_key) & 0x8000) != 0;
         if (panel_now && !panel_down && foreground && now - last_key > 250)
@@ -9284,6 +9364,12 @@ namespace overlay
         // Present.
         if (g_shot_dib_ready.exchange(false, std::memory_order_acquire))
         {
+            if (g_pf_clip < 0)
+            {
+                g_pf_clip = mm::perf_register("map -> clipboard", perf::Thread::Loop);
+            }
+            mm::perf_note_stall(L"the map -> clipboard hand-off", 500);
+            const mm::PerfScope clip_scope(g_pf_clip);
             std::vector<std::uint8_t> dib;
             {
                 SpinGuard guard(g_shot_lock);
@@ -9410,18 +9496,42 @@ namespace overlay
         // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.
         hl::set_demand(held, cfg.overlay_enabled && cfg.compass_enabled);
 
-        // The waypoint is set on the render thread and written here, because the loop
-        // thread is the only one allowed to touch a file.
-        if (mm::g_waypoint_dirty.exchange(false))
+        // THE FILE WRITES. All of them are on this thread and none of them is anywhere
+        // near Present: the render thread only ever raises a flag (a waypoint drag, the
+        // panel's Save button, the screenshot request) and this is where the flag turns
+        // into a write. They share one row, because "the mod wrote a file" is one
+        // question, and they declare a stall, because a ~28 KB rewrite through
+        // CreateFile can block on a virus scanner for as long as it likes.
+        const bool wp_dirty = mm::g_waypoint_dirty.exchange(false);
+        const bool cfg_dirty = mm::g_save_config.load();
+        if (wp_dirty || cfg_dirty)
+        {
+            if (g_pf_save < 0)
+            {
+                g_pf_save = mm::perf_register("config / waypoint save", perf::Thread::Loop);
+            }
+            mm::perf_note_stall(L"a config / waypoint file write", 500);
+        }
+        if (wp_dirty)
         {
             if (cfg.map_waypoint_persist)
             {
+                const mm::PerfScope save_scope(g_pf_save);
                 mm::save_waypoint_file();
             }
         }
 
         if (mm::g_reload_config.exchange(false))
         {
+            if (g_pf_reload < 0)
+            {
+                g_pf_reload = mm::perf_register("reload (config+maps+markers)", perf::Thread::Loop);
+            }
+            // Hundreds of milliseconds by design: `mapdata::load` re-decodes the
+            // chapter's height PNGs. A one-off, and it must not set the peak every
+            // later sample of every other row is judged against.
+            mm::perf_note_stall(L"an F5 reload", 4000);
+            const mm::PerfScope reload_scope(g_pf_reload);
             mm::log(L"reloading config + maps + markers");
             mm::load_config_file();
             mm::load_waypoint_file();
@@ -9431,6 +9541,7 @@ namespace overlay
         }
         if (mm::g_save_config.exchange(false))
         {
+            const mm::PerfScope save_scope(g_pf_save);
             mm::save_config_file();
         }
         // REVERT: re-read the config files and publish them, throwing away every

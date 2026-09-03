@@ -85,9 +85,20 @@ namespace perf
 
         std::uint64_t calls = 0;    // invocations since the mod loaded
         double last_ms = 0.0;       // the most recent invocation
-        double peak_ms = 0.0;       // the worst since the mod loaded
+        double peak_ms = 0.0;       // the worst since the mod loaded, stalls included
         double avg_ms = 0.0;        // mean over the last completed window
         double rate_hz = 0.0;       // invocations per second over the last window
+
+        // THE PEAK THAT MEANS SOMETHING. A sample taken while the process was loading a
+        // level, resizing the swapchain or doing a one-off blocking job (a reload, a
+        // clipboard copy) is wall-clock time spent waiting for the game, not the cost of
+        // this activity - and one such sample hides every later regression behind it,
+        // exactly the way the "reset peaks" button exists to work around. So a stalled
+        // sample still updates `peak_ms` and `last_ms` (nothing is hidden) but is counted
+        // separately instead of setting the peak the table shows.
+        double peak_calm_ms = 0.0;  // the worst sample taken outside a stall
+        std::uint64_t stalls = 0;   // samples taken during one
+        double peak_stall_ms = 0.0; // the worst of those
 
         // The window being accumulated right now.
         std::uint64_t win_start_ms = 0;
@@ -128,8 +139,10 @@ namespace perf
     }
 
     // Records one invocation. `now_ms` is any monotonic millisecond clock; it only
-    // ever decides when a window closes.
-    inline void record(Table& t, int id, double ms, std::uint64_t now_ms)
+    // ever decides when a window closes. `calm` is false when the process was known to
+    // be stalled - loading, resizing, or doing a one-off blocking job - which routes the
+    // sample to the stall columns instead of to the peak the table shows.
+    inline void record(Table& t, int id, double ms, std::uint64_t now_ms, bool calm = true)
     {
         if (id < 0 || id >= t.count)
         {
@@ -141,6 +154,21 @@ namespace perf
         if (ms > c.peak_ms)
         {
             c.peak_ms = ms;
+        }
+        if (calm)
+        {
+            if (ms > c.peak_calm_ms)
+            {
+                c.peak_calm_ms = ms;
+            }
+        }
+        else
+        {
+            ++c.stalls;
+            if (ms > c.peak_stall_ms)
+            {
+                c.peak_stall_ms = ms;
+            }
         }
         if (c.win_start_ms == 0)
         {
@@ -181,6 +209,9 @@ namespace perf
         for (int i = 0; i < t.count; ++i)
         {
             t.c[i].peak_ms = 0.0;
+            t.c[i].peak_calm_ms = 0.0;
+            t.c[i].peak_stall_ms = 0.0;
+            t.c[i].stalls = 0;
         }
     }
 } // namespace perf

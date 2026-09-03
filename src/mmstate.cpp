@@ -1013,6 +1013,24 @@ namespace mm
             {
                 cfg.highlight_enabled = parse_bool(value, cfg.highlight_enabled);
             }
+            else if (key == "highlight_mode")
+            {
+                if (value == "toggle")
+                {
+                    cfg.highlight_mode = HighlightMode::Toggle;
+                }
+                else if (value == "hold")
+                {
+                    cfg.highlight_mode = HighlightMode::Hold;
+                }
+                else
+                {
+                    logf(L"config: highlight_mode = '{}' is not a mode (expected toggle or hold) - "
+                         L"keeping {}",
+                         widen_ascii(value),
+                         cfg.highlight_mode == HighlightMode::Hold ? L"hold" : L"toggle");
+                }
+            }
             else if (key == "highlight_key")
             {
                 cfg.highlight_key = vk_from_name(value, cfg.highlight_key, "highlight_key");
@@ -2004,6 +2022,7 @@ namespace mm
         add("map_waypoint_persist", b(cfg.map_waypoint_persist));
         add("shrine_list", b(cfg.shrine_list));
         add("highlight_enabled", b(cfg.highlight_enabled));
+        add("highlight_mode", std::string{cfg.highlight_mode == HighlightMode::Hold ? "hold" : "toggle"});
         add("highlight_key", vk(cfg.highlight_key));
         add("highlight_gamepad", b(cfg.highlight_gamepad));
         {

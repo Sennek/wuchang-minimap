@@ -120,6 +120,15 @@ namespace mm
         BottomRight = 4,
     };
 
+    // How the x-ray highlight is armed. Toggle is the default: one press turns it on,
+    // the next turns it off. Hold is the original behaviour - it is only on while the
+    // key (or the pad chord) is physically down.
+    enum class HighlightMode : int
+    {
+        Toggle = 0,
+        Hold = 1,
+    };
+
     // Which edge the compass strip hangs off. `compass_offset_y` is the distance from
     // that edge, so the key means the same thing in both directions.
     enum class VAnchor : int
@@ -365,16 +374,21 @@ namespace mm
         // Hold-key x-ray highlight (master plan step 7, v1)
         //==============================================================================
         //
-        // While `highlight_key` is HELD (or the gamepad chord is), every marker of an
-        // enabled category within `highlight_radius` is drawn at its projected screen
-        // position - glyph, name and distance in metres - fading with distance. The
-        // overlay draws over the scene, so "through walls" costs nothing extra; there is
-        // no occlusion test and no render state anywhere near the game's.
+        // While the highlight is ON, every marker of an enabled category within
+        // `highlight_radius` is drawn at its projected screen position - glyph, name and
+        // distance in metres - fading with distance. The overlay draws over the scene, so
+        // "through walls" costs nothing extra; there is no occlusion test and no render
+        // state anywhere near the game's.
         //
-        // It is a HOLD, not a toggle: a toggle would be one more piece of latched state
-        // to unlatch when a menu opens, and lessons.md is unambiguous about those.
+        // `highlight_mode` says how it is armed. HOLD is the original: on only while the
+        // key is physically down, which needs no unlatching. TOGGLE is the default the
+        // user asked for, and it obeys the same rule lessons.md sets for every latched
+        // input state - it is cleared from LIVE state, not remembered: hl::drop_caches()
+        // (a level transition, a dropped pawn) turns it off, and so does turning the
+        // feature off. Nothing else may latch it on.
 
         bool highlight_enabled = true;
+        HighlightMode highlight_mode = HighlightMode::Toggle;
         int highlight_key = 0xA4; // VK_LMENU - left Alt
         bool highlight_gamepad = true;
         // XInput chord (pad::kLeftShoulder | pad::kRightShoulder by default). The

@@ -18,7 +18,8 @@
 ;   F10 opens the game console (UE4SS ConsoleEnablerMod)
 ;   F12 is the Steam screenshot key
 ; Shipped defaults: F2 settings panel, M full map, R recentre the map, F5 reload,
-; and LALT HELD for the x-ray highlight.
+; and LALT for the x-ray highlight (a press-on / press-off toggle - see
+; highlight_mode).
 ;
 ; A developer-only overlay file, config_wuchang_minimap_dev.txt, is read after this
 ; one when it exists. It is not part of the release; see the README.
@@ -218,12 +219,19 @@ map_gamepad = 1
 map_waypoint_persist = 1
 
 ; ---------------------------------------------------------------------------------
-; THE X-RAY HIGHLIGHT (hold a key)
+; THE X-RAY HIGHLIGHT
 ; ---------------------------------------------------------------------------------
 highlight_enabled = 1
 
+; How the key arms the highlight.
+;   toggle = press once to turn it on, press again to turn it off (the default)
+;   hold   = on only while the key or the pad chord is held down
+; A toggled-on highlight is always turned off again by a level transition or a lost
+; pawn, so it can never be left on with nothing to point at.
+highlight_mode = toggle
+
 ; Any hotkey name (see the list at the top of this file). LALT is the shipped default:
-; it is a hold, so it wants a key the hand is already resting on.
+; it is next to the hand whichever mode you use.
 highlight_key = LALT
 
 ; The second route, for a controller. Join buttons with `+`; known names are

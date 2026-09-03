@@ -109,6 +109,7 @@ namespace cfgkeys
         {"map_waypoint_persist", Tier::Player},
         {"shrine_list", Tier::Player},
         {"highlight_enabled", Tier::Player},
+        {"highlight_mode", Tier::Player},
         {"highlight_key", Tier::Player},
         {"highlight_gamepad", Tier::Player},
         {"highlight_pad_chord", Tier::Player},

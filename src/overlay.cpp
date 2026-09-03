@@ -2317,7 +2317,9 @@ namespace overlay
                                         key_name_ascii(cfg.reload_key));
             if (cfg.highlight_enabled)
             {
-                s += std::format("   hold {} x-ray", key_name_ascii(cfg.highlight_key));
+                s += std::format("   {} {} x-ray",
+                                 cfg.highlight_mode == mm::HighlightMode::Hold ? "hold" : "press",
+                                 key_name_ascii(cfg.highlight_key));
                 if (cfg.highlight_gamepad &&
                     (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt))
                 {
@@ -5959,7 +5961,10 @@ namespace overlay
                 add(right, key_name_ascii(cfg.reload_key), "reload config, maps and markers");
                 if (cfg.highlight_enabled)
                 {
-                    add(right, "hold " + key_name_ascii(cfg.highlight_key), "x-ray nearby markers");
+                    add(right,
+                        (cfg.highlight_mode == mm::HighlightMode::Hold ? "hold " : "press ") +
+                            key_name_ascii(cfg.highlight_key),
+                        "x-ray nearby markers");
                 }
 
                 const float line = ImGui::GetTextLineHeightWithSpacing();
@@ -6574,7 +6579,7 @@ namespace overlay
             //--------------------------------------------------------------------------
             // The hold-key x-ray highlight
             //--------------------------------------------------------------------------
-            ImGui::SeparatorText("X-ray highlight (hold a key)");
+            ImGui::SeparatorText("X-ray highlight");
             std::string hold = key_name_ascii(cfg.highlight_key);
             if (cfg.highlight_gamepad)
             {
@@ -6582,7 +6587,31 @@ namespace overlay
                                                                      cfg.highlight_pad_lt,
                                                                      cfg.highlight_pad_rt));
             }
-            ImGui::TextWrapped("Hold %s in-world to see nearby markers through walls.", hold.c_str());
+            // The MODE, next to the key it applies to, because "press or hold?" is the
+            // first thing a player asks about the line above.
+            int hl_mode = cfg.highlight_mode == mm::HighlightMode::Hold ? 1 : 0;
+            ImGui::TextUnformatted("Mode");
+            ImGui::SameLine();
+            // Both radios must be DRAWN every frame, so neither call may sit behind a
+            // short-circuiting || - the second one would disappear on the frame the
+            // first was clicked.
+            bool hl_mode_changed = ImGui::RadioButton("Toggle", &hl_mode, 0);
+            ImGui::SameLine();
+            hl_mode_changed = ImGui::RadioButton("Hold", &hl_mode, 1) || hl_mode_changed;
+            if (hl_mode_changed)
+            {
+                cfg.highlight_mode = hl_mode == 1 ? mm::HighlightMode::Hold : mm::HighlightMode::Toggle;
+            }
+            if (cfg.highlight_mode == mm::HighlightMode::Hold)
+            {
+                ImGui::TextWrapped("Hold %s in-world to see nearby markers through walls.", hold.c_str());
+            }
+            else
+            {
+                ImGui::TextWrapped("Press %s in-world to see nearby markers through walls, and again to "
+                                   "hide them. A level transition turns it off.",
+                                   hold.c_str());
+            }
             ImGui::Checkbox("Enabled##xray", &cfg.highlight_enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Gamepad chord", &cfg.highlight_gamepad);
@@ -6899,7 +6928,7 @@ namespace overlay
             {"Cycle the minimap zoom", "zoom_key", &mm::Config::zoom_key},
             {"Reload settings, maps and markers", "reload_key", &mm::Config::reload_key},
             {"Copy the full map to the clipboard", "screenshot_key", &mm::Config::screenshot_key},
-            {"Hold for the x-ray highlight", "highlight_key", &mm::Config::highlight_key},
+            {"X-ray highlight", "highlight_key", &mm::Config::highlight_key},
         };
         constexpr int kKeyBindCount = static_cast<int>(std::size(kKeyBinds));
 
@@ -8394,12 +8423,13 @@ namespace overlay
             mm::log(L"debug_show_panel_on_start = 1: the F2 panel starts open (turn it off for normal play)");
         }
         mm::logf(L"hotkeys: {} settings panel, {} full map ({} recentres it), {} reload "
-                 L"config + maps + markers, HOLD {} (pad {}) for the x-ray highlight [{}]; "
+                 L"config + maps + markers, {} {} (pad {}) for the x-ray highlight [{}]; "
                  L"compass {}",
                  mm::key_name(cfg.panel_key),
                  mm::key_name(cfg.map_key),
                  mm::key_name(cfg.map_recenter_key),
                  mm::key_name(cfg.reload_key),
+                 cfg.highlight_mode == mm::HighlightMode::Hold ? L"HOLD" : L"PRESS",
                  mm::key_name(cfg.highlight_key),
                  mm::pad_chord_name(cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt),
                  cfg.highlight_enabled ? L"on" : L"off",
@@ -8720,20 +8750,50 @@ namespace overlay
             pad::poll(want_pad, cfg.map_gamepad_deadzone);
         }
 
-        // THE X-RAY HIGHLIGHT'S HOLD KEY. A hold, not a toggle - so it is sampled as a
-        // level, never edge-detected, and it needs no debounce and no "close it again"
-        // path. The window must be in the foreground, or alt-tabbing away with the key
-        // down would leave the game thread reading the camera forever.
-        bool held = foreground && cfg.highlight_enabled &&
-                    (::GetAsyncKeyState(cfg.highlight_key) & 0x8000) != 0;
-        if (!held && foreground && cfg.highlight_enabled && cfg.highlight_gamepad)
+        // THE X-RAY HIGHLIGHT'S KEY. The key and the pad chord are always sampled as a
+        // LEVEL (`down` below); what `highlight_mode` decides is what that level means.
+        //
+        //   hold   - the original: on while down. No debounce, no "turn it off" path.
+        //   toggle - the default the user asked for: the RISING EDGE of the level flips
+        //            hl's latch. The latch is the one piece of latched input state in
+        //            the mod, so it follows the rule that goes with that (lessons.md):
+        //            it is cleared from live state by hl::drop_caches() - every level
+        //            transition and every dropped pawn - and by turning the feature off.
+        //
+        // Either way the DEMAND handed to hl needs the window in the foreground, or
+        // alt-tabbing would leave the game thread reading the camera for nothing.
+        bool down = cfg.highlight_enabled && (::GetAsyncKeyState(cfg.highlight_key) & 0x8000) != 0;
+        if (!down && cfg.highlight_enabled && cfg.highlight_gamepad)
         {
             const pad::State gp = pad::state();
             const bool chord = (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt) &&
                                (gp.held & cfg.highlight_pad_mask) == cfg.highlight_pad_mask &&
                                (!cfg.highlight_pad_lt || gp.lt > 0.5f) && (!cfg.highlight_pad_rt || gp.rt > 0.5f);
-            held = gp.connected && chord;
+            down = gp.connected && chord;
         }
+        static bool xray_down = false;
+        bool held = false;
+        if (!cfg.highlight_enabled)
+        {
+            hl::xray_latch_clear(L"the highlight was turned off");
+        }
+        else if (cfg.highlight_mode == mm::HighlightMode::Hold)
+        {
+            // Leaving hold mode armed would strand the latch on; clearing it here is
+            // also what makes switching the mode in the panel take effect at once.
+            hl::xray_latch_clear(L"switched to hold mode");
+            held = down;
+        }
+        else
+        {
+            if (down && !xray_down && foreground)
+            {
+                hl::xray_latch_flip();
+            }
+            held = hl::xray_latched();
+        }
+        xray_down = down;
+        held = held && foreground;
         // This is what makes the game thread read the camera at all: with neither the
         // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.
         hl::set_demand(held, cfg.overlay_enabled && cfg.compass_enabled);

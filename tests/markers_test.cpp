@@ -46,6 +46,7 @@
 #include "glyphs.hpp"
 #include "label_layout.hpp"
 #include "mapmanifest.hpp"
+#include "mapdata.hpp"
 #include "mapview.hpp"
 // Brings in <Windows.h> - which is why the two #undefs below exist. `near` and `far`
 // are 16-bit-era keyword macros windef.h still defines (WIN32_LEAN_AND_MEAN does not
@@ -2434,6 +2435,233 @@ namespace
     }
 
     //==================================================================================
+    // The SPARSE height-plane store (src/mapdata.hpp: build_plane + gather_row)
+    //==================================================================================
+    //
+    // The planes used to be eight dense `width * height` uint16 arrays - 343 MB for
+    // chapter 1, three quarters of it the code 0 - and are now 128-px blocks with an
+    // index. The contract is that NO ANSWER CHANGES: an absent block must read as code
+    // 0, which is what the dense array held there. So the test is a differential one
+    // against a dense reference, over patterns that hit every edge the indexing has:
+    // a partial block at the right and bottom edge, an empty block between two full
+    // ones, a row that is empty in one plane and not in another, and columns marked
+    // "outside the asset" (col_x < 0) interleaved with real ones.
+    //
+    // It is also the only place the block store's ARITHMETIC is checkable at all - the
+    // alternative is reading a minimap in-game and guessing.
+
+    void test_height_planes()
+    {
+        section("the sparse height-plane store: gather_row vs a dense reference");
+
+        // 600x500 is 5 x 4 blocks of 128 px with a partial block at the right (88 px)
+        // and at the bottom (116 px), so every combination of full and partial block
+        // is present - and it is big enough that the block store is a saving, which
+        // 300x200 would not have been (6 whole blocks is more cells than the picture).
+        const int w = 600;
+        const int h = 500;
+        std::vector<std::uint16_t> dense(static_cast<std::size_t>(w) * h, 0);
+        // A pattern with structure rather than noise: a diagonal band plus a solid
+        // square in the bottom-right partial block, with block COLUMN 1 (x 128..255)
+        // and block ROW 2 (y 256..383) left deliberately empty. That gives absent
+        // interior blocks in both axes, and 128 rows that are empty across the whole
+        // picture - which is the case gather_row() reports by returning false.
+        for (int y = 0; y < h; ++y)
+        {
+            if (y >= 256 && y < 384)
+            {
+                continue; // the empty block row
+            }
+            for (int x = 0; x < w; ++x)
+            {
+                if (x >= 128 && x < 256)
+                {
+                    continue; // the empty block column
+                }
+                const bool band = ((x + y) % 37) < 7;
+                const bool square = x >= 520 && y >= 400;
+                if (band || square)
+                {
+                    dense[static_cast<std::size_t>(y) * w + x] =
+                        static_cast<std::uint16_t>(1 + ((x * 7 + y * 13) % 4095));
+                }
+            }
+        }
+
+        mapdata::HeightPlane p{};
+        mapdata::build_plane(p, dense.data(), w, h);
+        CHECK_EQ(p.ntx, 5); // ceil(600 / 128)
+        CHECK_EQ(p.nty, 4); // ceil(500 / 128)
+        // Twelve of the twenty: the empty block column and the empty block row are
+        // not allocated at all.
+        CHECK_EQ(p.tiles, 12);
+        CHECK(p.block(1, 0) == nullptr); // the empty column
+        CHECK(p.block(0, 2) == nullptr); // the empty row
+        CHECK(p.block(0, 0) != nullptr);
+        CHECK(!p.empty());
+        // Only the present blocks are paid for.
+        CHECK_EQ(static_cast<long long>(p.data.size()),
+                 static_cast<long long>(p.tiles) * mapdata::kTileCells);
+        CHECK(p.bytes() < dense.size() * sizeof(std::uint16_t));
+
+        mapdata::HeightMaps hm{};
+        hm.width = w;
+        hm.height = h;
+        hm.count = 1;
+        hm.z_min = -1000.0f;
+        hm.z_max = 3000.0f;
+        hm.z_code_max = 4095;
+        hm.layer[0] = p;
+
+        CHECK(!hm.plane_empty(0));
+        CHECK(hm.plane_empty(1));
+        CHECK(hm.plane_empty(-1));
+        CHECK(hm.plane_empty(mapdata::kMaxSurfaces));
+
+        // ---- code_at, everywhere ----------------------------------------------------
+        long long mismatches = 0;
+        for (int y = 0; y < h; ++y)
+        {
+            for (int x = 0; x < w; ++x)
+            {
+                if (hm.code_at(0, x, y) != dense[static_cast<std::size_t>(y) * w + x])
+                {
+                    ++mismatches;
+                }
+            }
+        }
+        CHECK_EQ(mismatches, 0);
+        // Out of bounds is "no surface", not a crash and not a wrap.
+        CHECK_EQ(hm.code_at(0, -1, 0), 0);
+        CHECK_EQ(hm.code_at(0, 0, -1), 0);
+        CHECK_EQ(hm.code_at(0, w, 0), 0);
+        CHECK_EQ(hm.code_at(0, 0, h), 0);
+        CHECK_EQ(hm.code_at(1, 10, 10), 0); // an empty plane
+
+        // ---- gather_row, against the dense reference --------------------------------
+        // Three column sets: 1:1, decimating (the full map's src_step > 1), and one
+        // with out-of-asset columns at both ends and in the middle.
+        std::vector<std::vector<int>> col_sets;
+        {
+            std::vector<int> ones(w);
+            for (int i = 0; i < w; ++i)
+            {
+                ones[static_cast<std::size_t>(i)] = i;
+            }
+            col_sets.push_back(ones);
+
+            std::vector<int> deci(220);
+            for (int i = 0; i < 220; ++i)
+            {
+                const int sx = i * 3 + 1;
+                deci[static_cast<std::size_t>(i)] = sx < w ? sx : -1;
+            }
+            col_sets.push_back(deci);
+
+            std::vector<int> holes(w + 20);
+            for (std::size_t i = 0; i < holes.size(); ++i)
+            {
+                const int sx = static_cast<int>(i) - 10;
+                holes[i] = (sx >= 0 && sx < w && (sx < 300 || sx > 320)) ? sx : -1;
+            }
+            col_sets.push_back(holes);
+        }
+
+        long long gathered_rows = 0;
+        long long skipped_rows = 0;
+        for (const std::vector<int>& cols : col_sets)
+        {
+            const int n = static_cast<int>(cols.size());
+            std::vector<std::uint16_t> got(static_cast<std::size_t>(n), 0xFFFF);
+            for (int y = 0; y < h; ++y)
+            {
+                std::fill(got.begin(), got.end(), static_cast<std::uint16_t>(0xFFFF));
+                const bool any = hm.gather_row(0, y, cols.data(), n, got.data());
+                bool want_any = false;
+                for (int i = 0; i < n; ++i)
+                {
+                    const int sx = cols[static_cast<std::size_t>(i)];
+                    const std::uint16_t want =
+                        sx < 0 ? 0 : dense[static_cast<std::size_t>(y) * w + sx];
+                    want_any = want_any || want != 0;
+                    if (got[static_cast<std::size_t>(i)] != want)
+                    {
+                        ++mismatches;
+                    }
+                }
+                // The return value is "this row contributed something", and the caller
+                // uses it to skip the row - so a false when the row DOES carry a
+                // surface would silently erase a floor.
+                if (any != want_any)
+                {
+                    ++mismatches;
+                }
+                if (any)
+                {
+                    ++gathered_rows;
+                }
+                else
+                {
+                    ++skipped_rows;
+                }
+            }
+        }
+        CHECK_EQ(mismatches, 0);
+        CHECK(gathered_rows > 0);
+        CHECK(skipped_rows > 0); // the empty strip has to produce some
+
+        // A row outside the picture, an empty plane and a nonsense argument all say
+        // "nothing here" rather than reading anything.
+        std::vector<std::uint16_t> one(8, 0xFFFF);
+        const int cols8[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+        CHECK(!hm.gather_row(0, -1, cols8, 8, one.data()));
+        CHECK(!hm.gather_row(0, h, cols8, 8, one.data()));
+        CHECK(!hm.gather_row(1, 0, cols8, 8, one.data()));
+        CHECK(!hm.gather_row(0, 0, cols8, 0, one.data()));
+        CHECK(!hm.gather_row(0, 0, nullptr, 8, one.data()));
+        CHECK(!hm.gather_row(0, 0, cols8, 8, nullptr));
+
+        // ---- first_lit ---------------------------------------------------------------
+        int px = -1;
+        int py = -1;
+        std::uint16_t code = 0;
+        CHECK(hm.first_lit(0, px, py, code));
+        CHECK(px >= 0 && px < w && py >= 0 && py < h);
+        CHECK(code != 0);
+        CHECK_EQ(code, dense[static_cast<std::size_t>(py) * w + px]);
+        CHECK(!hm.first_lit(1, px, py, code)); // an empty plane has none
+
+        // ---- the decode the slicer uses ----------------------------------------------
+        CHECK_NEAR(hm.z_step(), 4000.0f / 4094.0f, 1e-4);
+        CHECK_NEAR(hm.decode(1), -1000.0, 1e-3);   // code 1 is exactly z_min
+        CHECK_NEAR(hm.decode(4095), 3000.0, 1e-2); // and the top code is z_max
+        // 12 bits over this span: the step has to stay far under the slicer's 200 uu
+        // floor tolerance.
+        CHECK(hm.z_step() < 20.0f);
+
+        // ---- an all-empty plane costs the index and nothing else ---------------------
+        std::vector<std::uint16_t> nothing(static_cast<std::size_t>(w) * h, 0);
+        mapdata::HeightPlane blank{};
+        mapdata::build_plane(blank, nothing.data(), w, h);
+        CHECK(blank.empty());
+        CHECK_EQ(static_cast<long long>(blank.tiles), 0);
+        CHECK_EQ(static_cast<long long>(blank.data.size()), 0);
+        CHECK(blank.block(0, 0) == nullptr);
+        // And a degenerate call builds nothing rather than reading a null pointer.
+        mapdata::build_plane(blank, nullptr, w, h);
+        CHECK(blank.empty());
+        mapdata::build_plane(blank, nothing.data(), 0, h);
+        CHECK(blank.empty());
+
+        std::printf("  %dx%d reference: %d/%d blocks of %d px, %llu KB against %llu KB dense; "
+                    "%lld rows gathered, %lld skipped\n",
+                    w, h, p.tiles, p.ntx * p.nty, mapdata::kTilePx,
+                    static_cast<unsigned long long>(p.bytes() / 1024),
+                    static_cast<unsigned long long>(dense.size() * 2 / 1024), gathered_rows,
+                    skipped_rows);
+    }
+
+    //==================================================================================
     // The SHIPPED PNGs, through the runtime's own decode (src/pngdecode.hpp)
     //==================================================================================
     //
@@ -2667,6 +2895,100 @@ namespace
             CHECK_NEAR(tile_ram, tiles * 128.0 * 128.0 * 2.0, 1.0);
             CHECK(tile_ram > 0.0 && tile_ram <= 100.0 * 1024.0 * 1024.0);
             CHECK(dense_ram > 3.0 * tile_ram); // the whole point of the tile store
+
+            // END TO END, on the FIRST chapter only (eight more PNG decodes): put
+            // every shipped plane through pngdec + mapdata::build_plane - the exact
+            // pair the mod runs at a chapter load - and check two things the manifest
+            // cannot check itself.
+            //
+            //   1. The block count the runtime will allocate is the one the pipeline
+            //      measured. If those two ever disagree, one of them is computing
+            //      occupancy differently and the RAM figure in the log is fiction.
+            //   2. gather_row() over the real asset answers exactly what the dense
+            //      buffer it was built from holds, on a sample of rows spread over the
+            //      picture. That is the claim the whole sparse store rests on, and the
+            //      synthetic test in test_height_planes() proves it only for a
+            //      pattern this test's author chose.
+            if (&e == &m.chapters.front())
+            {
+                mapdata::HeightMaps hm{};
+                hm.width = e.image_width;
+                hm.height = e.image_height;
+                hm.z_min = static_cast<float>(e.z_min);
+                hm.z_max = static_cast<float>(e.z_max);
+                hm.z_code_max = e.z_code_max;
+                long long tiles_built = 0;
+                long long mismatches = 0;
+                long long sampled = 0;
+                std::vector<int> col_x(static_cast<std::size_t>(hm.width));
+                for (int i = 0; i < hm.width; ++i)
+                {
+                    col_x[static_cast<std::size_t>(i)] = i;
+                }
+                std::vector<std::uint16_t> got(static_cast<std::size_t>(hm.width), 0);
+                for (std::size_t k = 0; k < e.height_maps.size() && k < mapdata::kMaxSurfaces; ++k)
+                {
+                    std::vector<std::uint8_t> plane_raw;
+                    const std::wstring pp = widen(maps_dir + "/" + e.height_maps[k]);
+                    const pngdec::Result pr = pngdec::decode(pp.c_str(), pngdec::kGray16, plane_raw);
+                    ++g_checks;
+                    if (!pr.ok() || pr.width != hm.width || pr.height != hm.height)
+                    {
+                        ++g_failures;
+                        std::printf("  FAIL  %s did not decode to %dx%d\n",
+                                    e.height_maps[k].c_str(), hm.width, hm.height);
+                        break;
+                    }
+                    const std::uint16_t* src =
+                        reinterpret_cast<const std::uint16_t*>(plane_raw.data());
+                    mapdata::build_plane(hm.layer[k], src, hm.width, hm.height);
+                    hm.count = static_cast<int>(k + 1);
+                    tiles_built += hm.layer[k].tiles;
+
+                    // 37 rows, prime-strided so the sample is not aligned to the
+                    // 128-px block grid.
+                    for (int row = 0; row < 37; ++row)
+                    {
+                        const int sy = (row * 4093) % hm.height;
+                        const bool any =
+                            hm.gather_row(static_cast<int>(k), sy, col_x.data(), hm.width, got.data());
+                        bool want_any = false;
+                        const std::uint16_t* want_row =
+                            src + static_cast<std::size_t>(sy) * static_cast<std::size_t>(hm.width);
+                        for (int x = 0; x < hm.width; ++x)
+                        {
+                            want_any = want_any || want_row[x] != 0;
+                            if (got[static_cast<std::size_t>(x)] != want_row[x])
+                            {
+                                ++mismatches;
+                            }
+                        }
+                        if (any != want_any)
+                        {
+                            ++mismatches;
+                        }
+                        ++sampled;
+                    }
+                }
+                CHECK_EQ(mismatches, 0);
+                CHECK(sampled > 0);
+                CHECK_EQ(tiles_built, static_cast<long long>(tiles));
+                // The manifest's `height_tile_ram_bytes` is the block PAYLOAD; the
+                // runtime also holds one int32 per block slot as the index, which is
+                // 0.05 % on top and is what makes the two numbers differ.
+                const double tiles_total = number_in_chapter(e.key, "height_tiles_128_total", 0.0);
+                CHECK(tiles_total > 0.0);
+                CHECK_EQ(static_cast<long long>(hm.bytes()),
+                         static_cast<long long>(tile_ram + tiles_total * 4.0));
+                CHECK_EQ(static_cast<long long>(hm.dense_bytes()),
+                         static_cast<long long>(dense_ram));
+                std::printf("    %s end to end: %d plane(s) built, %lld block(s) = %llu MB "
+                            "(manifest says %.0f blocks / %.0f MB), %lld row(s) gathered "
+                            "byte-for-byte\n",
+                            e.key.c_str(), hm.count, tiles_built,
+                            static_cast<unsigned long long>(hm.bytes() / (1024 * 1024)), tiles,
+                            tile_ram / (1024.0 * 1024.0), sampled);
+            }
 
             std::printf("  %s: composite %dx%d, %llu opaque px (%.0f %%), z0 %lld lit px, "
                         "codes %d..%d of %d, step %.2f uu, requantise shift %.2f uu, "
@@ -4109,6 +4431,7 @@ int main(int argc, char** argv)
     test_chapter_id();
     test_marker_chapter_filter();
     test_map_manifest(markers_dir);
+    test_height_planes();
     test_map_assets(markers_dir);
     test_config_keys(markers_dir);
     test_config_rewrite(markers_dir);

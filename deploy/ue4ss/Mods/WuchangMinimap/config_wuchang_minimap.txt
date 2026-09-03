@@ -531,6 +531,13 @@ reader_resolve_period_ms = 500
 ; The full menu-widget sweep. The cheap re-test of the widgets already found runs on
 ; EVERY pump, which is what makes the minimap hide the instant a menu opens.
 reader_widget_sweep_period_ms = 250
+; The sweep is a whole-object-array walk (28-51 ms measured). It only ever has to
+; DISCOVER a menu root that has never been seen this session - every root already known
+; is re-tested on every 10 Hz pump - so its period doubles from the value above up to
+; this maximum while nothing new turns up, and drops back to the fast cadence for
+; reader_widget_sweep_warm_ms after any menu-state flip, teleport or world change.
+reader_widget_sweep_max_period_ms = 2000
+reader_widget_sweep_warm_ms = 2000
 ; After any pawn or world change, no blueprint getter is called for this long - the
 ; engine is inside LoadMap and calling one there crashed the game.
 reader_transition_cooldown_ms = 2000

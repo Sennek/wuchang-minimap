@@ -180,3 +180,112 @@ namespace scan
         r.objects += objects;
     }
 } // namespace scan
+
+namespace scan
+{
+    //==================================================================================
+    // The adaptive schedule of the menu-widget discovery sweep
+    //==================================================================================
+    //
+    // `FindAllOf("UserWidget")` is a whole-object-array walk - 28.30 ms average /
+    // 51.05 ms peak in-game - and it ran every 250 ms purely so a menu opening would be
+    // noticed quickly. That is 11-20 % of the game thread spent looking for widgets.
+    //
+    // It can be backed off because the sweep is only ever needed to DISCOVER a menu root
+    // the reader has never seen. gamestate.cpp keeps a watchlist of every widget that
+    // has ever confirmed as an in-viewport `Visible` root (Wuchang constructs its widgets
+    // lazily and then parks them forever, so the object that held a menu open is the same
+    // object the next time that menu opens) and re-tests that handful with the SAME
+    // authoritative test on every 10 Hz pump. So:
+    //
+    //   * a menu CLOSING              -> <= 1 pump  (~100 ms), watchlist re-test
+    //   * a menu opening whose root
+    //     is already on the watchlist -> <= 1 pump  (~100 ms), watchlist re-test
+    //   * a menu opening whose root
+    //     has never been seen         -> <= one sweep period
+    //
+    // Only the third case depends on this schedule, and it is bounded by keeping the
+    // FAST cadence whenever the watchlist is empty (nothing can be detected cheaply yet,
+    // so the very first menu of a session is still found within `fast_ms`) and whenever
+    // the schedule has been re-armed - which every menu-state flip, teleport, world
+    // change and explicit force does, for `warm_ms`. Once warm and quiet the period
+    // doubles per fruitless sweep up to `slow_ms`.
+    //
+    // Nothing here is a latch: the sweep still REBUILDS the open-root set, and the
+    // watchlist only ever supplies candidates - the answer is derived live every pump.
+    //
+    // TIME UNITS: milliseconds (the reader's pump clock is GetTickCount64).
+
+    struct SweepSched
+    {
+        // Tunables (from the config; clamped by the caller).
+        std::uint64_t fast_ms = 250;  // cadence while armed or while nothing is known
+        std::uint64_t slow_ms = 2000; // cadence once warm and quiet
+        std::uint64_t warm_ms = 2000; // how long an arm keeps the fast cadence
+
+        // State.
+        std::uint64_t armed_until = 0; // fast cadence while now < armed_until
+        std::uint64_t next_at = 0;     // the sweep is due when now >= next_at
+        int backoff = 0;               // doublings of fast_ms, 0 = none
+        bool started = false;          // false until the first arm/complete
+    };
+
+    // The largest doubling we will ever apply. fast_ms << 8 is 64 s at the default, far
+    // past slow_ms, so this only exists to keep the shift defined.
+    constexpr int kSweepMaxBackoff = 8;
+
+    // Re-arm the fast cadence and make a sweep due immediately. Called for every event
+    // that can have introduced a menu root we have never seen: start-up, a world or pawn
+    // change, a menu state flip, a teleport, a root dropped from the cache.
+    inline void sweep_arm(SweepSched& s, std::uint64_t now) noexcept
+    {
+        s.armed_until = now + s.warm_ms;
+        s.next_at = now;
+        s.backoff = 0;
+        s.started = true;
+    }
+
+    inline bool sweep_armed(const SweepSched& s, std::uint64_t now) noexcept
+    {
+        return now < s.armed_until;
+    }
+
+    // The cadence that applies right now, before any doubling is decided.
+    inline std::uint64_t sweep_period_ms(const SweepSched& s, std::uint64_t now) noexcept
+    {
+        if (sweep_armed(s, now) || s.backoff <= 0)
+        {
+            return s.fast_ms;
+        }
+        const int shift = s.backoff > kSweepMaxBackoff ? kSweepMaxBackoff : s.backoff;
+        const std::uint64_t p = s.fast_ms << shift;
+        return p > s.slow_ms ? s.slow_ms : p;
+    }
+
+    inline bool sweep_due(const SweepSched& s, std::uint64_t now) noexcept
+    {
+        return !s.started || now >= s.next_at;
+    }
+
+    // Record that a sweep has just run.
+    //   discovered_new - it added a root the watchlist had never seen; something is
+    //                    changing, so stay fast.
+    //   nothing_known  - the watchlist is EMPTY, so no menu could be detected cheaply;
+    //                    the fast cadence is the only latency bound there is.
+    inline void sweep_done(SweepSched& s, std::uint64_t now, bool discovered_new,
+                           bool nothing_known) noexcept
+    {
+        s.started = true;
+        if (discovered_new || nothing_known || sweep_armed(s, now))
+        {
+            s.backoff = 0;
+        }
+        else if (s.backoff < kSweepMaxBackoff)
+        {
+            ++s.backoff;
+        }
+        // All three "stay fast" cases have just set backoff to 0, so this is fast_ms
+        // for them and the doubled period for everything else.
+        s.next_at = now + sweep_period_ms(s, now);
+    }
+} // namespace scan

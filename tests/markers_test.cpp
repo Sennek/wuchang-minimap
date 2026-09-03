@@ -768,6 +768,100 @@ namespace
             CHECK_NEAR(r.avg_ms(), 0.75, 1e-12);
         }
     }
+
+    //======================================================================================
+    // The adaptive menu-widget discovery sweep (scan::SweepSched)
+    //======================================================================================
+    //
+    // The FindAllOf("UserWidget") sweep costs 28-51 ms of whole-object-array walk and it
+    // used to run every 250 ms. It now only has to DISCOVER a menu root nobody has ever
+    // seen: gamestate.cpp re-tests every root it has ever confirmed on each 10 Hz pump.
+    // This schedule is the part of that which can be proven with the game closed.
+
+    void test_sweep_sched()
+    {
+        std::printf("-- the adaptive menu-widget sweep schedule --\n");
+
+        scan::SweepSched s{};
+        CHECK(s.fast_ms == 250);
+        CHECK(s.slow_ms == 2000);
+        CHECK(s.warm_ms == 2000);
+
+        // Never run: due immediately, so a fresh reader sweeps on its first pump.
+        CHECK(scan::sweep_due(s, 0));
+        CHECK(scan::sweep_due(s, 12345));
+
+        // Arming makes it due now and restores the fast cadence.
+        scan::sweep_arm(s, 10000);
+        CHECK(scan::sweep_due(s, 10000));
+        CHECK(scan::sweep_armed(s, 10000));
+        CHECK(scan::sweep_armed(s, 11999));
+        CHECK(!scan::sweep_armed(s, 12000)); // warm_ms after the arm
+
+        // While armed, a fruitless sweep still reschedules at the fast cadence.
+        scan::sweep_done(s, 10000, false, false);
+        CHECK(s.backoff == 0);
+        CHECK(!scan::sweep_due(s, 10249));
+        CHECK(scan::sweep_due(s, 10250));
+
+        // Once warm and quiet the period doubles per fruitless sweep, capped at slow_ms.
+        scan::SweepSched q{};
+        scan::sweep_arm(q, 0);
+        scan::sweep_done(q, 5000, false, false); // 5 s in: no longer armed
+        CHECK(q.backoff == 1);
+        CHECK(scan::sweep_period_ms(q, 5000) == 500);
+        CHECK(!scan::sweep_due(q, 5499));
+        CHECK(scan::sweep_due(q, 5500));
+        scan::sweep_done(q, 5500, false, false);
+        CHECK(scan::sweep_period_ms(q, 5500) == 1000);
+        scan::sweep_done(q, 6500, false, false);
+        CHECK(scan::sweep_period_ms(q, 6500) == 2000);
+        scan::sweep_done(q, 8500, false, false);
+        CHECK(scan::sweep_period_ms(q, 8500) == 2000); // clamped at slow_ms
+        scan::sweep_done(q, 10500, false, false);
+        CHECK(scan::sweep_period_ms(q, 10500) == 2000);
+
+        // Discovering a new root resets the backoff: something is changing.
+        scan::sweep_done(q, 12500, true, false);
+        CHECK(q.backoff == 0);
+        CHECK(scan::sweep_period_ms(q, 12500) == 250);
+
+        // THE LATENCY GUARANTEE. While nothing at all is on the watchlist there is no
+        // cheap per-pump test that could notice a menu, so the sweep must stay fast no
+        // matter how long it has been quiet - that is what bounds the FIRST menu open of
+        // a session at one fast period.
+        scan::SweepSched e{};
+        scan::sweep_arm(e, 0);
+        for (std::uint64_t t = 0; t < 60000; t += 250)
+        {
+            scan::sweep_done(e, t, false, /*nothing_known=*/true);
+            CHECK(e.backoff == 0);
+            CHECK(scan::sweep_period_ms(e, t) == 250);
+        }
+
+        // A re-arm in the middle of a backed-off run puts it straight back to fast and
+        // makes a sweep due on the spot (this is what a menu flip / teleport does).
+        scan::SweepSched r2{};
+        scan::sweep_arm(r2, 0);
+        scan::sweep_done(r2, 9000, false, false);
+        scan::sweep_done(r2, 11000, false, false);
+        CHECK(scan::sweep_period_ms(r2, 11000) > 250);
+        scan::sweep_arm(r2, 11500);
+        CHECK(scan::sweep_due(r2, 11500));
+        CHECK(scan::sweep_period_ms(r2, 11500) == 250);
+
+        // The shift is bounded, so a very long quiet run can never overflow or exceed
+        // slow_ms.
+        scan::SweepSched b{};
+        b.slow_ms = 1000000;
+        scan::sweep_arm(b, 0);
+        for (int i = 0; i < 40; ++i)
+        {
+            scan::sweep_done(b, 100000, false, false);
+        }
+        CHECK(b.backoff == scan::kSweepMaxBackoff);
+        CHECK(scan::sweep_period_ms(b, 100000) == 250ull << scan::kSweepMaxBackoff);
+    }
     //======================================================================================
     // src/projection.hpp - world -> screen
     //======================================================================================
@@ -1825,6 +1919,7 @@ int main(int argc, char** argv)
     test_ids();
     test_mapview();
     test_scan_sched();
+    test_sweep_sched();
     test_projection();
     test_compass();
     test_chapter_id();

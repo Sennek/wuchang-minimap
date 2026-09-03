@@ -105,6 +105,8 @@ namespace cfgkeys
         "reader_position_period_ms",
         "reader_resolve_period_ms",
         "reader_widget_sweep_period_ms",
+        "reader_widget_sweep_max_period_ms",
+        "reader_widget_sweep_warm_ms",
         "reader_transition_cooldown_ms",
         "reader_teleport_jump_uu",
         "reader_chapter_period_ms",

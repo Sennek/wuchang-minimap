@@ -56,7 +56,12 @@ namespace mm
 
         std::uint32_t widgets_seen = 0;
         std::uint32_t widgets_visible_in_viewport = 0;
-        std::uint32_t menu_roots_cached = 0; // in-viewport roots re-tested every pump
+        std::uint32_t menu_roots_cached = 0; // in-viewport roots open right now
+        // Widgets on the menu WATCHLIST (every root ever confirmed in the viewport this
+        // session; all of them are re-tested on every pump) and the period the FindAllOf
+        // discovery sweep has currently backed off to.
+        std::uint32_t menu_watch_count = 0;
+        std::uint32_t widget_sweep_period_ms = 0;
         // GetTickCount64() when menu_open last CHANGED, and the number of pumps since.
         // The overlay uses it for the short "menu just closed" delay, and the F2 debug
         // block prints the age so the hide/show latency is measurable in one screenshot.
@@ -415,7 +420,15 @@ namespace mm
 
         int reader_position_period_ms = 100;      // 10 Hz: pawn location + yaw
         int reader_resolve_period_ms = 500;       // 2 Hz: FindAllOf for the pawn / controller
-        int reader_widget_sweep_period_ms = 250;  // the full menu-widget sweep
+        int reader_widget_sweep_period_ms = 250;  // the full menu-widget sweep, fast cadence
+        // The sweep is a whole-object-array walk (28-51 ms). It only ever has to
+        // DISCOVER a menu root that has never been seen: every root already on the
+        // watchlist is re-tested on every 10 Hz pump. So the period doubles from
+        // reader_widget_sweep_period_ms up to this maximum while nothing new is found,
+        // and drops back to the fast cadence for reader_widget_sweep_warm_ms after any
+        // menu-state flip, teleport or world change.
+        int reader_widget_sweep_max_period_ms = 2000;
+        int reader_widget_sweep_warm_ms = 2000;
         int reader_transition_cooldown_ms = 2000; // no UFunction call for this long after a pawn/world change
         double reader_teleport_jump_uu = 3000.0;  // a position jump this big in one pump is a fast travel
         int reader_chapter_period_ms = 1000;      // how often the streamed level set is named

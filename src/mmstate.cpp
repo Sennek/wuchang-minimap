@@ -1031,6 +1031,15 @@ namespace mm
             {
                 cfg.reader_resolve_period_ms = parse_int(value, cfg.reader_resolve_period_ms);
             }
+            else if (key == "reader_widget_sweep_max_period_ms")
+            {
+                cfg.reader_widget_sweep_max_period_ms =
+                    parse_int(value, cfg.reader_widget_sweep_max_period_ms);
+            }
+            else if (key == "reader_widget_sweep_warm_ms")
+            {
+                cfg.reader_widget_sweep_warm_ms = parse_int(value, cfg.reader_widget_sweep_warm_ms);
+            }
             else if (key == "reader_widget_sweep_period_ms")
             {
                 cfg.reader_widget_sweep_period_ms = parse_int(value, cfg.reader_widget_sweep_period_ms);
@@ -1449,6 +1458,10 @@ namespace mm
         cfg.reader_position_period_ms = (std::max)(16, (std::min)(1000, cfg.reader_position_period_ms));
         cfg.reader_resolve_period_ms = (std::max)(100, (std::min)(10000, cfg.reader_resolve_period_ms));
         cfg.reader_widget_sweep_period_ms = (std::max)(50, (std::min)(5000, cfg.reader_widget_sweep_period_ms));
+        cfg.reader_widget_sweep_max_period_ms =
+            (std::max)(cfg.reader_widget_sweep_period_ms,
+                       (std::min)(30000, cfg.reader_widget_sweep_max_period_ms));
+        cfg.reader_widget_sweep_warm_ms = (std::max)(0, (std::min)(60000, cfg.reader_widget_sweep_warm_ms));
         cfg.reader_transition_cooldown_ms = (std::max)(0, (std::min)(30000, cfg.reader_transition_cooldown_ms));
         cfg.reader_teleport_jump_uu = (std::max)(200.0, (std::min)(100000.0, cfg.reader_teleport_jump_uu));
         cfg.reader_chapter_period_ms = (std::max)(200, (std::min)(60000, cfg.reader_chapter_period_ms));
@@ -1578,6 +1591,9 @@ namespace mm
         out += "reader_position_period_ms = " + std::to_string(cfg.reader_position_period_ms) + "\n";
         out += "reader_resolve_period_ms = " + std::to_string(cfg.reader_resolve_period_ms) + "\n";
         out += "reader_widget_sweep_period_ms = " + std::to_string(cfg.reader_widget_sweep_period_ms) + "\n";
+        out += "reader_widget_sweep_max_period_ms = " +
+               std::to_string(cfg.reader_widget_sweep_max_period_ms) + "\n";
+        out += "reader_widget_sweep_warm_ms = " + std::to_string(cfg.reader_widget_sweep_warm_ms) + "\n";
         out += "reader_transition_cooldown_ms = " + std::to_string(cfg.reader_transition_cooldown_ms) + "\n";
         out += "reader_teleport_jump_uu = " + std::format("{:.0f}", cfg.reader_teleport_jump_uu) + "\n";
         out += "reader_chapter_period_ms = " + std::to_string(cfg.reader_chapter_period_ms) + "\n";

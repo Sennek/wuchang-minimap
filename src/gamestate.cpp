@@ -15,6 +15,7 @@
 #include "markers_db.hpp"
 #include "mem.hpp"
 #include "mmstate.hpp"
+#include "scan_sched.hpp"
 #include "ue_min.hpp"
 #include "uereflect.hpp"
 
@@ -41,10 +42,17 @@ namespace gamestate
         //     of root widgets we have already seen in the viewport. That is a few
         //     GUObjectArray checks and a few byte reads - no FindAllOf, no allocation,
         //     no ProcessEvent - and it is what makes hiding immediate.
-        //   * every kWidgetFullPeriodMs: the full FindAllOf("UserWidget") sweep, which
-        //     is the only thing that can DISCOVER a root the first time a given menu is
-        //     opened in a session (a widget that has never been Visible has never been
-        //     IsInViewport()-tested, so it cannot be in the cache yet).
+        //   * every kWidgetFullPeriodMs AT MOST: the full FindAllOf("UserWidget") sweep,
+        //     which is the only thing that can DISCOVER a root the first time a given
+        //     menu is opened in a session (a widget that has never been Visible has never
+        //     been IsInViewport()-tested, so it cannot be on the watchlist yet).
+        //
+        // The sweep is 28-51 ms of whole-object-array walk, so it is now on an ADAPTIVE
+        // schedule (scan::SweepSched): this value is its fast cadence, it doubles up to
+        // reader_widget_sweep_max_period_ms while nothing new is discovered, and any
+        // menu-state flip / teleport / world change puts it back to fast. What bounds the
+        // latency instead is the per-pump pass, which now re-tests EVERY root ever seen -
+        // see menu_from_cached_roots().
         constexpr std::uint64_t kWidgetFullPeriodMs = 250;
         constexpr std::size_t kMaxWidgets = 6000;  // sanity cap on one FindAllOf pass
         constexpr std::size_t kMaxMenuRoots = 32;  // cache cap; the game only ever has 5-6
@@ -94,7 +102,6 @@ namespace gamestate
 
         std::uint64_t g_last_position = 0;
         std::uint64_t g_last_resolve = 0;
-        std::uint64_t g_last_widgets = 0;
         std::uint64_t g_cooldown_until = 0;
         std::uint64_t g_state_ok_since = 0;
 
@@ -112,6 +119,22 @@ namespace gamestate
         // answer - see the comment on menu_from_cached_roots() for why the byte alone
         // latched the minimap off forever.
         std::vector<uer::ObjRef> g_menu_roots;
+
+        // EVERY widget that has ever confirmed as an in-viewport `Visible` root this
+        // session. Wuchang constructs its widgets lazily and then parks them forever
+        // (lessons.md: instance counts only grow, 763 -> 1696 as menus are first
+        // opened), so the object that held a menu open IS the object the next time that
+        // menu opens. Re-testing this handful with the authoritative test on every pump
+        // is what lets the discovery sweep back off - see scan::SweepSched.
+        //
+        // It is a CANDIDATE list, never an answer: `g_menu_roots` (the open roots) is
+        // rebuilt from live tests every pump, so nothing here can latch. Entries leave
+        // only when the object dies or the world changes.
+        std::vector<uer::ObjRef> g_menu_watch;
+
+        // The adaptive cadence of the discovery sweep (pure arithmetic in
+        // scan_sched.hpp, tested offline).
+        scan::SweepSched g_sweep{};
 
         // The root that is currently holding "a menu is open" true, for the F2 debug
         // block and the log. Empty when no root is visible.
@@ -175,6 +198,9 @@ namespace gamestate
             g_tune.position_ms = static_cast<std::uint64_t>(cfg.reader_position_period_ms);
             g_tune.resolve_ms = static_cast<std::uint64_t>(cfg.reader_resolve_period_ms);
             g_tune.widget_sweep_ms = static_cast<std::uint64_t>(cfg.reader_widget_sweep_period_ms);
+            g_sweep.fast_ms = g_tune.widget_sweep_ms;
+            g_sweep.slow_ms = static_cast<std::uint64_t>(cfg.reader_widget_sweep_max_period_ms);
+            g_sweep.warm_ms = static_cast<std::uint64_t>(cfg.reader_widget_sweep_warm_ms);
             g_tune.cooldown_ms = static_cast<std::uint64_t>(cfg.reader_transition_cooldown_ms);
             g_tune.log_throttle_ms = static_cast<std::uint64_t>(cfg.reader_log_throttle_ms);
             g_tune.chapter_ms = static_cast<std::uint64_t>(cfg.reader_chapter_period_ms);
@@ -241,6 +267,7 @@ namespace gamestate
             g_menu_open = true;
             g_menu_change_ms = now;
             g_menu_roots.clear(); // the widgets belonged to the world that just went
+            g_menu_watch.clear();
             g_menu_holder.clear();
             g_force_widget_sweep = true;
             g_have_last_pos = false;
@@ -519,28 +546,34 @@ namespace gamestate
             return has_byte && vis == 0;
         }
 
-        void remember_menu_root(UObject* w)
+        // Put a confirmed in-viewport root on the WATCHLIST. Returns true when it was
+        // not already there - that is the "the sweep discovered something" signal that
+        // keeps the discovery cadence fast (scan::sweep_done).
+        bool watch_menu_root(UObject* w)
         {
-            for (const uer::ObjRef& ref : g_menu_roots)
+            for (const uer::ObjRef& ref : g_menu_watch)
             {
                 if (ref.obj == w)
                 {
-                    return;
+                    return false;
                 }
             }
-            if (g_menu_roots.size() >= g_tune.max_menu_roots)
+            if (g_menu_watch.size() >= g_tune.max_menu_roots)
             {
-                return;
+                return false;
             }
             uer::ObjRef ref{};
             if (uer::capture(w, ref))
             {
-                g_menu_roots.push_back(ref);
-                mm::logf(L"menu root seen in the viewport: {} (now {} cached root(s); the "
-                         L"menu test re-confirms these at 10 Hz)",
+                g_menu_watch.push_back(ref);
+                mm::logf(L"menu root discovered: {} (watchlist now {} widget(s); they are "
+                         L"re-tested at 10 Hz, so this menu is caught within one pump from "
+                         L"now on)",
                          w->GetName(),
-                         g_menu_roots.size());
+                         g_menu_watch.size());
+                return true;
             }
+            return false;
         }
 
         // Does this widget answer IsInViewport() == true right now? One ProcessEvent,
@@ -571,40 +604,42 @@ namespace gamestate
         // longer in the viewport is DROPPED from the cache (the sweep re-discovers it
         // the next time that menu opens). There is no latch left: the value returned is
         // derived from live state on every single pump.
+        // It runs over the WATCHLIST (every root ever seen), not only over the roots that
+        // were open last pump, so re-opening a menu is caught here too - which is what
+        // lets the FindAllOf discovery sweep back off to 2 s. `g_menu_roots` (the roots
+        // that are open right now) is REBUILT from this pass, so it cannot latch.
         bool menu_from_cached_roots(std::uint32_t& visible_count, std::wstring& holder)
         {
             bool menu = false;
             visible_count = 0;
-            for (std::size_t i = 0; i < g_menu_roots.size();)
+            const std::size_t was_open = g_menu_roots.size();
+            g_menu_roots.clear();
+            for (std::size_t i = 0; i < g_menu_watch.size();)
             {
-                UObject* w = g_menu_roots[i].obj;
-                if (!uer::alive(g_menu_roots[i]))
+                UObject* w = g_menu_watch[i].obj;
+                if (!uer::alive(g_menu_watch[i]))
                 {
-                    g_menu_roots.erase(g_menu_roots.begin() + static_cast<std::ptrdiff_t>(i));
+                    g_menu_watch.erase(g_menu_watch.begin() + static_cast<std::ptrdiff_t>(i));
                     g_force_widget_sweep = true;
-                    mm::logf(L"menu root dropped (the widget object died); {} cached root(s) left",
-                             g_menu_roots.size());
+                    mm::logf(L"menu root dropped (the widget object died); watchlist now {}",
+                             g_menu_watch.size());
                     continue;
                 }
                 bool has_byte = false;
                 if (!widget_is_visible_byte(w, has_byte))
                 {
-                    ++i; // in the viewport, just not ESlateVisibility::Visible
+                    ++i; // parked, just not ESlateVisibility::Visible
                     continue;
                 }
                 if (!widget_in_viewport(w))
                 {
-                    // THE FIX. Visible but no longer in the viewport = the menu closed
-                    // and the game never touched the widget's Visibility byte.
-                    const std::wstring name = w->GetName();
-                    g_menu_roots.erase(g_menu_roots.begin() + static_cast<std::ptrdiff_t>(i));
-                    g_force_widget_sweep = true;
-                    mm::logf(L"menu root dropped ({} is still Visible but no longer in the "
-                             L"viewport - that menu closed); {} cached root(s) left",
-                             name,
-                             g_menu_roots.size());
+                    // Visible but not in the viewport = that menu is closed. The widget
+                    // STAYS on the watchlist (Wuchang never destroys it and it is how the
+                    // next open is caught in one pump) - it simply does not count now.
+                    ++i;
                     continue;
                 }
+                g_menu_roots.push_back(g_menu_watch[i]);
                 ++visible_count;
                 if (!menu)
                 {
@@ -613,14 +648,22 @@ namespace gamestate
                 menu = true;
                 ++i;
             }
+            if (was_open != g_menu_roots.size())
+            {
+                // A root opening or closing is a state change: re-arm the fast discovery
+                // cadence, because whatever the player just did may also have built a
+                // menu root we have never seen.
+                g_force_widget_sweep = true;
+            }
             return menu;
         }
 
         // THE FULL SWEEP. Also returns "a menu is up", and REBUILDS the root cache from
         // scratch - a root that does not confirm in this pass is gone, so the cache can
         // never outlive the state it describes.
-        bool update_widgets(std::wstring& holder)
+        bool update_widgets(std::wstring& holder, bool& discovered_new)
         {
+            discovered_new = false;
             std::vector<uer::ObjRef> confirmed;
             std::vector<UObject*> widgets;
             UObjectGlobals::FindAllOf(L"UserWidget", widgets);
@@ -672,9 +715,10 @@ namespace gamestate
                         holder = w->GetName();
                     }
                     menu = true;
-                    // Cache it: from now on this root is re-tested every pump, so the
-                    // NEXT time this menu opens the minimap hides within ~100 ms.
-                    remember_menu_root(w);
+                    // Watch it: from now on this root is re-tested every pump, so the
+                    // NEXT time this menu opens the minimap hides within ~100 ms and the
+                    // discovery sweep no longer has to run often for its sake.
+                    discovered_new = watch_menu_root(w) || discovered_new;
                     uer::ObjRef ref{};
                     if (uer::capture(w, ref))
                     {
@@ -1087,13 +1131,25 @@ namespace gamestate
             std::uint32_t roots_visible = 0;
             std::wstring holder;
             bool menu = menu_from_cached_roots(roots_visible, holder);
-            const bool swept = g_force_widget_sweep || (now - g_last_widgets >= g_tune.widget_sweep_ms);
+
+            // The discovery sweep's cadence. Every event that can have created a menu
+            // root we have never seen re-arms the fast cadence (and makes a sweep due
+            // now); a quiet, warm reader lets the period double up to
+            // reader_widget_sweep_max_period_ms. The latency this schedule bounds is ONLY
+            // "a menu whose root has never been seen this session opened" - everything
+            // else is answered by the watchlist pass above, one pump after it happens.
+            if (g_force_widget_sweep)
+            {
+                g_force_widget_sweep = false;
+                scan::sweep_arm(g_sweep, now);
+            }
+            const bool swept = scan::sweep_due(g_sweep, now);
             if (swept)
             {
-                g_last_widgets = now;
-                g_force_widget_sweep = false;
                 std::wstring sweep_holder;
-                const bool sweep_menu = update_widgets(sweep_holder);
+                bool discovered_new = false;
+                const bool sweep_menu = update_widgets(sweep_holder, discovered_new);
+                scan::sweep_done(g_sweep, now, discovered_new, g_menu_watch.empty());
                 // After a sweep the sweep IS the answer. OR-ing the cached pass's older
                 // answer over it - which is what the first version did - lets a root the
                 // sweep has just dropped win, and that is the latch that hid the minimap
@@ -1128,6 +1184,9 @@ namespace gamestate
             snap.widgets_seen = g_widgets_seen;
             snap.widgets_visible_in_viewport = g_widgets_visible;
             snap.menu_roots_cached = static_cast<std::uint32_t>(g_menu_roots.size());
+            snap.menu_watch_count = static_cast<std::uint32_t>(g_menu_watch.size());
+            snap.widget_sweep_period_ms =
+                static_cast<std::uint32_t>(scan::sweep_period_ms(g_sweep, now));
             snap.menu_change_ms = g_menu_change_ms;
             snap.pawn_is_gameplay = true;
             copy_to(snap.menu_holder, std::size(snap.menu_holder), g_menu_holder);
@@ -1270,7 +1329,8 @@ namespace gamestate
         }
         mm::logf(L"state: pawn {} pos {:.0f} {:.0f} {:.0f} yaw {:.0f} ({}) | chapter {} ({} level(s), "
                  L"map \"{}\") | pawn-view {} | menu {} "
-                 L"(last change {} ms ago, {} cached root(s)) | widgets {}/{} | {}{} publishes",
+                 L"(last change {} ms ago, {} cached root(s)) | widgets {}/{} | "
+                 L"sweep every {} ms (watchlist {}) | {}{} publishes",
                  snap.has_pawn ? L"yes" : L"NO",
                  snap.x,
                  snap.y,
@@ -1291,6 +1351,8 @@ namespace gamestate
                  snap.menu_roots_cached,
                  snap.widgets_visible_in_viewport,
                  snap.widgets_seen,
+                 snap.widget_sweep_period_ms,
+                 snap.menu_watch_count,
                  snap.transition ? L"TRANSITION | " : L"",
                  g_publishes.load());
     }

@@ -999,6 +999,184 @@ works with `highlight_enabled = 0` and during the camera reader's warm-up; the F
 is in use. The arithmetic - wrap into `(-180, 180]`, bearings in the mod's `+X` north / `+Y` east frame,
 strip positions, tick ranks - is pure and lives in `src/compass.cpp`, which `markers_test` links.
 
+## The marker data pipeline
+
+Everything under `markers\` except `chapter1.sample.json` is **generated** from the game's
+paks by `tools\markers\*.py` (Python 3.10+, `pycryptodome` for the AES-encrypted pak index —
+nothing else). One command regenerates all of it:
+
+```powershell
+python tools\regen_all.py                 # every step, all six chapters
+python tools\regen_all.py --verify        # + score the result against the recon dumps
+python tools\regen_all.py --no-pak-hash   # skip the 63 GB of sha256 while iterating
+python tools\regen_all.py --list          # the step graph
+python tools\regen_all.py --only extract  # one step (repeatable)
+```
+
+It points itself at the game through `WUCHANG_PAK` (the base `.pak`) or
+`WUCHANG_GAME_ROOT` (the install folder), or `--pak`; there is no hardcoded install path
+in the pipeline. Before the first step runs it checks the paks exist and are readable,
+that both `_N_P` patch paks are present (the DLC levels and the patched `DT_FirePoint`
+live in them), that `pycryptodome` imports and that `markers\` is writable — because the
+alternative is discovering it several minutes into a full run. A failing step **stops** the
+run: every later step reads what an earlier one wrote, so continuing would leave a
+half-updated `markers\` that no diff can be trusted against.
+
+### The step graph
+
+| step | script | writes | needs |
+|---|---|---|---|
+| `items` | `build_items.py` | `markers/items.json` | — |
+| `graph` | `class_graph.py` | `tools/markers/class_graph.json` | — |
+| `categories` | `build_categories.py` | `markers/categories.json` | `graph` |
+| `enemies` | `build_enemies.py` | `markers/enemies.json` | `graph` |
+| `bosses` | `build_bosses.py` | `markers/bosses.json` | `graph` |
+| `npcs` | `build_npcs.py` | `markers/npcs.json` | — |
+| `extract` | `extract_markers.py` | `markers/chapter{1..5,dlc}.json` | the five above |
+| `bossdoors` | `build_bossdoors.py` | `markers/bossdoors.json` | `extract` |
+| `rebake` | `extract_markers.py` | `markers/chapter*.json` | `bossdoors` |
+| `shrines` | `extract_shrines.py` | `markers/shrines.json` | `extract` |
+| `recount` | `build_enemies.py` | `markers/enemies.json` | `extract` |
+| `verify` | `verify_markers.py` | nothing (reports) | `--verify` |
+
+Of these only `chapter*.json`, `shrines.json` and `items.json` are **shipped**;
+`categories.json`, `enemies.json`, `bosses.json`, `npcs.json`, `bossdoors.json` and
+`class_graph.json` are toolchain artifacts that get baked into the chapter files, so the
+runtime reads three files rather than nine.
+
+Two things about the order are not obvious and are the reason the driver exists:
+
+* **`bossdoors` is a genuine cycle.** `build_bossdoors.py` joins the level scripts'
+  `ST_LevelScriptBossData` to the *boss marker ids* that `extract_markers.py` writes, and
+  `extract_markers.py` then bakes the resulting `bossdoor` id back onto those markers. So a
+  full run is extract → bossdoors → extract. The driver skips the second extraction when
+  `bossdoors.json` came out byte-identical, which is the normal case.
+* **`categories` and `enemies` must precede `extract`.** `marker_classes.py` reads both at
+  import time: `categories.json` is the class → category table and `enemies.json` carries
+  the elite split. Running `extract` first silently falls back to the 1.0.0 hand-written
+  class list — which ships **fewer** markers, and says so on stderr.
+
+The run ends with a summary table: per step the status, the wall time and the outputs; then
+markers per chapter and category, and the delta against whatever was in `markers\` before
+the run. That delta is the sanity check to read — a regeneration should move names, items,
+categories and new entries, and **no coordinate of an existing marker**.
+
+### Category assignment is a class-graph question
+
+`markers/categories.json` is the descendants of one base class per category, read out of
+every cooked `.uasset` export map's `super` field (`class_graph.py`, ~40 s for 81 353
+assets, cached and committed as `tools/markers/class_graph.json`). `build_categories.py`
+holds the *choice of bases* and the precedence; everything below a base is data:
+
+```
+shrine  BP_RebornFire_C          door      BP_InteractionObject_Door_C, BP_NewPuzzlesDoor_C
+hidden  BP_PickUpActor_Trap_C    fog_gate  BP_Wumen_C + its two siblings
+chest   BP_ItemBox_C             ladder    BP_LadderV2_C, BP_InteractionLadder_C
+pickup  BP_PickupActor_C, BP_PickUpPT_C, ItemCollectionBox_C
+note    DKDC_NPC_C, ReadPointSP_NPC_C, Letter01_NPC_C
+boss    BP_PlacedBossAI_C        lift      BP_ElevatorBase_C, BP_ElevatorBox_C
+npc     BP_NPC_C                 enemy     BP_BaseAI_C
+```
+
+The order matters and is not cosmetic. Five `BP_NPC_C` descendants have a category of their
+own (`BP_RebornFire_C` is a shrine, the three read-points are notes, `ItemCollectionBox_C`
+is a pickup), and `BP_PickUpActor_Trap_C` is a `BP_PickupActor_C` descendant that must be
+`hidden`. `boss` precedes `enemy` because the 32 boss classes are `BP_BaseAI_C` descendants
+too.
+
+`BP_BaseAI_C` (314 descendants, **zero** overlap with `BP_NPC_C`'s 78) is what made `enemy`
+a class question instead of a level-name one. The `*_AI` sublevel heuristic survives only as
+a counted fallback for classes whose `super` the graph never recorded, and the extractor
+prints the rule mix (`rule:table`, `rule:ai-level`, `rule:noise`, `rule:unmatched`) plus
+**every class placed in a `_logic` level that matched no category**, which is the report
+that finds the next gap instead of waiting for somebody to notice a wrong count.
+
+### What the data cannot tell you
+
+Three answers are absent from the game, and each is worth knowing before someone tries
+again:
+
+* **Ordinary enemies have no name.** `MMGame.locres` has 30 `boss_name_*` keys and 61
+  `npc_*` keys and no `monster_*` / `enemy_*` / `ai_name_*` family at all; a `DT_AiTable`
+  row carries no text but the class `FName`; the `FText`-in-the-blueprint route that names
+  every NPC returns nothing for six representative enemy blueprints (with the NPC asset as
+  the positive control in the same run); and `help_noun_*` is a mechanics glossary, not a
+  bestiary. `python tools\markers\build_enemies.py --prove` re-runs all four. So 8 enemy
+  classes get a real name (variants and phases of named characters, which do own a
+  `boss_name_<id>`) and the rest read "Enemy" — deliberately not a tidied Pinyin class name,
+  which would only look like a name.
+* **The DLC has no fire-point rows.** `DT_FirePoint` has 88 rows covering chapters 1-5 and
+  its name map does not contain `BaiYS01`, `BaiYS02`, `borencl01`, `borencl02`, `LiuHKK01`
+  or `pinmingk01`. There is no second fire-point table in the paks, no `ChapterDLC` folder
+  under `Content/Scene/3D/Others/FirePoint/`, and no DLC area name among the `ui_*` keys. So
+  the seven DLC shrines are added to `shrines.json` from the marker DB with the marker's own
+  `Shrine <fire-point id>` label and no `BirthPosition`, and the same absence is why the DLC
+  boss is one of the two `bosses_without_a_door` in `bossdoors.json`.
+* **The DLC pickups carry no item.** All 77 configured `BP_PickupActor_C` instances in the
+  DLC hold `[{20001, 1}]` and the whole `ChapterDLC_*_logic` set contains exactly **one**
+  distinct valid item id where one Chapter-1 sublevel carries 19. 20001 is the *first row*
+  of `DT_Item_ToolTable` and appears zero times across chapters 1-5, i.e. it is the default
+  index of the blueprint's own editor tool (`BP_PickupActor_C` exposes
+  `GetItemsByEditorTool` and `ReplaceItemIDByGamePlus`). `extract_markers.PLACEHOLDER_ITEM_IDS`
+  suppresses it, so those markers read "Pickup" rather than 77 copies of "Ancient Chisel".
+
+### Provenance
+
+Every generated file carries the same four fields, so a marker database is auditable
+against the build it came from:
+
+```json
+"game_build": "5.1.1.0",
+"exe":  {"name": "Project_Plague-Win64-Shipping.exe", "size": 141464648, "sha256": "..."},
+"pak":  [{"name": "Project_Plague-Windows.pak", "size": 44740955247, "sha256": "..."}, ...],
+"extractor_commit": "9a46681"
+```
+
+`game_build` is the exe's `FILEVERSION`, which is what a running mod can read cheaply for
+itself, so the runtime can compare and warn. Know what it is worth on this title, though:
+Leenzee ship no game build number — that string is the *engine* version and its
+`ProductVersion` is `++UE5+Release-5.1-CL-0`, so it will not move across game patches. The
+identifiers that do move are the digests. They are cached in
+`tools/markers/.provenance-cache.json` (gitignored, keyed on path + size + mtime) because
+hashing the pak set is ~45 s; `--no-pak-hash` records sizes only and writes
+`"sha256": null`, which is honest rather than absent. Every field is optional to a reader,
+which is what keeps the schema at `.../1`.
+
+### Verifying against the game
+
+`verify_markers.py` scores the extracted coordinates against the WuchangRecon **F8 world
+dumps** — the same `(level short name, cooked object name)` join key `FindAllOf` reports
+in-game — and it defaults to the dumps committed to this repo
+(`tools/lua-recon/WuchangRecon/out/dump_*_world.txt`, kept by an explicit `.gitignore`
+exception), so it runs on a fresh clone with no game installed:
+
+```powershell
+python tools\markers\verify_markers.py                # every chapter, repo dumps
+python tools\markers\verify_markers.py --require      # non-zero exit on a disagreement
+```
+
+The dumps only cover what was streamed in when F8 was pressed, so most chapters report "not
+loaded in any dump" and that is not a failure. Of the 255 markers the committed dumps do
+cover, 252 agree with a **median error of 0.000 uu**; the three that do not are all
+`BP_WoodenElevator_C` — a moving platform's cooked transform is its authored start, not a
+fact — which is why the regen driver runs this as a report and not as a gate.
+
+### Data invariants in the test suite
+
+`tests/markers_test.cpp`'s `test_data_invariants` runs over **every** shipped
+`markers/*.json` on each build (`build.ps1` passes the repo's `markers\` directory as
+`argv[1]`), not just chapter 1: each file parses with `skipped == 0`, `unknown_cat == 0` and
+the expected chapter label; no marker id repeats within a file or across files (the loader
+globs them into one id-keyed database, so a collision is a marker that can never be marked
+found); every `(chapter, category)` clears a floor from a table in the test — including the
+explicit zeros, so "chapter 5 has no ladder" is a recorded decision rather than a blind
+spot; every item id a pickup references is a row of `items.json`; every shrine marker has a
+row in `shrines.json`; and no single name accounts for more than half of a
+`(chapter, category)`'s **named** entries, which is the check that would have caught the 77
+DLC "Ancient Chisel" pickups on the build machine.
+
+---
+
 ## Markers
 
 Markers come from two halves that are merged by a **stable id**, and the id is the whole design:
@@ -1096,8 +1274,10 @@ it. A crash leaves a `CrashContext.runtime-xml`; a HANG leaves nothing, which is
 - [x] Markers: shrines, chests, pickups, doors, fog gates, ladders, lifts and enemies, drawn as
       ImDrawList glyphs, with the live state sweep, the static `markers/<chapter>.json` database and the
       auto-marking collection tracker. **Not yet verified in-game.**
-- [ ] `tools/markers`: the offline extraction that fills `markers/<chapter>.json` from the cooked
-      `.umap` cells (the runtime already loads it; only the hand-written sample exists so far).
+- [x] `tools/markers`: the offline extraction that fills `markers/<chapter>.json` from the cooked
+      `.umap` sublevels - 3 626 markers across the five chapters and the DLC, categories from the
+      blueprint class graph, names from `MMGame.locres`, and one driver
+      ([`tools/regen_all.py`](#the-marker-data-pipeline)) that rebuilds all of it.
 - [x] Full-screen pannable map (**M**): the same height-sliced asset at map scale with a floor
       adjustment, mouse + keyboard + XInput pan/zoom, the shared marker glyphs and category filter,
       hover tooltips, manual found toggling, and a persistent waypoint that is also drawn edge-clamped

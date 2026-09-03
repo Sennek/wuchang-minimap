@@ -755,9 +755,22 @@ namespace overlay
         HWND g_hwnd = nullptr;
         WNDPROC g_prev_wndproc = nullptr;
 
-        bool g_imgui_ready = false;
-        bool g_rt_ready = false;
-        bool g_failed = false;
+        // ATOMIC, because all three are written by the RENDER thread and read by other
+        // threads: `g_imgui_ready` gates the WndProc hook's whole body on the GAME
+        // thread, and the F2 panel / the loop thread read the other two. As plain bools
+        // this was a data race whose worst outcome is the game thread recording into the
+        // message ring - or skipping it - one frame after the render thread has torn the
+        // ring's consumer down. `std::atomic<bool>` converts implicitly, so every use
+        // site below reads and writes them exactly as before, only atomically.
+        std::atomic<bool> g_imgui_ready{false};
+        std::atomic<bool> g_rt_ready{false};
+        // NOT TERMINAL FOR A SWAPCHAIN-LEVEL FAILURE. `g_failed` means "this mod cannot
+        // draw and must stop trying": a hook that would not install, a device that is
+        // not reachable, an ImGui backend that would not start, or an exception escaping
+        // our own frame. A lost device or a replaced swapchain is NOT that - it goes
+        // through `request_readoption()` instead, which tears the D3D12 objects down and
+        // lets the next Present adopt the new ones.
+        std::atomic<bool> g_failed{false};
 
         // The chapter composite - only loaded when fallback_use_composite = 1, or when
         // the height maps failed to load at all.

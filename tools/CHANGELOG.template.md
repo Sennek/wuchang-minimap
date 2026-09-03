@@ -54,6 +54,11 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   this is the file to attach to a bug report - it is still there after you have restarted
   the game to try something else.
 
+- **Shrines have names.** Every shrine marker used to read "Shrine digong01"; it now
+  carries the game's own rest-point name - "Mercury Workshop", "Reverent Temple",
+  "Pavilion of Knowledge" - on the map, in the tooltip, in the x-ray label and in the
+  compass pip. All 50 shrines in the main game; the 7 in the DLC keep the id, because the
+  DLC's fire points have no row in the game's fire-point table. No marker moved.
 - **NPCs have names.** Every NPC marker used to read "NPC"; they now carry the game's
   own English name - "He Youzai", "Huang Jian'e", "Wu Gang", "Qiao Ying", "Villager" -
   on the map, in the tooltip and in the x-ray label. All of them, and no marker moved.

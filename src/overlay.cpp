@@ -1206,6 +1206,63 @@ namespace overlay
         }
 
         //==============================================================================
+        // [fix-ui] HOTKEY SWALLOW (review B.13)
+        //==============================================================================
+        //
+        // A key bound to a mod action used to reach the game as well: the loop thread
+        // samples it with GetAsyncKeyState and the WndProc hook let the message through,
+        // so `M` opened the full map AND did whatever `M` does in the game. The async
+        // key state is kernel-side and cannot be denied to a game that polls it
+        // (lessons.md) - but the WINDOW MESSAGE can be, and that is how UE reads its
+        // keyboard here.
+        //
+        // The decision has to cost one atomic read, because it runs on the window thread
+        // for every key message. So the LOOP thread - the only place that knows which
+        // bindings exist, which of them are live at this instant and whether their
+        // modifier is held - publishes a 256-bit set of virtual keys, and this tests a
+        // bit. publish_swallow_set(), in the hotkey block, is the other half.
+        //
+        // NOT filtered: a raw-input (WM_INPUT) keyboard packet. The panel's Esc path is
+        // the precedent for how that would be done, and it costs a RID_INPUT read on
+        // every packet; if a game turns out to read gameplay keys that way, the
+        // GetRegisteredRawInputDevices line already in the log says so.
+        std::atomic<std::uint32_t> g_swallow_bits[8]{};
+
+        void swallow_set_clear()
+        {
+            for (std::atomic<std::uint32_t>& w : g_swallow_bits)
+            {
+                w.store(0, std::memory_order_relaxed);
+            }
+        }
+
+        void swallow_set_add(int vk)
+        {
+            if (vk > 0 && vk < 256)
+            {
+                g_swallow_bits[vk >> 5].fetch_or(1u << (static_cast<unsigned>(vk) & 31u),
+                                                 std::memory_order_relaxed);
+            }
+        }
+
+        // Key DOWN / UP only. WM_CHAR carries a character rather than a virtual key, so
+        // testing it against a VK would be a coincidence, and nothing here reads text.
+        bool is_hotkey_message(UINT msg)
+        {
+            return msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP;
+        }
+
+        bool hotkey_swallow(WPARAM wparam)
+        {
+            const unsigned vk = static_cast<unsigned>(wparam);
+            if (vk == 0 || vk >= 256)
+            {
+                return false;
+            }
+            return (g_swallow_bits[vk >> 5].load(std::memory_order_relaxed) & (1u << (vk & 31u))) != 0;
+        }
+
+        //==============================================================================
         // WndProc hook
         //==============================================================================
 
@@ -1539,6 +1596,11 @@ namespace overlay
                     {
                         return 1;
                     }
+                }
+                // [fix-ui] hotkey swallow - one atomic read; see g_swallow_bits above.
+                if (is_hotkey_message(msg) && hotkey_swallow(wparam))
+                {
+                    return 1;
                 }
             }
             if (g_prev_wndproc == nullptr)
@@ -2683,22 +2745,14 @@ namespace overlay
             draw_srv(dl, t.srv_gpu, uv, g, col, round, x0, y0, side);
         }
 
-        // mm::key_name is wide (the log is wide); ImGui is UTF-8. Key names are pure
-        // ASCII, so this is a cast per character - but it has to be an EXPLICIT one:
+        // The mod's own wide strings (the log is wide) rendered for ImGui, which is
+        // UTF-8. Key names, chord names and stage names are pure ASCII, so this is a
+        // cast per character - but it has to be an EXPLICIT one:
         // std::string(w.begin(), w.end()) compiles and warns (C4244), and this mod
         // ships warning-free.
-        std::string key_name_ascii(int vk)
-        {
-            const std::wstring wide = mm::key_name(vk);
-            std::string out;
-            out.reserve(wide.size());
-            for (const wchar_t c : wide)
-            {
-                out.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
-            }
-            return out;
-        }
-
+        //
+        // ONE converter. key_name_ascii() used to be a byte-for-byte copy of this with
+        // `mm::key_name(vk)` inlined into it (review B.22).
         std::string wide_to_ascii(const std::wstring& wide)
         {
             std::string out;
@@ -2708,6 +2762,12 @@ namespace overlay
                 out.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
             }
             return out;
+        }
+
+        // A binding's display name, modifier prefix included ("F2", "CTRL+M").
+        std::string key_name_ascii(int binding)
+        {
+            return wide_to_ascii(mm::key_name(binding));
         }
 
         // THE KEY HINTS. Built from the CONFIG, never from the defaults, so a rebound key
@@ -2775,6 +2835,14 @@ namespace overlay
         // the wheel-over-the-disc gesture and the zoom_key press both land here and are
         // applied in on_update(). Accumulated, so a fast flick of the wheel is not lost.
         std::atomic<int> g_zoom_steps{0};
+
+        // "THE HUD HAS BEEN ON SCREEN AT LEAST ONCE", published by the render thread the
+        // first frame hud_gate() answers "yes" - i.e. the first frame with a validated
+        // gameplay pawn, which is the first frame a player could see anything of ours.
+        // The first-run tip waits for it (review B.2): it used to fire on the first pass
+        // of on_update, over the splash screen, and write its once-per-install sentinel
+        // there. Set once and never cleared - it is a "has happened", not a state.
+        std::atomic<bool> g_hud_gate_ever_open{false};
 
         gly::Palette g_palette = gly::Palette::Default;
         mdb::Rgb g_plate = gly::theme_colors(gly::Theme::Neutral).plate;
@@ -5985,9 +6053,21 @@ namespace overlay
             {
                 want_fit = true;
             }
-            // `?` (and pad Back, below) toggles the controls legend. One long
+            // F1 / H (and pad Back, below) toggle the controls legend. One long
             // TextDisabled sentence in the footer was unreadable and could not grow.
-            if (ImGui::IsKeyPressed(ImGuiKey_Slash, false))
+            //
+            // NOT `?`: the footer and the legend both advertised `?` while the code
+            // tested ImGuiKey_Slash, i.e. the UNSHIFTED key - so on a keyboard where `?`
+            // needs Shift (every US/UK layout) the advertised gesture opened nothing and
+            // an undocumented one did. `?` is a CHARACTER, not a key, and ImGui's key
+            // enum has no portable name for it, so the honest fix is to bind keys that
+            // can be named: F1 (the universal help key) and H. Both are safe bare keys
+            // here - the full map is a MODE and swallows the whole keyboard for as long
+            // as it is open (lessons.md) - and F1 is not in the F6/F9/F10/F11/F12
+            // minefield this machine's other injected DLLs own. `/` stays wired as an
+            // unadvertised third route so nobody's muscle memory breaks.
+            if (ImGui::IsKeyPressed(ImGuiKey_F1, false) || ImGui::IsKeyPressed(ImGuiKey_H, false) ||
+                ImGui::IsKeyPressed(ImGuiKey_Slash, false))
             {
                 g_map_help = !g_map_help;
             }
@@ -6397,7 +6477,7 @@ namespace overlay
                 add(left, key_name_ascii(cfg.screenshot_key), "copy the map to the clipboard");
                 add(left, "Shrines", "shrine list (click = waypoint, double-click = centre)");
                 add(left, "Stats", "collection statistics");
-                add(left, "?", "this legend");
+                add(left, "F1 or H", "this legend");
                 add(left, key_name_ascii(cfg.map_key) + ", Esc", "close the map");
                 if (cfg.map_gamepad && gp.connected)
                 {
@@ -6484,7 +6564,7 @@ namespace overlay
             }
             else
             {
-                ImGui::TextDisabled("? (or pad Back) shows the controls   %s or Esc closes the map",
+                ImGui::TextDisabled("F1 or H (or pad Back) shows the controls   %s or Esc closes the map",
                                     key_name_ascii(cfg.map_key).c_str());
             }
             ImGui::TextDisabled("%d of %d marker(s)   cut %dx%d @ %.2f ms%s", g_map_markers_drawn,
@@ -6493,7 +6573,10 @@ namespace overlay
 
             ImGui::End();
 
-            if (std::memcmp(&before, &cfg, sizeof(mm::Config)) != 0)
+            // Field by field (review B.19), not memcmp: a Config is a value, and
+            // `mm::operator==` is generated from the struct with a byte-flip drift
+            // guard behind it in markers_test.
+            if (before != cfg)
             {
                 mm::set_config(cfg);
             }
@@ -7838,8 +7921,17 @@ namespace overlay
             char padmod[64]{};
             ::WideCharToMultiByte(CP_UTF8, 0, pad::module_name(), -1, padmod, sizeof(padmod) - 1, nullptr,
                                   nullptr);
+            // TRUTHFUL, whatever the answer is (review B.1). This line read `none` for
+            // ever in 1.0.0 - not because no pad was plugged in, but because XInput was
+            // only polled while the full map was open, and the map could only be opened
+            // from the keyboard. So it now also says whether anything is ASKING: with
+            // map_gamepad off nothing polls, and "none" then means "not looked at".
             ImGui::Text("pad: %s (%s)   sticks %.2f,%.2f / %.2f,%.2f   triggers %.2f/%.2f",
-                        gp.connected ? "connected" : "none",
+                        gp.connected ? "connected"
+                                     : (cfg.map_gamepad ||
+                                        (cfg.highlight_enabled && cfg.highlight_gamepad))
+                                           ? "none found (polling)"
+                                           : "not polled (map_gamepad = 0)",
                         padmod,
                         static_cast<double>(gp.lx),
                         static_cast<double>(gp.ly),
@@ -8052,9 +8144,11 @@ namespace overlay
 
             const mm::Config before = cfg;
 
+            // The version and nothing else. "beta" was a note to ourselves and 1.0.0 is
+            // not one (lessons.md: a user-visible "not yet verified" line is a note to
+            // OURSELVES); version.hpp is the single source of truth for the string.
             ImGui::TextColored(ImVec4{0.62f, 0.68f, 0.78f, 1.0f},
-                               "WuchangMinimap v" WUCHANG_MINIMAP_VERSION
-                               "  -  beta");
+                               "WuchangMinimap v" WUCHANG_MINIMAP_VERSION);
 
             // The tabs get their own child so the Save / Revert / master-switch row is
             // always at the bottom of the window and never scrolls away with them.
@@ -8093,14 +8187,22 @@ namespace overlay
 
             ImGui::Separator();
             // The button says WHICH FILE it writes: there are two now, and the panel is
-            // the only place that says which of them a setting lives in.
-            if (ImGui::Button("Save to config_wuchang_minimap.txt"))
+            // the only place that says which of them a setting lives in. And it has to
+            // say BOTH when both are written - a Save with a dev file present (or with a
+            // Dev dial moved off its default, which is what the Debug tab does) rewrites
+            // config_wuchang_minimap_dev.txt as well, and a button that named one file
+            // while writing two is exactly the kind of thing a bug report starts with.
+            const bool dev_too = mm::dev_config_active();
+            if (ImGui::Button(dev_too ? "Save to config_wuchang_minimap.txt + _dev.txt"
+                                      : "Save to config_wuchang_minimap.txt"))
             {
                 mm::g_save_config = true;
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Write the current settings back to the config file.");
+                ImGui::SetTooltip(dev_too ? "Write the current settings back to config_wuchang_minimap.txt "
+                                            "and the developer dials to config_wuchang_minimap_dev.txt."
+                                          : "Write the current settings back to the config file.");
             }
             ImGui::SameLine();
             if (ImGui::Button("Revert"))
@@ -8155,7 +8257,10 @@ namespace overlay
 
             ImGui::End();
 
-            if (std::memcmp(&before, &cfg, sizeof(mm::Config)) != 0)
+            // Field by field (review B.19), not memcmp: a Config is a value, and
+            // `mm::operator==` is generated from the struct with a byte-flip drift
+            // guard behind it in markers_test.
+            if (before != cfg)
             {
                 mm::set_config(cfg);
             }
@@ -8196,6 +8301,12 @@ namespace overlay
             // config copy, which is why `cfg` is a mutable copy: nothing downstream has
             // to know the fade exists, and no scaled value can reach the config file.
             const bool gate_open = have && hud_gate(cfg, snap, have, frame_now) == nullptr;
+            if (gate_open && !g_hud_gate_ever_open.load(std::memory_order_relaxed))
+            {
+                // The first frame anything of ours could be seen. The first-run tip on
+                // the loop thread is waiting for exactly this (review B.2).
+                g_hud_gate_ever_open.store(true, std::memory_order_release);
+            }
             const float fade = hud_fade_step(gate_open && cfg.overlay_enabled, frame_now);
             cfg.opacity *= fade;
             cfg.compass_opacity *= fade;
@@ -9622,12 +9733,42 @@ namespace overlay
         mm::modlog_flush();
     }
 
+    //==================================================================================
+    // ONE DEBOUNCE PER BINDING
+    //==================================================================================
+    //
+    // Until 1.0.1 the four toggles shared a single `last_key` timestamp, so a press of
+    // the map key within 250 ms of the panel key was DROPPED - two unrelated actions
+    // debouncing each other. The debounce exists to swallow a contact bounce and a key
+    // repeat of the SAME key, which is a property of one binding, so it lives with the
+    // binding: `Edge` is the level plus the last accepted time of exactly one hotkey.
+    constexpr std::uint64_t kEdgeDebounceMs = 250;
+
+    struct Edge
+    {
+        bool down = false;
+        std::uint64_t last_ms = 0;
+    };
+
+    // True exactly once on the rising edge of `now_down`, and never twice inside
+    // kEdgeDebounceMs. The level is recorded whatever the answer, so a key held down
+    // through a gate closing cannot fire when the gate opens again.
+    bool edge_fired(Edge& e, bool now_down, std::uint64_t now)
+    {
+        const bool fire = now_down && !e.down && (e.last_ms == 0 || now - e.last_ms > kEdgeDebounceMs);
+        if (fire)
+        {
+            e.last_ms = now;
+        }
+        e.down = now_down;
+        return fire;
+    }
+
     void on_update()
     {
         // UE4SS EVENT-LOOP THREAD. No D3D12, no UObjects.
-        static bool panel_down = false;
-        static bool reload_down = false;
-        static std::uint64_t last_key = 0;
+        static Edge panel_edge{};
+        static Edge reload_edge{};
         static bool logged_first_present = false;
 
         const mm::Config& cfg = mm::cfg_cached();
@@ -9725,50 +9866,133 @@ namespace overlay
             }
         }
 
-        const bool panel_now = (::GetAsyncKeyState(cfg.panel_key) & 0x8000) != 0;
-        if (panel_now && !panel_down && foreground && now - last_key > 250)
+        // THE BINDINGS, sampled as a LEVEL with their modifier (review B.13). A binding
+        // carries its virtual key in the low byte and one modifier in bits 8..9
+        // (mm::key_vk / mm::key_mod), so `map_key = ctrl+m` is one int and one sample.
+        //
+        // A binding with NO modifier does not require the modifiers to be up: the x-ray
+        // hold key is Alt by default, and demanding a clean Alt would have made every
+        // other hotkey dead for as long as the x-ray is held. The Bindings tab names
+        // that overlap rather than the code inventing a rule about it.
+        const auto mod_held = [](int mod) {
+            switch (mod)
+            {
+            case mm::kKeyModCtrl:
+                return (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            case mm::kKeyModShift:
+                return (::GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+            case mm::kKeyModAlt:
+                return (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            default:
+                return true;
+            }
+        };
+        const auto key_down = [&mod_held](int binding) {
+            const int vk = mm::key_vk(binding);
+            if (vk == 0)
+            {
+                return false; // `none` - deliberately unbound
+            }
+            return (::GetAsyncKeyState(vk) & 0x8000) != 0 && mod_held(mm::key_mod(binding));
+        };
+
+        // WHAT THE WINDOW THREAD MAY SWALLOW, recomputed on every 60 Hz pass (review
+        // B.13). A key is in the set only while the action it is bound to can actually
+        // fire, so `C` is the game's again the moment the full map closes, and the
+        // modifier has to be held for a modified binding - `ctrl+m` never costs the game
+        // a bare `m`.
+        //
+        // Three keys are NEVER swallowed however they are bound: Alt+F4, Alt+Enter and
+        // Alt+Tab are the player's way out of a game that is misbehaving, and a mod that
+        // eats them is a mod nobody can quit. (Review B.4 is the same bug in the map's
+        // blanket swallow.)
         {
-            last_key = now;
+            const bool map_open_now = mm::g_map_open.load(std::memory_order_relaxed);
+            swallow_set_clear();
+            const auto arm = [&](int binding, bool live) {
+                const int vk = mm::key_vk(binding);
+                if (!live || vk == 0 || !mod_held(mm::key_mod(binding)))
+                {
+                    return;
+                }
+                const bool alt_now = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+                if (alt_now && (vk == VK_F4 || vk == VK_RETURN || vk == VK_TAB))
+                {
+                    return;
+                }
+                swallow_set_add(vk);
+            };
+            if (mm::mod_active() && foreground)
+            {
+                arm(cfg.panel_key, true);
+                arm(cfg.reload_key, true);
+                arm(cfg.map_key, true);
+                arm(cfg.zoom_key, !map_open_now);
+                arm(cfg.screenshot_key, map_open_now);
+                arm(cfg.map_recenter_key, map_open_now);
+                arm(cfg.highlight_key, cfg.highlight_enabled);
+            }
+        }
+
+        if (edge_fired(panel_edge, key_down(cfg.panel_key), now) && foreground)
+        {
             const bool open = !mm::g_panel_open.load();
             mm::g_panel_open = open;
             MM_LOGV(L"settings panel {}", open ? L"opened" : L"closed");
         }
-        panel_down = panel_now;
 
-        const bool reload_now = (::GetAsyncKeyState(cfg.reload_key) & 0x8000) != 0;
-        if (reload_now && !reload_down && foreground && now - last_key > 250)
+        if (edge_fired(reload_edge, key_down(cfg.reload_key), now) && foreground)
         {
-            last_key = now;
             mm::g_reload_config = true;
         }
-        reload_down = reload_now;
 
         // The full map. GetAsyncKeyState rather than a WndProc test on purpose: while
         // the map is open the WndProc hook swallows every key, so the message-based
         // route could not close it again.
-        static bool map_down = false;
-        const bool map_now = (::GetAsyncKeyState(cfg.map_key) & 0x8000) != 0;
-        if (map_now && !map_down && foreground && now - last_key > 250)
+        static Edge map_edge{};
+        if (edge_fired(map_edge, key_down(cfg.map_key), now) && foreground)
         {
-            last_key = now;
             const bool open = !mm::g_map_open.load();
             mm::g_map_open = open;
             MM_LOGV(L"full map {}", open ? L"opened" : L"closed");
         }
-        map_down = map_now;
+
+        // THE FULL MAP ON A GAMEPAD (review B.1). Every pad control inside the map was
+        // unreachable for a controller-only player, because nothing opened the map: the
+        // key is a keyboard key and `want_pad` only polled XInput once the map was
+        // already open. The chord is a press of ALL its buttons at once, taken from the
+        // held mask rather than from the edge accumulator, so the order they go down in
+        // does not matter; `map_pad_open_chord = none` disables it.
+        static bool pad_chord_down = false;
+        if (cfg.map_gamepad && cfg.map_pad_open_chord != 0)
+        {
+            const pad::State gp_open = pad::state();
+            const bool chord_now = gp_open.connected &&
+                                   (gp_open.held & cfg.map_pad_open_chord) == cfg.map_pad_open_chord;
+            if (chord_now && !pad_chord_down)
+            {
+                const bool open = !mm::g_map_open.load();
+                mm::g_map_open = open;
+                mm::logf(L"full map {} (pad {})", open ? L"opened" : L"closed",
+                         mm::pad_chord_name(cfg.map_pad_open_chord, false, false));
+            }
+            pad_chord_down = chord_now;
+        }
+        else
+        {
+            pad_chord_down = false;
+        }
 
         // THE MINIMAP ZOOM LADDER. `zoom_key` is a press, the wheel gesture arrives as
         // accumulated steps from the render thread, and both are applied here - the loop
         // thread is the only one allowed to publish a config. Skipped while the full map
         // is open: it swallows the keyboard and owns its own zoom.
-        static bool zoom_down = false;
-        const bool zoom_now = (::GetAsyncKeyState(cfg.zoom_key) & 0x8000) != 0;
-        if (zoom_now && !zoom_down && foreground && !mm::g_map_open.load() && now - last_key > 250)
+        static Edge zoom_edge{};
+        if (edge_fired(zoom_edge, key_down(cfg.zoom_key), now) && foreground &&
+            !mm::g_map_open.load())
         {
-            last_key = now;
             g_zoom_steps.fetch_add(1, std::memory_order_relaxed);
         }
-        zoom_down = zoom_now;
         if (const int steps = g_zoom_steps.exchange(0, std::memory_order_relaxed); steps != 0)
         {
             mm::Config edit = mm::config();
@@ -9782,11 +10006,31 @@ namespace overlay
             if (edit.zoom_uu_per_px != cfg.zoom_uu_per_px)
             {
                 mm::set_config(edit);
+                // ON SCREEN, not only in the log (review B.9). The zoom key was the one
+                // in-play gesture whose only feedback was a log line: the picture does
+                // change, but at 13 -> 26 uu/px on a small disc that is not obviously
+                // "I changed a setting" rather than "the map moved". One second is long
+                // enough to read and short enough not to sit over the game.
+                const int rung =
+                    mv::zoom_preset_index(edit.minimap_zoom_presets, n, edit.zoom_uu_per_px);
+                char note[64]{};
+                if (rung >= 0)
+                {
+                    (void)std::snprintf(note, sizeof(note), "minimap zoom  %.0f uu/px  (%d of %d)",
+                                        static_cast<double>(edit.zoom_uu_per_px), rung + 1, n);
+                }
+                else
+                {
+                    (void)std::snprintf(note, sizeof(note), "minimap zoom  %.0f uu/px",
+                                        static_cast<double>(edit.zoom_uu_per_px));
+                }
+                post_toast(note, 1000);
                 mm::logf(L"minimap zoom: {:.0f} uu/px (cycled with {} over {} preset(s))",
                          edit.zoom_uu_per_px, mm::key_name(edit.zoom_key), n);
             }
             else if (n <= 0)
             {
+                post_toast("minimap_zoom_presets is empty - nothing to cycle", 1500);
                 mm::log(L"minimap zoom: minimap_zoom_presets is empty - nothing to cycle through");
             }
         }
@@ -9795,8 +10039,15 @@ namespace overlay
         // are actually bound, because "the mod does nothing" is almost always "I did not
         // know which key opens it". The sentinel is a file next to the config, so
         // reinstalling into a clean folder shows it again and a config reload does not.
+        //
+        // IT WAITS FOR THE HUD (review B.2). It used to fire on the first pass of this
+        // function - at process start, over the splash screen and the main menu, where
+        // nothing of ours draws - and it wrote the sentinel there too, so the one tip a
+        // player ever gets was spent on a screen that never showed it. The gate is the
+        // render thread's own "the HUD may be on screen" answer, published the first
+        // time it opens, i.e. the first frame with a validated gameplay pawn.
         static bool first_run_checked = false;
-        if (!first_run_checked && cfg.first_run_toast)
+        if (!first_run_checked && cfg.first_run_toast && g_hud_gate_ever_open.load(std::memory_order_acquire))
         {
             first_run_checked = true;
             const std::wstring sentinel = mm::mod_dir() + L"\\wuchang_minimap_firstrun.txt";
@@ -9826,13 +10077,12 @@ namespace overlay
         // MAP -> CLIPBOARD. Only while the full map is open, which is also what makes a
         // plain letter safe as the default: the map mode swallows every keyboard message
         // (lessons.md), so `C` cannot reach the game while this can fire.
-        static bool shot_down = false;
-        const bool shot_now = (::GetAsyncKeyState(cfg.screenshot_key) & 0x8000) != 0;
-        if (shot_now && !shot_down && foreground && mm::g_map_open.load())
+        static Edge shot_edge{};
+        if (edge_fired(shot_edge, key_down(cfg.screenshot_key), now) && foreground &&
+            mm::g_map_open.load())
         {
             g_shot_request.store(true, std::memory_order_release);
         }
-        shot_down = shot_now;
 
         // The finished bitmap, handed over by the render thread. The clipboard API opens
         // a window-station-wide lock and can block; it belongs here and nowhere near
@@ -9895,18 +10145,30 @@ namespace overlay
                      dib.size());
         }
 
-        static bool recenter_down = false;
-        const bool recenter_now = (::GetAsyncKeyState(cfg.map_recenter_key) & 0x8000) != 0;
-        if (recenter_now && !recenter_down && foreground && mm::g_map_open.load())
+        static Edge recenter_edge{};
+        if (edge_fired(recenter_edge, key_down(cfg.map_recenter_key), now) && foreground &&
+            mm::g_map_open.load())
         {
             g_map_recenter.store(true, std::memory_order_relaxed);
         }
-        recenter_down = recenter_now;
 
         // XInput, on THIS thread - the same place the keyboard is sampled, and never on
-        // the game thread (lessons.md). Polling a disconnected pad is expensive, so it
-        // only runs while something wants it: the full map, or the highlight's chord.
-        const bool want_pad = (cfg.map_gamepad && mm::g_map_open.load()) ||
+        // the game thread (lessons.md).
+        //
+        // WHY THIS IS NOT GATED ON THE MAP BEING OPEN ANY MORE (review B.1). It was
+        // `map_gamepad && map_open`, and that is a deadlock in the shape of a condition:
+        // the only thing that could open the map was a keyboard key, so a controller-only
+        // player could never reach any of the pad controls inside it, and the Debug tab's
+        // "gamepad connected" line said `false` for ever because nothing had ever asked.
+        //
+        // The cost that gate existed to avoid is polling an EMPTY slot, and gamepad.cpp
+        // already handles that itself: with no pad found it probes the four slots once a
+        // second and returns, and once a slot answers it follows that one at whatever
+        // rate it is called (a connected-slot XInputGetState is a handful of
+        // microseconds). So "poll whenever the feature is switched on" is a ~1 Hz probe
+        // when nothing is plugged in and full rate as soon as something is - which is
+        // exactly what the map, the open chord and the x-ray chord all need.
+        const bool want_pad = cfg.map_gamepad ||
                               (cfg.highlight_enabled && cfg.highlight_gamepad &&
                                (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt));
         // Its own row: `XInputGetState` on an empty slot costs about a millisecond, and
@@ -9935,7 +10197,7 @@ namespace overlay
         //
         // Either way the DEMAND handed to hl needs the window in the foreground, or
         // alt-tabbing would leave the game thread reading the camera for nothing.
-        bool down = cfg.highlight_enabled && (::GetAsyncKeyState(cfg.highlight_key) & 0x8000) != 0;
+        bool down = cfg.highlight_enabled && key_down(cfg.highlight_key);
         if (!down && cfg.highlight_enabled && cfg.highlight_gamepad)
         {
             const pad::State gp = pad::state();

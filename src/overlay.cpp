@@ -9617,7 +9617,35 @@ namespace overlay
                                                reinterpret_cast<void**>(&o_Present1));
             const MH_STATUS s4 = MH_CreateHook(addr[3], reinterpret_cast<void*>(&hk_ExecuteCommandLists),
                                                reinterpret_cast<void**>(&o_ExecuteCommandLists));
-            const MH_STATUS en = MH_EnableHook(MH_ALL_HOOKS);
+
+            // THE STATUSES ARE CHECKED BEFORE ANYTHING IS ENABLED. MH_EnableHook used to
+            // run first, so a partial install (Present created, ExecuteCommandLists not)
+            // left LIVE trampolines behind while this function reported failure - and
+            // `g_hooks_created` then stayed false, so the master switch's re-enable took
+            // the "install from scratch" branch and ran the dummy-device discovery
+            // again on top of hooks that were already in place. Either both required
+            // hooks exist or nothing of ours is installed at all.
+            const MH_STATUS created[kHookCount] = {s1, s2, s3, s4};
+            const bool required_ok = s1 == MH_OK && s4 == MH_OK;
+            MH_STATUS en = MH_ERROR_NOT_CREATED;
+            if (required_ok)
+            {
+                en = MH_EnableHook(MH_ALL_HOOKS);
+            }
+            if (!required_ok || en != MH_OK)
+            {
+                for (int i = 0; i < kHookCount; ++i)
+                {
+                    if (created[i] == MH_OK)
+                    {
+                        MH_DisableHook(addr[i]);
+                        MH_RemoveHook(addr[i]);
+                    }
+                }
+                mm::log(L"hooks: the required pair (Present, ExecuteCommandLists) did not install, so "
+                        L"every trampoline that HAD been created was removed again - nothing of this "
+                        L"mod is in the game's call path");
+            }
 
             g_hook_report = std::format(L"{} | Present {} @ {} | ResizeBuffers {} @ {} | Present1 {} @ {} | "
                                         L"ExecuteCommandLists {} @ {} | enable {}",
@@ -9638,7 +9666,7 @@ namespace overlay
                      addr[2],
                      addr[3]);
             log_overlay_modules();
-            const bool ok = (s1 == MH_OK && s4 == MH_OK && en == MH_OK);
+            const bool ok = required_ok && en == MH_OK;
             if (!ok)
             {
                 mm::log(L"at least one required hook did not install - the overlay will not draw");

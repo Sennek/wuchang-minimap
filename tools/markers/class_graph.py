@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Build the game's blueprint class graph (class -> super) from the paks.
+
+Every cooked `.uasset` that defines a blueprint carries a
+`BlueprintGeneratedClass` export whose `super` field names its parent -- and
+`super` is in the export map, which needs no `.usmap`. Sweeping all 81 k
+`.uasset` entries therefore yields the whole BP inheritance graph offline.
+
+Why it matters: `src/markers.cpp`'s class table matches by NAME up the super
+chain, so one base class entry covers every subclass. The game has ~50
+`*_NPC_C` blueprints and they all derive from `BP_NPC_C`; without the graph
+that is a guess.
+
+    python class_graph.py --out class_graph.json
+    python class_graph.py --out class_graph.json --children BP_NPC_C
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+
+import pakmaps
+import inspect_classes
+
+BGC = ("BlueprintGeneratedClass", "WidgetBlueprintGeneratedClass",
+       "AnimBlueprintGeneratedClass")
+
+
+def build(src: pakmaps.MapSource, verbose: bool = True) -> dict:
+    keys = sorted(k for k in src.owner if k.endswith(".uasset"))
+    graph: dict[str, str] = {}
+    where: dict[str, str] = {}
+    t0 = time.time()
+    for i, k in enumerate(keys):
+        if verbose and i % 5000 == 0:
+            print(f"  {i}/{len(keys)}  {time.time() - t0:.0f}s  {len(graph)} classes",
+                  file=sys.stderr)
+        try:
+            head = src.read(k)
+            pkg = pakmaps._package_from_bytes(k, head, b"")
+            rows = inspect_classes.export_supers(pkg)
+        except Exception:                                   # noqa: BLE001
+            continue
+        for name, cls, sup in rows:
+            if cls in BGC and name not in graph:
+                graph[name] = sup
+                where[name] = k
+    return {"class_super": graph, "asset": where}
+
+
+def chain(graph: dict, name: str, cap: int = 32) -> list[str]:
+    out = [name]
+    seen = {name}
+    for _ in range(cap):
+        nxt = graph.get(out[-1])
+        if not nxt or nxt in seen:
+            break
+        out.append(nxt)
+        seen.add(nxt)
+    return out
+
+
+def descendants(graph: dict, root: str) -> list[str]:
+    return sorted(c for c in graph if root in chain(graph, c)[1:])
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--pak", default=pakmaps.DEFAULT_PAK)
+    ap.add_argument("--out", default="")
+    ap.add_argument("--load", default="")
+    ap.add_argument("--children", default="", help="list descendants of this class")
+    ap.add_argument("--chain", default="", help="print one class' super chain")
+    a = ap.parse_args(argv)
+
+    if a.load and os.path.exists(a.load):
+        doc = json.load(open(a.load, encoding="utf-8"))
+    else:
+        doc = build(pakmaps.MapSource(a.pak))
+        if a.out:
+            with open(a.out, "w", encoding="utf-8") as f:
+                json.dump(doc, f, indent=1, sort_keys=True)
+            print(f"wrote {a.out}: {len(doc['class_super'])} classes")
+    g = doc["class_super"]
+    if a.chain:
+        print(" -> ".join(chain(g, a.chain)))
+    if a.children:
+        kids = descendants(g, a.children)
+        print(f"{len(kids)} descendant(s) of {a.children}")
+        for c in kids:
+            print("  " + c)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

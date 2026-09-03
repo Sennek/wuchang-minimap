@@ -62,8 +62,27 @@ namespace markers
             DoorOpenBool,  // BP_NewPuzzlesDoor_C: `DoorOpen`
             PickupDying,   // pickups: `dying` (early) or parked at (0,0,0) (durable)
             ActiveBool,    // fog gates: SavedStatuKey=status_active, so `Active` is the flag
-            ControllerPawn // AI controller: the marker is its possessed Pawn
+            ControllerPawn, // AI controller: the marker is its possessed Pawn
+            Proximity,     // NPC / merchant: "met" = seen loaded within kMetRadius of the player
+            BossPawn       // boss character: defeated when its controller's Health.Current <= 0
         };
+
+        // "Met" radius for Rule::Proximity, in Unreal units (1 uu = 1 cm), i.e. 30 m.
+        // Deliberately NOT a config key: adding one means editing config_keys.hpp, the
+        // parser and the shipped config file, three files another workstream owns this
+        // session. The number is the same order as `highlight_radius`'s default (3000)
+        // and nothing about it is a taste decision - it only has to be "close enough
+        // that you have certainly seen this person".
+        constexpr double kMetRadius = 3000.0;
+        constexpr double kMetRadiusSq = kMetRadius * kMetRadius;
+
+        // How many rounds a LIVE-ONLY entry (persist == false: enemies) may go
+        // unanswered before it is dropped. Persisted categories keep the configured
+        // `markers_live_grace_rounds` debounce, which exists so a marker does not
+        // flicker when a sweep races level streaming; an enemy has no static twin to
+        // fall back on, so a stale one is a corpse drawn as a threat. One round is the
+        // minimum that still means "the last completed sweep did not see it".
+        constexpr std::uint64_t kLiveOnlyGraceRounds = 1;
 
         struct ClassSpec
         {
@@ -93,6 +112,49 @@ namespace markers
             {L"BP_Wumen_C", mdb::Cat::FogGate, Rule::ActiveBool, true},
             {L"BP_LadderV2_C", mdb::Cat::Ladder, Rule::None, false},
             {L"BP_WoodenElevator_C", mdb::Cat::Lift, Rule::None, false},
+            // ---- NPCs and merchants (2026-09-03) --------------------------------
+            //
+            // `BP_NPC_C` is the game's interactable-character base and it covers all
+            // ~50 `*_NPC_C` blueprints in one entry, because spec_for_class() walks the
+            // super chain by name. That is not a guess: `tools/markers/class_graph.py`
+            // reads the `super` field out of every cooked `.uasset`'s export map and
+            // lists 78 descendants of `BP_NPC_C` - every class the offline extractor
+            // ever put in the `npc` or `merchant` bucket, and nothing else that is a
+            // character.
+            //
+            // Five of those 78 are NOT people, so they get their own exact entries
+            // (an exact match at depth 0 always beats the base class): the shrine
+            // above, the merchant below, and the three after it. Anything else that
+            // ever derives from BP_NPC_C lands in `npc`, which is the right default.
+            //
+            // "Found" means MET: the actor was seen loaded within kMetRadius of the
+            // player. There is no per-NPC saved flag to read (and dialogue state is not
+            // reachable from here), so proximity is the honest definition - and it is
+            // persisted, because "I have been there" does not become false again.
+            {L"DKDC_NPC_C", mdb::Cat::Merchant, Rule::Proximity, true},
+            {L"BP_NPC_C", mdb::Cat::Npc, Rule::Proximity, true},
+            // Not people, despite deriving from BP_NPC_C. Categories match what
+            // tools/markers/marker_classes.py puts in the static DB, so the live actor
+            // and its static twin never disagree.
+            {L"ItemCollectionBox_C", mdb::Cat::Pickup, Rule::PickupDying, true},
+            {L"BP_KlesaCleaner_C", mdb::Cat::Other, Rule::None, false},
+            {L"BP_PuzzlesDoor_C", mdb::Cat::Door, Rule::UsedBool, true},
+            // ---- Bosses (2026-09-03) -------------------------------------------
+            //
+            // `BP_PlacedBossAI_C` is the base of all 32 boss blueprints (class_graph.py
+            // again), and every one of the game's 25 placed boss instances is one of
+            // them - so this single entry replaces the offline `*_BOSS_AI`-sublevel
+            // heuristic at runtime as well as offline.
+            //
+            // "Found" means DEFEATED, read from the health the recon dumps already
+            // prove is there: a boss pawn's `Controller` is an
+            // `Impl_BaseAIController_C` carrying a `Health` `ExtendedStatComponent_C`
+            // with reflected `Current` / `Max` floats, and a dead character reads
+            // `Current = 0` while its actor is still in the object array
+            // (`dump_20260902_102655_world.txt` line 33:
+            // `Impl_BaseAIController_C_2147479402.Health Current=0.0 Max=100.0`).
+            // It is persisted, so the mark survives leaving the arena.
+            {L"BP_PlacedBossAI_C", mdb::Cat::Boss, Rule::BossPawn, true},
             // Enemies are LIVE ONLY and never persisted: the count of
             // Impl_BaseAIController_C is the count of live enemies, and the marker is
             // the pawn it possesses.
@@ -372,6 +434,25 @@ namespace markers
         const void* g_world = nullptr;
         std::uint64_t g_round = 0;
 
+        // The player's position, refreshed once per SLICE from the published snapshot
+        // (a seqlock read of a POD struct - no lock, no engine call). Rule::Proximity
+        // needs it per actor, and taking it per actor would be a read of ~600 bytes a
+        // few hundred times a round for a number that moves by centimetres in that
+        // time. `g_player_ok` is false whenever the reader has no validated gameplay
+        // pawn, and then nothing is ever marked "met".
+        double g_player_x = 0.0;
+        double g_player_y = 0.0;
+        double g_player_z = 0.0;
+        bool g_player_ok = false;
+
+        // Diagnostics for the two rules added on 2026-09-03, so an in-game session can
+        // tell "the rule never fired" from "the property is not there".
+        std::atomic<int> g_met_marks{0};      // NPC/merchant markers marked as met
+        std::atomic<int> g_dead_dropped{0};   // live enemies dropped because health == 0
+        std::atomic<int> g_boss_defeated{0};  // boss markers marked as defeated
+        std::atomic<int> g_health_unknown{0}; // characters whose health could not be read
+        std::atomic<int> g_shrine_lit_marks{0}; // shrine markers marked from UnlockedFirepoints
+
         //==============================================================================
         // Live copies of the sweep's caps (game thread)
         //==============================================================================
@@ -486,6 +567,76 @@ namespace markers
             }
             out = (b != 0);
             return true;
+        }
+
+        // Is this character dead? (game thread)
+        //
+        // WHERE THE NUMBER LIVES. Wuchang keeps a character's health in an
+        // `ExtendedStatComponent_C` sub-object named `Health` on its AI CONTROLLER, not
+        // on the pawn - `context/wuchang-classes.md` section 3 and every F8 world dump
+        // list it as `Impl_BaseAIController_C_<n>.Health  Current=... Max=...`, with
+        // `Current` / `Max` reflected floats. A component sub-object is a reflected
+        // object property of the same name, so the whole read is
+        // `controller -> Health -> Current`: three cached-offset raw reads, no
+        // ProcessEvent, nothing that can re-enter the engine.
+        //
+        // WHY IT IS THE RIGHT SIGNAL. The dumps also contain the answer to "does a dead
+        // enemy stay in the object array?" - `dump_20260902_102655_world.txt` line 33
+        // has `Impl_BaseAIController_C_2147479402.Health Current=0.0 Max=100.0`
+        // alongside five live siblings, i.e. a corpse the sweep would happily keep
+        // drawing as a threat. That is the user's "dead enemies do not disappear".
+        //
+        // Returns FALSE when the answer is unknown (no such property, an unreadable
+        // component, a nonsensical Max) - never "dead". A guess in that direction would
+        // hide living enemies, which is strictly worse than the bug it fixes.
+        bool controller_says_dead(UObject* controller, bool& answered)
+        {
+            answered = false;
+            if (controller == nullptr)
+            {
+                return false;
+            }
+            const uer::ClassLayout* layout = g_layouts.get(controller);
+            UObject* health = uer::read_object_prop(layout, controller, L"Health");
+            if (health == nullptr || !mem::readable(health, 0x40))
+            {
+                return false;
+            }
+            const uer::ClassLayout* hl = g_layouts.get(health);
+            float current = 0.0f;
+            float max = 0.0f;
+            if (!uer::read_prop(hl, health, L"Current", current, static_cast<int>(sizeof(float))) ||
+                !uer::read_prop(hl, health, L"Max", max, static_cast<int>(sizeof(float))))
+            {
+                return false;
+            }
+            if (!std::isfinite(current) || !std::isfinite(max) || max <= 0.0f)
+            {
+                return false; // an uninitialised or hot-swapped component says nothing
+            }
+            answered = true;
+            return current <= 0.0f;
+        }
+
+        // Is this shrine marker's id in the save's UnlockedFirepoints list?
+        //
+        // The offline extractor de-duplicates a shrine id that the game itself reuses
+        // by suffixing `@<level>/<obj>` (two ChapterDLC shrines genuinely share
+        // `LiuHKK01`), so the marker id is not always the game's id - everything up to
+        // the '@' is. shr::is_unlocked() is case-insensitive, which it has to be: the
+        // save spells ids as the designers typed them (`Task1` next to `digong01`).
+        bool shrine_is_lit(const std::string& marker_id)
+        {
+            const std::size_t at = marker_id.find('@');
+            if (at == std::string::npos)
+            {
+                return shr::is_unlocked(marker_id.c_str());
+            }
+            char buf[shr::kIdLen]{};
+            const std::size_t n = at < sizeof(buf) - 1 ? at : sizeof(buf) - 1;
+            std::memcpy(buf, marker_id.data(), n);
+            buf[n] = '\0';
+            return shr::is_unlocked(buf);
         }
 
         // An FString UPROPERTY: { TCHAR* data; int32 num; int32 max }. `num` counts the
@@ -694,6 +845,35 @@ namespace markers
                 {
                     return;
                 }
+                // A BOSS is possessed by an ordinary Impl_BaseAIController_C too, so
+                // without this the same pawn would be written to g_live twice in one
+                // round - once as Cat::Enemy through the controller and once as
+                // Cat::Boss through its own class - and which one survived would depend
+                // on the order the object array happened to be walked in. Whenever the
+                // pawn is itself a marker class, its own entry is the authoritative one.
+                if (spec_for_class(actor) >= 0)
+                {
+                    return;
+                }
+                // DEAD ENEMIES MUST NOT BE DRAWN. The corpse keeps its controller and
+                // its position until a GC (see controller_says_dead), so absence from
+                // the sweep is not the signal - health is. An entry already in g_live
+                // is erased outright rather than left to age out, so the marker is gone
+                // on the very next publish.
+                bool answered = false;
+                if (controller_says_dead(obj, answered))
+                {
+                    const std::string& dead_id = id_for(actor);
+                    if (g_live.erase(dead_id) != 0)
+                    {
+                        g_dead_dropped.fetch_add(1, std::memory_order_relaxed);
+                    }
+                    return;
+                }
+                if (!answered)
+                {
+                    g_health_unknown.fetch_add(1, std::memory_order_relaxed);
+                }
             }
 
             LiveEntry e{};
@@ -751,6 +931,41 @@ namespace markers
                 }
                 break;
             }
+            case Rule::Proximity:
+            {
+                // "Met" = this actor was loaded within kMetRadius of the player. It is
+                // one-way: e.found is only ever SET here, and note_found() below makes
+                // it durable, so walking away does not un-meet anybody.
+                if (g_player_ok && e.pos_valid)
+                {
+                    const double dx = e.x - g_player_x;
+                    const double dy = e.y - g_player_y;
+                    const double dz = e.z - g_player_z;
+                    if (dx * dx + dy * dy + dz * dz <= kMetRadiusSq)
+                    {
+                        e.found = true;
+                    }
+                }
+                break;
+            }
+            case Rule::BossPawn:
+            {
+                // Defeated = the boss's own controller reports zero health. The pawn
+                // has no reflected health of its own; APawn::Controller does the one
+                // hop that reaches it.
+                const uer::ClassLayout* layout = g_layouts.get(actor);
+                UObject* controller = uer::read_object_prop(layout, actor, L"Controller");
+                bool answered = false;
+                if (controller_says_dead(controller, answered))
+                {
+                    e.found = true;
+                }
+                else if (!answered)
+                {
+                    g_health_unknown.fetch_add(1, std::memory_order_relaxed);
+                }
+                break;
+            }
             case Rule::ControllerPawn:
             case Rule::None:
             default:
@@ -786,7 +1001,21 @@ namespace markers
 
             if (e.found && e.persist)
             {
+                const bool fresh = !g_found_gt.contains(id);
                 note_found(id);
+                if (fresh)
+                {
+                    if (s.rule == Rule::Proximity)
+                    {
+                        g_met_marks.fetch_add(1, std::memory_order_relaxed);
+                    }
+                    else if (s.rule == Rule::BossPawn)
+                    {
+                        g_boss_defeated.fetch_add(1, std::memory_order_relaxed);
+                        mm::logf(L"markers: boss defeated - {} marked as found",
+                                 std::wstring(id.begin(), id.end()));
+                    }
+                }
             }
             if (g_live.size() < g_live_max || g_live.contains(id))
             {
@@ -976,7 +1205,13 @@ namespace markers
             // "collected" - only the state flags do that.
             for (auto it = g_live.begin(); it != g_live.end();)
             {
-                if (g_round >= g_grace_rounds && it->second.round + g_grace_rounds <= g_round)
+                // A live-only entry (an enemy) gets the shortest possible debounce:
+                // it has no static twin to fall back on, so keeping a stale one draws
+                // a threat that is not there. Persisted categories keep the configured
+                // grace, which is what stops a chest flickering when a sweep races
+                // level streaming.
+                const std::uint64_t grace = it->second.persist ? g_grace_rounds : kLiveOnlyGraceRounds;
+                if (g_round >= grace && it->second.round + grace <= g_round)
                 {
                     it = g_live.erase(it);
                 }
@@ -1053,6 +1288,27 @@ namespace markers
                     if (g_found_static[idx] != 0)
                     {
                         d.flags |= kFlagFound;
+                    }
+                    // ---- SHRINES ARE FOUND WHEN THEY ARE LIT ----------------------
+                    //
+                    // A shrine has no per-actor activation flag (that backlog item is
+                    // closed - `context/saveslot-and-teleport-research.md` 2.3): the
+                    // state is the game mode's `UnlockedFirepoints` list of shrine ids,
+                    // which src/shrines.cpp already reads at 1 Hz. Before this the
+                    // stats page's "Shrines lit" line used it but the found SET never
+                    // did, so the per-category table said 0/12 with 18 shrines lit
+                    // in-game and every lit shrine still drew as un-found on the map.
+                    //
+                    // Pushing the ids into the found set (rather than deriving the flag
+                    // at draw time) is what makes the map glyph, the minimap styling,
+                    // the legend counts and the stats table agree - they all read the
+                    // one found set. It is idempotent: the same id is only ever added.
+                    else if (sm.cat == mdb::Cat::Shrine && shrine_is_lit(sm.id))
+                    {
+                        d.flags |= kFlagFound;
+                        g_found_static[idx] = 1;
+                        g_shrine_lit_marks.fetch_add(1, std::memory_order_relaxed);
+                        note_found(sm.id);
                     }
                     const LiveEntry* live = g_live_of_static[idx];
                     if (live != nullptr)
@@ -1390,6 +1646,11 @@ namespace markers
             }
         s.absence_marks = g_absence_marks.load(std::memory_order_relaxed);
         s.levels_loaded = g_levels_loaded.load(std::memory_order_relaxed);
+            s.shrine_lit_marks = g_shrine_lit_marks.load(std::memory_order_relaxed);
+            s.met_marks = g_met_marks.load(std::memory_order_relaxed);
+            s.boss_defeated = g_boss_defeated.load(std::memory_order_relaxed);
+            s.dead_dropped = g_dead_dropped.load(std::memory_order_relaxed);
+            s.health_unknown = g_health_unknown.load(std::memory_order_relaxed);
             s.filter_chapter = filter_chapter_now();
             s.published = g_published_count.load(std::memory_order_relaxed);
             s.live_entries = g_live_count.load(std::memory_order_relaxed);
@@ -1761,6 +2022,17 @@ namespace markers
                          g_publish_ms_peak.load(std::memory_order_relaxed),
                          g_published_count.load(std::memory_order_relaxed),
                          g_live_count.load(std::memory_order_relaxed));
+                // The 2026-09-03 found-rules, in the same log a session reports. All
+                // five together answer "which rule fired and which one cannot read its
+                // property": a climbing `health unknown` with zero dead/defeated means
+                // the Health component route is wrong on this build.
+                mm::logf(L"markers: rules - shrines lit {}, met {}, bosses defeated {}, "
+                         L"dead enemies dropped {}, health unknown {}",
+                         g_shrine_lit_marks.load(std::memory_order_relaxed),
+                         g_met_marks.load(std::memory_order_relaxed),
+                         g_boss_defeated.load(std::memory_order_relaxed),
+                         g_dead_dropped.load(std::memory_order_relaxed),
+                         g_health_unknown.load(std::memory_order_relaxed));
             }
         }
 
@@ -1831,6 +2103,7 @@ namespace markers
         std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);
         std::fill(g_level_known.begin(), g_level_known.end(), static_cast<std::uint8_t>(0));
         g_subset_valid = false; // the chapter is re-detected in the next world
+        g_player_ok = false;    // the snapshot belongs to the world that just went
         g_levels_loaded.store(0, std::memory_order_relaxed);
         g_world = nullptr;
         g_next_class = 0;
@@ -1950,6 +2223,24 @@ namespace markers
             return;
         }
         g_last_slice_us = now_us;
+
+        // 4b. The player's position for Rule::Proximity, once per slice. A seqlock
+        //     read of a POD struct that the game thread itself published a few
+        //     milliseconds ago - not an engine call, and never per actor.
+        {
+            mm::Snapshot snap{};
+            if (mm::read_snapshot(snap) && snap.has_pawn && snap.pawn_is_gameplay && !snap.transition)
+            {
+                g_player_x = snap.x;
+                g_player_y = snap.y;
+                g_player_z = snap.z;
+                g_player_ok = true;
+            }
+            else
+            {
+                g_player_ok = false;
+            }
+        }
 
         // 5.
         const int chunk = scan::clamp_chunk(cfg.markers_scan_chunk);

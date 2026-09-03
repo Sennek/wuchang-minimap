@@ -24,6 +24,7 @@
 #include <format>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -641,8 +642,73 @@ namespace mm
         // until the recon dump shows the parameter is not engine-owned - see
         // saveslot.cpp for the hazard.
         bool saveslot_uuid_call = false;
-        // The one-press in-game recon dump (research §3). 0 = unbound.
+        //------------------------------------------------------------------------------
+        // Appended in 1.0.1 (the UI review). New fields go at the END of the struct so
+        // no existing offset moves, and every one of them stays a POD - Config is copied
+        // by value onto the render thread on every frame and must remain trivially
+        // copyable (there is a static_assert on that below).
+        //------------------------------------------------------------------------------
+
+        // OPENING THE FULL MAP WITH A CONTROLLER (review B.1). An XInput button mask,
+        // spelled in the config the same way `highlight_pad_chord` is ("BACK+Y"), and
+        // pressed as a chord: every named button down at once toggles the map. Back+Y by
+        // default - Back is not a gameplay bind in this game's own pad layout and Y
+        // alone already means "recentre" INSIDE the map, so the pair cannot fire
+        // anything else. `none` disables it.
+        std::uint16_t map_pad_open_chord = 0x8020; // pad::kY | pad::kBack
+
+        // THE UI FONT (review B.11). ImGui's built-in font is a 13 px BITMAP, and at
+        // 4K the mod was drawing it magnified 2x - the one part of the HUD that a
+        // resolution-independent design cannot fake. A real TTF is rasterised at
+        // 13 * ui_scale instead, so the text is as sharp at 2160p as at 1080p.
+        //
+        // Segoe UI is on every supported Windows and is what the OS itself uses; a
+        // missing or unreadable file falls back to the built-in ProggyClean and says so
+        // in the log, so a wrong path is one line rather than a mod with no text.
+        // A fixed array, not std::string: see found_profile above.
+        char ui_font[192] = "C:\\Windows\\Fonts\\segoeui.ttf";
+
+        // DPI AND THE ZOOM KEYS (review B.12). With this on, `minimap_zoom` and
+        // `map_zoom` are multiplied by ui_scale like every other pixel key, so one
+        // config file shows the SAME AREA OF THE WORLD at 1080p and at 2160p - the disc
+        // is twice as many pixels across on the bigger screen and each pixel covers
+        // twice as much ground. With it off, uu/px is literal: the 4K disc shows twice
+        // the radius, which is what 1.0.0 did.
+        bool zoom_dpi_scaled = true;
+
+        // The F2 Player tab's collapsed sections, one bit per header, persisted in
+        // wuchang_minimap_panel.txt rather than here - this is only the runtime copy so
+        // the render thread can read it without touching a file. See panel_state_*() in
+        // overlay.cpp. Not a config key.
+        std::uint32_t panel_sections_open = 0xFFFFFFFFu;
     };
+
+    // A CONFIG IS A VALUE, and several things depend on that: it is copied by value onto
+    // the render thread every frame, published under a spinlock, and compared field by
+    // field by operator== below. A std::string member would break all three silently -
+    // hence the assert rather than a comment.
+    static_assert(std::is_trivially_copyable_v<Config>, "Config is copied by value per frame");
+
+    //==================================================================================
+    // "did anything change?" (review B.19)
+    //==================================================================================
+    //
+    // The F2 panel and the full map both edit a COPY of the config and publish it only
+    // if the copy differs. That test used to be `std::memcmp(&before, &cfg,
+    // sizeof(Config))`, which is right today and wrong the moment a member stops being
+    // a flat POD - and wrong SILENTLY, in the direction of publishing a config every
+    // frame (or never).
+    //
+    // So it is a real comparison now. Being explicit costs one line per field and buys
+    // a drift guard: tests/markers_test.cpp flips every byte of a Config in turn and
+    // asserts that operator== notices, so a field added to the struct and forgotten
+    // here fails the build's test step instead of being a bug nobody can see.
+    bool operator==(const Config& a, const Config& b);
+
+    inline bool operator!=(const Config& a, const Config& b)
+    {
+        return !(a == b);
+    }
 
     // The config lives here and is copied under a spinlock. The loop thread writes it
     // on load / F5; the render thread writes it when the F2 panel is used.
@@ -773,6 +839,11 @@ namespace mm
     // config_wuchang_minimap_dev.txt - the Tier::Dev overlay. Not shipped in the
     // release zip; parsed only when it exists, after the main file.
     std::wstring dev_config_path();
+    // "a Save will write the dev file too" - true once a dev file has been read, or a
+    // Dev key has been moved off its built-in default (the two conditions
+    // save_config_file() itself uses). The F2 Save button's LABEL reads this, so the
+    // button can never name one file and write two. Any thread (one atomic load).
+    bool dev_config_active();
     std::wstring mod_dir();
 
     // Every setting as `key` -> its text form, in cfgkeys order (Player, Advanced,
@@ -780,8 +851,50 @@ namespace mm
     // config_rewrite.hpp. Any thread (pure).
     std::vector<std::pair<std::string, std::string>> config_kv(const Config& cfg);
 
-    // "F2", "M", "TAB", "LALT", ... - the same spelling the config file uses. Any thread.
-    std::wstring key_name(int vk);
+    //==================================================================================
+    // A BINDING IS A VIRTUAL KEY PLUS AT MOST ONE MODIFIER
+    //==================================================================================
+    //
+    // Every `*_key` config value is an int, and it carries both halves: the virtual key
+    // in bits 0..7 (every VK is <= 0xFF) and the modifier in bits 8..9. That keeps
+    // Config trivially copyable and keeps the number of Config fields the same - a
+    // parallel `*_key_mod` field per binding would have been seven more fields and seven
+    // more chances for the two to drift apart.
+    //
+    // ONE modifier, not a set: `CTRL+M` is what a player asks for when a bare letter
+    // clashes with a game bind, and `CTRL+SHIFT+ALT+M` is not. The config file spells it
+    // exactly as it reads - `map_key = ctrl+m` - and vk_name() writes that spelling
+    // back, so a binding always round-trips.
+    //
+    // A binding with NO modifier deliberately does not require the modifiers to be UP:
+    // the x-ray hold key is Alt, and demanding a clean Alt would have made every other
+    // hotkey dead while the x-ray is held. The Bindings tab names that overlap instead.
+    enum : int
+    {
+        kKeyModNone = 0,
+        kKeyModCtrl = 1,
+        kKeyModShift = 2,
+        kKeyModAlt = 3,
+    };
+
+    inline constexpr int key_vk(int binding)
+    {
+        return binding & 0xFF;
+    }
+
+    inline constexpr int key_mod(int binding)
+    {
+        return (binding >> 8) & 0x3;
+    }
+
+    inline constexpr int key_make(int vk, int mod)
+    {
+        return (vk & 0xFF) | ((mod & 0x3) << 8);
+    }
+
+    // "F2", "M", "CTRL+M", "TAB", "LALT", ... - the same spelling the config file uses,
+    // modifier included. Any thread.
+    std::wstring key_name(int binding);
 
     // "LB+RB", "A", "LT+RT", "none" - the gamepad chord spelling the config file uses.
     // Any thread.

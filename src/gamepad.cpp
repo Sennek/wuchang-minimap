@@ -175,6 +175,16 @@ namespace pad
                     g_slot = i;
                     st = probe;
                     rc = ERROR_SUCCESS;
+                    // A FRESH SLOT STARTS FROM WHAT IT IS HOLDING, not from zero.
+                    // `publish_off` leaves g_prev_held at 0, so every button that
+                    // happened to be down at the moment a pad was plugged in (or at the
+                    // moment the mod started polling) used to arrive as a rising EDGE -
+                    // a phantom press that could set a waypoint or close the map on the
+                    // first frame after a hot-plug. Seeding the previous mask with the
+                    // current one means the first real transition is the first edge, and
+                    // the accumulator is emptied for the same reason.
+                    g_prev_held = probe.Gamepad.wButtons;
+                    g_pressed.store(0, std::memory_order_release);
                     break;
                 }
             }

@@ -126,6 +126,7 @@ namespace cfgkeys
         {"compass_opacity", Tier::Player},
         {"compass_categories", Tier::Player},
         {"compass_pip_labels", Tier::Player},
+        {"map_pad_open_chord", Tier::Player},
         {"panel_key", Tier::Player},
         {"map_key", Tier::Player},
         {"map_recenter_key", Tier::Player},
@@ -197,6 +198,8 @@ namespace cfgkeys
         {"log_level", Tier::Advanced},
         {"crash_breadcrumb", Tier::Advanced},
         {"fast_travel_enabled", Tier::Advanced},
+        {"ui_font", Tier::Advanced},
+        {"zoom_dpi_scaled", Tier::Advanced},
 
         //------------------------------------------------------------------------------
         // DEV - config_wuchang_minimap_dev.txt, not shipped

@@ -305,16 +305,58 @@ namespace mm
         // ignores modifiers and has already caused one GPU crash), F10 the game console,
         // F11 the engine fullscreen bind and F12 the Steam screenshot key. See
         // lessons.md.
-        int vk_from_name(const std::string& name, int fallback, const char* key_label)
+        // ONE modifier prefix, stripped before the key itself is parsed: `ctrl+m`,
+        // `shift+F1`, `alt+n`. Returns the modifier and advances `name` past the `+`.
+        // Two prefixes (`ctrl+shift+m`) are refused by the key parser afterwards,
+        // because what is left is not a key name - which is the diagnostic we want.
+        int take_key_modifier(std::string& name)
         {
+            const std::size_t plus = name.find('+');
+            if (plus == std::string::npos || plus == 0 || plus + 1 >= name.size())
+            {
+                return kKeyModNone;
+            }
+            const std::string up = upper(name.substr(0, plus));
+            int mod = kKeyModNone;
+            if (up == "CTRL" || up == "CONTROL")
+            {
+                mod = kKeyModCtrl;
+            }
+            else if (up == "SHIFT")
+            {
+                mod = kKeyModShift;
+            }
+            else if (up == "ALT")
+            {
+                mod = kKeyModAlt;
+            }
+            else
+            {
+                return kKeyModNone;
+            }
+            name = name.substr(plus + 1);
+            // Leading blanks after the `+` ("ctrl + m"), trimmed so the key parser sees
+            // a bare name.
+            while (!name.empty() && (name.front() == ' ' || name.front() == '\t'))
+            {
+                name.erase(name.begin());
+            }
+            return mod;
+        }
+
+        int vk_from_name(const std::string& raw_name, int fallback, const char* key_label)
+        {
+            std::string name = raw_name;
+            const int mod = take_key_modifier(name);
             const std::wstring label(key_label, key_label + std::strlen(key_label));
-            const std::wstring shown(name.begin(), name.end());
+            const std::wstring shown(raw_name.begin(), raw_name.end());
 
             const auto reject = [&](const wchar_t* why) {
                 logf(L"config: {} = '{}' rejected ({}) - keeping the default. Allowed: F1..F5, F7, F8, "
                      L"a single letter or digit, TAB, SPACE, ENTER, BACKSPACE, the arrows, the "
                      L"navigation block, NUM0..NUM9 and the numpad operators, MOUSE3..MOUSE5, or "
-                     L"L/R ALT / SHIFT / CTRL. `none` leaves the action unbound.",
+                     L"L/R ALT / SHIFT / CTRL, optionally with ONE `ctrl+` / `shift+` / `alt+` "
+                     L"prefix. `none` leaves the action unbound.",
                      label,
                      shown,
                      std::wstring{why});
@@ -336,7 +378,7 @@ namespace mm
                 {
                     if (up == k.name)
                     {
-                        return k.vk;
+                        return key_make(k.vk, mod);
                     }
                 }
             }
@@ -358,7 +400,7 @@ namespace mm
                     return reject(L"F6 is the RenoDX DLSS5 toggle, F9/F11 engine binds, F10 the game "
                                   L"console and F12 the Steam screenshot key");
                 }
-                return VK_F1 + (n - 1);
+                return key_make(VK_F1 + (n - 1), mod);
             }
 
             if (name.size() == 1)
@@ -366,11 +408,11 @@ namespace mm
                 const char c = name[0];
                 if (c >= 'a' && c <= 'z')
                 {
-                    return static_cast<int>(c - 'a' + 'A');
+                    return key_make(static_cast<int>(c - 'a' + 'A'), mod);
                 }
                 if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
                 {
-                    return static_cast<int>(c);
+                    return key_make(static_cast<int>(c), mod);
                 }
                 return reject(L"not a letter or a digit");
             }
@@ -378,7 +420,27 @@ namespace mm
             return reject(L"not a recognised key name");
         }
 
-        std::string vk_name(int vk)
+        // The key half on its own ("F2", "M", "TAB"); vk_name() adds the modifier.
+        std::string vk_name_plain(int vk);
+
+        // The inverse of vk_from_name, modifier prefix included, so a binding written
+        // out by Save is one the loader reads back unchanged.
+        std::string vk_name(int binding)
+        {
+            const int vk = key_vk(binding);
+            if (vk == 0)
+            {
+                return "none";
+            }
+            const int mod = key_mod(binding);
+            const char* prefix = mod == kKeyModCtrl    ? "ctrl+"
+                                 : mod == kKeyModShift ? "shift+"
+                                 : mod == kKeyModAlt   ? "alt+"
+                                                       : "";
+            return std::string{prefix} + vk_name_plain(vk);
+        }
+
+        std::string vk_name_plain(int vk)
         {
             if (vk == 0)
             {
@@ -948,6 +1010,32 @@ namespace mm
             {
                 cfg.fast_travel_enabled = parse_bool(value, cfg.fast_travel_enabled);
             }
+            else if (key == "map_pad_open_chord")
+            {
+                // The same spelling as highlight_pad_chord, minus the triggers: this is
+                // a chord of BUTTONS, and an analogue trigger is not one. LT / RT in the
+                // value are parsed and then dropped, with the parser's own warning
+                // naming the button set.
+                bool ignored_lt = false;
+                bool ignored_rt = false;
+                parse_pad_chord(value, cfg.map_pad_open_chord, ignored_lt, ignored_rt);
+                if (ignored_lt || ignored_rt)
+                {
+                    log(L"config: map_pad_open_chord - the triggers are not buttons; LT / RT ignored");
+                }
+            }
+            else if (key == "ui_font")
+            {
+                // Free text: an absolute path to a .ttf / .otf. `none` (or an empty
+                // value) means the built-in bitmap font. Not validated here - the render
+                // thread is the only place that can try to open it, and it logs what it
+                // did.
+                ::strncpy_s(cfg.ui_font, sizeof(cfg.ui_font), trim(value).c_str(), _TRUNCATE);
+            }
+            else if (key == "zoom_dpi_scaled")
+            {
+                cfg.zoom_dpi_scaled = parse_bool(value, cfg.zoom_dpi_scaled);
+            }
             else if (key == "saveslot_uuid_call")
             {
                 cfg.saveslot_uuid_call = parse_bool(value, cfg.saveslot_uuid_call);
@@ -1467,6 +1555,202 @@ namespace mm
     // Config
     //==================================================================================
 
+    //==================================================================================
+    // Config equality, field by field (review B.19)
+    //==================================================================================
+    //
+    // Written out rather than memcmp'd, and GENERATED from the struct declaration rather
+    // than typed - so it lists every field exactly once. memcmp was right today and
+    // wrong the moment a member stops being a flat POD, and wrong silently: the F2 panel
+    // and the full map both use this to decide whether to publish a config, so a false
+    // "changed" is a config publish per frame and a false "same" is a panel whose
+    // sliders do nothing.
+    //
+    // The drift guard lives in tests/markers_test.cpp: it flips every byte of a Config
+    // in turn and requires this to notice, so a field added to the struct and forgotten
+    // here fails the build's own test step.
+    //
+    // The arrays (the zoom ladder, the two char buffers, the rarity colours) are compared
+    // element by element; `eq` is one template so the list below reads the same for all
+    // of them.
+    namespace
+    {
+        template <typename T, std::size_t N>
+        bool eq(const T (&x)[N], const T (&y)[N])
+        {
+            for (std::size_t i = 0; i < N; ++i)
+            {
+                if (!(x[i] == y[i]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    } // namespace
+
+    bool operator==(const Config& a, const Config& b)
+    {
+        return
+        a.mod_enabled == b.mod_enabled &&
+        a.overlay_enabled == b.overlay_enabled &&
+        a.show_minimap == b.show_minimap &&
+        a.theme == b.theme &&
+        a.palette == b.palette &&
+        a.ui_scale_auto == b.ui_scale_auto &&
+        a.ui_scale == b.ui_scale &&
+        a.hud_preset == b.hud_preset &&
+        a.size_frac == b.size_frac &&
+        a.zoom_uu_per_px == b.zoom_uu_per_px &&
+        eq(a.minimap_zoom_presets, b.minimap_zoom_presets) &&
+        a.minimap_zoom_preset_count == b.minimap_zoom_preset_count &&
+        a.round == b.round &&
+        a.anchor == b.anchor &&
+        a.offset_x == b.offset_x &&
+        a.offset_y == b.offset_y &&
+        a.rotate_with_player == b.rotate_with_player &&
+        a.opacity == b.opacity &&
+        a.hide_in_menus == b.hide_in_menus &&
+        a.require_pawn_view == b.require_pawn_view &&
+        a.state_stale_ms == b.state_stale_ms &&
+        a.min_visible_after_state_ok_ms == b.min_visible_after_state_ok_ms &&
+        a.menu_close_show_delay_ms == b.menu_close_show_delay_ms &&
+        a.show_adjacent_floors == b.show_adjacent_floors &&
+        a.adjacent_floor_opacity == b.adjacent_floor_opacity &&
+        a.floor_z_tolerance == b.floor_z_tolerance &&
+        a.floor_fade_uu == b.floor_fade_uu &&
+        a.floor_gradient_strength == b.floor_gradient_strength &&
+        a.floor_base_r == b.floor_base_r &&
+        a.floor_base_g == b.floor_base_g &&
+        a.floor_base_b == b.floor_base_b &&
+        a.slice_hz == b.slice_hz &&
+        a.feet_z_smooth_ms == b.feet_z_smooth_ms &&
+        a.player_z_offset == b.player_z_offset &&
+        a.fallback_use_composite == b.fallback_use_composite &&
+        a.markers_enabled == b.markers_enabled &&
+        a.markers_live == b.markers_live &&
+        a.markers_filter_chapter == b.markers_filter_chapter &&
+        a.markers_rounds_per_sec == b.markers_rounds_per_sec &&
+        a.markers_scan_chunk == b.markers_scan_chunk &&
+        a.markers_scan_period_ms == b.markers_scan_period_ms &&
+        a.markers_categories == b.markers_categories &&
+        a.markers_hide_found == b.markers_hide_found &&
+        a.markers_found_alpha == b.markers_found_alpha &&
+        a.markers_size == b.markers_size &&
+        a.markers_clamp_to_edge == b.markers_clamp_to_edge &&
+        a.markers_max_draw == b.markers_max_draw &&
+        a.markers_absence_marks == b.markers_absence_marks &&
+        a.markers_absence_rounds == b.markers_absence_rounds &&
+        a.boss_defeat_from_save == b.boss_defeat_from_save &&
+        a.markers_absence_categories == b.markers_absence_categories &&
+        a.found_tracker == b.found_tracker &&
+        a.found_save_debounce_ms == b.found_save_debounce_ms &&
+        eq(a.found_profile, b.found_profile) &&
+        a.first_run_toast == b.first_run_toast &&
+        a.shrine_list == b.shrine_list &&
+        eq(a.menu_ignore_roots, b.menu_ignore_roots) &&
+        a.map_zoom == b.map_zoom &&
+        a.map_zoom_min == b.map_zoom_min &&
+        a.map_zoom_max == b.map_zoom_max &&
+        a.map_zoom_factor == b.map_zoom_factor &&
+        a.map_pan_speed == b.map_pan_speed &&
+        a.map_margin == b.map_margin &&
+        a.map_backdrop == b.map_backdrop &&
+        a.map_marker_size == b.map_marker_size &&
+        a.map_markers_max_draw == b.map_markers_max_draw &&
+        a.map_floor_step == b.map_floor_step &&
+        a.map_show_all_floors == b.map_show_all_floors &&
+        a.map_slice_px == b.map_slice_px &&
+        a.map_slice_hz == b.map_slice_hz &&
+        a.map_gamepad == b.map_gamepad &&
+        a.map_gamepad_deadzone == b.map_gamepad_deadzone &&
+        a.map_waypoint_persist == b.map_waypoint_persist &&
+        a.highlight_enabled == b.highlight_enabled &&
+        a.highlight_mode == b.highlight_mode &&
+        a.highlight_key == b.highlight_key &&
+        a.highlight_gamepad == b.highlight_gamepad &&
+        a.highlight_pad_mask == b.highlight_pad_mask &&
+        a.highlight_pad_lt == b.highlight_pad_lt &&
+        a.highlight_pad_rt == b.highlight_pad_rt &&
+        a.highlight_radius == b.highlight_radius &&
+        a.highlight_categories == b.highlight_categories &&
+        a.highlight_show_found == b.highlight_show_found &&
+        a.highlight_max_draw == b.highlight_max_draw &&
+        a.highlight_alpha_near == b.highlight_alpha_near &&
+        a.highlight_alpha_far == b.highlight_alpha_far &&
+        a.highlight_size == b.highlight_size &&
+        a.highlight_labels == b.highlight_labels &&
+        a.highlight_labels_max == b.highlight_labels_max &&
+        a.highlight_edge_arrows == b.highlight_edge_arrows &&
+        a.xray_rarity_colors_enabled == b.xray_rarity_colors_enabled &&
+        eq(a.xray_rarity_colors, b.xray_rarity_colors) &&
+        a.markers_rarity_tint == b.markers_rarity_tint &&
+        a.highlight_camera_hz == b.highlight_camera_hz &&
+        a.highlight_camera_resolve_ms == b.highlight_camera_resolve_ms &&
+        a.highlight_compass_period_ms == b.highlight_compass_period_ms &&
+        a.highlight_getter_period_ms == b.highlight_getter_period_ms &&
+        a.highlight_pov_scan_bytes == b.highlight_pov_scan_bytes &&
+        a.highlight_pov_bad_reads == b.highlight_pov_bad_reads &&
+        a.compass_enabled == b.compass_enabled &&
+        a.compass_width == b.compass_width &&
+        a.compass_plate == b.compass_plate &&
+        a.compass_anchor == b.compass_anchor &&
+        a.compass_offset_y == b.compass_offset_y &&
+        a.compass_height == b.compass_height &&
+        a.compass_span_deg == b.compass_span_deg &&
+        a.compass_opacity == b.compass_opacity &&
+        a.compass_categories == b.compass_categories &&
+        a.compass_marker_distance == b.compass_marker_distance &&
+        a.compass_show_waypoint == b.compass_show_waypoint &&
+        a.compass_tick_step_deg == b.compass_tick_step_deg &&
+        a.compass_max_pips == b.compass_max_pips &&
+        a.compass_pip_labels == b.compass_pip_labels &&
+        a.compass_pip_height_uu == b.compass_pip_height_uu &&
+        a.minimap_backdrop == b.minimap_backdrop &&
+        a.minimap_backdrop_r == b.minimap_backdrop_r &&
+        a.minimap_backdrop_g == b.minimap_backdrop_g &&
+        a.minimap_backdrop_b == b.minimap_backdrop_b &&
+        a.minimap_frame_r == b.minimap_frame_r &&
+        a.minimap_frame_g == b.minimap_frame_g &&
+        a.minimap_frame_b == b.minimap_frame_b &&
+        a.minimap_frame_alpha == b.minimap_frame_alpha &&
+        a.minimap_composite_alpha == b.minimap_composite_alpha &&
+        a.minimap_min_px == b.minimap_min_px &&
+        a.minimap_arrow_frac == b.minimap_arrow_frac &&
+        a.minimap_arrow_min_px == b.minimap_arrow_min_px &&
+        a.waypoint_size_scale == b.waypoint_size_scale &&
+        a.reader_position_period_ms == b.reader_position_period_ms &&
+        a.reader_resolve_period_ms == b.reader_resolve_period_ms &&
+        a.reader_widget_sweep_period_ms == b.reader_widget_sweep_period_ms &&
+        a.reader_widget_sweep_max_period_ms == b.reader_widget_sweep_max_period_ms &&
+        a.reader_widget_sweep_warm_ms == b.reader_widget_sweep_warm_ms &&
+        a.reader_transition_cooldown_ms == b.reader_transition_cooldown_ms &&
+        a.reader_teleport_jump_uu == b.reader_teleport_jump_uu &&
+        a.reader_chapter_period_ms == b.reader_chapter_period_ms &&
+        a.reader_log_throttle_ms == b.reader_log_throttle_ms &&
+        a.markers_live_grace_rounds == b.markers_live_grace_rounds &&
+        a.map_asset_retire_grace_ms == b.map_asset_retire_grace_ms &&
+        a.hide_reason_log_ms == b.hide_reason_log_ms &&
+        a.srv_heap_size == b.srv_heap_size &&
+        a.debug_readout == b.debug_readout &&
+        a.debug_show_panel_on_start == b.debug_show_panel_on_start &&
+        a.panel_key == b.panel_key &&
+        a.reload_key == b.reload_key &&
+        a.map_key == b.map_key &&
+        a.map_recenter_key == b.map_recenter_key &&
+        a.zoom_key == b.zoom_key &&
+        a.screenshot_key == b.screenshot_key &&
+        a.crash_breadcrumb == b.crash_breadcrumb &&
+        a.log_level == b.log_level &&
+        a.fast_travel_enabled == b.fast_travel_enabled &&
+        a.saveslot_uuid_call == b.saveslot_uuid_call &&
+        a.map_pad_open_chord == b.map_pad_open_chord &&
+        eq(a.ui_font, b.ui_font) &&
+        a.zoom_dpi_scaled == b.zoom_dpi_scaled &&
+        a.panel_sections_open == b.panel_sections_open &&
+               true;
+    }
+
     Config config()
     {
         SpinGuard guard(g_cfg_lock);
@@ -1707,6 +1991,19 @@ namespace mm
     std::wstring dev_config_path()
     {
         return mod_dir() + L"\\config_wuchang_minimap_dev.txt";
+    }
+
+    namespace
+    {
+        // Written by load_config_file() and save_config_file() (loop thread), read by
+        // the F2 panel (render thread). One atomic, so the label costs nothing per frame
+        // and the panel never stat()s a file inside Present.
+        std::atomic<bool> g_dev_config_active{false};
+    } // namespace
+
+    bool dev_config_active()
+    {
+        return g_dev_config_active.load(std::memory_order_relaxed);
     }
 
     namespace
@@ -2016,6 +2313,10 @@ namespace mm
         set_config(cfg);
         if (have_dev)
         {
+            g_dev_config_active.store(true, std::memory_order_relaxed);
+        }
+        if (have_dev)
+        {
             logf(L"config: loaded {} setting(s) from {} + {} dev setting(s) from {}", lines, path, dev_lines,
                  dev_config_path());
         }
@@ -2127,6 +2428,16 @@ namespace mm
         add("compass_opacity", f2(cfg.compass_opacity));
         add("compass_categories", mdb::format_category_mask(cfg.compass_categories));
         add("compass_pip_labels", b(cfg.compass_pip_labels));
+        add("map_pad_open_chord", [&cfg] {
+            const std::wstring chord = pad_chord_name(cfg.map_pad_open_chord, false, false);
+            std::string narrow;
+            narrow.reserve(chord.size());
+            for (const wchar_t c : chord)
+            {
+                narrow.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
+            }
+            return narrow;
+        }());
         add("panel_key", vk(cfg.panel_key));
         add("map_key", vk(cfg.map_key));
         add("map_recenter_key", vk(cfg.map_recenter_key));
@@ -2195,6 +2506,8 @@ namespace mm
         add("log_level", log_level_name(cfg.log_level));
         add("crash_breadcrumb", b(cfg.crash_breadcrumb));
         add("fast_travel_enabled", b(cfg.fast_travel_enabled));
+        add("ui_font", std::string{cfg.ui_font});
+        add("zoom_dpi_scaled", b(cfg.zoom_dpi_scaled));
 
         // ---- Dev --------------------------------------------------------------------
         add("debug_readout", b(cfg.debug_readout));
@@ -2337,6 +2650,9 @@ namespace mm
         // player file: the filter above cannot see them.
         std::string dev_existing;
         const bool have_dev = read_whole_file(dev_config_path(), dev_existing);
+        // What the F2 Save button's label promises. Set BEFORE the write, so the label
+        // is right from the first Save that creates the file.
+        g_dev_config_active.store(have_dev || dev_values_differ(kv), std::memory_order_relaxed);
         if (have_dev || dev_values_differ(kv))
         {
             const std::vector<cfgrw::Pair> mine = cfgrw::filter(

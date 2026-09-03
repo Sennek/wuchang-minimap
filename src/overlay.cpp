@@ -58,6 +58,7 @@
 
 #include "compass.hpp"
 #include "gamepad.hpp"
+#include "gamestate.hpp"
 #include "glyphs.hpp"
 #include "highlight.hpp"
 #include "label_layout.hpp"
@@ -247,6 +248,31 @@ namespace overlay
                         YieldProcessor();
                     }
                 }
+            }
+            // A BOUNDED acquire, for the one caller that must never wait for ever.
+            // `hk_ResizeBuffers` can be called from a thread the render thread is
+            // itself waiting on (`ImGui_ImplWin32_NewFrame` touches the cursor and the
+            // client rect of a window owned by the game thread), and an unbounded spin
+            // there turns a stall into a deadlock. See its call site.
+            bool try_lock_ms(unsigned budget_ms) noexcept
+            {
+                const std::uint64_t deadline = ::GetTickCount64() + budget_ms;
+                for (int spin = 0; flag_.test_and_set(std::memory_order_acquire); ++spin)
+                {
+                    if ((spin & 0x3F) == 0x3F)
+                    {
+                        if (::GetTickCount64() > deadline)
+                        {
+                            return false;
+                        }
+                        ::SwitchToThread();
+                    }
+                    else
+                    {
+                        YieldProcessor();
+                    }
+                }
+                return true;
             }
             void unlock() noexcept
             {
@@ -974,6 +1000,27 @@ namespace overlay
 
         std::atomic<std::uint64_t> g_present_count{0};
         std::atomic<std::uint64_t> g_resize_count{0};
+        // WHAT THE RENDER THREAD IS DOING, and which thread it is, for the loop
+        // thread's stall watchdog below. Both are relaxed stores of a literal / a tid:
+        // no allocation, no lock, nothing that can itself stall. The 2026-09-03 20:56
+        // freeze cost a whole play session precisely because nothing in the process
+        // could say which thread had stopped or where.
+        std::atomic<const char*> g_render_stage{"no frame yet"};
+        std::atomic<unsigned long> g_render_tid{0};
+
+        // The stage names are ASCII literals and the log takes wide strings. An explicit
+        // cast loop rather than `std::wstring(a.begin(), a.end())`, which warns (C4244)
+        // and this repo is warning-free by policy.
+        std::wstring stage_w(const char* s)
+        {
+            const char* p = s != nullptr ? s : "?";
+            std::wstring out;
+            for (; *p != '\0'; ++p)
+            {
+                out.push_back(static_cast<wchar_t>(static_cast<unsigned char>(*p)));
+            }
+            return out;
+        }
         // Set by the loop thread on an F5 reload; consumed on the render thread,
         // which is the only place a D3D12 resource may be released.
         std::atomic<bool> g_drop_textures{false};
@@ -8524,12 +8571,16 @@ namespace overlay
             }
 
             g_present_count.fetch_add(1, std::memory_order_relaxed);
+            g_render_tid.store(::GetCurrentThreadId(), std::memory_order_relaxed);
+            g_render_stage.store("prologue", std::memory_order_relaxed);
             if (g_failed || g_queue.load(std::memory_order_acquire) == nullptr)
             {
                 return;
             }
 
+            g_render_stage.store("waiting for the render lock", std::memory_order_relaxed);
             SpinGuard guard(g_render_lock);
+            g_render_stage.store("holding the render lock", std::memory_order_relaxed);
             if (g_swapchain == nullptr)
             {
                 const bool d3d12 = is_d3d12_swapchain(swapchain);
@@ -8557,6 +8608,7 @@ namespace overlay
 
             const UINT index = current_backbuffer_index(swapchain);
             FrameCtx& frame = g_frames[index];
+            g_render_stage.store("waiting for this frame's fence", std::memory_order_relaxed);
             if (frame.fence_value != 0 && g_fence->GetCompletedValue() < frame.fence_value)
             {
                 if (SUCCEEDED(g_fence->SetEventOnCompletion(frame.fence_value, g_fence_event)))
@@ -8616,13 +8668,22 @@ namespace overlay
                 const mm::PerfScope nf(g_pf_newframe);
                 // The game thread's window messages, in order, on the one thread that
                 // is allowed to touch the ImGui context.
+                g_render_stage.store("imgui: replaying window messages", std::memory_order_relaxed);
                 replay_imgui_messages();
+                // CROSS-THREAD USER32, and the render lock is held across it. Everything
+                // in here reads or writes the cursor and the client rect of a window
+                // owned by the GAME thread, so it is the one place in the frame that can
+                // wait on another thread - which is why `hk_ResizeBuffers` (the only
+                // other taker of that lock, and a call that can arrive on the game
+                // thread) acquires it with a bound instead of spinning for ever.
+                g_render_stage.store("imgui: ImplWin32_NewFrame (user32)", std::memory_order_relaxed);
                 ImGui_ImplWin32_NewFrame();
             }
             ImGui_ImplDX12_NewFrame();
             ImGui::NewFrame();
             {
                 const mm::PerfScope bu(g_pf_buildui);
+                g_render_stage.store("build_ui", std::memory_order_relaxed);
                 build_ui();
             }
             ImGui::Render();
@@ -8675,6 +8736,7 @@ namespace overlay
             }
             g_cmd_list->Close();
 
+            g_render_stage.store("submitting the command list", std::memory_order_relaxed);
             ID3D12CommandQueue* queue = g_queue.load(std::memory_order_acquire);
             ID3D12CommandList* lists[] = {g_cmd_list};
             // The ORIGINAL, so our own submission does not re-enter the hook.
@@ -8711,6 +8773,7 @@ namespace overlay
             {
                 safe_release(g_map.upload); // the copy has landed; give the 90 MB back
             }
+            g_render_stage.store("between frames", std::memory_order_relaxed);
         }
 
         //==============================================================================
@@ -8742,8 +8805,15 @@ namespace overlay
             // the tail of a level load): the frames around it are wall-clock waits, not
             // this mod's cost, so they go to the stall columns of the F2 table.
             mm::perf_note_stall(L"a swapchain resize", 2000);
+            // A BOUNDED ACQUIRE, NOT A SPIN. This call can arrive on the game thread,
+            // and the render thread holds this same lock across
+            // `ImGui_ImplWin32_NewFrame()`, which reads and writes the cursor and the
+            // client rect of a window the GAME thread owns. Spinning here for ever is
+            // therefore a two-thread deadlock with no diagnostic; a bound turns the
+            // worst case into a named log line and a resize that may fail, which the
+            // next Present recovers from by recreating its render targets.
+            if (g_render_lock.try_lock_ms(2000))
             {
-                SpinGuard guard(g_render_lock);
                 mm::logf(L"ResizeBuffers({} buffers, {}x{}, {}) - releasing render targets",
                          count,
                          w,
@@ -8757,6 +8827,19 @@ namespace overlay
                 {
                     release_render_targets();
                 }
+                g_render_lock.unlock();
+            }
+            else
+            {
+                mm::logf(L"ResizeBuffers({} buffers, {}x{}, {}): the render lock was still held after "
+                         L"2000 ms, so our render targets were NOT released. The resize may fail and "
+                         L"the next Present will rebuild them. Render thread {} was at '{}'.",
+                         count,
+                         w,
+                         h,
+                         format_name(format),
+                         g_render_tid.load(std::memory_order_relaxed),
+                         stage_w(g_render_stage.load(std::memory_order_relaxed)));
             }
             const HRESULT hr = o_ResizeBuffers(sc, count, w, h, format, flags);
             // The RTVs are recreated lazily on the next Present, once the swapchain has
@@ -9362,6 +9445,133 @@ namespace overlay
                  static_cast<int>(st));
     }
 
+
+    //======================================================================================
+    // THE STALL WATCHDOG (loop thread)
+    //======================================================================================
+    //
+    // WHY. On 2026-09-03 at 20:56 the game hard-hung and had to be killed. Both logs
+    // stop inside the same 200 ms, the crash breadcrumb still says "first slice" (a
+    // hang, not a crash, so no dump), and there is NOTHING in the process that could
+    // say which thread stopped or what it was doing - the whole diagnosis had to be done
+    // by reading code. That must never cost a second session.
+    //
+    // WHAT IT IS. The UE4SS loop thread is the one thread that keeps running when the
+    // game thread and the render thread wedge (it did in that incident, long enough to
+    // flush a log buffer). So it watches two counters - `g_present_count` for the render
+    // thread and `gamestate::pump_calls()` for the game thread - and when either has not
+    // moved for `kStallMs` it says so, naming the stage each of them was last seen in.
+    //
+    // THE FLUSHER MUST NOT DEPEND ON THE STALLED THREAD, and it must not depend on the
+    // HEAP either: the leading hypothesis for that freeze is a corrupted CRT heap, in
+    // which case `std::format` would hang the last thread still running. So the first
+    // thing this does is `crumb::watchdog()`, which is POD-only, allocation-free and
+    // WRITE_THROUGH to its own file; only then does it try the ordinary log.
+    //
+    // FALSE POSITIVES. A synchronous level load blocks the game thread and stops Present
+    // too, so the perf stall window (opened by `overlay::on_update` itself whenever
+    // there is no validated gameplay pawn, and by ResizeBuffers) suppresses this. What
+    // is left is a stall in gameplay, which is exactly the thing being hunted.
+    void stall_watchdog(std::uint64_t now)
+    {
+        // Generous, because a stutter is not a freeze: a 6 s gap in gameplay is already
+        // "the game has stopped responding" to a player.
+        constexpr std::uint64_t kStallMs = 6000;
+        constexpr std::uint64_t kRepeatMs = 5000;
+
+        static std::uint64_t present_seen = 0;
+        static std::uint64_t present_at = 0;
+        static std::uint64_t pump_seen = 0;
+        static std::uint64_t pump_at = 0;
+        static std::uint64_t last_shout = 0;
+        static bool shouting = false;
+
+        const std::uint64_t presents = g_present_count.load(std::memory_order_relaxed);
+        const std::uint64_t pumps = gamestate::pump_calls();
+        if (present_at == 0)
+        {
+            present_at = now;
+            pump_at = now;
+            present_seen = presents;
+            pump_seen = pumps;
+            return;
+        }
+        if (presents != present_seen)
+        {
+            present_seen = presents;
+            present_at = now;
+        }
+        if (pumps != pump_seen)
+        {
+            pump_seen = pumps;
+            pump_at = now;
+        }
+
+        // Nothing to watch: the mod is off, the hooks are not in, no frame has ever
+        // arrived (the no-Present watchdog above owns that case), or the game is
+        // legitimately not producing frames or ticks.
+        if (!mm::mod_active() || !g_hooks_installed.load(std::memory_order_acquire) || presents == 0 ||
+            mm::perf_in_stall())
+        {
+            present_at = now;
+            pump_at = now;
+            return;
+        }
+
+        const std::uint64_t render_ms = now - present_at;
+        const std::uint64_t game_ms = now - pump_at;
+        if (render_ms < kStallMs && game_ms < kStallMs)
+        {
+            if (shouting)
+            {
+                shouting = false;
+                mm::log(L"WATCHDOG: the stall is over - both threads are moving again");
+            }
+            return;
+        }
+        if (last_shout != 0 && now - last_shout < kRepeatMs)
+        {
+            return;
+        }
+        last_shout = now;
+        shouting = true;
+
+        const char* rstage = g_render_stage.load(std::memory_order_relaxed);
+        const char* gstage = gamestate::pump_stage();
+        char note[192]{};
+        ::_snprintf_s(note, std::size(note), _TRUNCATE,
+                      "rtid=%lu presents=%llu pumps=%llu pause=%d busy=%d panel=%d map=%d msgdrop=%llu",
+                      g_render_tid.load(std::memory_order_relaxed),
+                      static_cast<unsigned long long>(presents),
+                      static_cast<unsigned long long>(pumps),
+                      g_slicer_pause.load() ? 1 : 0,
+                      g_slicer_busy.load() ? 1 : 0,
+                      mm::g_panel_open.load() ? 1 : 0,
+                      mm::g_map_open.load() ? 1 : 0,
+                      static_cast<unsigned long long>(g_msg_dropped.load(std::memory_order_relaxed)));
+        // POD FIRST. If the heap is the thing that is wedged, everything below this line
+        // never returns - and the line is already on disk.
+        crumb::watchdog(static_cast<unsigned long>(render_ms), static_cast<unsigned long>(game_ms),
+                        rstage, gstage, note);
+        mm::modlog_flush();
+
+        mm::logf(L"WATCHDOG: {} has not moved for {} ms (render {} ms at '{}', game {} ms at '{}'); "
+                 L"{}. A line is also in wuchang_minimap_watchdog.txt, which is written without "
+                 L"allocating in case the heap is what is stuck.",
+                 render_ms >= kStallMs && game_ms >= kStallMs
+                     ? L"NEITHER the render thread NOR the game thread"
+                     : (render_ms >= kStallMs ? L"the RENDER thread (no Present)"
+                                              : L"the GAME thread (no ProcessEvent pump)"),
+                 (std::max)(render_ms, game_ms),
+                 render_ms,
+                 stage_w(rstage),
+                 game_ms,
+                 stage_w(gstage),
+                 stage_w(note));
+        mm::drain_log();
+        mm::modlog_flush();
+    }
+
     void on_update()
     {
         // UE4SS EVENT-LOOP THREAD. No D3D12, no UObjects.
@@ -9807,6 +10017,9 @@ namespace overlay
                 }
             }
         }
+        // NAMES THE STALLED THREAD, so the next freeze does not have to be diagnosed by
+        // reading code (see the comment on stall_watchdog).
+        stall_watchdog(now);
 
         mm::drain_log();
     }

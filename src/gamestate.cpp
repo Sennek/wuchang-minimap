@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <string>
@@ -95,6 +96,19 @@ namespace gamestate
 
         std::atomic<bool> g_registered{false};
         std::atomic<std::uint64_t> g_pump_calls{0};
+        // WHAT THE GAME THREAD IS DOING, for the loop thread's stall watchdog. A
+        // relaxed store of a pointer to a string literal - no allocation, no lock, and
+        // nothing that can itself stall. It is deliberately coarse: the point is to name
+        // the STEP a freeze happened in, not to profile.
+        std::atomic<const char*> g_pump_stage{"start"};
+
+        struct StageMark
+        {
+            explicit StageMark(const char* s) noexcept
+            {
+                g_pump_stage.store(s, std::memory_order_relaxed);
+            }
+        };
         std::atomic<std::uint64_t> g_publishes{0};
         std::atomic<bool> g_report_pending{false};
 
@@ -1669,11 +1683,13 @@ namespace gamestate
                 if (g_state_ok_since != 0 && now >= g_cooldown_until)
                 {
                     const DepthGuard slice_guard{depth};
+                    const StageMark mark{"fast slice: markers"};
                     markers::game_thread_pump(now, g_world);
                     // The menu-discovery walk rides here for the same reason: it is a
                     // sliced GUObjectArray pass that needs many small slices per second,
                     // and it is self-throttled on QPC. Raw reads only - the ProcessEvent
                     // half of it is the commit, on the validated 10 Hz pump below.
+                    const StageMark wmark{"fast slice: widgets"};
                     widget_scan_pump(now, mm::qpc_us());
                 }
                 return;
@@ -1692,6 +1708,7 @@ namespace gamestate
             }
 
             // ---- 1. the controller ---------------------------------------------------
+            g_pump_stage.store("controller", std::memory_order_relaxed);
             if (!uer::alive(g_controller))
             {
                 g_controller.reset();
@@ -1709,6 +1726,7 @@ namespace gamestate
             //      pointer), which is safe to read even after the object was freed;
             //   b) the controller's own Pawn pointer still names the same object;
             //   c) the pawn's UWorld* is still the world we captured it in.
+            g_pump_stage.store("pawn validate", std::memory_order_relaxed);
             bool pawn_ok = g_pawn_is_gameplay && uer::alive(g_pawn);
             if (pawn_ok)
             {
@@ -2062,6 +2080,17 @@ namespace gamestate
             markers::game_thread_pump(now, g_world);
         }
     } // namespace
+
+    std::uint64_t pump_calls()
+    {
+        return g_pump_calls.load(std::memory_order_relaxed);
+    }
+
+    const char* pump_stage()
+    {
+        const char* s = g_pump_stage.load(std::memory_order_relaxed);
+        return s != nullptr ? s : "?";
+    }
 
     void on_unreal_init()
     {

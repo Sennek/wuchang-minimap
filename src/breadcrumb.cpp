@@ -13,8 +13,10 @@ namespace crumb
     namespace
     {
         constexpr const wchar_t* kFileName = L"\\wuchang_minimap_last_stage.txt";
+        constexpr const wchar_t* kWatchdogName = L"\\wuchang_minimap_watchdog.txt";
 
         wchar_t g_path[MAX_PATH]{};
+        wchar_t g_wd_path[MAX_PATH]{};
         bool g_enabled = false;
         bool g_have_path = false;
         char g_previous[64]{};
@@ -112,6 +114,12 @@ namespace crumb
         }
         ::memcpy(g_path, dir, dn * sizeof(wchar_t));
         ::memcpy(g_path + dn, kFileName, (fn + 1) * sizeof(wchar_t));
+        const std::size_t wn = ::wcslen(kWatchdogName);
+        if (dn + wn + 1 < MAX_PATH)
+        {
+            ::memcpy(g_wd_path, dir, dn * sizeof(wchar_t));
+            ::memcpy(g_wd_path + dn, kWatchdogName, (wn + 1) * sizeof(wchar_t));
+        }
         g_have_path = true;
         read_previous();
     }
@@ -178,6 +186,50 @@ namespace crumb
             return; // WM_CLOSE, WM_DESTROY, WM_QUIT and DLL_PROCESS_DETACH all arrive
         }
         stage(kWindowClosed);
+    }
+
+    void watchdog(unsigned long render_ms, unsigned long game_ms, const char* render_stage,
+                  const char* game_stage, const char* note)
+    {
+        if (g_wd_path[0] == L'\0')
+        {
+            return;
+        }
+        SYSTEMTIME st{};
+        ::GetLocalTime(&st);
+        char line[512]{};
+        std::size_t n = 0;
+        append_u32(line, sizeof(line), n, static_cast<unsigned long>(st.wHour), 2);
+        append(line, sizeof(line), n, ":");
+        append_u32(line, sizeof(line), n, static_cast<unsigned long>(st.wMinute), 2);
+        append(line, sizeof(line), n, ":");
+        append_u32(line, sizeof(line), n, static_cast<unsigned long>(st.wSecond), 2);
+        append(line, sizeof(line), n, ".");
+        append_u32(line, sizeof(line), n, static_cast<unsigned long>(st.wMilliseconds), 3);
+        append(line, sizeof(line), n, " STALL render=");
+        append_u32(line, sizeof(line), n, render_ms, 1);
+        append(line, sizeof(line), n, "ms at '");
+        append(line, sizeof(line), n, render_stage != nullptr ? render_stage : "?");
+        append(line, sizeof(line), n, "' game=");
+        append_u32(line, sizeof(line), n, game_ms, 1);
+        append(line, sizeof(line), n, "ms at '");
+        append(line, sizeof(line), n, game_stage != nullptr ? game_stage : "?");
+        append(line, sizeof(line), n, "' stage='");
+        append(line, sizeof(line), n, g_current);
+        append(line, sizeof(line), n, "' ");
+        append(line, sizeof(line), n, note != nullptr ? note : "");
+        append(line, sizeof(line), n, "\r\n");
+
+        const HANDLE h = ::CreateFileW(g_wd_path, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
+                                       OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH,
+                                       nullptr);
+        if (h == INVALID_HANDLE_VALUE)
+        {
+            return;
+        }
+        DWORD written = 0;
+        ::WriteFile(h, line, static_cast<DWORD>(n), &written, nullptr);
+        ::CloseHandle(h);
     }
 
     void set_flush_hook(void (*hook)())

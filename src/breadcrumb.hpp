@@ -70,6 +70,22 @@ namespace crumb
     // one racing the process teardown.
     void mark_closing();
 
+    // ANY THREAD, POD-ONLY, APPEND-ONLY. One line into `wuchang_minimap_watchdog.txt`
+    // next to the breadcrumb, written with a hand-built stack buffer through flat
+    // `CreateFileW` / `WriteFile` with FILE_FLAG_WRITE_THROUGH and closed again.
+    //
+    // WHY IT CANNOT GO THROUGH mm::logf. This is the diagnostic for a FREEZE, and the
+    // freeze we are chasing is one where the process heap may be the thing that is
+    // wedged - `std::format` allocates, `mm::log` allocates, and both would then hang
+    // the one thread still running instead of leaving evidence. So the watchdog writes
+    // its line with no allocation at all, and only THEN tries the ordinary log.
+    //
+    // `render_ms` / `game_ms` are how long since the render thread last presented and
+    // since the game thread last pumped; `render_stage` / `game_stage` are what each of
+    // them was last seen doing; `note` is free text (both stages' owner thread ids).
+    void watchdog(unsigned long render_ms, unsigned long game_ms, const char* render_stage,
+                  const char* game_stage, const char* note);
+
     // A hook the breadcrumb calls right after every successful write, used to flush the
     // mod's own rolling log so the two always agree about the last thing that happened.
     // A plain function pointer keeps this file free of everything but the flat Win32 API

@@ -904,9 +904,9 @@ def build_chapter(args: argparse.Namespace) -> dict:
         "flat_plane_sheets_dropped": planes["dropped_sheets"],
         "island_filter": {k: islands[k] for k in
                           ("components", "clusters", "clusters_kept", "clusters_detached_kept",
-                           "kept", "rescued_small", "dropped", "polys_dropped", "area_dropped",
+                           "kept", "rescued_marker_components", "dropped", "polys_dropped", "area_dropped",
                            "seeds", "seeded_components", "grid_uu", "z_tol_uu", "min_area_uu2",
-                           "cluster_area_uu2", "bridge_xy_uu", "bridge_z_uu",
+                           "cluster_area_uu2", "cover_z_uu", "bridge_xy_uu", "bridge_z_uu",
                            "seed_radius_uu", "require_seed") if k in islands},
         "height_maps": height_maps,
         "height_map_bytes": height_bytes,

@@ -182,6 +182,10 @@ DEFAULT_ISLAND_BRIDGE_Z = 1000.0  # uu (10 m); vertical gap that still joins two
 # 8-30 k m2), so this is not read off the data - it is the smallest area that still reads as
 # a place rather than a scrap. 40 m2 is a 6 x 6 m room.
 DEFAULT_ISLAND_CLUSTER_AREA = 400000.0  # uu2 (40 m2)
+# ... and the Z tolerance of the "is a marker standing on this" test that puts a dropped
+# component back. Same 400 uu as marker_coverage.py's --z-tol, on purpose: the audit's
+# criterion is the filter's own invariant, so the pass cannot strand a marker.
+DEFAULT_ISLAND_COVER_Z = 400.0  # uu
 # marker categories that are evidence "a player can get here" (ladder / lift / door
 # reach places the navmesh graph cannot, because off-mesh links are not in our data).
 # Kept for callers that want the narrow set; the filter itself takes every category,
@@ -741,6 +745,73 @@ def load_marker_seeds(paths: Iterable[Path], categories: Iterable[str] | None = 
     return seeds
 
 
+def _marker_rescue(
+    polys: list[dict],
+    comps: list[dict],
+    keep_ids: set[int],
+    seeds: list[dict],
+    cover_z: float,
+    cell: float = 640.0,
+) -> tuple[int, list[dict]]:
+    """Put back any component that holds the ONLY surface under a marker.
+
+    This is `marker_coverage.py`'s criterion turned into an invariant of the filter: a
+    marker is "covered" when a kept polygon *contains its XY* and sits within `cover_z` of
+    its Z. Proximity ("a marker within 3 m") is not the same test and cannot stand in for
+    it - measured, it left 43 markers (10 of them shrines) standing on nothing, because
+    the polygon 2.5 m away that satisfied it was not the polygon under their feet.
+    """
+    def index(ids: set[int], want_kept: bool) -> dict[tuple[int, int], list[int]]:
+        idx: dict[tuple[int, int], list[int]] = {}
+        for i, p in enumerate(polys):
+            if (p["comp"] in ids) != want_kept:
+                continue
+            xs = [q[0] for q in p["pts"]]
+            ys = [q[1] for q in p["pts"]]
+            for gx in range(int(math.floor(min(xs) / cell)), int(math.floor(max(xs) / cell)) + 1):
+                for gy in range(int(math.floor(min(ys) / cell)), int(math.floor(max(ys) / cell)) + 1):
+                    idx.setdefault((gx, gy), []).append(i)
+        return idx
+
+    kept_idx = index(keep_ids, True)
+    drop_idx = index(keep_ids, False)
+    by_comp: dict[int, list[int]] = {}
+    for i, p in enumerate(polys):
+        by_comp.setdefault(p["comp"], []).append(i)
+    rescues: list[dict] = []
+    for s in seeds:
+        key = (int(math.floor(s["x"] / cell)), int(math.floor(s["y"] / cell)))
+        if any(abs(polys[i]["cz"] - s["z"]) <= cover_z and _point_in_poly(polys[i]["pts"], s["x"], s["y"])
+               for i in kept_idx.get(key, ())):
+            continue
+        best = None
+        for i in drop_idx.get(key, ()):
+            p = polys[i]
+            if p["comp"] in keep_ids:
+                continue  # rescued a moment ago by an earlier marker
+            if abs(p["cz"] - s["z"]) <= cover_z and _point_in_poly(p["pts"], s["x"], s["y"]):
+                a = comps[p["comp"]]["area"]
+                if best is None or a > best[0]:
+                    best = (a, p["comp"])
+        if best is None:
+            continue  # nothing anywhere covers this marker; it was uncovered before too
+        cid = best[1]
+        c = comps[cid]
+        c["keep"], c["why"] = True, f"strands:{s['cat']}"
+        keep_ids.add(cid)
+        for i in by_comp.get(cid, ()):
+            p = polys[i]
+            for gx in range(int(math.floor(min(q[0] for q in p["pts"]) / cell)),
+                            int(math.floor(max(q[0] for q in p["pts"]) / cell)) + 1):
+                for gy in range(int(math.floor(min(q[1] for q in p["pts"]) / cell)),
+                                int(math.floor(max(q[1] for q in p["pts"]) / cell)) + 1):
+                    kept_idx.setdefault((gx, gy), []).append(i)
+        rescues.append({"cat": s["cat"], "id": s.get("id", ""), "comp": cid,
+                        "area": round(c["area"]), "x": round(s["x"]), "y": round(s["y"]),
+                        "z": round(s["z"])})
+    return len(rescues), rescues
+
+
 def filter_islands(
     polys: list[dict],
     seeds: list[dict],
@@ -753,6 +824,7 @@ def filter_islands(
     bridge_xy: float = DEFAULT_ISLAND_BRIDGE_XY,
     bridge_z: float = DEFAULT_ISLAND_BRIDGE_Z,
     cluster_area: float = DEFAULT_ISLAND_CLUSTER_AREA,
+    cover_z: float = DEFAULT_ISLAND_COVER_Z,
 ) -> tuple[list[dict], dict]:
     """Drop the navmesh a player cannot stand on. Three rules, in this order.
 
@@ -761,13 +833,15 @@ def filter_islands(
        place, whatever the navmesh graph says. A cluster is kept when it holds the largest
        component, when its total area clears `cluster_area` (40 m2), or when a marker of
        ANY category is within `seed_radius` / `seed_z` of one of its polygons.
-    2. Everything smaller is a Recast sliver under a prop and is dropped - EXCEPT when
-       dropping it would strand a marker: a small component survives only if a marker is
-       within `seed_radius` / `seed_z` of it AND that marker has no kept surface within the
-       same distance. That is strictly narrower than "any marker is near it", which kept a
-       0.2 m2 scrap whenever a chest happened to stand on the floor 3 m away.
-    3. `require_seed` is the strict diagnostic mode: only clusters with a marker survive.
-       It costs ~56 % of Chapter 1's walkable area. Do not ship it.
+    2. Everything smaller is a Recast sliver under a prop and is dropped.
+    3. Then nothing is allowed to STRAND A MARKER: any dropped component that holds the
+       only polygon containing a marker's XY within `cover_z` of its Z goes back in
+       (`_marker_rescue`). This is exactly `marker_coverage.py`'s criterion, so the audit
+       damage of the whole pass is zero by construction - the markers it still reports
+       uncovered are the ones that had no surface before any filtering either.
+
+    `require_seed` is the strict diagnostic mode: only clusters with a marker survive.
+    It costs ~56 % of Chapter 1's walkable area. Do not ship it.
 
     `bridge_xy = 0` turns the bridging off and makes the area rules run per component,
     which is what C2 shipped and why "the islands are still there".
@@ -838,23 +912,14 @@ def filter_islands(
             if cl["keep"]:
                 keep_ids.add(cid)
 
-    # ---- rule 2: rescue only the small components that hold up a marker alone -------
-    covered: set[int] = set()  # markers that already have kept ground under them
-    for cid in keep_ids:
-        covered |= comps[cid]["seed_ids"]
-    rescued = 0
-    for c in comps:  # descending area, so the biggest candidate wins a contested marker
-        if c["area"] >= min_area or c.get("keep"):
-            continue
-        stranded = sorted(c["seed_ids"] - covered)
-        if stranded:
-            c["keep"], c["why"] = True, "strands:" + ",".join(sorted({seeds[si]["cat"] for si in stranded}))
-            keep_ids.add(c["id"])
-            covered |= c["seed_ids"]
-            rescued += 1
-        else:
+    # ---- rule 2: everything under the sliver floor goes ----------------------------
+    for c in comps:
+        if c.get("cluster") is None:
             c["keep"] = False
-            c["why"] = f"area {c['area']:.0f} < {min_area:.0f}" + (" (marker already covered)" if c["seed_ids"] else "")
+            c["why"] = f"sliver, area {c['area']:.0f} < {min_area:.0f}"
+
+    # ---- rule 3: never strand a marker ---------------------------------------------
+    rescued, rescues = _marker_rescue(polys, comps, keep_ids, seeds, cover_z=cover_z)
 
     kept_comps = [c for c in comps if c["keep"]]
     dropped = [c for c in comps if not c["keep"]]
@@ -867,7 +932,8 @@ def filter_islands(
         "clusters": len(clusters),
         "clusters_kept": len(kept_cl),
         "clusters_detached_kept": sum(1 for cl in kept_cl if not cl["has_largest"]),
-        "rescued_small": rescued,
+        "rescued_marker_components": rescued,
+        "rescues": rescues[:24],
         "polys_before": len(polys),
         "polys_after": len(out),
         "polys_dropped": len(polys) - len(out),
@@ -879,6 +945,7 @@ def filter_islands(
         "z_tol_uu": z_tol,
         "min_area_uu2": min_area,
         "cluster_area_uu2": cluster_area,
+        "cover_z_uu": cover_z,
         "bridge_xy_uu": bridge_xy,
         "bridge_z_uu": bridge_z,
         "seed_radius_uu": seed_radius,
@@ -900,7 +967,7 @@ def describe_islands(tag: str, st: dict) -> str:
     return (
         f"[{tag}] islands: {st['components']} components -> {st['clusters']} clusters,"
         f" kept {st['clusters_kept']} ({st['clusters_detached_kept']} detached from the main one)"
-        f" = {st['kept']} components + {st['rescued_small']} rescued slivers,"
+        f" = {st['kept']} components ({st['rescued_marker_components']} of them put back under a marker),"
         f" dropped {st['dropped']}"
         f" ({st['seeded_components']} seeded by {st['seeds']} markers); polygons"
         f" {st['polys_before']} -> {st['polys_after']}"

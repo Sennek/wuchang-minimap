@@ -3374,6 +3374,7 @@ namespace overlay
             int drawn = 0;
             int clamped = 0;
             int filtered = 0;
+            int merged = 0; // rolled into another glyph's count badge (review B.16)
             // A fixed buffer, not a std::string: this used to be assigned on the render
             // thread every single frame, which is a heap allocation per frame for a
             // 54-character id. DrawMarker::id is a fixed char array too, so this is one
@@ -4403,6 +4404,133 @@ namespace overlay
             update_found_watch(markers::rounds(), ::GetTickCount64());
         }
 
+        //==============================================================================
+        // DECLUTTER: MERGING COINCIDENT GLYPHS (review B.16)
+        //==============================================================================
+        //
+        // Six chests in one room are six glyphs inside one glyph's width: a smear that
+        // says "chests" less clearly than a single chest with a 6 next to it. The compass
+        // has deduped its pips since 0.9.2; the minimap and the full map never did - they
+        // only ever culled by distance and by a hard count.
+        //
+        // WHAT MERGES. Same CATEGORY only, and same found state. Merging across
+        // categories would be a lie - one glyph cannot mean "a chest and an NPC" - and
+        // the shape is the half of a marker's identity that survives at 6 px, so it is
+        // the half that must not be invented. The nearest member of a cluster is the one
+        // drawn, because it is the one the player is walking to.
+        //
+        // HOW. A uniform grid keyed on (cell, category): anything landing in the same
+        // cell as an already-kept glyph of the same category joins it. Cell size is the
+        // merge distance, so two glyphs that straddle a cell boundary can stay separate -
+        // the same property the compass's 3-pixel columns have, and the same reason: an
+        // O(n) grid instead of an O(n x kept) sweep on the render thread, for a
+        // difference nobody can see once one of the two is a count badge anyway.
+        //
+        // Render thread only. Every buffer is static and reused, so a full map with four
+        // thousand markers allocates nothing per frame (review B.18's rule).
+        class MergeGrid
+        {
+        public:
+            // `cell` is the merge distance in pixels; the grid covers [x0, x0 + w] x
+            // [y0, y0 + h] and is clamped to kMaxCells cells on a side (a coarser cell
+            // merges slightly more aggressively, which is the safe direction).
+            void reset(float x0, float y0, float w, float h, float cell)
+            {
+                constexpr int kMaxSide = 128;
+                m_x0 = x0;
+                m_y0 = y0;
+                m_cell = (std::max)(1.0f, cell);
+                m_cols = (std::min)(kMaxSide, (std::max)(1, static_cast<int>(w / m_cell) + 2));
+                m_rows = (std::min)(kMaxSide, (std::max)(1, static_cast<int>(h / m_cell) + 2));
+                // Re-derive the cell size from the clamp, so a huge canvas still covers
+                // itself rather than merging everything into the top-left corner.
+                m_cell = (std::max)(m_cell, (std::max)(w / static_cast<float>(m_cols),
+                                                       h / static_cast<float>(m_rows)));
+                m_head.assign(static_cast<std::size_t>(m_cols) * static_cast<std::size_t>(m_rows), -1);
+                m_next.clear();
+                m_cat.clear();
+                m_slot.clear();
+            }
+
+            // The kept glyph this one should join, or -1 to keep it as a new one.
+            int find(float x, float y, int cat) const
+            {
+                const int c = cell_of(x, y);
+                if (c < 0)
+                {
+                    return -1;
+                }
+                for (int e = m_head[static_cast<std::size_t>(c)]; e >= 0; e = m_next[static_cast<std::size_t>(e)])
+                {
+                    if (m_cat[static_cast<std::size_t>(e)] == cat)
+                    {
+                        return m_slot[static_cast<std::size_t>(e)];
+                    }
+                }
+                return -1;
+            }
+
+            void add(float x, float y, int cat, int slot)
+            {
+                const int c = cell_of(x, y);
+                if (c < 0)
+                {
+                    return;
+                }
+                m_next.push_back(m_head[static_cast<std::size_t>(c)]);
+                m_cat.push_back(cat);
+                m_slot.push_back(slot);
+                m_head[static_cast<std::size_t>(c)] = static_cast<int>(m_next.size()) - 1;
+            }
+
+        private:
+            int cell_of(float x, float y) const
+            {
+                const int cx = static_cast<int>((x - m_x0) / m_cell);
+                const int cy = static_cast<int>((y - m_y0) / m_cell);
+                if (cx < 0 || cy < 0 || cx >= m_cols || cy >= m_rows)
+                {
+                    return -1;
+                }
+                return cy * m_cols + cx;
+            }
+
+            float m_x0 = 0.0f;
+            float m_y0 = 0.0f;
+            float m_cell = 1.0f;
+            int m_cols = 1;
+            int m_rows = 1;
+            std::vector<int> m_head;
+            std::vector<int> m_next;
+            std::vector<int> m_cat;
+            std::vector<int> m_slot;
+        };
+
+        // The little "and N more like this one" badge. Drawn up and to the right of the
+        // glyph, on the plate colour so it reads over both the walkable fill and the
+        // dark backdrop, and never for a cluster of one.
+        void draw_count_badge(ImDrawList* dl, ImVec2 at, float r, int count, int alpha)
+        {
+            if (count < 2)
+            {
+                return;
+            }
+            char text[8]{};
+            if (count > 99)
+            {
+                (void)std::snprintf(text, sizeof(text), "99+");
+            }
+            else
+            {
+                (void)std::snprintf(text, sizeof(text), "%d", count);
+            }
+            const ImVec2 ts = ImGui::CalcTextSize(text);
+            const ImVec2 tp{at.x + r * 0.65f, at.y - r * 0.65f - ts.y * 0.5f};
+            dl->AddRectFilled(ImVec2{tp.x - 2.0f, tp.y}, ImVec2{tp.x + ts.x + 2.0f, tp.y + ts.y},
+                              plate_color(static_cast<int>(alpha * 0.82f)), 2.0f);
+            dl->AddText(tp, IM_COL32(238, 242, 248, alpha), text);
+        }
+
         void draw_markers(const mm::Config& cfg, const MiniGeom& g, bool round, float x0, float y0, float side,
                           ImDrawList* dl)
         {
@@ -4430,6 +4558,7 @@ namespace overlay
                 std::uint8_t rarity = 0;
                 bool found = false;
                 bool clamped = false;
+                int count = 1; // how many markers this glyph stands for (review B.16)
                 const char* id = nullptr;
             };
             // Render thread only, and reused frame to frame so a full minimap never
@@ -4494,6 +4623,39 @@ namespace overlay
                 std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
             }
 
+            // ---- declutter -----------------------------------------------------------
+            //
+            // After the sort, so the glyph kept for a cluster is its NEAREST member, and
+            // after the cap, so merging cannot resurrect a marker the cap dropped. A
+            // clamped glyph is left out of it: everything on the rim is at the rim by
+            // definition and merging those would collapse a whole direction into one
+            // number.
+            {
+                static MergeGrid grid;
+                const float merge_r = (std::max)(3.0f, r);
+                grid.reset(g.center.x - g.half, g.center.y - g.half, side, side, merge_r);
+                std::size_t kept = 0;
+                for (std::size_t i = 0; i < cands.size(); ++i)
+                {
+                    const Cand& c = cands[i];
+                    const float sx = g.center.x + c.dx;
+                    const float sy = g.center.y + c.dy;
+                    const int key = c.clamped ? -1 : grid.find(sx, sy, static_cast<int>(c.cat));
+                    if (key >= 0 && cands[static_cast<std::size_t>(key)].found == c.found)
+                    {
+                        ++cands[static_cast<std::size_t>(key)].count;
+                        continue;
+                    }
+                    if (!c.clamped)
+                    {
+                        grid.add(sx, sy, static_cast<int>(c.cat), static_cast<int>(kept));
+                    }
+                    cands[kept++] = c;
+                }
+                g_marker_draw.merged = static_cast<int>(cands.size() - kept);
+                cands.resize(kept);
+            }
+
             const float op = cfg.opacity;
             for (std::size_t ci = cands.size(); ci-- > 0;)
             {
@@ -4510,6 +4672,7 @@ namespace overlay
                 const ImVec2 p{g.center.x + cand.dx, g.center.y + cand.dy};
                 draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, cand.clamped ? r * 0.72f : r, col, edge,
                                   cand.found);
+                draw_count_badge(dl, p, r, cand.count, alpha);
                 ++g_marker_draw.drawn;
                 g_marker_draw.clamped += cand.clamped ? 1 : 0;
             }
@@ -6540,9 +6703,37 @@ namespace overlay
 
             if (cfg.markers_enabled && mv_all.data != nullptr)
             {
-                const int cap = cfg.map_markers_max_draw > 0 ? cfg.map_markers_max_draw
-                                                            : static_cast<int>(mv_all.count);
-                for (std::size_t i = 0; i < mv_all.count && g_map_markers_drawn < cap; ++i)
+                //----------------------------------------------------------------------
+                // TWO PASSES, NOT ONE (review B.16)
+                //----------------------------------------------------------------------
+                //
+                // 1.0.0 walked the published buffer in DB ORDER and stopped at
+                // map_markers_max_draw. Two consequences: with more markers than the cap
+                // the ones dropped were whichever the database happened to list last -
+                // so zooming out lost markers at random rather than the far ones - and
+                // nothing merged, so a room with six chests in it was a smear.
+                //
+                // So: collect what is on screen, order it by distance from the VIEW
+                // CENTRE (which is what the player is looking at, and is also what the
+                // Fit button and the recentre key aim), cap that, merge coincident glyphs
+                // of the same category, and only then draw. All three buffers are static
+                // and reused - this runs inside Present (review B.18).
+                struct MapCand
+                {
+                    float sx = 0.0f;
+                    float sy = 0.0f;
+                    float cd2 = 0.0f; // squared distance from the canvas centre
+                    const markers::DrawMarker* m = nullptr;
+                    bool found = false;
+                    int count = 1;
+                };
+                static std::vector<MapCand> cands;
+                cands.clear();
+                if (cands.capacity() < mv_all.count)
+                {
+                    cands.reserve(mv_all.count);
+                }
+                for (std::size_t i = 0; i < mv_all.count; ++i)
                 {
                     const markers::DrawMarker& m = mv_all.data[i];
                     const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
@@ -6563,32 +6754,87 @@ namespace overlay
                     {
                         continue;
                     }
-                    const int alpha = static_cast<int>((found ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
-                    draw_marker_glyph(dl, cat, ImVec2{sx, sy}, mr,
+                    MapCand c{};
+                    c.sx = sx;
+                    c.sy = sy;
+                    const float cdx = sx - canvas.cx();
+                    const float cdy = sy - canvas.cy();
+                    c.cd2 = cdx * cdx + cdy * cdy;
+                    c.m = &m;
+                    c.found = found;
+                    cands.push_back(c);
+                }
+
+                // NEAREST THE CENTRE FIRST. partial_sort leaves [0, cap) sorted, which
+                // is all the draw order needs.
+                const std::size_t cap = cfg.map_markers_max_draw > 0
+                                            ? static_cast<std::size_t>(cfg.map_markers_max_draw)
+                                            : cands.size();
+                const auto nearer = [](const MapCand& a, const MapCand& b) { return a.cd2 < b.cd2; };
+                if (cands.size() > cap)
+                {
+                    std::partial_sort(cands.begin(), cands.begin() + static_cast<std::ptrdiff_t>(cap),
+                                      cands.end(), nearer);
+                    cands.resize(cap);
+                }
+                else
+                {
+                    std::sort(cands.begin(), cands.end(), nearer);
+                }
+
+                // MERGE, same category and same found state only - see MergeGrid.
+                {
+                    static MergeGrid grid;
+                    grid.reset(canvas.x0 - mr, canvas.y0 - mr, canvas.w() + mr * 2.0f,
+                               canvas.h() + mr * 2.0f, (std::max)(3.0f, mr));
+                    std::size_t kept = 0;
+                    for (std::size_t i = 0; i < cands.size(); ++i)
+                    {
+                        const MapCand& c = cands[i];
+                        const int key = grid.find(c.sx, c.sy, static_cast<int>(c.m->cat));
+                        if (key >= 0 && cands[static_cast<std::size_t>(key)].found == c.found)
+                        {
+                            ++cands[static_cast<std::size_t>(key)].count;
+                            continue;
+                        }
+                        grid.add(c.sx, c.sy, static_cast<int>(c.m->cat), static_cast<int>(kept));
+                        cands[kept++] = c;
+                    }
+                    cands.resize(kept);
+                }
+
+                // DRAWN FAR TO NEAR, so the marker nearest what the player is looking at
+                // ends up on top - the same trick the minimap uses.
+                for (std::size_t ci = cands.size(); ci-- > 0;)
+                {
+                    const MapCand& c = cands[ci];
+                    const markers::DrawMarker& m = *c.m;
+                    const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
+                    const int alpha =
+                        static_cast<int>((c.found ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
+                    draw_marker_glyph(dl, cat, ImVec2{c.sx, c.sy}, mr,
                                       marker_color_q(cat, m.rarity, alpha, cfg.markers_rarity_tint,
                                                      cfg.xray_rarity_colors),
-                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)), found);
+                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)), c.found);
+                    draw_count_badge(dl, ImVec2{c.sx, c.sy}, mr, c.count, alpha);
                     ++g_map_markers_drawn;
 
-                    const float mdx = sx - io.MousePos.x;
-                    const float mdy = sy - io.MousePos.y;
+                    const float mdx = c.sx - io.MousePos.x;
+                    const float mdy = c.sy - io.MousePos.y;
                     const float d2 = mdx * mdx + mdy * mdy;
                     if (canvas_hovered && d2 <= pick_r * pick_r && (hover == nullptr || d2 < hover_d2))
                     {
                         hover = &m;
                         hover_d2 = d2;
                     }
-                    // The keyboard / gamepad "toggle found" acts on the marker
-                    // nearest the CENTRE of the view - but only within the same radius
-                    // a mouse would have to be in, so it can never reach a marker on
-                    // the far side of the screen.
-                    const float cdx = sx - canvas.cx();
-                    const float cdy = sy - canvas.cy();
-                    const float cd2 = cdx * cdx + cdy * cdy;
-                    if (cd2 <= kCentrePickR * kCentrePickR && (centre_marker == nullptr || cd2 < centre_d2))
+                    // The keyboard / gamepad "toggle found" acts on the marker nearest
+                    // the CENTRE of the view - but only within the same radius a mouse
+                    // would have to be in, so it can never reach a marker on the far
+                    // side of the screen.
+                    if (c.cd2 <= kCentrePickR * kCentrePickR && (centre_marker == nullptr || c.cd2 < centre_d2))
                     {
                         centre_marker = &m;
-                        centre_d2 = cd2;
+                        centre_d2 = c.cd2;
                     }
                 }
             }
@@ -8713,11 +8959,12 @@ namespace overlay
                         st.publish_ms,
                         st.publish_ms_avg,
                         st.publish_ms_peak);
-            ImGui::Text("drawn %d of %d (%d clamped, %d filtered)",
+            ImGui::Text("drawn %d of %d (%d clamped, %d filtered, %d merged)",
                         g_marker_draw.drawn,
                         g_marker_draw.total,
                         g_marker_draw.clamped,
-                        g_marker_draw.filtered);
+                        g_marker_draw.filtered,
+                        g_marker_draw.merged);
             if (g_marker_draw.nearest[0] != 0)
             {
                 ImGui::Text("nearest: %s (%.0f uu)", g_marker_draw.nearest, g_marker_draw.nearest_uu);

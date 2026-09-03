@@ -114,6 +114,18 @@ namespace scan
             ++c.round;
             return true;
         }
+        // NO FORWARD PROGRESS IS STILL A ROUND. An empty slice (a chunk size of zero,
+        // or a cursor a caller planned by hand) left c.index where it was and returned
+        // false, so the round could never wrap: the marker draw buffer was never
+        // published and the widget round never committed - a silent stall rather than a
+        // slow scan. With nothing visitable the honest answer is "the round is over".
+        if (s.count() <= 0)
+        {
+            c.index = 0;
+            c.visited = 0;
+            ++c.round;
+            return true;
+        }
         c.visited += s.count();
         c.index = s.end;
         if (c.index >= total)

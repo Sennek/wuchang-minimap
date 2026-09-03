@@ -15,8 +15,8 @@
    "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu",
    "agent": "Small",
    "tile_count": 10037,
-   "poly_count": 202774,
-   "png_bytes": 3345137,
+   "poly_count": 155400,
+   "png_bytes": 2758184,
    "z_min": -15089.0,
    "z_max": 38871.0,
    "z_step_uu": 0.8233893856624043,
@@ -26,6 +26,36 @@
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
    "surface_merge_tol_uu": 120.0,
+   "flat_plane_sheets_dropped": [
+    {
+     "z": 36351.0,
+     "polys": 232,
+     "nearest_ordinary_dz": 24650.0,
+     "dropped": true,
+     "reason": "sheet"
+    },
+    {
+     "z": 38871.0,
+     "polys": 3,
+     "nearest_ordinary_dz": 35688.0,
+     "dropped": true,
+     "reason": "isolated"
+    }
+   ],
+   "island_filter": {
+    "components": 29792,
+    "kept": 6063,
+    "dropped": 23729,
+    "polys_dropped": 47486,
+    "area_dropped": 181262150.0,
+    "seeds": 497,
+    "seeded_components": 977,
+    "grid_uu": 64.0,
+    "z_tol_uu": 150.0,
+    "min_area_uu2": 40000.0,
+    "seed_radius_uu": 300.0,
+    "require_seed": false
+   },
    "height_maps": [
     "chapter1/small_z0.png",
     "chapter1/small_z1.png",
@@ -37,44 +67,44 @@
     "chapter1/small_z7.png"
    ],
    "height_map_bytes": [
-    4686840,
-    2805556,
-    1523033,
-    823993,
-    431918,
-    222566,
-    117616,
-    67878
+    3994994,
+    2263880,
+    1182428,
+    610043,
+    314500,
+    165849,
+    93779,
+    60057
    ],
    "height_map_raw_bytes": 342965616,
    "surface_hist": [
-    13327345,
-    5119352,
-    1729619,
-    707393,
-    312385,
-    141451,
-    60524,
-    22980,
-    14302
+    13368700,
+    5170171,
+    1728093,
+    692291,
+    275983,
+    120638,
+    49686,
+    18486,
+    11303
    ]
   },
   "chapter2": {
    "image": "chapter2/small.png",
-   "image_width": 4786,
-   "image_height": 4647,
-   "width": 4786,
-   "height": 4647,
+   "image_width": 4821,
+   "image_height": 4613,
+   "width": 4821,
+   "height": 4613,
    "min_x": -4546.0,
-   "min_y": -76906.0,
-   "max_x": 80316.0,
+   "min_y": -76686.0,
+   "max_x": 78866.0,
    "max_y": 10496.0,
-   "px_per_uu": 0.05473878850252287,
+   "px_per_uu": 0.05528621675963892,
    "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu",
    "agent": "Small",
    "tile_count": 9140,
-   "poly_count": 187794,
-   "png_bytes": 2997882,
+   "poly_count": 133723,
+   "png_bytes": 2394912,
    "z_min": -11209.0,
    "z_max": 38871.0,
    "z_step_uu": 0.7641834772789697,
@@ -84,6 +114,36 @@
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
    "surface_merge_tol_uu": 120.0,
+   "flat_plane_sheets_dropped": [
+    {
+     "z": 36351.0,
+     "polys": 151,
+     "nearest_ordinary_dz": 27573.3,
+     "dropped": true,
+     "reason": "sheet"
+    },
+    {
+     "z": 38871.0,
+     "polys": 5,
+     "nearest_ordinary_dz": 35688.0,
+     "dropped": true,
+     "reason": "isolated"
+    }
+   ],
+   "island_filter": {
+    "components": 31941,
+    "kept": 6077,
+    "dropped": 25864,
+    "polys_dropped": 54154,
+    "area_dropped": 194674250.0,
+    "seeds": 448,
+    "seeded_components": 903,
+    "grid_uu": 64.0,
+    "z_tol_uu": 150.0,
+    "min_area_uu2": 40000.0,
+    "seed_radius_uu": 300.0,
+    "require_seed": false
+   },
    "height_maps": [
     "chapter2/small_z0.png",
     "chapter2/small_z1.png",
@@ -95,26 +155,26 @@
     "chapter2/small_z7.png"
    ],
    "height_map_bytes": [
-    3997259,
-    2289175,
-    1083593,
-    526770,
-    266941,
-    141778,
-    82077,
-    55691
+    3368777,
+    1723110,
+    762460,
+    356822,
+    188264,
+    108514,
+    68398,
+    50015
    ],
-   "height_map_raw_bytes": 355848672,
+   "height_map_raw_bytes": 355828368,
    "surface_hist": [
-    16431690,
-    3732338,
-    1314942,
-    455512,
-    183979,
-    77016,
-    29824,
-    10280,
-    4961
+    16456769,
+    3887430,
+    1226774,
+    396887,
+    154562,
+    68470,
+    33093,
+    11678,
+    3610
    ]
   },
   "chapter3": {
@@ -131,8 +191,8 @@
    "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu",
    "agent": "Small",
    "tile_count": 11653,
-   "poly_count": 221878,
-   "png_bytes": 3327778,
+   "poly_count": 156245,
+   "png_bytes": 2559134,
    "z_min": -15089.0,
    "z_max": 38871.0,
    "z_step_uu": 0.8233893856624043,
@@ -142,6 +202,36 @@
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
    "surface_merge_tol_uu": 120.0,
+   "flat_plane_sheets_dropped": [
+    {
+     "z": 36351.0,
+     "polys": 219,
+     "nearest_ordinary_dz": 24650.0,
+     "dropped": true,
+     "reason": "sheet"
+    },
+    {
+     "z": 38871.0,
+     "polys": 5,
+     "nearest_ordinary_dz": 35688.0,
+     "dropped": true,
+     "reason": "isolated"
+    }
+   ],
+   "island_filter": {
+    "components": 40350,
+    "kept": 7462,
+    "dropped": 32888,
+    "polys_dropped": 65783,
+    "area_dropped": 253649250.0,
+    "seeds": 409,
+    "seeded_components": 1074,
+    "grid_uu": 64.0,
+    "z_tol_uu": 150.0,
+    "min_area_uu2": 40000.0,
+    "seed_radius_uu": 300.0,
+    "require_seed": false
+   },
    "height_maps": [
     "chapter3/small_z0.png",
     "chapter3/small_z1.png",
@@ -153,44 +243,44 @@
     "chapter3/small_z7.png"
    ],
    "height_map_bytes": [
-    4150160,
-    2447258,
-    1147591,
-    522763,
-    249899,
-    135127,
-    79533,
-    56148
+    3436183,
+    1803269,
+    793504,
+    361881,
+    179974,
+    109767,
+    73583,
+    56227
    ],
    "height_map_raw_bytes": 355823280,
    "surface_hist": [
-    15458445,
-    4651662,
-    1362800,
-    469737,
-    175013,
-    69827,
-    32228,
-    12402,
-    6841
+    15503313,
+    4803660,
+    1265580,
+    409042,
+    151991,
+    55396,
+    28668,
+    13558,
+    7747
    ]
   },
   "chapter4": {
    "image": "chapter4/small.png",
-   "image_width": 4897,
-   "image_height": 4550,
-   "width": 4897,
-   "height": 4550,
+   "image_width": 4885,
+   "image_height": 4561,
+   "width": 4885,
+   "height": 4561,
    "min_x": -16696.0,
    "min_y": -60416.0,
    "max_x": 70656.0,
-   "max_y": 33586.0,
-   "px_per_uu": 0.052074391574485956,
+   "max_y": 33146.0,
+   "px_per_uu": 0.05219944254589877,
    "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu",
    "agent": "Small",
    "tile_count": 6697,
-   "poly_count": 120911,
-   "png_bytes": 2221168,
+   "poly_count": 95983,
+   "png_bytes": 1882011,
    "z_min": -15089.0,
    "z_max": 20911.0,
    "z_step_uu": 0.5493331705679495,
@@ -200,6 +290,36 @@
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
    "surface_merge_tol_uu": 120.0,
+   "flat_plane_sheets_dropped": [
+    {
+     "z": 3604.3,
+     "polys": 400,
+     "nearest_ordinary_dz": 0.0,
+     "dropped": true,
+     "reason": "sheet"
+    },
+    {
+     "z": 3413.7,
+     "polys": 377,
+     "nearest_ordinary_dz": 0.2,
+     "dropped": true,
+     "reason": "sheet"
+    }
+   ],
+   "island_filter": {
+    "components": 15048,
+    "kept": 3184,
+    "dropped": 11864,
+    "polys_dropped": 24981,
+    "area_dropped": 92998800.0,
+    "seeds": 159,
+    "seeded_components": 315,
+    "grid_uu": 64.0,
+    "z_tol_uu": 150.0,
+    "min_area_uu2": 40000.0,
+    "seed_radius_uu": 300.0,
+    "require_seed": false
+   },
    "height_maps": [
     "chapter4/small_z0.png",
     "chapter4/small_z1.png",
@@ -211,53 +331,83 @@
     "chapter4/small_z7.png"
    ],
    "height_map_bytes": [
-    3156752,
-    1359186,
-    624852,
-    287133,
-    129138,
-    66138,
-    46934,
-    43750
+    2796370,
+    1092217,
+    495621,
+    220092,
+    100127,
+    56048,
+    44815,
+    43536
    ],
-   "height_map_raw_bytes": 356501600,
+   "height_map_raw_bytes": 356487760,
    "surface_hist": [
-    16733430,
-    4087419,
-    998445,
-    319309,
-    103154,
-    30634,
-    7934,
-    894,
-    131
+    16767154,
+    4110733,
+    964837,
+    317548,
+    89494,
+    24722,
+    5533,
+    393,
+    71
    ]
   },
   "chapter5": {
    "image": "chapter5/small.png",
-   "image_width": 3141,
-   "image_height": 7082,
-   "width": 3141,
-   "height": 7082,
+   "image_width": 3106,
+   "image_height": 7162,
+   "width": 3106,
+   "height": 7162,
    "min_x": -190976.0,
    "min_y": -70656.0,
    "max_x": 38246.0,
-   "max_y": 30976.0,
-   "px_per_uu": 0.030891325840075878,
+   "max_y": 28716.0,
+   "px_per_uu": 0.03123899457490023,
    "mapping": "u = (world_Y - min_y) * px_per_uu ; v = (max_x - world_X) * px_per_uu",
    "agent": "Small",
    "tile_count": 12986,
-   "poly_count": 226518,
-   "png_bytes": 1974531,
-   "z_min": -2561.042407385564,
+   "poly_count": 154364,
+   "png_bytes": 1566252,
+   "z_min": -2521.65241364577,
    "z_max": 13752.367487815143,
-   "z_step_uu": 0.24893047723625458,
+   "z_step_uu": 0.2483294152876509,
    "z_code_no_surface": 0,
    "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 65534) ; 0 = no surface",
    "chapter": 5,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
    "surface_merge_tol_uu": 120.0,
+   "flat_plane_sheets_dropped": [
+    {
+     "z": 2081.8,
+     "polys": 74,
+     "nearest_ordinary_dz": 0.1,
+     "dropped": true,
+     "reason": "sheet"
+    },
+    {
+     "z": -1965.7,
+     "polys": 71,
+     "nearest_ordinary_dz": 0.3,
+     "dropped": true,
+     "reason": "sheet"
+    }
+   ],
+   "island_filter": {
+    "components": 47549,
+    "kept": 9448,
+    "dropped": 38101,
+    "polys_dropped": 72304,
+    "area_dropped": 313858150.0,
+    "seeds": 115,
+    "seeded_components": 235,
+    "grid_uu": 64.0,
+    "z_tol_uu": 150.0,
+    "min_area_uu2": 40000.0,
+    "seed_radius_uu": 300.0,
+    "require_seed": false
+   },
    "height_maps": [
     "chapter5/small_z0.png",
     "chapter5/small_z1.png",
@@ -269,26 +419,26 @@
     "chapter5/small_z7.png"
    ],
    "height_map_bytes": [
-    2463160,
-    1667696,
-    992265,
-    611948,
-    379625,
-    237658,
-    154257,
-    97219
+    2161201,
+    1337315,
+    731488,
+    421508,
+    251479,
+    159641,
+    108327,
+    71690
    ],
-   "height_map_raw_bytes": 355912992,
+   "height_map_raw_bytes": 355922752,
    "surface_hist": [
-    19309138,
-    1823181,
-    599308,
-    248773,
-    122370,
-    65642,
-    35406,
-    18828,
-    21916
+    19210132,
+    2020499,
+    599045,
+    218657,
+    97854,
+    47655,
+    24831,
+    12795,
+    13704
    ]
   }
  }

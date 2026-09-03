@@ -431,6 +431,18 @@ namespace markers
             mdb::Cat cat = mdb::Cat::Other;
             bool found = false;
             bool persist = false;
+            // The position READ succeeded (whatever it returned), and separately: the
+            // position is usable, i.e. it is not the (0,0,0) parking spot.
+            //
+            // THESE ARE NOT THE SAME QUESTION, and conflating them is what made static
+            // loot disappear. `pos_valid == false` used to mean both "the actor is parked
+            // at the origin, so it has been collected" and "the read failed, so I have no
+            // idea" - and the pickup rule then marked a perfectly untouched pickup as
+            // COLLECTED (persisted to wuchang_minimap_found.txt, so permanently) purely
+            // because a RootComponent read did not come back. Same shape as the kFlagLive
+            // bug: "found the actor, cannot locate it" is its own answer and it is not
+            // evidence about game state.
+            bool pos_read = false;
             bool pos_valid = false;
             // The health read answered "zero". The entry is KEPT rather than erased,
             // because erasing it only removes the live position - the enemy's authored
@@ -481,7 +493,15 @@ namespace markers
         std::atomic<int> g_mobile_live{0};        // npc live entries held
         std::atomic<int> g_mobile_joined{0};      // static markers whose live twin answered
         std::atomic<int> g_mobile_superseded{0};  // ... and stands more than kMovedUu away
+        std::atomic<int> g_mobile_walked{0};      // a live twin answered but is unlocatable
+        std::atomic<int> g_mobile_hidden_walked{0}; // ... and was hidden for it
+        std::atomic<int> g_mobile_hidden_absent{0}; // hidden because nobody answered at all
         std::atomic<int> g_mobile_level_known{0}; // ... whose own level is resident
+        // The "met" gauge: people and notes in this chapter that are in the found set,
+        // over how many there are. A GAUGE, because the state is persisted - see the
+        // g_met_marks comment.
+        std::atomic<int> g_met_found{0};
+        std::atomic<int> g_met_total{0};
         std::atomic<int> g_dead_hidden{0};        // markers suppressed because they are dead
 
         // How far a live person has to stand from their authored position before the
@@ -660,10 +680,24 @@ namespace markers
         //
         // Both spellings are tried, in that order, and the winning PAIR is cached per
         // component class - so a build that renames them costs one extra pair of missed
-        // lookups per class instead of the whole feature. And the failure diagnostic for
-        // this stage now lists the class' FOUR-BYTE properties with the float each one
-        // reads back, because "it has no property called X" is only useful next to the
-        // list of properties it does have.
+        // lookups per class instead of the whole feature.
+        //
+        // WHAT WENT WRONG THE THIRD TIME (run 3, 2026-09-03): the names were finally
+        // right - and the read still failed, at the same stage, with
+        // `health unknown 21624`. **The property is eight bytes wide.** In UE5 a
+        // blueprint "float" is backed by `FDoubleProperty` (Large World Coordinates), and
+        // `CurrentValue` / `MaxValue` on an `ExtendedStatComponent_C` are authored in a
+        // blueprint - so asking for them with `expect_size == sizeof(float)` returned
+        // FALSE, which is indistinguishable from "there is no such property".
+        //
+        // The diagnostic could not have caught it either, and that is the more important
+        // half: it listed the class' FOUR-BYTE properties, so the run-3 log's evidence
+        // table reads `StartIntervalTime`, `EndIntervalTime`, `UCSSerializationIndex` -
+        // three unrelated timers - and the two properties the table existed to find were
+        // invisible in it. Both halves are fixed here: the read goes through
+        // `uer::read_numeric_prop` (8-byte double preferred, 4-byte float accepted, and
+        // the width that answered is logged), and the failure table lists every 4- AND
+        // 8-byte property with the number it reads back.
 
         constexpr const wchar_t* kHealthProp = L"Health";
         constexpr const wchar_t* kStatComponentSubstr = L"ExtendedStatComponent";
@@ -686,6 +720,8 @@ namespace markers
         std::unordered_map<const void*, std::wstring> g_health_prop;
         // Component UClass* -> index into kHealthFields, or -1 for "no pair reads back".
         std::unordered_map<const void*, int> g_health_fields;
+        // The property width that answered, purely for the one log line that says so.
+        int g_health_width = 0;
         bool g_health_diag_done = false; // the one-shot failure diagnostic has been printed
 
         // The object's class name, or an empty string. Safe on a captured object only.
@@ -705,7 +741,7 @@ namespace markers
         // property on the class whose value is a live UObject, with its class and object
         // name. That table is the answer to "what is this component actually called".
         void log_health_failure(UObject* owner, const uer::ClassLayout* layout, const wchar_t* stage,
-                                bool list_floats = false)
+                                bool list_numbers = false)
         {
             if (g_health_diag_done)
             {
@@ -717,37 +753,44 @@ namespace markers
                      L"properties of that class so the route can be fixed:",
                      cls.empty() ? std::wstring{L"<unknown>"} : cls,
                      stage,
-                     list_floats ? L"four-byte" : L"object-valued");
+                     list_numbers ? L"numeric (4- AND 8-byte)" : L"object-valued");
             if (layout == nullptr)
             {
                 mm::log(L"markers:   (the class has no readable property layout at all)");
                 return;
             }
-            // THE FLOAT TABLE. When the component is in hand and only the field names
-            // are wrong, the answer is the list of its four-byte properties and what
-            // each one reads back - a `MaxValue` of 269.1 beside a `CurrentValue` of
-            // 269.1 names the pair without a third play session.
-            if (list_floats)
+            // THE NUMBER TABLE. When the component is in hand and only the field names
+            // (or their WIDTH) are wrong, the answer is the list of its numeric
+            // properties and what each one reads back - a `MaxValue` of 269.1 beside a
+            // `CurrentValue` of 269.1 names the pair without another play session.
+            //
+            // BOTH widths, and the width is printed. Run 3's version of this table asked
+            // for four-byte properties only and therefore printed three unrelated timers
+            // while the two eight-byte doubles it existed to find were invisible in it -
+            // in UE5 a blueprint "float" is a double. An 8-byte entry may of course be a
+            // POINTER read as a double (~1e-317 or absurdly large); that is what the
+            // width column and the reader's judgement are for.
+            if (list_numbers)
             {
-                int floats = 0;
+                int listed = 0;
                 for (const auto& kv : layout->props)
                 {
-                    if (kv.second.size != static_cast<int>(sizeof(float)) || floats >= 64)
+                    if (!uer::prop_is_numeric_width(kv.second) || listed >= 96)
                     {
                         continue;
                     }
-                    float v = 0.0f;
-                    if (!uer::read_prop(layout, owner, kv.first.c_str(), v,
-                                        static_cast<int>(sizeof(float))))
+                    double v = 0.0;
+                    int width = 0;
+                    if (!uer::read_numeric_prop(layout, owner, kv.first.c_str(), v, &width))
                     {
                         continue;
                     }
-                    ++floats;
-                    mm::logf(L"markers:   {} = {}", kv.first, static_cast<double>(v));
+                    ++listed;
+                    mm::logf(L"markers:   {} = {} ({}-byte)", kv.first, v, width);
                 }
-                if (floats == 0)
+                if (listed == 0)
                 {
-                    mm::log(L"markers:   (that class has no readable four-byte property)");
+                    mm::log(L"markers:   (that class has no readable 4- or 8-byte property)");
                 }
                 return;
             }
@@ -866,7 +909,7 @@ namespace markers
         // The component's current / max health, whichever pair of names this build
         // spells them with. The winning pair is cached per component class, and the
         // route is logged once so the next log says which spelling won.
-        bool read_health_pair(UObject* health, const uer::ClassLayout* hl, float& current, float& max)
+        bool read_health_pair(UObject* health, const uer::ClassLayout* hl, double& current, double& max)
         {
             if (health == nullptr || hl == nullptr)
             {
@@ -881,15 +924,16 @@ namespace markers
                     return false;
                 }
                 const HealthFields& f = kHealthFields[cached->second];
-                return uer::read_prop(hl, health, f.current, current, static_cast<int>(sizeof(float))) &&
-                       uer::read_prop(hl, health, f.max, max, static_cast<int>(sizeof(float)));
+                return uer::read_numeric_prop(hl, health, f.current, current) &&
+                       uer::read_numeric_prop(hl, health, f.max, max);
             }
             int winner = -1;
+            int width = 0;
             for (int i = 0; i < kHealthFieldCount; ++i)
             {
                 const HealthFields& f = kHealthFields[i];
-                if (uer::read_prop(hl, health, f.current, current, static_cast<int>(sizeof(float))) &&
-                    uer::read_prop(hl, health, f.max, max, static_cast<int>(sizeof(float))))
+                if (uer::read_numeric_prop(hl, health, f.current, current, &width) &&
+                    uer::read_numeric_prop(hl, health, f.max, max))
                 {
                     winner = i;
                     break;
@@ -904,12 +948,15 @@ namespace markers
                 g_health_fields.emplace(cls, winner);
                 if (winner >= 0)
                 {
-                    mm::logf(L"markers: health fields on '{}' are '{}' / '{}' (read {} / {})",
+                    g_health_width = width;
+                    mm::logf(L"markers: health fields on '{}' are '{}' / '{}', {} bytes wide "
+                             L"(read {} / {})",
                              safe_class_name(health),
                              kHealthFields[winner].current,
                              kHealthFields[winner].max,
-                             static_cast<double>(current),
-                             static_cast<double>(max));
+                             width,
+                             current,
+                             max);
                 }
             }
             return winner >= 0;
@@ -930,23 +977,23 @@ namespace markers
                 return false;
             }
             const uer::ClassLayout* hl = g_layouts.get(health);
-            float current = 0.0f;
-            float max = 0.0f;
-            if (!read_health_pair(health, hl, current, max))
+            double current = 0.0;
+            double max = 0.0;
+            const bool read_ok = read_health_pair(health, hl, current, max);
+            const mdb::Health answer = mdb::health_answer(read_ok, current, max);
+            if (answer == mdb::Health::Unknown)
             {
-                log_health_failure(health, hl,
-                                   L"the component has no float 'CurrentValue' / 'MaxValue' (nor "
-                                   L"'Current' / 'Max')",
-                                   true);
+                log_health_failure(health,
+                                   hl,
+                                   read_ok ? L"'CurrentValue' / 'MaxValue' read back as nonsense (or "
+                                             L"Max <= 0)"
+                                           : L"the component has no numeric 'CurrentValue' / 'MaxValue' "
+                                             L"(nor 'Current' / 'Max') at 8 or 4 bytes",
+                                   !read_ok);
                 return false;
             }
-            if (!std::isfinite(current) || !std::isfinite(max) || max <= 0.0f)
-            {
-                log_health_failure(health, hl, L"'Current' / 'Max' read back as nonsense");
-                return false; // an uninitialised or hot-swapped component says nothing
-            }
             answered = true;
-            return current <= 0.0f;
+            return answer == mdb::Health::Dead;
         }
 
         // Is this shrine marker's id in the save's UnlockedFirepoints list?
@@ -1249,6 +1296,7 @@ namespace markers
                 // (0,0,0) is not a position here: it is where the level saver parks
                 // a collected pickup. Keep the entry (its `found` still matters) but
                 // never draw it there.
+                e.pos_read = true;
                 e.pos_valid = !(e.x == 0.0 && e.y == 0.0 && e.z == 0.0);
             }
 
@@ -1288,9 +1336,16 @@ namespace markers
                 {
                     e.found = true;
                 }
-                if (!e.pos_valid)
+                // PARKED AT THE ORIGIN = COLLECTED, but only when the read actually
+                // ANSWERED (0,0,0). Without the `pos_read` half, every pickup whose
+                // RootComponent read failed for any reason was marked collected - and
+                // the mark is PERSISTED, so it never came back. That is the user's
+                // "a pickup lying on the ground right in front of me is not in the
+                // x-ray": `highlight_show_found` hides collected loot, correctly, from
+                // something that was never collected.
+                if (e.pos_read && !e.pos_valid)
                 {
-                    e.found = true; // parked at the origin = already collected
+                    e.found = true;
                 }
                 break;
             }
@@ -1655,7 +1710,12 @@ namespace markers
                 int mobile_static = 0;
                 int mobile_joined = 0;
                 int mobile_superseded = 0;
+                int mobile_walked = 0;         // a live twin answered but is unlocatable
+                int mobile_hidden_walked = 0;  // ... and was therefore hidden
+                int mobile_hidden_absent = 0;  // hidden because nobody answered at all
                 int mobile_level_known = 0;
+                int met_found = 0;
+                int met_total = 0;
                 int dead_hidden = 0;
                 dst.reserve(g_chapter_subset.size() + g_live.size());
                 for (const int mi : g_chapter_subset)
@@ -1772,6 +1832,14 @@ namespace markers
                     // it leaves the authored position on the entry, which is the thing
                     // this rule exists to stop being drawn.
                     mob.live_twin_this_round = live != nullptr && live->round == g_round && live->pos_valid;
+                    // ...but it IS an answer of its own: an actor answering for this id
+                    // proves its level is loaded, and this game parks a used-up actor at
+                    // (0,0,0). So "answered, unlocatable" is the walked-away case, and it
+                    // does not need the level table - which is what made the rule fire at
+                    // all. Run 3 could only name 21 of 53 people's levels as resident, so
+                    // for the other 32 the level-based clause could never be reached.
+                    mob.live_twin_unlocatable =
+                        live != nullptr && live->round == g_round && !live->pos_valid;
                     if (mli >= 0 && g_level_known[static_cast<std::size_t>(mli)] != 0)
                     {
                         mob.level_known = true;
@@ -1797,6 +1865,10 @@ namespace markers
                                 ++mobile_superseded;
                             }
                         }
+                        if (mob.live_twin_unlocatable)
+                        {
+                            ++mobile_walked;
+                        }
                         if (mob.level_known)
                         {
                             ++mobile_level_known;
@@ -1805,7 +1877,30 @@ namespace markers
                     if (mdb::mobile_twin_is_stale(mob))
                     {
                         g_mobile_hidden.fetch_add(1, std::memory_order_relaxed);
+                        if (mob.live_twin_unlocatable)
+                        {
+                            ++mobile_hidden_walked;
+                        }
+                        else
+                        {
+                            ++mobile_hidden_absent;
+                        }
                         continue;
+                    }
+                    // ---- THE `met` GAUGE -------------------------------------------
+                    //
+                    // `met` used to be a count of NEW marks, which is zero on every
+                    // session after the one that discovered them - the same lie
+                    // `shrines lit 0` told, and it read `met 0` in run 3 after reading
+                    // 19 in run 1 with nothing broken in between. Counted here as a
+                    // gauge over the chapter's people and notes instead.
+                    if (sm.cat == mdb::Cat::Npc || sm.cat == mdb::Cat::Note)
+                    {
+                        ++met_total;
+                        if ((d.flags & kFlagFound) != 0)
+                        {
+                            ++met_found;
+                        }
                     }
 
                     // ---- ABSENCE AS EVIDENCE OF A COLLECT -------------------------
@@ -1821,8 +1916,14 @@ namespace markers
                     facts.already_found = (d.flags & kFlagFound) != 0;
                     facts.level_known = mob.level_known;
                     facts.full_round_since_level_load = mob.full_round_since_level_load;
-                    facts.twin_alive = live != nullptr && live->round == g_round && live->pos_valid &&
-                                       !live->found;
+                    // AN ACTOR THAT ANSWERED IS PRESENT, wherever it is standing. The
+                    // `pos_valid` requirement that used to be here meant a chest whose
+                    // position read failed looked ABSENT to the debounce, and the absence
+                    // rule then auto-marked it collected after two rounds - the second
+                    // half of "static loot silently disappears from the x-ray". An actor
+                    // parked at (0,0,0) does not reopen the hole: the pickup rule has
+                    // already set `found` on it, and `!live->found` covers that.
+                    facts.twin_alive = live != nullptr && live->round == g_round && !live->found;
 
                     int& streak = g_absent_streak_idx[idx];
                     if (!mdb::absence_round_confirms(facts))
@@ -1859,7 +1960,12 @@ namespace markers
                 g_mobile_static.store(mobile_static, std::memory_order_relaxed);
                 g_mobile_joined.store(mobile_joined, std::memory_order_relaxed);
                 g_mobile_superseded.store(mobile_superseded, std::memory_order_relaxed);
+                g_mobile_walked.store(mobile_walked, std::memory_order_relaxed);
+                g_mobile_hidden_walked.store(mobile_hidden_walked, std::memory_order_relaxed);
+                g_mobile_hidden_absent.store(mobile_hidden_absent, std::memory_order_relaxed);
                 g_mobile_level_known.store(mobile_level_known, std::memory_order_relaxed);
+                g_met_found.store(met_found, std::memory_order_relaxed);
+                g_met_total.store(met_total, std::memory_order_relaxed);
                 g_dead_hidden.store(dead_hidden, std::memory_order_relaxed);
             }
 
@@ -2529,32 +2635,42 @@ namespace markers
                 // five together answer "which rule fired and which one cannot read its
                 // property": a climbing `health unknown` with zero dead/defeated means
                 // the Health component route is wrong on this build.
-                mm::logf(L"markers: rules - shrines lit {} of {} ({} marked this session), met {}, "
-                         L"bosses defeated {}, dead hidden {} ({} newly dead), health unknown {}",
+                mm::logf(L"markers: rules - shrines lit {} of {} ({} marked this session), "
+                         L"met {} of {} ({} marked this session), bosses defeated {}, "
+                         L"dead hidden {} ({} newly dead), health unknown {} (health field width {})",
                          g_shrine_lit_found.load(std::memory_order_relaxed),
                          g_shrine_total.load(std::memory_order_relaxed),
                          g_shrine_lit_marks.load(std::memory_order_relaxed),
+                         g_met_found.load(std::memory_order_relaxed),
+                         g_met_total.load(std::memory_order_relaxed),
                          g_met_marks.load(std::memory_order_relaxed),
                          g_boss_defeated.load(std::memory_order_relaxed),
                          g_dead_hidden.load(std::memory_order_relaxed),
                          g_dead_dropped.load(std::memory_order_relaxed),
-                         g_health_unknown.load(std::memory_order_relaxed));
+                         g_health_unknown.load(std::memory_order_relaxed),
+                         g_health_width);
                 // THE NPC CENSUS, one line, so the next run pins which half
                 // of the join fails. static = markers of that category in the
                 // chapter; live = live entries held; joined = static markers a live
                 // actor answered for THIS round with a usable position; superseded =
                 // those standing more than 3 m from where they were authored (i.e. the
                 // person has walked); level = static markers whose own sublevel is
-                // resident (the hide rule cannot fire below that); hidden = static hints
-                // dropped because the level is resident and nobody answered.
+                // resident (the level-based clause cannot fire below that); walked away =
+                // a live actor answered for the id but could NOT be located, which is
+                // this game's normal state for a person who has moved on; and the two
+                // halves of `hidden` say which clause did it. `hidden walked` climbing
+                // while `level resident` stays low is the case run 3 could not express.
                 mm::logf(L"markers: people - static {}, live {}, joined {}, superseded {}, "
-                         L"level resident {}, hidden {}",
+                         L"walked away {}, level resident {}, hidden {} ({} walked + {} absent)",
                          g_mobile_static.load(std::memory_order_relaxed),
                          g_mobile_live.load(std::memory_order_relaxed),
                          g_mobile_joined.load(std::memory_order_relaxed),
                          g_mobile_superseded.load(std::memory_order_relaxed),
+                         g_mobile_walked.load(std::memory_order_relaxed),
                          g_mobile_level_known.load(std::memory_order_relaxed),
-                         g_mobile_hidden.load(std::memory_order_relaxed));
+                         g_mobile_hidden.load(std::memory_order_relaxed),
+                         g_mobile_hidden_walked.load(std::memory_order_relaxed),
+                         g_mobile_hidden_absent.load(std::memory_order_relaxed));
             }
         }
 

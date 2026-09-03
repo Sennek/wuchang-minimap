@@ -275,6 +275,45 @@ namespace mdb
     }
 
     //==========================================================================
+    // Is this character dead? (pure, tested offline)
+    //==========================================================================
+    //
+    // The three-way answer the whole dead-enemy / defeated-boss feature turns on.
+    // UNKNOWN is not a synonym for ALIVE and must never collapse into DEAD: guessing
+    // "dead" hides living enemies, which is strictly worse than the bug it fixes, and
+    // guessing "alive" makes a broken read indistinguishable from a quiet battlefield.
+    // The count of UNKNOWNs is published for exactly that reason (`health unknown`).
+    enum class Health
+    {
+        Unknown,
+        Alive,
+        Dead
+    };
+
+    // `read_ok` is "both numbers came back"; the numbers are doubles because in UE5 a
+    // blueprint "float" IS a double (see uereflect::read_numeric_prop).
+    //
+    // `max <= 0` is UNKNOWN, not dead: an uninitialised or hot-swapped stat component
+    // reads zero for both, and a rule that called that dead would erase every enemy in
+    // a level that had just streamed in.
+    constexpr Health health_answer(bool read_ok, double current, double max)
+    {
+        if (!read_ok)
+        {
+            return Health::Unknown;
+        }
+        // Hand-rolled finite test: std::isfinite is not constexpr. A NaN fails `v == v`,
+        // and the bounds reject the infinities as well as the ~1e-317 denormals a
+        // misaligned read produces (lessons.md: garbage doubles look like that).
+        const auto finite = [](double v) { return v == v && v > -1e300 && v < 1e300; };
+        if (!finite(current) || !finite(max) || max <= 0.0)
+        {
+            return Health::Unknown;
+        }
+        return current <= 0.0 ? Health::Dead : Health::Alive;
+    }
+
+    //==========================================================================
     // Categories that WALK AWAY (pure, tested offline)
     //==========================================================================
     //
@@ -306,15 +345,53 @@ namespace mdb
     struct MobileTwinFacts
     {
         bool mobile = false;                   // is_mobile_category(marker.cat)
-        bool live_twin_this_round = false;     // a live actor answered for this id
+        // A live actor answered for this id THIS round and we know where it stands.
+        bool live_twin_this_round = false;
+        // A live actor answered for this id this round and we do NOT know where it
+        // stands: the position read failed, or it read the (0,0,0) parking spot this
+        // game uses for a used-up actor. See the comment on case (b) below.
+        bool live_twin_unlocatable = false;
         bool level_known = false;              // the marker's level is in the loaded set
         bool full_round_since_level_load = false;
     };
 
     // Should this static marker be dropped from the published set entirely?
+    //
+    // THE FOUR CASES, and why the middle one is the one that was missing. Run 3's census
+    // read `people - static 53, live 23, joined 21, superseded 0, level resident 21,
+    // hidden 0` while the user was still seeing an x-ray label at a spot an NPC had left,
+    // and the arithmetic says why: only 21 of the 53 static people were in a level this
+    // reader could NAME as resident, so for the other 32 the hide rule could not fire
+    // whatever else was true - `level_known` is derived from the enumerated level set,
+    // which is a second, independent thing that can be wrong or incomplete.
+    //
+    //   (a) a locatable live twin      -> KEEP, and the publish point draws the marker at
+    //                                    the live position (the static hint is superseded)
+    //   (b) an UNLOCATABLE live twin   -> HIDE. This is the "walked away" case, and it
+    //                                    needs no level table at all: a live actor
+    //                                    answering for this id is itself proof that the
+    //                                    level is loaded, and this game parks a used-up
+    //                                    actor at (0,0,0) exactly as it parks a collected
+    //                                    pickup, so "found the actor, cannot locate it" is
+    //                                    the NORMAL state of a person who has moved on.
+    //   (c) no live twin, level loaded
+    //       and a full round has passed -> HIDE (nobody answered, so nobody is there)
+    //   (d) no live twin, level unknown -> KEEP. We have not looked; a hint is all we have.
     constexpr bool mobile_twin_is_stale(const MobileTwinFacts& f)
     {
-        return f.mobile && !f.live_twin_this_round && f.level_known && f.full_round_since_level_load;
+        if (!f.mobile)
+        {
+            return false;
+        }
+        if (f.live_twin_this_round)
+        {
+            return false; // (a)
+        }
+        if (f.live_twin_unlocatable)
+        {
+            return true; // (b)
+        }
+        return f.level_known && f.full_round_since_level_load; // (c) / (d)
     }
 
     struct ParseReport

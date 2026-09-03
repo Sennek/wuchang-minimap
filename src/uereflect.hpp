@@ -147,6 +147,70 @@ namespace uer
         return mem::read_at(obj, p->offset, out);
     }
 
+    // A reflected NUMERIC UPROPERTY, read as a double whatever width this build declares
+    // it with, and reporting the width it found.
+    //
+    // WHY THIS EXISTS AND WHY IT IS NOT OPTIONAL. **In UE5 a Blueprint "float" is a
+    // `double`.** Since 5.0's Large World Coordinates the engine's `float` pin type is
+    // backed by `FDoubleProperty` (8 bytes) unless the property was declared in C++ as a
+    // real `float`, and every value authored in a blueprint - which is what an
+    // `ExtendedStatComponent_C`'s `CurrentValue` / `MaxValue` are - is therefore eight
+    // bytes wide. Reading it with a 4-byte `expect_size` does not return a wrong number,
+    // it returns FALSE, and the failure looks exactly like "the property is not there".
+    //
+    // That cost this project a whole in-game session: the health read's stage-two
+    // diagnostic asked for the class' FOUR-BYTE properties and printed three unrelated
+    // timers, so `CurrentValue` and `MaxValue` were invisible in the very table written to
+    // find them, and `health unknown` climbed to 21 624 with zero kills detected. Any
+    // reflected number whose declaration we cannot read offline must be read through this,
+    // and any diagnostic that lists "the numbers on this class" must list both widths.
+    inline bool read_numeric_prop(const ClassLayout* layout, const void* obj, const wchar_t* name,
+                                  double& out, int* width = nullptr)
+    {
+        const Prop* p = find_prop(layout, name);
+        if (p == nullptr || obj == nullptr)
+        {
+            return false;
+        }
+        if (p->size == static_cast<int>(sizeof(double)))
+        {
+            double v = 0.0;
+            if (!mem::read_at(obj, p->offset, v))
+            {
+                return false;
+            }
+            out = v;
+            if (width != nullptr)
+            {
+                *width = 8;
+            }
+            return true;
+        }
+        if (p->size == static_cast<int>(sizeof(float)))
+        {
+            float v = 0.0f;
+            if (!mem::read_at(obj, p->offset, v))
+            {
+                return false;
+            }
+            out = static_cast<double>(v);
+            if (width != nullptr)
+            {
+                *width = 4;
+            }
+            return true;
+        }
+        return false; // not a 4- or 8-byte scalar: not a number we can read
+    }
+
+    // Is this property one of the two widths read_numeric_prop understands? Used by the
+    // failure diagnostics, which must list every number on a class and not just the
+    // width the failing read happened to ask for.
+    inline bool prop_is_numeric_width(const Prop& p)
+    {
+        return p.size == static_cast<int>(sizeof(float)) || p.size == static_cast<int>(sizeof(double));
+    }
+
     // A TObjectPtr<T> / T* UPROPERTY. Rejects the obviously-bogus values a wrong
     // offset produces so the caller never dereferences garbage.
     inline UObject* read_object_prop(const ClassLayout* layout, const void* obj, const wchar_t* name)

@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -2884,6 +2885,46 @@ namespace
             CHECK_EQ(streak, 1);
         }
 
+        section("is this character dead? (the three-way health answer)");
+
+        // A read that did not answer is UNKNOWN, never dead. Guessing dead erases living
+        // enemies; the published `health unknown` count is the only thing that separates
+        // "the rule never fires" from "the property name (or WIDTH) is wrong".
+        CHECK(mdb::health_answer(false, 0.0, 100.0) == mdb::Health::Unknown);
+        CHECK(mdb::health_answer(false, 50.0, 100.0) == mdb::Health::Unknown);
+
+        CHECK(mdb::health_answer(true, 0.0, 100.0) == mdb::Health::Dead);
+        CHECK(mdb::health_answer(true, -3.0, 100.0) == mdb::Health::Dead);
+        CHECK(mdb::health_answer(true, 1.0, 100.0) == mdb::Health::Alive);
+        CHECK(mdb::health_answer(true, 269.1, 269.1) == mdb::Health::Alive);
+
+        // Max <= 0 is an uninitialised or hot-swapped stat component, not a corpse - a
+        // rule that called this dead would erase every enemy in a level that had just
+        // streamed in.
+        CHECK(mdb::health_answer(true, 0.0, 0.0) == mdb::Health::Unknown);
+        CHECK(mdb::health_answer(true, 0.0, -1.0) == mdb::Health::Unknown);
+
+        // The garbage a misaligned 8-byte read produces (lessons.md: ~1e-317 / ~1e-299),
+        // plus NaN and the infinities, are all UNKNOWN. Note that a denormal CURRENT with
+        // a sane MAX is a live character with almost no health left, which is why only
+        // the non-finite bound rejects.
+        CHECK(mdb::health_answer(true, 1e-317, 1e-299) == mdb::Health::Alive);
+        {
+            const double nan_v = std::numeric_limits<double>::quiet_NaN();
+            const double inf_v = std::numeric_limits<double>::infinity();
+            CHECK(mdb::health_answer(true, nan_v, 100.0) == mdb::Health::Unknown);
+            CHECK(mdb::health_answer(true, 50.0, nan_v) == mdb::Health::Unknown);
+            CHECK(mdb::health_answer(true, inf_v, 100.0) == mdb::Health::Unknown);
+            CHECK(mdb::health_answer(true, 50.0, inf_v) == mdb::Health::Unknown);
+            CHECK(mdb::health_answer(true, -inf_v, 100.0) == mdb::Health::Unknown);
+        }
+        // It is constexpr, so a mistake in it is a compile error rather than a play
+        // session.
+        static_assert(mdb::health_answer(true, 0.0, 10.0) == mdb::Health::Dead);
+        static_assert(mdb::health_answer(true, 10.0, 10.0) == mdb::Health::Alive);
+        static_assert(mdb::health_answer(false, 0.0, 10.0) == mdb::Health::Unknown);
+        static_assert(mdb::health_answer(true, 0.0, 0.0) == mdb::Health::Unknown);
+
         section("npc markers that have walked away");
 
         // Only people move. Every other category's authored position is a fact about
@@ -2905,14 +2946,15 @@ namespace
             f.live_twin_this_round = false;
             f.level_known = true;
             f.full_round_since_level_load = true;
-            CHECK(mdb::mobile_twin_is_stale(f)); // the one combination that hides
+            CHECK(mdb::mobile_twin_is_stale(f)); // case (c): nobody answered
 
-            // A live actor answered: its position wins and the entry stays.
+            // Case (a): a locatable live actor answered - its position wins, the entry
+            // stays and the publish point draws it there (superseded, not hidden).
             mdb::MobileTwinFacts g = f;
             g.live_twin_this_round = true;
             CHECK(!mdb::mobile_twin_is_stale(g));
 
-            // The level is not resident, so absence means nothing at all - keep the hint.
+            // Case (d): the level is not resident, so absence means nothing - keep it.
             g = f;
             g.level_known = false;
             CHECK(!mdb::mobile_twin_is_stale(g));
@@ -2926,6 +2968,31 @@ namespace
             g = f;
             g.mobile = false;
             CHECK(!mdb::mobile_twin_is_stale(g));
+
+            // CASE (b), THE ONE THAT WAS MISSING. A live actor answered for the id and
+            // could NOT be located - this game parks a used-up actor at (0,0,0), so that
+            // is the normal state of a person who has moved on. It must hide with NO help
+            // from the level table, because the level table is a second thing that can be
+            // incomplete: run 3 could only name 21 of 53 people's levels as resident, and
+            // the census read `hidden 0` while an x-ray label still hung where an NPC had
+            // been.
+            g = mdb::MobileTwinFacts{};
+            g.mobile = true;
+            g.live_twin_unlocatable = true;
+            CHECK(!g.level_known);
+            CHECK(!g.full_round_since_level_load);
+            CHECK(mdb::mobile_twin_is_stale(g));
+
+            // ...and it must not override a live actor we CAN locate (the same id can
+            // read both ways across rounds; this round's locatable answer wins).
+            g.live_twin_this_round = true;
+            CHECK(!mdb::mobile_twin_is_stale(g));
+
+            // Unlocatable is still only a rule about people. A note that has not
+            // streamed in yet must never vanish on this route.
+            g = mdb::MobileTwinFacts{};
+            g.live_twin_unlocatable = true;
+            CHECK(!mdb::mobile_twin_is_stale(g)); // mobile == false
         }
         // Nothing is hidden by default: a zeroed fact set must be a no-op.
         CHECK(!mdb::mobile_twin_is_stale(mdb::MobileTwinFacts{}));

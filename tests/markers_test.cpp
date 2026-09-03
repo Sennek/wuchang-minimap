@@ -2949,6 +2949,398 @@ namespace
         CHECK(per_tier[0] > per_tier[1] + per_tier[2]);
     }
 
+    // -----------------------------------------------------------------------
+    // Data invariants over EVERY shipped markers/*.json (review item C.18)
+    //
+    // The tests above guard chapter 1 and the hand-written sample. That is what
+    // let the DLC ship with all 77 of its named pickups called "Ancient Chisel"
+    // (C.1) and with the class table missing three ladder, three lift and twelve
+    // door classes (C.10): nothing ever looked at the other five files.
+    //
+    // Everything here is a property of the DATA, not of the loader, and each one
+    // is written so that a regeneration that IMPROVES the data passes while a
+    // regeneration that loses data fails. Floors, not exact counts.
+    // -----------------------------------------------------------------------
+
+    struct ChapterFile
+    {
+        const char* file;
+        const char* label;
+        int chapter;
+        int min_markers;
+    };
+
+    // The six shipped chapters. Floors are ~85 % of what 1.0.1 extracts, so a real
+    // loss fails and a few markers either way does not.
+    constexpr ChapterFile kChapterFiles[] = {
+        {"chapter1.json", "1", 1, 780},
+        {"chapter2.json", "2", 2, 770},
+        {"chapter3.json", "3", 3, 630},
+        {"chapter4.json", "4", 4, 290},
+        {"chapter5.json", "5", 5, 305},
+        {"chapterdlc.json", "DLC", 0, 310},
+    };
+
+    // Per-(chapter, category) floors. ONLY the categories that must not vanish are
+    // listed - the point is to catch "chapter 5 ships 0 ladders" and "chapter 4
+    // ships 0 lifts", the review's improbable zeros, without pinning numbers that
+    // legitimately move. A category genuinely absent from a chapter (chapter 5 has
+    // no ladder actor at all, chapters 4 and DLC have no lift) is listed as 0 with
+    // the reason, so the absence is a recorded decision rather than a blind spot.
+    struct CatFloor
+    {
+        int chapter;      // 0 = DLC
+        mdb::Cat cat;
+        int least;
+    };
+
+    constexpr CatFloor kCatFloors[] = {
+        // shrines: the fast-travel network. Losing one loses a travel point.
+        {1, mdb::Cat::Shrine, 12}, {2, mdb::Cat::Shrine, 12},
+        {3, mdb::Cat::Shrine, 12}, {4, mdb::Cat::Shrine, 9},
+        {5, mdb::Cat::Shrine, 5},  {0, mdb::Cat::Shrine, 7},
+        // bosses: 28 in the game, and every one of them is authored, so these are
+        // exact-minus-nothing.
+        {1, mdb::Cat::Boss, 9}, {2, mdb::Cat::Boss, 5}, {3, mdb::Cat::Boss, 6},
+        {4, mdb::Cat::Boss, 5}, {5, mdb::Cat::Boss, 2}, {0, mdb::Cat::Boss, 1},
+        // pickups and chests: the collection tracker's whole content.
+        {1, mdb::Cat::Pickup, 250}, {2, mdb::Cat::Pickup, 250},
+        {3, mdb::Cat::Pickup, 220}, {4, mdb::Cat::Pickup, 90},
+        {5, mdb::Cat::Pickup, 65},  {0, mdb::Cat::Pickup, 65},
+        {1, mdb::Cat::Chest, 10}, {2, mdb::Cat::Chest, 16},
+        {3, mdb::Cat::Chest, 13}, {4, mdb::Cat::Chest, 9},
+        {5, mdb::Cat::Chest, 2},  {0, mdb::Cat::Chest, 8},
+        // navigation aids. Chapter 5 really has no ladder and chapters 4 / DLC
+        // really have no lift: the class table is now the descendants of
+        // `BP_LadderV2_C` + `BP_InteractionLadder_C` and of `BP_ElevatorBase_C` +
+        // `BP_ElevatorBox_C`, and adding the three classes the hand list missed
+        // moved those chapters' counts by zero.
+        {1, mdb::Cat::Ladder, 28}, {2, mdb::Cat::Ladder, 38},
+        {3, mdb::Cat::Ladder, 32}, {4, mdb::Cat::Ladder, 4},
+        {5, mdb::Cat::Ladder, 0},  {0, mdb::Cat::Ladder, 2},
+        {1, mdb::Cat::Lift, 6}, {2, mdb::Cat::Lift, 7}, {3, mdb::Cat::Lift, 1},
+        {4, mdb::Cat::Lift, 0}, {5, mdb::Cat::Lift, 14}, {0, mdb::Cat::Lift, 0},
+        // the two categories that were dead until 1.0.1 (C.9): produced now, and a
+        // floor is the only thing that keeps them produced.
+        {1, mdb::Cat::Elite, 3}, {2, mdb::Cat::Elite, 2}, {3, mdb::Cat::Elite, 4},
+        {4, mdb::Cat::Elite, 5}, {5, mdb::Cat::Elite, 12}, {0, mdb::Cat::Elite, 24},
+        {1, mdb::Cat::Hidden, 4}, {2, mdb::Cat::Hidden, 8},
+        {3, mdb::Cat::Hidden, 3}, {4, mdb::Cat::Hidden, 4},
+        {5, mdb::Cat::Hidden, 3},
+        // enemies and npcs
+        {1, mdb::Cat::Enemy, 330}, {2, mdb::Cat::Enemy, 350},
+        {3, mdb::Cat::Enemy, 240}, {4, mdb::Cat::Enemy, 135},
+        {5, mdb::Cat::Enemy, 180}, {0, mdb::Cat::Enemy, 200},
+        {1, mdb::Cat::Npc, 44}, {2, mdb::Cat::Npc, 30}, {3, mdb::Cat::Npc, 38},
+        {4, mdb::Cat::Npc, 14}, {5, mdb::Cat::Npc, 4},
+        {1, mdb::Cat::FogGate, 17}, {2, mdb::Cat::FogGate, 8},
+        {3, mdb::Cat::FogGate, 10}, {4, mdb::Cat::FogGate, 3},
+        {5, mdb::Cat::FogGate, 2},  {0, mdb::Cat::FogGate, 2},
+        {1, mdb::Cat::Door, 20}, {2, mdb::Cat::Door, 14}, {3, mdb::Cat::Door, 8},
+        {4, mdb::Cat::Door, 2},  {5, mdb::Cat::Door, 1},  {0, mdb::Cat::Door, 2},
+        {1, mdb::Cat::Note, 30}, {2, mdb::Cat::Note, 13}, {3, mdb::Cat::Note, 20},
+        {4, mdb::Cat::Note, 5},  {5, mdb::Cat::Note, 9},
+    };
+
+    // The generic label `tools/markers/marker_classes.LABEL` writes when nothing
+    // better is known. It is NOT `mdb::cat_word()` - that one is the runtime's own
+    // singular ("Item" for a pickup, "Hidden item") and the two are allowed to
+    // differ, so this list mirrors the generator instead of the loader. Both
+    // spellings are accepted here, which is what keeps the test from failing on a
+    // cosmetic change to either side.
+    bool is_generic_name(mdb::Cat cat, const std::string& name)
+    {
+        static const char* kGeneric[mdb::kCatCount][2] = {
+            {"Shrine", "Shrine"},   {"Chest", "Chest"},   {"Pickup", "Item"},
+            {"Boss", "Boss"},       {"Elite", "Elite"},   {"Enemy", "Enemy"},
+            {"NPC", "NPC"},         {"Note", "Note"},     {"Door", "Door"},
+            {"Ladder", "Ladder"},   {"Lift", "Lift"},     {"Fog gate", "Fog gate"},
+            {"Trap", "Hidden item"}, {"Object", "Marker"},
+        };
+        const int i = static_cast<int>(cat);
+        if (i < 0 || i >= mdb::kCatCount)
+        {
+            return true;
+        }
+        if (name == kGeneric[i][0] || name == kGeneric[i][1])
+        {
+            return true;
+        }
+        // A shrine with no `DT_FirePoint` name keeps the readable id form the
+        // extractor builds, "Shrine <fire-point id>" - generic, not a real name.
+        if (cat == mdb::Cat::Shrine && name.rfind("Shrine ", 0) == 0)
+        {
+            return true;
+        }
+        return name.empty();
+    }
+
+    // Every `"NNNNN": {` key in markers/items.json. A text scan rather than a JSON
+    // walk because that is all the check needs and it drags in no parser: the
+    // question is only "is this id a row of the item database at all", and an item
+    // DESCRIPTION cannot contain `": {`.
+    std::vector<int> read_item_ids(const std::string& text)
+    {
+        std::vector<int> out;
+        for (std::size_t i = 0; i + 3 < text.size(); ++i)
+        {
+            if (text[i] != '"')
+            {
+                continue;
+            }
+            std::size_t j = i + 1;
+            while (j < text.size() && text[j] >= '0' && text[j] <= '9')
+            {
+                ++j;
+            }
+            if (j == i + 1 || j >= text.size() || text[j] != '"')
+            {
+                continue;
+            }
+            std::size_t k = j + 1;
+            if (k >= text.size() || text[k] != ':')
+            {
+                continue;
+            }
+            ++k;
+            while (k < text.size() && (text[k] == ' ' || text[k] == '\t'))
+            {
+                ++k;
+            }
+            if (k < text.size() && text[k] == '{')
+            {
+                out.push_back(std::atoi(text.substr(i + 1, j - i - 1).c_str()));
+            }
+            i = j;
+        }
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+        return out;
+    }
+
+    // Every integer inside every `"items": [ ... ]` array of a chapter file. Same
+    // reasoning as above; `StaticMarker` deliberately does not keep the id list
+    // (the runtime only needs the rarity tier), so the text is the only source.
+    std::vector<int> read_marker_item_ids(const std::string& text)
+    {
+        std::vector<int> out;
+        const std::string key = "\"items\"";
+        std::size_t at = 0;
+        while ((at = text.find(key, at)) != std::string::npos)
+        {
+            std::size_t p = text.find('[', at);
+            const std::size_t end = text.find(']', at);
+            at += key.size();
+            if (p == std::string::npos || end == std::string::npos || p > end)
+            {
+                continue;
+            }
+            for (++p; p < end; ++p)
+            {
+                if (text[p] < '0' || text[p] > '9')
+                {
+                    continue;
+                }
+                std::size_t q = p;
+                while (q < end && text[q] >= '0' && text[q] <= '9')
+                {
+                    ++q;
+                }
+                out.push_back(std::atoi(text.substr(p, q - p).c_str()));
+                p = q;
+            }
+            at = end;
+        }
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+        return out;
+    }
+
+    void test_data_invariants(const std::string& markers_dir)
+    {
+        section("data invariants over every shipped markers/*.json");
+
+        std::string items_text;
+        const bool have_items = read_file(markers_dir + "/items.json", items_text);
+        const std::vector<int> item_ids = have_items ? read_item_ids(items_text) : std::vector<int>{};
+        if (have_items)
+        {
+            // 2 384 rows across the six item DataTables. A floor, because a game
+            // patch may add items.
+            CHECK(item_ids.size() > 2000);
+        }
+
+        std::string shrines_text;
+        std::vector<shdb::Shrine> shrine_rows;
+        if (read_file(markers_dir + "/shrines.json", shrines_text))
+        {
+            shdb::Report sr{};
+            CHECK(shdb::parse(shrines_text, shrine_rows, sr));
+        }
+
+        std::vector<std::string> all_ids;
+        int files_seen = 0;
+        int name_cap_violations = 0;
+        int unknown_items = 0;
+        int missing_shrine_rows = 0;
+
+        for (const ChapterFile& cf : kChapterFiles)
+        {
+            const std::string path = markers_dir + "/" + cf.file;
+            std::string text;
+            if (!read_file(path, text))
+            {
+                std::printf("  SKIP  %s not readable\n", path.c_str());
+                continue;
+            }
+            ++files_seen;
+
+            std::vector<mdb::StaticMarker> db;
+            mdb::ParseReport rep{};
+            CHECK(mdb::parse_markers_json(text, db, rep));
+            CHECK_STR(rep.error, "");
+            CHECK_STR(rep.schema, "wuchang-minimap-markers/1");
+            CHECK_STR(rep.chapter_label, cf.label);
+            CHECK_EQ(rep.chapter, cf.chapter);
+            // A skipped entry is a marker the generator wrote and the loader threw
+            // away - always a bug in one of them, never acceptable in shipped data.
+            CHECK_EQ(rep.skipped, 0);
+            CHECK_EQ(rep.unknown_cat, 0);
+            CHECK_EQ(rep.legacy_cat, 0);
+            CHECK(static_cast<int>(rep.added) >= cf.min_markers);
+
+            // Per-category floors, and the name-concentration cap that catches C.1.
+            for (int c = 0; c < mdb::kCatCount; ++c)
+            {
+                const mdb::Cat cat = static_cast<mdb::Cat>(c);
+                std::vector<std::string> named;
+                int total = 0;
+                for (const mdb::StaticMarker& m : db)
+                {
+                    if (m.cat != cat)
+                    {
+                        continue;
+                    }
+                    ++total;
+                    CHECK_EQ(m.chapter, cf.chapter);
+                    CHECK(!m.id.empty());
+                    // The world is a few hundred thousand uu across; a decode that
+                    // drifted would produce 1e38 or 1e-317, not a plausible number.
+                    CHECK(std::fabs(m.x) < 1.0e7 && std::fabs(m.y) < 1.0e7 && std::fabs(m.z) < 1.0e7);
+                    if (!is_generic_name(cat, m.name))
+                    {
+                        named.push_back(m.name);
+                    }
+                }
+                for (const CatFloor& f : kCatFloors)
+                {
+                    if (f.chapter == cf.chapter && f.cat == cat && total < f.least)
+                    {
+                        std::printf("  FAIL  chapter %s: %d %s marker(s), floor is %d\n",
+                                    cf.label, total, mdb::cat_name(cat), f.least);
+                        ++g_failures;
+                        ++g_checks;
+                    }
+                }
+
+                // THE C.1 CHECK. Among the entries that carry a REAL name, no single
+                // name may account for more than half. Every one of the 77 named DLC
+                // pickups read "Ancient Chisel" (the first row of DT_Item_ToolTable,
+                // i.e. the value an unconfigured pickup carries), which is exactly
+                // 100 % and exactly what this refuses. Generic labels are excluded on
+                // purpose: 394 enemies all reading "Enemy" is the honest answer,
+                // because Wuchang has no name for an ordinary enemy anywhere in its
+                // data (see tools/markers/build_enemies.py --prove).
+                if (named.size() >= 8)
+                {
+                    std::sort(named.begin(), named.end());
+                    std::size_t best = 0;
+                    std::size_t run = 0;
+                    for (std::size_t i = 0; i < named.size(); ++i)
+                    {
+                        run = (i > 0 && named[i] == named[i - 1]) ? run + 1 : 1;
+                        best = run > best ? run : best;
+                    }
+                    if (best * 2 > named.size())
+                    {
+                        std::printf("  FAIL  chapter %s %s: %zu of %zu named entries share one "
+                                    "name (\"%s\")\n", cf.label, mdb::cat_name(cat), best,
+                                    named.size(), named[0].c_str());
+                        ++name_cap_violations;
+                    }
+                    ++g_checks;
+                }
+            }
+
+            // Every item id a pickup grants must be a row of the item database, or
+            // its name and rarity came from nowhere.
+            if (have_items)
+            {
+                for (int id : read_marker_item_ids(text))
+                {
+                    if (!std::binary_search(item_ids.begin(), item_ids.end(), id))
+                    {
+                        std::printf("  FAIL  %s references item %d, which is not in items.json\n",
+                                    cf.file, id);
+                        ++unknown_items;
+                    }
+                }
+                ++g_checks;
+            }
+
+            // Every shrine marker must have a row in the shrine table: that table is
+            // what the full map's Shrines panel lists and what the save's unlocked
+            // ids are joined against, so a shrine missing from it is invisible to
+            // both. This is the check the seven DLC shrines used to fail.
+            if (!shrine_rows.empty())
+            {
+                for (const mdb::StaticMarker& m : db)
+                {
+                    if (m.cat == mdb::Cat::Shrine && shdb::find_id(shrine_rows, m.id) < 0)
+                    {
+                        std::printf("  FAIL  %s: shrine %s has no row in shrines.json\n",
+                                    cf.file, m.id.c_str());
+                        ++missing_shrine_rows;
+                    }
+                }
+                ++g_checks;
+            }
+
+            for (const mdb::StaticMarker& m : db)
+            {
+                all_ids.push_back(m.id);
+            }
+        }
+
+        CHECK_EQ(files_seen, static_cast<int>(sizeof(kChapterFiles) / sizeof(kChapterFiles[0])));
+        CHECK_EQ(name_cap_violations, 0);
+        CHECK_EQ(unknown_items, 0);
+        CHECK_EQ(missing_shrine_rows, 0);
+
+        // No duplicate id within a file OR across files. The loader globs every
+        // markers/*.json into ONE database keyed by id, so a collision means the
+        // second marker can never be marked found (markers.cpp resolves note_found
+        // through a by-id map that keeps only the first index).
+        std::sort(all_ids.begin(), all_ids.end());
+        int dupes = 0;
+        for (std::size_t i = 1; i < all_ids.size(); ++i)
+        {
+            if (all_ids[i] == all_ids[i - 1])
+            {
+                ++dupes;
+                if (dupes <= 5)
+                {
+                    std::printf("  FAIL  duplicate marker id across markers/*.json: %s\n",
+                                all_ids[i].c_str());
+                }
+            }
+        }
+        CHECK_EQ(dupes, 0);
+        CHECK(all_ids.size() > 3000);
+        std::printf("  %d file(s), %zu marker(s), %zu item id(s), %zu shrine row(s)\n",
+                    files_seen, all_ids.size(), item_ids.size(), shrine_rows.size());
+    }
+
     mdb::AbsenceFacts all_true()
     {
         mdb::AbsenceFacts f{};
@@ -3700,11 +4092,13 @@ namespace
         CHECK(shdb::parse(text, v, rep));
         CHECK_STR(rep.error, "");
         // 88 contiguous rows in DT_FirePoint, 50 of which join to a shrine marker; the
-        // rest are the bossdoor_/Task pseudo-points. If the extractor ever regresses,
-        // these numbers are what says so on the build machine.
-        CHECK_EQ(rep.rows, 88);
-        CHECK_EQ(rep.shrines, 50);
-        CHECK_EQ(rep.named, 88);
+        // rest are the bossdoor_/Task pseudo-points. Plus the seven DLC shrines, which
+        // have no DT_FirePoint row anywhere in this build and are added from the marker
+        // DB with the marker's own "Shrine <fire-point id>" label. If the extractor
+        // ever regresses, these numbers are what says so on the build machine.
+        CHECK_EQ(rep.rows, 95);
+        CHECK_EQ(rep.shrines, 57);
+        CHECK_EQ(rep.named, 95);
         std::printf("  shipped table: %d row(s), %d shrine(s), %d named\n", rep.rows, rep.shrines,
                     rep.named);
 
@@ -3715,6 +4109,14 @@ namespace
             with_birth += s.has_birth ? 1 : 0;
             // Every real shrine must be usable by the UI: a name, a chapter and a place
             // on the map. Anything else would draw as an unnamed pin at the origin.
+            //
+            // The name is the one part a DLC shrine cannot get from the game: this
+            // build's `DT_FirePoint` has no DLC rows at all (88 rows, chapters 1-5,
+            // and its name map does not contain `BaiYS01` / `borencl01` /
+            // `LiuHKK01` / `pinmingk01`), so `extract_shrines.py` adds those seven
+            // from the marker DB and their label is the marker's own
+            // "Shrine <fire-point id>". It is still never EMPTY, which is what this
+            // check is really about, so the assertion stands as written.
             if (s.shrine && (s.name.empty() || s.chapter < 0 || !s.has_pos))
             {
                 ++bad;
@@ -3728,7 +4130,21 @@ namespace
             }
         }
         CHECK_EQ(bad, 0);
+        // 88 `DT_FirePoint` rows carry a `BirthPosition`; the seven DLC shrines come
+        // from the marker DB instead and have no travel destination of their own.
         CHECK_EQ(with_birth, 88);
+        CHECK_EQ(static_cast<int>(v.size()), 95);
+        int dlc = 0;
+        for (const shdb::Shrine& s : v)
+        {
+            if (s.chapter == 0 && s.shrine)
+            {
+                ++dlc;
+                CHECK(s.has_pos);
+                CHECK(!s.name.empty());
+            }
+        }
+        CHECK_EQ(dlc, 7);
         // The known first row of the table, as a fixed point on the whole decode chain:
         // row name -> locres key -> English string.
         const int ti = shdb::find_id(v, "temple02");
@@ -3788,6 +4204,7 @@ int main(int argc, char** argv)
     test_absence();
     test_rarity();
     test_rarity_db(markers_dir);
+    test_data_invariants(markers_dir);
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

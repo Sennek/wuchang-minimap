@@ -1,14 +1,21 @@
-# WuchangMinimap
+# WuchangMinimap — developer documentation
 
 A UE4SS C++ mod for **Wuchang: Fallen Feathers** (Unreal Engine 5.1.1, Windows x64, DX12).
 
-Current state: **v0.9.0, feature-complete beta.** Minimap, [full map](#the-full-map-m),
+This is the **developer** document: toolchain, build, the navmesh and marker pipelines,
+and the runtime internals. For installing and using the mod, see the
+[user README](../README.md).
+
+Current state: **v1.0.0, the first public release.** Minimap, [full map](#the-full-map-m),
 [markers](#markers), collection tracker, [compass](#the-compass-strip) and
 [x-ray highlight](#the-x-ray-highlight-lalt) all ship; the map background is built
 offline from the game's own navmesh. The mod loads under UE4SS and logs
-`WuchangMinimap v0.9.0 loaded`. Also in here: the opt-in [`navmesh_dump`](#navmesh-dumper)
+`WuchangMinimap v1.0.0 loaded`. Also in here: the opt-in [`navmesh_dump`](#navmesh-dumper)
 module that locates the game's Recast/Detour navmesh in memory and writes the streamed-in
 tiles out as JSON.
+
+Paths in this document (`src\...`, `tools\...`, `markers\...`, `maps\...`) are relative to
+the **repository root**, i.e. the parent of the `docs\` folder this file lives in.
 
 The version is one `#define` in **`src/version.hpp`** — the DLL's `ModVersion`, the
 start-up log line, the F2 panel header and `tools/package.ps1` all read it, and

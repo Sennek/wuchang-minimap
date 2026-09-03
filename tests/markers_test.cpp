@@ -3148,6 +3148,52 @@ namespace
         static_assert(mdb::health_answer(false, 0.0, 10.0) == mdb::Health::Unknown);
         static_assert(mdb::health_answer(true, 0.0, 0.0) == mdb::Health::Unknown);
 
+        section("a corpse has two halves and both must go");
+
+        // THE END-TO-END CHAIN, as an invariant rather than a comment. An enemy is in the
+        // published buffer twice - its authored spawn point (static) and the pawn the
+        // sweep found (live) - and suppressing only one of them made the marker jump back
+        // to the spawn point on the next publish, which looks exactly like "the health
+        // rule never fired".
+        CHECK(mdb::static_twin_is_hidden_by_corpse(true, true));
+        // A live twin that is alive does not hide its spawn point - the live position
+        // simply wins.
+        CHECK(!mdb::static_twin_is_hidden_by_corpse(true, false));
+        // No live twin at all: nothing is known, so the authored hint stays. (Absence is
+        // never evidence - lessons.md.)
+        CHECK(!mdb::static_twin_is_hidden_by_corpse(false, true));
+        CHECK(!mdb::static_twin_is_hidden_by_corpse(false, false));
+
+        // The live half. A corpse is never drawn wherever it fell, and neither is an
+        // actor with no usable position.
+        CHECK(mdb::live_only_is_drawn(true, false));
+        CHECK(!mdb::live_only_is_drawn(true, true));
+        CHECK(!mdb::live_only_is_drawn(false, false));
+        CHECK(!mdb::live_only_is_drawn(false, true));
+
+        // Together: a dead enemy is in NEITHER half of the published buffer, which is
+        // what makes the minimap, the full map, the compass and the x-ray agree - they
+        // all read the same buffer.
+        {
+            const bool has_twin = true;
+            const bool dead = true;
+            CHECK(mdb::static_twin_is_hidden_by_corpse(has_twin, dead));
+            CHECK(!mdb::live_only_is_drawn(/*pos_valid=*/false, dead));
+        }
+
+        // A DEFEATED BOSS is a different mechanism and must not use this one: it stays in
+        // the buffer (so the map can draw its hollow found glyph) and leaves the x-ray
+        // through the found gate instead.
+        {
+            mdb::XrayFacts b{};
+            b.cat = mdb::Cat::Boss;
+            b.cat_selected = true;
+            b.within_radius = true;
+            b.found = true;
+            CHECK(mdb::xray_gate(b) == mdb::XrayDrop::Found);
+            CHECK(!mdb::static_twin_is_hidden_by_corpse(false, false));
+        }
+
         section("npc markers that have walked away");
 
         // Only people move. Every other category's authored position is a fact about

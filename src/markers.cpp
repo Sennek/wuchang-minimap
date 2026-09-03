@@ -1945,7 +1945,8 @@ namespace markers
                     // dropping only the live entry redrew the dead enemy at its spawn
                     // point. Whatever the health read declared dead is not on the map
                     // at all until the corpse is collected and the entry ages out.
-                    if (live != nullptr && live->dead)
+                    if (mdb::static_twin_is_hidden_by_corpse(live != nullptr,
+                                                             live != nullptr && live->dead))
                     {
                         ++dead_hidden;
                         continue;
@@ -2145,9 +2146,9 @@ namespace markers
                 {
                     ++mobile_live;
                 }
-                if (!kv.second.pos_valid || kv.second.dead)
+                if (!mdb::live_only_is_drawn(kv.second.pos_valid, kv.second.dead))
                 {
-                    continue; // no usable position and no static entry to fall back on
+                    continue; // no usable position, or a corpse - see the predicate
                 }
                 if (db != nullptr)
                 {

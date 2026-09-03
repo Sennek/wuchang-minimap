@@ -347,6 +347,38 @@ namespace mdb
     }
 
     //==========================================================================
+    // A CORPSE HAS TWO HALVES AND BOTH MUST GO (pure, tested offline)
+    //==========================================================================
+    //
+    // An enemy exists twice in the published buffer: as its authored spawn point in
+    // `markers/chapter*.json` (a STATIC marker) and as the pawn the live sweep found
+    // (a LIVE entry). Erasing only the live one made the marker JUMP BACK to the spawn
+    // point on the next publish, which is indistinguishable from "the rule never
+    // fired" - that is why the health read had to be traced end to end rather than
+    // just fixed.
+    //
+    // Both predicates are called at the single publish point, so the minimap, the full
+    // map, the compass and the x-ray cannot disagree; and both live here so the chain
+    // is an offline invariant instead of a comment.
+    //
+    // `live_dead` is `LiveEntry::dead`: the health read answered zero for this actor.
+    // The entry is KEPT (refreshed every round the corpse is still in the object array)
+    // and ages out with everything else once a GC takes the body - at which point a
+    // respawned enemy's spawn hint is correct again.
+    constexpr bool static_twin_is_hidden_by_corpse(bool has_live_twin, bool live_dead)
+    {
+        return has_live_twin && live_dead;
+    }
+
+    // ...and the live half. `pos_valid` is false both for an actor parked at the origin
+    // and for a corpse (the dead branch clears it), so a dead entry can never be drawn
+    // wherever it fell.
+    constexpr bool live_only_is_drawn(bool pos_valid, bool live_dead)
+    {
+        return pos_valid && !live_dead;
+    }
+
+    //==========================================================================
     // Categories that WALK AWAY (pure, tested offline)
     //==========================================================================
     //

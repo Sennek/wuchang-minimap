@@ -7957,6 +7957,107 @@ namespace overlay
         // struct and publishes it), and is written to the file by Save like anything
         // else.
 
+        //==============================================================================
+        // MODIFIERS, AND THE KEYS THE GAME ITSELF WANTS (review B.13)
+        //==============================================================================
+
+        bool is_modifier_vk(int vk)
+        {
+            switch (vk)
+            {
+            case VK_SHIFT:
+            case VK_CONTROL:
+            case VK_MENU:
+            case VK_LSHIFT:
+            case VK_RSHIFT:
+            case VK_LCONTROL:
+            case VK_RCONTROL:
+            case VK_LMENU:
+            case VK_RMENU:
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        // Which modifier is physically down, if any. One, not a set: a binding carries
+        // one (mm::key_mod), and Ctrl wins over Shift wins over Alt so the answer is
+        // deterministic when a player is leaning on two of them.
+        int held_modifier()
+        {
+            if ((::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
+            {
+                return mm::kKeyModCtrl;
+            }
+            if ((::GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
+            {
+                return mm::kKeyModShift;
+            }
+            if ((::GetAsyncKeyState(VK_MENU) & 0x8000) != 0)
+            {
+                return mm::kKeyModAlt;
+            }
+            return mm::kKeyModNone;
+        }
+
+        // THE KEYS SOMETHING ELSE ALREADY OWNS.
+        //
+        // This list is ADVISORY and it is not read from the game - there is no API for
+        // that, and the mod must not pretend otherwise. Two sources, both written down
+        // so the next person can judge them:
+        //
+        //   * the movement / interaction set this genre binds by default (WASD, Space,
+        //     Shift, Ctrl, E, F, Q, R, Tab, Esc, 1..5) - a bare letter bound to a mod
+        //     action while the HUD is a pure overlay both fires the mod AND does its
+        //     game thing, which is what the hotkey swallow now prevents; that makes the
+        //     GAME action the casualty instead, so the player has to be told;
+        //   * the keys this machine's other injected DLLs own, from lessons.md: F6 is
+        //     RenoDX's DLSS 5 toggle (it ignores modifiers and has already caused one
+        //     GPU crash), F10 is the UE4SS console, F9 / F11 are engine binds and F12 is
+        //     the Steam screenshot key. Those four are refused by the config parser
+        //     outright, so they can only be reached from this tab.
+        //
+        // A binding WITH a modifier is not flagged: `ctrl+e` is exactly the escape hatch
+        // this table exists to point at.
+        struct GameBind
+        {
+            int vk;
+            const char* what;
+        };
+
+        constexpr GameBind kGameBinds[] = {
+            {'W', "move forward"},   {'A', "move left"},      {'S', "move back"},
+            {'D', "move right"},     {VK_SPACE, "dodge"},     {VK_SHIFT, "sprint"},
+            {VK_LSHIFT, "sprint"},   {VK_CONTROL, "crouch"},  {VK_LCONTROL, "crouch"},
+            {'E', "interact"},       {'F', "an action bind"}, {'Q', "an action bind"},
+            {'R', "an action bind"}, {VK_TAB, "inventory"},   {VK_ESCAPE, "the pause menu"},
+            {'1', "an item slot"},   {'2', "an item slot"},   {'3', "an item slot"},
+            {'4', "an item slot"},   {'5', "an item slot"},
+            {VK_F6, "RenoDX / DLSS 5 (it ignores modifiers)"},
+            {VK_F9, "an engine screenshot bind"},
+            {VK_F10, "the UE4SS console"},
+            {VK_F11, "the engine fullscreen bind"},
+            {VK_F12, "the Steam screenshot key"},
+        };
+
+        // nullptr = nothing known wants this binding.
+        const char* game_bind_clash(int binding)
+        {
+            if (mm::key_mod(binding) != mm::kKeyModNone)
+            {
+                return nullptr; // a modifier is the way OUT of a clash
+            }
+            const int vk = mm::key_vk(binding);
+            for (const GameBind& g : kGameBinds)
+            {
+                if (g.vk == vk)
+                {
+                    return g.what;
+                }
+            }
+            return nullptr;
+        }
+
         struct KeyBind
         {
             const char* label;
@@ -7990,38 +8091,69 @@ namespace overlay
             static const mm::Config kDefaults{};
 
             // ---- the capture, before anything is drawn --------------------------------
+            //
+            // A CAPTURE CAN NOW TAKE A MODIFIER (review B.13). Two shapes, and both have
+            // to work: `ctrl+m` (hold Ctrl, press M) and a bare modifier (`LALT`, which
+            // is the x-ray highlight's shipped default). So a non-modifier key wins
+            // immediately and carries whatever modifier is held with it, while a
+            // modifier pressed ON ITS OWN is only taken once everything is released -
+            // which is also the only way to tell "I am reaching for Ctrl+M" from "I want
+            // Ctrl".
             if (g_capture_row >= 0 && g_capture_row < kKeyBindCount)
             {
                 bool any_down = false;
-                int pressed = 0;
+                int pressed = 0;      // a real key: bind it now, with the held modifier
+                int mod_only = 0;     // a modifier on its own: bind it on release
                 for (const int vk : mm::bindable_vks())
                 {
-                    if ((::GetAsyncKeyState(vk) & 0x8000) != 0)
+                    if ((::GetAsyncKeyState(vk) & 0x8000) == 0)
                     {
-                        any_down = true;
-                        if (pressed == 0)
+                        continue;
+                    }
+                    any_down = true;
+                    if (is_modifier_vk(vk))
+                    {
+                        if (mod_only == 0)
                         {
-                            pressed = vk;
+                            mod_only = vk;
                         }
                     }
+                    else if (pressed == 0)
+                    {
+                        pressed = vk;
+                    }
                 }
+                static int pending_mod_only = 0;
                 if ((::GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0)
                 {
+                    pending_mod_only = 0;
                     arm_capture(-1);
                 }
                 else if (g_capture_wait_release)
                 {
                     g_capture_wait_release = any_down;
                 }
-                else if (pressed != 0)
+                else
                 {
-                    cfg.*kKeyBinds[g_capture_row].member = pressed;
-                    mm::logf(L"binding: {} = {}",
-                             std::wstring(kKeyBinds[g_capture_row].key,
-                                          kKeyBinds[g_capture_row].key +
-                                              std::strlen(kKeyBinds[g_capture_row].key)),
-                             mm::key_name(pressed));
-                    arm_capture(-1);
+                    if (pressed == 0 && mod_only != 0)
+                    {
+                        pending_mod_only = mod_only;
+                    }
+                    const int take = pressed != 0 ? mm::key_make(pressed, held_modifier())
+                                     : (!any_down && pending_mod_only != 0)
+                                         ? mm::key_make(pending_mod_only, mm::kKeyModNone)
+                                         : 0;
+                    if (take != 0)
+                    {
+                        pending_mod_only = 0;
+                        cfg.*kKeyBinds[g_capture_row].member = take;
+                        mm::logf(L"binding: {} = {}",
+                                 std::wstring(kKeyBinds[g_capture_row].key,
+                                              kKeyBinds[g_capture_row].key +
+                                                  std::strlen(kKeyBinds[g_capture_row].key)),
+                                 mm::key_name(take));
+                        arm_capture(-1);
+                    }
                 }
             }
             else if (g_capture_row >= 0)
@@ -8029,7 +8161,9 @@ namespace overlay
                 arm_capture(-1);
             }
 
-            ImGui::TextDisabled("Click a key to rebind it, then press the new key. Esc cancels.");
+            ImGui::TextDisabled("Click a key to rebind it, then press the new key - hold Ctrl, Shift or "
+                                "Alt with it for a modified binding. Esc cancels.");
+            ImGui::TextDisabled("A key bound here is taken away from the game while the mod is using it.");
 
             if (ImGui::BeginTable("bindings", 4,
                                   ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
@@ -8053,6 +8187,23 @@ namespace overlay
                             clash = kKeyBinds[j].label;
                         }
                     }
+                    // AND THE UNMODIFIED TWIN. `ctrl+m` and `m` are different bindings
+                    // but the same key press: a no-modifier binding deliberately does
+                    // not require the modifiers to be up (see mm::key_mod), so pressing
+                    // Ctrl+M fires both. That is a choice, not a bug - it is what keeps
+                    // every hotkey alive while the x-ray's Alt is held - so it is named
+                    // rather than prevented.
+                    const char* twin = nullptr;
+                    for (int j = 0; j < kKeyBindCount && twin == nullptr; ++j)
+                    {
+                        const int other = cfg.*kKeyBinds[j].member;
+                        if (j != i && vk != 0 && mm::key_vk(other) == mm::key_vk(vk) &&
+                            mm::key_mod(other) != mm::key_mod(vk))
+                        {
+                            twin = kKeyBinds[j].label;
+                        }
+                    }
+                    const char* game = game_bind_clash(vk);
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -8082,6 +8233,20 @@ namespace overlay
                     if (clash != nullptr)
                     {
                         ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "also %s", clash);
+                    }
+                    else if (game != nullptr)
+                    {
+                        ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "the game may use it for %s",
+                                           game);
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::SetTooltip("While the mod is using this key the game does not get it.\n"
+                                              "Add Ctrl, Shift or Alt to give it back.");
+                        }
+                    }
+                    else if (twin != nullptr)
+                    {
+                        ImGui::TextColored(ImVec4{0.80f, 0.80f, 0.55f, 1.0f}, "same key as %s", twin);
                     }
                     ImGui::PopID();
                 }

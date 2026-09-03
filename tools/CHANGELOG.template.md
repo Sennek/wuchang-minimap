@@ -2,7 +2,13 @@
 
 All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 
+Each version opens with a short **In short** list - the handful of things you would
+notice while playing - followed by the full detail. Read the first list; the rest is
+there when you want to know exactly what changed and why.
+
 ## Unreleased
+
+Entries accumulate here and become the next version's section when it is cut.
 
 ### Fixed
 - Switching to fullscreen (or back) no longer kills the minimap for the rest of
@@ -72,7 +78,36 @@ All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 - **The performance table in the F2 panel counts each activity once**, and can no longer
   show a row with no name.
 
+### Changed
+
 ## 1.0.0 - 2026-09-03
+
+**In short** - the first public release:
+
+- A **minimap** with a compass strip, and a **full chapter map** on `M` you can pan,
+  zoom and place a waypoint on. The map is not hand-drawn: it is built from the game's
+  own navigation data, so what you see is ground you can actually stand on.
+- **Markers with the game's real names** - chests, pickups, shrines, bosses, NPCs and
+  notes - instead of internal ids, for all five chapters and the DLC.
+- **An x-ray key** (`LALT`) that shows nearby loot through walls with names and
+  distances.
+- **A collection tracker per save slot** that ticks things off as you take them, with
+  per-chapter and per-category progress, and which counts bosses you beat before you
+  installed the mod.
+- **Everything is configurable in-game.** The `F2` panel has Player, Advanced and
+  Bindings tabs; every hotkey is rebindable by clicking a row and pressing a key, and
+  nothing needs a file editor or a restart.
+- **A quiet, useful log.** `wuchang_minimap.log` next to the config opens with every
+  version number a bug report needs, is rotated per launch, and no longer buries the ten
+  lines that matter under a status line repeated every two seconds.
+- **The freeze is fixed**, along with the subtitle that hid the minimap, the NPCs drawn
+  where they used to stand, and the numbers that ran off the edge of the panel.
+- **Known issues worth reading before you start**: the DLC has no map, enemy markers and
+  fast travel are off by default, and the overlay draws underneath ReShade's effects. The
+  full list is at the end of this section.
+
+<details>
+<summary>Everything that changed, in detail</summary>
 
 **The first public release.** Everything below is the work between the last internal
 build and this one: five rounds of in-game feedback, after which the x-ray sees more, the
@@ -343,6 +378,8 @@ because nothing is left to do - see **Known issues** at the end of this section.
   so they lag behind anything that moves.
 - **Fast travel is off by default** and should be treated as experimental
   (`fast_travel_enabled`).
+
+</details>
 
 ## 0.9.4 - 2026-09-03
 

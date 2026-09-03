@@ -13,7 +13,11 @@ set_project("WuchangMinimap")
 -- Metadata only. The version the DLL, the F2 panel and tools/package.ps1 all use is
 -- the single #define in src/version.hpp; package.ps1 -Version rewrites both.
 set_version("1.0.0")
-set_xmakever("2.9.3")
+-- The only xmake this project has ever been configured and built with is 3.1.1
+-- (`xmake --version` -> "xmake v3.1.1+HEAD.3ba37a0d4"). Nothing older has been tried,
+-- so the pin names the tested version rather than a guess at the oldest workable one.
+-- docs/DEVELOPMENT.md quotes the same number.
+set_xmakever("3.1.1")
 
 set_allowedplats("windows")
 set_allowedarchs("x64")
@@ -87,6 +91,48 @@ local function common_settings()
     end
 end
 
+-- Hardening + reproducibility flags for the two targets we actually LINK (the mod DLL
+-- and the offline test exe). Not applied to the static third_party targets: xmake hands
+-- ldflags to lib.exe there, and /guard:cf on their objects would only add metadata for
+-- indirect calls we do not own.
+--
+-- /guard:cf  - Control Flow Guard. Safe in a mod that hooks the host process:
+--   * CFG only rewrites *our* indirect calls into __guard_dispatch_icall, and that
+--     dispatcher is a plain jmp unless the whole process opted into the CFG mitigation
+--     policy - which the game's exe does not, so at runtime today this costs one extra
+--     indirect jump and nothing else.
+--   * The one thing that could break is calling MinHook's trampoline through
+--     `o_Present` etc. Trampolines live in memory MinHook gets from VirtualAlloc with
+--     an executable protection, and the kernel marks non-image executable pages as
+--     wholly-valid call targets unless a process enables CFG strict mode. So the
+--     trampoline is a legal target either way.
+--   * The reverse direction (the game calling our hook through the swapchain vtable)
+--     never consults our bitmap - it is the caller's module that validates.
+-- /DYNAMICBASE /HIGHENTROPYVA - ASLR with the full 64-bit entropy. Both are MSVC
+--   defaults for x64; stated explicitly so a future flag change cannot silently drop
+--   them, and so `dumpbin /headers` shows the intent.
+-- /PDBALTPATH:%_PDB% - write only the PDB's *file name* into the DLL's debug
+--   directory instead of the absolute path of whoever built it (a released 1.0.0
+--   main.dll carried E:\commcp\wuchang-minimap\build\...\main.pdb). A local debugger
+--   still finds the pdb next to the binary; a symbol server still works by GUID.
+-- TWO xmake traps cost a rebuild each here; both are why released 1.0.0 shipped an
+-- absolute pdb path even though a /PDBALTPATH flag looked present in this file:
+--   1. A `{tools = {"link"}}` filter on add_ldflags does NOT match the MSVC linker -
+--      xmake silently drops every flag carrying one. So: no tools filter. The project
+--      is `set_allowedplats("windows")`, so unconditional MSVC flags are safe.
+--   2. add_ldflags is for BINARY targets. A shared library takes add_shflags.
+-- Verify after touching this, do not assume:
+--     xmake -v -r                     the link.exe line must show all four flags
+--     strings main.dll | grep pdb     must be bare "main.pdb", not a build path
+local function hardened_link()
+    add_cxflags("/guard:cf", {tools = {"cl"}})
+    -- Both spellings, deliberately: xmake routes an .exe through ldflags and a .dll
+    -- through SHFLAGS, so a target-agnostic helper has to set the pair.
+    local link = {"/guard:cf", "/DYNAMICBASE", "/HIGHENTROPYVA", "/PDBALTPATH:%_PDB%"}
+    add_ldflags(link, {force = true})
+    add_shflags(link, {force = true})
+end
+
 ----------------------------------------------------------------------------------------
 -- third_party: Dear ImGui (core + DX12 and Win32 backends)
 ----------------------------------------------------------------------------------------
@@ -130,8 +176,12 @@ target("WuchangMinimap")
     set_languages("cxx23")
     set_exceptions("cxx")
     set_group("mods")
-    set_warnings("all")
+    -- "error" = /WX. Our own translation units are warning-free at /W3+ and must stay
+    -- that way; third_party/ is built by its own targets at the default level, so this
+    -- does not turn ImGui or MinHook churn into a build failure.
+    set_warnings("all", "error")
     common_settings()
+    hardened_link()
     add_deps("imgui", "minhook")
 
     add_includedirs("src")
@@ -175,9 +225,10 @@ target("markers_test")
     set_languages("cxx23")
     set_exceptions("cxx")
     set_group("tests")
-    set_warnings("all")
+    set_warnings("all", "error")
     set_default(false) -- built explicitly (and by build.ps1), not by a bare `xmake`
     common_settings()
+    hardened_link()
     add_includedirs("src")
     add_files("src/markers_db.cpp", "src/mapview.cpp", "src/compass.cpp", "tests/markers_test.cpp")
 target_end()

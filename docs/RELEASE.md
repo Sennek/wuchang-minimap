@@ -1,79 +1,109 @@
 # Cutting a release
 
-Everything here happens on the build machine with the **game closed**. A release is
-one `tools\package.ps1` run plus a commit and a tag; nothing is assembled by hand.
+Everything here happens on the build machine with the **game closed**. A release is a
+version stamp, a commit, a tag, one `tools\package.ps1` run and an upload; nothing is
+assembled by hand.
 
 ## 0. Before you start
 
-- [ ] **Close the game.** `deploy.ps1` and the packaging both touch files the game
-      locks, and the in-game smoke test at the end needs a fresh launch anyway.
-- [ ] `git status` is **clean**. `package.ps1` refuses to run otherwise (it records the
-      commit hash in `BUILD_INFO.txt`, which would be a lie for a dirty tree). Use
-      `-AllowDirty` only when iterating on the packaging script itself.
-- [ ] `tools\CHANGELOG.template.md` has a section for the version you are about to cut,
-      with the user-visible changes written for players, not for the repo.
-- [ ] `LICENSE` names a real copyright holder (no `<AUTHOR>` placeholder left) and
-      `THIRD_PARTY_NOTICES.md` still matches `third_party\` (check the version numbers
-      if anything was updated).
-- [ ] `README.md` (the short user-facing one) and `tools\INSTALL_GUIDE.html` describe
-      the keys the build actually ships.
-
-## 1. Build the package
+These are hard preconditions. `tools\check_release.ps1` enforces the mechanical ones —
+run it now and fix whatever it prints, before touching a version number:
 
 ```powershell
-.\tools\package.ps1 -Version 1.0.0
+.\tools\check_release.ps1
 ```
 
-This: stamps `src\version.hpp` + `xmake.lua`, runs `build.ps1` (compile + the offline
-`markers_test`, which must report **0 failures**), assembles `dist\WuchangMinimap-1.0.0\`,
-smoke-checks it, zips it to `dist\WuchangMinimap-1.0.0.zip` and round-trips the zip.
+- [ ] **`LICENSE` names a real copyright holder.** No `<AUTHOR>` and no other
+      `<PLACEHOLDER>`. **1.0.0 shipped with a literal `<AUTHOR>` on the copyright line**,
+      which makes the MIT grant unattributable — this is the one item on this page that
+      has already gone wrong in public. `check_release.ps1` now fails on it, and so does
+      `package.ps1`, but check it with your own eyes anyway.
+- [ ] **Close the game.** `deploy.ps1` and the packaging both touch files the game locks,
+      and the in-game smoke test at the end needs a fresh launch.
+- [ ] `git status` is **clean**. Every step below refuses to run otherwise.
+- [ ] `tools\CHANGELOG.template.md` has a section for the version you are about to cut,
+      moved out of `## Unreleased`, with an **In short** list written for players at the
+      top of it.
+- [ ] `THIRD_PARTY_NOTICES.md` still matches `third_party\` — check the versions if
+      anything was updated, and `third_party\VENDORING.md` with it.
+- [ ] `README.md` and `tools\INSTALL_GUIDE.html` describe the keys the build actually
+      ships, and name the UE4SS build it is compiled against.
 
-Any failure stops before the zip is written. Do not work around a smoke-check failure by
-zipping the folder yourself.
+## 1. Stamp the version, commit, tag
 
-## 2. Eyeball `dist\`
+The order matters, and it is the opposite of what it used to be. `package.ps1` refuses a
+dirty tree because `BUILD_INFO.txt` names a commit hash — but `-Version` *itself* dirties
+the tree, so stamping and packaging in one run records the commit from **before** the
+stamp. So stamp first, as its own step:
 
-Open `dist\WuchangMinimap-1.0.0\` and confirm:
+```powershell
+.\tools\package.ps1 -StampOnly -Version 1.0.1
+git commit -am "release 1.0.1"
+git tag v1.0.1
+```
+
+`-StampOnly` rewrites `src\version.hpp` and `xmake.lua`'s `set_version` and stops. It
+builds nothing and packages nothing.
+
+> Passing `-Version` to a normal packaging run still works and still warns you about
+> exactly this. Do not use it for a release.
+
+## 2. Build the package
+
+```powershell
+.\tools\package.ps1
+```
+
+No `-Version`: the tree already carries the right number, and the tree now matches the
+tagged commit, so `BUILD_INFO.txt` names **that** commit exactly.
+
+This runs `build.ps1` (compile + the offline `markers_test`, which must report
+**0 failures**), assembles `dist\WuchangMinimap-1.0.1\`, smoke-checks it, runs
+`check_release.ps1` over the assembled tree, zips it and round-trips the zip. It writes
+two archives:
+
+| File | What it is |
+|---|---|
+| `dist\WuchangMinimap-1.0.1.zip` | what a player downloads (~40 MB) |
+| `dist\WuchangMinimap-1.0.1-symbols.zip` | `main.pdb` + `BUILD_INFO.txt` (~6 MB) |
+
+Any failure stops before the zip is written. Do not work around a smoke-check or
+consistency failure by zipping the folder yourself.
+
+**Keep the symbols zip.** It is the only way to read a crash dump from that exact build,
+and `main.pdb` otherwise lives only in the gitignored `build\` folder. Upload it as an
+optional file, or archive it with the tag — but never as the main download.
+
+## 3. Eyeball `dist\`
+
+Open `dist\WuchangMinimap-1.0.1\` and confirm:
 
 | Path | What to check |
 |---|---|
-| `BUILD_INFO.txt` | version, commit hash and UE4SS build are the ones you expect; no `DIRTY` |
+| `BUILD_INFO.txt` | version, commit hash and UE4SS build are the ones you expect; **no `DIRTY`**, and the commit is the tagged one |
 | `INSTALL_GUIDE.html` | opens in a browser, version and date filled in (no `@@VERSION@@`) |
-| `README.md`, `CHANGELOG.md` | changelog's top section is this version |
-| `LICENSE`, `THIRD_PARTY_NOTICES.md` | present, real author name |
-| `ue4ss\Mods\WuchangMinimap\dlls\main.dll` | the only file in `dlls\` - **no `main.pdb`** |
+| `README.md`, `CHANGELOG.md` | changelog's top section is this version, and opens with the **In short** list |
+| `LICENSE` | real author name, no placeholder |
+| `THIRD_PARTY_NOTICES.md` | present |
+| `ue4ss\Mods\WuchangMinimap\dlls\main.dll` | the only file in `dlls\` — **no `main.pdb`** |
 | `...\config_wuchang_minimap.txt` | present; **no `..._dev.txt`** (the script refuses, but look) |
 | `...\maps\` | `maps.json` + five `chapter<N>\` folders of PNGs |
-| `...\markers\` | `chapter1..5.json`, `shrines.json`, `items.json`; **no `*.sample.json`** |
-| `...\enabled.txt` | present (empty file - that is correct) |
-| the zip | ~50 MB, and the console printed `zip round-trip OK` |
+| `...\markers\` | `chapter1..5.json`, `chapterdlc.json`, `shrines.json`, `items.json`; **no `*.sample.json`** |
+| `...\enabled.txt` | present (empty file — that is correct) |
+| the zip | ~40 MB, and the console printed `zip round-trip OK` |
 
 The script also prints the size and file count; a sudden change in either is worth
 understanding before uploading.
 
-## 3. Commit and tag
-
-```powershell
-git commit -am "release 1.0.0"
-git tag v1.0.0
-```
-
-The commit exists because `-Version` rewrote `src\version.hpp` and `xmake.lua`. Tag the
-commit that carries those numbers, so the tag and `BUILD_INFO.txt` agree about which
-tree the zip came from.
-
-> The zip in `dist\` was built from the commit *before* this one (the stamp is the only
-> difference). If you want the recorded hash to be the tagged commit exactly, re-run
-> `.\tools\package.ps1` with no `-Version` after committing.
-
 ## 4. Install it and smoke-test in the game
 
-Install the packaged zip the way a player would (unzip into
-`<Game>\Project_Plague\Binaries\Win64\`), not with `deploy.ps1` - the point is to test
-what people download. Then launch the game and check:
+Install the packaged zip **the way a player would** — unzip into
+`<Game>\Project_Plague\Binaries\Win64\` — not with `deploy.ps1`. The point is to test
+what people download; `deploy.ps1` installs a different, PDB-bearing layout, so it cannot
+catch a packaging mistake. Then launch the game and check:
 
-- [ ] The UE4SS console / `UE4SS.log` shows the start-up line **`WuchangMinimap vX.Y.Z loaded`**
-      with the version you just cut.
+- [ ] The UE4SS console / `UE4SS.log` shows **`WuchangMinimap vX.Y.Z loaded`** with the
+      version you just cut.
 - [ ] The minimap appears in-world once a save is loaded.
 - [ ] **F2** opens the settings panel; the version in its title matches.
 - [ ] **M** opens the full map; the chapter you are in is drawn and shrines are listed.
@@ -81,24 +111,32 @@ what people download. Then launch the game and check:
 - [ ] Quit and confirm `wuchang_minimap.log` in the mod folder has no errors and no
       per-frame spam.
 
-If anything here fails, the release does not ship - fix, re-tag.
+If anything here fails, the release does not ship — fix, re-tag.
 
 ## 5. Upload to Nexus Mods
 
-- File: `dist\WuchangMinimap-1.0.0.zip`, named exactly that (Nexus shows the file name).
-- Version field: `1.0.0`, matching the tag and `BUILD_INFO.txt`.
-- Changelog: paste the `## 1.0.0` section of `tools\CHANGELOG.template.md` (the rendered
-  copy in the package, `CHANGELOG.md`, already has the placeholders expanded) into the
-  Nexus changelog box.
-- Description: `docs\NEXUS.md`.
-- Requirements: state UE4SS (the build named in `BUILD_INFO.txt`) - it is **not** bundled.
+- File: `dist\WuchangMinimap-1.0.1.zip`, named exactly that (Nexus shows the file name).
+- Version field: `1.0.1`, matching the tag and `BUILD_INFO.txt`.
+- Changelog: paste the `## 1.0.1` section of `tools\CHANGELOG.template.md` — the **In
+  short** list first. Nexus does not render `<details>`/`<summary>`, so delete those two
+  lines and the closing `</details>` when pasting the detail, or paste only the In short
+  list and link to the changelog in the download.
+- Description: `docs\NEXUS.md`, BBCode editor (not rich text).
+- **Requirements tab**: UE4SS for Wuchang: Fallen Feathers, mod **384**, the
+  `experimental-latest` asset — build `v3.0.1-1111-g97b7e501`. Put the build string in
+  the requirement note, not only in the description: the mod is ABI-tied to it and a
+  mismatch produces no overlay and no in-game message. It is **not** bundled.
 - Tick "this mod contains files derived from the game's data" if the upload form asks;
   see the "Game data" section of `THIRD_PARTY_NOTICES.md`.
+- Screenshots: the checklist at the end of `docs\NEXUS.md`. The first image is the mod
+  page thumbnail.
 
 ## 6. After
 
 - [ ] `git push && git push --tags` if there is a remote.
 - [ ] Deploy the same build to your own game with `.\deploy.ps1` so your install and the
       published one are the same code.
-- [ ] Older `dist\WuchangMinimap-*` folders and zips can be deleted - `dist\` is
-      gitignored and every package is reproducible from its tag.
+- [ ] Older `dist\WuchangMinimap-*` folders and zips can be deleted — `dist\` is
+      gitignored and every package is reproducible from its tag. Keep the symbols zip of
+      any version that is still in the wild.
+- [ ] Start a fresh `## Unreleased` section in `tools\CHANGELOG.template.md`.

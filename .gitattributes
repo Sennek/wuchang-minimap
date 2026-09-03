@@ -1,0 +1,72 @@
+# Line endings and diff behaviour.
+#
+# This is a Windows-only project: a UE4SS C++ mod, PowerShell build/release scripts, an
+# HTML install guide a player double-clicks, and config files edited in Notepad. So text
+# is normalised to LF in the repository and checked out as CRLF, which is what every
+# consumer on this platform expects. Notepad has handled LF since 2018, but the game's
+# own tooling and a fair number of editors still do not, and a config file that opens as
+# one long line reads as a broken download.
+#
+# `text=auto` is the safety net: git decides per file whether it is text at all, so a
+# binary that slips into a text pattern is still not mangled.
+
+* text=auto eol=crlf
+
+# ---------------------------------------------------------------------------------------
+# Text, explicitly. Same behaviour as the default above, spelled out so the intent for
+# these extensions survives someone narrowing the `*` rule later.
+# ---------------------------------------------------------------------------------------
+*.ps1    text eol=crlf
+*.psm1   text eol=crlf
+*.cmd    text eol=crlf
+*.bat    text eol=crlf
+*.html   text eol=crlf
+*.htm    text eol=crlf
+*.md     text eol=crlf
+*.txt    text eol=crlf
+*.ini    text eol=crlf
+*.cpp    text eol=crlf
+*.hpp    text eol=crlf
+*.h      text eol=crlf
+*.c      text eol=crlf
+*.lua    text eol=crlf
+*.json   text eol=crlf
+*.py     text eol=crlf
+*.yml    text eol=crlf
+*.yaml   text eol=crlf
+*.csv    text eol=crlf
+*.def    text eol=crlf
+*.gitattributes text eol=crlf
+*.gitignore     text eol=crlf
+
+# ---------------------------------------------------------------------------------------
+# Binary. `-text` means: never run an eol filter, never try to diff or merge as text.
+#
+# maps/**/*.png is the important one - the shipped map assets are ~42 MB of PNG and are
+# irreplaceable without another offline extraction run. sdk/lib/UE4SS.lib is the
+# committed import library (see docs/DEVELOPMENT.md).
+# ---------------------------------------------------------------------------------------
+*.png    -text
+*.jpg    -text
+*.jpeg   -text
+*.gif    -text
+*.webp   -text
+*.ico    -text
+*.lib    -text
+*.dll    -text
+*.exe    -text
+*.pdb    -text
+*.exp    -text
+*.zip    -text
+*.7z     -text
+*.pak    -text
+*.ttf    -text
+*.otf    -text
+*.locres -text
+
+# ---------------------------------------------------------------------------------------
+# Keep generated/vendored code out of the language statistics and collapse it in diffs.
+# `linguist-vendored` is GitHub-specific and harmless elsewhere.
+# ---------------------------------------------------------------------------------------
+third_party/**  linguist-vendored
+sdk/UE4SS.def   linguist-generated

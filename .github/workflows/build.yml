@@ -1,0 +1,148 @@
+# Compile the mod and run the offline tests on a clean Windows runner.
+#
+# The point of this workflow is to catch the class of breakage that a dev box hides: a
+# missing file, a path that only exists on one machine, a header that is only found
+# because of something installed years ago. It builds main.dll and runs the 10075
+# engine-free checks in tests/markers_test.cpp.
+#
+# It does NOT and cannot run the mod. That needs the game, an installed UE4SS and a
+# GPU. Linking works on a runner only because sdk/lib/UE4SS.lib is committed (see
+# docs/DEVELOPMENT.md, "Why sdk/lib/UE4SS.lib is committed").
+#
+# ---------------------------------------------------------------------------------
+# UNTESTED. This repository had no git remote when this file was written, so this
+# workflow has never executed. Everything in it was derived from the build that does
+# work locally, but the following are predictions, not observations:
+#
+#   * That the runner's MSVC compiles this cleanly. The local build uses toolset
+#     14.40.33807; a runner has whatever ships with its VS image (14.4x). build.ps1
+#     resolves that automatically and warns that it is untested - but our targets are
+#     built with /WX, so a NEW warning from a newer MSVC will fail the job. That is
+#     the single most likely first failure. If it happens, the fix is to fix the
+#     warning, not to drop /WX.
+#   * That xmake-io/setup-xmake pins 3.1.1 with this input spelling.
+#   * That actions/cache restores the RE-UE4SS clone usefully (~1 GB tree).
+#   * Exact step timings.
+#
+# The first real run should be treated as a bring-up, not a regression check.
+# ---------------------------------------------------------------------------------
+
+name: build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # The UE4SS commit the mod's headers must come from. This is the -g97b7e501 suffix of
+  # UE4SS release v3.0.1-1111-g97b7e501, expanded. It must stay in step with
+  # sdk/lib/UE4SS.lib, which was synthesised from that build's DLL - headers and import
+  # library from different UE4SS builds is an ABI mismatch, not a warning.
+  UE4SS_COMMIT: 97b7e501c19d8b2b7c662feee73aaa0dc1f0a4d1
+  UE4SS_ROOT: ${{ github.workspace }}\.ue4ss-src
+  XMAKE_VERSION: v3.1.1
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # RE-UE4SS supplies HEADERS ONLY. Cached on the commit sha, so this clone happens
+      # once per UE4SS bump rather than once per push.
+      - name: Cache the RE-UE4SS checkout
+        id: ue4ss-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.UE4SS_ROOT }}
+          key: ue4ss-src-${{ env.UE4SS_COMMIT }}
+
+      # --no-recurse-submodules is deliberate and sufficient, not a shortcut.
+      # RE-UE4SS has exactly two submodules, deps/first/Unreal and
+      # deps/first/patternsleuth. Neither is on this project's include path, and the
+      # first one CANNOT be cloned by anybody outside the Epic Games GitHub org - it
+      # points at the private Re-UE4SS/UEPseudo. Every directory xmake.lua asks for
+      # (UE4SS/include, UE4SS/generated_include, deps/first/*/include) is tracked
+      # directly in the RE-UE4SS repository, verified with `git ls-files`.
+      - name: Clone RE-UE4SS at the pinned commit
+        if: steps.ue4ss-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          git clone --no-checkout --no-recurse-submodules `
+              https://github.com/UE4SS-RE/RE-UE4SS "$env:UE4SS_ROOT"
+          git -C "$env:UE4SS_ROOT" checkout --recurse-submodules=no $env:UE4SS_COMMIT
+
+      - name: Verify the UE4SS headers are present
+        shell: pwsh
+        run: |
+          $need = @(
+            'UE4SS\include\Mod\CppUserModBase.hpp',
+            'UE4SS\include\DynamicOutput\DynamicOutput.hpp',
+            'deps\first\DynamicOutput\include\DynamicOutput\Output.hpp',
+            'deps\first\Helpers\include\Helpers\String.hpp'
+          )
+          $missing = @($need | Where-Object { -not (Test-Path (Join-Path $env:UE4SS_ROOT $_)) })
+          if ($missing.Count -gt 0) {
+              throw "RE-UE4SS checkout is incomplete; missing:`n  " + ($missing -join "`n  ")
+          }
+          "RE-UE4SS OK at $env:UE4SS_COMMIT"
+
+      - name: Install xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: ${{ env.XMAKE_VERSION }}
+
+      # No -Toolset: build.ps1 prefers 14.40.33807 when present and otherwise takes the
+      # runner's newest MSVC, printing a warning that the choice is untested. Letting it
+      # choose is the point - this job is the only place that combination gets exercised.
+      # -Xmake xmake.exe uses the one setup-xmake put on PATH rather than the dev box path.
+      - name: Build (Game__Shipping__Win64) and run the offline tests
+        shell: pwsh
+        run: |
+          .\build.ps1 -Mode Game__Shipping__Win64 -Xmake xmake.exe -Ue4ssRoot $env:UE4SS_ROOT
+
+      # build.ps1 already ran markers_test and fails on a non-zero exit. Running it
+      # again on its own makes the check count visible as its own step in the log, and
+      # would catch a wrapper that silently skipped it.
+      - name: Re-run markers_test explicitly
+        shell: pwsh
+        run: |
+          xmake build markers_test
+          xmake run markers_test "${{ github.workspace }}\markers"
+
+      - name: Release consistency check
+        shell: pwsh
+        run: .\tools\check_release.ps1
+
+      - name: Confirm the DLL's hardening flags and pdb path
+        shell: pwsh
+        run: |
+          $dll = 'build\windows\x64\Game__Shipping__Win64\main.dll'
+          $b = [System.IO.File]::ReadAllBytes($dll)
+          $pe = [BitConverter]::ToInt32($b, 0x3C)
+          $dc = [BitConverter]::ToUInt16($b, $pe + 0x18 + 0x46)
+          "DllCharacteristics = 0x{0:X4}" -f $dc
+          $want = @{ 'HIGH_ENTROPY_VA' = 0x0020; 'DYNAMICBASE' = 0x0040; 'GUARD_CF' = 0x4000 }
+          foreach ($k in $want.Keys) {
+              if (-not ($dc -band $want[$k])) { throw "main.dll is missing $k" }
+          }
+          # /PDBALTPATH:%_PDB% must have kept the builder's folder layout out of the DLL.
+          $s = [System.Text.Encoding]::ASCII.GetString($b)
+          foreach ($m in [regex]::Matches($s, '[ -~]{0,160}main\.pdb')) {
+              if ($m.Value -ne 'main.pdb') { throw "main.dll embeds a pdb PATH: $($m.Value)" }
+          }
+          "hardening flags and bare pdb name OK"
+
+      - name: Upload main.dll and main.pdb
+        uses: actions/upload-artifact@v4
+        with:
+          name: WuchangMinimap-main-dll
+          path: |
+            build/windows/x64/Game__Shipping__Win64/main.dll
+            build/windows/x64/Game__Shipping__Win64/main.pdb
+          if-no-files-found: error

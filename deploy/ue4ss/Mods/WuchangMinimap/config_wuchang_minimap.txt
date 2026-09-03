@@ -11,12 +11,13 @@
 ; NUMDOT, MOUSE3 / MOUSE4 / MOUSE5, or one of LALT / RALT / ALT / LSHIFT / RSHIFT /
 ; SHIFT / LCTRL / RCTRL / CTRL. `none` leaves an action unbound.
 ; The F2 panel's Bindings tab rebinds all of them by pressing the new key.
-; F6 and F9..F12 are REJECTED and fall back to the default, because on this machine
-;   F6  toggles RenoDX / DLSS 5 Neural Rendering (it ignores modifiers, and pressing
-;       it in-world hung the GPU on 2026-09-02)
-;   F9  / F11 are engine screenshot / fullscreen binds
-;   F10 opens the game console (UE4SS ConsoleEnablerMod)
-;   F12 is the Steam screenshot key
+; F6 and F9..F12 are REJECTED and fall back to the default. They are spoken for by
+; software that commonly runs alongside the game and that grabs the key globally,
+; without looking at modifiers, so binding one here would fire two things at once:
+;   F6  post-processing injectors (ReShade / RenoDX) use it as their default toggle
+;   F9  / F11  engine screenshot and fullscreen-toggle binds
+;   F10 opens the game console (UE4SS's ConsoleEnablerMod)
+;   F12 the Steam overlay's screenshot key
 ; Shipped defaults: F2 settings panel, M full map, R recentre the map, F5 reload,
 ; and LALT for the x-ray highlight (a press-on / press-off toggle - see
 ; highlight_mode).

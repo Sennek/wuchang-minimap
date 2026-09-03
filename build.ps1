@@ -22,6 +22,14 @@
     xmake.exe. Machine-specific like the above; override with -Xmake or WUCHANG_XMAKE
     (or just put xmake on PATH and pass -Xmake xmake.exe).
 
+.PARAMETER Toolset
+    The MSVC toolset version to compile with - the directory name under
+    <VS>\VC\Tools\MSVC\, which is exactly what `xmake f --vs_toolset=` wants.
+    Leave it off and the script works it out: $env:WUCHANG_MSVC_TOOLSET if set,
+    otherwise 14.40.33807 (the version this mod is tested with) when it is installed,
+    otherwise the newest toolset on the box with a warning that it is untested.
+    See tools\vs_detect.ps1.
+
 .PARAMETER Rebuild
     Wipe intermediates first.
 #>
@@ -31,15 +39,21 @@ param(
     [string]$Mode      = 'Game__Shipping__Win64',
     [string]$Ue4ssRoot = $(if ($env:WUCHANG_UE4SS_ROOT) { $env:WUCHANG_UE4SS_ROOT } else { 'F:/Tools/RE-UE4SS' }),
     [string]$Xmake     = $(if ($env:WUCHANG_XMAKE)      { $env:WUCHANG_XMAKE }      else { 'F:\Tools\xmake\xmake.exe' }),
-    [string]$Toolset   = '14.40.33807',
+    [string]$Toolset,
     [int]   $Jobs      = 8,
     [switch]$Rebuild,
     [switch]$NoTests
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'tools\vs_detect.ps1')
 Push-Location $PSScriptRoot
 try {
+    # Which compiler. Explicit -Toolset > WUCHANG_MSVC_TOOLSET > the tested 14.40.33807
+    # when installed > newest installed (warned about). Throws if the box has no MSVC.
+    $Toolset = Resolve-MsvcToolset -Requested $Toolset
+    Write-Host "MSVC toolset: $Toolset" -ForegroundColor DarkGray
+
     if (-not (Test-Path $Xmake)) {
         # Also accept a bare name that is on PATH, so -Xmake xmake.exe works.
         $onPath = Get-Command $Xmake -ErrorAction SilentlyContinue

@@ -69,6 +69,20 @@
 <pre>&lt;Steam&gt;\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\</pre>
 
 <div class="box danger">
+  <h4>It must be this exact UE4SS build</h4>
+  <pre>UE4SS v3.0.1-1111-g97b7e501   (the "experimental-latest" asset of Nexus mod 384)</pre>
+  <p>The mod links straight to that DLL's exports, so <strong>another UE4SS build will not
+  work</strong> &mdash; and it fails silently. What a mismatch looks like: the game launches and
+  plays normally, no overlay ever appears, <kbd>F2</kbd> does nothing, and
+  <code>ue4ss\UE4SS.log</code> contains</p>
+  <pre>Failed to load dll &lt;...\Mods\WuchangMinimap\dlls\main.dll&gt; for mod WuchangMinimap,
+error: The specified procedure could not be found.</pre>
+  <p>rather than <code>WuchangMinimap v@@VERSION@@ loaded</code>. If you see that, install the
+  build named above. <code>BUILD_INFO.txt</code> in this folder repeats the version, so a bug
+  report can be checked against it.</p>
+</div>
+
+<div class="box danger">
   <h4>Mandatory: <code>HookInitGameState = 0</code></h4>
   <p>Open <code>Project_Plague\Binaries\Win64\ue4ss\UE4SS-settings.ini</code>, find the
   <code>[Hooks]</code> section, and set:</p>
@@ -120,7 +134,36 @@ they belong to RenoDX/DLSS, the engine, the game console and Steam.</p>
 every key inline; the <kbd>F2</kbd> panel edits the same file, and <kbd>F5</kbd> reloads it without
 restarting the game.</p>
 
-<h2 id="trouble">4. Something went wrong</h2>
+<h2 id="conflicts">4. Known conflicts</h2>
+
+<p>None of these stops the mod working, but all three have surprised someone.</p>
+
+<table>
+  <tr><th style="width:210px">What</th><th>What happens</th></tr>
+  <tr>
+    <td><strong>ReShade / RenoDX</strong><br><span style="color:var(--muted)">any
+        <code>dxgi.dll</code> or <code>d3d12.dll</code> next to the game exe</span></td>
+    <td>The mod draws <em>before</em> ReShade's effects, so colour-grading, tone-mapping and
+        sharpening are applied on top of the minimap and a strong LUT will tint it. Cosmetic
+        only &mdash; the map just is not colour-accurate. Related: RenoDX's default toggle is
+        <kbd>F6</kbd>, which is why <kbd>F6</kbd> is refused as a mod hotkey.</td>
+  </tr>
+  <tr>
+    <td><strong>Another UE4SS C++ mod that also hooks <code>Present</code></strong></td>
+    <td>The one combination that can genuinely lose an overlay. Two overlays on one swapchain:
+        whichever installs second usually wins and the loser is invisible. If you run one, test
+        them one at a time before reporting a blank screen.</td>
+  </tr>
+  <tr>
+    <td><strong>The Steam overlay</strong></td>
+    <td>Starting up creates and destroys a throwaway swapchain once, and Steam's overlay follows
+        what it sees created &mdash; the reported symptom is the Steam FPS counter pointing at
+        nothing. Addresses are cached after the first launch, so this affects the <strong>first
+        run of a new install only</strong>. Shift+Tab keeps working.</td>
+  </tr>
+</table>
+
+<h2 id="trouble">5. Something went wrong</h2>
 
 <p><strong>The game crashes on start-up</strong> &mdash; almost always
 <code>HookInitGameState</code>; see section&nbsp;1.</p>

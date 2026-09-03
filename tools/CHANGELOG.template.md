@@ -65,6 +65,15 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   map-to-clipboard key stays a binding.
 
 ### Fixed
+- **The stutter three times a second is gone.** The mod's check for "is a game menu open?"
+  swept every object in the game in one go, which cost about 25 ms of the game's own frame
+  time - a dropped frame roughly three times a second, all the time, whether or not
+  anything was happening. That sweep now walks the object list a small slice at a time,
+  spread across frames, so no single frame pays more than a fraction of a millisecond; and
+  it slows itself down while you are simply playing instead of running flat out. The
+  minimap still hides the instant you open a menu and comes back the instant you close it.
+  The F2 Debug performance table calls the new rows **widget scan slice** and **widget
+  round commit**.
 - **The minimap no longer stays away for good after a fast travel taken from the shrine
   menu.** In that one case the mod could lose the player and never find them again: the
   minimap and the compass stayed hidden, the full map refused to open ("there is no

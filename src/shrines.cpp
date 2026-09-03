@@ -641,6 +641,35 @@ namespace shr
                      n_ever == nullptr ? L" - no ever-list" : L"",
                      n_deact == nullptr ? L" - no deactivated-list" : L"",
                      next.truncated ? L" - TRUNCATED" : L"");
+            // THE NON-SHRINE ENTRIES, SPELLED OUT.
+            //
+            // UnlockedFirepoints also carries the boss-door and task
+            // pseudo-points (`bossdoor_dyy`, `Task1`, `Task_Door_Tangw`) that
+            // markers/shrines.json lists with `"shrine": false` - 38 of its 88
+            // rows. Whether a `bossdoor_*` id appears when the arena is first
+            // ENTERED or only once the boss is DEFEATED cannot be settled from
+            // the cooked data, and if it is the latter it is a second,
+            // save-backed boss-defeat signal to sit beside the health read in
+            // markers.cpp. Printing them on every change is what lets one play
+            // session answer it: kill a boss and see whether its id appears
+            // here at that moment.
+            std::wstring pseudo;
+            int pseudo_n = 0;
+            for (int i = 0; i < next.id_count; ++i)
+            {
+                if (shdb::is_shrine_id(table(), next.ids[i]))
+                {
+                    continue;
+                }
+                ++pseudo_n;
+                if (!pseudo.empty())
+                {
+                    pseudo += L", ";
+                }
+                pseudo += widen(std::string{next.ids[i]});
+            }
+            mm::logf(L"shrines: {} unlocked non-shrine point(s){}{}", pseudo_n,
+                     pseudo_n != 0 ? L": " : L"", pseudo);
         }
     }
 } // namespace shr

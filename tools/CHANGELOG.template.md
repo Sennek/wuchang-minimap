@@ -2,6 +2,28 @@
 
 All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Added
+- **Bosses in every chapter, with their real names.** Chapters 2, 3 and 5 had no boss
+  markers at all and chapter 4 had two; they now have 5, 6, 2 and 5, and every boss
+  marker is labelled with the game's own English name ("Reborn Treant - Soulwood",
+  "Sovereign - Zhang Xianzhong") instead of "Boss".
+- **Shrines you have lit now count as found.** The statistics table said 0/12 shrines
+  while your save had eighteen lit, and lit shrines still drew as un-found on the map.
+- **NPCs and merchants count as met** once you have been within 30 m of them, so the
+  NPC and Merchant columns of the statistics table fill in as you explore.
+- **Bosses count as defeated.** A boss you have killed is marked found and stays marked
+  after you leave the arena.
+
+### Fixed
+- **Dead enemies no longer sit on the minimap.** A corpse keeps its position in the game
+  for a while after it dies; enemies are now dropped from the map as soon as their health
+  reads zero, and a live enemy marker that stops being seen is dropped after one sweep
+  instead of two.
+- Eight lightable reeds in a Chapter 1 boss arena, a boss spawner and a stage light were
+  all drawn as bosses. They are not.
+
 ## @@VERSION@@ - @@DATE@@
 
 An extras release: one collection file per save, a statistics page, the map on your

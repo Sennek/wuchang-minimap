@@ -100,11 +100,14 @@ namespace cfgkeys
         {"markers_clamp_to_edge", Tier::Player},
         {"markers_absence_marks", Tier::Player},
         {"found_tracker", Tier::Player},
+        {"found_profile", Tier::Player},
+        {"first_run_toast", Tier::Player},
         {"map_zoom", Tier::Player},
         {"map_marker_size", Tier::Player},
         {"map_show_all_floors", Tier::Player},
         {"map_gamepad", Tier::Player},
         {"map_waypoint_persist", Tier::Player},
+        {"shrine_list", Tier::Player},
         {"highlight_enabled", Tier::Player},
         {"highlight_key", Tier::Player},
         {"highlight_gamepad", Tier::Player},
@@ -126,6 +129,7 @@ namespace cfgkeys
         {"map_recenter_key", Tier::Player},
         {"zoom_key", Tier::Player},
         {"reload_key", Tier::Player},
+        {"screenshot_key", Tier::Player},
 
         //------------------------------------------------------------------------------
         // ADVANCED
@@ -186,6 +190,8 @@ namespace cfgkeys
         {"compass_show_waypoint", Tier::Advanced},
         {"compass_tick_step_deg", Tier::Advanced},
         {"compass_max_pips", Tier::Advanced},
+        {"crash_breadcrumb", Tier::Advanced},
+        {"fast_travel_enabled", Tier::Advanced},
 
         //------------------------------------------------------------------------------
         // DEV - config_wuchang_minimap_dev.txt, not shipped
@@ -212,6 +218,8 @@ namespace cfgkeys
         {"highlight_getter_period_ms", Tier::Dev},
         {"highlight_pov_scan_bytes", Tier::Dev},
         {"highlight_pov_bad_reads", Tier::Dev},
+        {"saveslot_uuid_call", Tier::Dev},
+        {"recon_dump_key", Tier::Dev},
 
         //------------------------------------------------------------------------------
         // REMOVED - hard-coded constants since 0.9.2. A wrong value here was never a

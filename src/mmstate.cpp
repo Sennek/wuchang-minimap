@@ -654,6 +654,14 @@ namespace mm
             {
                 cfg.zoom_key = vk_from_name(value, cfg.zoom_key, "zoom_key");
             }
+            else if (key == "screenshot_key")
+            {
+                cfg.screenshot_key = vk_from_name(value, cfg.screenshot_key, "screenshot_key");
+            }
+            else if (key == "recon_dump_key")
+            {
+                cfg.recon_dump_key = vk_from_name(value, cfg.recon_dump_key, "recon_dump_key");
+            }
             else if (key == "minimap_shape")
             {
                 cfg.round = (value != "square");
@@ -833,6 +841,42 @@ namespace mm
             else if (key == "markers_max_draw")
             {
                 cfg.markers_max_draw = parse_int(value, cfg.markers_max_draw);
+            }
+            else if (key == "found_profile")
+            {
+                // Free text: `auto`, `shared`, or a name of the player's choosing. It
+                // reaches a FILENAME, so it is sanitised (slotid::sanitise_key) before
+                // it is used - here we only reject the empty string.
+                const std::string v = trim(value);
+                if (v.empty())
+                {
+                    logf(L"config: found_profile = '' is not a profile - keeping '{}'",
+                         widen_ascii(cfg.found_profile));
+                }
+                else
+                {
+                    ::strncpy_s(cfg.found_profile, sizeof(cfg.found_profile), v.c_str(), _TRUNCATE);
+                }
+            }
+            else if (key == "first_run_toast")
+            {
+                cfg.first_run_toast = parse_bool(value, cfg.first_run_toast);
+            }
+            else if (key == "shrine_list")
+            {
+                cfg.shrine_list = parse_bool(value, cfg.shrine_list);
+            }
+            else if (key == "crash_breadcrumb")
+            {
+                cfg.crash_breadcrumb = parse_bool(value, cfg.crash_breadcrumb);
+            }
+            else if (key == "fast_travel_enabled")
+            {
+                cfg.fast_travel_enabled = parse_bool(value, cfg.fast_travel_enabled);
+            }
+            else if (key == "saveslot_uuid_call")
+            {
+                cfg.saveslot_uuid_call = parse_bool(value, cfg.saveslot_uuid_call);
             }
             else if (key == "map_recenter_key")
             {
@@ -1865,11 +1909,14 @@ namespace mm
         add("markers_clamp_to_edge", b(cfg.markers_clamp_to_edge));
         add("markers_absence_marks", b(cfg.markers_absence_marks));
         add("found_tracker", b(cfg.found_tracker));
+        add("found_profile", std::string{cfg.found_profile});
+        add("first_run_toast", b(cfg.first_run_toast));
         add("map_zoom", f0(cfg.map_zoom));
         add("map_marker_size", f1(cfg.map_marker_size));
         add("map_show_all_floors", b(cfg.map_show_all_floors));
         add("map_gamepad", b(cfg.map_gamepad));
         add("map_waypoint_persist", b(cfg.map_waypoint_persist));
+        add("shrine_list", b(cfg.shrine_list));
         add("highlight_enabled", b(cfg.highlight_enabled));
         add("highlight_key", vk(cfg.highlight_key));
         add("highlight_gamepad", b(cfg.highlight_gamepad));
@@ -1902,6 +1949,7 @@ namespace mm
         add("map_recenter_key", vk(cfg.map_recenter_key));
         add("zoom_key", vk(cfg.zoom_key));
         add("reload_key", vk(cfg.reload_key));
+        add("screenshot_key", vk(cfg.screenshot_key));
 
         // ---- Advanced ---------------------------------------------------------------
         add("require_pawn_view", b(cfg.require_pawn_view));
@@ -1959,6 +2007,8 @@ namespace mm
         add("compass_show_waypoint", b(cfg.compass_show_waypoint));
         add("compass_tick_step_deg", f0(cfg.compass_tick_step_deg));
         add("compass_max_pips", std::to_string(cfg.compass_max_pips));
+        add("crash_breadcrumb", b(cfg.crash_breadcrumb));
+        add("fast_travel_enabled", b(cfg.fast_travel_enabled));
 
         // ---- Dev --------------------------------------------------------------------
         add("debug_readout", b(cfg.debug_readout));
@@ -1983,6 +2033,8 @@ namespace mm
         add("highlight_getter_period_ms", std::to_string(cfg.highlight_getter_period_ms));
         add("highlight_pov_scan_bytes", std::to_string(cfg.highlight_pov_scan_bytes));
         add("highlight_pov_bad_reads", std::to_string(cfg.highlight_pov_bad_reads));
+        add("saveslot_uuid_call", b(cfg.saveslot_uuid_call));
+        add("recon_dump_key", vk(cfg.recon_dump_key));
 
         return kv;
     }

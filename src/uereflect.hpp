@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "mem.hpp"
 #include "ue_min.hpp"
@@ -270,6 +271,172 @@ namespace uer
         }
         out = scratch;
         return true;
+    }
+
+    // ---- FString / TArray<FString> -------------------------------------------------
+    //
+    // An FString is { TCHAR* Data; int32 ArrayNum; int32 ArrayMax } = 16 bytes, and a
+    // TArray<T> is the same shape with T* Data. Neither is reflected beyond the
+    // property offset, so both are read raw - guarded, and with a sanity cap on the
+    // count so a wrong offset yields false instead of a multi-megabyte allocation.
+
+    struct FStringRaw
+    {
+        const wchar_t* data = nullptr;
+        std::int32_t num = 0;
+        std::int32_t max = 0;
+    };
+
+    inline constexpr int kMaxFStringChars = 1024;
+    inline constexpr int kMaxArrayItems = 4096;
+
+    inline bool read_fstring_at(const void* addr, std::wstring& out)
+    {
+        FStringRaw raw{};
+        if (!mem::read(addr, raw))
+        {
+            return false;
+        }
+        if (raw.num <= 0 || raw.num > kMaxFStringChars || raw.max < raw.num)
+        {
+            // num == 0 with a null pointer is a legitimately EMPTY FString, not a bad
+            // read - the caller wants to know the difference.
+            if (raw.num == 0 && raw.data == nullptr)
+            {
+                out.clear();
+                return true;
+            }
+            return false;
+        }
+        if (!mem::plausible_ptr(raw.data) ||
+            !mem::readable(raw.data, static_cast<std::size_t>(raw.num) * sizeof(wchar_t)))
+        {
+            return false;
+        }
+        std::wstring text;
+        text.resize(static_cast<std::size_t>(raw.num));
+        if (!mem::copy(raw.data, text.data(), text.size() * sizeof(wchar_t)))
+        {
+            return false;
+        }
+        // UE stores the terminating NUL inside ArrayNum.
+        while (!text.empty() && text.back() == L'\0')
+        {
+            text.pop_back();
+        }
+        out = std::move(text);
+        return true;
+    }
+
+    inline bool read_fstring_prop(const ClassLayout* layout, const void* obj, const wchar_t* name,
+                                  std::wstring& out)
+    {
+        const Prop* p = find_prop(layout, name);
+        if (p == nullptr || obj == nullptr || p->size != 16)
+        {
+            return false;
+        }
+        return read_fstring_at(static_cast<const std::uint8_t*>(obj) + p->offset, out);
+    }
+
+    // A TArray<FString> property. Each element is a 16-byte FString read in place.
+    inline bool read_str_array_prop(const ClassLayout* layout, const void* obj, const wchar_t* name,
+                                    std::vector<std::wstring>& out)
+    {
+        const Prop* p = find_prop(layout, name);
+        if (p == nullptr || obj == nullptr || p->size != 16)
+        {
+            return false;
+        }
+        FStringRaw hdr{}; // same shape as TArray's header
+        if (!mem::read_at(obj, p->offset, hdr))
+        {
+            return false;
+        }
+        out.clear();
+        if (hdr.num == 0)
+        {
+            return hdr.data == nullptr || mem::plausible_ptr(hdr.data);
+        }
+        if (hdr.num < 0 || hdr.num > kMaxArrayItems || hdr.max < hdr.num || !mem::plausible_ptr(hdr.data))
+        {
+            return false;
+        }
+        const auto* base = reinterpret_cast<const std::uint8_t*>(hdr.data);
+        if (!mem::readable(base, static_cast<std::size_t>(hdr.num) * 16u))
+        {
+            return false;
+        }
+        out.reserve(static_cast<std::size_t>(hdr.num));
+        for (std::int32_t i = 0; i < hdr.num; ++i)
+        {
+            std::wstring one;
+            if (!read_fstring_at(base + static_cast<std::size_t>(i) * 16u, one))
+            {
+                continue;
+            }
+            out.push_back(std::move(one));
+        }
+        return true;
+    }
+
+    // ---- reflected function signatures ---------------------------------------------
+    //
+    // lessons.md: never call a UFunction with a guessed signature. A UFunction is a
+    // UStruct whose child properties ARE its parameters, in declaration order, so the
+    // real signature is one walk away - and comparing it against what a design document
+    // predicted is the difference between a call and a crash.
+
+    struct ParamInfo
+    {
+        std::wstring name;
+        int offset = 0;
+        int size = 0;
+    };
+
+    inline std::vector<ParamInfo> func_params(UFunction* fn)
+    {
+        std::vector<ParamInfo> out;
+        if (fn == nullptr || !mem::readable(fn, 0x40))
+        {
+            return out;
+        }
+        FField* field = static_cast<UStruct*>(fn)->GetChildProperties();
+        for (int i = 0; field != nullptr && i < 64; ++i)
+        {
+            auto* prop = static_cast<FProperty*>(field);
+            ParamInfo info{};
+            info.offset = prop->GetOffset_Internal();
+            info.size = prop->GetElementSize();
+            info.name = field->GetName();
+            out.push_back(std::move(info));
+            field = FFieldAccess::next(field);
+        }
+        return out;
+    }
+
+    // The size of the parameter block ProcessEvent expects, i.e. what must be zeroed
+    // and handed over. 0 for a function with no parameters and no return value.
+    inline int func_param_size(UFunction* fn)
+    {
+        if (fn == nullptr || !mem::readable(fn, 0x40))
+        {
+            return -1;
+        }
+        return static_cast<UStruct*>(fn)->GetPropertiesSize();
+    }
+
+    // Wide -> narrow, ASCII only. `std::string(w.begin(), w.end())` compiles and emits
+    // C4244, and this repo is warning-free by policy (lessons.md).
+    inline std::string narrow_ascii(std::wstring_view w)
+    {
+        std::string out;
+        out.reserve(w.size());
+        for (wchar_t c : w)
+        {
+            out.push_back(c >= 32 && c < 127 ? static_cast<char>(c) : '?');
+        }
+        return out;
     }
 
     // ---- object liveness -----------------------------------------------------------

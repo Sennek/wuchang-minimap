@@ -106,3 +106,19 @@ highlight_getter_period_ms = 33
 ; reads in a row drop the pinned offset and re-run the discovery.
 highlight_pov_scan_bytes = 192
 highlight_pov_bad_reads = 8
+
+; ---------------------------------------------------------------------------------
+; THE 0.9.4 EXTRAS
+; ---------------------------------------------------------------------------------
+; Actually CALL the game's `Get Save Slot Value` to read the save's uuid, instead of
+; only reading and logging its reflected signature. Off because an FString passed by
+; value into ProcessEvent is freed by the engine's allocator afterwards, and the
+; signature check alone cannot prove the parameter is not owned. The in-game recon
+; dump (recon_dump_key) is what settles it.
+saveslot_uuid_call = 0
+
+; One press dumps everything context/saveslot-and-teleport-research.md section 3 asks
+; for - the game mode's components, the shrine manager's arrays, and the reflected
+; parameter list of every function the fast-travel route names - into
+; wuchang_minimap_recon_<timestamp>.txt. Read-only: it calls nothing.
+recon_dump_key = F4

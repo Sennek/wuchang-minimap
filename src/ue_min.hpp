@@ -180,6 +180,19 @@ namespace RC::Unreal
     {
     };
 
+    // A UFunction IS a UStruct, and that is the whole point: its parameter list is its
+    // child-property chain, so `GetChildProperties()` + `GetPropertiesSize()` recover
+    // the reflected signature (parameter names, offsets and sizes) of any function at
+    // runtime. lessons.md forbids calling a UFunction with a guessed signature; this is
+    // what makes the alternative - read the real one and compare - possible.
+    //
+    // No members of its own are declared: UFunction's own accessors (FunctionFlags,
+    // NumParms, ...) are not needed, and every symbol we would add is one more thing
+    // that can fail to link.
+    class UFunction : public UStruct
+    {
+    };
+
     class FField
     {
       public:
@@ -228,8 +241,6 @@ namespace RC::Unreal
         // ?IsValidObjectForFindXOf@UObjectGlobals@Unreal@RC@@YA_NPEAVUObject@23@@Z
         bool IsValidObjectForFindXOf(UObject* object);
     } // namespace UObjectGlobals
-
-    class UFunction;
 
     namespace Hook
     {

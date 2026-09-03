@@ -5413,10 +5413,29 @@ namespace overlay
             // Collection tracker
             //--------------------------------------------------------------------------
             ImGui::SeparatorText("Collection tracker");
-            ImGui::Checkbox("Write wuchang_minimap_found.txt", &cfg.found_tracker);
+            ImGui::Checkbox("Remember what I have collected", &cfg.found_tracker);
             ImGui::SameLine();
             ImGui::Checkbox("Mark items whose level is loaded but absent", &cfg.markers_absence_marks);
             const markers::Stats st = markers::stats();
+            // WHICH file, and how it was chosen. A per-save tracker that silently picked
+            // the wrong save is indistinguishable from a lost collection, so the answer
+            // is on screen rather than only in the log.
+            ImGui::Text("Profile: %s", st.found_file[0] != '\0' ? st.found_file : "(none yet)");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(via %s)", st.found_route[0] != '\0' ? st.found_route : "unresolved");
+            ImGui::SetNextItemWidth(180.0f);
+            if (ImGui::InputText("found_profile", cfg.found_profile, sizeof(cfg.found_profile)))
+            {
+                // Free text on purpose: `auto`, `shared`, or a name of the player's own.
+                // It takes effect on Save (or F5) - the loop thread owns the file.
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("auto = one file per save slot (recommended)\n"
+                                  "shared = one file for every save, as before 0.9.4\n"
+                                  "anything else = wuchang_minimap_found_<name>.txt\n"
+                                  "Takes effect on Save or F5.");
+            }
             if (!st.db_loaded || st.static_markers == 0)
             {
                 ImGui::TextDisabled("no markers\\<chapter>.json loaded - live markers only");

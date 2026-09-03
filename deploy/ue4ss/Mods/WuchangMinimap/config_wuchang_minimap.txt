@@ -175,6 +175,21 @@ markers_clamp_to_edge = 0
 markers_absence_marks = 1
 found_tracker = 1
 
+; WHICH collection file. Every save game gets its own, so a second character does not
+; start with the first one's collection already ticked off.
+;   auto    - the mod works out which save slot is loaded and uses
+;             wuchang_minimap_found_<slot>.txt. The first time it sees a new slot it
+;             copies the old shared file into it once, so nothing is lost.
+;   shared  - always use the single wuchang_minimap_found.txt, as before 0.9.4.
+;   <name>  - any name of your own; the file becomes wuchang_minimap_found_<name>.txt.
+; The F2 panel's Player tab shows which file is in force and how it was chosen.
+found_profile = auto
+
+; Show a 10-second toast on the very first launch after installing, naming the panel,
+; map and highlight keys. Shown once per install (a marker file next to this one
+; records that it has been); delete wuchang_minimap_firstrun.txt to see it again.
+first_run_toast = 1
+
 ; ---------------------------------------------------------------------------------
 ; THE FULL MAP
 ; ---------------------------------------------------------------------------------
@@ -263,6 +278,11 @@ compass_opacity = 0.90
 ; Which markers get a bearing pip, and how far away they may be (uu).
 compass_categories = shrine,boss,elite,fog_gate
 
+; Show the shrine list on the full map: every shrine of the chapter with its in-game
+; name, chapter and distance. Click a row to set a waypoint on it, double-click to
+; centre the map there. Travelling to one needs fast_travel_enabled (ADVANCED).
+shrine_list = 1
+
 ; ---------------------------------------------------------------------------------
 ; HOTKEYS
 ; ---------------------------------------------------------------------------------
@@ -279,6 +299,11 @@ reload_key = F5
 ; thing, but ONLY while the F2 panel is open: during play the wheel belongs to the
 ; game, and the overlay does not swallow it.
 zoom_key = N
+
+; Copies the full map to the Windows clipboard as a bitmap, ready to paste into a chat
+; or an image editor. Only active WHILE THE FULL MAP IS OPEN - the map swallows the
+; keyboard, so a plain letter here cannot reach the game. Nothing is written to disk.
+screenshot_key = C
 
 
 ; =================================================================================
@@ -518,3 +543,20 @@ compass_tick_step_deg = 15
 
 ; Hard cap on marker pips, nearest first.
 compass_max_pips = 32
+
+; ---------------------------------------------------------------------------------
+; DIAGNOSTICS AND FAST TRAVEL
+; ---------------------------------------------------------------------------------
+; Rewrite wuchang_minimap_last_stage.txt at every stage the overlay passes through
+; (hooks installed, swapchain chosen, ImGui up, first map slice, chapter swap,
+; teardown, clean exit). If the game ever dies with the overlay loaded, that one line
+; names the stage it was in - the UE4SS log buffer can be lost, this file cannot.
+; Costs one tiny file write per stage change, which is a handful per session.
+crash_breadcrumb = 1
+
+; Let the shrine list travel. OFF by default and deliberately so: the mod calls the
+; game's own fast-travel function, and it will only do that after a reflection
+; self-check confirms the function's parameters are exactly what is expected - if they
+; are not, it refuses and says why in the log. Turn this on only if you are happy to
+; test it; a bad fast travel can leave the game streaming the wrong level.
+fast_travel_enabled = 0

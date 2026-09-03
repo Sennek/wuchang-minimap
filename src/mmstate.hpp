@@ -315,6 +315,16 @@ namespace mm
         // The found tracker: wuchang_minimap_found.txt, one stable id per line.
         bool found_tracker = true;
         int found_save_debounce_ms = 2000;
+        // WHICH found file. `auto` runs the save-slot ladder in src/saveslot.hpp and
+        // writes wuchang_minimap_found_<key>.txt; `shared` pins the old global file;
+        // anything else is used verbatim as the key. A fixed array, not std::string:
+        // Config is copied by value onto the render thread every frame.
+        char found_profile[32] = "auto";
+        // The once-per-install toast that names the actual hotkeys. The sentinel file
+        // next to the config is what makes it once.
+        bool first_run_toast = true;
+        // The shrine list panel on the full map (names, chapter, distance, travel).
+        bool shrine_list = true;
 
         //==============================================================================
         // The full map (step C1)
@@ -547,6 +557,28 @@ namespace mm
         // injected DLLs (RenoDX F6, Steam F12) or by the rest of the mod (F2 / M / R /
         // F5 / LALT), and it is next to M - the other map key.
         int zoom_key = 0x4E;                    // 'N' - cycle the minimap zoom
+        // Copies the full map to the clipboard. Only live WHILE THE FULL MAP IS OPEN,
+        // and the map mode swallows the whole keyboard (lessons.md), so a plain letter
+        // cannot reach the game - which is why this can be 'C' for copy instead of yet
+        // another F-key in a minefield of them.
+        int screenshot_key = 0x43;              // 'C' - full map -> clipboard
+
+        //------------------------------------------------------------------------------
+        // Extras (0.9.4)
+        //------------------------------------------------------------------------------
+        // wuchang_minimap_last_stage.txt, rewritten with CreateFileW/WriteFile at every
+        // overlay stage transition. The UE4SS log buffer can be lost when the process
+        // dies; a file closed after each write cannot be.
+        bool crash_breadcrumb = true;
+        // Shrine fast travel. OFF until the in-game reflection self-check in
+        // context/extras-test-instructions.md has confirmed the call route.
+        bool fast_travel_enabled = false;
+        // Route 1 of the save-slot ladder actually CALLS `Get Save Slot Value`. Off
+        // until the recon dump shows the parameter is not engine-owned - see
+        // saveslot.cpp for the hazard.
+        bool saveslot_uuid_call = false;
+        // The one-press in-game recon dump (research §3). 0 = unbound.
+        int recon_dump_key = 0x73;              // F4
     };
 
     // The config lives here and is copied under a spinlock. The loop thread writes it

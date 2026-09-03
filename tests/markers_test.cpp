@@ -48,6 +48,7 @@
 #include "markers_db.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
+#include "saveslot.hpp"
 #include "scan_sched.hpp"
 
 namespace
@@ -2743,6 +2744,63 @@ namespace
                   "Chapter1_DGong_logic");
     }
 
+    //======================================================================================
+    // The save-slot key: sanitising, filenames, and pulling a slot out of a path
+    //======================================================================================
+    //
+    // This is the half of src/saveslot.hpp that never touches the engine, and it is the
+    // half that decides a FILENAME - so a wrong answer either writes somewhere it should
+    // not or reads a collection that belongs to a different character.
+
+    void test_saveslot()
+    {
+        std::printf("save-slot keys and found-file names\n");
+
+        // ---- sanitise_key ----------------------------------------------------------
+        CHECK_STR(slotid::sanitise_key("maingame0"), "maingame0");
+        CHECK_STR(slotid::sanitise_key("5849e75e473333a06fd8ad9ef440ed8c"),
+                  "5849e75e473333a06fd8ad9ef440ed8c");
+        CHECK_STR(slotid::sanitise_key("36053875_maingame0"), "36053875_maingame0");
+        // Anything that could escape the mod directory, or confuse a shell, is gone.
+        CHECK_STR(slotid::sanitise_key("..\\..\\windows\\system32"), "windows_system32");
+        CHECK_STR(slotid::sanitise_key("a/b:c*d?e"), "a_b_c_d_e");
+        // Runs collapse, and there is never a leading or trailing separator.
+        CHECK_STR(slotid::sanitise_key("  spaced   name  "), "spaced_name");
+        CHECK_STR(slotid::sanitise_key("___"), "");
+        CHECK_STR(slotid::sanitise_key(""), "");
+        // Non-ASCII is not a key character, so a CJK profile name degrades to "" rather
+        // than to a filename the CRT cannot open.
+        CHECK_STR(slotid::sanitise_key("\xe4\xb8\xad\xe6\x96\x87"), "");
+        // Capped, and the cap is applied before the trailing-'_' trim.
+        CHECK(slotid::sanitise_key(std::string(200, 'x')).size() == slotid::kMaxKeyLen);
+
+        // ---- found_filename --------------------------------------------------------
+        CHECK_STR(slotid::found_filename(""), "wuchang_minimap_found.txt");
+        CHECK_STR(slotid::found_filename("maingame0"), "wuchang_minimap_found_maingame0.txt");
+        // The empty key is the ONLY thing that may produce the shared name - a bug here
+        // would have every profile share one file again, silently.
+        CHECK(slotid::found_filename("a") != slotid::found_filename(""));
+
+        // ---- path parsing ----------------------------------------------------------
+        // The real shape, from the research document.
+        const char* kReal =
+            "C:\\Users\\me\\AppData\\Local\\Project_Plague\\Saved\\36053875\\GameSlots\\maingame0\\maingame0.sav";
+        CHECK_STR(slotid::slot_from_path(kReal), "maingame0");
+        CHECK_STR(slotid::account_from_path(kReal), "36053875");
+        CHECK_STR(slotid::key_from_sav_path(kReal), "36053875_maingame0");
+        // Forward slashes and a different case of the anchor component both work: the
+        // string comes from an FString the game wrote, not from us.
+        CHECK_STR(slotid::key_from_sav_path("D:/x/saved/99/gameslots/ng2/ng2.sav"), "99_ng2");
+        // No GameSlots component at all -> no key, so the caller falls back to shared
+        // rather than inventing one.
+        CHECK_STR(slotid::key_from_sav_path("C:\\nothing\\here.sav"), "");
+        CHECK_STR(slotid::key_from_sav_path(""), "");
+        // GameSlots as the last component has no slot after it.
+        CHECK_STR(slotid::slot_from_path("C:\\a\\GameSlots"), "");
+        // Without the account component the slot alone is still a usable key.
+        CHECK_STR(slotid::key_from_sav_path("GameSlots\\maingame1\\x.sav"), "maingame1");
+    }
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -2759,6 +2817,7 @@ int main(int argc, char** argv)
     test_label_layout();
     test_zoom_presets();
     test_found_file();
+    test_saveslot();
     test_ids();
     test_intern_levels();
     test_perf();

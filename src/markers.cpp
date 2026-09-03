@@ -18,6 +18,7 @@
 #include "mapdata.hpp"
 #include "mem.hpp"
 #include "mmstate.hpp"
+#include "saveslot.hpp"
 #include "scan_sched.hpp"
 #include "ue_min.hpp"
 #include "uereflect.hpp"
@@ -1239,9 +1240,97 @@ namespace markers
             return mm::mod_dir() + L"\\markers";
         }
 
+        //------------------------------------------------------------------------------
+        // WHICH found file (loop thread only)
+        //------------------------------------------------------------------------------
+        //
+        // `g_found_key` is the save-slot key the loop thread last acted on. It is a
+        // COPY, deliberately: the resolution runs on the game thread and the loop thread
+        // must not change the file it is reading from half way through a load.
+
+        std::string g_found_key;         // "" = the shared file
+        std::string g_found_route = "unresolved";
+        bool g_found_key_valid = false;  // has a key ever been taken from slotid?
+
+        std::wstring found_path_for(const std::string& key)
+        {
+            const std::string name = slotid::found_filename(key);
+            std::wstring wide;
+            wide.reserve(name.size());
+            for (char c : name)
+            {
+                wide.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+            }
+            return mm::mod_dir() + L"\\" + wide;
+        }
+
         std::wstring found_path()
         {
-            return mm::mod_dir() + L"\\wuchang_minimap_found.txt";
+            return found_path_for(g_found_key);
+        }
+
+        bool file_exists(const std::wstring& path)
+        {
+            return ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+        }
+
+        // First sight of a slot that has no file of its own: seed it from the shared
+        // one, so upgrading from 0.9.3 does not read as "my whole collection is gone".
+        // Once, and logged - a silent file copy is exactly the kind of thing that is
+        // impossible to explain afterwards.
+        void migrate_shared_into(const std::string& key)
+        {
+            if (key.empty())
+            {
+                return;
+            }
+            const std::wstring dst = found_path_for(key);
+            if (file_exists(dst))
+            {
+                return;
+            }
+            const std::wstring src = found_path_for(std::string{});
+            std::string text;
+            if (!file_exists(src) || !read_whole_file(src, text) || text.empty())
+            {
+                return;
+            }
+            if (write_whole_file(dst, text))
+            {
+                mm::logf(L"markers: first sight of save slot '{}' - copied the shared found tracker "
+                         L"({} bytes) into {}",
+                         std::wstring(key.begin(), key.end()), text.size(), dst);
+            }
+            else
+            {
+                mm::logf(L"markers: could not seed {} from the shared found tracker (error {})", dst,
+                         static_cast<unsigned>(::GetLastError()));
+            }
+        }
+
+        // Takes whatever key slotid has resolved and, if it differs from the one in
+        // force, migrates and swaps the file. Loop thread. Returns true when the file
+        // changed, i.e. when the caller must reload it.
+        bool adopt_slot_key()
+        {
+            const slotid::Status st = slotid::status();
+            const std::string key{st.key};
+            const std::string route = slotid::route_name(st.route);
+            if (g_found_key_valid && key == g_found_key)
+            {
+                g_found_route = route;
+                return false;
+            }
+            const bool first = !g_found_key_valid;
+            g_found_key = key;
+            g_found_route = route;
+            g_found_key_valid = true;
+            migrate_shared_into(key);
+            mm::logf(L"markers: found tracker profile {} '{}' via {} ({}) -> {}",
+                     first ? L"=" : L"changed to", std::wstring(key.begin(), key.end()),
+                     std::wstring(route.begin(), route.end()),
+                     std::wstring(st.note, st.note + std::strlen(st.note)), found_path_for(key));
+            return true;
         }
 
         void publish_inbox(std::vector<std::string> ids, bool clear)
@@ -1292,6 +1381,11 @@ namespace markers
                 s.chapters_loaded = static_cast<int>(chapters.size());
             }
             s.found_ids = static_cast<int>(g_found_master.size());
+            {
+                const std::string name = slotid::found_filename(g_found_key);
+                ::strncpy_s(s.found_file, sizeof(s.found_file), name.c_str(), _TRUNCATE);
+                ::strncpy_s(s.found_route, sizeof(s.found_route), g_found_route.c_str(), _TRUNCATE);
+            }
         s.absence_marks = g_absence_marks.load(std::memory_order_relaxed);
         s.levels_loaded = g_levels_loaded.load(std::memory_order_relaxed);
             s.filter_chapter = filter_chapter_now();
@@ -1501,6 +1595,8 @@ namespace markers
     void on_unreal_init()
     {
         load_static_db();
+        slotid::on_unreal_init();
+        adopt_slot_key();
         load_found_file();
         recompute_stats();
         const mm::Config cfg = mm::config();
@@ -1535,6 +1631,8 @@ namespace markers
     void reload()
     {
         load_static_db();
+        slotid::rescan_files();
+        adopt_slot_key();
         load_found_file();
         recompute_stats();
     }
@@ -1542,6 +1640,29 @@ namespace markers
     void on_update()
     {
         const std::uint64_t now = ::GetTickCount64();
+
+        // The save-slot watch. A slot switch in Wuchang goes through the main menu and a
+        // full level reload, which drops every cache and re-arms the game-thread routes;
+        // this is where the loop thread notices the answer changed and swaps files. Any
+        // pending write goes to the OLD file first - the finds it holds belong to the
+        // save that was loaded when they happened.
+        static std::uint64_t last_slot_check = 0;
+        if (now - last_slot_check >= 1000)
+        {
+            last_slot_check = now;
+            const std::string key_before = g_found_key;
+            const bool valid_before = g_found_key_valid;
+            if (valid_before && g_found_dirty && slotid::status().key != key_before)
+            {
+                save_found_file();
+            }
+            if (adopt_slot_key())
+            {
+                g_found_dirty = false; // the dirty set belonged to the previous file
+                load_found_file();
+                recompute_stats();
+            }
+        }
 
         if (g_outbox_pending.exchange(false, std::memory_order_acquire))
         {
@@ -1693,6 +1814,7 @@ namespace markers
         // gamestate calls this whenever it drops the pawn - so this is the one place
         // that already means "everything keyed to that world is dead".
         hl::drop_caches();
+        slotid::drop_caches();
         g_layouts.clear();
         g_class_spec.clear();
         g_id_cache.clear();
@@ -1764,6 +1886,13 @@ namespace markers
         // immediately (one atomic load) unless the highlight key is held or the compass
         // is on, and it never touches anything this module owns.
         hl::game_thread_pump(now, now_us, world, cfg);
+        // ---- HOOK: the save-slot resolver (src/saveslot.cpp) ------------------------
+        //
+        // Same reasoning as the highlight hook above: it needs the game thread and the
+        // validated state this pump already runs on. It returns after one atomic load
+        // once a route has answered, and it stops asking entirely unless the world
+        // changes (drop_caches re-arms it).
+        slotid::game_thread_pump(now, world);
         // ---- end of hook ------------------------------------------------------------
 
         if (!cfg.markers_enabled || !cfg.markers_live)

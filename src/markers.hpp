@@ -119,6 +119,13 @@ namespace markers
         bool scan_fallback = false;      // true = the FindAllOf-per-class fallback is running
 
         bool db_loaded = false;
+
+        // WHICH found file is in force, and which rung of the save-slot ladder chose it
+        // (src/saveslot.hpp). Shown on the F2 Player tab: a per-save tracker that
+        // silently picked the wrong save would be indistinguishable from a lost
+        // collection, so the answer is always on screen.
+        char found_file[80]{};
+        char found_route[24]{};
     };
 
     Stats stats();

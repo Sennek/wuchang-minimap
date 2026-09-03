@@ -77,6 +77,95 @@ namespace overlay
         constexpr float kPi = 3.14159265358979323846f;
         constexpr int kSrvHeapSize = 64;
         constexpr int kMaxBuffers = 8;
+        //==============================================================================
+        // UI SCALE (review-0.9.1 § 1 item 1)
+        //==============================================================================
+        //
+        // ImGui's built-in font is 13 px and nothing here ever touched it, so on a 4K
+        // screen every label, tooltip, x-ray name and compass letter was a quarter of
+        // its intended physical size - the single biggest legibility problem in the mod.
+        //
+        // ONE number fixes all of it. `ui_scale = auto` derives it from the back buffer
+        // height; a number in the config pins it. It is applied in exactly two places:
+        //
+        //   apply_ui_scale()  - the ImGui font size and the whole style, on the RENDER
+        //                       thread, before the frame's draw lists are built (the
+        //                       same rule the F5 texture drop obeys).
+        //   ui_scaled()       - every PIXEL config key, multiplied once per frame into
+        //                       a copy of the Config the HUD draws from.
+        //
+        // Nothing else in the drawing code knows about it, which is what stops the
+        // scale being applied twice to something or not at all to something else.
+        //
+        // ImGui 1.92's font atlas is dynamic (ImGuiBackendFlags_RendererHasTextures),
+        // so `style.FontScaleMain` re-rasterises the glyphs at the new size on its own -
+        // there is no atlas to rebuild and no texture of ours to release.
+        constexpr float kBaseScreenHeight = 1080.0f;
+        constexpr float kUiScaleMin = 0.5f;
+        constexpr float kUiScaleMax = 4.0f;
+        float g_ui_scale = 1.0f;          // what the HUD is currently drawn at
+        float g_ui_scale_applied = 0.0f;  // what the ImGui style was last built for
+
+        float wanted_ui_scale(const mm::Config& cfg, float screen_h)
+        {
+            float s = cfg.ui_scale;
+            if (cfg.ui_scale_auto)
+            {
+                // 1080p is the design size, so 1.0 there and 2.0 at 2160p. Never below
+                // 1: shrinking the UI on a small screen helps nobody.
+                s = screen_h > 0.0f ? screen_h / kBaseScreenHeight : 1.0f;
+                s = (std::max)(1.0f, (std::min)(kUiScaleMax, s));
+            }
+            else
+            {
+                s = (std::max)(kUiScaleMin, (std::min)(kUiScaleMax, s));
+            }
+            // Snap to a hundredth: a back buffer of 1081 px must not make the style be
+            // rebuilt on the next frame for a difference nobody can see.
+            return std::round(s * 100.0f) / 100.0f;
+        }
+
+        // Render thread. Rebuilds the ImGui style FROM SCRATCH at the new scale - never
+        // ScaleAllSizes on the already-scaled style, which would compound every time.
+        void apply_ui_scale(float scale)
+        {
+            if (scale == g_ui_scale_applied)
+            {
+                return;
+            }
+            ImGuiStyle& style = ImGui::GetStyle();
+            style = ImGuiStyle{};
+            ImGui::StyleColorsDark();
+            style.WindowRounding = 4.0f;
+            style.ScaleAllSizes(scale);
+            style.FontScaleMain = scale;
+            g_ui_scale_applied = scale;
+            g_ui_scale = scale;
+            mm::logf(L"ui scale: {:.2f} (font {:.0f} px, style rebuilt)", scale, 13.0f * scale);
+        }
+
+        // Every config key that is a NUMBER OF PIXELS, multiplied once. Fractions of the
+        // screen (minimap_size, compass_width, map_margin) are already resolution
+        // independent and are deliberately absent.
+        mm::Config ui_scaled(const mm::Config& cfg, float s)
+        {
+            mm::Config out = cfg;
+            if (s == 1.0f)
+            {
+                return out;
+            }
+            out.markers_size *= s;
+            out.map_marker_size *= s;
+            out.highlight_size *= s;
+            out.compass_height *= s;
+            out.compass_offset_y *= s;
+            out.offset_x *= s;
+            out.offset_y *= s;
+            out.minimap_min_px *= s;
+            out.minimap_arrow_min_px *= s;
+            return out;
+        }
+
         // Roundness of the minimap disc and its rings. This was `minimap_circle_segments`
         // until 0.9.2: a sanity dial, never a preference, so it is a constant now. The
         // drawing helpers are handed geometry rather than the config, hence the global.
@@ -3540,7 +3629,7 @@ namespace overlay
             mm::logf(L"full map closed: {}", why);
         }
 
-        void draw_full_map(mm::Config cfg, const mm::Snapshot& snap, bool have_state)
+        void draw_full_map(mm::Config cfg, const mm::Snapshot& snap, bool have_state, float ui_scale)
         {
             const mm::Config before = cfg;
             const std::uint64_t now = ::GetTickCount64();
@@ -3882,7 +3971,10 @@ namespace overlay
             const markers::DrawMarker* centre_marker = nullptr;
             float hover_d2 = 0.0f;
             float centre_d2 = 0.0f;
-            const float mr = cfg.map_marker_size;
+            // The one pixel key this view owns. `cfg` here is the UNSCALED config (the
+            // filter chips write back into it), so the UI scale is applied at the point
+            // of use rather than through ui_scaled().
+            const float mr = cfg.map_marker_size * ui_scale;
             const float pick_r = (std::max)(8.0f, mr * 1.6f);
             const float kCentrePickR = (std::max)(48.0f, mr * 5.0f);
 
@@ -4844,7 +4936,12 @@ namespace overlay
 
         void build_ui()
         {
-            const mm::Config& cfg = mm::cfg_cached();
+            // `raw` is what the panel edits and what Save writes; `cfg` is the same
+            // settings with every pixel key multiplied by the UI scale, and it is what
+            // the HUD draws from. Keeping them apart is what stops a scaled value ever
+            // being written back into the config file.
+            const mm::Config& raw = mm::cfg_cached();
+            const mm::Config cfg = ui_scaled(raw, g_ui_scale);
             // The disc-drawing helpers take geometry, not the config, so the live
             // roundness is cached here once per frame (render thread only).
             mm::Snapshot snap{};
@@ -4875,13 +4972,13 @@ namespace overlay
 
             if (mm::g_panel_open.load(std::memory_order_relaxed))
             {
-                draw_panel(cfg, snap, have);
+                draw_panel(raw, snap, have);
                 mm::g_panel_drew_frame.store(true, std::memory_order_relaxed);
             }
 
             if (map_open)
             {
-                draw_full_map(cfg, snap, have);
+                draw_full_map(raw, snap, have, g_ui_scale);
             }
             if (g_map_was_open && !mm::g_map_open.load(std::memory_order_relaxed))
             {
@@ -5162,6 +5259,8 @@ namespace overlay
                     ImGui_ImplWin32_Shutdown();
                     ImGui::DestroyContext();
                     g_imgui_ready = false;
+                    // The style went with the context: the next init must rebuild it.
+                    g_ui_scale_applied = 0.0f;
                 }
                 release_render_targets();
                 for (UINT i = 0; i < kMaxBuffers; ++i)
@@ -5269,6 +5368,10 @@ namespace overlay
                 g_pf_frame = mm::perf_register("render frame (ImGui)", perf::Thread::Render);
             }
             const std::uint64_t frame_t0 = mm::qpc_us();
+            // The UI scale, decided from the CURRENT back buffer and applied before the
+            // frame's draw lists exist. ResizeBuffers changes g_height, and a config
+            // change comes through cfg_cached, so both re-enter here on their own.
+            apply_ui_scale(wanted_ui_scale(mm::cfg_cached(), static_cast<float>(g_height)));
             ImGui_ImplWin32_NewFrame();
             ImGui_ImplDX12_NewFrame();
             ImGui::NewFrame();

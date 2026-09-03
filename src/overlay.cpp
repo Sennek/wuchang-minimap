@@ -33,59 +33,202 @@
 // UE4SS loop thread (on_update) - Present only ever creates D3D12 objects and draws.
 //
 
-#include <Windows.h>
-
-#include <d3d12.h>
-#include <dxgi1_4.h>
-
-#include <algorithm>
-#include <atomic>
-#include <cmath>
-#include <cstdint>
-#include <cstring>
-#include <format>
-#include <iterator>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <vector>
-
-#include <imgui.h>
-#include <backends/imgui_impl_dx12.h>
-#include <backends/imgui_impl_win32.h>
-
-#include <MinHook.h>
-
-#include "compass.hpp"
-#include "gamepad.hpp"
-#include "gamestate.hpp"
-#include "glyphs.hpp"
-#include "highlight.hpp"
-#include "label_layout.hpp"
-#include "mapdata.hpp"
-#include "mapview.hpp"
-#include "breadcrumb.hpp"
-#include "clipimg.hpp"
-#include "markers.hpp"
-#include "modswitch.hpp"
-#include "navmesh_dump.hpp"
-#include "recon.hpp"
-#include "shrines.hpp"
-#include "mmstate.hpp"
-#include "projection.hpp"
-#include "version.hpp"
-
-// imgui_impl_win32.h deliberately hides this behind `#if 0` so the header does not
-// depend on <windows.h>; the backend expects you to copy the declaration yourself.
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#include "overlay_internal.hpp"
 
 namespace overlay
 {
-    namespace
+    namespace ovl
     {
-        constexpr float kPi = 3.14159265358979323846f;
-        constexpr int kSrvHeapSize = 64;
-        constexpr int kMaxBuffers = 8;
+        //==============================================================================
+        // The shared state declared in overlay_internal.hpp
+        //==============================================================================
+        float g_ui_scale = 1.0f;          // what the HUD is currently drawn at
+        float g_ui_scale_applied = 0.0f;  // what the ImGui style was last built for
+        char g_font_loaded[192]{};   // the path the atlas currently holds
+        bool g_font_checked = false; // false = the config's path has not been tried yet
+        int g_circle_segments = kCircleSegments;
+        SrvHeap g_srv_heap;
+        int g_pf_frame = -1;    // the whole render prologue + build_ui
+        int g_pf_minimap = -1;  // draw_minimap
+        int g_pf_markpass = -1; // build_frame_candidates
+        int g_pf_slice = -1;    // the minimap height-slice cut (loop thread)
+        int g_pf_mslice = -1;   // the full map's cut (loop thread)
+        int g_pf_input = -1;    // the hotkey block and the loop thread's file I/O
+        int g_pf_pad = -1;      // XInput only, split out of the block above
+        Spinlock g_render_lock;
+        ID3D12Device* g_device = nullptr;
+        std::atomic<ID3D12CommandQueue*> g_queue{nullptr};
+        ID3D12GraphicsCommandList* g_cmd_list = nullptr;
+        ID3D12DescriptorHeap* g_rtv_heap = nullptr;
+        ID3D12Resource* g_backbuffers[kMaxBuffers]{};
+        D3D12_CPU_DESCRIPTOR_HANDLE g_rtv[kMaxBuffers]{};
+        FrameCtx g_frames[kMaxBuffers]{};
+        ID3D12Fence* g_fence = nullptr;
+        HANDLE g_fence_event = nullptr;
+        UINT64 g_fence_value = 0;
+        UINT g_buffer_count = 0;
+        DXGI_FORMAT g_format = DXGI_FORMAT_UNKNOWN;
+        UINT g_width = 0;
+        UINT g_height = 0;
+        HWND g_hwnd = nullptr;
+        std::atomic<WNDPROC> g_prev_wndproc{nullptr};
+        std::atomic<bool> g_imgui_ready{false};
+        std::atomic<bool> g_rt_ready{false};
+        std::atomic<bool> g_failed{false};
+        MapTexture g_map;
+        SliceBuf g_slice[kSliceBufs];
+        int g_slice_next = 0;  // the buffer the next update writes (loop thread)
+        int g_slice_size = 0;   // side of the currently allocated buffers, px
+        std::uint64_t g_slice_last_ms = 0;
+        double g_slice_ms = 0.0;     // cost of the last slice, ms (EMA)
+        double g_slice_ms_peak = 0.0;
+        std::uint64_t g_slice_updates = 0;
+        std::uint64_t g_slice_skipped = 0;
+        double g_slice_min_y = 0.0;
+        double g_slice_max_x = 0.0;
+        double g_slice_px_per_uu = 0.0;
+        float g_feet_z = 0.0f;
+        bool g_feet_z_valid = false;
+        std::uint32_t g_slice_opaque = 0;
+        std::uint32_t g_slice_dim = 0;
+        std::uint32_t g_slice_faint = 0;
+        int g_slice_surfaces = 0; // height planes the slicer is reading
+        SliceScratch g_slice_scratch;
+        std::atomic<bool> g_slicer_pause{false};
+        std::atomic<bool> g_slicer_busy{false};
+        std::atomic<std::uint32_t> g_slice_gen{0};
+        std::atomic<bool> g_slice_copy_pending[kSliceBufs];
+        std::atomic<bool> g_mslice_copy_pending[kMapSliceBufs];
+        std::atomic<std::uint64_t> g_slice_in_flight[kSliceBufs];
+        std::atomic<std::uint64_t> g_mslice_in_flight[kMapSliceBufs];
+        std::atomic<int> g_slice_want_px{0};
+        std::atomic<std::uint64_t> g_slice_want_ms{0}; // GetTickCount64 of the last request
+        Spinlock g_slice_req_lock;
+        MapSliceReq g_map_req;
+        std::atomic<std::uint64_t> g_map_req_ms{0}; // GetTickCount64 of the last request
+        Spinlock g_slice_view_lock;
+        SliceView g_slice_view;
+        MapSliceView g_mslice_view;
+        SliceBuf g_mslice[kMapSliceBufs];
+        int g_mslice_next = 0;
+        SliceScratch g_mslice_scratch;
+        SliceCounts g_mslice_counts{};
+        double g_mslice_ms = 0.0;
+        double g_mslice_ms_peak = 0.0;
+        std::uint64_t g_mslice_updates = 0;
+        std::uint64_t g_mslice_skipped = 0;
+        std::uint64_t g_mslice_last_ms = 0;
+        double g_mr_x0 = 0.0; // south edge
+        double g_mr_x1 = 0.0; // north edge
+        double g_mr_y0 = 0.0; // west edge
+        double g_mr_y1 = 0.0; // east edge
+        bool g_mr_valid = false;
+        std::atomic<bool> g_map_recut{false};
+        int g_mr_w = 0; // the buffer size the cut was made at (a resize is urgent)
+        int g_mr_h = 0;
+        double g_mr_zoom = 0.0;
+        float g_mr_feet = 0.0f;
+        double g_mr_px = 0.0; // the player position the cut was made at
+        double g_mr_py = 0.0;
+        std::string g_mr_chapter;
+        mv::View g_mv{};
+        bool g_mv_init = false;
+        float g_map_floor_off = 0.0f; // uu added to feet Z by the floor adjustment
+        bool g_map_help = false;
+        bool g_map_was_open = false;
+        std::atomic<bool> g_map_recenter{false};
+        std::vector<std::pair<std::string, bool>> g_found_override;
+        int g_map_markers_drawn = 0;
+        int g_map_markers_total = 0;
+        IDXGISwapChain* g_swapchain = nullptr;
+        IDXGISwapChain3* g_sc3 = nullptr;
+        int g_candidates_logged = 0;
+        std::atomic<bool> g_readopt{false};
+        std::atomic<std::uint64_t> g_readopt_count{0};
+        std::atomic<ID3D12CommandQueue*> g_bad_queue{nullptr};
+        std::atomic<std::uint64_t> g_present_count{0};
+        std::atomic<std::uint64_t> g_resize_count{0};
+        std::atomic<const char*> g_render_stage{"no frame yet"};
+        std::atomic<unsigned long> g_render_tid{0};
+        std::atomic<bool> g_drop_textures{false};
+        std::atomic<bool> g_hooks_installed{false};
+        bool g_hooks_created = false;                // loop thread only
+        std::atomic<bool> g_render_stopped{true};    // render -> loop
+        std::atomic<bool> g_watchdog_reported{false};
+        std::uint64_t g_hook_install_ms = 0;
+        wchar_t g_hide_reason[96] = L"not evaluated yet";
+        int g_pf_newframe = -1; // ImGui_ImplWin32_NewFrame - cross-thread user32
+        int g_pf_buildui = -1;  // build_ui() - our own drawing
+        int g_pf_clip = -1;     // the map -> clipboard hand-off
+        int g_pf_save = -1;     // config / waypoint file writes
+        int g_pf_reload = -1;   // F5: config + maps + markers
+        std::wstring g_hook_report = L"not installed";
+        bool g_hooks_from_cache = false;
+        wchar_t g_reason_logged[96] = L"";
+        std::uint64_t g_reason_log_ms = 0;
+        std::uint64_t g_reason_since_ms = 0;
+        std::uint64_t g_reason_suppressed = 0;
+        PresentFn o_Present = nullptr;
+        Present1Fn o_Present1 = nullptr;
+        ResizeBuffersFn o_ResizeBuffers = nullptr;
+        ExecuteCommandListsFn o_ExecuteCommandLists = nullptr;
+        int g_imgui_frames_in_flight = 0;
+        std::atomic<std::uint32_t> g_swallow_bits[8]{};
+        std::atomic<std::uint64_t> g_swallow_stamp{0};
+        Spinlock g_msg_lock;
+        PendingMsg g_msg_ring[kMsgRing];
+        int g_msg_head = 0;  // oldest unreplayed slot
+        int g_msg_count = 0; // slots in use
+        std::atomic<std::uint64_t> g_msg_dropped{0};
+        std::atomic<bool> g_imgui_want_keyboard{false};
+        MiniDebug g_last_mini{};
+        std::atomic<int> g_zoom_steps{0};
+        std::atomic<bool> g_hud_gate_ever_open{false};
+        gly::Palette g_palette = gly::Palette::Default;
+        mdb::Rgb g_plate = gly::theme_colors(gly::Theme::Neutral).plate;
+        MarkerDrawStats g_marker_draw{};
+        std::vector<FrameCand> g_frame_cands; // render thread only, reused every frame
+        int g_frame_marker_total = 0;         // rows in the published buffer
+        int g_frame_bad_cat = 0;              // rows whose category byte is out of range
+        float g_hud_fade = 0.0f;
+        std::uint64_t g_hud_fade_ms = 0; // when the current show started
+        char g_toast[160]{};
+        std::uint64_t g_toast_until = 0;
+        ShotStage g_shot_stage = ShotStage::Idle;
+        std::atomic<bool> g_shot_request{false};   // loop -> render (the hotkey)
+        ID3D12Resource* g_shot_readback = nullptr; // render thread only
+        std::uint64_t g_shot_fence = 0;
+        UINT g_shot_w = 0;
+        UINT g_shot_h = 0;
+        UINT g_shot_pitch = 0;
+        clipimg::Fmt g_shot_fmt = clipimg::Fmt::Unknown;
+        mv::Rect g_shot_canvas{};
+        bool g_shot_canvas_valid = false;
+        Spinlock g_shot_lock;
+        std::vector<std::uint8_t> g_shot_dib;
+        std::atomic<bool> g_shot_dib_ready{false};
+        std::atomic<bool> g_shot_stage_done{false};
+        Spinlock g_toast_lock;
+        char g_toast_pending[160]{};
+        unsigned g_toast_pending_ms = 2500;
+        std::atomic<bool> g_toast_pending_ready{false};
+        bool g_shrine_panel = false;
+        char g_shrine_selected[shdb::kMaxIdLen]{};
+        StatsCache g_stats_cache;
+        bool g_stats_page = false; // the full map's Stats panel
+        FoundWatch g_found_watch[kFoundWatch]{};
+        int g_found_watch_n = 0;
+        std::uint64_t g_found_watch_round = 0;
+        FoundEvent g_found_events[kFoundEvents]{};
+        int g_found_event_head = 0;
+        HighlightDebug g_hl_debug{};
+        CompassDebug g_compass_debug{};
+        std::atomic<std::uint32_t> g_panel_sections{kPanelSectionsDefault};
+        std::atomic<bool> g_panel_state_dirty{false};
+        std::atomic<bool> g_panel_state_loaded{false};
+        int g_capture_row = -1;            // render thread only; -1 = nothing armed
+        bool g_capture_wait_release = false;
+
         //==============================================================================
         // UI SCALE (review-0.9.1 § 1 item 1)
         //==============================================================================
@@ -106,14 +249,6 @@ namespace overlay
         // Nothing else in the drawing code knows about it, which is what stops the
         // scale being applied twice to something or not at all to something else.
         //
-        // ImGui 1.92's font atlas is dynamic (ImGuiBackendFlags_RendererHasTextures),
-        // so `style.FontScaleMain` re-rasterises the glyphs at the new size on its own -
-        // there is no atlas to rebuild and no texture of ours to release.
-        constexpr float kBaseScreenHeight = 1080.0f;
-        constexpr float kUiScaleMin = 0.5f;
-        constexpr float kUiScaleMax = 4.0f;
-        float g_ui_scale = 1.0f;          // what the HUD is currently drawn at
-        float g_ui_scale_applied = 0.0f;  // what the ImGui style was last built for
 
         float wanted_ui_scale(const mm::Config& cfg, float screen_h)
         {
@@ -149,11 +284,6 @@ namespace overlay
         // and no texture of ours to release - which is also why this is the only place
         // that has to react to a scale change at all).
         //
-        // RENDER THREAD ONLY, and at the top of the frame: io.Fonts is read by
-        // ImGui::NewFrame and by every draw-list text call, so it may only be swapped
-        // here - the same rule the F5 texture drop obeys.
-        char g_font_loaded[192]{};   // the path the atlas currently holds
-        bool g_font_checked = false; // false = the config's path has not been tried yet
 
         bool font_path_is_none(const char* path)
         {
@@ -403,84 +533,12 @@ namespace overlay
             }
         }
 
-        // Roundness of the minimap disc and its rings. This was `minimap_circle_segments`
-        // until 0.9.2: a sanity dial, never a preference, so it is a constant now. The
-        // drawing helpers are handed geometry rather than the config, hence the global.
-        constexpr int kCircleSegments = 72;
-        int g_circle_segments = kCircleSegments;
 
         //==============================================================================
         // Spinlock (no std::mutex anywhere in this mod - see lessons.md)
         //==============================================================================
 
-        class Spinlock
-        {
-          public:
-            void lock() noexcept
-            {
-                for (int spin = 0; flag_.test_and_set(std::memory_order_acquire); ++spin)
-                {
-                    if ((spin & 0x3F) == 0x3F)
-                    {
-                        ::SwitchToThread();
-                    }
-                    else
-                    {
-                        YieldProcessor();
-                    }
-                }
-            }
-            // A BOUNDED acquire, for the one caller that must never wait for ever.
-            // `hk_ResizeBuffers` can be called from a thread the render thread is
-            // itself waiting on (`ImGui_ImplWin32_NewFrame` touches the cursor and the
-            // client rect of a window owned by the game thread), and an unbounded spin
-            // there turns a stall into a deadlock. See its call site.
-            bool try_lock_ms(unsigned budget_ms) noexcept
-            {
-                const std::uint64_t deadline = ::GetTickCount64() + budget_ms;
-                for (int spin = 0; flag_.test_and_set(std::memory_order_acquire); ++spin)
-                {
-                    if ((spin & 0x3F) == 0x3F)
-                    {
-                        if (::GetTickCount64() > deadline)
-                        {
-                            return false;
-                        }
-                        ::SwitchToThread();
-                    }
-                    else
-                    {
-                        YieldProcessor();
-                    }
-                }
-                return true;
-            }
-            void unlock() noexcept
-            {
-                flag_.clear(std::memory_order_release);
-            }
 
-          private:
-            std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
-        };
-
-        class SpinGuard
-        {
-          public:
-            explicit SpinGuard(Spinlock& l) noexcept : lock_(l)
-            {
-                lock_.lock();
-            }
-            ~SpinGuard()
-            {
-                lock_.unlock();
-            }
-            SpinGuard(const SpinGuard&) = delete;
-            SpinGuard& operator=(const SpinGuard&) = delete;
-
-          private:
-            Spinlock& lock_;
-        };
 
         //==============================================================================
         // Small helpers
@@ -528,15 +586,6 @@ namespace overlay
         // chain is intact, and hk_Present / hk_ResizeBuffers / hk_Present1 call the
         // original unconditionally, for every swapchain, ours or not.
 
-        struct ModuleId
-        {
-            wchar_t name[64]{};      // file name only, lower case
-            std::uint32_t size = 0;  // SizeOfImage
-            std::uint32_t stamp = 0; // TimeDateStamp
-            std::uint32_t sum = 0;   // CheckSum
-            std::uint32_t rva = 0;   // the address's offset into the module
-            HMODULE base = nullptr;
-        };
 
         // The three PE fields that identify a BUILD of a DLL. All of them are baked into
         // the file, so they are identical on every launch - which is what makes an RVA
@@ -670,36 +719,7 @@ namespace overlay
             }
         }
 
-        const wchar_t* format_name(DXGI_FORMAT f)
-        {
-            switch (f)
-            {
-            case DXGI_FORMAT_R8G8B8A8_UNORM:
-                return L"R8G8B8A8_UNORM";
-            case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
-                return L"R8G8B8A8_UNORM_SRGB";
-            case DXGI_FORMAT_B8G8R8A8_UNORM:
-                return L"B8G8R8A8_UNORM";
-            case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
-                return L"B8G8R8A8_UNORM_SRGB";
-            case DXGI_FORMAT_R10G10B10A2_UNORM:
-                return L"R10G10B10A2_UNORM";
-            case DXGI_FORMAT_R16G16B16A16_FLOAT:
-                return L"R16G16B16A16_FLOAT";
-            default:
-                return L"<other>";
-            }
-        }
 
-        template <typename T>
-        void safe_release(T*& p)
-        {
-            if (p != nullptr)
-            {
-                p->Release();
-                p = nullptr;
-            }
-        }
 
         //==============================================================================
         // SRV descriptor heap allocator
@@ -710,74 +730,7 @@ namespace overlay
         // its free list are ours. A fixed 64-slot heap is plenty: the font atlas plus
         // one map texture.
 
-        class SrvHeap
-        {
-          public:
-            bool create(ID3D12Device* device, int count)
-            {
-                D3D12_DESCRIPTOR_HEAP_DESC desc{};
-                desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-                desc.NumDescriptors = static_cast<UINT>(count);
-                desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-                if (FAILED(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap_))))
-                {
-                    return false;
-                }
-                stride_ = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-                cpu_start_ = heap_->GetCPUDescriptorHandleForHeapStart();
-                gpu_start_ = heap_->GetGPUDescriptorHandleForHeapStart();
-                free_.clear();
-                free_.reserve(static_cast<std::size_t>(count));
-                for (int i = count - 1; i >= 0; --i)
-                {
-                    free_.push_back(i);
-                }
-                return true;
-            }
 
-            void destroy()
-            {
-                safe_release(heap_);
-                free_.clear();
-            }
-
-            ID3D12DescriptorHeap* heap() const
-            {
-                return heap_;
-            }
-
-            bool alloc(D3D12_CPU_DESCRIPTOR_HANDLE& cpu, D3D12_GPU_DESCRIPTOR_HANDLE& gpu)
-            {
-                if (free_.empty())
-                {
-                    return false;
-                }
-                const int index = free_.back();
-                free_.pop_back();
-                cpu.ptr = cpu_start_.ptr + static_cast<SIZE_T>(index) * stride_;
-                gpu.ptr = gpu_start_.ptr + static_cast<UINT64>(index) * stride_;
-                return true;
-            }
-
-            void free(D3D12_CPU_DESCRIPTOR_HANDLE cpu)
-            {
-                if (heap_ == nullptr || stride_ == 0 || cpu.ptr < cpu_start_.ptr)
-                {
-                    return;
-                }
-                const int index = static_cast<int>((cpu.ptr - cpu_start_.ptr) / stride_);
-                free_.push_back(index);
-            }
-
-          private:
-            ID3D12DescriptorHeap* heap_ = nullptr;
-            UINT stride_ = 0;
-            D3D12_CPU_DESCRIPTOR_HANDLE cpu_start_{};
-            D3D12_GPU_DESCRIPTOR_HANDLE gpu_start_{};
-            std::vector<int> free_;
-        };
-
-        SrvHeap g_srv_heap;
 
         void srv_alloc_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu)
         {
@@ -807,28 +760,7 @@ namespace overlay
         // Renderer state
         //==============================================================================
 
-        struct FrameCtx
-        {
-            ID3D12CommandAllocator* allocator = nullptr;
-            UINT64 fence_value = 0;
-        };
 
-        // One texture: either the chapter composite (RGBA8) or one floor layer (R8
-        // coverage mask, swizzled to RGBA in the SRV so ImGui's shader can tint it).
-        struct MapTexture
-        {
-            ID3D12Resource* tex = nullptr;
-            ID3D12Resource* upload = nullptr;
-            UINT64 upload_fence = 0;
-            D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu{};
-            D3D12_GPU_DESCRIPTOR_HANDLE srv_gpu{};
-            int width = 0;
-            int height = 0;
-            int channels = 4;
-            std::size_t bytes = 0;
-            bool ready = false;
-            std::string chapter;
-        };
 
         //==============================================================================
         // The height-slice texture
@@ -844,61 +776,8 @@ namespace overlay
         // recorded on the same command list Present already records for ImGui - so
         // there is no extra queue, no PSO and no root signature on ReShade's swapchain.
 
-        struct SliceBuf
-        {
-            ID3D12Resource* tex = nullptr;
-            ID3D12Resource* upload = nullptr;
-            std::uint8_t* mapped = nullptr;
-            D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu{};
-            D3D12_GPU_DESCRIPTOR_HANDLE srv_gpu{};
-            D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
-            UINT rows = 0;
-            // The minimap's buffers are square (w == h); the full map's match the map
-            // rectangle's aspect, so nothing is cut that is never sampled.
-            int w = 0;
-            int h = 0;
-            bool in_copy_dest = true;     // resource state tracking for the barriers
-            // `needs_copy` (loop -> render: the CPU has filled this one) and
-            // `in_flight_fence` (render -> loop: the last frame that sampled it) used to
-            // live here. The slice runs on the LOOP thread now, so both are atomics in
-            // the parallel arrays below; everything left in this struct is written only
-            // while the slicer is paused.
-        };
 
-        // Per-pixel scratch for the PLANE-MAJOR slice pass, plus the destination ->
-        // source index tables. One set per slicer (the minimap and the full map run at
-        // different sizes and must not resize each other's buffers every frame).
-        struct SliceScratch
-        {
-            std::vector<std::uint8_t> state;
-            std::vector<float> best_ad;
-            std::vector<float> best_d;
-            std::vector<int> col_x;
-            std::vector<int> row_y;
-            // One destination row of height codes, gathered out of the sparse block
-            // store (mapdata::HeightMaps::gather_row). The planes have no row pointer
-            // any more: a row of the picture crosses several 128-px blocks and the
-            // absent ones have no address.
-            std::vector<std::uint16_t> gather;
 
-            void clear()
-            {
-                state.clear();
-                best_ad.clear();
-                best_d.clear();
-                col_x.clear();
-                row_y.clear();
-                gather.clear();
-            }
-        };
-
-        struct SliceCounts
-        {
-            std::uint32_t opaque = 0;
-            std::uint32_t dim = 0;
-            std::uint32_t faint = 0;
-            int surfaces = 0;
-        };
 
         // QueryPerformanceFrequency is a constant for the life of the process, and it
         // was being asked for on every slice and every map cut. Once, lazily.
@@ -912,105 +791,18 @@ namespace overlay
             return freq;
         }
 
-        // Perf counter ids (perf.hpp). Namespace-scope, initialised on first use by
-        // their single owning thread - never a guarded function static, because one of
-        // these paths is entered from the game thread's callback chain.
-        int g_pf_frame = -1;    // the whole render prologue + build_ui
-        int g_pf_minimap = -1;  // draw_minimap
-        int g_pf_markpass = -1; // build_frame_candidates
-        int g_pf_slice = -1;    // the minimap height-slice cut (loop thread)
-        int g_pf_mslice = -1;   // the full map's cut (loop thread)
-        int g_pf_input = -1;    // the hotkey block and the loop thread's file I/O
-        int g_pf_pad = -1;      // XInput only, split out of the block above
 
-        Spinlock g_render_lock;
 
-        ID3D12Device* g_device = nullptr;
-        std::atomic<ID3D12CommandQueue*> g_queue{nullptr};
-        ID3D12GraphicsCommandList* g_cmd_list = nullptr;
-        ID3D12DescriptorHeap* g_rtv_heap = nullptr;
-        ID3D12Resource* g_backbuffers[kMaxBuffers]{};
-        D3D12_CPU_DESCRIPTOR_HANDLE g_rtv[kMaxBuffers]{};
-        FrameCtx g_frames[kMaxBuffers]{};
-        ID3D12Fence* g_fence = nullptr;
-        HANDLE g_fence_event = nullptr;
-        UINT64 g_fence_value = 0;
-        UINT g_buffer_count = 0;
-        DXGI_FORMAT g_format = DXGI_FORMAT_UNKNOWN;
-        UINT g_width = 0;
-        UINT g_height = 0;
-        HWND g_hwnd = nullptr;
         // The window proc that was there before ours, and the one every message is
-        // chained to. ATOMIC and WRITE-ONCE-PER-HOOK: `hooked_wndproc` runs on the game
-        // thread and may be inside a `CallWindowProcW` on this pointer at the moment the
-        // render thread unhooks, so it is never set back to null - a null here would turn
-        // an in-flight call into a `DefWindowProcW` that eats the game's own message.
-        std::atomic<WNDPROC> g_prev_wndproc{nullptr};
 
         // ATOMIC, because all three are written by the RENDER thread and read by other
         // threads: `g_imgui_ready` gates the WndProc hook's whole body on the GAME
         // thread, and the F2 panel / the loop thread read the other two. As plain bools
-        // this was a data race whose worst outcome is the game thread recording into the
-        // message ring - or skipping it - one frame after the render thread has torn the
-        // ring's consumer down. `std::atomic<bool>` converts implicitly, so every use
-        // site below reads and writes them exactly as before, only atomically.
-        std::atomic<bool> g_imgui_ready{false};
-        std::atomic<bool> g_rt_ready{false};
         // NOT TERMINAL FOR A SWAPCHAIN-LEVEL FAILURE. `g_failed` means "this mod cannot
         // draw and must stop trying": a hook that would not install, a device that is
-        // not reachable, an ImGui backend that would not start, or an exception escaping
-        // our own frame. A lost device or a replaced swapchain is NOT that - it goes
-        // through `request_readoption()` instead, which tears the D3D12 objects down and
-        // lets the next Present adopt the new ones.
-        std::atomic<bool> g_failed{false};
 
-        // The chapter composite - only loaded when fallback_use_composite = 1, or when
-        // the height maps failed to load at all.
-        MapTexture g_map;
 
-        // How long the render thread will wait for the loop-thread slicer to leave its
-        // critical section before giving up on (re)allocating buffers this frame. The
-        // slice itself is 1-4 ms and never blocks, so this is generous by an order of
-        // magnitude and a timeout means something is badly wrong.
-        constexpr unsigned kSlicerPauseMs = 50;
 
-        constexpr int kSliceBufs = 2;
-        // Declared here rather than with the full map's own block below, because the
-        // slicer handshake arrays need both counts.
-        constexpr int kMapSliceBufs = 2;
-        // Bounds on the square the CPU slicer cuts for the minimap. Hard-coded since
-        // 0.9.2 (they were `slice_min_px` / `slice_max_px`); slice_size_for() reads them.
-        constexpr int kSliceMinPx = 128;
-        constexpr int kSliceMaxPx = 1024;
-        // How much bigger than the visible canvas the FULL MAP's cut is, so a drag can
-        // move inside the cut before it has to be redone (1.30 = 15 % of the canvas in
-        // either direction). Was `map_slice_margin`.
-        constexpr double kMapSliceMargin = 1.30;
-        SliceBuf g_slice[kSliceBufs];
-        int g_slice_next = 0;  // the buffer the next update writes (loop thread)
-        int g_slice_size = 0;   // side of the currently allocated buffers, px
-        std::uint64_t g_slice_last_ms = 0;
-        // DIAGNOSTICS ONLY, and written by the LOOP thread (the slicer) while the F2
-        // panel reads them on the render thread. They are lone scalars refreshed many
-        // times a second; a torn read would show one stale number for one frame, which
-        // is why they are not atomics.
-        double g_slice_ms = 0.0;     // cost of the last slice, ms (EMA)
-        double g_slice_ms_peak = 0.0;
-        std::uint64_t g_slice_updates = 0;
-        std::uint64_t g_slice_skipped = 0;
-        // The window the SHOWN buffer covers, as a world->uv mapping.
-        double g_slice_min_y = 0.0;
-        double g_slice_max_x = 0.0;
-        double g_slice_px_per_uu = 0.0;
-        // Feet Z, EMA-smoothed so a jump or a step does not snap the whole picture.
-        float g_feet_z = 0.0f;
-        bool g_feet_z_valid = false;
-        // Slice statistics, for the F2 debug block.
-        std::uint32_t g_slice_opaque = 0;
-        std::uint32_t g_slice_dim = 0;
-        std::uint32_t g_slice_faint = 0;
-        int g_slice_surfaces = 0; // height planes the slicer is reading
-        SliceScratch g_slice_scratch;
 
         //==============================================================================
         // The slicer runs on the LOOP thread
@@ -1037,59 +829,10 @@ namespace overlay
         //     after writing and throws the result away if it moved, so a cut can never
         //     be published against a buffer set that no longer exists.
 
-        std::atomic<bool> g_slicer_pause{false};
-        std::atomic<bool> g_slicer_busy{false};
-        std::atomic<std::uint32_t> g_slice_gen{0};
 
-        // loop -> render: this buffer has been filled and its copy is not recorded yet.
-        std::atomic<bool> g_slice_copy_pending[kSliceBufs];
-        std::atomic<bool> g_mslice_copy_pending[kMapSliceBufs];
-        // render -> loop: the fence value of the last frame that SAMPLED this buffer.
-        std::atomic<std::uint64_t> g_slice_in_flight[kSliceBufs];
-        std::atomic<std::uint64_t> g_mslice_in_flight[kMapSliceBufs];
 
-        // render -> loop: what the minimap needs. 0 = the minimap is not drawing, so
-        // the slicer stands down (one relaxed load per loop iteration).
-        std::atomic<int> g_slice_want_px{0};
-        std::atomic<std::uint64_t> g_slice_want_ms{0}; // GetTickCount64 of the last request
 
-        // render -> loop: the full map's viewport. Only meaningful while the map is open.
-        struct MapSliceReq
-        {
-            bool wanted = false;
-            double cx = 0.0;
-            double cy = 0.0;
-            double zoom = 0.0;
-            float canvas_w = 0.0f;
-            float canvas_h = 0.0f;
-            float feet = 0.0f;
-            bool show_all_floors = false;
-        };
-        Spinlock g_slice_req_lock;
-        MapSliceReq g_map_req;
-        std::atomic<std::uint64_t> g_map_req_ms{0}; // GetTickCount64 of the last request
 
-        // loop -> render: which buffer to draw and the world mapping it covers. Copied
-        // under the lock so the index and its geometry can never disagree.
-        struct SliceView
-        {
-            int shown = -1;
-            double min_y = 0.0;
-            double max_x = 0.0;
-            double px_per_uu = 0.0;
-        };
-        struct MapSliceView
-        {
-            int shown = -1;
-            bool valid = false;
-            double x0 = 0.0; // south edge
-            double x1 = 0.0; // north edge
-            double y0 = 0.0; // west edge
-            double y1 = 0.0; // east edge
-        };
-        Spinlock g_slice_view_lock;
-        SliceView g_slice_view;
-        MapSliceView g_mslice_view;
 
         SliceView slice_view()
         {
@@ -1160,79 +903,15 @@ namespace overlay
         // re-cuts when something actually changed (pan out of the cut region, zoom,
         // floor slice, a big player move), capped at map_slice_hz.
 
-        SliceBuf g_mslice[kMapSliceBufs];
-        int g_mslice_next = 0;
-        SliceScratch g_mslice_scratch;
-        SliceCounts g_mslice_counts{};
-        double g_mslice_ms = 0.0;
-        double g_mslice_ms_peak = 0.0;
-        std::uint64_t g_mslice_updates = 0;
-        std::uint64_t g_mslice_skipped = 0;
-        std::uint64_t g_mslice_last_ms = 0;
-        // The WORLD rectangle the shown buffer covers. X is north/south (screen up is
-        // +X), Y is west/east - the same axes as everywhere else in this mod.
-        double g_mr_x0 = 0.0; // south edge
-        double g_mr_x1 = 0.0; // north edge
-        double g_mr_y0 = 0.0; // west edge
-        double g_mr_y1 = 0.0; // east edge
-        bool g_mr_valid = false;
-        // Render -> loop: "throw the cut region away and re-cut" (the map was recentred).
-        // g_mr_* is the loop thread's now, so the render thread may not clear it itself.
-        std::atomic<bool> g_map_recut{false};
-        int g_mr_w = 0; // the buffer size the cut was made at (a resize is urgent)
-        int g_mr_h = 0;
-        double g_mr_zoom = 0.0;
-        float g_mr_feet = 0.0f;
-        double g_mr_px = 0.0; // the player position the cut was made at
-        double g_mr_py = 0.0;
-        std::string g_mr_chapter;
 
-        // The view itself. Render thread only.
-        mv::View g_mv{};
-        bool g_mv_init = false;
-        float g_map_floor_off = 0.0f; // uu added to feet Z by the floor adjustment
-        // The full map's controls legend (`?` / pad Back). Render thread only, and
-        // deliberately NOT config: it is a thing you glance at, not a setting.
-        bool g_map_help = false;
-        bool g_map_was_open = false;
-        // Set by the loop thread when the recentre key is pressed; consumed by the map.
-        std::atomic<bool> g_map_recenter{false};
-        // Manual found toggles are applied by the LOOP thread (it owns the master set
-        // and the file), so the draw buffer only agrees a round later. These overrides
-        // make the click feel instant and are dropped the moment the published buffer
-        // says the same thing.
-        std::vector<std::pair<std::string, bool>> g_found_override;
-        // What the map is doing, for the F2 debug block and the map's own footer.
-        int g_map_markers_drawn = 0;
-        int g_map_markers_total = 0;
 
-        // The swapchain we render on. Present can be called for more than one
-        // swapchain (ReShade wraps its own, DLSS frame generation adds another), so the
-        // first one that proves to be D3D12 wins and every other Present is ignored.
-        IDXGISwapChain* g_swapchain = nullptr;
         // The SAME object as g_swapchain, QueryInterface'd once and kept with a
         // reference held, because `GetCurrentBackBufferIndex()` lives only on
         // IDXGISwapChain3 and a QI per frame is a virtual call plus an AddRef/Release
-        // pair for a value that never changes. If the QI fails - a wrapper that does not
-        // forward it - there is NO safe way to know which buffer is about to be
-        // presented, and the frame is skipped rather than guessed at (see
-        // current_backbuffer_index).
-        IDXGISwapChain3* g_sc3 = nullptr;
-        int g_candidates_logged = 0;
 
         // RE-ADOPTION. Set when the swapchain or the device we latched onto has stopped
         // being usable - DXGI_ERROR_DEVICE_REMOVED / _RESET out of Present, a GetBuffer
         // or render-target failure, a command queue that turns out to belong to another
-        // device. The next Present releases everything under the render lock and then
-        // starts over: a new swapchain is chosen, a new queue captured, a new device
-        // taken off it. This is the difference between "the overlay is off until the
-        // game is restarted" and "the overlay comes back a frame after the driver does".
-        std::atomic<bool> g_readopt{false};
-        std::atomic<std::uint64_t> g_readopt_count{0};
-        // A queue that was captured and then proved not to belong to the presenting
-        // device. One slot: ExecuteCommandLists must not immediately re-capture the same
-        // wrong queue, and there is never more than one wrong answer in flight.
-        std::atomic<ID3D12CommandQueue*> g_bad_queue{nullptr};
 
         // Drops the captured command queue AND the reference held on it. Only ever
         // called from the render thread's teardown, so no other thread can be inside
@@ -1257,15 +936,7 @@ namespace overlay
             }
         }
 
-        std::atomic<std::uint64_t> g_present_count{0};
-        std::atomic<std::uint64_t> g_resize_count{0};
         // WHAT THE RENDER THREAD IS DOING, and which thread it is, for the loop
-        // thread's stall watchdog below. Both are relaxed stores of a literal / a tid:
-        // no allocation, no lock, nothing that can itself stall. The 2026-09-03 20:56
-        // freeze cost a whole play session precisely because nothing in the process
-        // could say which thread had stopped or where.
-        std::atomic<const char*> g_render_stage{"no frame yet"};
-        std::atomic<unsigned long> g_render_tid{0};
 
         // The stage names are ASCII literals and the log takes wide strings. An explicit
         // cast loop rather than `std::wstring(a.begin(), a.end())`, which warns (C4244)
@@ -1280,48 +951,10 @@ namespace overlay
             }
             return out;
         }
-        // Set by the loop thread on an F5 reload; consumed on the render thread,
-        // which is the only place a D3D12 resource may be released.
-        std::atomic<bool> g_drop_textures{false};
-        std::atomic<bool> g_hooks_installed{false};
-        // Master-switch state. `g_hooks_created` is set once the MinHook trampolines
-        // exist: a re-enable then only has to MH_EnableHook them, so no address can
-        // ever be hooked twice. `g_render_stopped` is the render thread's answer to
-        // "you have been switched off" (see shutdown_render()).
-        bool g_hooks_created = false;                // loop thread only
-        std::atomic<bool> g_render_stopped{true};    // render -> loop
-        std::atomic<bool> g_watchdog_reported{false};
-        std::uint64_t g_hook_install_ms = 0;
 
-        // Written by the render thread, read by the F2 panel (same thread), so no
-        // synchronisation needed - but it is also logged once from the loop thread, so
-        // keep it a fixed buffer rather than a std::string being reallocated.
-        wchar_t g_hide_reason[96] = L"not evaluated yet";
-        // The one-off blocking jobs that used to hide inside `loop input + file I/O`
-        // (a 366 ms peak against a ~0 ms average) and inside the render frame.
-        int g_pf_newframe = -1; // ImGui_ImplWin32_NewFrame - cross-thread user32
-        int g_pf_buildui = -1;  // build_ui() - our own drawing
-        int g_pf_clip = -1;     // the map -> clipboard hand-off
-        int g_pf_save = -1;     // config / waypoint file writes
-        int g_pf_reload = -1;   // F5: config + maps + markers
 
-        std::wstring g_hook_report = L"not installed";
-        // True when this launch hooked the addresses out of wuchang_minimap_hookaddr.txt
-        // instead of discovering them with a dummy device + queue + swapchain. It is what
-        // the watchdog needs: no Present with cached addresses means the cache is stale,
-        // and deleting it makes the next launch rediscover them.
-        bool g_hooks_from_cache = false;
 
         // Every hide/show transition is logged with its reason, so one line in the log
-        // pins "why did the minimap vanish" without a screenshot. Rate-limited: a
-        // reason that has not changed is never logged again, and even a changing reason
-        // is logged at most once per kReasonLogMs (a flapping condition must not be
-        // able to flood the log the way "the settings panel rendered" once did).
-        constexpr std::uint64_t kReasonLogMs = 2000; // the default of `hide_reason_log_ms`
-        wchar_t g_reason_logged[96] = L"";
-        std::uint64_t g_reason_log_ms = 0;
-        std::uint64_t g_reason_since_ms = 0;
-        std::uint64_t g_reason_suppressed = 0;
 
         void set_hide_reason(const wchar_t* text)
         {
@@ -1359,15 +992,7 @@ namespace overlay
         // Original functions
         //==============================================================================
 
-        using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
-        using Present1Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
-        using ResizeBuffersFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT, UINT, DXGI_FORMAT, UINT);
-        using ExecuteCommandListsFn = void(STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
 
-        PresentFn o_Present = nullptr;
-        Present1Fn o_Present1 = nullptr;
-        ResizeBuffersFn o_ResizeBuffers = nullptr;
-        ExecuteCommandListsFn o_ExecuteCommandLists = nullptr;
 
         //==============================================================================
         // Teardown of the swapchain-dependent objects
@@ -1401,11 +1026,6 @@ namespace overlay
         }
 
         // How many frames in flight the ImGui DX12 backend was initialised with. A
-        // fullscreen toggle can RAISE the swapchain's BufferCount, and the backend keeps
-        // one set of per-frame buffers per frame in flight: with a stale count it would
-        // reuse the descriptor and vertex buffers of a frame the GPU has not finished.
-        // Kept beside the allocators because both are grown by the same event.
-        int g_imgui_frames_in_flight = 0;
 
         // ONE ALLOCATOR PER BACK BUFFER, created for every buffer that has none. They
         // used to be created once, for the count seen at init: after a fullscreen toggle
@@ -1540,18 +1160,7 @@ namespace overlay
         // modifier is held - publishes a 256-bit set of virtual keys, and this tests a
         // bit. publish_swallow_set(), in the hotkey block, is the other half.
         //
-        // NOT filtered: a raw-input (WM_INPUT) keyboard packet. The panel's Esc path is
-        // the precedent for how that would be done, and it costs a RID_INPUT read on
-        // every packet; if a game turns out to read gameplay keys that way, the
-        // GetRegisteredRawInputDevices line already in the log says so.
-        std::atomic<std::uint32_t> g_swallow_bits[8]{};
         // WHEN THE SET WAS LAST PUBLISHED. The loop thread refreshes it on every 60 Hz
-        // pass, so a stale set means the loop thread has stopped sampling (the mod was
-        // disabled for the session, the process is shutting down) - and a mod that has
-        // stopped running must not still be eating the player's keys. Nothing here is
-        // latched, which is the same rule the show/hide conditions obey (lessons.md).
-        std::atomic<std::uint64_t> g_swallow_stamp{0};
-        constexpr std::uint64_t kSwallowStaleMs = 250;
 
         void swallow_set_clear()
         {
@@ -1649,15 +1258,6 @@ namespace overlay
         // open overlay. One RID_HEADER read says which device a message came from, which
         // is what lets the panel take the mouse and leave the keyboard with the game.
         //
-        // A RAW KEYBOARD packet needs a second, bigger read (RID_INPUT) to see WHICH key
-        // it was, so the header is read first and the payload only for the keyboard - the
-        // mouse half must not pay for the Esc half, it runs on every mouse move.
-        struct RawKind
-        {
-            bool mouse = false;
-            bool keyboard = false;
-            bool escape = false; // keyboard && VKey == VK_ESCAPE
-        };
 
         RawKind raw_kind(UINT msg, LPARAM lparam, bool want_key)
         {
@@ -1745,29 +1345,8 @@ namespace overlay
         // messages are replayed in order, in the same frame the game thread's own
         // dispatch would have been drawn.
 
-        struct PendingMsg
-        {
-            HWND hwnd = nullptr;
-            UINT msg = 0;
-            WPARAM wparam = 0;
-            LPARAM lparam = 0;
-        };
 
-        // 512 is a sanity cap, not a working limit: a 60 Hz frame sees a handful of
-        // coalesced WM_MOUSEMOVEs and a key event or two. Overflow is counted and
-        // logged rather than overwriting an unreplayed message - dropping the NEWEST
-        // keeps the order of what does get through.
-        constexpr int kMsgRing = 512;
-        Spinlock g_msg_lock;
-        PendingMsg g_msg_ring[kMsgRing];
-        int g_msg_head = 0;  // oldest unreplayed slot
-        int g_msg_count = 0; // slots in use
-        std::atomic<std::uint64_t> g_msg_dropped{0};
 
-        // Published by the render thread once per frame so the game thread's swallow
-        // decision never has to read the ImGui context. `WantCaptureMouse` is not needed
-        // here - the panel owns the WHOLE mouse whenever it is open (lessons.md).
-        std::atomic<bool> g_imgui_want_keyboard{false};
 
         // Does the backend's handler do anything with this message? Recording only what
         // it handles keeps the ring from filling with WM_TIMER / WM_PAINT traffic. The
@@ -2254,42 +1833,12 @@ namespace overlay
         // Drawing: the minimap
         //==============================================================================
 
-        // World -> texture uv for ONE image. The composite and every floor layer have
-        // their own bounds (layers are cropped to their own footprint), so the mapping
-        // travels with the picture instead of with the chapter.
-        struct UvMap
-        {
-            double min_y = 0.0;
-            double max_x = 0.0;
-            double px_per_uu = 0.0;
-            int width = 0;
-            int height = 0;
-
-            void to_uv(double wx, double wy, float& u, float& v) const
-            {
-                const double upx = (wy - min_y) * px_per_uu;
-                const double vpx = (max_x - wx) * px_per_uu;
-                u = width > 0 ? static_cast<float>(upx / width) : 0.0f;
-                v = height > 0 ? static_cast<float>(vpx / height) : 0.0f;
-            }
-        };
 
         UvMap uv_of(const mapdata::Chapter& c)
         {
             return UvMap{c.min_y, c.max_x, c.px_per_uu, c.image_width, c.image_height};
         }
 
-        struct MiniGeom
-        {
-            ImVec2 center{};
-            float half = 0.0f;
-            float cos_yaw = 1.0f;
-            float sin_yaw = 0.0f;
-            float zoom = 1.0f;
-            UvMap uv{};
-            double px = 0.0;
-            double py = 0.0;
-        };
 
         //==============================================================================
         // WORLD -> MINIMAP OFFSET, and the edge clamp (review B.22)
@@ -2302,17 +1851,6 @@ namespace overlay
         // the waypoint to sit a pixel off the marker it was set on.
         //
         // The three callers differ only in what they want done when the point falls
-        // OUTSIDE the disc, so that is the parameter: `clamp_to_edge` false means "tell
-        // me it is out" (the rings, and markers with markers_clamp_to_edge off) and true
-        // means "put it on the rim and tell me you did" (the waypoint, which is never
-        // culled).
-        struct MiniOffset
-        {
-            double dx = 0.0;
-            double dy = 0.0;
-            bool visible = false; // may be drawn at (dx, dy)
-            bool clamped = false; // ...but it was pushed onto the rim to get there
-        };
 
         MiniOffset mini_offset(const MiniGeom& g, double wx, double wy, bool round, float limit,
                                bool clamp_to_edge)
@@ -2424,16 +1962,7 @@ namespace overlay
             dl->AddTriangle(tip, l, r, IM_COL32(30, 26, 10, 220), 1.6f);
         }
 
-        struct MiniDebug
-        {
-            bool visible = false;
-            float u = 0.0f;
-            float v = 0.0f;
-            std::string chapter;
-            float side = 0.0f;
-        };
 
-        MiniDebug g_last_mini{};
 
         //==============================================================================
         // The height slicer
@@ -2467,7 +1996,6 @@ namespace overlay
         // CURRENT.md § Decisions. The shader path stays documented as a later
         // optimisation: it would move this loop to the GPU and drop the 512x512 upload.
 
-        void slice_selftest();
 
         // Creates `count` dynamic RGBA textures of w x h with a persistently mapped
         // upload heap each. Shared by the minimap (square) and the full map
@@ -2613,21 +2141,6 @@ namespace overlay
         //
         // `state` 3 = the floor the player is on, 2 = the nearest surface below,
         // 1 = the nearest above, 0 = nothing. The gradient is the SAME rule offline
-        // (tools/navmesh/slice_preview.py) so a reported spot can be reproduced
-        // without the game:
-        //     lum = 1 + gradient_strength * clamp((surfaceZ - feetZ) / span, -1, +1)
-        // with span = tolerance for the current floor and fade for the dim ones.
-        struct SliceStyle
-        {
-            float base_r = 214.0f;
-            float base_g = 208.0f;
-            float base_b = 196.0f;
-            float strength = 0.18f;
-            float tol = 200.0f;
-            float fade = 800.0f;
-            float a_dim = 0.25f;
-            float a_faint = 0.15f;
-        };
 
         // Fills `dst` (size*size RGBA8, row pitch `pitch`) with the window whose
         // top-left source pixel is (x0, y0).
@@ -3298,7 +2811,6 @@ namespace overlay
 
         // Defined with the rest of the full map, below - the minimap draws the same
         // glyph, edge-clamped, so the two views agree on what a waypoint looks like.
-        void draw_waypoint_glyph(ImDrawList* dl, ImVec2 p, float r, int alpha);
 
         // THE LOOK, cached once per frame (build_ui) so nothing on a draw path has to
         // take a config copy to know what colour to be. Render thread only.
@@ -3307,22 +2819,10 @@ namespace overlay
         // the theme's other colours are resolved into the ordinary colour config keys at
         // load time (mmstate.cpp's apply_theme_defaults), which is what lets an explicit
         // key in the file override a theme.
-        // MINIMAP ZOOM STEPS the loop thread still owes the config. The render thread
-        // may not write the config file and the loop thread cannot see the cursor, so
-        // the wheel-over-the-disc gesture and the zoom_key press both land here and are
-        // applied in on_update(). Accumulated, so a fast flick of the wheel is not lost.
-        std::atomic<int> g_zoom_steps{0};
 
         // "THE HUD HAS BEEN ON SCREEN AT LEAST ONCE", published by the render thread the
         // first frame hud_gate() answers "yes" - i.e. the first frame with a validated
-        // gameplay pawn, which is the first frame a player could see anything of ours.
-        // The first-run tip waits for it (review B.2): it used to fire on the first pass
-        // of on_update, over the splash screen, and write its once-per-install sentinel
-        // there. Set once and never cleared - it is a "has happened", not a state.
-        std::atomic<bool> g_hud_gate_ever_open{false};
 
-        gly::Palette g_palette = gly::Palette::Default;
-        mdb::Rgb g_plate = gly::theme_colors(gly::Theme::Neutral).plate;
 
         // The hue table lives in the PURE header src/glyphs.hpp, next to the shape
         // table, because "no two categories share a shape and a colour" is a property
@@ -3368,14 +2868,9 @@ namespace overlay
         // and a dark one against a lit scene. Its alpha follows the glyph's, so a
         // faded-out marker does not leave a black dot behind.
         // THE CATEGORIES "found" MEANS SOMETHING FOR. Collecting a chest, a pickup or a
-        // hidden item consumes it, so a found one is finished business. Every other
-        // category's "found" is a visit, not a removal, and the thing is still there.
-        // The rule itself now lives in mdb::is_loot_cat, beside the x-ray gate that is
-        // its only caller and beside the offline test that pins it.
-        using mdb::is_loot_cat;
 
         void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge,
-                               bool hollow = false)
+                               bool hollow)
         {
             const int ca = static_cast<int>((col >> IM_COL32_A_SHIFT) & 0xFFu);
             // THE HALO COVERS THE SHAPE (review B.17). It used to be a fixed r + 1
@@ -3596,22 +3091,7 @@ namespace overlay
             }
         }
 
-        struct MarkerDrawStats
-        {
-            int total = 0;
-            int drawn = 0;
-            int clamped = 0;
-            int filtered = 0;
-            int merged = 0; // rolled into another glyph's count badge (review B.16)
-            // A fixed buffer, not a std::string: this used to be assigned on the render
-            // thread every single frame, which is a heap allocation per frame for a
-            // 54-character id. DrawMarker::id is a fixed char array too, so this is one
-            // memcpy of at most 64 bytes.
-            char nearest[64]{};
-            float nearest_uu = 0.0f;
-        };
 
-        MarkerDrawStats g_marker_draw{};
 
         //==============================================================================
         // ONE marker pass per frame
@@ -3626,20 +3106,7 @@ namespace overlay
         // sort, and the two that want metres take the square root of the handful they
         // actually draw.
 
-        struct FrameCand
-        {
-            const markers::DrawMarker* m = nullptr;
-            float d2_xy = 0.0f; // squared horizontal distance from the player, uu^2
-            float d2_3d = 0.0f; // squared 3D distance from the player
-            std::uint8_t cat = 0;
-            std::uint8_t rarity = 0;
-            std::uint8_t flags = 0; // markers::kFlag* of the published row
-            bool found = false;
-        };
 
-        std::vector<FrameCand> g_frame_cands; // render thread only, reused every frame
-        int g_frame_marker_total = 0;         // rows in the published buffer
-        int g_frame_bad_cat = 0;              // rows whose category byte is out of range
 
         //==============================================================================
         // Animation, toasts, and the "it just became found" event
@@ -3659,9 +3126,6 @@ namespace overlay
         //     markers near the player between marker rounds - the game thread does no
         //     extra work for it, and nothing is remembered longer than one round.
 
-        constexpr std::uint64_t kHudFadeMs = 150;
-        float g_hud_fade = 0.0f;
-        std::uint64_t g_hud_fade_ms = 0; // when the current show started
 
         // Eases towards 1 while `target_on`, drops to 0 the instant it is false.
         float hud_fade_step(bool target_on, std::uint64_t now)
@@ -3683,9 +3147,6 @@ namespace overlay
             return g_hud_fade;
         }
 
-        // ---- toasts ------------------------------------------------------------------
-        char g_toast[160]{};
-        std::uint64_t g_toast_until = 0;
 
         void toast_for(const char* text, unsigned ms)
         {
@@ -3725,37 +3186,9 @@ namespace overlay
         //
         // No file is ever written.
 
-        enum class ShotStage
-        {
-            Idle = 0,
-            Recorded, // the copy is in flight on the GPU
-            Waiting,  // the loop thread has the bytes
-        };
 
-        ShotStage g_shot_stage = ShotStage::Idle;
-        std::atomic<bool> g_shot_request{false};   // loop -> render (the hotkey)
-        ID3D12Resource* g_shot_readback = nullptr; // render thread only
-        std::uint64_t g_shot_fence = 0;
-        UINT g_shot_w = 0;
-        UINT g_shot_h = 0;
-        UINT g_shot_pitch = 0;
-        clipimg::Fmt g_shot_fmt = clipimg::Fmt::Unknown;
-        // The canvas rect of the last full-map frame, in back-buffer pixels. Written by
-        // draw_full_map every frame it draws, read by the render thread in the same
-        // frame - same thread, no synchronisation needed.
-        mv::Rect g_shot_canvas{};
-        bool g_shot_canvas_valid = false;
 
-        // render -> loop: the finished DIB. A spinlock, not a queue: one screenshot can
-        // be in flight and the payload is handed over exactly once.
-        Spinlock g_shot_lock;
-        std::vector<std::uint8_t> g_shot_dib;
-        std::atomic<bool> g_shot_dib_ready{false};
 
-        // loop -> render: the handover is complete, so the next request may be recorded.
-        // Without it a failed clipboard write would leave the state machine parked in
-        // Waiting for ever and the key would silently stop working.
-        std::atomic<bool> g_shot_stage_done{false};
 
         //==============================================================================
         // THE TOAST MAILBOX (review B.22)
@@ -3767,13 +3200,6 @@ namespace overlay
         // 26 uu/px") contended with a full-resolution DIB hand-off and read as part of
         // the clipboard machinery. They share nothing but a direction: loop -> render.
         //
-        // A toast may only be RAISED where toasts are drawn (the render thread owns
-        // g_toast), so this is how the loop thread asks. Newest wins: a toast is a
-        // notice, and a queue of stale notices is worse than the latest one.
-        Spinlock g_toast_lock;
-        char g_toast_pending[160]{};
-        unsigned g_toast_pending_ms = 2500;
-        std::atomic<bool> g_toast_pending_ready{false};
 
         // ANY THREAD. Queues a toast for the render thread to draw.
         void post_toast(const char* text, unsigned ms)
@@ -3991,8 +3417,6 @@ namespace overlay
         // asks; the chapter filter follows the marker filter so the list and the map
         // agree about what exists.
 
-        bool g_shrine_panel = false;
-        char g_shrine_selected[shdb::kMaxIdLen]{};
 
         void draw_shrine_list(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
                               int filter_chapter)
@@ -4212,43 +3636,10 @@ namespace overlay
         // floor so the page still fills in when the live sweep is off entirely (rounds
         // never advance then, and a page that stays empty for ever reads as a bug).
 
-        struct StatsCache
-        {
-            markers::Stats st{};
-            shr::State shrines{};
-            std::uint64_t round = ~0ull;
-            std::uint64_t at_ms = 0;
-            bool primed = false;
-        };
 
-        StatsCache g_stats_cache;
-        bool g_stats_page = false; // the full map's Stats panel
 
-        const StatsCache& stats_cached(std::uint64_t now)
-        {
-            const std::uint64_t round = markers::rounds();
-            if (!g_stats_cache.primed || round != g_stats_cache.round ||
-                now - g_stats_cache.at_ms >= 1000)
-            {
-                g_stats_cache.st = markers::stats();
-                g_stats_cache.shrines = shr::state();
-                g_stats_cache.round = round;
-                g_stats_cache.at_ms = now;
-                g_stats_cache.primed = true;
-            }
-            return g_stats_cache;
-        }
 
         // THE CATEGORIES THE COLLECTION PAGE COUNTS, and the order they are shown in.
-        // The map knows fourteen; only these six are things a player collects or ticks
-        // off, and the other eight were what made the matrix wider than a 1080p panel.
-        // Fixed, not derived from the DB, so a chapter with none of a category still
-        // gets its column and the layout does not move between chapters.
-        constexpr mdb::Cat kStatsCats[] = {
-            mdb::Cat::Shrine, mdb::Cat::Chest, mdb::Cat::Pickup,
-            mdb::Cat::Boss,   mdb::Cat::Npc,   mdb::Cat::Note,
-        };
-        constexpr int kStatsCatCount = static_cast<int>(std::size(kStatsCats));
 
         // Draws into whatever window is current. `compact` drops the per-chapter matrix
         // and keeps the summary, for the F2 panel where vertical space is scarce.
@@ -4478,33 +3869,9 @@ namespace overlay
         // ---- "this marker just became found" -----------------------------------------
         //
         // A 400 ms ring where a marker was collected. The event has to come from
-        // somewhere cheap: the render thread already walks the published buffer every
-        // frame, so it keeps the found flags of the markers NEAR the player and diffs
-        // them whenever the marker sweep publishes a new round (~1 Hz). No game-thread
-        // work, no per-frame string compares, and nothing survives a round.
-        constexpr int kFoundWatch = 24;      // markers watched, nearest-ish first
-        constexpr int kFoundEvents = 6;      // rings that can be in flight at once
-        constexpr double kFoundWatchUu = 6000.0; // 60 m: as far as a ring is worth drawing
-        constexpr std::uint64_t kFoundRingMs = 400;
 
-        struct FoundWatch
-        {
-            char id[54]{};
-            bool found = false;
-        };
 
-        struct FoundEvent
-        {
-            double x = 0.0;
-            double y = 0.0;
-            std::uint64_t t0 = 0;
-        };
 
-        FoundWatch g_found_watch[kFoundWatch]{};
-        int g_found_watch_n = 0;
-        std::uint64_t g_found_watch_round = 0;
-        FoundEvent g_found_events[kFoundEvents]{};
-        int g_found_event_head = 0;
 
         void note_found_event(double x, double y, std::uint64_t now)
         {
@@ -4562,30 +3929,6 @@ namespace overlay
             g_found_watch_n = n;
         }
 
-        // Draws whatever rings are still in flight, through a caller-supplied
-        // world -> screen mapping. `scale` sizes the ring to the view (a minimap glyph
-        // is much smaller than a full-map one).
-        template <typename ToScreen>
-        void draw_found_rings(ImDrawList* dl, std::uint64_t now, float scale, ToScreen to_screen)
-        {
-            for (const FoundEvent& e : g_found_events)
-            {
-                if (e.t0 == 0 || now - e.t0 > kFoundRingMs)
-                {
-                    continue;
-                }
-                const float t = static_cast<float>(now - e.t0) / static_cast<float>(kFoundRingMs);
-                float sx = 0.0f;
-                float sy = 0.0f;
-                if (!to_screen(e.x, e.y, sx, sy))
-                {
-                    continue;
-                }
-                const float rad = scale * (0.6f + 2.2f * t);
-                const int a = static_cast<int>(220.0f * (1.0f - t));
-                dl->AddCircle(ImVec2{sx, sy}, rad, IM_COL32(255, 236, 180, a), 20, 2.0f);
-            }
-        }
 
         void build_frame_candidates(const mm::Snapshot& snap)
         {
@@ -4652,87 +3995,6 @@ namespace overlay
         // merge distance, so two glyphs that straddle a cell boundary can stay separate -
         // the same property the compass's 3-pixel columns have, and the same reason: an
         // O(n) grid instead of an O(n x kept) sweep on the render thread, for a
-        // difference nobody can see once one of the two is a count badge anyway.
-        //
-        // Render thread only. Every buffer is static and reused, so a full map with four
-        // thousand markers allocates nothing per frame (review B.18's rule).
-        class MergeGrid
-        {
-        public:
-            // `cell` is the merge distance in pixels; the grid covers [x0, x0 + w] x
-            // [y0, y0 + h] and is clamped to kMaxCells cells on a side (a coarser cell
-            // merges slightly more aggressively, which is the safe direction).
-            void reset(float x0, float y0, float w, float h, float cell)
-            {
-                constexpr int kMaxSide = 128;
-                m_x0 = x0;
-                m_y0 = y0;
-                m_cell = (std::max)(1.0f, cell);
-                m_cols = (std::min)(kMaxSide, (std::max)(1, static_cast<int>(w / m_cell) + 2));
-                m_rows = (std::min)(kMaxSide, (std::max)(1, static_cast<int>(h / m_cell) + 2));
-                // Re-derive the cell size from the clamp, so a huge canvas still covers
-                // itself rather than merging everything into the top-left corner.
-                m_cell = (std::max)(m_cell, (std::max)(w / static_cast<float>(m_cols),
-                                                       h / static_cast<float>(m_rows)));
-                m_head.assign(static_cast<std::size_t>(m_cols) * static_cast<std::size_t>(m_rows), -1);
-                m_next.clear();
-                m_cat.clear();
-                m_slot.clear();
-            }
-
-            // The kept glyph this one should join, or -1 to keep it as a new one.
-            int find(float x, float y, int cat) const
-            {
-                const int c = cell_of(x, y);
-                if (c < 0)
-                {
-                    return -1;
-                }
-                for (int e = m_head[static_cast<std::size_t>(c)]; e >= 0; e = m_next[static_cast<std::size_t>(e)])
-                {
-                    if (m_cat[static_cast<std::size_t>(e)] == cat)
-                    {
-                        return m_slot[static_cast<std::size_t>(e)];
-                    }
-                }
-                return -1;
-            }
-
-            void add(float x, float y, int cat, int slot)
-            {
-                const int c = cell_of(x, y);
-                if (c < 0)
-                {
-                    return;
-                }
-                m_next.push_back(m_head[static_cast<std::size_t>(c)]);
-                m_cat.push_back(cat);
-                m_slot.push_back(slot);
-                m_head[static_cast<std::size_t>(c)] = static_cast<int>(m_next.size()) - 1;
-            }
-
-        private:
-            int cell_of(float x, float y) const
-            {
-                const int cx = static_cast<int>((x - m_x0) / m_cell);
-                const int cy = static_cast<int>((y - m_y0) / m_cell);
-                if (cx < 0 || cy < 0 || cx >= m_cols || cy >= m_rows)
-                {
-                    return -1;
-                }
-                return cy * m_cols + cx;
-            }
-
-            float m_x0 = 0.0f;
-            float m_y0 = 0.0f;
-            float m_cell = 1.0f;
-            int m_cols = 1;
-            int m_rows = 1;
-            std::vector<int> m_head;
-            std::vector<int> m_next;
-            std::vector<int> m_cat;
-            std::vector<int> m_slot;
-        };
 
         // The little "and N more like this one" badge. Drawn up and to the right of the
         // glyph, on the plate colour so it reads over both the walkable fill and the
@@ -4932,63 +4194,6 @@ namespace overlay
         // not draw. Adding a second set of show/hide rules for the compass is exactly the
         // shape of bug lessons.md warns about, so there isn't one.
         //
-        // Nothing in here is remembered between frames. Every condition is recomputed
-        // from the snapshot the game thread published, which is what makes hiding
-        // immediate and makes "it got stuck hidden" impossible.
-        const wchar_t* hud_gate(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
-                                std::uint64_t now)
-        {
-            if (!have_state)
-            {
-                return L"no game-state snapshot yet";
-            }
-            if (snap.stamp_ms == 0 || now - snap.stamp_ms > static_cast<std::uint64_t>(cfg.state_stale_ms))
-            {
-                return L"game state is stale (game thread not pumping)";
-            }
-            if (!snap.transition && !snap.has_pawn)
-            {
-                return L"no player pawn";
-            }
-            if (snap.transition)
-            {
-                return L"level transition in progress (reader idling)";
-            }
-            // The class gate lives on the game thread; this is its render-side echo.
-            if (!snap.pawn_is_gameplay)
-            {
-                return L"the pawn is not a gameplay pawn (Lobby / spectator)";
-            }
-            // A fresh gameplay pawn must have been valid for a while before anything is
-            // drawn: without this the first snapshot after a load can flash the minimap.
-            if (snap.state_ok_since_ms == 0)
-            {
-                return L"waiting for a valid gameplay state";
-            }
-            if (now - snap.state_ok_since_ms < static_cast<std::uint64_t>(cfg.min_visible_after_state_ok_ms))
-            {
-                return L"gameplay state is too fresh (grace period)";
-            }
-            // HIDING IS IMMEDIATE: the game thread re-tests the cached in-viewport menu
-            // roots on every pump (10 Hz), so this is true within ~100 ms of the
-            // inventory opening.
-            if (cfg.hide_in_menus && snap.menu_open)
-            {
-                return L"a menu is open";
-            }
-            // Showing again waits only menu_close_show_delay_ms - a menu closing is not
-            // a level transition, so it must not pay min_visible_after_state_ok_ms.
-            if (cfg.hide_in_menus && snap.menu_change_ms != 0 &&
-                now - snap.menu_change_ms < static_cast<std::uint64_t>(cfg.menu_close_show_delay_ms))
-            {
-                return L"the menu just closed (short show delay)";
-            }
-            if (cfg.require_pawn_view && !snap.is_pawn_view)
-            {
-                return L"view target is not the pawn (menu / cutscene / Lobby)";
-            }
-            return nullptr;
-        }
 
         void draw_minimap(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
         {
@@ -5275,28 +4480,7 @@ namespace overlay
         //     and the distance shown is the player's. That is what "30 m away" means to
         //     someone deciding whether to walk over.
 
-        struct HighlightDebug
-        {
-            bool active = false;
-            bool have_camera = false;
-            int gated = 0;      // rows the gate looked at (= the published buffer)
-            int considered = 0; // rows that passed the gate
-            int drawn = 0;
-            int on_screen = 0;
-            int edge = 0;
-            int labels = 0; // how many actually got a label after the overlap pass
-            // Why the others were dropped, indexed by mdb::XrayDrop. [Drawn] is unused.
-            int dropped[5]{};
-            // ...and the reasons that are about DRAWING rather than about the marker: a
-            // point behind the camera or off screen with the rim arrows switched off, and
-            // one faded past invisibility by the distance ramp.
-            int no_projection = 0;
-            int offscreen_no_arrow = 0;
-            int faded_out = 0;
-            std::uint64_t cam_age_ms = 0;
-        };
 
-        HighlightDebug g_hl_debug{};
 
         // A small outward-pointing triangle at `p`, aimed along (dx, dy) in screen space.
         void add_edge_arrow(ImDrawList* dl, ImVec2 p, float dx, float dy, float r, ImU32 col, ImU32 edge)
@@ -5703,16 +4887,7 @@ namespace overlay
         // still works with highlight_enabled = 0 and during the camera reader's warm-up.
         // Which one is in use is printed in the F2 debug block.
 
-        struct CompassDebug
-        {
-            bool visible = false;
-            bool from_camera = false;
-            double heading = 0.0;
-            int pips = 0;
-            int deduped = 0; // pips left after the 3-px dedupe
-        };
 
-        CompassDebug g_compass_debug{};
 
         void draw_compass(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
         {
@@ -7658,16 +6833,6 @@ namespace overlay
         //==============================================================================
         //
         // Three named starting points, each setting SEVERAL Player keys at once, so the
-        // common answers to "what do I want on screen" are one click instead of fifteen.
-        // They deliberately do not touch anything on the Advanced tab, the hotkeys, the
-        // master switch or the UI scale: a preset must never undo a machine-specific
-        // setting the player had to get right once.
-        enum class Preset
-        {
-            Minimal,
-            Loot,
-            Exploration,
-        };
 
         void apply_preset(mm::Config& cfg, Preset which)
         {
@@ -8122,13 +7287,6 @@ namespace overlay
         // window, and it must not appear in the file a Save writes or in the drift test
         // that guards that file.
         //
-        // THREADS. The render thread owns the bits (it is the one drawing the headers)
-        // and raises a flag; the LOOP thread does the file I/O, in the same block as
-        // every other write this mod does. One atomic each way, no lock.
-        constexpr std::uint32_t kPanelSectionsDefault = 0xFFFFFFFFu; // all open, as 1.0.0 shipped
-        std::atomic<std::uint32_t> g_panel_sections{kPanelSectionsDefault};
-        std::atomic<bool> g_panel_state_dirty{false};
-        std::atomic<bool> g_panel_state_loaded{false};
 
         std::wstring panel_state_path()
         {
@@ -8251,18 +7409,6 @@ namespace overlay
         //     settings are named with (`kSections` below), not per widget: filtering
         //     individual widgets would mean wrapping every one of the ~120 calls inside
         //     the section functions in a test, and a table of a section's own vocabulary
-        //     is one thing to keep true instead of 120;
-        //   * "Reset to the shipped defaults" is a real reset - Config{} - which is what
-        //     Revert never was: Revert re-reads the FILE, so it cannot undo a bad value
-        //     that was saved.
-        struct PanelSection
-        {
-            const char* title;
-            // The words a player would type looking for something in here. The section's
-            // own setting names, in lower case; matched as substrings both ways.
-            const char* words;
-            void (*draw)(mm::Config&, float);
-        };
 
         // Thin adapters, so every section has the same signature and the table stays a
         // table. (`wrap` is the content width the category-chip rows need.)
@@ -8771,69 +7917,11 @@ namespace overlay
         //     RenoDX's DLSS 5 toggle (it ignores modifiers and has already caused one
         //     GPU crash), F10 is the UE4SS console, F9 / F11 are engine binds and F12 is
         //     the Steam screenshot key. Those four are refused by the config parser
-        //     outright, so they can only be reached from this tab.
-        //
-        // A binding WITH a modifier is not flagged: `ctrl+e` is exactly the escape hatch
-        // this table exists to point at.
-        struct GameBind
-        {
-            int vk;
-            const char* what;
-        };
 
-        constexpr GameBind kGameBinds[] = {
-            {'W', "move forward"},   {'A', "move left"},      {'S', "move back"},
-            {'D', "move right"},     {VK_SPACE, "dodge"},     {VK_SHIFT, "sprint"},
-            {VK_LSHIFT, "sprint"},   {VK_CONTROL, "crouch"},  {VK_LCONTROL, "crouch"},
-            {'E', "interact"},       {'F', "an action bind"}, {'Q', "an action bind"},
-            {'R', "an action bind"}, {VK_TAB, "inventory"},   {VK_ESCAPE, "the pause menu"},
-            {'1', "an item slot"},   {'2', "an item slot"},   {'3', "an item slot"},
-            {'4', "an item slot"},   {'5', "an item slot"},
-            {VK_F6, "RenoDX / DLSS 5 (it ignores modifiers)"},
-            {VK_F9, "an engine screenshot bind"},
-            {VK_F10, "the UE4SS console"},
-            {VK_F11, "the engine fullscreen bind"},
-            {VK_F12, "the Steam screenshot key"},
-        };
 
-        // nullptr = nothing known wants this binding.
-        const char* game_bind_clash(int binding)
-        {
-            if (mm::key_mod(binding) != mm::kKeyModNone)
-            {
-                return nullptr; // a modifier is the way OUT of a clash
-            }
-            const int vk = mm::key_vk(binding);
-            for (const GameBind& g : kGameBinds)
-            {
-                if (g.vk == vk)
-                {
-                    return g.what;
-                }
-            }
-            return nullptr;
-        }
 
-        struct KeyBind
-        {
-            const char* label;
-            const char* key;
-            int mm::Config::*member;
-        };
 
-        constexpr KeyBind kKeyBinds[] = {
-            {"Settings panel", "panel_key", &mm::Config::panel_key},
-            {"Full map", "map_key", &mm::Config::map_key},
-            {"Recentre the map on the player", "map_recenter_key", &mm::Config::map_recenter_key},
-            {"Cycle the minimap zoom", "zoom_key", &mm::Config::zoom_key},
-            {"Reload settings, maps and markers", "reload_key", &mm::Config::reload_key},
-            {"Copy the full map to the clipboard", "screenshot_key", &mm::Config::screenshot_key},
-            {"X-ray highlight", "highlight_key", &mm::Config::highlight_key},
-        };
-        constexpr int kKeyBindCount = static_cast<int>(std::size(kKeyBinds));
 
-        int g_capture_row = -1;            // render thread only; -1 = nothing armed
-        bool g_capture_wait_release = false;
 
         void arm_capture(int row)
         {
@@ -9871,8 +8959,6 @@ namespace overlay
             return true;
         }
 
-        // "There is no answer" - see why the frame is dropped instead of guessed at.
-        constexpr UINT kNoBackbuffer = ~0u;
 
         // NEVER GUESSES. This used to fall back to a rotating counter when
         // IDXGISwapChain3 was unavailable, which is worse than doing nothing: the index
@@ -10578,8 +9664,6 @@ namespace overlay
         // If cached addresses ever produce no Present at all, the watchdog deletes the
         // file, so a stale cache costs one launch and heals itself.
 
-        constexpr int kHookCount = 4;
-        const wchar_t* const kHookNames[kHookCount] = {L"present", L"resize", L"present1", L"execute"};
 
         std::wstring hook_cache_path()
         {
@@ -11046,7 +10130,9 @@ namespace overlay
         {
             return RC::StringType{narrow.begin(), narrow.end()};
         }
-    } // namespace
+    } // namespace ovl
+
+    using namespace ovl;
 
     auto selftest() -> RC::StringType
     {

@@ -509,6 +509,25 @@ controller re-resolved at 2 Hz, and the menu test at 2 Hz (`UWidget::Visibility 
 from the reflected byte, then `IsInViewport()`). It publishes an `mm::Snapshot` through a seqlock; the
 render thread never touches a UObject.
 
+### The F2 panel
+
+Three tabs since 0.9.2, and they are the config's tiers made visible:
+
+- **Player** - presets (*Minimal HUD* / *Loot hunting* / *Exploration*, each setting several Player
+  keys at once and deliberately touching no hotkey, no UI scale and nothing on the Advanced tab),
+  minimap, placement and scale, markers, the collection tracker, the full map, the x-ray highlight,
+  the compass, and the key legend.
+- **Advanced** - six collapsing headers over the Advanced tier.
+- **Debug** - present **only while `debug_readout = 1`**, which is a Dev key in a file a player does
+  not have. It carries the 22 Dev keys, the per-activity performance table, every read-only
+  diagnostic (marker sweep, gamepad, map slice, x-ray camera, game state) and the
+  `hidden because: <reason>` line.
+
+Category filters are coloured chips - each filled with the colour that category is drawn in, so the
+filter row is also the legend. The Save / **Revert** / Reload row and the master switch live outside
+the tabs, at the bottom, and never scroll away. Save writes the file named on the button and
+rewrites *only the values*; Debug-tab settings go to the dev file instead.
+
 ### Settings
 
 `ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`, `;` or `#` starts a

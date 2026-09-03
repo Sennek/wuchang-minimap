@@ -1255,6 +1255,21 @@ namespace overlay
             return (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == VK_ESCAPE;
         }
 
+        // THE TWO CHORDS THE OVERLAY MUST NEVER EAT. ALT+F4 closes the game and ALT+ENTER
+        // toggles fullscreen, and both arrive as WM_SYSKEYDOWN / WM_SYSKEYUP (WM_SYSCHAR
+        // for the character half) - which `is_keyboard_message` matches, so with the full
+        // map open the map branch was returning 1 for them. The consequence was not just
+        // "alt+F4 does nothing": WM_CLOSE never arrived, so `crumb::mark_closing()` never
+        // ran and the NEXT launch reported the clean exit as a crash.
+        bool is_system_chord(UINT msg, WPARAM wparam)
+        {
+            if (msg != WM_SYSKEYDOWN && msg != WM_SYSKEYUP && msg != WM_SYSCHAR)
+            {
+                return false;
+            }
+            return wparam == VK_F4 || wparam == VK_RETURN;
+        }
+
         // RAW INPUT. UE reads the mouse through WM_INPUT, not only through WM_MOUSEMOVE,
         // so swallowing the window messages alone still lets the camera turn under an
         // open overlay. One RID_HEADER read says which device a message came from, which
@@ -1493,7 +1508,15 @@ namespace overlay
                 // untouched - and because the test is a plain read of the two flags,
                 // closing either one hands the input back on the very next message.
                 // NOTHING IS LATCHED HERE (lessons.md).
-                if (mm::g_map_open.load(std::memory_order_relaxed))
+                // ALT+F4 and ALT+ENTER go to the game whatever is open on top of it.
+                const bool sys_chord = is_system_chord(msg, wparam);
+                if (sys_chord)
+                {
+                    // Nothing is swallowed and nothing is closed: the game decides. The
+                    // message was recorded for ImGui above, which is harmless - the
+                    // backend only turns it into a key event.
+                }
+                else if (mm::g_map_open.load(std::memory_order_relaxed))
                 {
                     // The map owns the whole keyboard and mouse: WASD pans it, and a
                     // click on a marker must not also swing the camera. io.WantCapture*

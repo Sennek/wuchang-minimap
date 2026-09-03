@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "chapterid.hpp"
+#include "clipimg.hpp"
 #include "config_keys.hpp"
 #include "config_rewrite.hpp"
 #include "compass.hpp"
@@ -2801,6 +2802,126 @@ namespace
         CHECK_STR(slotid::key_from_sav_path("GameSlots\\maingame1\\x.sav"), "maingame1");
     }
 
+    //======================================================================================
+    // Map -> clipboard: the pixel unpack and the DIB layout
+    //======================================================================================
+    //
+    // The D3D12 readback around this cannot be tested offline; these two can, and they are
+    // the parts that fail SILENTLY - a wrong unpack gives a picture with shifted channels
+    // and a wrong DIB gives one that pastes upside down or not at all. This game's back
+    // buffer is R10G10B10A2_UNORM (lessons.md), which is exactly the case every
+    // screenshot example gets wrong.
+
+    void test_clipimg()
+    {
+        std::printf("map screenshot: pixel unpack and DIB layout\n");
+
+        // ---- format recognition -----------------------------------------------------
+        CHECK(clipimg::fmt_from_dxgi(24) == clipimg::Fmt::R10G10B10A2); // the real one here
+        CHECK(clipimg::fmt_from_dxgi(28) == clipimg::Fmt::R8G8B8A8);
+        CHECK(clipimg::fmt_from_dxgi(29) == clipimg::Fmt::R8G8B8A8); // _SRGB
+        CHECK(clipimg::fmt_from_dxgi(87) == clipimg::Fmt::B8G8R8A8);
+        CHECK(clipimg::fmt_from_dxgi(91) == clipimg::Fmt::B8G8R8A8);
+        // A float back buffer would need tone mapping, not unpacking - refused, not guessed.
+        CHECK(clipimg::fmt_from_dxgi(10) == clipimg::Fmt::Unknown); // R16G16B16A16_FLOAT
+        CHECK(clipimg::fmt_from_dxgi(0) == clipimg::Fmt::Unknown);
+
+        // ---- 10-bit -> 8-bit --------------------------------------------------------
+        // Rounded, not shifted: `v >> 2` makes white 252, which is a visible grey cast.
+        CHECK_EQ(clipimg::from10(0), 0);
+        CHECK_EQ(clipimg::from10(1023), 255);
+        CHECK_EQ(clipimg::from10(512), 128);
+        // Round-to-nearest against the real range, not a shift: 1020/1023 is 254.25 and
+        // must land on 254, where the obvious `v >> 2` gives 255.
+        CHECK_EQ(clipimg::from10(1020), 254);
+        CHECK(clipimg::from10(1020) != (1020u >> 2));
+
+        // ---- unpack ------------------------------------------------------------------
+        {
+            // R = 1023, G = 0, B = 512, A = 3  ->  bits: R 0-9, G 10-19, B 20-29, A 30-31.
+            const std::uint32_t px = 1023u | (0u << 10) | (512u << 20) | (3u << 30);
+            std::uint8_t src[4];
+            std::memcpy(src, &px, 4);
+            std::uint8_t dst[4]{};
+            CHECK(clipimg::unpack_row(clipimg::Fmt::R10G10B10A2, src, dst, 1));
+            CHECK_EQ(dst[0], 128); // B
+            CHECK_EQ(dst[1], 0);   // G
+            CHECK_EQ(dst[2], 255); // R
+            CHECK_EQ(dst[3], 255); // alpha is forced opaque, never the buffer's 2 bits
+        }
+        {
+            const std::uint8_t src[8] = {1, 2, 3, 4, 5, 6, 7, 8}; // RGBA, two pixels
+            std::uint8_t dst[8]{};
+            CHECK(clipimg::unpack_row(clipimg::Fmt::R8G8B8A8, src, dst, 2));
+            CHECK_EQ(dst[0], 3); // B
+            CHECK_EQ(dst[1], 2); // G
+            CHECK_EQ(dst[2], 1); // R
+            CHECK_EQ(dst[3], 255);
+            CHECK_EQ(dst[4], 7);
+            CHECK_EQ(dst[6], 5);
+        }
+        {
+            const std::uint8_t src[4] = {9, 8, 7, 0}; // already BGRA
+            std::uint8_t dst[4]{};
+            CHECK(clipimg::unpack_row(clipimg::Fmt::B8G8R8A8, src, dst, 1));
+            CHECK_EQ(dst[0], 9);
+            CHECK_EQ(dst[1], 8);
+            CHECK_EQ(dst[2], 7);
+            CHECK_EQ(dst[3], 255);
+        }
+        {
+            std::uint8_t dst[4]{};
+            const std::uint8_t src[4]{};
+            CHECK(!clipimg::unpack_row(clipimg::Fmt::Unknown, src, dst, 1));
+            CHECK(!clipimg::unpack_row(clipimg::Fmt::R8G8B8A8, nullptr, dst, 1));
+            CHECK(!clipimg::unpack_row(clipimg::Fmt::R8G8B8A8, src, dst, 0));
+        }
+
+        // ---- the DIB -----------------------------------------------------------------
+        {
+            // 2x3 BGRA, top-down, with a source pitch bigger than the row (a D3D12
+            // readback footprint is 256-aligned, so it always is).
+            const int w = 2;
+            const int h = 3;
+            const std::size_t pitch = 16;
+            std::vector<std::uint8_t> src(pitch * h, 0u);
+            for (int y = 0; y < h; ++y)
+            {
+                for (int x = 0; x < w; ++x)
+                {
+                    // Encode the row in blue so the flip is checkable by value.
+                    src[pitch * static_cast<std::size_t>(y) + static_cast<std::size_t>(x) * 4u] =
+                        static_cast<std::uint8_t>(10 + y);
+                }
+            }
+            std::vector<std::uint8_t> dib;
+            CHECK(clipimg::build_dib(w, h, src.data(), pitch, dib));
+            CHECK_EQ(dib.size(), clipimg::kHeaderSize + static_cast<std::size_t>(w) * 4u * h);
+            const std::uint8_t* p = dib.data();
+            CHECK_EQ(clipimg::get_u32(p + 0), 40u);  // biSize - NOT a BITMAPFILEHEADER
+            CHECK_EQ(clipimg::get_i32(p + 4), w);
+            CHECK_EQ(clipimg::get_i32(p + 8), h);    // positive = bottom-up
+            CHECK_EQ(p[14], 32);                     // biBitCount
+            CHECK_EQ(clipimg::get_u32(p + 16), 0u);  // BI_RGB
+            CHECK_EQ(clipimg::get_u32(p + 20), static_cast<std::uint32_t>(w * 4 * h));
+            // Row 0 of the DIB is the BOTTOM of the image, i.e. source row h-1.
+            const std::uint8_t* px = dib.data() + clipimg::kHeaderSize;
+            CHECK_EQ(px[0], 12);                                  // source row 2
+            CHECK_EQ(px[static_cast<std::size_t>(w) * 4u], 11);    // source row 1
+            CHECK_EQ(px[static_cast<std::size_t>(w) * 8u], 10);    // source row 0
+        }
+        {
+            std::vector<std::uint8_t> dib;
+            const std::uint8_t one[4]{};
+            CHECK(!clipimg::build_dib(0, 1, one, 4, dib));
+            CHECK(!clipimg::build_dib(1, 0, one, 4, dib));
+            CHECK(!clipimg::build_dib(1, 1, nullptr, 4, dib));
+            // A pitch smaller than a row is a caller bug, not something to read past.
+            CHECK(!clipimg::build_dib(2, 1, one, 4, dib));
+            CHECK(dib.empty());
+        }
+    }
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -2818,6 +2939,7 @@ int main(int argc, char** argv)
     test_zoom_presets();
     test_found_file();
     test_saveslot();
+    test_clipimg();
     test_ids();
     test_intern_levels();
     test_perf();

@@ -63,6 +63,7 @@
 #include "label_layout.hpp"
 #include "mapdata.hpp"
 #include "mapview.hpp"
+#include "clipimg.hpp"
 #include "markers.hpp"
 #include "shrines.hpp"
 #include "mmstate.hpp"
@@ -2529,10 +2530,268 @@ namespace overlay
         char g_toast[64]{};
         std::uint64_t g_toast_until = 0;
 
-        void toast(const char* text)
+        void toast_for(const char* text, unsigned ms)
         {
             ::strncpy_s(g_toast, sizeof(g_toast), text, _TRUNCATE);
-            g_toast_until = ::GetTickCount64() + 1000;
+            g_toast_until = ::GetTickCount64() + ms;
+        }
+
+        void toast(const char* text)
+        {
+            toast_for(text, 1000);
+        }
+
+        //==============================================================================
+        // Map -> clipboard
+        //==============================================================================
+        //
+        // The picture we want is exactly what the player is looking at, so the source is
+        // the BACK BUFFER, taken from the frame that has just been drawn - not a
+        // re-render of the map into an offscreen target (which would need our own RTV,
+        // our own pass and would then differ from the screen).
+        //
+        // THE SEQUENCE, and why it is spread over frames
+        //   frame N   : after ImGui's draw call is recorded, the back buffer is
+        //               transitioned RENDER_TARGET -> COPY_SOURCE, one
+        //               CopyTextureRegion of the canvas rect is recorded into a readback
+        //               buffer, and the fence value this frame will signal is remembered.
+        //   frame N+k : once GetCompletedValue() has passed that fence the readback is
+        //               mapped, unpacked to BGRA8 (clipimg - the back buffer is HDR10
+        //               R10G10B10A2 on this game, not R8G8B8A8) and turned into a CF_DIB
+        //               payload, which is handed to the LOOP thread.
+        //   loop      : OpenClipboard / EmptyClipboard / SetClipboardData / CloseClipboard.
+        //
+        // Two rules from lessons.md are load-bearing: nothing is mapped before its fence
+        // has passed (a readback read early is a garbage picture, not an error), and the
+        // clipboard - which is a blocking, window-station-wide, message-pumping API - is
+        // never touched from the render thread inside Present.
+        //
+        // No file is ever written.
+
+        enum class ShotStage
+        {
+            Idle = 0,
+            Recorded, // the copy is in flight on the GPU
+            Waiting,  // the loop thread has the bytes
+        };
+
+        ShotStage g_shot_stage = ShotStage::Idle;
+        std::atomic<bool> g_shot_request{false};   // loop -> render (the hotkey)
+        ID3D12Resource* g_shot_readback = nullptr; // render thread only
+        std::uint64_t g_shot_fence = 0;
+        UINT g_shot_w = 0;
+        UINT g_shot_h = 0;
+        UINT g_shot_pitch = 0;
+        clipimg::Fmt g_shot_fmt = clipimg::Fmt::Unknown;
+        // The canvas rect of the last full-map frame, in back-buffer pixels. Written by
+        // draw_full_map every frame it draws, read by the render thread in the same
+        // frame - same thread, no synchronisation needed.
+        mv::Rect g_shot_canvas{};
+        bool g_shot_canvas_valid = false;
+
+        // render -> loop: the finished DIB. A spinlock, not a queue: one screenshot can
+        // be in flight and the payload is handed over exactly once.
+        Spinlock g_shot_lock;
+        std::vector<std::uint8_t> g_shot_dib;
+        std::atomic<bool> g_shot_dib_ready{false};
+
+        // loop -> render: what to say in the toast. The loop thread owns the clipboard
+        // call, but toasts are drawn by the render thread, so the text comes back the
+        // same way everything else does - a buffer plus a flag.
+        char g_shot_toast[64]{};
+        std::atomic<bool> g_shot_toast_ready{false};
+        // loop -> render: the handover is complete, so the next request may be recorded.
+        // Without it a failed clipboard write would leave the state machine parked in
+        // Waiting for ever and the key would silently stop working.
+        std::atomic<bool> g_shot_stage_done{false};
+
+        void shot_fail(const char* why)
+        {
+            SpinGuard guard(g_shot_lock);
+            ::strncpy_s(g_shot_toast, sizeof(g_shot_toast), why, _TRUNCATE);
+            g_shot_toast_ready.store(true, std::memory_order_release);
+        }
+
+        void shot_reset()
+        {
+            safe_release(g_shot_readback);
+            g_shot_stage = ShotStage::Idle;
+            g_shot_fence = 0;
+            g_shot_w = 0;
+            g_shot_h = 0;
+            g_shot_pitch = 0;
+        }
+
+        // RENDER THREAD. Records the copy into the command list the frame is already
+        // building, between ImGui's draw call and the transition back to PRESENT. The
+        // back buffer is in RENDER_TARGET state on entry and is left in PRESENT state,
+        // i.e. this REPLACES the caller's closing barrier when it returns true.
+        bool record_shot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* backbuffer, UINT index)
+        {
+            if (g_shot_stage != ShotStage::Idle || !g_shot_request.exchange(false, std::memory_order_acquire))
+            {
+                return false;
+            }
+            ID3D12Device* dev = g_device;
+            if (dev == nullptr || backbuffer == nullptr)
+            {
+                shot_fail("screenshot: no device");
+                return false;
+            }
+            const DXGI_FORMAT fmt = g_format;
+            g_shot_fmt = clipimg::fmt_from_dxgi(static_cast<unsigned>(fmt));
+            if (g_shot_fmt == clipimg::Fmt::Unknown)
+            {
+                shot_fail("screenshot: back buffer format not supported");
+                mm::logf(L"screenshot: DXGI format {} is not one this build can unpack",
+                         static_cast<int>(fmt));
+                return false;
+            }
+            // The region: the map canvas as it was laid out this frame, clamped to the
+            // back buffer. Without a canvas (the map is not open) there is nothing to
+            // copy, and the hotkey should not have fired.
+            if (!g_shot_canvas_valid)
+            {
+                shot_fail("screenshot: the map is not open");
+                return false;
+            }
+            long x0 = static_cast<long>(g_shot_canvas.x0);
+            long y0 = static_cast<long>(g_shot_canvas.y0);
+            long x1 = static_cast<long>(g_shot_canvas.x1);
+            long y1 = static_cast<long>(g_shot_canvas.y1);
+            x0 = x0 < 0 ? 0 : x0;
+            y0 = y0 < 0 ? 0 : y0;
+            x1 = x1 > static_cast<long>(g_width) ? static_cast<long>(g_width) : x1;
+            y1 = y1 > static_cast<long>(g_height) ? static_cast<long>(g_height) : y1;
+            if (x1 - x0 < 16 || y1 - y0 < 16)
+            {
+                shot_fail("screenshot: the map canvas is too small");
+                return false;
+            }
+            g_shot_w = static_cast<UINT>(x1 - x0);
+            g_shot_h = static_cast<UINT>(y1 - y0);
+            // A readback footprint's row pitch must be 256-aligned.
+            g_shot_pitch = (g_shot_w * 4u + 255u) & ~255u;
+
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            desc.Width = static_cast<UINT64>(g_shot_pitch) * g_shot_h;
+            desc.Height = 1;
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels = 1;
+            desc.Format = DXGI_FORMAT_UNKNOWN;
+            desc.SampleDesc.Count = 1;
+            desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            if (FAILED(dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                    D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                    IID_PPV_ARGS(&g_shot_readback))))
+            {
+                shot_fail("screenshot: readback buffer allocation failed");
+                shot_reset();
+                return false;
+            }
+
+            D3D12_RESOURCE_BARRIER b{};
+            b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition.pResource = backbuffer;
+            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            b.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            list->ResourceBarrier(1, &b);
+
+            D3D12_TEXTURE_COPY_LOCATION dst{};
+            dst.pResource = g_shot_readback;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint.Offset = 0;
+            dst.PlacedFootprint.Footprint.Format = fmt;
+            dst.PlacedFootprint.Footprint.Width = g_shot_w;
+            dst.PlacedFootprint.Footprint.Height = g_shot_h;
+            dst.PlacedFootprint.Footprint.Depth = 1;
+            dst.PlacedFootprint.Footprint.RowPitch = g_shot_pitch;
+            D3D12_TEXTURE_COPY_LOCATION src{};
+            src.pResource = backbuffer;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = 0;
+            D3D12_BOX box{};
+            box.left = static_cast<UINT>(x0);
+            box.top = static_cast<UINT>(y0);
+            box.front = 0;
+            box.right = static_cast<UINT>(x1);
+            box.bottom = static_cast<UINT>(y1);
+            box.back = 1;
+            list->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+
+            b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            b.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+            list->ResourceBarrier(1, &b);
+            g_shot_stage = ShotStage::Recorded;
+            (void)index;
+            return true;
+        }
+
+        // RENDER THREAD, top of the frame. Once the GPU is past the fence, map the
+        // readback and build the DIB.
+        void shot_collect()
+        {
+            if (g_shot_stage_done.exchange(false, std::memory_order_acquire))
+            {
+                shot_reset(); // the loop thread is done with the bytes; re-arm
+            }
+            if (g_shot_stage != ShotStage::Recorded || g_shot_readback == nullptr || g_fence == nullptr)
+            {
+                return;
+            }
+            if (g_shot_fence == 0 || g_fence->GetCompletedValue() < g_shot_fence)
+            {
+                return;
+            }
+            void* mapped = nullptr;
+            D3D12_RANGE range{};
+            range.Begin = 0;
+            range.End = static_cast<SIZE_T>(g_shot_pitch) * g_shot_h;
+            if (FAILED(g_shot_readback->Map(0, &range, &mapped)) || mapped == nullptr)
+            {
+                shot_fail("screenshot: readback map failed");
+                shot_reset();
+                return;
+            }
+            // Unpack row by row into a tight BGRA image, then let clipimg flip it into
+            // the bottom-up DIB the clipboard wants.
+            std::vector<std::uint8_t> bgra(static_cast<std::size_t>(g_shot_w) * 4u * g_shot_h);
+            bool ok = true;
+            for (UINT y = 0; y < g_shot_h && ok; ++y)
+            {
+                const auto* srow = static_cast<const std::uint8_t*>(mapped) +
+                                   static_cast<std::size_t>(y) * g_shot_pitch;
+                ok = clipimg::unpack_row(g_shot_fmt, srow,
+                                         bgra.data() + static_cast<std::size_t>(y) * g_shot_w * 4u,
+                                         static_cast<int>(g_shot_w));
+            }
+            const D3D12_RANGE none{0, 0};
+            g_shot_readback->Unmap(0, &none);
+            if (!ok)
+            {
+                shot_fail("screenshot: pixel unpack failed");
+                shot_reset();
+                return;
+            }
+            std::vector<std::uint8_t> dib;
+            if (!clipimg::build_dib(static_cast<int>(g_shot_w), static_cast<int>(g_shot_h), bgra.data(),
+                                    static_cast<std::size_t>(g_shot_w) * 4u, dib))
+            {
+                shot_fail("screenshot: bitmap build failed");
+                shot_reset();
+                return;
+            }
+            {
+                SpinGuard guard(g_shot_lock);
+                g_shot_dib = std::move(dib);
+            }
+            g_shot_dib_ready.store(true, std::memory_order_release);
+            safe_release(g_shot_readback);
+            g_shot_stage = ShotStage::Waiting;
         }
 
         //==============================================================================
@@ -4459,6 +4718,7 @@ namespace overlay
             // The Stats panel belongs to the map mode, so it goes with it - otherwise it
             // would be left drawn over the game with nothing swallowing the input.
             g_stats_page = false;
+            g_shot_canvas_valid = false;
             mm::logf(L"full map closed: {}", why);
         }
 
@@ -4599,6 +4859,12 @@ namespace overlay
             const bool canvas_hovered = ImGui::IsItemHovered();
             const bool canvas_active = ImGui::IsItemActive();
             const mv::Rect canvas{cpos.x, cpos.y, cpos.x + csize.x, cpos.y + csize.y};
+            // What the screenshot key copies. Recorded every frame the map draws, on
+            // the same thread that reads it, so no synchronisation is involved - and
+            // cleared by close_map, which is what makes "the map is not open" a
+            // reportable failure instead of a copy of whatever was there last.
+            g_shot_canvas = canvas;
+            g_shot_canvas_valid = true;
 
             //--------------------------------------------------------------------------
             // The legend, which IS the category filter
@@ -5151,6 +5417,8 @@ namespace overlay
                 add(left, "right-click, Space", "set a waypoint (again on it clears)");
                 add(left, "left-click, F", "toggle found");
                 add(left, "click a legend row", "filter that category");
+                add(left, key_name_ascii(cfg.screenshot_key), "copy the map to the clipboard");
+                add(left, "Stats", "collection statistics");
                 add(left, "?", "this legend");
                 add(left, key_name_ascii(cfg.map_key) + ", Esc", "close the map");
                 if (cfg.map_gamepad && gp.connected)
@@ -6521,6 +6789,18 @@ namespace overlay
             draw_compass(cfg, snap, hud_ok);
             draw_highlight(cfg, snap, hud_ok);
 
+            // The clipboard result comes back from the loop thread as text plus a flag;
+            // turn it into a toast here, where toasts live.
+            if (g_shot_toast_ready.exchange(false, std::memory_order_acquire))
+            {
+                char text[64]{};
+                {
+                    SpinGuard guard(g_shot_lock);
+                    ::strncpy_s(text, sizeof(text), g_shot_toast, _TRUNCATE);
+                }
+                toast_for(text, 2500);
+            }
+
             // Toasts last, so they sit over everything they are talking about.
             draw_toast();
         }
@@ -6868,6 +7148,10 @@ namespace overlay
                 // release a resource the loop thread may still be writing into.
             }
             release_finished_uploads();
+            // A screenshot whose copy has landed becomes a DIB here, at the top of a
+            // frame and after the fence has passed - never inside the frame that
+            // recorded it.
+            shot_collect();
 
             if (g_pf_frame < 0)
             {
@@ -6918,9 +7202,16 @@ namespace overlay
             g_cmd_list->SetDescriptorHeaps(1, heaps);
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_cmd_list);
 
-            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-            g_cmd_list->ResourceBarrier(1, &barrier);
+            // The screenshot copy, if one was asked for: it takes the back buffer from
+            // RENDER_TARGET to PRESENT itself (via COPY_SOURCE), so it REPLACES the
+            // closing barrier below rather than adding to it.
+            const bool shot_recorded = record_shot_copy(g_cmd_list, g_backbuffers[index], index);
+            if (!shot_recorded)
+            {
+                barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+                g_cmd_list->ResourceBarrier(1, &barrier);
+            }
             g_cmd_list->Close();
 
             ID3D12CommandQueue* queue = g_queue.load(std::memory_order_acquire);
@@ -6930,6 +7221,10 @@ namespace overlay
             ++g_fence_value;
             queue->Signal(g_fence, g_fence_value);
             frame.fence_value = g_fence_value;
+            if (shot_recorded)
+            {
+                g_shot_fence = g_fence_value; // the readback may not be mapped before this
+            }
             // The buffer this frame sampled may not be rewritten until the GPU is past
             // this fence.
             {
@@ -7414,6 +7709,77 @@ namespace overlay
             {
                 mm::log(L"minimap zoom: minimap_zoom_presets is empty - nothing to cycle through");
             }
+        }
+
+        // MAP -> CLIPBOARD. Only while the full map is open, which is also what makes a
+        // plain letter safe as the default: the map mode swallows every keyboard message
+        // (lessons.md), so `C` cannot reach the game while this can fire.
+        static bool shot_down = false;
+        const bool shot_now = (::GetAsyncKeyState(cfg.screenshot_key) & 0x8000) != 0;
+        if (shot_now && !shot_down && foreground && mm::g_map_open.load())
+        {
+            g_shot_request.store(true, std::memory_order_release);
+        }
+        shot_down = shot_now;
+
+        // The finished bitmap, handed over by the render thread. The clipboard API opens
+        // a window-station-wide lock and can block; it belongs here and nowhere near
+        // Present.
+        if (g_shot_dib_ready.exchange(false, std::memory_order_acquire))
+        {
+            std::vector<std::uint8_t> dib;
+            {
+                SpinGuard guard(g_shot_lock);
+                dib.swap(g_shot_dib);
+            }
+            const char* why = nullptr;
+            if (dib.size() <= clipimg::kHeaderSize)
+            {
+                why = "map copy failed: empty bitmap";
+            }
+            else if (::OpenClipboard(nullptr) == 0)
+            {
+                why = "map copy failed: clipboard is busy";
+            }
+            else
+            {
+                // GMEM_MOVEABLE is required: the clipboard takes OWNERSHIP of the handle
+                // on success, so it must not be freed afterwards - and must be freed by
+                // us on failure, which is the only branch that calls GlobalFree.
+                HGLOBAL mem = ::GlobalAlloc(GMEM_MOVEABLE, dib.size());
+                void* dst = mem != nullptr ? ::GlobalLock(mem) : nullptr;
+                if (dst != nullptr)
+                {
+                    std::memcpy(dst, dib.data(), dib.size());
+                    ::GlobalUnlock(mem);
+                    ::EmptyClipboard();
+                    if (::SetClipboardData(CF_DIB, mem) == nullptr)
+                    {
+                        ::GlobalFree(mem);
+                        why = "map copy failed: SetClipboardData";
+                    }
+                }
+                else
+                {
+                    if (mem != nullptr)
+                    {
+                        ::GlobalFree(mem);
+                    }
+                    why = "map copy failed: out of memory";
+                }
+                ::CloseClipboard();
+            }
+            {
+                SpinGuard guard(g_shot_lock);
+                ::strncpy_s(g_shot_toast, sizeof(g_shot_toast), why != nullptr ? why : "map copied to clipboard",
+                            _TRUNCATE);
+            }
+            g_shot_toast_ready.store(true, std::memory_order_release);
+            g_shot_stage_done.store(true, std::memory_order_release);
+            mm::logf(L"screenshot: {} ({} bytes)",
+                     why != nullptr ? std::wstring(why, why + std::strlen(why))
+                                    : std::wstring{L"copied to the clipboard"},
+                     dib.size());
         }
 
         static bool recenter_down = false;

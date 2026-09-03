@@ -312,6 +312,13 @@ namespace modswitch
     void on_update()
     {
         const std::uint64_t now = ::GetTickCount64();
+        // THE MOD LOG IS FLUSHED WHATEVER STATE THE MOD IS IN. This used to sit at the
+        // bottom of the function, i.e. on the Running path only - so a mod that had been
+        // disabled (or was stopping) never flushed its buffered tail again, and the last
+        // few kilobytes before the disable - the lines that say WHY it was disabled -
+        // were lost if the game was then closed. It is a compare and a return every time
+        // but once per three seconds.
+        mm::modlog_tick(now);
 
         if (g_state == State::Stopping)
         {
@@ -353,8 +360,5 @@ namespace modswitch
         markers::on_update();
         recon::on_update();
         watch(now);
-        // The mod's own log is buffered; this is the "every few seconds" flush, so a
-        // session that ends without any breadcrumb transition still has its tail on disk.
-        mm::modlog_tick(now);
     }
 } // namespace modswitch

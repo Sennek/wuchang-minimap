@@ -45,6 +45,32 @@ All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
   file, a file over the size cap, more than 64 files in `markers/`, or a marker file from
   a future format version each get a line in the log.
 - **Reloading maps and markers with F5 no longer leaks a few MB every time.**
+- **One class of freeze is gone.** The part of the mod that reads your position could be
+  entered by more than one of the game's own threads at once while a level streamed in,
+  and two threads writing the same list is the kind of fault that hangs the game with no
+  crash report at all. It now belongs to a single thread.
+- **Getting stuck on "no player" after a fast travel is far less likely.** When the mod
+  lost track of you it also threw away the one route that could find you again, and fell
+  back to a route that can hand it the *previous* area's player - which is what left the
+  minimap blank for a minute and a half in one session. It keeps that route now, and the
+  log says which one answered.
+- **A level change the mod could miss.** It used to check "am I still in the same area?"
+  against an answer it had taken from the same place, so the test could never fail. It is
+  checked against the game's own idea of the current area now.
+- **Less stutter from the map reader.** Every position and menu read asked the game for a
+  property by name and allocated memory to do it - hundreds of times a second. It does
+  not any more.
+- **If a game patch renames something the mod uses, the log now says so.** Features used
+  to fail silently: an update could stop the minimap ever hiding for menus and nothing
+  anywhere said why. Anything the mod asks the game for and cannot find, or that has
+  changed shape, is named once in the log and switched off rather than guessed at.
+- **A warning when the map data does not match your game build.** Markers are dumped from
+  one build of the game and can shift when it is patched, so the mod now compares the two
+  and says so - instead of leaving "my markers are in the wrong place" unanswerable.
+- **The log keeps its last few seconds when you turn the mod off.** Turning the mod off
+  used to be the one thing that lost the lines explaining why.
+- **The performance table in the F2 panel counts each activity once**, and can no longer
+  show a row with no name.
 
 ## 1.0.0 - 2026-09-03
 

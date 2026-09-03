@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 using namespace RC;
@@ -1582,12 +1583,28 @@ namespace mm
         perf::reset_peaks(g_perf);
     }
 
+    // THE PER-THREAD CACHE SLOT, AT NAMESPACE SCOPE ON PURPOSE.
+    //
+    // These were function-local `static thread_local`s, and a guarded function-local
+    // static is what lessons.md forbids on this game's game thread: MSVC implements it
+    // with the host vcruntime's `_Init_thread_header` machinery, the same class of
+    // host-CRT dependency that made std::mutex fault. Config is a trivially copyable
+    // POD whose every default member initialiser is a constant expression, so the slot
+    // is CONSTANT-initialised into the TLS image and no initialiser code runs on any
+    // thread - the static_assert is what keeps that true if Config ever grows a member.
+    // Prevents: the CRT's thread-safe-init path running inside ProcessEvent.
+    static_assert(std::is_trivially_copyable_v<Config> && std::is_trivially_destructible_v<Config>,
+                  "Config must stay a POD: cfg_cached() keeps a thread_local copy of it and a "
+                  "non-trivial member would make MSVC emit CRT TLS-init code on the game thread");
+    thread_local Config g_tls_cfg{};
+    thread_local std::uint32_t g_tls_cfg_gen = 0;
+
     const Config& cfg_cached()
     {
         // Generation 0 is never published (g_cfg_gen starts at 1), so a thread that has
         // never asked before always takes the slow path exactly once.
-        static thread_local Config tls_cfg{};
-        static thread_local std::uint32_t tls_gen = 0;
+        Config& tls_cfg = g_tls_cfg;
+        std::uint32_t& tls_gen = g_tls_cfg_gen;
 
         const std::uint32_t gen = g_cfg_gen.load(std::memory_order_acquire);
         if (tls_gen != gen)
@@ -2577,6 +2594,11 @@ namespace mm
     namespace
     {
         constexpr std::size_t kModLogFlushAt = 8192;
+        // The longest line written verbatim. The buffer is flushed at kModLogFlushAt and
+        // reserved at twice that, so buffer (< 8192) + line (<= 4096 + a short suffix) +
+        // the cap notice can never reach the reserve - i.e. `append` can never
+        // reallocate while the lock is held. See modlog_line.
+        constexpr std::size_t kModLogMaxLine = 4096;
         // PER-SESSION CAP. A 40-minute session at the default level is a few hundred
         // kilobytes; 20 MB is two orders of magnitude of headroom and still small enough
         // to attach to a bug report. At the cap one line says so and writing stops - the
@@ -2677,7 +2699,25 @@ namespace mm
             ::_snwprintf_s(stamp, std::size(stamp), _TRUNCATE, L"%02u:%02u:%02u.%03u ",
                            static_cast<unsigned>(st.wHour), static_cast<unsigned>(st.wMinute),
                            static_cast<unsigned>(st.wSecond), static_cast<unsigned>(st.wMilliseconds));
-            const std::string text = utf8_of(std::wstring{stamp} + line);
+            std::string text = utf8_of(std::wstring{stamp} + line);
+            // FIX (A.26): THE BUFFER CANNOT BE ALLOWED TO REALLOCATE UNDER THE LOCK.
+            // The header two screens up promises that nothing allocates while
+            // g_modlog_lock is held - and modlog_flush() takes that lock from the crash
+            // breadcrumb and from the stall watchdog, i.e. from a thread that may be
+            // reporting a corrupted heap. `append` broke the promise for any line longer
+            // than the reserve. The line is truncated to a bound instead, on a UTF-8
+            // character boundary, so buffer + line + the cap notice always fit inside the
+            // 2 x kModLogFlushAt bytes reserved once at open time.
+            if (text.size() > kModLogMaxLine)
+            {
+                std::size_t cut = kModLogMaxLine;
+                while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0u) == 0x80u)
+                {
+                    --cut;
+                }
+                text.resize(cut);
+                text += " [line truncated]";
+            }
             SpinGuard guard(g_modlog_lock);
             modlog_open_locked();
             if (g_modlog == INVALID_HANDLE_VALUE)
@@ -2723,6 +2763,159 @@ namespace mm
         }
         g_modlog_last_flush_ms = now_ms;
         modlog_flush();
+    }
+
+    //==================================================================================
+    // A.20: THE GAME BUILD THE SHIPPED DATA WAS DUMPED FROM
+    //==================================================================================
+    //
+    // Every marker coordinate and every map picture in this mod came out of ONE cooked
+    // build of the game. When the game is patched, actors can move, be renamed or be
+    // added - and the symptom a player reports is "the markers are all slightly wrong",
+    // which is indistinguishable from a bug in the reader. So the data files may carry a
+    // top-level `"game_build"` string (the offline extractor stamps it), and this
+    // compares it against the running executable's FILEVERSION - the same number the
+    // startup bug-report header prints.
+    //
+    // It is deliberately forgiving: 1.0.0's data files have no stamp, and a missing one
+    // is a verbose line, not a warning. Only a stamp that DISAGREES is shouted about.
+
+    namespace
+    {
+        bool g_game_build_checked = false;
+
+        // The running executable's FILEVERSION as "a.b.c.d", or an empty string. Same
+        // read as modswitch.cpp's startup header (no engine call, nothing that can
+        // fault); duplicated rather than shared because that one is a private helper of
+        // the startup log.
+        std::wstring exe_file_version()
+        {
+            wchar_t path[MAX_PATH]{};
+            if (::GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path))) == 0)
+            {
+                return {};
+            }
+            DWORD ignored = 0;
+            const DWORD size = ::GetFileVersionInfoSizeW(path, &ignored);
+            if (size == 0)
+            {
+                return {};
+            }
+            std::vector<unsigned char> buf(size);
+            if (::GetFileVersionInfoW(path, 0, size, buf.data()) == 0)
+            {
+                return {};
+            }
+            VS_FIXEDFILEINFO* info = nullptr;
+            UINT len = 0;
+            if (::VerQueryValueW(buf.data(), L"\\", reinterpret_cast<void**>(&info), &len) == 0 ||
+                info == nullptr || len < sizeof(VS_FIXEDFILEINFO))
+            {
+                return {};
+            }
+            return std::format(L"{}.{}.{}.{}", HIWORD(info->dwFileVersionMS),
+                               LOWORD(info->dwFileVersionMS), HIWORD(info->dwFileVersionLS),
+                               LOWORD(info->dwFileVersionLS));
+        }
+
+        // The value of a top-level `"key": "..."` string, searched inside the first
+        // `kHeadBytes` of the file only - which is what makes it TOP-LEVEL without a JSON
+        // parser: these files put their scalar header keys before the big arrays. No
+        // escape handling: a build string is digits and dots.
+        bool json_head_string(const std::string& text, const char* key, std::string& out)
+        {
+            constexpr std::size_t kHeadBytes = 2048;
+            const std::string needle = std::string{"\""} + key + "\"";
+            const std::size_t head = text.size() < kHeadBytes ? text.size() : kHeadBytes;
+            const std::size_t at = text.find(needle);
+            if (at == std::string::npos || at >= head)
+            {
+                return false;
+            }
+            std::size_t i = text.find(':', at + needle.size());
+            if (i == std::string::npos)
+            {
+                return false;
+            }
+            ++i;
+            while (i < text.size() && (text[i] == ' ' || text[i] == '\t'))
+            {
+                ++i;
+            }
+            if (i >= text.size() || text[i] != '"')
+            {
+                return false;
+            }
+            const std::size_t begin = i + 1;
+            const std::size_t end = text.find('"', begin);
+            if (end == std::string::npos || end - begin > 64)
+            {
+                return false;
+            }
+            out = text.substr(begin, end - begin);
+            return true;
+        }
+    } // namespace
+
+    void check_game_build()
+    {
+        if (g_game_build_checked)
+        {
+            return;
+        }
+        g_game_build_checked = true;
+
+        // The two shipped manifests, in the order a mismatch matters: marker positions
+        // first, then the map pictures.
+        const std::wstring files[2] = {mod_dir() + L"\\markers\\chapter1.json",
+                                       mod_dir() + L"\\maps\\maps.json"};
+        std::string stamped;
+        std::wstring source;
+        for (const std::wstring& path : files)
+        {
+            std::string text;
+            if (!read_whole_file(path, text))
+            {
+                continue;
+            }
+            if (json_head_string(text, "game_build", stamped))
+            {
+                source = path;
+                break;
+            }
+        }
+        if (stamped.empty())
+        {
+            MM_LOGVS(L"data provenance: neither markers\\chapter1.json nor maps\\maps.json "
+                     L"carries a \"game_build\" stamp, so the data cannot be checked against "
+                     L"the running game build");
+            return;
+        }
+        const std::wstring running = exe_file_version();
+        std::wstring wide;
+        wide.reserve(stamped.size());
+        for (char c : stamped)
+        {
+            wide.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+        }
+        if (running.empty())
+        {
+            MM_LOGV(L"data provenance: the shipped data was dumped from game build {}; this "
+                    L"executable has no version info to compare it with",
+                    wide);
+            return;
+        }
+        if (running == wide)
+        {
+            MM_LOGV(L"data provenance: the shipped data matches this game build ({})", wide);
+            return;
+        }
+        logf(L"data provenance: THIS GAME IS BUILD {} BUT THE MARKER / MAP DATA WAS DUMPED FROM "
+             L"{} ({}). Markers can be in the wrong place or missing after a game patch - if "
+             L"anything looks misplaced, that is the first thing to report.",
+             running,
+             wide,
+             source);
     }
 
     std::wstring modlog_path()

@@ -72,6 +72,9 @@ namespace gamestate
         constexpr std::uint64_t kTransitionCooldownMs = 2000;
 
         constexpr std::uint64_t kLogThrottleMs = 5000;
+        // The floor for the "this class is not a gameplay pawn" line when the class NAME
+        // changes from one rejection to the next - see resolve_pawn.
+        constexpr std::uint64_t kRejectFlipThrottleMs = 1000;
 
         // How often the streamed level set is walked to name the chapter. A chapter can
         // only change across a loading screen, so this is slow on purpose: it is ~50
@@ -97,6 +100,18 @@ namespace gamestate
 
         std::atomic<bool> g_registered{false};
         std::atomic<std::uint64_t> g_pump_calls{0};
+        // FIX (A.1): THE GAME-THREAD LATCH. The pump had a thread_local re-entrancy
+        // guard but nothing that compared the CALLING thread against the one that owns
+        // its state (contrast mm::set_loop_thread / the overlay's render-thread latch).
+        // The engine issues ProcessEvent from async-loading, audio and worker threads
+        // too, and every one of those entered with depth == 0 and mutated g_pawn,
+        // g_menu_watch, g_wcursor and the two unordered_maps concurrently with the game
+        // thread. Prevents: a data race on heap-allocated containers, i.e. the
+        // corrupted-free-list HARD DUMPLESS HANG signature in lessons.md. The id is
+        // latched by the first call that gets past the re-entrancy guard - the pump is
+        // registered from the game thread's own init and the next ProcessEvent is its.
+        std::atomic<unsigned long> g_pump_thread{0};
+        std::atomic<bool> g_wrong_thread_logged{false};
         // WHAT THE GAME THREAD IS DOING, for the loop thread's stall watchdog. A
         // relaxed store of a pointer to a string literal - no allocation, no lock, and
         // nothing that can itself stall. It is deliberately coarse: the point is to name
@@ -120,6 +135,15 @@ namespace gamestate
         uer::ObjRef g_controller{};
         bool g_pawn_is_gameplay = false;
         const void* g_world = nullptr; // the pawn's UWorld*, as a transition token
+        // FIX (A.22): THE LAST WORLD WE EVER SAW, which drop_pawn does NOT clear.
+        // `g_world` has to go to nullptr on a drop (it is the level-transition token and
+        // a stale one would defeat the world-change test), but
+        // controller_from_game_instance() starts from a world - so with only one variable
+        // the recovery route the log claims to take (UWorld -> OwningGameInstance ->
+        // LocalPlayers[0] -> PlayerController) could never run after a drop and every
+        // recovery fell through to FindFirstOf, which is what returned a controller from a
+        // dying world and stalled the reader for 86 s. Prevents: that stall.
+        const void* g_world_token = nullptr;
 
         std::uint64_t g_last_position = 0;
         // ONE BUDGET PER THING RESOLVED. These used to be a single `g_last_resolve`
@@ -140,6 +164,7 @@ namespace gamestate
 
         std::uint64_t g_log_no_pawn = 0;
         std::uint64_t g_log_rejected = 0;
+        std::uint64_t g_log_wrong_world = 0;
         std::uint64_t g_log_capture_failed = 0;
         std::uint64_t g_log_no_controller = 0;
         std::uint64_t g_no_pawn_since = 0;
@@ -408,6 +433,7 @@ namespace gamestate
         Rare g_rare_ctrl_drop;
         Rare g_rare_stuck;
         Rare g_rare_wcap;
+        Rare g_rare_rootcap;
 
         bool throttled(std::uint64_t& last, std::uint64_t now)
         {
@@ -444,7 +470,7 @@ namespace gamestate
             const bool had_pawn = !g_pawn.empty();
             g_pawn.reset();
             g_pawn_is_gameplay = false;
-            g_world = nullptr;
+            g_world = nullptr; // g_world_token deliberately keeps the old value (A.22)
             g_pawn_class_name.clear();
             g_pawn_full_name.clear();
             g_pawn_short_name.clear();
@@ -539,13 +565,23 @@ namespace gamestate
         // liveness test (the allocation is still there and still says it is valid) and
         // then reports a null `Pawn` forever. The GameInstance chain is the only route
         // that answers "the controller the game is driving THIS world with".
-        UObject* controller_from_game_instance()
+        UObject* controller_from_game_instance(bool& from_stale_world)
         {
-            if (g_world == nullptr)
+            // The live world if there is one, otherwise the last one we saw (A.22): after
+            // a drop that is the only route that can name the controller the game is
+            // driving, and every read below is guarded.
+            from_stale_world = false;
+            const void* start = g_world;
+            if (start == nullptr)
+            {
+                start = g_world_token;
+                from_stale_world = start != nullptr;
+            }
+            if (start == nullptr)
             {
                 return nullptr;
             }
-            UObject* world = static_cast<UObject*>(const_cast<void*>(g_world));
+            UObject* world = static_cast<UObject*>(const_cast<void*>(start));
             if (!mem::readable(world, 0x40))
             {
                 return nullptr;
@@ -581,6 +617,14 @@ namespace gamestate
                 return nullptr;
             }
             UObject* local_player = static_cast<UObject*>(raw);
+            // FIX (A.9): LocalPlayers[0] came out of a raw read validated only by
+            // plausible_ptr, and g_layouts.get() dereferences it immediately
+            // (GetClassPrivate) OUTSIDE any SEH guard. Prevents: an access violation on a
+            // half-torn-down GameInstance during a level transition.
+            if (!mem::readable(local_player, 0x40))
+            {
+                return nullptr;
+            }
             const uer::ClassLayout* ll = g_layouts.get(local_player);
             return uer::read_object_prop(ll, local_player, L"PlayerController");
         }
@@ -588,14 +632,24 @@ namespace gamestate
         void resolve_controller()
         {
             // The world's own answer first; FindFirstOf is the fallback, because it can
-            // hand back a controller from a world that has already gone.
-            UObject* controller = controller_from_game_instance();
+            // hand back a controller from a world that has already gone. WHICH ROUTE
+            // ANSWERED IS LOGGED (A.22) - the old line named the GameInstance chain while
+            // the code could only ever have used FindFirstOf.
+            bool stale_world = false;
+            const wchar_t* route = L"UWorld -> OwningGameInstance -> LocalPlayers[0]";
+            UObject* controller = controller_from_game_instance(stale_world);
+            if (stale_world && controller != nullptr)
+            {
+                route = L"the LAST KNOWN world -> OwningGameInstance -> LocalPlayers[0]";
+            }
             if (controller == nullptr)
             {
+                route = L"FindFirstOf(DCSPlayerController_C)";
                 controller = UObjectGlobals::FindFirstOf(kControllerClass);
             }
             if (controller == nullptr)
             {
+                route = L"FindFirstOf(PlayerController)";
                 controller = UObjectGlobals::FindFirstOf(L"PlayerController");
             }
             if (controller == nullptr || !UObjectGlobals::IsValidObjectForFindXOf(controller))
@@ -613,6 +667,9 @@ namespace gamestate
             if (uer::capture(controller, ref))
             {
                 g_controller = ref;
+                // VERBOSE: it is one line per controller resolve, and the route is the
+                // whole point of the fix.
+                MM_LOGV(L"player controller resolved through {}", route);
             }
             else
             {
@@ -735,8 +792,20 @@ namespace gamestate
                 }
             }
 
+            // FIX (A.23): THE WORLD CROSS-CHECK. resolve_pawn adopted the first
+            // class-matching candidate whatever world it belonged to, and then set
+            // `g_world` FROM THAT PAWN - so the world-change test in the pump compared the
+            // pawn's world against a token derived from the same pawn and could never
+            // fire. The controller is resolved independently (and preferentially from the
+            // world's own GameInstance chain), so its world is the reference: a pawn from a
+            // world that is being torn down is rejected, and the token comes from the
+            // controller rather than from the pawn. Prevents: adopting a dying world's pawn
+            // and never noticing the level changed.
+            const void* ref_world = uer::alive(g_controller) ? uer::world_of(g_controller) : nullptr;
+
             uer::ObjRef ref{};
             std::wstring cls;
+            const void* cand_world = nullptr;
             bool have = false;
             bool any_candidate = false;
             bool any_capturable = false;
@@ -756,7 +825,15 @@ namespace gamestate
                 const std::wstring c = uer::class_name(r);
                 if (c.find(kGameplayPawnSubstr) == std::wstring::npos)
                 {
-                    if (c != g_rejected_class || throttled(g_log_rejected, now))
+                    // A CHANGED CLASS NAME IS NOT A LICENCE TO LOG EVERY PUMP. This was
+                    // `c != g_rejected_class || throttled(...)`, so two candidate classes
+                    // alternating (the Lobby DefaultPawn and a spectator, which is exactly
+                    // what a loading screen produces) wrote a line at the full 2 Hz resolve
+                    // rate. A new class still reports promptly - just not ten times a
+                    // second.
+                    const bool changed = c != g_rejected_class;
+                    if (now - g_log_rejected >= (changed ? kRejectFlipThrottleMs
+                                                         : g_tune.log_throttle_ms))
                     {
                         g_rejected_class = c;
                         g_log_rejected = now;
@@ -767,8 +844,23 @@ namespace gamestate
                     }
                     continue;
                 }
+                const void* w = uer::world_of(r);
+                if (ref_world != nullptr && w != nullptr && w != ref_world)
+                {
+                    if (throttled(g_log_wrong_world, now))
+                    {
+                        mm::logf(L"pawn candidate '{}' belongs to another UWorld than the player "
+                                 L"controller ({} vs {}) - it is a leftover from a level that is "
+                                 L"being torn down; trying the next route",
+                                 c,
+                                 w,
+                                 ref_world);
+                    }
+                    continue;
+                }
                 ref = r;
                 cls = c;
+                cand_world = w;
                 have = true;
                 break;
             }
@@ -792,7 +884,9 @@ namespace gamestate
             }
             if (!have)
             {
-                return; // every candidate was rejected by the class gate; already logged
+                // Every candidate was rejected by the class gate or by the world check;
+                // both log their own line.
+                return;
             }
 
             g_pawn = ref;
@@ -800,7 +894,13 @@ namespace gamestate
             g_pawn_class_name = cls;
             g_pawn_short_name = ref.obj->GetName();
             g_pawn_full_name = ref.obj->GetFullName();
-            g_world = uer::world_of(ref);
+            // The controller's world when there is one (A.23): a token taken from the pawn
+            // itself cannot detect that the pawn's world changed.
+            g_world = ref_world != nullptr ? ref_world : cand_world;
+            if (g_world != nullptr)
+            {
+                g_world_token = g_world;
+            }
             g_funcs.clear();
             g_layouts.clear();
             g_rejected_class.clear();
@@ -938,7 +1038,14 @@ namespace gamestate
                 // A flip in either direction invalidates the root cache: opening a menu
                 // may have added a root we have never seen, and closing one leaves a
                 // root behind that must be re-confirmed against the live viewport.
+                //
+                // ARM THE SCHEDULE HERE, NOT ONLY THE FLAG. set_menu_open runs at the END
+                // of the pump and the flag is consumed near its START, so a flip used to
+                // reach the discovery walk one whole pump late - and the walk is the only
+                // thing that can find the root of a menu never seen before. The flag stays
+                // set as well; arming twice is idempotent.
                 g_force_widget_sweep = true;
+                scan::sweep_arm(g_sweep, now);
                 // VERBOSE. It is a per-menu-press transition (54 lines in run 5) and
                 // the state it reports is in the snapshot the F2 panel prints live.
                 MM_LOGV(L"menu state -> {} ({}); a full widget sweep is queued",
@@ -978,7 +1085,21 @@ namespace gamestate
             }
             if (g_menu_watch.size() >= g_tune.max_menu_roots)
             {
-                return false;
+                // THE CAP IS NOT "NOTHING NEW". Returning false here told the schedule the
+                // sweep had discovered nothing and let it back off - while the truth is
+                // that a root WAS discovered and could not be recorded, so discovery has
+                // to stay fast. The game only ever has 5-6 roots, so a full 32-entry
+                // watchlist is a bug, and it now says so.
+                if (rare(g_rare_rootcap, ::GetTickCount64()))
+                {
+                    mm::logf(L"menu watchlist is full at {} root(s) - a newly confirmed root "
+                             L"cannot be recorded, so the discovery walk stays on its fast "
+                             L"cadence (the game only ever has 5-6: raise "
+                             L"reader_max_menu_roots and report this){}",
+                             g_tune.max_menu_roots,
+                             rare_note(g_rare_rootcap));
+                }
+                return true;
             }
             uer::ObjRef ref{};
             if (uer::capture(w, ref))
@@ -1797,6 +1918,30 @@ namespace gamestate
                 return;
             }
 
+            // ...and then the THREAD guard (A.1). Everything below this line touches
+            // game-thread-only state.
+            const unsigned long tid = ::GetCurrentThreadId();
+            unsigned long owner = g_pump_thread.load(std::memory_order_relaxed);
+            if (owner == 0)
+            {
+                g_pump_thread.store(tid, std::memory_order_relaxed);
+                owner = tid;
+            }
+            if (owner != tid)
+            {
+                // Once, at verbose: it is a permanent property of the process, not an
+                // event, and it must not be able to flood the log from a worker thread.
+                if (!g_wrong_thread_logged.exchange(true, std::memory_order_relaxed))
+                {
+                    MM_LOGV(L"ProcessEvent reached the reader on thread {} as well; the reader "
+                            L"belongs to thread {} and every other thread returns immediately "
+                            L"(its state is not synchronised)",
+                            tid,
+                            owner);
+                }
+                return;
+            }
+
             const std::uint64_t now = ::GetTickCount64();
             // Twice a second at most; every other call is a compare (see refresh_tunables).
             refresh_tunables(now);
@@ -1826,6 +1971,10 @@ namespace gamestate
                     const StageMark wmark{"fast slice: widgets"};
                     widget_scan_pump(now, mm::qpc_us());
                 }
+                // The stage is a breadcrumb for the stall watchdog, so it must not be left
+                // naming work that has already finished - a freeze between pumps used to
+                // be reported as a hang in the widget slice.
+                g_pump_stage.store("between pumps", std::memory_order_relaxed);
                 return;
             }
             g_last_position = now;
@@ -1887,6 +2036,7 @@ namespace gamestate
                 else
                 {
                     g_world = world;
+                    g_world_token = world; // the recovery route's starting point (A.22)
                 }
             }
             if (!pawn_ok && !g_pawn.empty())
@@ -2035,7 +2185,6 @@ namespace gamestate
                     commit_menu = update_widgets(commit_holder, discovered_new);
                     mm::perf_record(g_pf_sweep, sweep_t0);
                     scan::sweep_done(g_sweep, now, discovered_new, g_menu_watch.empty());
-                    roots_visible = g_widgets_visible;
                 }
             }
             else
@@ -2049,7 +2198,9 @@ namespace gamestate
                     const mm::PerfScope commit_scope(g_pf_wcommit);
                     commit_menu = commit_widget_candidates(commit_holder, discovered_new);
                 }
-                roots_visible = g_widgets_visible;
+                // (`roots_visible` is not written back from g_widgets_visible here: it was
+                // a dead store - the snapshot and the state line both read
+                // g_widgets_visible, which the commit has just updated.)
                 g_wcand_round_pub.store(g_wcand_round, std::memory_order_relaxed);
                 g_wpending_pub.store(static_cast<std::uint32_t>(g_wpending.size()),
                                      std::memory_order_relaxed);
@@ -2243,6 +2394,11 @@ namespace gamestate
         {
             return;
         }
+        // FIX (A.20): the marker/map data was dumped from ONE game build. If the game
+        // has been patched since, actor ids and world coordinates can have moved and the
+        // symptom is markers in the wrong place - so the mismatch is named here, once,
+        // rather than guessed at from a bug report.
+        mm::check_game_build();
         RC::Unreal::Hook::RegisterProcessEventPreCallback(
             [](UObject*, RC::Unreal::UFunction*, void*) { pump(); });
         mm::log(L"game-state reader registered on the ProcessEvent game-thread pump "

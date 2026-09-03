@@ -20,11 +20,16 @@
 #include <Windows.h>
 
 #include <cstdint>
+#include <format>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "mem.hpp"
+#include "mmstate.hpp"
 #include "ue_min.hpp"
 
 namespace uer
@@ -50,9 +55,33 @@ namespace uer
         FProperty* field = nullptr;
     };
 
+    // FIX (A.16): `std::unordered_map<std::wstring, T>::find(const wchar_t*)`
+    // CONSTRUCTS a std::wstring for the lookup, and MSVC's small-string buffer holds
+    // seven wchars - so L"Visibility", L"RootComponent" and L"K2_GetActorLocation" each
+    // took a heap allocation on the GAME THREAD on every single call (the widget round
+    // asks for `Visibility` ~900 times). A transparent hash plus std::equal_to<> lets a
+    // lookup take a std::wstring_view and allocate nothing; only a MISS - once per class
+    // per level - still builds the owned key. Prevents: per-call malloc/free traffic on
+    // the engine's own call stack, which is also the heap the ImGui race corrupts.
+    struct WStrHash
+    {
+        using is_transparent = void;
+
+        std::size_t operator()(std::wstring_view s) const noexcept
+        {
+            return std::hash<std::wstring_view>{}(s);
+        }
+        std::size_t operator()(const std::wstring& s) const noexcept
+        {
+            return std::hash<std::wstring_view>{}(std::wstring_view{s});
+        }
+    };
+
+    using PropMap = std::unordered_map<std::wstring, Prop, WStrHash, std::equal_to<>>;
+
     struct ClassLayout
     {
-        std::unordered_map<std::wstring, Prop> props;
+        PropMap props;
         int walked = 0;
     };
 
@@ -112,9 +141,19 @@ namespace uer
             {
                 return &it->second;
             }
-            if (cache_.size() > 4096)
+            // FIX (A.10): this used to `cache_.clear()` past 4096 entries, which
+            // invalidated every `const ClassLayout*` a caller was still holding - a
+            // latent use-after-free on the game thread (the pump keeps a layout pointer
+            // across a whole read_location / widget test). unordered_map never moves the
+            // nodes it already has, so growing is free of that hazard and the cap only
+            // has to be VISIBLE. Prevents: a dangling ClassLayout* mid-pump.
+            if (cache_.size() == kCacheCap && !capped_logged_)
             {
-                cache_.clear(); // pathological; keeps the map bounded
+                capped_logged_ = true;
+                mm::logf(L"class layout cache passed {} classes - it keeps growing on purpose "
+                         L"(clearing it would dangle a ClassLayout* a caller still holds); it is "
+                         L"dropped whole on every level transition",
+                         kCacheCap);
             }
             return &cache_.emplace(cls, walk_class(cls)).first->second;
         }
@@ -125,7 +164,9 @@ namespace uer
         }
 
       private:
+        static constexpr std::size_t kCacheCap = 4096;
         std::unordered_map<UClass*, ClassLayout> cache_;
+        bool capped_logged_ = false;
     };
 
     inline const Prop* find_prop(const ClassLayout* layout, const wchar_t* name)
@@ -134,7 +175,8 @@ namespace uer
         {
             return nullptr;
         }
-        const auto it = layout->props.find(name);
+        // Heterogeneous lookup: no std::wstring is built for the key (see WStrHash).
+        const auto it = layout->props.find(std::wstring_view{name});
         return it == layout->props.end() ? nullptr : &it->second;
     }
 
@@ -330,12 +372,32 @@ namespace uer
         double roll = 0.0;
     };
 
+    // Declared here, defined with the other signature helpers below: the cache keeps the
+    // reflected parameter-block size next to the UFunction*.
+    inline int func_param_size(UFunction* fn);
+
     // Per-object function lookup is cheap enough (a name hash on the class chain) but
     // it is called at 10 Hz for the same three names, so cache per class.
+    //
+    // The entry is not just the pointer any more:
+    //   * `parm_size` is what the reflection system says ProcessEvent's parameter block
+    //     is, cached so the SIGNATURE can be checked without a second walk (A.8);
+    //   * `rejected` remembers that the check refused it, so a bad signature costs one
+    //     log line per (class, function) and nothing after that.
     class FuncCache
     {
       public:
-        UFunction* get(UObject* obj, const wchar_t* name)
+        struct Entry
+        {
+            UFunction* fn = nullptr;
+            int parm_size = -1;
+            bool rejected = false;
+        };
+
+        // The raw lookup. References into an unordered_map are stable across rehashing,
+        // so the returned pointer stays valid until clear() - which is why the
+        // 4096-entry self-clear had to go (A.10).
+        Entry* lookup(UObject* obj, const wchar_t* name)
         {
             if (obj == nullptr)
             {
@@ -346,46 +408,165 @@ namespace uer
             {
                 return nullptr;
             }
-            const Key key{cls, name};
-            const auto it = cache_.find(key);
+            const auto it = cache_.find(KeyView{cls, std::wstring_view{name}});
             if (it != cache_.end())
             {
-                return it->second;
+                return &it->second;
             }
-            UFunction* fn = obj->GetFunctionByNameInChain(name);
-            if (cache_.size() > 4096)
+            Entry e{};
+            e.fn = obj->GetFunctionByNameInChain(name);
+            e.parm_size = e.fn != nullptr ? func_param_size(e.fn) : -1;
+            // FIX (A.10): never clear here. A caller holds the Entry*/UFunction* across
+            // the call it is about to make, so clearing is a use-after-free. The cap only
+            // has to be VISIBLE.
+            if (cache_.size() == kCacheCap && !capped_logged_)
             {
-                cache_.clear();
+                capped_logged_ = true;
+                mm::logf(L"UFunction cache passed {} (class, name) pairs - it keeps growing on "
+                         L"purpose (clearing it would dangle a UFunction* a caller is about to "
+                         L"call); it is dropped whole on every level transition",
+                         kCacheCap);
             }
-            cache_.emplace(key, fn);
-            return fn;
+            Entry* stored = &cache_.emplace(Key{cls, std::wstring{name}}, e).first->second;
+            if (e.fn == nullptr)
+            {
+                // FIX (A.21): a function renamed on a new game build used to degrade in
+                // total silence - no `IsInViewport` means the minimap never hides again,
+                // and the only trace in the log was `widgets 0/N`. One line per
+                // (class, name), at the normal level, in the log players attach.
+                log_once(cls, name,
+                         L"does not exist on this class - whatever needs it is off "
+                         L"(renamed on this game build?)");
+            }
+            return stored;
+        }
+
+        UFunction* get(UObject* obj, const wchar_t* name)
+        {
+            Entry* e = lookup(obj, name);
+            return (e != nullptr && !e->rejected) ? e->fn : nullptr;
+        }
+
+        // FIX (A.8): the SIGNATURE GATE for a caller that hands ProcessEvent a
+        // fixed-size parameter block. ProcessEvent copies the function's own parameter
+        // block size out of - and the out-parameters back into - that buffer, so a
+        // function whose reflected block is not exactly `bytes` long would read or write
+        // past it: a stack smash on the game thread, from a guess. lessons.md: never call
+        // a UFunction with a guessed signature. On a mismatch the function is treated as
+        // MISSING (the caller degrades exactly as it does for a renamed one) and one line
+        // names both sizes.
+        UFunction* get_checked(UObject* obj, const wchar_t* name, std::size_t bytes)
+        {
+            Entry* e = lookup(obj, name);
+            if (e == nullptr || e->fn == nullptr || e->rejected)
+            {
+                return nullptr;
+            }
+            if (e->parm_size != static_cast<int>(bytes))
+            {
+                e->rejected = true;
+                log_once(cls_of(obj), name,
+                         std::format(L"has a {}-byte reflected parameter block, not the {} bytes "
+                                     L"this mod hands ProcessEvent - the call is NOT made (the "
+                                     L"signature changed on this game build?)",
+                                     e->parm_size,
+                                     bytes));
+                return nullptr;
+            }
+            return e->fn;
         }
 
         void clear()
         {
             cache_.clear();
+            // `logged_` is deliberately NOT cleared: it is what makes "once per session"
+            // true, and this cache is dropped on every level transition.
         }
 
       private:
+        static constexpr std::size_t kCacheCap = 4096;
+
         struct Key
         {
             UClass* cls;
             std::wstring name;
-            bool operator==(const Key& o) const
-            {
-                return cls == o.cls && name == o.name;
-            }
         };
 
+        struct KeyView
+        {
+            UClass* cls;
+            std::wstring_view name;
+        };
+
+        // Heterogeneous key, for the same reason find_prop has one (A.16): a lookup must
+        // not build a std::wstring, because MSVC's small-string buffer is seven wchars
+        // and L"K2_GetActorLocation" therefore allocated on every 10 Hz call.
         struct KeyHash
         {
-            std::size_t operator()(const Key& k) const
+            using is_transparent = void;
+
+            std::size_t operator()(const Key& k) const noexcept
             {
-                return std::hash<const void*>{}(k.cls) ^ (std::hash<std::wstring>{}(k.name) * 1099511628211ull);
+                return mix(k.cls, std::wstring_view{k.name});
+            }
+            std::size_t operator()(const KeyView& k) const noexcept
+            {
+                return mix(k.cls, k.name);
+            }
+
+          private:
+            static std::size_t mix(UClass* cls, std::wstring_view name) noexcept
+            {
+                return std::hash<const void*>{}(cls) ^
+                       (std::hash<std::wstring_view>{}(name) * 1099511628211ull);
             }
         };
 
-        std::unordered_map<Key, UFunction*, KeyHash> cache_;
+        struct KeyEq
+        {
+            using is_transparent = void;
+
+            bool operator()(const Key& a, const Key& b) const noexcept
+            {
+                return a.cls == b.cls && a.name == b.name;
+            }
+            bool operator()(const Key& a, const KeyView& b) const noexcept
+            {
+                return a.cls == b.cls && std::wstring_view{a.name} == b.name;
+            }
+            bool operator()(const KeyView& a, const Key& b) const noexcept
+            {
+                return a.cls == b.cls && a.name == std::wstring_view{b.name};
+            }
+            bool operator()(const KeyView& a, const KeyView& b) const noexcept
+            {
+                return a.cls == b.cls && a.name == b.name;
+            }
+        };
+
+        static UClass* cls_of(UObject* obj)
+        {
+            return obj != nullptr ? obj->GetClassPrivate() : nullptr;
+        }
+
+        // One line per (class, function), whatever happens afterwards.
+        void log_once(UClass* cls, const wchar_t* name, const std::wstring& what)
+        {
+            std::wstring cname = L"<unknown class>";
+            if (cls != nullptr && mem::readable(cls, 0x40))
+            {
+                cname = static_cast<UObject*>(cls)->GetName();
+            }
+            if (!logged_.insert(cname + L"::" + name).second)
+            {
+                return;
+            }
+            mm::logf(L"reflection: {}::{}() {}", cname, name, what);
+        }
+
+        std::unordered_map<Key, Entry, KeyHash, KeyEq> cache_;
+        std::unordered_set<std::wstring> logged_;
+        bool capped_logged_ = false;
     };
 
     // POD trampoline for mem::guarded_call: issues the ProcessEvent inside the SEH
@@ -408,7 +589,9 @@ namespace uer
         {
             return false;
         }
-        UFunction* fn = funcs.get(obj, name);
+        // The reflected parameter block must be exactly the block being handed over -
+        // see FuncCache::get_checked (A.8).
+        UFunction* fn = funcs.get_checked(obj, name, sizeof(Ret));
         if (fn == nullptr)
         {
             return false;

@@ -19,6 +19,11 @@ five slots into that block.
 Join key with the runtime: `obj` -- the cooked export name, which is exactly
 what `FindAllOf` reports in-game (`...PersistentLevel.BP_RebornFire_C_0`).
 
+Shrine markers carry the game's own rest-point name ("Mercury Workshop",
+"Reverent Temple") from `DT_FirePoint`'s localised `ShowName`, resolved by
+`extract_shrines.shrine_names()` off the same paks, so a shrine marker reads
+that instead of "Shrine digong01".
+
 NPC and note markers carry the character's real English name from
 `markers/npcs.json` (`build_npcs.py`: the `npc_Dianame_<nn>` / `npc_name_<nn>`
 FText key embedded in the NPC blueprint -> `MMGame.locres`), so a marker reads
@@ -54,6 +59,7 @@ sys.path.insert(0, _HERE)
 import pakmaps                                              # noqa: E402
 import marker_classes                                       # noqa: E402
 import itemdb                                               # noqa: E402
+import extract_shrines                                      # noqa: E402
 from uprops import (Schema, compose, find_strings, finite_vec, parse_header,   # noqa: E402
                     read_vec, SC_ATTACH_PARENT, SC_ATTACH_SOCKET,
                     SC_COMPONENT_VELOCITY, SC_REL_LOCATION, SC_REL_ROTATION,
@@ -577,14 +583,32 @@ def npc_names() -> dict[str, str]:
     return {c: e["name"] for c, e in doc.get("npcs", {}).items() if e.get("name")}
 
 
+def shrine_names(ms) -> dict[str, str]:
+    """shrine (fire-point) id -> the game's own localised rest-point name.
+
+    Read from the paks rather than from `markers/shrines.json`, because that
+    file is itself built from the marker DB (its `shrine` flag and its `x/y/z`
+    come from `chapter*.json`) and reading it here would be a cycle.  Missing
+    names degrade a shrine label to "Shrine <id>", nothing else.
+    """
+    try:
+        return extract_shrines.shrine_names(ms)
+    except Exception as exc:                                    # noqa: BLE001
+        print(f"  ! DT_FirePoint names unavailable ({exc}); shrines keep the "
+              f"generic label", file=sys.stderr)
+        return {}
+
+
 def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None,
             bosses: "dict[str, str] | None" = None,
             npcs: "dict[str, str] | None" = None,
-            doors: "dict[str, dict] | None" = None):
+            doors: "dict[str, dict] | None" = None,
+            shrines: "dict[str, str] | None" = None):
     items = items if items is not None else itemdb.ItemDB.load()
     bosses = bosses if bosses is not None else boss_names()
     npcs = npcs if npcs is not None else npc_names()
     doors = doors if doors is not None else boss_doors()
+    shrines = shrines if shrines is not None else shrine_names(ms)
     keys = chapter_packages(ms, chapter)
     t0 = time.time()
     pkgs = {}
@@ -643,6 +667,20 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
             mid = sid if sid else f"{lvl.short}/{actor.name}"
             label = marker_classes.LABEL.get(cat, cat)
             name = f"{label} {sid}" if sid else label
+            # Shrines get the game's own rest-point name from `DT_FirePoint`'s
+            # localised `ShowName` ("Mercury Workshop", "Reverent Temple"), keyed
+            # by the shrine id the actor itself carries, so the map, the tooltip,
+            # the x-ray label and the shrine list all read the name the game uses
+            # in its own fast-travel UI instead of "Shrine digong01".  A shrine
+            # with no row in the table (or no localised name) keeps that readable
+            # id form - `stats["shrine-unnamed:<id>"]` names each one.
+            if cat == "shrine":
+                sname = shrines.get(sid) if sid else None
+                if sname:
+                    name = sname
+                    stats["shrine-named"] += 1
+                else:
+                    stats["shrine-unnamed:" + (sid or actor.name)] += 1
             mark = collect_mark(lvl.pkg, actor) if cat == "chest" else None
             if cat == "chest":
                 stats["chest-mark" if mark else "chest-no-mark"] += 1
@@ -821,6 +859,7 @@ def main(argv=None):
     bosses = boss_names()
     npcs = npc_names()
     doors = boss_doors()
+    shrines = shrine_names(ms)
     if not len(items):
         print(f"  ! no item database at {a.items} -- pickups keep the generic label "
               f"(run build_items.py first)", file=sys.stderr)
@@ -829,7 +868,7 @@ def main(argv=None):
     os.makedirs(a.out, exist_ok=True)
     for ch in chapters:
         markers, stats, _schema, _pkgs = extract(ms, ch, items=items, bosses=bosses,
-                                                 npcs=npcs, doors=doors)
+                                                 npcs=npcs, doors=doors, shrines=shrines)
         if not markers:
             print(f"  chapter {ch}: nothing extracted, skipped")
             continue

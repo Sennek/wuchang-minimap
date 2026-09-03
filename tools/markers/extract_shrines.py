@@ -222,6 +222,27 @@ def read_rows(ms, verbose: bool = True) -> list[dict]:
     return rows
 
 
+def shrine_names(ms, lang: str = "en", verbose: bool = False) -> dict[str, str]:
+    """`fire-point id -> localised English name`, straight from the paks.
+
+    The same route `build()` uses (a `DT_FirePoint` row -> the ASCII `FString`
+    in its payload that IS a locres key -> `MMGame.locres`) minus the join to
+    the marker DB.  That is what `extract_markers.py` needs to put the in-game
+    rest-point name on every shrine marker, and it deliberately does NOT read
+    `markers/shrines.json`: that file's `shrine` flag and its `x/y/z` come FROM
+    the marker DB, so reading it back while building the marker DB would be a
+    cycle.  Names have no such dependency - they are a property of the table.
+    """
+    loc = BI.read_locres(ms.read(BI.LOCRES.format(lang=lang)))
+    out: dict[str, str] = {}
+    for r in read_rows(ms, verbose=verbose):
+        for t in r["strings"]:
+            if t in loc and loc[t]:
+                out[r["id"]] = loc[t]
+                break
+    return out
+
+
 def marker_positions(markers_dir: str) -> dict[str, dict]:
     """`shrine id -> {chapter, x, y, z}` from the marker DB already shipped."""
     out: dict[str, dict] = {}

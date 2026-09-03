@@ -56,77 +56,17 @@
 
 <header>
   <h1>WuchangMinimap <span style="color:var(--muted);font-weight:400">v@@VERSION@@</span></h1>
-  <div class="sub">An interactive minimap, full map, compass and collection tracker for
-  <strong>Wuchang: Fallen Feathers</strong>. Built @@DATE@@.</div>
+  <div class="sub">A minimap, full map, compass and collection tracker for
+  <strong>Wuchang: Fallen Feathers</strong>, with the map built from the game's own navmesh.
+  Built @@DATE@@.</div>
 </header>
 
-<p>What is on it:</p>
-<ul>
-  <li>A <strong>height-sliced minimap</strong> &mdash; only the storey you are standing on is drawn
-      solid &mdash; and a full pannable, zoomable <strong>chapter map</strong> on <kbd>M</kbd> with the
-      same slice on a floor stepper. The background is not hand-drawn: it is built from the game's own
-      navigation mesh, so what you see is walkable ground.</li>
-  <li><strong>Markers</strong> in fourteen categories, each with its own shape and colour: shrines,
-      chests, pickups, bosses, elites, enemies, NPCs, <strong>notes</strong> (the readable
-      inscriptions you press Check on), doors, ladders, lifts, fog gates, hidden things and other.
-      They carry the game's own English <strong>names</strong> &mdash; shrines
-      ("Mercury Workshop", "Reverent Temple"), NPCs ("He Youzai", "Wu Gang"), bosses
-      ("Sovereign - Zhang Xianzhong") and items &mdash; not internal ids.</li>
-  <li>A <strong>collection tracker</strong>: chests opened, pickups taken, shrines lit, NPCs and
-      notes met, bosses beaten, one file per save game, with a statistics page per category and per
-      chapter.</li>
-  <li>A <strong>compass strip</strong> with bearing pips, the distance in metres under each, and an
-      up/down arrow for anything well above or below you.</li>
-  <li>An <strong>x-ray highlight</strong> that draws nearby markers through walls with their names and
-      distances.</li>
-  <li>Keyboard, mouse and gamepad throughout, and every hotkey rebindable in-game. UI language:
-      English.</li>
-</ul>
+<h2 id="prereq">1. Requirements</h2>
 
-<div class="box warn">
-  <h4>Known limitations</h4>
-  <ul>
-    <li><strong>The DLC has no map</strong> &mdash; the game ships no navigation data for it. Markers
-        still work, but the DLC's seven shrines keep their internal ids instead of names: the DLC's
-        fire points have no row in the game's fire-point table.</li>
-    <li><strong>A boss read from your save may not be one you beat.</strong> For a boss killed before
-        the mod was installed nothing is left in the world to read, so the mod uses the boss arena's
-        respawn point, which your save remembers unlocking. It is not certain that the game unlocks
-        that point on the kill rather than on your first attempt. It is recomputed every launch and
-        never written to the tracker, so <code>boss_defeat_from_save = 0</code> undoes it completely.</li>
-    <li><strong>A few dozen detached patches of walkable ground per chapter are drawn although you
-        cannot walk to them.</strong> The navigation mesh has no notion of "reachable"; the filter
-        keeps any patch that is big enough or that carries a marker. The palace lake area in
-        Chapter&nbsp;1 is the most visible case.</li>
-    <li><strong>Enemy markers are off by default</strong> &mdash; the live sweep refreshes about once
-        a second, so they lag behind anything that moves.</li>
-    <li><strong>The overlay draws underneath ReShade's effects</strong>, so a heavy preset tints it.
-        That is cosmetic.</li>
-  </ul>
-</div>
-
-<div class="toc">
-  <ul>
-    <li><a href="#prereq">1. Prerequisites</a></li>
-    <li><a href="#install">2. Install</a></li>
-    <li><a href="#hotkeys">3. Hotkeys</a></li>
-    <li><a href="#config">4. Configuration</a></li>
-    <li><a href="#files">5. Your files</a></li>
-    <li><a href="#uninstall">6. Uninstall</a></li>
-    <li><a href="#trouble">7. Troubleshooting</a></li>
-  </ul>
-</div>
-
-<h2 id="prereq">1. Prerequisites</h2>
-
-<p>The mod is a UE4SS C++ mod. You need <strong>UE4SS installed for Wuchang</strong> first &mdash; use the
-build packaged for this game, <em>UE4SS for Wuchang: Fallen Feathers</em>,
-<strong>Nexus Mods mod&nbsp;384</strong> for Wuchang. Install it into the game's binaries folder:</p>
+<p>This is a UE4SS C++ mod. Install <strong>UE4SS for Wuchang: Fallen Feathers</strong>
+(<strong>Nexus Mods mod&nbsp;384</strong> for Wuchang) first, into:</p>
 
 <pre>&lt;Steam&gt;\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\</pre>
-
-<p>After that folder contains <code>dwmapi.dll</code> (UE4SS's loader &mdash; the game loads it at start-up)
-and a <code>ue4ss\</code> subfolder, UE4SS is installed.</p>
 
 <div class="box danger">
   <h4>Mandatory: <code>HookInitGameState = 0</code></h4>
@@ -135,442 +75,77 @@ and a <code>ue4ss\</code> subfolder, UE4SS is installed.</p>
   <pre>[Hooks]
 HookInitGameState = 0</pre>
   <p><strong>Without this the game crashes about a third of a second into loading</strong>, with or
-  without this mod &mdash; UE4SS's hook on <code>AGameModeBase::InitGameState</code> breaks Wuchang's custom
-  game mode and a blueprint then reads a null game state. Every other hook can stay on.
-  This is a UE4SS-plus-Wuchang problem, not a bug in this mod.</p>
+  without this mod. UE4SS's hook on <code>AGameModeBase::InitGameState</code> breaks Wuchang's custom
+  game mode. Every other hook can stay on. This is a UE4SS-plus-Wuchang problem, not a bug in this
+  mod &mdash; if the game started crashing the moment you installed UE4SS, this is why.</p>
 </div>
 
 <h2 id="install">2. Install</h2>
 
 <ol>
   <li>Make sure the game is <strong>closed</strong>.</li>
-  <li>Open the folder this guide is in. It contains a single <code>ue4ss\</code> folder.</li>
-  <li>Copy that <code>ue4ss\</code> folder into
-      <pre>&lt;Steam&gt;\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\</pre>
-      and merge when Windows asks. Nothing of UE4SS's own is overwritten &mdash; everything in the
-      package lives under <code>ue4ss\Mods\WuchangMinimap\</code>.</li>
-  <li>Check <code>[Hooks] HookInitGameState = 0</code> as described above.</li>
-  <li>Launch the game. Load a save (the mod deliberately shows nothing on the main menu),
-      then press <kbd>F2</kbd>.</li>
+  <li>Copy the <code>ue4ss\</code> folder from this download into
+      <code>Project_Plague\Binaries\Win64\</code> and <strong>merge</strong> when Windows asks.
+      Everything in the package lives under <code>ue4ss\Mods\WuchangMinimap\</code>, so nothing of
+      UE4SS's own is overwritten. (Updating over an old install? Windows will offer to replace
+      <code>config_wuchang_minimap.txt</code> &mdash; if you have edited yours, keep yours.)</li>
+  <li>Check <code>[Hooks] HookInitGameState = 0</code>, as above.</li>
+  <li>Launch the game and load a save &mdash; the overlay is deliberately hidden on the main menu
+      &mdash; then press <kbd>F2</kbd>.</li>
 </ol>
 
-<p>The installed layout, for reference:</p>
-
-<pre>Project_Plague\Binaries\Win64\
-  dwmapi.dll                     &lt;- UE4SS's loader (from UE4SS, not from this package)
-  ue4ss\
-    UE4SS-settings.ini           &lt;- must have [Hooks] HookInitGameState = 0
-    Mods\
-      WuchangMinimap\
-        dlls\main.dll            &lt;- the mod
-        maps\maps.json           &lt;- the map manifest
-        maps\chapter1..5\*.png   &lt;- the map assets, one folder per chapter
-        markers\chapter*.json    &lt;- the marker database, one file per chapter
-        markers\items.json       &lt;- item display names
-        markers\shrines.json     &lt;- the shrine table: names, chapters, destinations
-        config_wuchang_minimap.txt   &lt;- all overlay settings
-        config.ini                   &lt;- the developer navmesh dumper (off)
-        enabled.txt              &lt;- empty; this is what tells UE4SS to load the mod</pre>
-
-<p>The mod adds its own files to that folder as you play &mdash; the collection tracker, your
-waypoint, and the diagnostics <code>wuchang_minimap.log</code>,
-<code>wuchang_minimap_watchdog.txt</code> and <code>wuchang_minimap_last_stage.txt</code>. They are
-listed in <a href="#files">section&nbsp;5</a>. The documents that sit beside the
-<code>ue4ss\</code> folder in this download &mdash; this guide, the changelog, the readme and the
-licences &mdash; are not copied anywhere; read them where they are.</p>
-
-<p>There is no <code>mods.txt</code> to edit: the empty <code>enabled.txt</code> is the opt-in.</p>
+<p>There is no <code>mods.txt</code> to edit: the empty <code>enabled.txt</code> in the mod folder is
+the opt-in. <strong>To uninstall</strong>, delete
+<code>ue4ss\Mods\WuchangMinimap\</code>; that is the whole mod, and it modifies no game or save
+data.</p>
 
 <h2 id="hotkeys">3. Hotkeys</h2>
 
-<p>These are the shipped defaults. <strong>Every one of them is rebindable</strong> in the
-<kbd>F2</kbd> panel's <em>Bindings</em> tab: click a row, press the new key, <kbd>Esc</kbd> cancels.
-There is a reset per row, a <em>Reset every binding</em> button, and a warning when two actions end up
-on the same key. The gamepad chord is edited there too, and changes take effect at once.</p>
-
-<h3>Anywhere in the game</h3>
 <table>
   <tr><th style="width:180px">Key</th><th>Action</th></tr>
-  <tr><td><kbd>F2</kbd></td><td>Open / close the settings panel (takes the mouse while it is open; <kbd>Esc</kbd> closes it)</td></tr>
-  <tr><td><kbd>M</kbd></td><td>Open / close the full map</td></tr>
-  <tr><td><kbd>F5</kbd></td><td>Reload the config file, the map assets and the marker database</td></tr>
-  <tr><td><kbd>LALT</kbd></td>
-      <td>X-ray highlight: nearby markers are drawn through walls with their name and distance, and
-          pickups are coloured by item type. It is a <strong>toggle</strong> &mdash; press to turn it
-          on, press again to turn it off. <code>highlight_mode = hold</code>, or
-          <strong>Mode: Toggle / Hold</strong> beside the key in the Player tab, restores the old
-          hold-the-key behaviour. A toggled-on highlight always turns itself off when the level
-          changes. Shipped set: chests, pickups, shrines, bosses, NPCs and notes.</td></tr>
-  <tr><td><kbd>LB</kbd>+<kbd>RB</kbd></td><td>The same, on a controller</td></tr>
-  <tr><td><kbd>N</kbd></td><td>Cycle the minimap zoom (13 / 26 / 52 world units per pixel)</td></tr>
+  <tr><td><kbd>F2</kbd></td><td>Settings panel &mdash; every setting, in Player / Advanced / Bindings tabs</td></tr>
+  <tr><td><kbd>M</kbd></td><td>Full map. Drag or <kbd>WASD</kbd> to pan, wheel to zoom, <kbd>Q</kbd>/<kbd>E</kbd> for the floor, <kbd>Home</kbd> to fit, right-click for a waypoint, <kbd>C</kbd> to copy it to the clipboard, <kbd>?</kbd> for the rest, <kbd>Esc</kbd> to close</td></tr>
+  <tr><td><kbd>LALT</kbd></td><td>X-ray highlight: nearby markers drawn through walls with names and distances. A <strong>toggle</strong> &mdash; press again to turn it off</td></tr>
+  <tr><td><kbd>LB</kbd>+<kbd>RB</kbd></td><td>The same, on a controller (the full map takes a gamepad too)</td></tr>
+  <tr><td><kbd>N</kbd></td><td>Cycle the minimap zoom</td></tr>
   <tr><td><kbd>R</kbd></td><td>Recentre the full map on the player</td></tr>
+  <tr><td><kbd>F5</kbd></td><td>Reload the config, the map assets and the marker database</td></tr>
 </table>
 
-<h3>While the full map is open</h3>
-<table>
-  <tr><th style="width:180px">Input</th><th>Action</th></tr>
-  <tr><td>Drag, <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, arrows</td><td>Pan</td></tr>
-  <tr><td>Mouse wheel, <kbd>+</kbd> / <kbd>-</kbd></td><td>Zoom</td></tr>
-  <tr><td><kbd>Ctrl</kbd>+wheel, <kbd>Q</kbd> / <kbd>E</kbd>, <kbd>PgUp</kbd> / <kbd>PgDn</kbd></td>
-      <td>Move the height slice down / up a floor (the offset is shown in metres)</td></tr>
-  <tr><td><kbd>Home</kbd>, or the <strong>Fit</strong> button</td><td>Zoom to the whole chapter</td></tr>
-  <tr><td><kbd>R</kbd></td><td>Recentre on the player, clear the floor offset</td></tr>
-  <tr><td>Left-click a marker, or <kbd>F</kbd></td><td>Toggle "found" by hand (writes the tracker)</td></tr>
-  <tr><td>Right-click, or <kbd>Space</kbd></td><td>Set the waypoint (it also shows on the minimap and compass)</td></tr>
-  <tr><td><kbd>C</kbd></td><td>Copy the map to the clipboard, ready to paste. Nothing is saved to disk.</td></tr>
-  <tr><td><strong>Stats</strong> button</td><td>Collection statistics: found / total per category and per chapter</td></tr>
-  <tr><td><strong>Shrines</strong> button</td><td>The chapter's shrines by distance. Click a row for a waypoint, double-click to centre the map.</td></tr>
-  <tr><td><kbd>?</kbd></td><td>Show this list in-game</td></tr>
-  <tr><td><kbd>M</kbd> or <kbd>Esc</kbd></td><td>Close</td></tr>
-  <tr><td>Gamepad</td><td>Left stick pan &middot; triggers or right stick zoom &middot;
-      <kbd>LB</kbd>/<kbd>RB</kbd> floor &middot; <kbd>A</kbd> waypoint &middot;
-      <kbd>X</kbd> found &middot; <kbd>Y</kbd> recentre &middot; <kbd>B</kbd> close</td></tr>
-</table>
+<p><strong>Everything is rebindable</strong> in the <kbd>F2</kbd> panel's <em>Bindings</em> tab: click
+a row and press the new key. <kbd>F6</kbd> and <kbd>F9</kbd>&ndash;<kbd>F12</kbd> are refused &mdash;
+they belong to RenoDX/DLSS, the engine, the game console and Steam.</p>
+
+<p>Settings live in <code>ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt</code>, which documents
+every key inline; the <kbd>F2</kbd> panel edits the same file, and <kbd>F5</kbd> reloads it without
+restarting the game.</p>
+
+<h2 id="trouble">4. Something went wrong</h2>
+
+<p><strong>The game crashes on start-up</strong> &mdash; almost always
+<code>HookInitGameState</code>; see section&nbsp;1.</p>
+
+<p><strong>Nothing on screen</strong> &mdash; press <kbd>F2</kbd>. If the panel opens, the mod is
+running and only the minimap is suppressed: the top of the <em>Player</em> tab prints one orange
+<code>hidden because:</code> line naming the exact reason. Screenshot it.</p>
 
 <div class="box warn">
-  <h4>Keys the mod refuses to bind</h4>
-  <p><kbd>F6</kbd> and <kbd>F9</kbd>&ndash;<kbd>F12</kbd> are <strong>rejected in code</strong>: if you put
-  one of them in the config file the mod ignores it and falls back to the default. They belong to
-  other things &mdash; <kbd>F6</kbd> toggles RenoDX / DLSS&nbsp;5 Neural Rendering (which hung the GPU when
-  pressed in-world during development), <kbd>F10</kbd> opens the game console, <kbd>F12</kbd> is the
-  Steam screenshot key, and <kbd>F9</kbd> / <kbd>F11</kbd> are engine screenshot and fullscreen binds.
-  Everything else is fair game: <kbd>F1</kbd>&ndash;<kbd>F5</kbd>, <kbd>F7</kbd>, <kbd>F8</kbd>, any
-  letter or digit, <kbd>Tab</kbd>, <kbd>Space</kbd>, <kbd>Enter</kbd>, <kbd>Backspace</kbd>, the
-  arrows, <kbd>Insert</kbd> / <kbd>Delete</kbd> / <kbd>Home</kbd> / <kbd>End</kbd> /
-  <kbd>PgUp</kbd> / <kbd>PgDn</kbd>, the numpad keys and operators,
-  <code>MOUSE3</code>&ndash;<code>MOUSE5</code>, the modifier keys
-  (<code>LALT</code>, <code>LSHIFT</code>, <code>LCTRL</code>, &hellip;), and <code>none</code> to
-  leave an action unbound.</p>
+  <h4>Reporting a bug: attach this file</h4>
+  <p><code>ue4ss\Mods\WuchangMinimap\wuchang_minimap.log</code> &mdash; the mod's own log, rotated per
+  launch (<code>.1</code>&hellip;<code>.3</code> are previous sessions), so it survives restarting the
+  game to try something else. Its first six lines carry every version number a report needs.</p>
+  <p>Also useful: <code>wuchang_minimap_last_stage.txt</code> if the game <em>crashed</em>,
+  <code>wuchang_minimap_watchdog.txt</code> if it <em>froze</em>, and your
+  <code>config_wuchang_minimap.txt</code>.</p>
+  <p><strong>If you are asked to reproduce something</strong>, first set
+  <code>log_level = verbose</code> in the config (or pick it under <em>Advanced &rarr; Diagnostics
+  &rarr; Log detail</em> in the panel &mdash; it takes effect at once), then reproduce it and send the
+  log.</p>
 </div>
-
-<h2 id="config">4. Configuration</h2>
-
-<p>Everything lives in one plain-text file,
-<code>ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt</code>. Lines are
-<code>key = value</code>; <code>;</code> and <code>#</code> start a comment. The file itself documents
-every key. Edit it and press <kbd>F5</kbd> in-game &mdash; no restart needed.</p>
-
-<p>The <kbd>F2</kbd> panel edits the same settings and has three tabs: <strong>Player</strong>
-(everything you would plausibly change, in ten collapsible sections, plus three one-click presets
-&mdash; <em>Minimal HUD</em>, <em>Loot hunting</em>, <em>Exploration</em>), <strong>Advanced</strong>
-(the tuning dials) and <strong>Bindings</strong> (every hotkey and the gamepad chord).
-<strong>Save</strong> writes the file and <strong>Revert</strong> re-reads it, throwing away whatever
-you were fiddling with.</p>
-
-<div class="box warn">
-  <h4>Your config file is safe</h4>
-  <p><strong>Save does not rewrite the file.</strong> It replaces the values on the existing
-  <code>key = value</code> lines and leaves every comment, every blank line, your ordering and any key
-  it does not recognise exactly where they were &mdash; so the documented file you were shipped stays
-  documented no matter how often you press Save.</p>
-  <p>An <strong>update</strong> is a different matter: the download carries a fresh
-  <code>config_wuchang_minimap.txt</code>, so when you merge the <code>ue4ss\</code> folder Windows will
-  ask whether to replace it. <strong>If you have edited yours, keep yours</strong> (or copy it aside
-  first and merge the new keys back in by hand &mdash; unknown keys are ignored with one line in the
-  log, and missing ones just take their defaults, so neither file can break the mod).</p>
-</div>
-
-<table>
-  <tr><th style="width:210px">Group</th><th>What it controls</th></tr>
-  <tr><td><code>mod_enabled</code></td>
-      <td><strong>The master switch.</strong> <code>mod_enabled = 0</code> turns the whole mod off:
-          no graphics hook, no work inside the game, no scanning, no map in memory. Use it to leave
-          the mod installed while ruling it out as the cause of a problem. Setting it back to
-          <code>1</code> and saving the file starts the mod again <em>within a second</em> &mdash; no
-          restart. <kbd>F5</kbd> does <em>not</em> work while it is off (nothing is listening to the
-          keyboard), and the <kbd>F2</kbd> panel can only switch it off, never on.</td></tr>
-  <tr><td><code>overlay_enabled</code>, <code>show_minimap</code></td>
-      <td>Anything the mod draws, and the minimap disc itself. Unlike <code>mod_enabled</code> these
-          leave the rest of the mod running. (<code>overlay_enabled</code> used to be called
-          <code>enabled</code>; the old name still works and says so once in the log.)</td></tr>
-  <tr><td><code>theme</code>, <code>palette</code>, <code>ui_scale</code>, <code>hud_preset</code></td>
-      <td>Look and placement in one line each: <code>theme = neutral | ink</code> for the frame,
-          backdrop and walkable fill; <code>palette = default | colorblind</code> for the marker hues
-          (an Okabe-Ito-derived set &mdash; the shapes never change, which is what keeps two categories
-          apart when a hue is reused); <code>ui_scale = auto</code> or a number, which scales the font,
-          the panel and every pixel-sized setting so a config tuned at 1080p is right at 4K; and
-          <code>hud_preset</code>, which moves the minimap and the compass into one corner together.</td></tr>
-  <tr><td><code>minimap_size</code>, <code>minimap_zoom</code>, <code>minimap_shape</code>,
-          <code>minimap_anchor</code>, <code>opacity</code>, <code>rotate_with_player</code></td>
-      <td>Shape, size, placement and zoom of the minimap. <code>minimap_zoom</code> is world units
-          per pixel &mdash; smaller is more zoomed in.</td></tr>
-  <tr><td><code>hide_in_menus</code>, <code>require_pawn_view</code>, <code>state_stale_ms</code>,
-          <code>min_visible_after_state_ok_ms</code></td>
-      <td>When the overlay is allowed on screen. The defaults keep it off the main menu, out of
-          cutscenes and out of loading screens.</td></tr>
-  <tr><td><code>floor_z_tolerance</code>, <code>floor_fade_uu</code>,
-          <code>show_adjacent_floors</code>, <code>adjacent_floor_opacity</code>,
-          <code>floor_gradient_strength</code>, <code>floor_base_color</code></td>
-      <td>Height slicing &mdash; how the mod decides which storey you are on and how the ones above
-          and below are dimmed. This is the group worth tuning in a multi-storey temple.</td></tr>
-  <tr><td><code>markers_categories</code>, <code>markers_*</code></td>
-      <td>Which marker categories are drawn, their size, whether found ones are hidden (they are, by
-          default; switch them back on and they draw as an outline of the same glyph), and the cost
-          dials for the live actor sweep. The fourteen category names are
-          <code>shrine</code>, <code>chest</code>, <code>pickup</code>, <code>boss</code>,
-          <code>elite</code>, <code>enemy</code>, <code>npc</code>, <code>note</code>,
-          <code>door</code>, <code>ladder</code>, <code>lift</code>, <code>fog_gate</code>,
-          <code>hidden</code>, <code>other</code>, plus <code>all</code> and <code>none</code>.
-          <code>note</code> is the game's readable inscriptions; it was called
-          <code>merchant</code> before &mdash; the old name still works and is rewritten the next time
-          you press Save. The same names are used by <code>compass_categories</code> and
-          <code>highlight_categories</code>, and all three have their own filter in the Player tab.</td></tr>
-  <tr><td><code>found_tracker</code>, <code>found_profile</code>,
-          <code>boss_defeat_from_save</code></td>
-      <td>The collection tracker. <code>found_profile = auto</code> gives every save game its own file
-          (see section&nbsp;5). <code>boss_defeat_from_save</code> marks a boss as beaten when your save
-          has unlocked its arena's respawn point &mdash; the only per-boss trace a save carries, and
-          the only way to know about a boss you killed before installing the mod. See the limitations
-          at the top of this page.</td></tr>
-  <tr><td><code>markers_absence_marks</code>, <code>markers_absence_rounds</code>,
-          <code>markers_absence_categories</code></td>
-      <td>Ticks off chests and pickups you looted <em>before</em> installing the mod. The game keeps
-          nothing behind for those, so the mod infers it: the marker's level is loaded, the mod has
-          searched the whole game for the item twice over, and it is not there. If it cannot tell
-          which level a marker belongs to it never marks it. Set
-          <code>markers_absence_marks = 0</code> to turn the inference off; a wrong mark can always
-          be undone by clicking the marker on the full map.</td></tr>
-  <tr><td><code>map_*</code></td>
-      <td>The full map: opening zoom and limits, pan speed, margins, gamepad, waypoint persistence.</td></tr>
-  <tr><td><code>highlight_*</code></td>
-      <td>The x-ray highlight: key, <code>highlight_mode = toggle | hold</code>, the gamepad chord,
-          radius (default 3000&nbsp;uu = 30&nbsp;m), categories, labels and edge arrows.
-          <code>highlight_show_found = 0</code> hides collected <em>loot</em> only &mdash; chests,
-          pickups and hidden items; shrines, bosses, NPCs, notes, doors and fog gates are landmarks
-          and are always drawn.</td></tr>
-  <tr><td><code>xray_rarity_colors_enabled</code>, <code>xray_rarity_colors</code>,
-          <code>markers_rarity_tint</code></td>
-      <td>Item quality colours in the x-ray highlight. Wuchang has no rarity ladder, so these are the
-          game's own pickup-beam groups: <strong>Common</strong> (tools and consumables, blue),
-          <strong>Equipment</strong> (weapons, armour, accessories, gems, spells, pink) and
-          <strong>Key</strong> (quest items and upgrade materials, gold). The palette is three
-          <code>RRGGBB</code> values in tier order and defaults to the game's own beam colours; Common
-          keeps its category colour, so only the interesting ~12&nbsp;% of pickups change.
-          <code>markers_rarity_tint = 1</code> puts the same tint on the minimap, the full map and the
-          compass.</td></tr>
-  <tr><td><code>compass_*</code></td>
-      <td>The compass strip: width, height, which edge it hangs off, how many degrees it spans, which
-          markers get a pip, and whether the plate behind it is drawn.
-          <code>compass_pip_labels</code> writes the distance in metres under each pip, and
-          <code>compass_pip_height_uu</code> (300&nbsp;uu = 3&nbsp;m) is how far off your own height a
-          marker must be before its pip gets an up or down arrow.</td></tr>
-  <tr><td><code>minimap_backdrop*</code>, <code>minimap_frame*</code>,
-          <code>minimap_arrow*</code>, <code>minimap_zoom_presets</code>,
-          <code>waypoint_size_scale</code>, <code>slice_hz</code>,
-          <code>compass_tick_step_deg</code>, &hellip;</td>
-      <td>Fine tuning: colours and sizes of everything the minimap draws, the zoom ladder
-          <code>zoom_key</code> steps through, how big a window the map slicer cuts, and the rates and
-          caps of the reader that runs inside the game. Every one of them is range-checked when the
-          file is read.</td></tr>
-  <tr><td><code>panel_key</code>, <code>map_key</code>, <code>map_recenter_key</code>,
-          <code>zoom_key</code>, <code>reload_key</code>, <code>screenshot_key</code>,
-          <code>highlight_key</code>, <code>highlight_pad_chord</code></td>
-      <td>The bindings. Easiest changed in the <kbd>F2</kbd> panel's <em>Bindings</em> tab by pressing
-          the new key. The panel and the full map's footer read the key hints straight out of this
-          file, so they cannot go stale after a rebind.</td></tr>
-  <tr><td><code>log_level</code></td>
-      <td>How much the mod writes to <code>wuchang_minimap.log</code>: <code>normal</code> (the
-          default), <code>verbose</code> or <code>trace</code>. Also a <strong>Log detail</strong>
-          dropdown in the <kbd>F2</kbd> panel under <em>Advanced &rarr; Diagnostics</em>, which prints
-          the log file's full path beside it. It takes effect on Save or <kbd>F5</kbd> &mdash; no
-          restart. <code>normal</code> writes what a bug report needs and nothing else, so a long
-          session is a few hundred lines; turn it up only when someone asks you to reproduce a
-          problem with it on. See <a href="#trouble">section&nbsp;7</a>.</td></tr>
-  <tr><td><code>crash_breadcrumb</code>, <code>fast_travel_enabled</code></td>
-      <td>Diagnostics and fast travel. The breadcrumb file is what answers "what was the mod doing
-          when the game died" (see section&nbsp;7). Fast travel is <strong>off by default and
-          deliberately so</strong>: with <code>fast_travel_enabled = 1</code> each unlocked shrine in
-          the full map's shrine list gets a <em>Travel</em> button that calls the game's own
-          fast-travel function, and it refuses outright unless a check of that function's signature
-          passes. Treat it as experimental.</td></tr>
-</table>
-
-<p>The second file, <code>config.ini</code>, controls a <strong>developer tool only</strong>: a runtime
-navigation-mesh dumper, off by default (<code>navmesh_dump = 0</code>). Leave it alone. It has nothing
-to do with the maps you see &mdash; those were extracted offline from the game's own data.</p>
-
-<h2 id="files">5. Your files</h2>
-
-<p>These are <strong>yours</strong>, written by the mod as you play. They live next to the config, in
-<code>ue4ss\Mods\WuchangMinimap\</code>, and nothing in the download is named like any of them, so an
-update cannot overwrite them:</p>
-
-<table>
-  <tr><th style="width:280px">File</th><th>What it is</th></tr>
-  <tr><td><code>wuchang_minimap_found_<em>&lt;slot&gt;</em>.txt</code></td>
-      <td>The collection tracker, <strong>one file per save game</strong>: one marker id per line.
-          The mod adds a line when it sees you open a chest or take a pickup, and you can toggle one
-          by hand by clicking it on the full map. Plain text, hand-editable; delete the file to reset
-          your tracking. The F2 Player tab shows which file is in force.</td></tr>
-  <tr><td><code>wuchang_minimap_found.txt</code></td>
-      <td>The single shared tracker used before v0.9.4, and still used when the mod cannot work out
-          which save is loaded (or when you set <code>found_profile = shared</code>). The first time
-          the mod sees a new save slot it <em>copies</em> this file into that slot's file, so
-          upgrading loses nothing.</td></tr>
-  <tr><td><code>wuchang_minimap_waypoint.txt</code></td>
-      <td>Your waypoint, so it survives a restart. Three <code>key = value</code> lines.</td></tr>
-  <tr><td><code>wuchang_minimap.log</code>, <code>.log.1</code> &hellip; <code>.log.3</code></td>
-      <td><strong>The mod's own log</strong>, holding everything it writes, rotated on every launch
-          (<code>.1</code>, <code>.2</code>, <code>.3</code> are the three previous sessions). UE4SS
-          empties <em>its</em> log each time the game starts, so this is the file to attach to a bug
-          report: it is still there after you have restarted the game to try something else.</td></tr>
-  <tr><td><code>wuchang_minimap_watchdog.txt</code></td>
-      <td>Written only if the game stops responding: if no frame is drawn or no game tick happens for
-          six seconds, one line lands here naming the stalled thread and what it was last doing. It is
-          written in a way that keeps working when the rest of the process cannot even allocate
-          memory, which is exactly the state a freeze needs diagnosing in.</td></tr>
-  <tr><td><code>wuchang_minimap_last_stage.txt</code></td>
-      <td>One line naming the stage the overlay was in. If the game ever crashes with the mod
-          loaded, <strong>this file survives when a log does not</strong> &mdash; please attach it to
-          a bug report. Set <code>crash_breadcrumb = 0</code> to stop writing it.</td></tr>
-  <tr><td><code>wuchang_minimap_hookaddr.txt</code></td>
-      <td>The graphics hook addresses, worked out once and cached so that later launches create
-          nothing (which is what keeps the Steam overlay working). It rewrites itself whenever your
-          graphics DLLs change; deleting it is always safe.</td></tr>
-  <tr><td><code>wuchang_minimap_firstrun.txt</code></td>
-      <td>Records that the first-run tip has been shown. Delete it to see the tip again.</td></tr>
-  <tr><td><code>wuchang_minimap_recon_<em>&lt;time&gt;</em>.txt</code></td>
-      <td>Only if you have been asked for one: a read-only diagnostic dump. Safe to delete.</td></tr>
-</table>
-
-<p>Starting a new character no longer means deleting anything: each save game gets its own tracker
-file automatically.</p>
-
-<h2 id="uninstall">6. Uninstall</h2>
-
-<ol>
-  <li>Close the game.</li>
-  <li>Delete <code>Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangMinimap\</code>.</li>
-</ol>
-
-<p>That is the whole mod &mdash; it writes nothing anywhere else, <strong>touches no save file and
-modifies no game data</strong>, so uninstalling it cannot affect your playthrough. Deleting that one
-folder also removes your tracker and waypoint files; copy them out first if you want to keep them.</p>
-
-<p>To keep it installed but switched off, in increasing order of thoroughness:</p>
-<ul>
-  <li><strong>For this session only:</strong> <kbd>F2</kbd> &rarr; <em>Disable for this session</em>.
-      Everything stops within a second and your config file is not touched; saving or editing the
-      config file turns it back on, also within a second.</li>
-  <li><strong>Permanently, but reversibly:</strong> set <code>mod_enabled = 0</code> in
-      <code>config_wuchang_minimap.txt</code>. The DLL is then completely inert &mdash; no graphics
-      hook, no scanning, no map in memory &mdash; and setting it back to <code>1</code> restarts it
-      with no game restart. (<code>overlay_enabled = 0</code>, formerly <code>enabled</code>, only
-      stops it <em>drawing</em>.)</li>
-  <li><strong>Stop UE4SS loading it at all:</strong> delete
-      <code>WuchangMinimap\enabled.txt</code>.</li>
-</ul>
-
-<p>To remove UE4SS as well, delete <code>dwmapi.dll</code> and the <code>ue4ss\</code> folder from
-<code>Project_Plague\Binaries\Win64\</code>.</p>
-
-<h2 id="trouble">7. Troubleshooting</h2>
-
-<h3>Bug reports: attach these files</h3>
-<p>All of them are in <code>ue4ss\Mods\WuchangMinimap\</code>, next to the config. Send whichever
-exist &mdash; the first one always does:</p>
-<ul>
-  <li><code>wuchang_minimap.log</code> &mdash; <strong>the important one.</strong> The mod's own log,
-      with the version on its first line. If the problem happened in the session <em>before</em> the
-      one you are in now, send <code>wuchang_minimap.log.1</code> as well: the log is rotated on every
-      launch, so restarting the game to try something else does not destroy it.</li>
-  <li><code>wuchang_minimap_watchdog.txt</code> &mdash; <strong>if the game froze.</strong> One line
-      naming the thread that stopped and what it was last doing.</li>
-  <li><code>wuchang_minimap_last_stage.txt</code> &mdash; <strong>if the game crashed.</strong> One
-      line naming the stage the overlay was in. Anything other than <code>clean exit</code> means the
-      mod was mid-something when the game went.</li>
-  <li>Your <code>config_wuchang_minimap.txt</code>. Most "it does not work" reports turn out to be a
-      setting, so send it whether or not you think you changed anything.</li>
-  <li>If you would rather paste than attach: the <strong>first six lines of the log</strong> are a
-      startup header carrying the mod version, the game executable's build, UE4SS's build and the
-      Windows build, which answers most of the first round of questions on its own. (UE4SS's build
-      reads <code>(not loaded / no version info)</code> on installs whose <code>UE4SS.dll</code>
-      carries no version resource; that is not an error.)</li>
-  <li>For a crash, the game's own report from
-      <code>%LOCALAPPDATA%\Project_Plague\Saved\Crashes\</code>. Open
-      <code>CrashContext.runtime-xml</code> and look at <code>&lt;CrashType&gt;</code> first:
-      <code>GPUCrash</code> is a graphics-driver or ReShade/DLSS problem, not this mod.</li>
-</ul>
-<div class="box warn">
-  <h4>If you are asked to reproduce it</h4>
-  <p>Set <code>log_level = verbose</code> in <code>config_wuchang_minimap.txt</code>, or pick it under
-  <em>Advanced &rarr; Diagnostics &rarr; Log detail</em> in the <kbd>F2</kbd> panel &mdash; it takes
-  effect at once, with no restart. Then reproduce the problem and send
-  <code>wuchang_minimap.log</code>.</p>
-  <p><code>normal</code> is deliberately quiet: startup, what loaded, chapter and save-slot changes,
-  every warning and error, the first-time diagnostics and a health summary once a minute.
-  <code>verbose</code> adds the running commentary &mdash; the player-state line, per-round marker
-  timings, menu open and close, <strong>why the minimap is hidden</strong>, x-ray toggles.
-  <code>trace</code> adds everything else and is only worth turning on if somebody asks for it by
-  name. Nothing is <em>missing</em> at <code>normal</code>; it is one config value away.</p>
-</div>
-
-<p>UE4SS also writes <code>Project_Plague\Binaries\Win64\ue4ss\UE4SS.log</code>, which carries the same
-mod lines (prefixed <code>[minimap]</code>, <code>[markers]</code> or <code>[navmesh]</code>) plus
-UE4SS's own start-up. It is worth sending when the mod does not load at all &mdash; but UE4SS empties
-it every launch, so it is the mod's own log that survives.</p>
-
-<h3>The game crashes on start-up</h3>
-<p>Almost always <code>HookInitGameState</code>. Set <code>[Hooks] HookInitGameState = 0</code> in
-<code>ue4ss\UE4SS-settings.ini</code> (see section&nbsp;1). To confirm UE4SS is the cause at all, rename
-<code>dwmapi.dll</code> temporarily: if the game still crashes, it is not UE4SS and not this mod.</p>
-
-<h3>Nothing appears in-game</h3>
-<ul>
-  <li>Are you actually in the world? The overlay is deliberately hidden on the main menu, in
-      cutscenes, in menus, and for a moment after a load.</li>
-  <li>Press <kbd>F2</kbd>. If the panel opens, the mod is running and the graphics hooks are in;
-      the minimap is just being suppressed.</li>
-  <li><strong>Read the <code>hidden because:</code> line.</strong> Whenever the minimap is not on
-      screen, the top of the <kbd>F2</kbd> <em>Player</em> tab prints one orange line naming the exact
-      condition holding it back &mdash; a stale snapshot, no gameplay pawn, an open menu (it even names
-      the widget), the grace period after a load, or the camera not looking through the player. It is
-      there specifically so "the minimap vanished" has an answer.
-      <strong>If you report this problem, screenshot that line</strong> &mdash; it is worth more than
-      any description. The log repeats it only at <code>log_level = verbose</code>, so the panel is
-      the first place to look and turning the log up is the follow-up.</li>
-  <li>If <kbd>F2</kbd> does nothing either, check <code>enabled.txt</code> exists and look for
-      <code>WuchangMinimap v@@VERSION@@ loaded</code> in <code>wuchang_minimap.log</code> (or, if that
-      file was never created, in UE4SS's own <code>UE4SS.log</code>).</li>
-</ul>
-
-<h3>A hotkey does nothing</h3>
-<p>Open the <kbd>F2</kbd> panel's <em>Bindings</em> tab, which lists the bindings actually in force and
-warns when two actions share a key &mdash; and rebind it there if it is taken by the game. If you set
-the key in the config file by hand, check it is not one of the rejected ones (<kbd>F6</kbd>,
-<kbd>F9</kbd>&ndash;<kbd>F12</kbd>), which the mod silently replaces with the default.</p>
-
-<h3>ReShade / RenoDX / DLSS 5 installed</h3>
-<p>They coexist. The mod draws <em>before</em> ReShade's effects, so a strong preset will tint the
-overlay &mdash; that is cosmetic and expected. One real caution: RenoDX's DLSS&nbsp;5 add-on binds
-<kbd>F6</kbd> and <strong>ignores modifiers</strong>, and toggling it mid-game hung the GPU during
-development. That is why this mod refuses to bind <kbd>F6</kbd> at all.</p>
-
-<h3>The map looks wrong or empty</h3>
-<ul>
-  <li>The map is drawn from the game's <em>walkable</em> navigation data, so unreachable geometry
-      (rooftops, cliffs, scenery) is genuinely not on it.</li>
-  <li>Only the storey you are on is drawn solid. In a multi-storey building, raise
-      <code>floor_z_tolerance</code> or <code>adjacent_floor_opacity</code> to see more of it, or
-      open the full map and step the slice with <kbd>Q</kbd> / <kbd>E</kbd>.</li>
-  <li>Some patches of ground are drawn that you cannot actually walk to. The navigation mesh has no
-      notion of "reachable", so the filter keeps any detached patch that is big enough or that carries
-      a marker rather than risk deleting a real floor; a few dozen per chapter survive that rule.</li>
-  <li>In the DLC there is no map at all &mdash; the game ships no navigation data for it. Markers
-      still work.</li>
-  <li>The chapter is identified from the levels the game has streamed in, which can take a couple
-      of seconds after a transition. The <kbd>F2</kbd> panel shows the chapter currently in force.</li>
-</ul>
-
-<h3>Frame time</h3>
-<p>The <kbd>F2</kbd> panel's debug block prints <code>scan pump</code> (what one marker-sweep step
-costs the game thread &mdash; keep it under about 1&nbsp;ms) and <code>round</code> (how long a full pass
-took). If pumps are expensive, halve <code>markers_scan_chunk</code>; a full pass simply takes
-proportionally longer. One chapter's map assets need roughly 340&nbsp;MB of RAM, and only one chapter
-is ever resident.</p>
 
 <footer>
-  WuchangMinimap v@@VERSION@@ &middot; built @@DATE@@ &middot; UI language: English.
+  WuchangMinimap v@@VERSION@@ &middot; built @@DATE@@ &middot; UI language: English &middot; MIT
+  licensed; see LICENSE and THIRD_PARTY_NOTICES.md in this folder.
   This mod is not affiliated with the developers or publisher of Wuchang: Fallen Feathers.
   It reads the game's memory and its packaged data; it never modifies game files or save data.
 </footer>

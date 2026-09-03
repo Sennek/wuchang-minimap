@@ -2,6 +2,52 @@
 
 All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Fixed
+- A controller can open the full map: press **Back + Y**. Until now the only way in was a
+  keyboard key, so none of the map's gamepad controls could be reached with a pad alone -
+  and the Debug tab insisted no pad was connected, because nothing had ever looked.
+- Plugging a controller in mid-game no longer presses a button by itself.
+- The first-run tip that names your keys now appears when you are actually in the game,
+  instead of being spent on the loading screen before anyone could read it.
+- Pressing two mod hotkeys quickly no longer swallows the second one.
+- A mod hotkey no longer does two things at once: while the mod is using a key the game
+  does not also get it. Add **Ctrl**, **Shift** or **Alt** in front of a binding if you
+  would rather the game kept that key.
+- The full map's controls list opens with **F1** or **H** - the footer said `?` and `?`
+  was not the key that worked.
+- Bosses and ordinary enemies are different colours in the colour-blind palette. They
+  were both the same orange-red, which is the one pair you need to tell apart in a fight;
+  hidden items have moved off the chests' yellow for the same reason.
+- Text is drawn with a real font instead of a magnified bitmap one, so 1440p and 4K are
+  sharp rather than blocky.
+- The minimap and the compass no longer paint over the settings panel.
+- Ladders, notes and lifts are legible at small marker sizes, and the dark outline behind
+  a chest now covers its corners.
+- The settings panel is no longer mouse-only: a keyboard or a controller can move through
+  it.
+- The full map stopped dropping markers at random when there were more of them than the
+  draw limit - it keeps the ones nearest what you are looking at.
+- The Save button names the second file it writes when there is one.
+- Nothing in the overlay allocates memory while drawing any more, which takes a small
+  hitch out of the full map and the shrine list.
+
+### Changed
+- Crowded markers merge. Six chests in one room are drawn as one chest with a **6** next
+  to it, on the minimap and on the full map, instead of six glyphs on top of each other.
+  Only markers of the same kind ever merge.
+- Cycling the minimap zoom says what it did on screen for a second, with the new value.
+- The settings panel remembers which sections you folded up, has a filter box for finding
+  a setting by name, and has a real **Reset to the shipped defaults** button (Revert only
+  ever re-read the file, so it could not undo something you had saved).
+- One config file now shows the same area of the world at every resolution: the minimap
+  and full-map zoom scale with the interface. `zoom_dpi_scaled = 0` gets the old
+  behaviour back.
+- New settings: `map_pad_open_chord` (the controller chord that opens the map), `ui_font`
+  (the font file the overlay draws with) and `zoom_dpi_scaled`.
+- The panel header shows the version and nothing else.
+
 ## 1.0.0 - 2026-09-03
 
 **The first public release.** Everything below is the work between the last internal

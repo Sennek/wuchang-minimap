@@ -403,9 +403,11 @@ namespace gamestate
             r = Rare{};
         }
 
-        // The two conditions that can hold for a whole loading screen.
+        // The two conditions that can hold for a whole loading screen, and one that -
+        // if it ever fires - holds for the whole session.
         Rare g_rare_ctrl_drop;
         Rare g_rare_stuck;
+        Rare g_rare_wcap;
 
         bool throttled(std::uint64_t& last, std::uint64_t now)
         {
@@ -1489,13 +1491,19 @@ namespace gamestate
                 // Never silently truncate the answer: if this ever fires the cap is wrong
                 // for this game, and the number says by how much. This is the counter that
                 // would have named the 64-candidate cap as the reason menus stopped being
-                // detected, so it is worth a line every time.
-                mm::logf(L"widget scan: {} byte-Visible widget(s) exceeded the {}-candidate "
-                         L"cap this round and were not tested (a menu root is constructed "
-                         L"late, i.e. at a HIGH object-array index, so it is the most likely "
-                         L"one to be cut)",
-                         g_wcand_dropped,
-                         scan::kWidgetCandidateMax);
+                // detected. But the sweep runs up to four times a second, and a cap that
+                // is wrong is wrong for the whole session - so it is the first occurrence
+                // and then once per 30 s, never once per round.
+                if (rare(g_rare_wcap, ::GetTickCount64()))
+                {
+                    mm::logf(L"widget scan: {} byte-Visible widget(s) exceeded the {}-candidate "
+                             L"cap this round and were not tested (a menu root is constructed "
+                             L"late, i.e. at a HIGH object-array index, so it is the most likely "
+                             L"one to be cut){}",
+                             g_wcand_dropped,
+                             scan::kWidgetCandidateMax,
+                             rare_note(g_rare_wcap));
+                }
             }
         }
 

@@ -13,6 +13,7 @@ namespace crumb
     namespace
     {
         constexpr const wchar_t* kFileName = L"\\wuchang_minimap_last_stage.txt";
+        static_assert(kFileName[0] == L'\\', "file_name() promises a leading backslash");
         constexpr const wchar_t* kWatchdogName = L"\\wuchang_minimap_watchdog.txt";
 
         wchar_t g_path[MAX_PATH]{};
@@ -255,5 +256,10 @@ namespace crumb
         }
         return ::strcmp(g_previous, kCleanExit) != 0 && ::strcmp(g_previous, kTeardownEnd) != 0 &&
                ::strcmp(g_previous, kWindowClosed) != 0;
+    }
+
+    const wchar_t* file_name()
+    {
+        return kFileName;
     }
 } // namespace crumb

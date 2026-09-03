@@ -105,4 +105,9 @@ namespace crumb
     // a fixed buffer written before the file, so a torn read is impossible in practice
     // and harmless in principle.
     const char* current();
+
+    // The file's name, with its leading backslash, so a caller can compose the full path
+    // without a second copy of the literal. Used by the startup bug-report header, which
+    // has to tell the player which files to attach.
+    const wchar_t* file_name();
 } // namespace crumb

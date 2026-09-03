@@ -604,7 +604,16 @@ namespace overlay
             {
                 cpu->ptr = 0;
                 gpu->ptr = 0;
-                mm::log(L"SRV heap exhausted");
+                // ONCE. ImGui asks for a descriptor when it (re)builds the font atlas,
+                // which is not a per-frame event - but this is a render-thread callback
+                // and a heap that is full stays full, so it says so once and then stops.
+                static bool said = false;
+                if (!said)
+                {
+                    said = true;
+                    mm::log(L"SRV heap exhausted - raise srv_heap_size (RESTART) if the "
+                            L"overlay is missing textures");
+                }
             }
         }
 

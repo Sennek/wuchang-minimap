@@ -5,7 +5,10 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <format>
+#include <iterator>
 #include <string>
+#include <vector>
 
 #include "breadcrumb.hpp"
 #include "gamestate.hpp"
@@ -15,6 +18,7 @@
 #include "navmesh_dump.hpp"
 #include "recon.hpp"
 #include "overlay.hpp"
+#include "version.hpp"
 
 namespace modswitch
 {
@@ -30,6 +34,98 @@ namespace modswitch
         // down before the hooks come out anyway. At 60 fps a frame is 17 ms; three
         // seconds is a game that is minimised or paused at a driver level.
         constexpr std::uint64_t kStopTimeoutMs = 3000;
+
+        // ------------------------------------------------------------------------------
+        // THE BUG-REPORT HEADER
+        // ------------------------------------------------------------------------------
+        //
+        // Six lines at the top of every session, at the NORMAL level, naming everything
+        // that has to be in a bug report and where the three files a player is asked to
+        // attach actually live. Every one of these has cost a round trip at some point:
+        // "which version?", "which game build?", "you have another overlay injected",
+        // "where is the log?".
+        //
+        // Everything here is read ONCE, at startup, from the loaded modules and the OS -
+        // no engine call, no reflection, nothing that can fault.
+
+        // A module's FILEVERSION as "a.b.c.d", or an empty string. `nullptr` asks for the
+        // running executable, which is how the game's own build is named.
+        std::wstring file_version(const wchar_t* module_name)
+        {
+            wchar_t path[MAX_PATH]{};
+            const HMODULE mod = module_name == nullptr ? nullptr : ::GetModuleHandleW(module_name);
+            if (module_name != nullptr && mod == nullptr)
+            {
+                return {};
+            }
+            if (::GetModuleFileNameW(mod, path, static_cast<DWORD>(std::size(path))) == 0)
+            {
+                return {};
+            }
+            DWORD ignored = 0;
+            const DWORD size = ::GetFileVersionInfoSizeW(path, &ignored);
+            if (size == 0)
+            {
+                return {};
+            }
+            std::vector<unsigned char> buf(size);
+            if (::GetFileVersionInfoW(path, 0, size, buf.data()) == 0)
+            {
+                return {};
+            }
+            VS_FIXEDFILEINFO* info = nullptr;
+            UINT len = 0;
+            if (::VerQueryValueW(buf.data(), L"\\", reinterpret_cast<void**>(&info), &len) == 0 ||
+                info == nullptr || len < sizeof(VS_FIXEDFILEINFO))
+            {
+                return {};
+            }
+            return std::format(L"{}.{}.{}.{}", HIWORD(info->dwFileVersionMS), LOWORD(info->dwFileVersionMS),
+                               HIWORD(info->dwFileVersionLS), LOWORD(info->dwFileVersionLS));
+        }
+
+        // The real build number. GetVersionEx lies to a process without a manifest entry
+        // for the running OS; RtlGetVersion does not, and it is one GetProcAddress.
+        std::wstring windows_build()
+        {
+            using RtlGetVersionFn = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
+            const HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+            if (ntdll != nullptr)
+            {
+                const auto fn = reinterpret_cast<RtlGetVersionFn>(
+                    reinterpret_cast<void*>(::GetProcAddress(ntdll, "RtlGetVersion")));
+                RTL_OSVERSIONINFOW vi{};
+                vi.dwOSVersionInfoSize = sizeof(vi);
+                if (fn != nullptr && fn(&vi) == 0)
+                {
+                    return std::format(L"{}.{}.{}", vi.dwMajorVersion, vi.dwMinorVersion, vi.dwBuildNumber);
+                }
+            }
+            return L"unknown";
+        }
+
+        void log_bug_report_header()
+        {
+            const std::wstring game = file_version(nullptr);
+            const std::wstring ue4ss = file_version(L"UE4SS.dll");
+            mm::logf(L"===== WuchangMinimap v{} - attach these lines to any bug report =====",
+                     WUCHANG_MINIMAP_VERSION_W);
+            mm::logf(L"  game exe {}, UE4SS {}, Windows {}",
+                     game.empty() ? std::wstring{L"(no version info)"} : game,
+                     ue4ss.empty() ? std::wstring{L"(not loaded / no version info)"} : ue4ss,
+                     windows_build());
+            const char* level = mm::log_level_name(mm::config().log_level);
+            wchar_t level_w[16]{};
+            ::MultiByteToWideChar(CP_UTF8, 0, level, -1, level_w, static_cast<int>(std::size(level_w)) - 1);
+            mm::logf(L"  log level {} (log_level in the config; raise it to verbose or trace if you "
+                     L"are asked to reproduce something)",
+                     level_w);
+            mm::logf(L"  config   {}", mm::config_path());
+            mm::logf(L"  log      {} (plus .1 / .2 / .3, the three previous sessions)", mm::modlog_path());
+            mm::logf(L"  crash breadcrumb {} | waypoint {}", mm::mod_dir() + crumb::file_name(),
+                     mm::waypoint_path());
+            mm::log(L"  SEND: wuchang_minimap.log, wuchang_minimap_last_stage.txt and your config file.");
+        }
 
         enum class State
         {
@@ -179,9 +275,7 @@ namespace modswitch
         // two files can never disagree about the last thing that happened.
         crumb::set_flush_hook(&mm::modlog_flush);
         crumb::init(mm::mod_dir().c_str(), mm::config().crash_breadcrumb);
-        mm::logf(L"log: this session is also written to {} (rotated per launch, .1/.2/.3 kept) - "
-                 L"UE4SS truncates its own log every launch",
-                 mm::modlog_path());
+        log_bug_report_header();
         if (crumb::previous_suspicious())
         {
             const char* prev = crumb::previous();

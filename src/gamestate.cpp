@@ -217,9 +217,6 @@ namespace gamestate
             g_tune.cooldown_ms = static_cast<std::uint64_t>(cfg.reader_transition_cooldown_ms);
             g_tune.log_throttle_ms = static_cast<std::uint64_t>(cfg.reader_log_throttle_ms);
             g_tune.chapter_ms = static_cast<std::uint64_t>(cfg.reader_chapter_period_ms);
-            g_tune.max_widgets = static_cast<std::size_t>(cfg.reader_max_widgets);
-            g_tune.max_menu_roots = static_cast<std::size_t>(cfg.reader_max_menu_roots);
-            g_tune.max_levels = cfg.reader_max_levels;
             g_tune.teleport_uu = cfg.reader_teleport_jump_uu;
         }
 

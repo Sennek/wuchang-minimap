@@ -164,6 +164,12 @@ try {
     }
     [System.IO.File]::WriteAllText((Join-Path $modDir 'enabled.txt'), '')
 
+    # The developer overlay is NOT part of a release. It carries dials that only make
+    # sense while bringing the mod up, and the mod reads it after the player config, so
+    # one shipped by accident would silently override what a player edits.
+    $devCfg = Join-Path $modDir 'config_wuchang_minimap_dev.txt'
+    if (Test-Path $devCfg) { throw "config_wuchang_minimap_dev.txt must never be packaged." }
+
     # 3e. docs at the package root.
     $guideSrc = Join-Path $PSScriptRoot 'INSTALL_GUIDE.html'
     if (-not (Test-Path $guideSrc)) { throw "tools\INSTALL_GUIDE.html is missing." }

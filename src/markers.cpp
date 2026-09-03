@@ -373,7 +373,7 @@ namespace markers
         // Live copies of the sweep's caps (game thread)
         //==============================================================================
         //
-        // The config keys `markers_live_grace_rounds`, `markers_live_max`,
+        // The config key `markers_live_grace_rounds`
         // `markers_id_cache_max`, `markers_class_cache_max` and
         // `markers_fallback_max_per_class`. They are unpacked from the Config the pump
         // already copies, because process_marker() / publish_round() run per actor and
@@ -1750,10 +1750,6 @@ namespace markers
         g_absence_on = cfg.markers_absence_marks;
         g_absence_rounds = cfg.markers_absence_rounds;
         g_absence_cats = cfg.markers_absence_categories;
-        g_live_max = static_cast<std::size_t>(cfg.markers_live_max);
-        g_id_cache_max = static_cast<std::size_t>(cfg.markers_id_cache_max);
-        g_class_cache_max = static_cast<std::size_t>(cfg.markers_class_cache_max);
-        g_fallback_max_per_class = static_cast<std::size_t>(cfg.markers_fallback_max_per_class);
 
         // ---- HOOK: the x-ray highlight's camera reader (src/highlight.cpp) ----------
         //

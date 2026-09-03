@@ -24,6 +24,7 @@
 #include <format>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "mapview.hpp"
 #include "markers_db.hpp"
@@ -104,6 +105,28 @@ namespace mm
         BottomRight = 3,
     };
 
+    // HUD PLACEMENT PRESET. `Custom` is the shipped default and means "obey
+    // minimap_anchor / minimap_offset_* / compass_anchor exactly as written" - i.e.
+    // v0.9.1's behaviour, unchanged. Any other value puts the minimap in that corner
+    // AND moves the compass to the same vertical side, so one key relocates the whole
+    // HUD instead of three that can disagree with each other.
+    enum class HudPreset : int
+    {
+        Custom = 0,
+        TopLeft = 1,
+        TopRight = 2,
+        BottomLeft = 3,
+        BottomRight = 4,
+    };
+
+    // Which edge the compass strip hangs off. `compass_offset_y` is the distance from
+    // that edge, so the key means the same thing in both directions.
+    enum class VAnchor : int
+    {
+        Top = 0,
+        Bottom = 1,
+    };
+
     struct Config
     {
         //==============================================================================
@@ -124,8 +147,31 @@ namespace mm
         // running.
         bool mod_enabled = true;
 
-        bool enabled = true;          // master switch for the whole overlay
+        // Renamed from `enabled` in 0.9.2 (the old name is still accepted, with one
+        // warning). The three-switch ladder, in order of how much they stop:
+        //   mod_enabled     = the whole mod (no hook, no scans, no map in memory)
+        //   overlay_enabled = anything we draw (the reader and the sweep keep running)
+        //   show_minimap    = just the minimap disc
+        bool overlay_enabled = true;
         bool show_minimap = true;     // draw the minimap window
+
+        //==============================================================================
+        // UI scale and HUD placement
+        //==============================================================================
+        //
+        // ImGui draws at 13 px by default, which is a quarter of the intended physical
+        // size on a 4K screen. `ui_scale = auto` derives the factor from the back
+        // buffer's height (clamp(h / 1080, 1, 4)); a number overrides it. The font
+        // size and the ImGui style are scaled on the render thread, and every PIXEL
+        // config key below is multiplied by the same factor at read time - so a config
+        // tuned at 1080p is correct at 4K without being re-tuned.
+        //
+        // Scaled: markers_size, map_marker_size, highlight_size, compass_height,
+        // compass_offset_y, minimap_offset_x/y, minimap_min_px, minimap_arrow_min_px.
+        // NOT scaled: minimap_size and compass_width, which are fractions already.
+        bool ui_scale_auto = true;
+        float ui_scale = 1.0f; // only consulted when ui_scale_auto is false
+        HudPreset hud_preset = HudPreset::Custom;
         float size_frac = 0.24f;      // minimap side as a fraction of screen height
         float zoom_uu_per_px = 26.0f; // world uu per minimap pixel (smaller = closer)
         bool round = true;            // round mask instead of a square
@@ -353,7 +399,10 @@ namespace mm
 
         bool compass_enabled = true;
         float compass_width = 0.42f;    // fraction of the screen width
-        float compass_offset_y = 18.0f; // px from the top of the screen
+        // Which edge the strip hangs off, and how far from it. A non-custom
+        // `hud_preset` overrides the anchor (top presets -> Top, bottom -> Bottom).
+        VAnchor compass_anchor = VAnchor::Top;
+        float compass_offset_y = 18.0f; // px from that edge (scaled by ui_scale)
         float compass_height = 26.0f;   // px
         float compass_span_deg = 120.0f; // degrees visible across the strip
         float compass_opacity = 0.9f;
@@ -392,29 +441,15 @@ namespace mm
         float minimap_min_px = 72.0f;      // floor on the side length, whatever the fraction says
         float minimap_arrow_frac = 0.055f; // player arrow, as a fraction of the side
         float minimap_arrow_min_px = 8.0f;
-        int minimap_circle_segments = 72;  // roundness of the disc and its rings
         // The waypoint glyph's radius, as a multiple of markers_size. It is deliberately
         // a touch bigger than a marker: it is the one thing that is never culled.
         float waypoint_size_scale = 1.05f;
 
         //==============================================================================
-        // Height-slice sizing
-        //==============================================================================
-        //
-        // How big a window the CPU slicer cuts. `slice_min_px` / `slice_max_px` bound
-        // the minimap's square; `map_slice_margin` is how much bigger than the visible
-        // canvas the full map's cut is, so a drag can move inside the cut before it has
-        // to be redone (1.30 = 15 % of the canvas in either direction).
-
-        int slice_min_px = 128;
-        int slice_max_px = 1024;
-        float map_slice_margin = 1.30f;
-
-        //==============================================================================
         // The game-state reader (src/gamestate.cpp, game thread)
         //==============================================================================
         //
-        // The rates and caps of the ProcessEvent pump. They are read from the config at
+        // The rates of the ProcessEvent pump. They are read from the config at
         // most twice a second and are live. LOWER PERIODS COST GAME-THREAD TIME: the
         // position pump is what gates the marker scan and the widget test, and the
         // widget sweep is a FindAllOf, i.e. a whole object-array walk.
@@ -433,25 +468,17 @@ namespace mm
         int reader_transition_cooldown_ms = 2000; // no UFunction call for this long after a pawn/world change
         double reader_teleport_jump_uu = 3000.0;  // a position jump this big in one pump is a fast travel
         int reader_chapter_period_ms = 1000;      // how often the streamed level set is named
-        int reader_max_widgets = 6000;            // sanity cap on one widget sweep
-        int reader_max_menu_roots = 32;           // in-viewport root cache cap (the game has 5-6)
-        int reader_max_levels = 4096;             // sanity cap on the level enumeration
         int reader_log_throttle_ms = 5000;        // "no pawn" / "rejected class" lines
 
         //==============================================================================
         // Marker sweep internals
         //==============================================================================
         //
-        // Caps and the absence grace of the live half. `markers_live_grace_rounds` is
-        // the number of rounds a live actor may go unseen before it is dropped from the
-        // live cache - two rounds is what stops a marker flickering whenever a sweep
+        // The absence grace of the live half. `markers_live_grace_rounds` is the number
+        // of rounds a live actor may go unseen before it is dropped from the live cache - two rounds is what stops a marker flickering whenever a sweep
         // races level streaming. It is NOT a collected test (see markers_absence_*).
 
         int markers_live_grace_rounds = 2;
-        int markers_live_max = 8192;             // live entries tracked at once
-        int markers_id_cache_max = 8192;         // UObject* -> stable id memo
-        int markers_class_cache_max = 262144;    // UClass* -> marker-class memo; must clear the WHOLE game's classes
-        int markers_fallback_max_per_class = 4096; // only the FindAllOf fallback path
 
         //==============================================================================
         // Assets and diagnostics
@@ -468,7 +495,7 @@ namespace mm
         // RESTART ONLY: the heap is created once, when the overlay first initialises.
         int srv_heap_size = 64;
 
-        bool debug_readout = true;
+        bool debug_readout = false;
         bool debug_show_panel_on_start = false; // main-menu verification aid
         int panel_key = 0x71;                   // VK_F2
         int reload_key = 0x74;                  // VK_F5
@@ -576,15 +603,24 @@ namespace mm
     // False when the file cannot be read or carries no `mod_enabled` line.
     bool peek_mod_enabled(bool& out);
 
-    // Loop thread. FILETIME of the config file as a uint64, or 0 when it cannot be
-    // stat()ed. The watcher only parses the file when this changes.
+    // Loop thread. The two config files' FILETIMEs mixed into one uint64, or 0 when
+    // neither can be stat()ed. The watcher only parses when this changes, so editing
+    // EITHER file reloads both.
     std::uint64_t config_mtime();
 
     // Loop thread only (plain Win32 file I/O, no iostreams).
     void load_config_file();
     void save_config_file();
     std::wstring config_path();
+    // config_wuchang_minimap_dev.txt - the Tier::Dev overlay. Not shipped in the
+    // release zip; parsed only when it exists, after the main file.
+    std::wstring dev_config_path();
     std::wstring mod_dir();
+
+    // Every setting as `key` -> its text form, in cfgkeys order (Player, Advanced,
+    // Dev). The single source of the VALUES; the layout of the files is owned by
+    // config_rewrite.hpp. Any thread (pure).
+    std::vector<std::pair<std::string, std::string>> config_kv(const Config& cfg);
 
     // "F2", "M", "TAB", "LALT", ... - the same spelling the config file uses. Any thread.
     std::wstring key_name(int vk);
@@ -619,6 +655,9 @@ namespace mm
     extern std::atomic<bool> g_panel_open;      // F2
     extern std::atomic<bool> g_map_open;        // M - full map (reserved)
     extern std::atomic<bool> g_reload_config;   // F5 -> loop thread reloads
+    // Panel "Revert": re-read the config files only (no map / marker reload) and
+    // publish them, throwing away every unsaved edit made in the panel.
+    extern std::atomic<bool> g_revert_config;
     extern std::atomic<bool> g_save_config;     // panel -> loop thread saves
     extern std::atomic<bool> g_panel_drew_frame; // set by the render thread, for the log
     extern std::atomic<bool> g_waypoint_dirty;   // render -> loop: write the waypoint file

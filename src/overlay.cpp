@@ -77,9 +77,9 @@ namespace overlay
         constexpr float kPi = 3.14159265358979323846f;
         constexpr int kSrvHeapSize = 64;
         constexpr int kMaxBuffers = 8;
-        // The DEFAULT roundness of the minimap disc and its rings; `minimap_circle_segments`
-        // overrides it. The drawing helpers below are handed geometry, not the config, so
-        // the live value is cached here by build_ui() once per frame (render thread only).
+        // Roundness of the minimap disc and its rings. This was `minimap_circle_segments`
+        // until 0.9.2: a sanity dial, never a preference, so it is a constant now. The
+        // drawing helpers are handed geometry rather than the config, hence the global.
         constexpr int kCircleSegments = 72;
         int g_circle_segments = kCircleSegments;
 
@@ -432,10 +432,14 @@ namespace overlay
         // Declared here rather than with the full map's own block below, because the
         // slicer handshake arrays need both counts.
         constexpr int kMapSliceBufs = 2;
-        // Defaults for `slice_min_px` / `slice_max_px`, which is what slice_size_for()
-        // actually reads.
+        // Bounds on the square the CPU slicer cuts for the minimap. Hard-coded since
+        // 0.9.2 (they were `slice_min_px` / `slice_max_px`); slice_size_for() reads them.
         constexpr int kSliceMinPx = 128;
         constexpr int kSliceMaxPx = 1024;
+        // How much bigger than the visible canvas the FULL MAP's cut is, so a drag can
+        // move inside the cut before it has to be redone (1.30 = 15 % of the canvas in
+        // either direction). Was `map_slice_margin`.
+        constexpr double kMapSliceMargin = 1.30;
         SliceBuf g_slice[kSliceBufs];
         int g_slice_next = 0;  // the buffer the next update writes (loop thread)
         int g_slice_size = 0;   // side of the currently allocated buffers, px
@@ -1394,13 +1398,13 @@ namespace overlay
                                      1.4143; // the diagonal of the square the disc rotates in
             double want = 2.0 * radius_uu * hm.px_per_uu + 16.0;
             int size = static_cast<int>(std::ceil(want / 128.0)) * 128;
-            if (size < cfg.slice_min_px)
+            if (size < kSliceMinPx)
             {
-                size = cfg.slice_min_px;
+                size = kSliceMinPx;
             }
-            if (size > cfg.slice_max_px)
+            if (size > kSliceMaxPx)
             {
-                size = cfg.slice_max_px;
+                size = kSliceMaxPx;
             }
             return size;
         }
@@ -2780,7 +2784,7 @@ namespace overlay
         void draw_highlight(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
         {
             g_hl_debug = HighlightDebug{};
-            if (!cfg.enabled || !cfg.highlight_enabled || !gate_ok)
+            if (!cfg.overlay_enabled || !cfg.highlight_enabled || !gate_ok)
             {
                 return;
             }
@@ -2986,7 +2990,7 @@ namespace overlay
         void draw_compass(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
         {
             g_compass_debug = CompassDebug{};
-            if (!cfg.enabled || !cfg.compass_enabled || !gate_ok)
+            if (!cfg.overlay_enabled || !cfg.compass_enabled || !gate_ok)
             {
                 return;
             }
@@ -3240,7 +3244,7 @@ namespace overlay
         // the same numbers from the same request.
         void map_slice_size(const mm::Config& cfg, const mv::Rect& canvas, int& tw, int& th)
         {
-            const double kMargin = static_cast<double>(cfg.map_slice_margin);
+            const double kMargin = kMapSliceMargin;
             const double zoom = g_mv.uu_per_px;
             const double want_w_uu = static_cast<double>(canvas.w()) * zoom * kMargin;
             const double want_h_uu = static_cast<double>(canvas.h()) * zoom * kMargin;
@@ -3398,7 +3402,7 @@ namespace overlay
 
             // The step the render thread's sizing implies, recomputed from the buffer
             // that actually exists.
-            const double kMargin = static_cast<double>(cfg.map_slice_margin);
+            const double kMargin = kMapSliceMargin;
             const double want_w_uu = static_cast<double>(req.canvas_w) * req.zoom * kMargin;
             const double step = want_w_uu * hm.px_per_uu / static_cast<double>(b.w);
             if (!(step > 0.0))
@@ -4176,7 +4180,7 @@ namespace overlay
                                "WuchangMinimap v" WUCHANG_MINIMAP_VERSION
                                "  -  beta: chapters 2-5 maps and the x-ray highlight are not yet verified in-game");
             ImGui::Spacing();
-            ImGui::Checkbox("Overlay enabled", &cfg.enabled);
+            ImGui::Checkbox("Overlay enabled", &cfg.overlay_enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Show minimap", &cfg.show_minimap);
             // THE MASTER SWITCH. Unticking it does not stop anything from here - it
@@ -4826,7 +4830,6 @@ namespace overlay
             const mm::Config& cfg = mm::cfg_cached();
             // The disc-drawing helpers take geometry, not the config, so the live
             // roundness is cached here once per frame (render thread only).
-            g_circle_segments = cfg.minimap_circle_segments;
             mm::Snapshot snap{};
             const bool have = mm::read_snapshot(snap);
 
@@ -4871,7 +4874,7 @@ namespace overlay
             }
             g_map_was_open = mm::g_map_open.load(std::memory_order_relaxed);
 
-            if (!cfg.enabled || !cfg.show_minimap)
+            if (!cfg.overlay_enabled || !cfg.show_minimap)
             {
                 set_hide_reason(L"disabled in the config");
             }
@@ -5569,7 +5572,7 @@ namespace overlay
         g_render_stopped.store(false, std::memory_order_release);
 
         const mm::Config cfg = mm::config();
-        if (!cfg.enabled)
+        if (!cfg.overlay_enabled)
         {
             mm::log(L"overlay disabled by config (enabled = 0) - no hooks installed");
             mm::drain_log();
@@ -5785,7 +5788,7 @@ namespace overlay
         }
         // This is what makes the game thread read the camera at all: with neither the
         // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.
-        hl::set_demand(held, cfg.enabled && cfg.compass_enabled);
+        hl::set_demand(held, cfg.overlay_enabled && cfg.compass_enabled);
 
         // The waypoint is set on the render thread and written here, because the loop
         // thread is the only one allowed to touch a file.

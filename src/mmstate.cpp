@@ -1,5 +1,7 @@
 #include "mmstate.hpp"
 
+#include "config_keys.hpp"
+
 #include <Windows.h>
 
 #include <DynamicOutput/DynamicOutput.hpp>
@@ -487,6 +489,49 @@ namespace mm
             }
         }
 
+        const char* preset_name(HudPreset p)
+        {
+            switch (p)
+            {
+            case HudPreset::TopLeft:
+                return "top-left";
+            case HudPreset::TopRight:
+                return "top-right";
+            case HudPreset::BottomLeft:
+                return "bottom-left";
+            case HudPreset::BottomRight:
+                return "bottom-right";
+            case HudPreset::Custom:
+            default:
+                return "custom";
+            }
+        }
+
+        HudPreset preset_from_name(const std::string& v, HudPreset fallback)
+        {
+            if (v == "custom")
+            {
+                return HudPreset::Custom;
+            }
+            if (v == "top-left")
+            {
+                return HudPreset::TopLeft;
+            }
+            if (v == "top-right")
+            {
+                return HudPreset::TopRight;
+            }
+            if (v == "bottom-left")
+            {
+                return HudPreset::BottomLeft;
+            }
+            if (v == "bottom-right")
+            {
+                return HudPreset::BottomRight;
+            }
+            return fallback;
+        }
+
         Anchor anchor_from_name(const std::string& v, Anchor fallback)
         {
             if (v == "top-left")
@@ -515,13 +560,33 @@ namespace mm
             {
                 cfg.mod_enabled = parse_bool(value, cfg.mod_enabled);
             }
-            else if (key == "enabled")
+            // `enabled` is the pre-0.9.2 name. It is still accepted (the loader logs
+            // one warning naming the new key), so an old file keeps working.
+            else if (key == "overlay_enabled" || key == "enabled")
             {
-                cfg.enabled = parse_bool(value, cfg.enabled);
+                cfg.overlay_enabled = parse_bool(value, cfg.overlay_enabled);
             }
             else if (key == "show_minimap")
             {
                 cfg.show_minimap = parse_bool(value, cfg.show_minimap);
+            }
+            else if (key == "ui_scale")
+            {
+                // `auto` (the shipped default) derives the factor from the back buffer
+                // height on the render thread; a number pins it.
+                if (value == "auto" || value.empty())
+                {
+                    cfg.ui_scale_auto = true;
+                }
+                else
+                {
+                    cfg.ui_scale_auto = false;
+                    cfg.ui_scale = parse_float(value, cfg.ui_scale);
+                }
+            }
+            else if (key == "hud_preset")
+            {
+                cfg.hud_preset = preset_from_name(value, cfg.hud_preset);
             }
             else if (key == "minimap_size")
             {
@@ -900,6 +965,10 @@ namespace mm
             {
                 cfg.compass_width = parse_float(value, cfg.compass_width);
             }
+            else if (key == "compass_anchor")
+            {
+                cfg.compass_anchor = (value == "bottom") ? VAnchor::Bottom : VAnchor::Top;
+            }
             else if (key == "compass_offset_y")
             {
                 cfg.compass_offset_y = parse_float(value, cfg.compass_offset_y);
@@ -1003,25 +1072,9 @@ namespace mm
             {
                 cfg.minimap_arrow_min_px = parse_float(value, cfg.minimap_arrow_min_px);
             }
-            else if (key == "minimap_circle_segments")
-            {
-                cfg.minimap_circle_segments = parse_int(value, cfg.minimap_circle_segments);
-            }
             else if (key == "waypoint_size_scale")
             {
                 cfg.waypoint_size_scale = parse_float(value, cfg.waypoint_size_scale);
-            }
-            else if (key == "slice_min_px")
-            {
-                cfg.slice_min_px = parse_int(value, cfg.slice_min_px);
-            }
-            else if (key == "slice_max_px")
-            {
-                cfg.slice_max_px = parse_int(value, cfg.slice_max_px);
-            }
-            else if (key == "map_slice_margin")
-            {
-                cfg.map_slice_margin = parse_float(value, cfg.map_slice_margin);
             }
             else if (key == "reader_position_period_ms")
             {
@@ -1056,18 +1109,6 @@ namespace mm
             {
                 cfg.reader_chapter_period_ms = parse_int(value, cfg.reader_chapter_period_ms);
             }
-            else if (key == "reader_max_widgets")
-            {
-                cfg.reader_max_widgets = parse_int(value, cfg.reader_max_widgets);
-            }
-            else if (key == "reader_max_menu_roots")
-            {
-                cfg.reader_max_menu_roots = parse_int(value, cfg.reader_max_menu_roots);
-            }
-            else if (key == "reader_max_levels")
-            {
-                cfg.reader_max_levels = parse_int(value, cfg.reader_max_levels);
-            }
             else if (key == "reader_log_throttle_ms")
             {
                 cfg.reader_log_throttle_ms = parse_int(value, cfg.reader_log_throttle_ms);
@@ -1075,22 +1116,6 @@ namespace mm
             else if (key == "markers_live_grace_rounds")
             {
                 cfg.markers_live_grace_rounds = parse_int(value, cfg.markers_live_grace_rounds);
-            }
-            else if (key == "markers_live_max")
-            {
-                cfg.markers_live_max = parse_int(value, cfg.markers_live_max);
-            }
-            else if (key == "markers_id_cache_max")
-            {
-                cfg.markers_id_cache_max = parse_int(value, cfg.markers_id_cache_max);
-            }
-            else if (key == "markers_class_cache_max")
-            {
-                cfg.markers_class_cache_max = parse_int(value, cfg.markers_class_cache_max);
-            }
-            else if (key == "markers_fallback_max_per_class")
-            {
-                cfg.markers_fallback_max_per_class = parse_int(value, cfg.markers_fallback_max_per_class);
             }
             else if (key == "map_asset_retire_grace_ms")
             {
@@ -1203,6 +1228,7 @@ namespace mm
     std::atomic<bool> g_panel_open{false};
     std::atomic<bool> g_map_open{false};
     std::atomic<bool> g_reload_config{false};
+    std::atomic<bool> g_revert_config{false};
     std::atomic<bool> g_save_config{false};
     std::atomic<bool> g_panel_drew_frame{false};
     std::atomic<bool> g_waypoint_dirty{false};
@@ -1385,6 +1411,219 @@ namespace mm
         return mod_dir() + L"\\config_wuchang_minimap.txt";
     }
 
+    // The DEV overlay file. It is not shipped in the release zip, it is parsed only if
+    // it exists, and it is loaded AFTER the main file so a dev key set in both wins
+    // here. Everything in it is Tier::Dev (cfgkeys) - dials that existed because a
+    // developer needed one during bring-up.
+    std::wstring dev_config_path()
+    {
+        return mod_dir() + L"\\config_wuchang_minimap_dev.txt";
+    }
+
+    namespace
+    {
+        // One warning per key per process. A removed key or the old `enabled` spelling
+        // is a fact about the user's file, not an event - repeating it on every F5 and
+        // on every 1 Hz mtime reload would bury everything else in the log.
+        bool g_warned[cfgkeys::kKeyCount] = {};
+
+        void warn_once(std::string_view key, const std::wstring& text)
+        {
+            for (std::size_t i = 0; i < cfgkeys::kKeyCount; ++i)
+            {
+                if (key == cfgkeys::kKeys[i].name)
+                {
+                    if (!g_warned[i])
+                    {
+                        g_warned[i] = true;
+                        log(text);
+                    }
+                    return;
+                }
+            }
+        }
+
+        std::wstring widen_ascii(std::string_view v)
+        {
+            std::wstring out;
+            out.reserve(v.size());
+            for (const char c : v)
+            {
+                out.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+            }
+            return out;
+        }
+
+        // Applies one config file's text onto `cfg`. Returns how many `key = value`
+        // lines it understood. The line rules are mirrored EXACTLY in
+        // cfgkeys::keys_in(), which is what the offline drift test parses files with.
+        int apply_text(Config& cfg, const std::string& text)
+        {
+            int lines = 0;
+            std::size_t pos = 0;
+            // A UTF-8 BOM (PowerShell's Set-Content -Encoding utf8 writes one) would
+            // otherwise be glued to the first key's name.
+            if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
+                static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
+            {
+                pos = 3;
+            }
+            while (pos <= text.size())
+            {
+                const std::size_t nl = text.find('\n', pos);
+                std::string_view raw =
+                    std::string_view{text}.substr(pos, (nl == std::string::npos ? text.size() : nl) - pos);
+                pos = (nl == std::string::npos) ? text.size() + 1 : nl + 1;
+
+                const std::size_t comment = raw.find_first_of(";#");
+                if (comment != std::string_view::npos)
+                {
+                    raw = raw.substr(0, comment);
+                }
+                const std::size_t eq = raw.find('=');
+                if (eq == std::string_view::npos)
+                {
+                    continue;
+                }
+                const std::string key = trim(raw.substr(0, eq));
+                const std::string value = trim(raw.substr(eq + 1));
+                if (key.empty())
+                {
+                    continue;
+                }
+
+                // A key that used to exist and is now a hard-coded constant. It is
+                // NAMED rather than ignored in silence, because "I set it and nothing
+                // happened" is exactly what an ignored key looks like.
+                if (cfgkeys::is_removed(key))
+                {
+                    warn_once(key,
+                              std::format(L"config: `{}` was removed in 0.9.2 (it is a hard-coded sanity "
+                                          L"cap now) - the line is ignored and can be deleted",
+                                          widen_ascii(key)));
+                    continue;
+                }
+                if (const char* to = cfgkeys::renamed_to(key); to != nullptr)
+                {
+                    warn_once(key,
+                              std::format(L"config: `{}` was renamed to `{}` in 0.9.2 - the old name still "
+                                          L"works, but please rename it",
+                                          widen_ascii(key),
+                                          widen_ascii(to)));
+                }
+
+                ++lines;
+                apply_setting(cfg, key, value);
+            }
+            return lines;
+        }
+
+        void clamp_config(Config& cfg)
+        {
+            // Clamp everything: a hand-edited file must not be able to produce a 40 000 px
+            // minimap or a divide-by-zero zoom.
+            cfg.size_frac = (std::max)(0.05f, (std::min)(0.9f, cfg.size_frac));
+            cfg.zoom_uu_per_px = (std::max)(2.0f, (std::min)(400.0f, cfg.zoom_uu_per_px));
+            cfg.opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.opacity));
+            cfg.offset_x = (std::max)(0.0f, (std::min)(4000.0f, cfg.offset_x));
+            cfg.offset_y = (std::max)(0.0f, (std::min)(4000.0f, cfg.offset_y));
+            cfg.state_stale_ms = (std::max)(100, (std::min)(60000, cfg.state_stale_ms));
+            cfg.min_visible_after_state_ok_ms = (std::max)(0, (std::min)(10000, cfg.min_visible_after_state_ok_ms));
+            cfg.menu_close_show_delay_ms = (std::max)(0, (std::min)(3000, cfg.menu_close_show_delay_ms));
+            cfg.adjacent_floor_opacity = (std::max)(0.0f, (std::min)(1.0f, cfg.adjacent_floor_opacity));
+            cfg.floor_z_tolerance = (std::max)(10.0f, (std::min)(2000.0f, cfg.floor_z_tolerance));
+            cfg.floor_fade_uu = (std::max)(cfg.floor_z_tolerance, (std::min)(20000.0f, cfg.floor_fade_uu));
+            cfg.floor_gradient_strength = (std::max)(0.0f, (std::min)(1.0f, cfg.floor_gradient_strength));
+            cfg.floor_base_r = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_r));
+            cfg.floor_base_g = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_g));
+            cfg.floor_base_b = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_b));
+            cfg.slice_hz = (std::max)(2, (std::min)(30, cfg.slice_hz));
+            cfg.feet_z_smooth_ms = (std::max)(1, (std::min)(2000, cfg.feet_z_smooth_ms));
+            cfg.player_z_offset = (std::max)(-500.0f, (std::min)(500.0f, cfg.player_z_offset));
+            cfg.markers_rounds_per_sec = (std::max)(1, (std::min)(10, cfg.markers_rounds_per_sec));
+            cfg.markers_scan_chunk = scan::clamp_chunk(cfg.markers_scan_chunk);
+            cfg.markers_scan_period_ms = scan::clamp_period_ms(cfg.markers_scan_period_ms);
+            cfg.markers_found_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.markers_found_alpha));
+            cfg.markers_size = (std::max)(2.0f, (std::min)(24.0f, cfg.markers_size));
+            cfg.markers_max_draw = (std::max)(0, (std::min)(4000, cfg.markers_max_draw));
+            cfg.found_save_debounce_ms = (std::max)(200, (std::min)(60000, cfg.found_save_debounce_ms));
+            cfg.markers_absence_rounds = (std::max)(1, (std::min)(30, cfg.markers_absence_rounds));
+            cfg.markers_absence_categories &= mdb::kAllCats;
+            // The full map. Same hand-edit discipline as everything above: without a clamp
+            // a typo could ask for a 1 uu/px view of a 500 m chapter, a zero-size slice
+            // texture, or a zoom factor of 1.0 (which never changes the zoom at all).
+            cfg.map_zoom_min = (std::max)(1.0f, (std::min)(2000.0f, cfg.map_zoom_min));
+            cfg.map_zoom_max = (std::max)(cfg.map_zoom_min, (std::min)(4000.0f, cfg.map_zoom_max));
+            cfg.map_zoom = (std::max)(cfg.map_zoom_min, (std::min)(cfg.map_zoom_max, cfg.map_zoom));
+            cfg.map_zoom_factor = (std::max)(1.01f, (std::min)(2.0f, cfg.map_zoom_factor));
+            cfg.map_pan_speed = (std::max)(50.0f, (std::min)(6000.0f, cfg.map_pan_speed));
+            cfg.map_margin = (std::max)(0.0f, (std::min)(0.3f, cfg.map_margin));
+            cfg.map_backdrop = (std::max)(0.0f, (std::min)(1.0f, cfg.map_backdrop));
+            cfg.map_marker_size = (std::max)(2.0f, (std::min)(32.0f, cfg.map_marker_size));
+            cfg.map_markers_max_draw = (std::max)(0, (std::min)(20000, cfg.map_markers_max_draw));
+            cfg.map_floor_step = (std::max)(10.0f, (std::min)(5000.0f, cfg.map_floor_step));
+            cfg.map_slice_px = (std::max)(128, (std::min)(2048, cfg.map_slice_px));
+            cfg.map_slice_hz = (std::max)(1, (std::min)(30, cfg.map_slice_hz));
+            cfg.map_gamepad_deadzone = (std::max)(0.05f, (std::min)(0.6f, cfg.map_gamepad_deadzone));
+            cfg.markers_categories &= mdb::kAllCats;
+            // The highlight and the compass. Same discipline: a hand-edited radius of 1e9
+            // would ask the projector for every marker in the game, and a zero-degree span
+            // would divide by zero on the strip.
+            cfg.highlight_radius = (std::max)(200.0f, (std::min)(50000.0f, cfg.highlight_radius));
+            cfg.highlight_categories &= mdb::kAllCats;
+            cfg.highlight_max_draw = (std::max)(1, (std::min)(400, cfg.highlight_max_draw));
+            cfg.highlight_alpha_near = (std::max)(0.05f, (std::min)(1.0f, cfg.highlight_alpha_near));
+            cfg.highlight_alpha_far = (std::max)(0.0f, (std::min)(cfg.highlight_alpha_near, cfg.highlight_alpha_far));
+            cfg.highlight_size = (std::max)(2.0f, (std::min)(32.0f, cfg.highlight_size));
+            cfg.highlight_camera_hz = (std::max)(5, (std::min)(240, cfg.highlight_camera_hz));
+            cfg.compass_width = (std::max)(0.1f, (std::min)(1.0f, cfg.compass_width));
+            cfg.compass_offset_y = (std::max)(0.0f, (std::min)(2000.0f, cfg.compass_offset_y));
+            cfg.compass_height = (std::max)(10.0f, (std::min)(120.0f, cfg.compass_height));
+            cfg.compass_span_deg = (std::max)(30.0f, (std::min)(360.0f, cfg.compass_span_deg));
+            cfg.compass_opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.compass_opacity));
+            cfg.compass_categories &= mdb::kAllCats;
+            cfg.compass_marker_distance = (std::max)(500.0f, (std::min)(200000.0f, cfg.compass_marker_distance));
+            // The minimap's own look, the slicer's sizing, the reader's rates and the sweep's
+            // caps. Same rule as everything above: a hand-edited file may be wrong, it may
+            // not be able to divide by zero, allocate unboundedly or stall the game thread.
+            cfg.minimap_backdrop = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_backdrop));
+            cfg.minimap_backdrop_r = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_r));
+            cfg.minimap_backdrop_g = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_g));
+            cfg.minimap_backdrop_b = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_b));
+            cfg.minimap_frame_r = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_frame_r));
+            cfg.minimap_frame_g = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_frame_g));
+            cfg.minimap_frame_b = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_frame_b));
+            cfg.minimap_frame_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_frame_alpha));
+            cfg.minimap_composite_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_composite_alpha));
+            cfg.minimap_min_px = (std::max)(16.0f, (std::min)(512.0f, cfg.minimap_min_px));
+            cfg.minimap_arrow_frac = (std::max)(0.01f, (std::min)(0.3f, cfg.minimap_arrow_frac));
+            cfg.minimap_arrow_min_px = (std::max)(2.0f, (std::min)(64.0f, cfg.minimap_arrow_min_px));
+            cfg.waypoint_size_scale = (std::max)(0.2f, (std::min)(4.0f, cfg.waypoint_size_scale));
+            cfg.reader_position_period_ms = (std::max)(16, (std::min)(1000, cfg.reader_position_period_ms));
+            cfg.reader_resolve_period_ms = (std::max)(100, (std::min)(10000, cfg.reader_resolve_period_ms));
+            cfg.reader_widget_sweep_period_ms = (std::max)(50, (std::min)(5000, cfg.reader_widget_sweep_period_ms));
+            cfg.reader_widget_sweep_max_period_ms =
+                (std::max)(cfg.reader_widget_sweep_period_ms,
+                           (std::min)(30000, cfg.reader_widget_sweep_max_period_ms));
+            cfg.reader_widget_sweep_warm_ms = (std::max)(0, (std::min)(60000, cfg.reader_widget_sweep_warm_ms));
+            cfg.reader_transition_cooldown_ms = (std::max)(0, (std::min)(30000, cfg.reader_transition_cooldown_ms));
+            cfg.reader_teleport_jump_uu = (std::max)(200.0, (std::min)(100000.0, cfg.reader_teleport_jump_uu));
+            cfg.reader_chapter_period_ms = (std::max)(200, (std::min)(60000, cfg.reader_chapter_period_ms));
+            cfg.reader_log_throttle_ms = (std::max)(500, (std::min)(600000, cfg.reader_log_throttle_ms));
+            cfg.markers_live_grace_rounds = (std::max)(1, (std::min)(30, cfg.markers_live_grace_rounds));
+            cfg.map_asset_retire_grace_ms = (std::max)(0, (std::min)(60000, cfg.map_asset_retire_grace_ms));
+            cfg.hide_reason_log_ms = (std::max)(0, (std::min)(600000, cfg.hide_reason_log_ms));
+            cfg.srv_heap_size = (std::max)(16, (std::min)(1024, cfg.srv_heap_size));
+            cfg.highlight_camera_resolve_ms = (std::max)(100, (std::min)(10000, cfg.highlight_camera_resolve_ms));
+            cfg.highlight_compass_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_compass_period_ms));
+            cfg.highlight_getter_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_getter_period_ms));
+            cfg.highlight_pov_scan_bytes = (std::max)(64, (std::min)(1024, cfg.highlight_pov_scan_bytes));
+            cfg.highlight_pov_bad_reads = (std::max)(1, (std::min)(64, cfg.highlight_pov_bad_reads));
+            cfg.compass_tick_step_deg = (std::max)(1.0f, (std::min)(90.0f, cfg.compass_tick_step_deg));
+            cfg.compass_max_pips = (std::max)(0, (std::min)(256, cfg.compass_max_pips));
+        }
+    } // namespace
+
     void load_config_file()
     {
         if (g_pf_config < 0)
@@ -1398,323 +1637,96 @@ namespace mm
         {
             logf(L"config: {} not found - using defaults (a file is written when you press Save in the F2 panel)",
                  path);
+            clamp_config(cfg);
             set_config(cfg);
             return;
         }
 
-        int lines = 0;
-        std::size_t pos = 0;
-        // A UTF-8 BOM (PowerShell's Set-Content -Encoding utf8 writes one) would
-        // otherwise be glued to the first key's name.
-        if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
-            static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
-        {
-            pos = 3;
-        }
-        while (pos <= text.size())
-        {
-            const std::size_t nl = text.find('\n', pos);
-            std::string_view raw = std::string_view{text}.substr(pos, (nl == std::string::npos ? text.size() : nl) - pos);
-            pos = (nl == std::string::npos) ? text.size() + 1 : nl + 1;
+        const int lines = apply_text(cfg, text);
 
-            const std::size_t comment = raw.find_first_of(";#");
-            if (comment != std::string_view::npos)
-            {
-                raw = raw.substr(0, comment);
-            }
-            const std::size_t eq = raw.find('=');
-            if (eq == std::string_view::npos)
-            {
-                continue;
-            }
-            const std::string key = trim(raw.substr(0, eq));
-            const std::string value = trim(raw.substr(eq + 1));
-            if (key.empty())
-            {
-                continue;
-            }
-            ++lines;
-
-            apply_setting(cfg, key, value);
+        // The dev overlay, if the developer put one there. Loaded second on purpose: a
+        // dev file is a deliberate override of whatever the shipped file says.
+        int dev_lines = 0;
+        bool have_dev = false;
+        std::string dev_text;
+        if (read_whole_file(dev_config_path(), dev_text))
+        {
+            have_dev = true;
+            dev_lines = apply_text(cfg, dev_text);
         }
 
-        // Clamp everything: a hand-edited file must not be able to produce a 40 000 px
-        // minimap or a divide-by-zero zoom.
-        cfg.size_frac = (std::max)(0.05f, (std::min)(0.9f, cfg.size_frac));
-        cfg.zoom_uu_per_px = (std::max)(2.0f, (std::min)(400.0f, cfg.zoom_uu_per_px));
-        cfg.opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.opacity));
-        cfg.offset_x = (std::max)(0.0f, (std::min)(4000.0f, cfg.offset_x));
-        cfg.offset_y = (std::max)(0.0f, (std::min)(4000.0f, cfg.offset_y));
-        cfg.state_stale_ms = (std::max)(100, (std::min)(60000, cfg.state_stale_ms));
-        cfg.min_visible_after_state_ok_ms = (std::max)(0, (std::min)(10000, cfg.min_visible_after_state_ok_ms));
-        cfg.menu_close_show_delay_ms = (std::max)(0, (std::min)(3000, cfg.menu_close_show_delay_ms));
-        cfg.adjacent_floor_opacity = (std::max)(0.0f, (std::min)(1.0f, cfg.adjacent_floor_opacity));
-        cfg.floor_z_tolerance = (std::max)(10.0f, (std::min)(2000.0f, cfg.floor_z_tolerance));
-        cfg.floor_fade_uu = (std::max)(cfg.floor_z_tolerance, (std::min)(20000.0f, cfg.floor_fade_uu));
-        cfg.floor_gradient_strength = (std::max)(0.0f, (std::min)(1.0f, cfg.floor_gradient_strength));
-        cfg.floor_base_r = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_r));
-        cfg.floor_base_g = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_g));
-        cfg.floor_base_b = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_b));
-        cfg.slice_hz = (std::max)(2, (std::min)(30, cfg.slice_hz));
-        cfg.feet_z_smooth_ms = (std::max)(1, (std::min)(2000, cfg.feet_z_smooth_ms));
-        cfg.player_z_offset = (std::max)(-500.0f, (std::min)(500.0f, cfg.player_z_offset));
-        cfg.markers_rounds_per_sec = (std::max)(1, (std::min)(10, cfg.markers_rounds_per_sec));
-        cfg.markers_scan_chunk = scan::clamp_chunk(cfg.markers_scan_chunk);
-        cfg.markers_scan_period_ms = scan::clamp_period_ms(cfg.markers_scan_period_ms);
-        cfg.markers_found_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.markers_found_alpha));
-        cfg.markers_size = (std::max)(2.0f, (std::min)(24.0f, cfg.markers_size));
-        cfg.markers_max_draw = (std::max)(0, (std::min)(4000, cfg.markers_max_draw));
-        cfg.found_save_debounce_ms = (std::max)(200, (std::min)(60000, cfg.found_save_debounce_ms));
-        cfg.markers_absence_rounds = (std::max)(1, (std::min)(30, cfg.markers_absence_rounds));
-        cfg.markers_absence_categories &= mdb::kAllCats;
-        // The full map. Same hand-edit discipline as everything above: without a clamp
-        // a typo could ask for a 1 uu/px view of a 500 m chapter, a zero-size slice
-        // texture, or a zoom factor of 1.0 (which never changes the zoom at all).
-        cfg.map_zoom_min = (std::max)(1.0f, (std::min)(2000.0f, cfg.map_zoom_min));
-        cfg.map_zoom_max = (std::max)(cfg.map_zoom_min, (std::min)(4000.0f, cfg.map_zoom_max));
-        cfg.map_zoom = (std::max)(cfg.map_zoom_min, (std::min)(cfg.map_zoom_max, cfg.map_zoom));
-        cfg.map_zoom_factor = (std::max)(1.01f, (std::min)(2.0f, cfg.map_zoom_factor));
-        cfg.map_pan_speed = (std::max)(50.0f, (std::min)(6000.0f, cfg.map_pan_speed));
-        cfg.map_margin = (std::max)(0.0f, (std::min)(0.3f, cfg.map_margin));
-        cfg.map_backdrop = (std::max)(0.0f, (std::min)(1.0f, cfg.map_backdrop));
-        cfg.map_marker_size = (std::max)(2.0f, (std::min)(32.0f, cfg.map_marker_size));
-        cfg.map_markers_max_draw = (std::max)(0, (std::min)(20000, cfg.map_markers_max_draw));
-        cfg.map_floor_step = (std::max)(10.0f, (std::min)(5000.0f, cfg.map_floor_step));
-        cfg.map_slice_px = (std::max)(128, (std::min)(2048, cfg.map_slice_px));
-        cfg.map_slice_hz = (std::max)(1, (std::min)(30, cfg.map_slice_hz));
-        cfg.map_gamepad_deadzone = (std::max)(0.05f, (std::min)(0.6f, cfg.map_gamepad_deadzone));
-        cfg.markers_categories &= mdb::kAllCats;
-        // The highlight and the compass. Same discipline: a hand-edited radius of 1e9
-        // would ask the projector for every marker in the game, and a zero-degree span
-        // would divide by zero on the strip.
-        cfg.highlight_radius = (std::max)(200.0f, (std::min)(50000.0f, cfg.highlight_radius));
-        cfg.highlight_categories &= mdb::kAllCats;
-        cfg.highlight_max_draw = (std::max)(1, (std::min)(400, cfg.highlight_max_draw));
-        cfg.highlight_alpha_near = (std::max)(0.05f, (std::min)(1.0f, cfg.highlight_alpha_near));
-        cfg.highlight_alpha_far = (std::max)(0.0f, (std::min)(cfg.highlight_alpha_near, cfg.highlight_alpha_far));
-        cfg.highlight_size = (std::max)(2.0f, (std::min)(32.0f, cfg.highlight_size));
-        cfg.highlight_camera_hz = (std::max)(5, (std::min)(240, cfg.highlight_camera_hz));
-        cfg.compass_width = (std::max)(0.1f, (std::min)(1.0f, cfg.compass_width));
-        cfg.compass_offset_y = (std::max)(0.0f, (std::min)(2000.0f, cfg.compass_offset_y));
-        cfg.compass_height = (std::max)(10.0f, (std::min)(120.0f, cfg.compass_height));
-        cfg.compass_span_deg = (std::max)(30.0f, (std::min)(360.0f, cfg.compass_span_deg));
-        cfg.compass_opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.compass_opacity));
-        cfg.compass_categories &= mdb::kAllCats;
-        cfg.compass_marker_distance = (std::max)(500.0f, (std::min)(200000.0f, cfg.compass_marker_distance));
-        // The minimap's own look, the slicer's sizing, the reader's rates and the sweep's
-        // caps. Same rule as everything above: a hand-edited file may be wrong, it may
-        // not be able to divide by zero, allocate unboundedly or stall the game thread.
-        cfg.minimap_backdrop = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_backdrop));
-        cfg.minimap_backdrop_r = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_r));
-        cfg.minimap_backdrop_g = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_g));
-        cfg.minimap_backdrop_b = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_b));
-        cfg.minimap_frame_r = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_frame_r));
-        cfg.minimap_frame_g = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_frame_g));
-        cfg.minimap_frame_b = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_frame_b));
-        cfg.minimap_frame_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_frame_alpha));
-        cfg.minimap_composite_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_composite_alpha));
-        cfg.minimap_min_px = (std::max)(16.0f, (std::min)(512.0f, cfg.minimap_min_px));
-        cfg.minimap_arrow_frac = (std::max)(0.01f, (std::min)(0.3f, cfg.minimap_arrow_frac));
-        cfg.minimap_arrow_min_px = (std::max)(2.0f, (std::min)(64.0f, cfg.minimap_arrow_min_px));
-        cfg.minimap_circle_segments = (std::max)(8, (std::min)(256, cfg.minimap_circle_segments));
-        cfg.waypoint_size_scale = (std::max)(0.2f, (std::min)(4.0f, cfg.waypoint_size_scale));
-        cfg.slice_min_px = (std::max)(64, (std::min)(2048, cfg.slice_min_px));
-        cfg.slice_max_px = (std::max)(cfg.slice_min_px, (std::min)(4096, cfg.slice_max_px));
-        cfg.map_slice_margin = (std::max)(1.0f, (std::min)(2.0f, cfg.map_slice_margin));
-        cfg.reader_position_period_ms = (std::max)(16, (std::min)(1000, cfg.reader_position_period_ms));
-        cfg.reader_resolve_period_ms = (std::max)(100, (std::min)(10000, cfg.reader_resolve_period_ms));
-        cfg.reader_widget_sweep_period_ms = (std::max)(50, (std::min)(5000, cfg.reader_widget_sweep_period_ms));
-        cfg.reader_widget_sweep_max_period_ms =
-            (std::max)(cfg.reader_widget_sweep_period_ms,
-                       (std::min)(30000, cfg.reader_widget_sweep_max_period_ms));
-        cfg.reader_widget_sweep_warm_ms = (std::max)(0, (std::min)(60000, cfg.reader_widget_sweep_warm_ms));
-        cfg.reader_transition_cooldown_ms = (std::max)(0, (std::min)(30000, cfg.reader_transition_cooldown_ms));
-        cfg.reader_teleport_jump_uu = (std::max)(200.0, (std::min)(100000.0, cfg.reader_teleport_jump_uu));
-        cfg.reader_chapter_period_ms = (std::max)(200, (std::min)(60000, cfg.reader_chapter_period_ms));
-        cfg.reader_max_widgets = (std::max)(256, (std::min)(100000, cfg.reader_max_widgets));
-        cfg.reader_max_menu_roots = (std::max)(1, (std::min)(512, cfg.reader_max_menu_roots));
-        cfg.reader_max_levels = (std::max)(64, (std::min)(65536, cfg.reader_max_levels));
-        cfg.reader_log_throttle_ms = (std::max)(500, (std::min)(600000, cfg.reader_log_throttle_ms));
-        cfg.markers_live_grace_rounds = (std::max)(1, (std::min)(30, cfg.markers_live_grace_rounds));
-        cfg.markers_live_max = (std::max)(64, (std::min)(262144, cfg.markers_live_max));
-        cfg.markers_id_cache_max = (std::max)(64, (std::min)(262144, cfg.markers_id_cache_max));
-        cfg.markers_class_cache_max = (std::max)(1024, (std::min)(4194304, cfg.markers_class_cache_max));
-        cfg.markers_fallback_max_per_class =
-            (std::max)(64, (std::min)(65536, cfg.markers_fallback_max_per_class));
-        cfg.map_asset_retire_grace_ms = (std::max)(0, (std::min)(60000, cfg.map_asset_retire_grace_ms));
-        cfg.hide_reason_log_ms = (std::max)(0, (std::min)(600000, cfg.hide_reason_log_ms));
-        cfg.srv_heap_size = (std::max)(16, (std::min)(1024, cfg.srv_heap_size));
-        cfg.highlight_camera_resolve_ms = (std::max)(100, (std::min)(10000, cfg.highlight_camera_resolve_ms));
-        cfg.highlight_compass_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_compass_period_ms));
-        cfg.highlight_getter_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_getter_period_ms));
-        cfg.highlight_pov_scan_bytes = (std::max)(64, (std::min)(1024, cfg.highlight_pov_scan_bytes));
-        cfg.highlight_pov_bad_reads = (std::max)(1, (std::min)(64, cfg.highlight_pov_bad_reads));
-        cfg.compass_tick_step_deg = (std::max)(1.0f, (std::min)(90.0f, cfg.compass_tick_step_deg));
-        cfg.compass_max_pips = (std::max)(0, (std::min)(256, cfg.compass_max_pips));
-
+        clamp_config(cfg);
         set_config(cfg);
-        logf(L"config: loaded {} setting(s) from {}", lines, path);
+        if (have_dev)
+        {
+            logf(L"config: loaded {} setting(s) from {} + {} dev setting(s) from {}", lines, path, dev_lines,
+                 dev_config_path());
+        }
+        else
+        {
+            logf(L"config: loaded {} setting(s) from {}", lines, path);
+        }
     }
 
-    void save_config_file()
+    //==================================================================================
+    // Writing: the config as key -> value
+    //==================================================================================
+    //
+    // ONE function produces the text form of every setting, and cfgkeys decides which
+    // file each one belongs in. That is what lets the F2 panel's Save rewrite values in
+    // place (src/config_rewrite.hpp) instead of regenerating a file: the writer no
+    // longer owns the layout, only the values.
+    //
+    // Every key in cfgkeys::kKeys with tier Player / Advanced / Dev must appear here
+    // exactly once; one that does not would silently never be saved.
+
+    std::vector<std::pair<std::string, std::string>> config_kv(const Config& cfg)
     {
-        const Config cfg = config();
-        std::string out;
-        out += "; WuchangMinimap settings. Written by the F2 panel; hand edits are picked up with F5.\n";
-        out += "; Hotkeys may only be F1..F5, F7 or F8: F6 is the RenoDX DLSS5 toggle, F9/F11 engine\n";
-        out += "; binds, F10 the game console and F12 the Steam screenshot key.\n\n";
-        out += "; mod_enabled = 0 stops the mod completely: no DX12 hook, no game-thread work, no\n";
-        out += "; scans, no map in memory, no gamepad polling. The only thing left running is a 1 Hz\n";
-        out += "; check of THIS file's timestamp, so setting it back to 1 turns the mod on again\n";
-        out += "; without restarting the game (F5 does not work while it is off - nothing is\n";
-        out += "; listening to the keyboard). `enabled` below only hides the overlay.\n";
-        out += "mod_enabled = " + std::string(cfg.mod_enabled ? "1" : "0") + "\n";
-        out += "enabled = " + std::string(cfg.enabled ? "1" : "0") + "\n";
-        out += "show_minimap = " + std::string(cfg.show_minimap ? "1" : "0") + "\n";
-        out += "minimap_size = " + std::format("{:.3f}", cfg.size_frac) + "\n";
-        out += "minimap_zoom = " + std::format("{:.1f}", cfg.zoom_uu_per_px) + "\n";
-        out += "minimap_shape = " + std::string(cfg.round ? "round" : "square") + "\n";
-        out += "minimap_anchor = " + std::string(anchor_name(cfg.anchor)) + "\n";
-        out += "minimap_offset_x = " + std::format("{:.0f}", cfg.offset_x) + "\n";
-        out += "minimap_offset_y = " + std::format("{:.0f}", cfg.offset_y) + "\n";
-        out += "rotate_with_player = " + std::string(cfg.rotate_with_player ? "1" : "0") + "\n";
-        out += "opacity = " + std::format("{:.2f}", cfg.opacity) + "\n";
-        out += "hide_in_menus = " + std::string(cfg.hide_in_menus ? "1" : "0") + "\n";
-        out += "require_pawn_view = " + std::string(cfg.require_pawn_view ? "1" : "0") + "\n";
-        out += "state_stale_ms = " + std::to_string(cfg.state_stale_ms) + "\n";
-        out += "min_visible_after_state_ok_ms = " + std::to_string(cfg.min_visible_after_state_ok_ms) + "\n";
-        out += "menu_close_show_delay_ms = " + std::to_string(cfg.menu_close_show_delay_ms) + "\n";
-        out += "\n; Floor (Z) awareness - which pre-rendered floor layer the minimap shows.\n";
-        out += "show_adjacent_floors = " + std::string(cfg.show_adjacent_floors ? "1" : "0") + "\n";
-        out += "adjacent_floor_opacity = " + std::format("{:.2f}", cfg.adjacent_floor_opacity) + "\n";
-        out += "floor_z_tolerance = " + std::format("{:.0f}", cfg.floor_z_tolerance) + "\n";
-        out += "floor_fade_uu = " + std::format("{:.0f}", cfg.floor_fade_uu) + "\n";
-        out += "floor_gradient_strength = " + std::format("{:.2f}", cfg.floor_gradient_strength) + "\n";
-        out += "floor_base_color = " + std::format("{:.0f} {:.0f} {:.0f}", cfg.floor_base_r, cfg.floor_base_g,
-                                                   cfg.floor_base_b) +
-               "\n";
-        out += "slice_hz = " + std::to_string(cfg.slice_hz) + "\n";
-        out += "feet_z_smooth_ms = " + std::to_string(cfg.feet_z_smooth_ms) + "\n";
-        out += "player_z_offset = " + std::format("{:.0f}", cfg.player_z_offset) + "\n";
-        out += "fallback_use_composite = " + std::string(cfg.fallback_use_composite ? "1" : "0") + "\n\n";
-        out += "debug_readout = " + std::string(cfg.debug_readout ? "1" : "0") + "\n";
-        out += "debug_show_panel_on_start = " + std::string(cfg.debug_show_panel_on_start ? "1" : "0") + "\n";
-        out += "\n; Markers. markers_categories is a comma-separated list of\n";
-        out += ";   shrine, chest, pickup, boss, elite, enemy, npc, merchant, door, ladder, lift,\n";
-        out += ";   fog_gate, hidden, other\n";
-        out += "; (or `all` / `none`). The same list drives the F2 filter checkboxes.\n";
-        out += "markers_enabled = " + std::string(cfg.markers_enabled ? "1" : "0") + "\n";
-        out += "markers_live = " + std::string(cfg.markers_live ? "1" : "0") + "\n";
-        out += "markers_filter_chapter = " + std::string(cfg.markers_filter_chapter ? "1" : "0") + "\n";
-        out += "markers_rounds_per_sec = " + std::to_string(cfg.markers_rounds_per_sec) + "\n";
-        out += "markers_scan_chunk = " + std::to_string(cfg.markers_scan_chunk) + "\n";
-        out += "markers_scan_period_ms = " + std::to_string(cfg.markers_scan_period_ms) + "\n";
-        out += "markers_categories = " + mdb::format_category_mask(cfg.markers_categories) + "\n";
-        out += "markers_hide_found = " + std::string(cfg.markers_hide_found ? "1" : "0") + "\n";
-        out += "markers_found_alpha = " + std::format("{:.2f}", cfg.markers_found_alpha) + "\n";
-        out += "markers_size = " + std::format("{:.1f}", cfg.markers_size) + "\n";
-        out += "markers_clamp_to_edge = " + std::string(cfg.markers_clamp_to_edge ? "1" : "0") + "\n";
-        out += "markers_max_draw = " + std::to_string(cfg.markers_max_draw) + "\n";
-        out += "found_tracker = " + std::string(cfg.found_tracker ? "1" : "0") + "\n";
-        out += "found_save_debounce_ms = " + std::to_string(cfg.found_save_debounce_ms) + "\n";
-        out += "\n; Absence as evidence of a collect: a marker whose owning level is loaded and that a\n";
-        out += "; full object-array round has not seen is marked collected after this many\n";
-        out += "; consecutive confirming rounds. A marker whose level cannot be matched is never\n";
-        out += "; marked. Same category names as markers_categories.\n";
-        out += "markers_absence_marks = " + std::string(cfg.markers_absence_marks ? "1" : "0") + "\n";
-        out += "markers_absence_rounds = " + std::to_string(cfg.markers_absence_rounds) + "\n";
-        out += "markers_absence_categories = " + mdb::format_category_mask(cfg.markers_absence_categories) + "\n\n";
-        out += "\n";
-        out += "; ---------------------------------------------------------------------------------\n";
-        out += "; Minimap look\n";
-        out += "; ---------------------------------------------------------------------------------\n";
-        out += "; Colours are `R G B`, 0..255; alphas are multiplied by `opacity` above. All live\n";
-        out += "; (the next frame uses them).\n";
-        out += "minimap_backdrop = " + std::format("{:.2f}", cfg.minimap_backdrop) + "\n";
-        out += "minimap_backdrop_color = " + std::format("{:.0f} {:.0f} {:.0f}", cfg.minimap_backdrop_r, cfg.minimap_backdrop_g, cfg.minimap_backdrop_b) + "\n";
-        out += "minimap_frame_color = " + std::format("{:.0f} {:.0f} {:.0f}", cfg.minimap_frame_r, cfg.minimap_frame_g, cfg.minimap_frame_b) + "\n";
-        out += "minimap_frame_alpha = " + std::format("{:.2f}", cfg.minimap_frame_alpha) + "\n";
-        out += "minimap_composite_alpha = " + std::format("{:.2f}", cfg.minimap_composite_alpha) + "\n";
-        out += "minimap_min_px = " + std::format("{:.0f}", cfg.minimap_min_px) + "\n";
-        out += "minimap_arrow_frac = " + std::format("{:.3f}", cfg.minimap_arrow_frac) + "\n";
-        out += "minimap_arrow_min_px = " + std::format("{:.0f}", cfg.minimap_arrow_min_px) + "\n";
-        out += "minimap_circle_segments = " + std::to_string(cfg.minimap_circle_segments) + "\n";
-        out += "waypoint_size_scale = " + std::format("{:.2f}", cfg.waypoint_size_scale) + "\n";
-        out += "\n";
-        out += "; Height-slice sizing. slice_* bound the minimap window the CPU cuts;\n";
-        out += "; map_slice_margin is how much bigger than the visible canvas the full map cuts\n";
-        out += "; (1.30 = a drag can move 15 % of the canvas before a re-cut).\n";
-        out += "slice_min_px = " + std::to_string(cfg.slice_min_px) + "\n";
-        out += "slice_max_px = " + std::to_string(cfg.slice_max_px) + "\n";
-        out += "map_slice_margin = " + std::format("{:.2f}", cfg.map_slice_margin) + "\n";
-        out += "\n";
-        out += "; ---------------------------------------------------------------------------------\n";
-        out += "; The game-state reader (game thread)\n";
-        out += "; ---------------------------------------------------------------------------------\n";
-        out += "; Rates and caps of the ProcessEvent pump. Lower periods cost game-thread time:\n";
-        out += "; the position pump gates the marker scan and the menu test, and the widget sweep\n";
-        out += "; is a whole object-array walk. Live (re-read twice a second).\n";
-        out += "reader_position_period_ms = " + std::to_string(cfg.reader_position_period_ms) + "\n";
-        out += "reader_resolve_period_ms = " + std::to_string(cfg.reader_resolve_period_ms) + "\n";
-        out += "reader_widget_sweep_period_ms = " + std::to_string(cfg.reader_widget_sweep_period_ms) + "\n";
-        out += "reader_widget_sweep_max_period_ms = " +
-               std::to_string(cfg.reader_widget_sweep_max_period_ms) + "\n";
-        out += "reader_widget_sweep_warm_ms = " + std::to_string(cfg.reader_widget_sweep_warm_ms) + "\n";
-        out += "reader_transition_cooldown_ms = " + std::to_string(cfg.reader_transition_cooldown_ms) + "\n";
-        out += "reader_teleport_jump_uu = " + std::format("{:.0f}", cfg.reader_teleport_jump_uu) + "\n";
-        out += "reader_chapter_period_ms = " + std::to_string(cfg.reader_chapter_period_ms) + "\n";
-        out += "reader_max_widgets = " + std::to_string(cfg.reader_max_widgets) + "\n";
-        out += "reader_max_menu_roots = " + std::to_string(cfg.reader_max_menu_roots) + "\n";
-        out += "reader_max_levels = " + std::to_string(cfg.reader_max_levels) + "\n";
-        out += "reader_log_throttle_ms = " + std::to_string(cfg.reader_log_throttle_ms) + "\n";
-        out += "\n";
-        out += "; Marker sweep internals. markers_live_grace_rounds is how many rounds a live actor\n";
-        out += "; may go unseen before it is dropped from the live cache - it is NOT a collected\n";
-        out += "; test (that is the markers_absence_* block). The rest are cache caps.\n";
-        out += "markers_live_grace_rounds = " + std::to_string(cfg.markers_live_grace_rounds) + "\n";
-        out += "markers_live_max = " + std::to_string(cfg.markers_live_max) + "\n";
-        out += "markers_id_cache_max = " + std::to_string(cfg.markers_id_cache_max) + "\n";
-        out += "markers_class_cache_max = " + std::to_string(cfg.markers_class_cache_max) + "\n";
-        out += "markers_fallback_max_per_class = " + std::to_string(cfg.markers_fallback_max_per_class) + "\n";
-        out += "\n";
-        out += "; Assets and diagnostics. srv_heap_size needs a RESTART (or a mod_enabled off/on):\n";
-        out += "; the descriptor heap is created once, when the overlay first initialises.\n";
-        out += "map_asset_retire_grace_ms = " + std::to_string(cfg.map_asset_retire_grace_ms) + "\n";
-        out += "hide_reason_log_ms = " + std::to_string(cfg.hide_reason_log_ms) + "\n";
-        out += "srv_heap_size = " + std::to_string(cfg.srv_heap_size) + "\n";
-        out += "\n; ---------------------------------------------------------------------------------\n";
-        out += "; The full map (map_key - shipped default M)\n";
-        out += "; ---------------------------------------------------------------------------------\n";
-        out += "; Same height-sliced asset as the minimap, at map scale, always north-up. While it\n";
-        out += "; is open the minimap is hidden and the mouse works. Zoom is world units per SCREEN\n";
-        out += "; pixel - the same unit as minimap_zoom, so the numbers are comparable.\n";
-        out += "map_zoom = " + std::format("{:.0f}", cfg.map_zoom) + "\n";
-        out += "map_zoom_min = " + std::format("{:.0f}", cfg.map_zoom_min) + "\n";
-        out += "map_zoom_max = " + std::format("{:.0f}", cfg.map_zoom_max) + "\n";
-        out += "map_zoom_factor = " + std::format("{:.2f}", cfg.map_zoom_factor) + "\n";
-        out += "map_pan_speed = " + std::format("{:.0f}", cfg.map_pan_speed) + "\n";
-        out += "map_margin = " + std::format("{:.3f}", cfg.map_margin) + "\n";
-        out += "map_backdrop = " + std::format("{:.2f}", cfg.map_backdrop) + "\n";
-        out += "map_marker_size = " + std::format("{:.1f}", cfg.map_marker_size) + "\n";
-        out += "map_markers_max_draw = " + std::to_string(cfg.map_markers_max_draw) + "\n";
-        out += "map_floor_step = " + std::format("{:.0f}", cfg.map_floor_step) + "\n";
-        out += "map_show_all_floors = " + std::string(cfg.map_show_all_floors ? "1" : "0") + "\n";
-        out += "map_slice_px = " + std::to_string(cfg.map_slice_px) + "\n";
-        out += "map_slice_hz = " + std::to_string(cfg.map_slice_hz) + "\n";
-        out += "map_gamepad = " + std::string(cfg.map_gamepad ? "1" : "0") + "\n";
-        out += "map_gamepad_deadzone = " + std::format("{:.2f}", cfg.map_gamepad_deadzone) + "\n";
-        out += "map_waypoint_persist = " + std::string(cfg.map_waypoint_persist ? "1" : "0") + "\n\n";
-        out += "\n; ---------------------------------------------------------------------------------\n";
-        out += "; Hold-key x-ray highlight\n";
-        out += "; ---------------------------------------------------------------------------------\n";
-        out += "; While highlight_key is HELD (or the gamepad chord is), every marker of an enabled\n";
-        out += "; category within highlight_radius uu is drawn at its projected screen position -\n";
-        out += "; glyph, name and distance - through walls, fading with distance. It is a hold, not\n";
-        out += "; a toggle, so there is no state to get stuck. highlight_key takes the same names as\n";
-        out += "; the other hotkeys plus SPACE and L/R ALT / SHIFT / CTRL.\n";
-        out += "highlight_enabled = " + std::string(cfg.highlight_enabled ? "1" : "0") + "\n";
-        out += "highlight_key = " + vk_name(cfg.highlight_key) + "\n";
-        out += "highlight_gamepad = " + std::string(cfg.highlight_gamepad ? "1" : "0") + "\n";
+        std::vector<std::pair<std::string, std::string>> kv;
+        kv.reserve(cfgkeys::kKeyCount);
+        const auto add = [&kv](const char* k, std::string v) { kv.emplace_back(k, std::move(v)); };
+        const auto b = [](bool v) { return std::string(v ? "1" : "0"); };
+        const auto f0 = [](float v) { return std::format("{:.0f}", v); };
+        const auto f1 = [](float v) { return std::format("{:.1f}", v); };
+        const auto f2 = [](float v) { return std::format("{:.2f}", v); };
+        const auto f3 = [](float v) { return std::format("{:.3f}", v); };
+        const auto rgb = [](float r, float g, float bb) {
+            return std::format("{:.0f} {:.0f} {:.0f}", r, g, bb);
+        };
+        const auto vk = [](int v) { return vk_name(v); };
+
+        // ---- Player -----------------------------------------------------------------
+        add("mod_enabled", b(cfg.mod_enabled));
+        add("overlay_enabled", b(cfg.overlay_enabled));
+        add("show_minimap", b(cfg.show_minimap));
+        add("ui_scale", cfg.ui_scale_auto ? std::string{"auto"} : f2(cfg.ui_scale));
+        add("hud_preset", preset_name(cfg.hud_preset));
+        add("minimap_size", f3(cfg.size_frac));
+        add("minimap_zoom", f1(cfg.zoom_uu_per_px));
+        add("minimap_shape", cfg.round ? "round" : "square");
+        add("minimap_anchor", anchor_name(cfg.anchor));
+        add("minimap_offset_x", f0(cfg.offset_x));
+        add("minimap_offset_y", f0(cfg.offset_y));
+        add("rotate_with_player", b(cfg.rotate_with_player));
+        add("opacity", f2(cfg.opacity));
+        add("hide_in_menus", b(cfg.hide_in_menus));
+        add("show_adjacent_floors", b(cfg.show_adjacent_floors));
+        add("floor_z_tolerance", f0(cfg.floor_z_tolerance));
+        add("markers_enabled", b(cfg.markers_enabled));
+        add("markers_categories", mdb::format_category_mask(cfg.markers_categories));
+        add("markers_hide_found", b(cfg.markers_hide_found));
+        add("markers_size", f1(cfg.markers_size));
+        add("markers_clamp_to_edge", b(cfg.markers_clamp_to_edge));
+        add("markers_absence_marks", b(cfg.markers_absence_marks));
+        add("found_tracker", b(cfg.found_tracker));
+        add("map_zoom", f0(cfg.map_zoom));
+        add("map_marker_size", f1(cfg.map_marker_size));
+        add("map_show_all_floors", b(cfg.map_show_all_floors));
+        add("map_gamepad", b(cfg.map_gamepad));
+        add("map_waypoint_persist", b(cfg.map_waypoint_persist));
+        add("highlight_enabled", b(cfg.highlight_enabled));
+        add("highlight_key", vk(cfg.highlight_key));
+        add("highlight_gamepad", b(cfg.highlight_gamepad));
         {
             const std::wstring chord =
                 pad_chord_name(cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt);
@@ -1724,53 +1736,141 @@ namespace mm
             {
                 narrow.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
             }
-            out += "highlight_pad_chord = " + narrow + "\n";
+            add("highlight_pad_chord", narrow);
         }
-        out += "highlight_radius = " + std::format("{:.0f}", cfg.highlight_radius) + "\n";
-        out += "highlight_categories = " + mdb::format_category_mask(cfg.highlight_categories) + "\n";
-        out += "highlight_show_found = " + std::string(cfg.highlight_show_found ? "1" : "0") + "\n";
-        out += "highlight_max_draw = " + std::to_string(cfg.highlight_max_draw) + "\n";
-        out += "highlight_alpha_near = " + std::format("{:.2f}", cfg.highlight_alpha_near) + "\n";
-        out += "highlight_alpha_far = " + std::format("{:.2f}", cfg.highlight_alpha_far) + "\n";
-        out += "highlight_size = " + std::format("{:.1f}", cfg.highlight_size) + "\n";
-        out += "highlight_labels = " + std::string(cfg.highlight_labels ? "1" : "0") + "\n";
-        out += "highlight_edge_arrows = " + std::string(cfg.highlight_edge_arrows ? "1" : "0") + "\n";
-        out += "xray_rarity_colors_enabled = " + std::string(cfg.xray_rarity_colors_enabled ? "1" : "0") + "\n";
-        out += "xray_rarity_colors = " + mdb::format_rarity_colors(cfg.xray_rarity_colors) + "\n";
-        out += "markers_rarity_tint = " + std::string(cfg.markers_rarity_tint ? "1" : "0") + "\n";
-        out += "highlight_camera_hz = " + std::to_string(cfg.highlight_camera_hz) + "\n";
-        out += "; The camera reader: how often the camera manager is re-found, the slower rate used\n";
-        out += "; when only the compass wants a heading, the ProcessEvent fallback rate, and the two\n";
-        out += "; bounds of the POV-offset discovery inside CameraCachePrivate.\n";
-        out += "highlight_camera_resolve_ms = " + std::to_string(cfg.highlight_camera_resolve_ms) + "\n";
-        out += "highlight_compass_period_ms = " + std::to_string(cfg.highlight_compass_period_ms) + "\n";
-        out += "highlight_getter_period_ms = " + std::to_string(cfg.highlight_getter_period_ms) + "\n";
-        out += "highlight_pov_scan_bytes = " + std::to_string(cfg.highlight_pov_scan_bytes) + "\n";
-        out += "highlight_pov_bad_reads = " + std::to_string(cfg.highlight_pov_bad_reads) + "\n";
-        out += "\n; ---------------------------------------------------------------------------------\n";
-        out += "; The compass strip\n";
-        out += "; ---------------------------------------------------------------------------------\n";
-        out += "; Headings and ticks across the top of the screen, with bearing pips for the\n";
-        out += "; waypoint and for nearby markers of the selected categories. Hidden by exactly the\n";
-        out += "; same rules as the minimap.\n";
-        out += "compass_enabled = " + std::string(cfg.compass_enabled ? "1" : "0") + "\n";
-        out += "compass_width = " + std::format("{:.3f}", cfg.compass_width) + "\n";
-        out += "compass_offset_y = " + std::format("{:.0f}", cfg.compass_offset_y) + "\n";
-        out += "compass_height = " + std::format("{:.0f}", cfg.compass_height) + "\n";
-        out += "compass_span_deg = " + std::format("{:.0f}", cfg.compass_span_deg) + "\n";
-        out += "compass_opacity = " + std::format("{:.2f}", cfg.compass_opacity) + "\n";
-        out += "compass_categories = " + mdb::format_category_mask(cfg.compass_categories) + "\n";
-        out += "compass_marker_distance = " + std::format("{:.0f}", cfg.compass_marker_distance) + "\n";
-        out += "compass_show_waypoint = " + std::string(cfg.compass_show_waypoint ? "1" : "0") + "\n";
-        out += "; Minor-tick spacing in degrees (45 = labelled, 90 = a cardinal letter) and the cap\n";
-        out += "; on marker pips, nearest first.\n";
-        out += "compass_tick_step_deg = " + std::format("{:.0f}", cfg.compass_tick_step_deg) + "\n";
-        out += "compass_max_pips = " + std::to_string(cfg.compass_max_pips) + "\n";
-        out += "\n";
-        out += "panel_key = " + vk_name(cfg.panel_key) + "\n";
-        out += "reload_key = " + vk_name(cfg.reload_key) + "\n";
-        out += "map_key = " + vk_name(cfg.map_key) + "\n";
-        out += "map_recenter_key = " + vk_name(cfg.map_recenter_key) + "\n";
+        add("highlight_radius", f0(cfg.highlight_radius));
+        add("highlight_categories", mdb::format_category_mask(cfg.highlight_categories));
+        add("highlight_labels", b(cfg.highlight_labels));
+        add("highlight_size", f1(cfg.highlight_size));
+        add("xray_rarity_colors_enabled", b(cfg.xray_rarity_colors_enabled));
+        add("markers_rarity_tint", b(cfg.markers_rarity_tint));
+        add("compass_enabled", b(cfg.compass_enabled));
+        add("compass_width", f3(cfg.compass_width));
+        add("compass_offset_y", f0(cfg.compass_offset_y));
+        add("compass_span_deg", f0(cfg.compass_span_deg));
+        add("compass_opacity", f2(cfg.compass_opacity));
+        add("compass_categories", mdb::format_category_mask(cfg.compass_categories));
+        add("panel_key", vk(cfg.panel_key));
+        add("map_key", vk(cfg.map_key));
+        add("map_recenter_key", vk(cfg.map_recenter_key));
+        add("reload_key", vk(cfg.reload_key));
+
+        // ---- Advanced ---------------------------------------------------------------
+        add("require_pawn_view", b(cfg.require_pawn_view));
+        add("state_stale_ms", std::to_string(cfg.state_stale_ms));
+        add("min_visible_after_state_ok_ms", std::to_string(cfg.min_visible_after_state_ok_ms));
+        add("menu_close_show_delay_ms", std::to_string(cfg.menu_close_show_delay_ms));
+        add("adjacent_floor_opacity", f2(cfg.adjacent_floor_opacity));
+        add("floor_fade_uu", f0(cfg.floor_fade_uu));
+        add("floor_gradient_strength", f2(cfg.floor_gradient_strength));
+        add("floor_base_color", rgb(cfg.floor_base_r, cfg.floor_base_g, cfg.floor_base_b));
+        add("slice_hz", std::to_string(cfg.slice_hz));
+        add("feet_z_smooth_ms", std::to_string(cfg.feet_z_smooth_ms));
+        add("player_z_offset", f0(cfg.player_z_offset));
+        add("markers_live", b(cfg.markers_live));
+        add("markers_filter_chapter", b(cfg.markers_filter_chapter));
+        add("markers_rounds_per_sec", std::to_string(cfg.markers_rounds_per_sec));
+        add("markers_scan_chunk", std::to_string(cfg.markers_scan_chunk));
+        add("markers_scan_period_ms", std::to_string(cfg.markers_scan_period_ms));
+        add("markers_found_alpha", f2(cfg.markers_found_alpha));
+        add("markers_max_draw", std::to_string(cfg.markers_max_draw));
+        add("found_save_debounce_ms", std::to_string(cfg.found_save_debounce_ms));
+        add("markers_absence_rounds", std::to_string(cfg.markers_absence_rounds));
+        add("markers_absence_categories", mdb::format_category_mask(cfg.markers_absence_categories));
+        add("minimap_backdrop", f2(cfg.minimap_backdrop));
+        add("minimap_backdrop_color",
+            rgb(cfg.minimap_backdrop_r, cfg.minimap_backdrop_g, cfg.minimap_backdrop_b));
+        add("minimap_frame_color", rgb(cfg.minimap_frame_r, cfg.minimap_frame_g, cfg.minimap_frame_b));
+        add("minimap_frame_alpha", f2(cfg.minimap_frame_alpha));
+        add("minimap_min_px", f0(cfg.minimap_min_px));
+        add("minimap_arrow_frac", f3(cfg.minimap_arrow_frac));
+        add("minimap_arrow_min_px", f0(cfg.minimap_arrow_min_px));
+        add("waypoint_size_scale", f2(cfg.waypoint_size_scale));
+        add("map_zoom_min", f0(cfg.map_zoom_min));
+        add("map_zoom_max", f0(cfg.map_zoom_max));
+        add("map_zoom_factor", f2(cfg.map_zoom_factor));
+        add("map_pan_speed", f0(cfg.map_pan_speed));
+        add("map_margin", f3(cfg.map_margin));
+        add("map_backdrop", f2(cfg.map_backdrop));
+        add("map_markers_max_draw", std::to_string(cfg.map_markers_max_draw));
+        add("map_floor_step", f0(cfg.map_floor_step));
+        add("map_slice_px", std::to_string(cfg.map_slice_px));
+        add("map_slice_hz", std::to_string(cfg.map_slice_hz));
+        add("map_gamepad_deadzone", f2(cfg.map_gamepad_deadzone));
+        add("highlight_show_found", b(cfg.highlight_show_found));
+        add("highlight_max_draw", std::to_string(cfg.highlight_max_draw));
+        add("highlight_alpha_near", f2(cfg.highlight_alpha_near));
+        add("highlight_alpha_far", f2(cfg.highlight_alpha_far));
+        add("highlight_edge_arrows", b(cfg.highlight_edge_arrows));
+        add("highlight_camera_hz", std::to_string(cfg.highlight_camera_hz));
+        add("xray_rarity_colors", mdb::format_rarity_colors(cfg.xray_rarity_colors));
+        add("compass_anchor", cfg.compass_anchor == VAnchor::Bottom ? "bottom" : "top");
+        add("compass_height", f0(cfg.compass_height));
+        add("compass_marker_distance", f0(cfg.compass_marker_distance));
+        add("compass_show_waypoint", b(cfg.compass_show_waypoint));
+        add("compass_tick_step_deg", f0(cfg.compass_tick_step_deg));
+        add("compass_max_pips", std::to_string(cfg.compass_max_pips));
+
+        // ---- Dev --------------------------------------------------------------------
+        add("debug_readout", b(cfg.debug_readout));
+        add("debug_show_panel_on_start", b(cfg.debug_show_panel_on_start));
+        add("fallback_use_composite", b(cfg.fallback_use_composite));
+        add("minimap_composite_alpha", f2(cfg.minimap_composite_alpha));
+        add("reader_position_period_ms", std::to_string(cfg.reader_position_period_ms));
+        add("reader_resolve_period_ms", std::to_string(cfg.reader_resolve_period_ms));
+        add("reader_widget_sweep_period_ms", std::to_string(cfg.reader_widget_sweep_period_ms));
+        add("reader_widget_sweep_max_period_ms", std::to_string(cfg.reader_widget_sweep_max_period_ms));
+        add("reader_widget_sweep_warm_ms", std::to_string(cfg.reader_widget_sweep_warm_ms));
+        add("reader_transition_cooldown_ms", std::to_string(cfg.reader_transition_cooldown_ms));
+        add("reader_teleport_jump_uu", std::format("{:.0f}", cfg.reader_teleport_jump_uu));
+        add("reader_chapter_period_ms", std::to_string(cfg.reader_chapter_period_ms));
+        add("reader_log_throttle_ms", std::to_string(cfg.reader_log_throttle_ms));
+        add("markers_live_grace_rounds", std::to_string(cfg.markers_live_grace_rounds));
+        add("map_asset_retire_grace_ms", std::to_string(cfg.map_asset_retire_grace_ms));
+        add("hide_reason_log_ms", std::to_string(cfg.hide_reason_log_ms));
+        add("srv_heap_size", std::to_string(cfg.srv_heap_size));
+        add("highlight_camera_resolve_ms", std::to_string(cfg.highlight_camera_resolve_ms));
+        add("highlight_compass_period_ms", std::to_string(cfg.highlight_compass_period_ms));
+        add("highlight_getter_period_ms", std::to_string(cfg.highlight_getter_period_ms));
+        add("highlight_pov_scan_bytes", std::to_string(cfg.highlight_pov_scan_bytes));
+        add("highlight_pov_bad_reads", std::to_string(cfg.highlight_pov_bad_reads));
+
+        return kv;
+    }
+
+    namespace
+    {
+        // The values of one tier, as `key = value` lines. Used ONLY when the file does
+        // not exist yet - an existing file is rewritten in place (config_rewrite.hpp)
+        // so its documentation survives a Save.
+        std::string tier_block(const std::vector<std::pair<std::string, std::string>>& kv, cfgkeys::Tier tier)
+        {
+            std::string out;
+            for (const auto& [k, v] : kv)
+            {
+                if (cfgkeys::tier_is(k, tier))
+                {
+                    out += k + " = " + v + "\n";
+                }
+            }
+            return out;
+        }
+    } // namespace
+
+    void save_config_file()
+    {
+        const Config cfg = config();
+        const std::vector<std::pair<std::string, std::string>> kv = config_kv(cfg);
+
+        std::string out;
+        out += "; WuchangMinimap settings. Written by the F2 panel; hand edits are picked up with F5.\n";
+        out += "; Hotkeys may only be F1..F5, F7 or F8: F6 is the RenoDX DLSS5 toggle, F9/F11 engine\n";
+        out += "; binds, F10 the game console and F12 the Steam screenshot key.\n\n";
+        out += "; ---- PLAYER SETTINGS ----\n";
+        out += tier_block(kv, cfgkeys::Tier::Player);
+        out += "\n; ---- ADVANCED ----\n";
+        out += "; Correct as shipped. Change one to answer a symptom, not for fun.\n";
+        out += tier_block(kv, cfgkeys::Tier::Advanced);
 
         const std::wstring path = config_path();
         if (write_whole_file(path, out))
@@ -1780,6 +1880,22 @@ namespace mm
         else
         {
             logf(L"config: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
+        }
+
+        // The dev file is only ever WRITTEN when it already exists: a player who never
+        // made one must not find a new file full of developer dials next to their config.
+        std::string existing;
+        if (read_whole_file(dev_config_path(), existing))
+        {
+            std::string dev;
+            dev += "; WuchangMinimap DEVELOPER settings - not shipped in the release zip.\n";
+            dev += "; Parsed only if this file exists, AFTER config_wuchang_minimap.txt, so a key set in\n";
+            dev += "; both wins here. Delete the file to go back to the built-in defaults.\n\n";
+            dev += tier_block(kv, cfgkeys::Tier::Dev);
+            if (write_whole_file(dev_config_path(), dev))
+            {
+                logf(L"config: saved -> {}", dev_config_path());
+            }
         }
     }
 
@@ -1833,15 +1949,33 @@ namespace mm
         return seen;
     }
 
+    namespace
+    {
+        std::uint64_t file_mtime(const std::wstring& path)
+        {
+            WIN32_FILE_ATTRIBUTE_DATA data{};
+            if (::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data) == 0)
+            {
+                return 0;
+            }
+            return (static_cast<std::uint64_t>(data.ftLastWriteTime.dwHighDateTime) << 32) |
+                   data.ftLastWriteTime.dwLowDateTime;
+        }
+    } // namespace
+
+    // BOTH files, mixed into one number. The 1 Hz watcher in modswitch compares this
+    // against the value it last saw, so editing EITHER the shipped config or the dev
+    // overlay reloads both - a dev file that only took effect on a restart would be a
+    // trap during bring-up, which is the one thing it exists for.
     std::uint64_t config_mtime()
     {
-        WIN32_FILE_ATTRIBUTE_DATA data{};
-        if (::GetFileAttributesExW(config_path().c_str(), GetFileExInfoStandard, &data) == 0)
+        const std::uint64_t main_ft = file_mtime(config_path());
+        const std::uint64_t dev_ft = file_mtime(dev_config_path());
+        if (main_ft == 0 && dev_ft == 0)
         {
             return 0;
         }
-        return (static_cast<std::uint64_t>(data.ftLastWriteTime.dwHighDateTime) << 32) |
-               data.ftLastWriteTime.dwLowDateTime;
+        return main_ft ^ (dev_ft * 0x9E3779B97F4A7C15ull);
     }
 
     //==================================================================================

@@ -1,25 +1,46 @@
 #pragma once
 
 //
-// config_keys - the canonical list of every key config_wuchang_minimap.txt may carry,
-// plus the same line parser the loader uses, as PURE C++.
+// config_keys - the canonical list of every key the mod's config files may carry,
+// each tagged with the TIER it belongs to, plus the same line parser the loader
+// uses, as PURE C++.
 //
 // WHY IT EXISTS
 // -------------
-// The config has three independent halves that can drift apart without anyone
-// noticing: the parser in mmstate.cpp (`key == "..."`), the writer in the same file
-// (which is what the F2 panel's Save produces), and the SHIPPED file under
-// deploy/ue4ss/Mods/WuchangMinimap/. A key added to the struct and the parser but left
-// out of the shipped file is invisible to every player who never presses Save; a key
-// left in the shipped file after being renamed is silently ignored, which reads exactly
-// like the setting not working.
+// The config has several independent halves that can drift apart without anyone
+// noticing: the parser in mmstate.cpp (`key == "..."`), the key->value writer in the
+// same file (which is what the F2 panel's Save produces), and the two SHIPPED files
+// under deploy/ue4ss/Mods/WuchangMinimap/. A key added to the struct and the parser
+// but left out of the shipped file is invisible to every player who never presses
+// Save; a key left in a shipped file after being renamed is silently ignored, which
+// reads exactly like the setting not working.
 //
 // So tests/markers_test.cpp asserts, in BOTH directions, that
 //
-//     keys(shipped config file)  ==  kConfigKeys  ==  { key == "..." in mmstate.cpp }
+//     keys(config_wuchang_minimap.txt)      == { Tier::Player } U { Tier::Advanced }
+//     keys(config_wuchang_minimap_dev.txt)  == { Tier::Dev }
+//     { key == "..." in mmstate.cpp }       == Player U Advanced U Dev U Legacy
 //
-// The third set is scraped from the source, which is what makes the table below a
+// and that the four tiers are pairwise disjoint, that no Removed or Legacy key appears
+// in either shipped file, and that the shipped file's `; ---- PLAYER SETTINGS ----` /
+// `; ---- ADVANCED ----` banners agree with the Player/Advanced tags below.
+//
+// The parser's set is scraped from the source, which is what makes the table below a
 // description of the parser rather than a second thing to maintain by hand.
+//
+// THE TIERS
+//   Player    - a person tuning the HUD would plausibly change it. Lives in the shipped
+//               config under `; ---- PLAYER SETTINGS ----` and in the F2 Player tab.
+//   Advanced  - correct as shipped; changed to answer a symptom. Shipped config under
+//               `; ---- ADVANCED ----`, F2 Advanced tab.
+//   Dev       - a dial that existed because a developer needed it during bring-up.
+//               Lives in config_wuchang_minimap_dev.txt, which is NOT shipped in the
+//               release zip and is parsed only when it exists.
+//   Removed   - a sanity cap that used to be a key and is now a hard-coded constant. A
+//               wrong value was never a preference, it was a bug report. Recognised
+//               only so that a user's old file gets one warning instead of silence.
+//   Legacy    - an old NAME for a key that still exists. Accepted, warned about once,
+//               and mapped onto the new name.
 //
 // No Windows, no UE4SS, no allocation beyond the strings the caller asks for - the same
 // rule as markers_db / mapview / chapterid.
@@ -32,169 +53,272 @@
 
 namespace cfgkeys
 {
-    // Every key the loader understands, grouped the way the shipped file groups them.
-    // Order is irrelevant to the tests (they compare sets), but keeping it in file
-    // order makes a diff readable.
-    inline constexpr const char* kConfigKeys[] = {
-        // the master switch and the overlay
-        "mod_enabled",
-        "enabled",
-        "show_minimap",
-        "minimap_size",
-        "minimap_zoom",
-        "minimap_shape",
-        "minimap_anchor",
-        "minimap_offset_x",
-        "minimap_offset_y",
-        "rotate_with_player",
-        "opacity",
-        "hide_in_menus",
-        "require_pawn_view",
-        "state_stale_ms",
-        "min_visible_after_state_ok_ms",
-        "menu_close_show_delay_ms",
-        // height slicing
-        "show_adjacent_floors",
-        "adjacent_floor_opacity",
-        "floor_z_tolerance",
-        "floor_fade_uu",
-        "floor_gradient_strength",
-        "floor_base_color",
-        "slice_hz",
-        "feet_z_smooth_ms",
-        "player_z_offset",
-        "fallback_use_composite",
-        // diagnostics
-        "debug_readout",
-        "debug_show_panel_on_start",
-        // markers
-        "markers_enabled",
-        "markers_live",
-        "markers_filter_chapter",
-        "markers_rounds_per_sec",
-        "markers_scan_chunk",
-        "markers_scan_period_ms",
-        "markers_categories",
-        "markers_hide_found",
-        "markers_found_alpha",
-        "markers_size",
-        "markers_clamp_to_edge",
-        "markers_max_draw",
-        "found_tracker",
-        "found_save_debounce_ms",
-        // absence as evidence of a collect
-        "markers_absence_marks",
-        "markers_absence_rounds",
-        "markers_absence_categories",
-        // minimap look
-        "minimap_backdrop",
-        "minimap_backdrop_color",
-        "minimap_frame_color",
-        "minimap_frame_alpha",
-        "minimap_composite_alpha",
-        "minimap_min_px",
-        "minimap_arrow_frac",
-        "minimap_arrow_min_px",
-        "minimap_circle_segments",
-        "waypoint_size_scale",
-        // height-slice sizing
-        "slice_min_px",
-        "slice_max_px",
-        "map_slice_margin",
-        // the game-state reader
-        "reader_position_period_ms",
-        "reader_resolve_period_ms",
-        "reader_widget_sweep_period_ms",
-        "reader_widget_sweep_max_period_ms",
-        "reader_widget_sweep_warm_ms",
-        "reader_transition_cooldown_ms",
-        "reader_teleport_jump_uu",
-        "reader_chapter_period_ms",
-        "reader_max_widgets",
-        "reader_max_menu_roots",
-        "reader_max_levels",
-        "reader_log_throttle_ms",
-        // marker sweep internals
-        "markers_live_grace_rounds",
-        "markers_live_max",
-        "markers_id_cache_max",
-        "markers_class_cache_max",
-        "markers_fallback_max_per_class",
-        // assets and diagnostics
-        "map_asset_retire_grace_ms",
-        "hide_reason_log_ms",
-        "srv_heap_size",
-        // the full map
-        "map_zoom",
-        "map_zoom_min",
-        "map_zoom_max",
-        "map_zoom_factor",
-        "map_pan_speed",
-        "map_margin",
-        "map_backdrop",
-        "map_marker_size",
-        "map_markers_max_draw",
-        "map_floor_step",
-        "map_show_all_floors",
-        "map_slice_px",
-        "map_slice_hz",
-        "map_gamepad",
-        "map_gamepad_deadzone",
-        "map_waypoint_persist",
-        // the x-ray highlight
-        "highlight_enabled",
-        "highlight_key",
-        "highlight_gamepad",
-        "highlight_pad_chord",
-        "highlight_radius",
-        "highlight_categories",
-        "highlight_show_found",
-        "highlight_max_draw",
-        "highlight_alpha_near",
-        "highlight_alpha_far",
-        "highlight_size",
-        "highlight_labels",
-        "highlight_edge_arrows",
-        "xray_rarity_colors_enabled",
-        "xray_rarity_colors",
-        "markers_rarity_tint",
-        "highlight_camera_hz",
-        "highlight_camera_resolve_ms",
-        "highlight_compass_period_ms",
-        "highlight_getter_period_ms",
-        "highlight_pov_scan_bytes",
-        "highlight_pov_bad_reads",
-        // the compass strip
-        "compass_enabled",
-        "compass_width",
-        "compass_offset_y",
-        "compass_height",
-        "compass_span_deg",
-        "compass_opacity",
-        "compass_categories",
-        "compass_marker_distance",
-        "compass_show_waypoint",
-        "compass_tick_step_deg",
-        "compass_max_pips",
-        // hotkeys
-        "panel_key",
-        "reload_key",
-        "map_key",
-        "map_recenter_key",
+    enum class Tier
+    {
+        Player,
+        Advanced,
+        Dev,
+        Removed,
+        Legacy,
     };
 
-    inline constexpr std::size_t kConfigKeyCount = sizeof(kConfigKeys) / sizeof(kConfigKeys[0]);
-
-    inline bool is_known(std::string_view key)
+    struct KeyInfo
     {
-        for (const char* k : kConfigKeys)
+        const char* name;
+        Tier tier;
+    };
+
+    // Every key the loader understands or deliberately refuses, in the order the
+    // shipped files list them. Order matters for exactly one test (the banner order in
+    // the shipped file); everything else compares sets.
+    inline constexpr KeyInfo kKeys[] = {
+        //------------------------------------------------------------------------------
+        // PLAYER
+        //------------------------------------------------------------------------------
+        {"mod_enabled", Tier::Player},
+        {"overlay_enabled", Tier::Player},
+        {"show_minimap", Tier::Player},
+        {"ui_scale", Tier::Player},
+        {"hud_preset", Tier::Player},
+        {"minimap_size", Tier::Player},
+        {"minimap_zoom", Tier::Player},
+        {"minimap_shape", Tier::Player},
+        {"minimap_anchor", Tier::Player},
+        {"minimap_offset_x", Tier::Player},
+        {"minimap_offset_y", Tier::Player},
+        {"rotate_with_player", Tier::Player},
+        {"opacity", Tier::Player},
+        {"hide_in_menus", Tier::Player},
+        {"show_adjacent_floors", Tier::Player},
+        {"floor_z_tolerance", Tier::Player},
+        {"markers_enabled", Tier::Player},
+        {"markers_categories", Tier::Player},
+        {"markers_hide_found", Tier::Player},
+        {"markers_size", Tier::Player},
+        {"markers_clamp_to_edge", Tier::Player},
+        {"markers_absence_marks", Tier::Player},
+        {"found_tracker", Tier::Player},
+        {"map_zoom", Tier::Player},
+        {"map_marker_size", Tier::Player},
+        {"map_show_all_floors", Tier::Player},
+        {"map_gamepad", Tier::Player},
+        {"map_waypoint_persist", Tier::Player},
+        {"highlight_enabled", Tier::Player},
+        {"highlight_key", Tier::Player},
+        {"highlight_gamepad", Tier::Player},
+        {"highlight_pad_chord", Tier::Player},
+        {"highlight_radius", Tier::Player},
+        {"highlight_categories", Tier::Player},
+        {"highlight_labels", Tier::Player},
+        {"highlight_size", Tier::Player},
+        {"xray_rarity_colors_enabled", Tier::Player},
+        {"markers_rarity_tint", Tier::Player},
+        {"compass_enabled", Tier::Player},
+        {"compass_width", Tier::Player},
+        {"compass_offset_y", Tier::Player},
+        {"compass_span_deg", Tier::Player},
+        {"compass_opacity", Tier::Player},
+        {"compass_categories", Tier::Player},
+        {"panel_key", Tier::Player},
+        {"map_key", Tier::Player},
+        {"map_recenter_key", Tier::Player},
+        {"reload_key", Tier::Player},
+
+        //------------------------------------------------------------------------------
+        // ADVANCED
+        //------------------------------------------------------------------------------
+        {"require_pawn_view", Tier::Advanced},
+        {"state_stale_ms", Tier::Advanced},
+        {"min_visible_after_state_ok_ms", Tier::Advanced},
+        {"menu_close_show_delay_ms", Tier::Advanced},
+        {"adjacent_floor_opacity", Tier::Advanced},
+        {"floor_fade_uu", Tier::Advanced},
+        {"floor_gradient_strength", Tier::Advanced},
+        {"floor_base_color", Tier::Advanced},
+        {"slice_hz", Tier::Advanced},
+        {"feet_z_smooth_ms", Tier::Advanced},
+        {"player_z_offset", Tier::Advanced},
+        {"markers_live", Tier::Advanced},
+        {"markers_filter_chapter", Tier::Advanced},
+        {"markers_rounds_per_sec", Tier::Advanced},
+        {"markers_scan_chunk", Tier::Advanced},
+        {"markers_scan_period_ms", Tier::Advanced},
+        {"markers_found_alpha", Tier::Advanced},
+        {"markers_max_draw", Tier::Advanced},
+        {"found_save_debounce_ms", Tier::Advanced},
+        {"markers_absence_rounds", Tier::Advanced},
+        {"markers_absence_categories", Tier::Advanced},
+        {"minimap_backdrop", Tier::Advanced},
+        {"minimap_backdrop_color", Tier::Advanced},
+        {"minimap_frame_color", Tier::Advanced},
+        {"minimap_frame_alpha", Tier::Advanced},
+        {"minimap_min_px", Tier::Advanced},
+        {"minimap_arrow_frac", Tier::Advanced},
+        {"minimap_arrow_min_px", Tier::Advanced},
+        {"waypoint_size_scale", Tier::Advanced},
+        {"map_zoom_min", Tier::Advanced},
+        {"map_zoom_max", Tier::Advanced},
+        {"map_zoom_factor", Tier::Advanced},
+        {"map_pan_speed", Tier::Advanced},
+        {"map_margin", Tier::Advanced},
+        {"map_backdrop", Tier::Advanced},
+        {"map_markers_max_draw", Tier::Advanced},
+        {"map_floor_step", Tier::Advanced},
+        {"map_slice_px", Tier::Advanced},
+        {"map_slice_hz", Tier::Advanced},
+        {"map_gamepad_deadzone", Tier::Advanced},
+        {"highlight_show_found", Tier::Advanced},
+        {"highlight_max_draw", Tier::Advanced},
+        {"highlight_alpha_near", Tier::Advanced},
+        {"highlight_alpha_far", Tier::Advanced},
+        {"highlight_edge_arrows", Tier::Advanced},
+        {"highlight_camera_hz", Tier::Advanced},
+        {"xray_rarity_colors", Tier::Advanced},
+        {"compass_anchor", Tier::Advanced},
+        {"compass_height", Tier::Advanced},
+        {"compass_marker_distance", Tier::Advanced},
+        {"compass_show_waypoint", Tier::Advanced},
+        {"compass_tick_step_deg", Tier::Advanced},
+        {"compass_max_pips", Tier::Advanced},
+
+        //------------------------------------------------------------------------------
+        // DEV - config_wuchang_minimap_dev.txt, not shipped
+        //------------------------------------------------------------------------------
+        {"debug_readout", Tier::Dev},
+        {"debug_show_panel_on_start", Tier::Dev},
+        {"fallback_use_composite", Tier::Dev},
+        {"minimap_composite_alpha", Tier::Dev},
+        {"reader_position_period_ms", Tier::Dev},
+        {"reader_resolve_period_ms", Tier::Dev},
+        {"reader_widget_sweep_period_ms", Tier::Dev},
+        {"reader_widget_sweep_max_period_ms", Tier::Dev},
+        {"reader_widget_sweep_warm_ms", Tier::Dev},
+        {"reader_transition_cooldown_ms", Tier::Dev},
+        {"reader_teleport_jump_uu", Tier::Dev},
+        {"reader_chapter_period_ms", Tier::Dev},
+        {"reader_log_throttle_ms", Tier::Dev},
+        {"markers_live_grace_rounds", Tier::Dev},
+        {"map_asset_retire_grace_ms", Tier::Dev},
+        {"hide_reason_log_ms", Tier::Dev},
+        {"srv_heap_size", Tier::Dev},
+        {"highlight_camera_resolve_ms", Tier::Dev},
+        {"highlight_compass_period_ms", Tier::Dev},
+        {"highlight_getter_period_ms", Tier::Dev},
+        {"highlight_pov_scan_bytes", Tier::Dev},
+        {"highlight_pov_bad_reads", Tier::Dev},
+
+        //------------------------------------------------------------------------------
+        // REMOVED - hard-coded constants since 0.9.2. A wrong value here was never a
+        // preference; it was a bug report. Kept in the table so an old file gets one
+        // warning naming the key instead of the silence an unknown key gets.
+        //------------------------------------------------------------------------------
+        {"minimap_circle_segments", Tier::Removed},
+        {"slice_min_px", Tier::Removed},
+        {"slice_max_px", Tier::Removed},
+        {"map_slice_margin", Tier::Removed},
+        {"reader_max_widgets", Tier::Removed},
+        {"reader_max_menu_roots", Tier::Removed},
+        {"reader_max_levels", Tier::Removed},
+        {"markers_live_max", Tier::Removed},
+        {"markers_id_cache_max", Tier::Removed},
+        {"markers_class_cache_max", Tier::Removed},
+        {"markers_fallback_max_per_class", Tier::Removed},
+
+        //------------------------------------------------------------------------------
+        // LEGACY - old names, still accepted with one warning
+        //------------------------------------------------------------------------------
+        {"enabled", Tier::Legacy}, // -> overlay_enabled (0.9.2)
+    };
+
+    inline constexpr std::size_t kKeyCount = sizeof(kKeys) / sizeof(kKeys[0]);
+
+    // The new name a legacy key maps onto, or nullptr when `key` is not a legacy name.
+    inline const char* renamed_to(std::string_view key)
+    {
+        if (key == "enabled")
         {
-            if (key == k)
+            return "overlay_enabled";
+        }
+        return nullptr;
+    }
+
+    inline constexpr std::size_t count_of(Tier t)
+    {
+        std::size_t n = 0;
+        for (const KeyInfo& k : kKeys)
+        {
+            if (k.tier == t)
             {
-                return true;
+                ++n;
             }
         }
-        return false;
+        return n;
+    }
+
+    inline constexpr std::size_t kPlayerKeyCount = count_of(Tier::Player);
+    inline constexpr std::size_t kAdvancedKeyCount = count_of(Tier::Advanced);
+    inline constexpr std::size_t kDevKeyCount = count_of(Tier::Dev);
+    inline constexpr std::size_t kRemovedKeyCount = count_of(Tier::Removed);
+    inline constexpr std::size_t kLegacyKeyCount = count_of(Tier::Legacy);
+
+    // Player + Advanced: everything the SHIPPED config file carries.
+    inline constexpr std::size_t kConfigKeyCount = kPlayerKeyCount + kAdvancedKeyCount;
+
+    inline std::vector<std::string> keys_of(Tier t)
+    {
+        std::vector<std::string> out;
+        for (const KeyInfo& k : kKeys)
+        {
+            if (k.tier == t)
+            {
+                out.emplace_back(k.name);
+            }
+        }
+        return out;
+    }
+
+    // The shipped config file's keys, in file order (Player block, then Advanced).
+    inline std::vector<std::string> shipped_keys()
+    {
+        std::vector<std::string> out = keys_of(Tier::Player);
+        for (std::string& k : keys_of(Tier::Advanced))
+        {
+            out.push_back(std::move(k));
+        }
+        return out;
+    }
+
+    // Returns nullptr when the key is in no tier at all.
+    inline const KeyInfo* find(std::string_view key)
+    {
+        for (const KeyInfo& k : kKeys)
+        {
+            if (key == k.name)
+            {
+                return &k;
+            }
+        }
+        return nullptr;
+    }
+
+    inline bool tier_is(std::string_view key, Tier t)
+    {
+        const KeyInfo* k = find(key);
+        return k != nullptr && k->tier == t;
+    }
+
+    // "the loader will do something with this key" - Player, Advanced, Dev or Legacy.
+    // A Removed key is deliberately NOT known: it is recognised, warned about, ignored.
+    inline bool is_known(std::string_view key)
+    {
+        const KeyInfo* k = find(key);
+        return k != nullptr && k->tier != Tier::Removed;
+    }
+
+    // "this key used to exist and no longer does" - the warning path.
+    inline bool is_removed(std::string_view key)
+    {
+        return tier_is(key, Tier::Removed);
     }
 
     // The SAME line rules as mmstate.cpp's loader: a UTF-8 BOM is skipped, `;` and `#`

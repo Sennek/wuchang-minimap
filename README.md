@@ -511,7 +511,30 @@ render thread never touches a UObject.
 
 ### Settings
 
-`ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`.
+`ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`, `;` or `#` starts a
+comment. Since 0.9.2 the keys are sorted into three **tiers**, and `src/config_keys.hpp` is the one
+table that says which tier each one is in:
+
+| tier | where it lives | what it is |
+|---|---|---|
+| **Player** (48) | `config_wuchang_minimap.txt`, under `; ---- PLAYER SETTINGS ----`; F2 → *Player* | something a person tuning the HUD would plausibly change |
+| **Advanced** (53) | the same file, under `; ---- ADVANCED ----`; F2 → *Advanced* | correct as shipped; changed to answer a symptom |
+| **Dev** (22) | `config_wuchang_minimap_dev.txt`; F2 → *Debug* | a dial that exists because a developer needed one during bring-up |
+
+**`config_wuchang_minimap_dev.txt` is not part of a release.** It is read *only if it exists*, in the
+same folder, **after** the player config — so a key set in both wins there — and `tools\package.ps1`
+throws if it ever finds one in the staged package. `deploy.ps1` (the *dev* install) does copy it. The
+1 Hz timestamp watch and F5 both look at **both** files, so editing either one reloads both. The F2
+panel's Debug tab edits these keys and saves them back into the dev file, never into the player one;
+if the file does not exist, Save leaves it that way.
+
+Eleven former keys were **hard-coded** in 0.9.2 — `minimap_circle_segments`, `slice_min_px`,
+`slice_max_px`, `map_slice_margin`, `reader_max_widgets`, `reader_max_menu_roots`,
+`reader_max_levels`, `markers_live_max`, `markers_id_cache_max`, `markers_class_cache_max`,
+`markers_fallback_max_per_class`. They were sanity caps, never preferences: a wrong value was a bug
+report. An old file that still carries one gets a single warning naming it and is otherwise fine.
+`enabled` was renamed to **`overlay_enabled`** in the same release; the old spelling still works and
+also logs one warning.
 
 **The master switch, `mod_enabled` (default 1).** `mod_enabled = 0` makes the DLL inert: the DX12
 hooks are not installed (and are cleanly disabled again if they already were - the render thread
@@ -523,14 +546,14 @@ polled. What keeps running is one `GetFileAttributesEx` of the config file per s
 thread: change `mod_enabled` back to `1`, save, and the mod restarts within a second. **F5 does not
 work while the mod is off** - nothing samples the keyboard - and the F2 panel's master-switch
 checkbox can only turn it *off* (it writes the key and lets the watcher do the work). Every flip
-writes one `master switch:` line into `UE4SS.log`. `enabled` is the *overlay*, not the mod: with
-`enabled = 0` the reader, the marker sweep and the map asset all still run.
+writes one `master switch:` line into `UE4SS.log`. `overlay_enabled` is the *overlay*, not the mod:
+with `overlay_enabled = 0` the reader, the marker sweep and the map asset all still run.
 
-The other keys: `enabled`,
+The other keys: `overlay_enabled`, `ui_scale`, `hud_preset`,
 `show_minimap`, `minimap_size`, `minimap_zoom`, `minimap_shape`, `minimap_anchor`,
 `minimap_offset_x/y`, `rotate_with_player`, `opacity`, `hide_in_menus`, `require_pawn_view`,
-`state_stale_ms`, `min_visible_after_state_ok_ms`, `menu_close_show_delay_ms`, `debug_readout`,
-`debug_show_panel_on_start`, `panel_key`, `reload_key`, the `highlight_*` block (14 keys) plus
+`state_stale_ms`, `min_visible_after_state_ok_ms`, `menu_close_show_delay_ms`, `panel_key`,
+`reload_key`, `debug_readout` and `debug_show_panel_on_start` (both *dev*), the `highlight_*` block plus
 `xray_rarity_colors_enabled` / `xray_rarity_colors` / `markers_rarity_tint` (see
 [the x-ray highlight](#the-x-ray-highlight-hold-lalt)) and the `compass_*` block (9 keys - see
 [the compass strip](#the-compass-strip)), plus the height-slicing block:
@@ -601,9 +624,23 @@ rule can never fire, which is the failure worth seeing. The predicate itself
 Added 2026-09-03. Every number below was a literal in `src/`; the defaults are exactly the previous
 behaviour, and all of them are clamped on load. **Only `srv_heap_size` needs a restart** (the
 descriptor heap is created once, when the overlay first initialises) - everything else is picked up by
-F5 or by turning `mod_enabled` off and on. `tests/markers_test.cpp` asserts that the shipped config's
-keys, the table in `src/config_keys.hpp` and the `key == "..."` literals scraped out of `mmstate.cpp`
-are the same set in both directions, so none of the three can drift.
+F5 or by turning `mod_enabled` off and on. The rows marked *dev* live in
+`config_wuchang_minimap_dev.txt`, not in the shipped file.
+
+`tests/markers_test.cpp` is the drift guard, and it checks all of it in both directions:
+`keys(config_wuchang_minimap.txt) == Player ∪ Advanced`,
+`keys(config_wuchang_minimap_dev.txt) == Dev`,
+`{key == "..." literals scraped out of mmstate.cpp} == Player ∪ Advanced ∪ Dev ∪ Legacy`, the four
+tiers pairwise disjoint, no removed or renamed key in either file, and the shipped file's
+`; ---- PLAYER SETTINGS ----` / `; ---- ADVANCED ----` banner order matching the tier tags key for
+key. So no layout, no table and no parser branch can drift away from the others.
+
+Two keys were added in 0.9.2, both Player:
+
+| key | default | meaning |
+|---|---|---|
+| `ui_scale` | `auto` | `auto` = `clamp(back-buffer height / 1080, 1, 4)`; a number pins it. Scales the ImGui font and style **and** every pixel key (`markers_size`, `map_marker_size`, `highlight_size`, `compass_height`, `compass_offset_y`, `minimap_offset_x/y`, `minimap_min_px`, `minimap_arrow_min_px`). `minimap_size` and `compass_width` are fractions and are left alone. |
+| `hud_preset` | `custom` | `custom` obeys `minimap_anchor` / `minimap_offset_*` / `compass_anchor` as written (0.9.1's behaviour). `top-left` / `top-right` / `bottom-left` / `bottom-right` move the minimap into that corner **and** put the compass on the same vertical side. |
 
 | key | default | meaning |
 |---|---|---|
@@ -612,21 +649,15 @@ are the same set in both directions, so none of the three can drift.
 | `minimap_composite_alpha` | 0.85 | the no-height-map composite is drawn weaker than a slice |
 | `minimap_min_px` | 72 | floor on the minimap's side length |
 | `minimap_arrow_frac`, `minimap_arrow_min_px` | 0.055, 8 | the player arrow |
-| `minimap_circle_segments` | 72 | roundness of the disc and its rings (8..256) |
 | `waypoint_size_scale` | 1.05 | waypoint glyph radius, as a multiple of `markers_size` |
-| `slice_min_px`, `slice_max_px` | 128, 1024 | bounds on the minimap's CPU-sliced window |
-| `map_slice_margin` | 1.30 | how much bigger than the canvas the full map cuts, so a drag can move inside it |
 | `reader_position_period_ms` | 100 | 10 Hz: the pawn's location and yaw - this also gates the marker scan |
 | `reader_resolve_period_ms` | 500 | how often a missing pawn / controller is re-found |
 | `reader_widget_sweep_period_ms` | 250 | the full menu-widget sweep (the cheap re-test runs every pump) |
 | `reader_transition_cooldown_ms` | 2000 | no blueprint getter is called for this long after a pawn / world change |
 | `reader_teleport_jump_uu` | 3000 | a position jump this big in one pump is a fast travel (sprinting is ~70) |
 | `reader_chapter_period_ms` | 1000 | how often the streamed level set is walked to name the chapter |
-| `reader_max_widgets`, `reader_max_menu_roots`, `reader_max_levels` | 6000, 32, 4096 | sanity caps |
 | `reader_log_throttle_ms` | 5000 | rate limit on the reader's repeating log lines |
 | `markers_live_grace_rounds` | 2 | rounds a live actor may go unseen before it leaves the live cache - **not** a collected test |
-| `markers_live_max`, `markers_id_cache_max`, `markers_class_cache_max` | 8192, 8192, 262144 | cache caps; the class cache has to clear the whole game's class count |
-| `markers_fallback_max_per_class` | 4096 | only the slow `FindAllOf` fallback path |
 | `map_asset_retire_grace_ms` | 2000 | how long a retired chapter's height planes stay alive after the pointer is cleared |
 | `hide_reason_log_ms` | 2000 | rate limit on the `hidden because:` log line |
 | `srv_heap_size` | 64 | our SRV descriptor heap (**restart only**) |
@@ -708,7 +739,7 @@ correct: the tracker follows the save, not the mod.
 the map and, edge-clamped with its distance in metres, on the minimap - so it is a compass to it while
 you walk. It persists in `wuchang_minimap_waypoint.txt` next to the config: three plain `key = value`
 lines, hand-editable, written by the loop thread (the render thread only sets the value). It is
-deliberately **not** part of `config_wuchang_minimap.txt`, because that file is rewritten wholesale by
+deliberately **not** part of `config_wuchang_minimap.txt`, because that file is only written by
 the panel's Save button and a waypoint set during play must survive without anybody pressing Save.
 
 **Nothing latches.** The map closes itself the moment the state that allows it stops being true - a

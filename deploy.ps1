@@ -99,12 +99,17 @@ foreach ($modDir in $targets) {
 
     # Config files are never overwritten unless -ForceConfig: the user may have turned
     # the navmesh dumper on for a capture session, or tuned the minimap by hand.
-    #   config.ini                  - the runtime navmesh dumper (off by default)
-    #   config_wuchang_minimap.txt  - the overlay / minimap / full map settings
+    #   config.ini                     - the runtime navmesh dumper (off by default)
+    #   config_wuchang_minimap.txt     - the overlay / minimap / full map settings
+    #   config_wuchang_minimap_dev.txt - the developer dials. Installed HERE (this is a
+    #                                    dev deploy) but deliberately NOT part of the
+    #                                    release zip - tools\package.ps1 refuses to ship
+    #                                    it. It is read after the player config and
+    #                                    overrides it.
     # wuchang_minimap_found.txt (the collection tracker) and
     # wuchang_minimap_waypoint.txt (the full map waypoint) also live in the mod root and
     # are the player's own state: never shipped, never touched by a deploy.
-    foreach ($cfgName in @('config.ini', 'config_wuchang_minimap.txt')) {
+    foreach ($cfgName in @('config.ini', 'config_wuchang_minimap.txt', 'config_wuchang_minimap_dev.txt')) {
         $cfgSrc = Join-Path $PSScriptRoot "deploy\ue4ss\Mods\WuchangMinimap\$cfgName"
         $cfgDst = Join-Path $modDir $cfgName
         if ((Test-Path $cfgSrc) -and ($cfgSrc -ne $cfgDst) -and ($ForceConfig -or -not (Test-Path $cfgDst))) {

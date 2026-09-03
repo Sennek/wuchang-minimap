@@ -1,0 +1,108 @@
+; WuchangMinimap - DEVELOPER settings.
+;
+; This file is NOT part of the release zip. It is read only when it exists, and it is
+; read AFTER config_wuchang_minimap.txt, so anything set here overrides that file.
+; Delete it to go back to the built-in defaults.
+;
+; Everything in here is a dial that exists because a developer needed it during
+; bring-up. A player changing one can only make things worse, which is why none of it
+; ships. The F2 panel edits these on its "Debug" tab (visible only while
+; debug_readout = 1) and saves them back HERE, never into the player config.
+;
+; RESTART: only `srv_heap_size` needs one - the descriptor heap is created once, when
+; the overlay first initialises. Everything else is live (F5, or the 1 Hz watch on
+; both files' timestamps).
+
+; ---------------------------------------------------------------------------------
+; DIAGNOSTICS
+; ---------------------------------------------------------------------------------
+; Show the world position / uv / chapter / slice readout AND the
+; "hidden because: <reason>" line in the F2 panel.
+debug_readout = 1
+
+; Open the settings panel as soon as the mod starts. Development aid only - it is how
+; the panel is verified without a keypress. Leave at 0 for normal play.
+debug_show_panel_on_start = 0
+
+; Also load the Z-shaded composite small.png (+82 MB of VRAM for Chapter 1). It merges
+; every storey into one picture, so it is only useful as the fallback for a chapter
+; whose height maps are missing - which the runtime loads on its own anyway.
+fallback_use_composite = 0
+
+; The Z-shaded composite is the fallback picture for a chapter with no height maps.
+; It merges every storey, so it is drawn slightly weaker than a height slice.
+minimap_composite_alpha = 0.85
+
+; ---------------------------------------------------------------------------------
+; THE GAME-STATE READER (game thread)
+; ---------------------------------------------------------------------------------
+; 10 Hz: the pawn's location and yaw.
+reader_position_period_ms = 100
+
+; 2 Hz: re-find the pawn / controller when they are missing.
+reader_resolve_period_ms = 500
+
+; The full menu-widget sweep. The cheap re-test of the widgets already found runs on
+; EVERY pump, which is what makes the minimap hide the instant a menu opens.
+reader_widget_sweep_period_ms = 250
+
+; The sweep is a whole-object-array walk (28-51 ms measured). It only ever has to
+; DISCOVER a menu root that has never been seen this session - every root already known
+; is re-tested on every 10 Hz pump - so its period doubles from the value above up to
+; this maximum while nothing new turns up, and drops back to the fast cadence for
+; reader_widget_sweep_warm_ms after any menu-state flip, teleport or world change.
+reader_widget_sweep_max_period_ms = 2000
+reader_widget_sweep_warm_ms = 2000
+
+; After any pawn or world change, no blueprint getter is called for this long - the
+; engine is inside LoadMap and calling one there crashed the game.
+reader_transition_cooldown_ms = 2000
+
+; A position jump bigger than this inside one pump is a fast travel: the pawn is
+; re-resolved and the widgets re-swept. Sprinting covers ~70 uu per pump.
+reader_teleport_jump_uu = 3000
+
+; How often the streamed level set is walked to name the chapter.
+reader_chapter_period_ms = 1000
+
+; Rate limit on the reader's repeating log lines ("no pawn", "rejected class").
+reader_log_throttle_ms = 5000
+
+; ---------------------------------------------------------------------------------
+; MARKER SWEEP INTERNALS
+; ---------------------------------------------------------------------------------
+; How many rounds a live actor may go unseen before it is dropped from the live cache.
+; Two is what stops a marker flickering whenever a sweep races level streaming. This is
+; NOT a collected test - absence only ever marks through the markers_absence_* rules.
+markers_live_grace_rounds = 2
+
+; ---------------------------------------------------------------------------------
+; ASSETS AND DIAGNOSTICS
+; ---------------------------------------------------------------------------------
+; How long a retired chapter's height planes stay alive after the pointer to them was
+; cleared, so a render thread already inside a slice cannot be handed freed memory.
+; A slice is ~4 ms; this is three orders of magnitude more.
+map_asset_retire_grace_ms = 2000
+
+; Rate limit on the "hidden because: ..." log line, so a flapping condition cannot
+; flood the log.
+hide_reason_log_ms = 2000
+
+; Our SRV descriptor heap: the ImGui font atlas, the map texture and the four slice
+; buffers. RESTART ONLY (or turn mod_enabled off and on again).
+srv_heap_size = 64
+
+; ---------------------------------------------------------------------------------
+; THE X-RAY CAMERA READER
+; ---------------------------------------------------------------------------------
+; How often the camera manager is re-found when it is missing; the slower rate used
+; when only the compass wants a heading; the pace of the ProcessEvent fallback route
+; (used when the raw POV block could not be pinned).
+highlight_camera_resolve_ms = 500
+highlight_compass_period_ms = 50
+highlight_getter_period_ms = 33
+
+; How far into CameraCachePrivate the POV block is looked for, and how many insane
+; reads in a row drop the pinned offset and re-run the discovery.
+highlight_pov_scan_bytes = 192
+highlight_pov_bad_reads = 8

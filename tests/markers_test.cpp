@@ -33,6 +33,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "chapterid.hpp"
@@ -1717,7 +1718,7 @@ namespace
 
     void test_config_keys(const std::string& markers_dir)
     {
-        std::printf("config file - shipped keys vs. the parser\n");
+        std::printf("config files - shipped keys vs. the tiers vs. the parser\n");
 
         // markers_dir is <repo>\markers when build.ps1 runs us.
         std::string root = markers_dir;
@@ -1728,46 +1729,147 @@ namespace
         const std::size_t slash = root.find_last_of("/\\");
         root = slash == std::string::npos ? std::string{"."} : root.substr(0, slash);
 
-        const std::string shipped_path =
-            root + "/deploy/ue4ss/Mods/WuchangMinimap/config_wuchang_minimap.txt";
+        const std::string dir = root + "/deploy/ue4ss/Mods/WuchangMinimap/";
+        const std::string shipped_path = dir + "config_wuchang_minimap.txt";
+        const std::string dev_path = dir + "config_wuchang_minimap_dev.txt";
         const std::string source_path = root + "/src/mmstate.cpp";
 
         std::string shipped;
+        std::string dev;
         std::string source;
         const bool have_shipped = read_file(shipped_path, shipped);
+        const bool have_dev = read_file(dev_path, dev);
         const bool have_source = read_file(source_path, source);
-        if (!have_shipped || !have_source)
+        if (!have_shipped || !have_dev || !have_source)
         {
             std::printf("  SKIPPED (run from the repo, with the markers directory as argv[1])\n");
             return;
         }
 
-        std::vector<std::string> known;
-        for (const char* k : cfgkeys::kConfigKeys)
-        {
-            known.emplace_back(k);
-        }
+        const std::vector<std::string> player = cfgkeys::keys_of(cfgkeys::Tier::Player);
+        const std::vector<std::string> advanced = cfgkeys::keys_of(cfgkeys::Tier::Advanced);
+        const std::vector<std::string> dev_keys = cfgkeys::keys_of(cfgkeys::Tier::Dev);
+        const std::vector<std::string> removed = cfgkeys::keys_of(cfgkeys::Tier::Removed);
+        const std::vector<std::string> legacy = cfgkeys::keys_of(cfgkeys::Tier::Legacy);
+        const std::vector<std::string> known = cfgkeys::shipped_keys(); // player + advanced
+
         const std::vector<std::string> shipped_keys = cfgkeys::keys_in(shipped);
+        const std::vector<std::string> dev_file_keys = cfgkeys::keys_in(dev);
         const std::vector<std::string> parsed = parser_keys(source);
 
-        std::printf("  %d known, %d in the shipped file, %d matched by the parser\n",
+        std::printf("  player %d + advanced %d = %d shipped (file has %d);  dev %d (file has %d);  "
+                    "removed %d;  legacy %d;  parser %d\n",
+                    static_cast<int>(player.size()),
+                    static_cast<int>(advanced.size()),
                     static_cast<int>(known.size()),
                     static_cast<int>(shipped_keys.size()),
+                    static_cast<int>(dev_keys.size()),
+                    static_cast<int>(dev_file_keys.size()),
+                    static_cast<int>(removed.size()),
+                    static_cast<int>(legacy.size()),
                     static_cast<int>(parsed.size()));
 
-        report_missing("in the shipped config but not a known key", shipped_keys, known);
-        report_missing("a known key missing from the shipped config", known, shipped_keys);
-        report_missing("parsed by mmstate.cpp but not a known key", parsed, known);
-        report_missing("a known key the parser never matches", known, parsed);
-
-        // The table itself must not carry a duplicate, or one of the set comparisons
-        // above would pass by accident.
-        for (std::size_t i = 0; i < known.size(); ++i)
+        // ---- the tiers are pairwise disjoint, and nothing is listed twice ------------
+        //
+        // Every set comparison below would pass by accident if a key appeared in two
+        // tiers, so this is checked first.
+        for (std::size_t i = 0; i < cfgkeys::kKeyCount; ++i)
         {
-            CHECK(std::count(known.begin(), known.end(), known[i]) == 1);
+            int seen = 0;
+            for (std::size_t j = 0; j < cfgkeys::kKeyCount; ++j)
+            {
+                if (std::string_view{cfgkeys::kKeys[i].name} == cfgkeys::kKeys[j].name)
+                {
+                    ++seen;
+                }
+            }
+            const std::string msg = std::string{"key listed once in cfgkeys::kKeys: "} + cfgkeys::kKeys[i].name;
+            check(seen == 1, msg.c_str(), __FILE__, __LINE__);
         }
+
+        // ---- shipped file == Player U Advanced --------------------------------------
+        report_missing("in the shipped config but not a Player/Advanced key", shipped_keys, known);
+        report_missing("a Player/Advanced key missing from the shipped config", known, shipped_keys);
+
+        // ---- dev file == Dev ---------------------------------------------------------
+        report_missing("in the dev config but not a Dev key", dev_file_keys, dev_keys);
+        report_missing("a Dev key missing from the dev config", dev_keys, dev_file_keys);
+
+        // ---- the parser accepts exactly Player U Advanced U Dev U Legacy -------------
+        //
+        // A Removed key must NOT be a parser literal: it is recognised through
+        // cfgkeys::is_removed() and answered with one warning, never applied.
+        std::vector<std::string> parseable = known;
+        parseable.insert(parseable.end(), dev_keys.begin(), dev_keys.end());
+        parseable.insert(parseable.end(), legacy.begin(), legacy.end());
+        report_missing("parsed by mmstate.cpp but in no live tier", parsed, parseable);
+        report_missing("a live key the parser never matches", parseable, parsed);
+
+        // ---- a removed or legacy key may never appear in a shipped file --------------
+        for (const std::string& k : removed)
+        {
+            const bool in_shipped = std::find(shipped_keys.begin(), shipped_keys.end(), k) != shipped_keys.end();
+            const bool in_dev = std::find(dev_file_keys.begin(), dev_file_keys.end(), k) != dev_file_keys.end();
+            const std::string msg = std::string{"a removed key is still in a config file: "} + k;
+            check(!in_shipped && !in_dev, msg.c_str(), __FILE__, __LINE__);
+            const std::string msg2 = std::string{"a removed key must not be parsed: "} + k;
+            check(std::find(parsed.begin(), parsed.end(), k) == parsed.end(), msg2.c_str(), __FILE__, __LINE__);
+        }
+        for (const std::string& k : legacy)
+        {
+            const bool in_shipped = std::find(shipped_keys.begin(), shipped_keys.end(), k) != shipped_keys.end();
+            const bool in_dev = std::find(dev_file_keys.begin(), dev_file_keys.end(), k) != dev_file_keys.end();
+            const std::string msg = std::string{"an old key NAME is still in a config file: "} + k;
+            check(!in_shipped && !in_dev, msg.c_str(), __FILE__, __LINE__);
+            // ...and it must still map onto a live key, or the rename is a dead end.
+            const char* to = cfgkeys::renamed_to(k);
+            const std::string msg2 = std::string{"a legacy key maps onto a live key: "} + k;
+            check(to != nullptr && std::find(known.begin(), known.end(), std::string{to}) != known.end(),
+                  msg2.c_str(), __FILE__, __LINE__);
+        }
+
+        // ---- the shipped file's banner order agrees with the Player/Advanced tags ----
+        //
+        // The file has one `; ---- PLAYER SETTINGS ----` banner and one
+        // `; ---- ADVANCED ----` banner; every key above the second is Player, every key
+        // below it is Advanced. Without this the tags and the file could describe two
+        // different layouts and no set comparison would notice.
+        {
+            const std::size_t player_banner = shipped.find("; ---- PLAYER SETTINGS ----");
+            const std::size_t adv_banner = shipped.find("; ---- ADVANCED ----");
+            CHECK(player_banner != std::string::npos);
+            CHECK(adv_banner != std::string::npos);
+            CHECK(player_banner < adv_banner);
+            if (player_banner != std::string::npos && adv_banner != std::string::npos &&
+                player_banner < adv_banner)
+            {
+                const std::vector<std::string> above = cfgkeys::keys_in(shipped.substr(0, adv_banner));
+                const std::vector<std::string> below = cfgkeys::keys_in(shipped.substr(adv_banner));
+                for (const std::string& k : above)
+                {
+                    const std::string msg = std::string{"above the ADVANCED banner, so tagged Player: "} + k;
+                    check(cfgkeys::tier_is(k, cfgkeys::Tier::Player), msg.c_str(), __FILE__, __LINE__);
+                }
+                for (const std::string& k : below)
+                {
+                    const std::string msg = std::string{"below the ADVANCED banner, so tagged Advanced: "} + k;
+                    check(cfgkeys::tier_is(k, cfgkeys::Tier::Advanced), msg.c_str(), __FILE__, __LINE__);
+                }
+                CHECK_EQ(static_cast<int>(above.size()), static_cast<int>(player.size()));
+                CHECK_EQ(static_cast<int>(below.size()), static_cast<int>(advanced.size()));
+            }
+        }
+
+        // ---- the helpers ------------------------------------------------------------
         CHECK(cfgkeys::is_known("mod_enabled"));
+        CHECK(cfgkeys::is_known("debug_readout"));   // Dev counts as known
         CHECK(!cfgkeys::is_known("mod_enabled_typo"));
+        CHECK(!cfgkeys::is_known("slice_min_px"));   // Removed is recognised, not known
+        CHECK(cfgkeys::is_removed("slice_min_px"));
+        CHECK(!cfgkeys::is_removed("minimap_min_px"));
+        CHECK(cfgkeys::renamed_to("enabled") != nullptr);
+        CHECK(cfgkeys::renamed_to("overlay_enabled") == nullptr);
+        CHECK_EQ(static_cast<int>(cfgkeys::kConfigKeyCount), static_cast<int>(known.size()));
 
         // The line parser: the same rules as the loader.
         const std::vector<std::string> parsed_lines = cfgkeys::keys_in(

@@ -694,6 +694,11 @@ namespace overlay
             std::vector<float> best_d;
             std::vector<int> col_x;
             std::vector<int> row_y;
+            // One destination row of height codes, gathered out of the sparse block
+            // store (mapdata::HeightMaps::gather_row). The planes have no row pointer
+            // any more: a row of the picture crosses several 128-px blocks and the
+            // absent ones have no address.
+            std::vector<std::uint16_t> gather;
 
             void clear()
             {
@@ -702,6 +707,7 @@ namespace overlay
                 best_d.clear();
                 col_x.clear();
                 row_y.clear();
+                gather.clear();
             }
         };
 
@@ -2341,6 +2347,7 @@ namespace overlay
             if (sc.col_x.size() != static_cast<std::size_t>(w))
             {
                 sc.col_x.resize(static_cast<std::size_t>(w));
+                sc.gather.resize(static_cast<std::size_t>(w));
             }
             if (sc.row_y.size() != static_cast<std::size_t>(h))
             {
@@ -2366,11 +2373,11 @@ namespace overlay
 
             for (int k = 0; k < planes; ++k)
             {
-                const std::uint16_t* plane = hm.plane[k].data();
-                if (hm.plane[k].empty())
+                if (hm.plane_empty(k))
                 {
                     continue;
                 }
+                std::uint16_t* gathered = sc.gather.data();
                 for (int row = 0; row < h; ++row)
                 {
                     const int sy = row_y[row];
@@ -2378,17 +2385,20 @@ namespace overlay
                     {
                         continue;
                     }
-                    const std::uint16_t* src =
-                        plane + static_cast<std::size_t>(sy) * static_cast<std::size_t>(hm.width);
+                    // Gather the row's codes out of the block store. `false` means
+                    // no surface anywhere on this row of this plane, which in the
+                    // deeper planes is most rows - and skipping them here is where the
+                    // sparse store gives some of the RAM saving back as speed. Columns
+                    // outside the asset (col_x < 0) and absent blocks both come back
+                    // as code 0, which is exactly what the dense plane held there.
+                    if (!hm.gather_row(k, sy, col_x, w, gathered))
+                    {
+                        continue;
+                    }
                     const std::size_t out_base = static_cast<std::size_t>(row) * static_cast<std::size_t>(w);
                     for (int col = 0; col < w; ++col)
                     {
-                        const int sx = col_x[col];
-                        if (sx < 0)
-                        {
-                            continue;
-                        }
-                        const std::uint16_t code = src[sx];
+                        const std::uint16_t code = gathered[col];
                         if (code == 0)
                         {
                             continue; // no surface in this slot here
@@ -2748,18 +2758,16 @@ namespace overlay
             int sx0 = wx0;
             int sy0 = wy0;
             {
-                const std::vector<std::uint16_t>& p0 = hm.plane[0];
-                for (std::size_t i = 0; i < p0.size(); i += 97) // a coarse stride is plenty
+                // The block store knows where its first lit pixel is, so this no
+                // longer has to stride over a 43 MB dense plane to find one.
+                int px = 0;
+                int py = 0;
+                std::uint16_t code = 0;
+                if (hm.first_lit(0, px, py, code))
                 {
-                    if (p0[i] != 0)
-                    {
-                        const int px = static_cast<int>(i % static_cast<std::size_t>(hm.width));
-                        const int py = static_cast<int>(i / static_cast<std::size_t>(hm.width));
-                        probe_z = hm.decode(p0[i]);
-                        sx0 = px - b.w / 2;
-                        sy0 = py - b.w / 2;
-                        break;
-                    }
+                    probe_z = hm.decode(code);
+                    sx0 = px - b.w / 2;
+                    sy0 = py - b.w / 2;
                 }
             }
             slice_window(hm, sx0, sy0, b.w, b.mapped + b.footprint.Offset,

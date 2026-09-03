@@ -169,21 +169,6 @@ namespace mapdata
         // The sparse planes, lowest surface first. Read through gather_row().
         HeightPlane layer[kMaxSurfaces];
 
-        // COMPATIBILITY SHIM - REMOVE WITH THE overlay.cpp CALL-SITE CHANGE.
-        //
-        // The dense member `plane[k]` is what src/overlay.cpp's slicer still reads
-        // (`hm.plane[k].data()` plus `plane + sy * hm.width`), and that expression
-        // cannot be made to work over a block store: a row crosses several blocks and
-        // the absent ones have no address. It is kept, EMPTY, so the file still
-        // compiles, and marked deprecated so the three call sites are named in the
-        // build output. An empty plane makes the slicer skip that surface, so the
-        // minimap draws nothing until docs/overlay-sparse-planes.patch is applied -
-        // which is deliberately the loudest failure available from this side of the
-        // boundary, and mapdata.cpp logs it at every chapter load as well.
-        [[deprecated("the height planes are sparse now - gather a row with "
-                     "HeightMaps::gather_row(); apply docs/overlay-sparse-planes.patch")]]
-        std::vector<std::uint16_t> plane[kMaxSurfaces];
-
         // uu per quantisation step - reported once, so a "the gradient is banded"
         // report can be checked against the asset instead of the renderer.
         float z_step() const

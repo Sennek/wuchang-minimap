@@ -355,14 +355,6 @@ namespace mapdata
                      kTilePx,
                      sparse / (1024 * 1024),
                      dense / (1024 * 1024));
-            // The shim in mapdata.hpp: until src/overlay.cpp gathers its rows through
-            // HeightMaps::gather_row(), its slicer sees eight empty dense planes and
-            // draws nothing. Said here, at every chapter load, because a missing
-            // minimap with no explanation is the one failure this project keeps paying
-            // for twice.
-            mm::log(L"maps: NOTE the height slicer in overlay.cpp still reads the dense "
-                    L"`plane[]` member, which is empty in this build - apply "
-                    L"docs/overlay-sparse-planes.patch or the minimap will show no floor");
             return hm.release();
         }
 

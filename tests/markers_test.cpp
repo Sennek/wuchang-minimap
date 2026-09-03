@@ -1375,17 +1375,48 @@ namespace
         CHECK(q.backoff == 0);
         CHECK(scan::sweep_period_ms(q, 12500) == 250);
 
-        // THE LATENCY GUARANTEE. While nothing at all is on the watchlist there is no
-        // cheap per-pump test that could notice a menu, so the sweep must stay fast no
-        // matter how long it has been quiet - that is what bounds the FIRST menu open of
-        // a session at one fast period.
+        // THE LATENCY GUARANTEE, as revised after the 2026-09-03 in-game measurement.
+        // While nothing at all is on the watchlist there is no cheap per-pump test that
+        // could notice a menu - but an empty watchlist is the STEADY STATE of ordinary
+        // gameplay (the run-2 log reads `sweep every 250 ms (watchlist 0)` on every state
+        // line of the whole session), so pinning the cadence to fast_ms there meant the
+        // discovery pass never backed off once. It now backs off like any other quiet
+        // run and is merely CAPPED at unknown_ms, which is what bounds the first menu
+        // open of a session.
         scan::SweepSched e{};
         scan::sweep_arm(e, 0);
         for (std::uint64_t t = 0; t < 60000; t += 250)
         {
             scan::sweep_done(e, t, false, /*nothing_known=*/true);
-            CHECK(e.backoff == 0);
-            CHECK(scan::sweep_period_ms(e, t) == 250);
+            const std::uint64_t p = scan::sweep_period_ms(e, t);
+            CHECK(p >= 250);
+            CHECK(p <= e.unknown_ms);
+        }
+        CHECK(scan::sweep_period_ms(e, 60000) == 1000); // settled at the cap
+        CHECK(e.nothing_known);
+
+        // ... and a sweep that DOES find something on the watchlist is free to back off
+        // all the way to slow_ms again, which is the cheap steady state.
+        scan::SweepSched k{};
+        scan::sweep_arm(k, 0);
+        for (std::uint64_t t = 3000; t < 60000; t += 2000)
+        {
+            scan::sweep_done(k, t, false, /*nothing_known=*/false);
+        }
+        CHECK(!k.nothing_known);
+        CHECK(scan::sweep_period_ms(k, 60000) == 2000);
+
+        // A cap looser than fast_ms can never speed the schedule UP past what the config
+        // asked for.
+        scan::SweepSched u{};
+        u.fast_ms = 1500;
+        u.slow_ms = 4000;
+        u.unknown_ms = 1000;
+        scan::sweep_arm(u, 0);
+        for (std::uint64_t t = 3000; t < 60000; t += 2000)
+        {
+            scan::sweep_done(u, t, false, /*nothing_known=*/true);
+            CHECK(scan::sweep_period_ms(u, t) >= 1500);
         }
 
         // A re-arm in the middle of a backed-off run puts it straight back to fast and
@@ -1410,6 +1441,41 @@ namespace
         }
         CHECK(b.backoff == scan::kSweepMaxBackoff);
         CHECK(scan::sweep_period_ms(b, 100000) == 250ull << scan::kSweepMaxBackoff);
+
+        // THE SLICED WIDGET WALK. The discovery pass is one full round of the shared
+        // GUObjectArray cursor now, not one FindAllOf call, so the thing worth pinning is
+        // that a round of a realistically sized array finishes inside the fastest cadence
+        // the schedule can ask for - otherwise rounds would queue up behind each other.
+        // 360 k slots is what the run-2 log implies (44 pumps x 8192 for the marker
+        // scan's round).
+        CHECK(scan::kWidgetChunkDefault == scan::kChunkDefault);
+        CHECK(scan::kWidgetSlicePeriodMs >= scan::kPeriodMinMs);
+        {
+            constexpr int kTotal = 360000;
+            scan::Cursor c{};
+            int slices = 0;
+            bool wrapped = false;
+            while (!wrapped && slices < 10000)
+            {
+                const scan::Slice s = scan::next_slice(c, kTotal, scan::kWidgetChunkDefault);
+                CHECK(s.count() > 0);
+                CHECK(s.count() <= scan::kWidgetChunkDefault);
+                wrapped = scan::advance(c, s, kTotal);
+                ++slices;
+            }
+            CHECK(wrapped);
+            CHECK(slices == 44); // ceil(360000 / 8192)
+            // Wall time of one round at the slice spacing, in ms.
+            CHECK(slices * scan::kWidgetSlicePeriodMs == 352);
+            // ... which is inside the quiet cadences (unknown_ms / slow_ms), so a round
+            // always finishes and commits before the next one is due. It is LONGER than
+            // fast_ms on purpose: while armed the walk simply runs continuously, which is
+            // exactly the two seconds after a menu flip where discovery latency matters.
+            const scan::SweepSched def{};
+            CHECK(static_cast<std::uint64_t>(slices * scan::kWidgetSlicePeriodMs) < def.unknown_ms);
+            CHECK(static_cast<std::uint64_t>(slices * scan::kWidgetSlicePeriodMs) > def.fast_ms);
+        }
+        CHECK(scan::kWidgetCandidateMax >= 32);
     }
     //======================================================================================
     // src/projection.hpp - world -> screen

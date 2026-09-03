@@ -7,6 +7,7 @@
 #include <cstring>
 #include <iterator>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "chapterid.hpp"
@@ -42,19 +43,24 @@ namespace gamestate
         //     of root widgets we have already seen in the viewport. That is a few
         //     GUObjectArray checks and a few byte reads - no FindAllOf, no allocation,
         //     no ProcessEvent - and it is what makes hiding immediate.
-        //   * every kWidgetFullPeriodMs AT MOST: the full FindAllOf("UserWidget") sweep,
-        //     which is the only thing that can DISCOVER a root the first time a given
-        //     menu is opened in a session (a widget that has never been Visible has never
-        //     been IsInViewport()-tested, so it cannot be on the watchlist yet).
+        //   * every kWidgetFullPeriodMs AT MOST: one round of the DISCOVERY walk, which
+        //     is the only thing that can find a root the first time a given menu is
+        //     opened in a session (a widget that has never been Visible has never been
+        //     IsInViewport()-tested, so it cannot be on the watchlist yet).
         //
-        // The sweep is 28-51 ms of whole-object-array walk, so it is now on an ADAPTIVE
-        // schedule (scan::SweepSched): this value is its fast cadence, it doubles up to
-        // reader_widget_sweep_max_period_ms while nothing new is discovered, and any
-        // menu-state flip / teleport / world change puts it back to fast. What bounds the
-        // latency instead is the per-pump pass, which now re-tests EVERY root ever seen -
-        // see menu_from_cached_roots().
+        // That round used to be a single FindAllOf("UserWidget") - a whole-object-array
+        // walk, measured in-game at 25.471 ms average / 62.554 ms peak on the game thread
+        // (F2 -> Debug, 2026-09-03) - and it is now a SLICED GUObjectArray walk of 8192
+        // slots per slice (widget_scan_pump / commit_widget_round below). This value is
+        // the fast cadence of its ADAPTIVE schedule (scan::SweepSched): the period doubles
+        // up to reader_widget_sweep_max_period_ms while nothing new is discovered, and any
+        // menu-state flip / teleport / world change / view-target change puts it back to
+        // fast. What bounds the latency instead is the per-pump pass, which re-tests EVERY
+        // root ever seen - see menu_from_cached_roots().
         constexpr std::uint64_t kWidgetFullPeriodMs = 250;
-        constexpr std::size_t kMaxWidgets = 6000;  // sanity cap on one FindAllOf pass
+        // Sanity cap on one FindAllOf pass - the fallback path only (the sliced walk is
+        // bounded by the object array itself and by scan::kWidgetCandidateMax).
+        constexpr std::size_t kMaxWidgets = 6000;
         constexpr std::size_t kMaxMenuRoots = 32;  // cache cap; the game only ever has 5-6
 
         // After ANY pawn / world change, no UFunction is called for this long. A level
@@ -152,11 +158,60 @@ namespace gamestate
         // scan_sched.hpp, tested offline).
         scan::SweepSched g_sweep{};
 
+        //------------------------------------------------------------------------------
+        // The SLICED discovery walk (replaces FindAllOf("UserWidget"))
+        //------------------------------------------------------------------------------
+        //
+        // The discovery pass was one `FindAllOf(L"UserWidget")` per sweep, and the F2
+        // perf table measured it in-game at **25.471 ms average / 62.554 ms peak** on the
+        // game thread at 3 Hz - a dropped frame three times a second. It is exactly the
+        // failure the marker sweep already fixed: `FindAllOf` walks the whole object
+        // array in one call, so the cure is to walk GUObjectArray ourselves in slices and
+        // call the ROUND the sweep.
+        //
+        // Two halves, split by what is safe where:
+        //   * the SLICE (`widget_scan_pump`) does raw reads only - FUObjectItem validity,
+        //     the class pointer, a memoised "is this a UUserWidget descendant?" and the
+        //     reflected Visibility byte - so it can ride the between-position-pumps fast
+        //     path next to the marker slice, hundreds of times a second, at ~0.3-0.7 ms.
+        //     Not one ProcessEvent is issued from it.
+        //   * the COMMIT (`commit_widget_round`) runs on the 10 Hz pump, where the pawn
+        //     has just been validated in this very call, and is the only place that calls
+        //     `IsInViewport()` - over the handful of byte-`Visible` candidates the round
+        //     collected, which is 5-6 widgets out of ~900.
+        //
+        // The answer is still REBUILT from the commit, never merged, so none of the three
+        // latches this file has had can come back.
+        scan::Cursor g_wcursor{};
+        bool g_wround_active = false;      // a round is walking right now
+        bool g_wround_ready = false;       // a round has wrapped and awaits the commit
+        std::uint64_t g_wslice_us = 0;     // QPC of the last slice
+        std::uint32_t g_wseen_round = 0;   // UserWidget instances this round has seen
+        std::uint32_t g_wcand_dropped = 0; // candidates the cap refused this round
+        // Candidates are held as ObjRefs, not raw pointers: a round takes ~350 ms of wall
+        // time to walk, and a widget captured in slice 1 must be proved still live before
+        // the commit issues a ProcessEvent at it.
+        std::vector<uer::ObjRef> g_wcandidates;
+        // "Is this UClass* a UUserWidget descendant?" - one super-chain name walk per
+        // class per level, then a hash lookup per object. The cap has to clear the whole
+        // GAME's class count, not the widget classes': this walk asks about every class
+        // that owns an object, so a small cap would be hit mid-round and would throw away
+        // exactly the negative answers that make the walk cheap (lessons.md).
+        std::unordered_map<RC::Unreal::UClass*, unsigned char> g_wclass;
+        constexpr std::size_t kWidgetClassCacheMax = 262144;
+        // Set once if `FUObjectArray::GetNumElements()` cannot answer - i.e. UE4SS did not
+        // resolve GUObjectArray on this build. The old whole-array `FindAllOf` sweep stays
+        // in the file as that fallback, so a menu is still detected (expensively) rather
+        // than never.
+        bool g_wfallback = false;
+
         // Perf counter ids (perf.hpp). Namespace-scope ints rather than function
         // statics: a guarded static's first call would run the CRT's thread-safe-init
         // path on the game thread.
         int g_pf_position = -1;
         int g_pf_sweep = -1;
+        int g_pf_wslice = -1;
+        int g_pf_wcommit = -1;
         int g_pf_retest = -1;
         int g_pf_chapter = -1;
 
@@ -174,6 +229,10 @@ namespace gamestate
         // to kWidgetFullPeriodMs, so the cached-root list is re-validated and rebuilt
         // from live state.
         bool g_force_widget_sweep = true;
+
+        // The previous pump's "is the view target the pawn?" answer. A change in it arms
+        // the discovery walk - see the comment at the read site.
+        bool g_last_pawn_view = true;
 
         // Teleport detection. A shrine fast-travel keeps the same pawn object and the
         // same UWorld, so none of the transition tests fire - but every position-derived
@@ -302,6 +361,19 @@ namespace gamestate
             g_menu_change_ms = now;
             g_menu_roots.clear(); // the widgets belonged to the world that just went
             g_menu_watch.clear();
+            // The sliced discovery walk keyed everything it holds to that world too: the
+            // candidate ObjRefs, the round's counts and the UClass* memo (classes are
+            // unloaded with their packages, and a recycled UClass* address would answer
+            // from the wrong entry). The cursor restarts rather than resuming mid-array.
+            g_wcandidates.clear();
+            g_wclass.clear();
+            g_wcursor = scan::Cursor{};
+            g_wround_active = false;
+            g_wround_ready = false;
+            g_wseen_round = 0;
+            g_wcand_dropped = 0;
+            g_widgets_seen = 0;
+            g_widgets_visible = 0;
             // The controller belonged to that world too. Resetting it here (rather than
             // waiting for uer::alive() to notice) is what re-arms its own resolve.
             g_controller.reset();
@@ -712,9 +784,19 @@ namespace gamestate
             return menu;
         }
 
-        // THE FULL SWEEP. Also returns "a menu is up", and REBUILDS the root cache from
-        // scratch - a root that does not confirm in this pass is gone, so the cache can
-        // never outlive the state it describes.
+        // THE FULL SWEEP, IN ONE CALL - the FALLBACK path now.
+        //
+        // This is what the discovery pass used to be on every sweep, and the F2 perf
+        // table's in-game reading of it was 25.471 ms average / 62.554 ms peak on the
+        // game thread. `FindAllOf` walks the whole object array in a single call, so
+        // there is no chunk size or rate that makes the burst acceptable - the sliced
+        // walk below replaces it. It survives here for exactly one case: a UE4SS build
+        // where `FUObjectArray::GetNumElements()` cannot answer, where a 25 ms sweep at
+        // 0.5-1 Hz still beats never detecting a menu at all (`g_wfallback`).
+        //
+        // Also returns "a menu is up", and REBUILDS the root cache from scratch - a root
+        // that does not confirm in this pass is gone, so the cache can never outlive the
+        // state it describes.
         bool update_widgets(std::wstring& holder, bool& discovered_new)
         {
             discovered_new = false;
@@ -793,6 +875,252 @@ namespace gamestate
 
             g_widgets_seen = seen;
             g_widgets_visible = visible_in_viewport;
+            return menu;
+        }
+
+        //==============================================================================
+        // THE SLICED DISCOVERY WALK
+        //==============================================================================
+
+        // Is this object's class a `UUserWidget` descendant? Same job `FindAllOf(
+        // L"UserWidget")` did for us (it matches subclasses), by the same means the
+        // marker classifier uses: walk the super chain comparing NAMES, memoise the
+        // answer per `UClass*`. Names rather than a `UClass*` compare because we have no
+        // `UUserWidget::StaticClass()` to compare against - `ue_min.hpp` declares only
+        // what UE4SS exports.
+        bool class_is_user_widget(UObject* obj)
+        {
+            RC::Unreal::UClass* cls = obj->GetClassPrivate();
+            if (cls == nullptr)
+            {
+                return false;
+            }
+            const auto it = g_wclass.find(cls);
+            if (it != g_wclass.end())
+            {
+                return it->second != 0;
+            }
+            bool is_widget = false;
+            auto* current = static_cast<RC::Unreal::UStruct*>(cls);
+            for (int depth = 0; current != nullptr && depth < 48 && !is_widget; ++depth)
+            {
+                if (!mem::readable(current, 0x40))
+                {
+                    break;
+                }
+                if (static_cast<UObject*>(current)->GetName() == L"UserWidget")
+                {
+                    is_widget = true;
+                }
+                current = current->GetSuperStruct();
+            }
+            if (g_wclass.size() > kWidgetClassCacheMax)
+            {
+                g_wclass.clear();
+            }
+            g_wclass.emplace(cls, is_widget ? static_cast<unsigned char>(1)
+                                            : static_cast<unsigned char>(0));
+            return is_widget;
+        }
+
+        // ONE SLICE. Raw reads only - no ProcessEvent - so this is safe on the fast path
+        // between position pumps, which is where it gets the hundreds of calls a second
+        // that keep a round short.
+        //
+        // Rejects, cheapest first (the same order and the same reasoning as the marker
+        // slice): the FUObjectItem validity flags read through the object ARRAY rather
+        // than through the object, so a freed allocation is safe to look at; then the
+        // memoised class test, which is the overwhelming case; then
+        // IsValidObjectForFindXOf, which is precisely what FindAllOf used to filter out
+        // for us (CDOs and archetypes); and only then the Visibility byte.
+        void widget_scan_slice(const scan::Slice& slice)
+        {
+            for (int i = slice.begin; i < slice.end; ++i)
+            {
+                RC::Unreal::FUObjectItem* item = RC::Unreal::FUObjectArray::IndexToObject(i);
+                if (item == nullptr || !item->IsValid(false))
+                {
+                    continue;
+                }
+                UObject* obj = item->GetUObject();
+                if (obj == nullptr)
+                {
+                    continue;
+                }
+                if (!class_is_user_widget(obj))
+                {
+                    continue;
+                }
+                if (!UObjectGlobals::IsValidObjectForFindXOf(obj) || !mem::readable(obj, 0x40))
+                {
+                    continue;
+                }
+                ++g_wseen_round;
+                // THE PREFILTER. `UWidget::Visibility` is a reflected TEnumAsByte and
+                // ESlateVisibility::Visible == 0, so ~900 widget instances cost one
+                // guarded byte read each and only the handful that say Visible are worth
+                // a ProcessEvent later. A class with no reflected Visibility at all is
+                // kept as a candidate so the commit can ask `GetVisibility()` instead -
+                // that is what the one-call sweep did too.
+                bool has_byte = false;
+                const bool byte_visible = widget_is_visible_byte(obj, has_byte);
+                if (has_byte && !byte_visible)
+                {
+                    continue;
+                }
+                if (g_wcandidates.size() >= static_cast<std::size_t>(scan::kWidgetCandidateMax))
+                {
+                    ++g_wcand_dropped;
+                    continue;
+                }
+                uer::ObjRef ref{};
+                if (uer::capture(obj, ref))
+                {
+                    g_wcandidates.push_back(ref);
+                }
+            }
+        }
+
+        // Drive the walk: start a round when the schedule says a sweep is due, then take
+        // one slice per `kWidgetSlicePeriodMs`. Called from the fast path AND once at the
+        // end of the 10 Hz pump, so the slice rate is set here and not by the caller
+        // (lessons.md: "a throttle in the CALLER can be the reason the callee cannot be
+        // optimised").
+        void widget_scan_pump(std::uint64_t now, std::uint64_t now_us)
+        {
+            if (g_wfallback || g_wround_ready)
+            {
+                return; // no GUObjectArray, or a finished round is waiting to be committed
+            }
+            if (!g_wround_active)
+            {
+                if (!scan::sweep_due(g_sweep, now))
+                {
+                    return;
+                }
+                if (RC::Unreal::FUObjectArray::GetNumElements() <= 0)
+                {
+                    g_wfallback = true;
+                    mm::log(L"widget scan: GUObjectArray reports no elements - falling back to "
+                            L"FindAllOf(\"UserWidget\") for menu discovery (expensive: ~25 ms per "
+                            L"sweep on the game thread)");
+                    return;
+                }
+                g_wround_active = true;
+                g_wcursor = scan::Cursor{};
+                g_wcandidates.clear();
+                g_wseen_round = 0;
+                g_wcand_dropped = 0;
+            }
+            if (!scan::slice_due(now_us, g_wslice_us, scan::kWidgetSlicePeriodMs))
+            {
+                return;
+            }
+            g_wslice_us = now_us;
+            // Re-read every slice: the array grows as levels stream in and can shrink
+            // after a GC compaction, so the cursor is clamped against the CURRENT size
+            // rather than against a remembered one.
+            const int total = RC::Unreal::FUObjectArray::GetNumElements();
+            const scan::Slice s = scan::next_slice(g_wcursor, total, scan::kWidgetChunkDefault);
+            if (g_pf_wslice < 0)
+            {
+                g_pf_wslice = mm::perf_register("widget scan slice", perf::Thread::Game);
+            }
+            const std::uint64_t t0 = mm::qpc_us();
+            if (!s.empty())
+            {
+                widget_scan_slice(s);
+            }
+            mm::perf_record(g_pf_wslice, t0);
+            if (scan::advance(g_wcursor, s, total))
+            {
+                g_wround_active = false;
+                g_wround_ready = true;
+            }
+        }
+
+        // THE COMMIT. The round's byte-`Visible` candidates are the only widgets that pay
+        // for an `IsInViewport()` ProcessEvent, and this runs on the 10 Hz pump where the
+        // pawn was validated in the same call - the ProcessEvent calls in here are as
+        // dangerous during a level transition as the location read is.
+        //
+        // REBUILDS `g_menu_roots` from scratch, exactly as the one-call sweep did: a root
+        // that does not confirm here is gone. Nothing is merged and nothing is OR-ed.
+        bool commit_widget_round(std::wstring& holder, bool& discovered_new)
+        {
+            discovered_new = false;
+            std::vector<uer::ObjRef> confirmed;
+            std::uint32_t visible_in_viewport = 0;
+            bool menu = false;
+
+            for (const uer::ObjRef& ref : g_wcandidates)
+            {
+                if (!uer::alive(ref))
+                {
+                    continue; // captured earlier in the round, dead by now
+                }
+                UObject* w = ref.obj;
+                // Re-read the byte rather than trusting the slice's: the round took a few
+                // hundred ms to walk, and a widget that was Visible in slice 3 may not be
+                // now. Same rule as the per-pump re-test - the authoritative answer is
+                // always the fresh one.
+                bool has_byte = false;
+                const bool byte_visible = widget_is_visible_byte(w, has_byte);
+                if (has_byte)
+                {
+                    if (!byte_visible)
+                    {
+                        continue;
+                    }
+                }
+                else
+                {
+                    struct RetByte
+                    {
+                        std::uint8_t v = 0xFF;
+                    } ret{};
+                    if (!uer::call_getter(g_funcs, w, L"GetVisibility", ret) || ret.v != 0)
+                    {
+                        continue;
+                    }
+                }
+                if (!widget_in_viewport(w))
+                {
+                    continue;
+                }
+                ++visible_in_viewport;
+                if (!menu)
+                {
+                    holder = w->GetName();
+                }
+                menu = true;
+                // Watch it: from now on this root is re-tested every pump, so the NEXT
+                // time this menu opens the minimap hides within ~100 ms and the discovery
+                // walk no longer has to run often for its sake.
+                discovered_new = watch_menu_root(w) || discovered_new;
+                confirmed.push_back(ref);
+            }
+
+            if (confirmed.size() != g_menu_roots.size())
+            {
+                mm::logf(L"menu root cache rebuilt by the sweep: {} -> {} root(s)",
+                         g_menu_roots.size(),
+                         confirmed.size());
+            }
+            g_menu_roots = std::move(confirmed);
+
+            g_widgets_seen = g_wseen_round;
+            g_widgets_visible = visible_in_viewport;
+            if (g_wcand_dropped != 0)
+            {
+                // Never silently truncate the answer: if this ever fires the cap is wrong
+                // for this game, and the number says by how much.
+                mm::logf(L"widget scan: {} byte-Visible widget(s) exceeded the {}-candidate "
+                         L"cap this round and were not tested",
+                         g_wcand_dropped,
+                         scan::kWidgetCandidateMax);
+            }
+            g_wcandidates.clear();
             return menu;
         }
 
@@ -1107,6 +1435,11 @@ namespace gamestate
                 {
                     const DepthGuard slice_guard{depth};
                     markers::game_thread_pump(now, g_world);
+                    // The menu-discovery walk rides here for the same reason: it is a
+                    // sliced GUObjectArray pass that needs many small slices per second,
+                    // and it is self-throttled on QPC. Raw reads only - the ProcessEvent
+                    // half of it is the commit, on the validated 10 Hz pump below.
+                    widget_scan_pump(now, mm::qpc_us());
                 }
                 return;
             }
@@ -1246,18 +1579,48 @@ namespace gamestate
                 g_force_widget_sweep = false;
                 scan::sweep_arm(g_sweep, now);
             }
-            const bool swept = scan::sweep_due(g_sweep, now);
+            //
+            // A "sweep" is now one complete round of the sliced GUObjectArray walk, so
+            // this is where a FINISHED round is turned into an answer - the walking
+            // itself happened on the fast path, a slice at a time. `g_wfallback` is the
+            // only path that still issues the whole-array FindAllOf, and only on a build
+            // where GUObjectArray could not be read at all.
+            bool swept = false;
+            if (g_wfallback)
+            {
+                swept = scan::sweep_due(g_sweep, now);
+            }
+            else
+            {
+                widget_scan_pump(now, mm::qpc_us());
+                swept = g_wround_ready;
+            }
             if (swept)
             {
                 std::wstring sweep_holder;
                 bool discovered_new = false;
-                if (g_pf_sweep < 0)
+                bool sweep_menu = false;
+                if (g_wfallback)
                 {
-                    g_pf_sweep = mm::perf_register("widget sweep (FindAllOf)", perf::Thread::Game);
+                    if (g_pf_sweep < 0)
+                    {
+                        g_pf_sweep =
+                            mm::perf_register("widget sweep (FindAllOf, fallback)", perf::Thread::Game);
+                    }
+                    const std::uint64_t sweep_t0 = mm::qpc_us();
+                    sweep_menu = update_widgets(sweep_holder, discovered_new);
+                    mm::perf_record(g_pf_sweep, sweep_t0);
                 }
-                const std::uint64_t sweep_t0 = mm::qpc_us();
-                const bool sweep_menu = update_widgets(sweep_holder, discovered_new);
-                mm::perf_record(g_pf_sweep, sweep_t0);
+                else
+                {
+                    g_wround_ready = false;
+                    if (g_pf_wcommit < 0)
+                    {
+                        g_pf_wcommit = mm::perf_register("widget round commit", perf::Thread::Game);
+                    }
+                    const mm::PerfScope commit_scope(g_pf_wcommit);
+                    sweep_menu = commit_widget_round(sweep_holder, discovered_new);
+                }
                 scan::sweep_done(g_sweep, now, discovered_new, g_menu_watch.empty());
                 // After a sweep the sweep IS the answer. OR-ing the cached pass's older
                 // answer over it - which is what the first version did - lets a root the
@@ -1385,6 +1748,21 @@ namespace gamestate
             UObject* view = read_view_target();
             snap.is_pawn_view = (view != nullptr && view == pawn);
 
+            // A FREE DISCOVERY TRIGGER. The view target leaving (or returning to) the
+            // pawn is the game switching to a menu / cutscene camera, and it is already
+            // read every pump for the overlay's own gate - so it costs nothing to arm the
+            // discovery walk off it. In the 2026-09-03 run it fired 1.1 s BEFORE the sweep
+            // found the shrine menu's root (`view target is not the pawn` at 16:40:52.9,
+            // `menu root discovered: WB_PlumeArchive_Main_C` at 16:40:54.0), so on this
+            // game it is the earliest signal available that a never-seen menu root may
+            // have just been built. It is only ever an ARM: no menu state is derived from
+            // it, and a menu that does not move the camera is still found by the walk.
+            if (snap.is_pawn_view != g_last_pawn_view)
+            {
+                g_last_pawn_view = snap.is_pawn_view;
+                g_force_widget_sweep = true;
+            }
+
             // The grace timer the overlay gates on: how long we have continuously had a
             // validated gameplay pawn with a readable location.
             if (snap.has_pawn)
@@ -1423,7 +1801,8 @@ namespace gamestate
             [](UObject*, RC::Unreal::UFunction*, void*) { pump(); });
         mm::log(L"game-state reader registered on the ProcessEvent game-thread pump "
                 L"(position 10 Hz, pawn/controller resolve 2 Hz, menu test EVERY pump on the cached "
-                L"in-viewport roots + a full widget sweep at 4 Hz; pawn validated through "
+                L"in-viewport roots + a SLICED GUObjectArray walk for menu discovery - 8192 slots "
+                L"per slice, one round per 0.25-2 s, no FindAllOf; pawn validated through "
                 L"GUObjectArray every pump, class gate 'BP_CombatCharacter_Player')");
     }
 

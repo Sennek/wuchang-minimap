@@ -187,9 +187,13 @@ namespace scan
     // The adaptive schedule of the menu-widget discovery sweep
     //==================================================================================
     //
-    // `FindAllOf("UserWidget")` is a whole-object-array walk - 28.30 ms average /
-    // 51.05 ms peak in-game - and it ran every 250 ms purely so a menu opening would be
-    // noticed quickly. That is 11-20 % of the game thread spent looking for widgets.
+    // The discovery pass is a whole-object-array walk and it ran every 250 ms purely so
+    // a menu opening would be noticed quickly. As one `FindAllOf("UserWidget")` call
+    // that measured 28.30 ms / 51.05 ms peak when the schedule was written and 25.471 ms
+    // average / 62.554 ms peak in the 2026-09-03 run - a tenth of the game thread, and a
+    // dropped frame every time it fired. It is now a SLICED GUObjectArray walk (see
+    // kWidgetChunkDefault below), so the burst is gone; this schedule is what keeps the
+    // per-second total small on top of that.
     //
     // It can be backed off because the sweep is only ever needed to DISCOVER a menu root
     // the reader has never seen. gamestate.cpp keeps a watchlist of every widget that
@@ -202,14 +206,13 @@ namespace scan
     //   * a menu opening whose root
     //     is already on the watchlist -> <= 1 pump  (~100 ms), watchlist re-test
     //   * a menu opening whose root
-    //     has never been seen         -> <= one sweep period
+    //     has never been seen         -> <= one sweep period + one round's walk time
     //
-    // Only the third case depends on this schedule, and it is bounded by keeping the
-    // FAST cadence whenever the watchlist is empty (nothing can be detected cheaply yet,
-    // so the very first menu of a session is still found within `fast_ms`) and whenever
-    // the schedule has been re-armed - which every menu-state flip, teleport, world
-    // change and explicit force does, for `warm_ms`. Once warm and quiet the period
-    // doubles per fruitless sweep up to `slow_ms`.
+    // Only the third case depends on this schedule, and it is bounded by re-arming the
+    // FAST cadence on every menu-state flip, teleport, world change, view-target change
+    // and explicit force, for `warm_ms`. Once warm and quiet the period doubles per
+    // fruitless sweep up to `slow_ms`, capped at `unknown_ms` while the watchlist is
+    // still empty.
     //
     // Nothing here is a latch: the sweep still REBUILDS the open-root set, and the
     // watchlist only ever supplies candidates - the answer is derived live every pump.
@@ -219,15 +222,31 @@ namespace scan
     struct SweepSched
     {
         // Tunables (from the config; clamped by the caller).
-        std::uint64_t fast_ms = 250;  // cadence while armed or while nothing is known
+        std::uint64_t fast_ms = 250;  // cadence while armed
         std::uint64_t slow_ms = 2000; // cadence once warm and quiet
         std::uint64_t warm_ms = 2000; // how long an arm keeps the fast cadence
+
+        // The cadence CAP while the watchlist is empty. `nothing_known` used to pin the
+        // schedule to `fast_ms` outright, on the reasoning that with nothing to re-test
+        // cheaply the discovery pass is the only latency bound there is. In-game that
+        // reasoning was inverted by the data: a player who has not opened a menu yet has
+        // an EMPTY watchlist, which is the steady state of ordinary gameplay - so the
+        // 2026-09-03 run 2 log reads `sweep every 250 ms (watchlist 0)` on every single
+        // state line for the whole session, and the discovery pass never backed off once
+        // (25.5 ms average / 62.6 ms peak on the game thread at 3 Hz = a tenth of the
+        // game thread and a dropped frame three times a second). An empty watchlist now
+        // buys a bounded cadence rather than the fastest one; the only latency it bounds
+        // is "the FIRST menu of a session, whose root has never been seen", and every
+        // menu the player notices - a close, a re-open, a known menu - is answered by the
+        // per-pump watchlist re-test one pump (~100 ms) after it happens.
+        std::uint64_t unknown_ms = 1000;
 
         // State.
         std::uint64_t armed_until = 0; // fast cadence while now < armed_until
         std::uint64_t next_at = 0;     // the sweep is due when now >= next_at
         int backoff = 0;               // doublings of fast_ms, 0 = none
         bool started = false;          // false until the first arm/complete
+        bool nothing_known = false;    // the last completed sweep saw an empty watchlist
     };
 
     // The largest doubling we will ever apply. fast_ms << 8 is 64 s at the default, far
@@ -258,8 +277,19 @@ namespace scan
             return s.fast_ms;
         }
         const int shift = s.backoff > kSweepMaxBackoff ? kSweepMaxBackoff : s.backoff;
-        const std::uint64_t p = s.fast_ms << shift;
-        return p > s.slow_ms ? s.slow_ms : p;
+        std::uint64_t p = s.fast_ms << shift;
+        if (p > s.slow_ms)
+        {
+            p = s.slow_ms;
+        }
+        // An empty watchlist caps the period instead of pinning it to fast_ms. The cap
+        // can never be tighter than fast_ms itself, so a config that sets fast_ms above
+        // unknown_ms is still honoured rather than silently sped up.
+        if (s.nothing_known && p > s.unknown_ms)
+        {
+            p = s.unknown_ms < s.fast_ms ? s.fast_ms : s.unknown_ms;
+        }
+        return p;
     }
 
     inline bool sweep_due(const SweepSched& s, std::uint64_t now) noexcept
@@ -270,13 +300,16 @@ namespace scan
     // Record that a sweep has just run.
     //   discovered_new - it added a root the watchlist had never seen; something is
     //                    changing, so stay fast.
-    //   nothing_known  - the watchlist is EMPTY, so no menu could be detected cheaply;
-    //                    the fast cadence is the only latency bound there is.
+    //   nothing_known  - the watchlist is EMPTY, so no menu could be detected cheaply.
+    //                    That no longer pins the cadence (see SweepSched::unknown_ms) -
+    //                    it caps it, so the backoff still runs and an idle reader with
+    //                    no menu ever opened settles at unknown_ms instead of fast_ms.
     inline void sweep_done(SweepSched& s, std::uint64_t now, bool discovered_new,
                            bool nothing_known) noexcept
     {
         s.started = true;
-        if (discovered_new || nothing_known || sweep_armed(s, now))
+        s.nothing_known = nothing_known;
+        if (discovered_new || sweep_armed(s, now))
         {
             s.backoff = 0;
         }
@@ -284,8 +317,38 @@ namespace scan
         {
             ++s.backoff;
         }
-        // All three "stay fast" cases have just set backoff to 0, so this is fast_ms
-        // for them and the doubled period for everything else.
+        // Both "stay fast" cases have just set backoff to 0, so this is fast_ms for
+        // them and the doubled (then capped) period for everything else.
         s.next_at = now + sweep_period_ms(s, now);
     }
+
+    //==================================================================================
+    // The SLICED widget walk that the discovery sweep is built out of now
+    //==================================================================================
+    //
+    // The sweep itself used to be one `UObjectGlobals::FindAllOf(L"UserWidget")` call,
+    // i.e. a whole-object-array walk in a single game-thread pump - and the in-game
+    // number for it was 25.471 ms average / 62.554 ms peak (F2 -> Debug, 2026-09-03).
+    // That is the same mistake the marker sweep already had to unlearn: the total work
+    // is fine, the BURST is not.
+    //
+    // So the widget pass now walks GUObjectArray in slices exactly like the marker
+    // scan - `Cursor` / `next_slice` / `advance` above are shared verbatim - and a
+    // "sweep" is one complete round of that walk rather than one call. The round is
+    // started by the schedule above and committed when the cursor wraps.
+    //
+    // Budget: 8192 slots per slice at ~8 ms spacing is ~1 M slots/s, so a ~360 k-slot
+    // array is one round per ~0.35 s at ~0.3-0.7 ms per slice - a number that cannot be
+    // seen in a frame time. The chunk is deliberately the same as the marker scan's
+    // default: the per-slot cost is one cache miss on the UObject's class pointer, so
+    // the two walks have identical economics and one measured chunk size serves both.
+    constexpr int kWidgetChunkDefault = 8192;
+    constexpr int kWidgetSlicePeriodMs = 8;
+
+    // How many byte-`Visible` widgets one round may hand to the commit pass. Only the
+    // survivors of the Visibility-byte prefilter get an `IsInViewport()` ProcessEvent,
+    // and the game only ever has 5-6 in-viewport roots out of ~1 700 instances, so this
+    // is a sanity cap and not a working limit. Overflow is counted and logged rather
+    // than silently truncating the answer.
+    constexpr int kWidgetCandidateMax = 64;
 } // namespace scan

@@ -166,6 +166,53 @@ namespace overlay
             return out;
         }
 
+        //==============================================================================
+        // HUD PLACEMENT (review-0.9.1 § 1 item 12)
+        //==============================================================================
+        //
+        // `hud_preset` is one key that moves the WHOLE HUD. `custom` (the shipped
+        // default) means "obey minimap_anchor / minimap_offset_* / compass_anchor
+        // exactly as written", i.e. v0.9.1 unchanged; any other value puts the minimap
+        // in that corner and the compass on the same vertical side, so the two can no
+        // longer end up on opposite halves of the screen because one key was edited and
+        // the other was not.
+        //
+        // Both readers are pure functions of the config, evaluated per frame, so a
+        // preset change is live and there is nothing to keep in sync.
+        mm::Anchor effective_anchor(const mm::Config& cfg)
+        {
+            switch (cfg.hud_preset)
+            {
+            case mm::HudPreset::TopLeft:
+                return mm::Anchor::TopLeft;
+            case mm::HudPreset::TopRight:
+                return mm::Anchor::TopRight;
+            case mm::HudPreset::BottomLeft:
+                return mm::Anchor::BottomLeft;
+            case mm::HudPreset::BottomRight:
+                return mm::Anchor::BottomRight;
+            case mm::HudPreset::Custom:
+            default:
+                return cfg.anchor;
+            }
+        }
+
+        bool compass_at_bottom(const mm::Config& cfg)
+        {
+            switch (cfg.hud_preset)
+            {
+            case mm::HudPreset::BottomLeft:
+            case mm::HudPreset::BottomRight:
+                return true;
+            case mm::HudPreset::TopLeft:
+            case mm::HudPreset::TopRight:
+                return false;
+            case mm::HudPreset::Custom:
+            default:
+                return cfg.compass_anchor == mm::VAnchor::Bottom;
+            }
+        }
+
         // Roundness of the minimap disc and its rings. This was `minimap_circle_segments`
         // until 0.9.2: a sanity dial, never a preference, so it is a constant now. The
         // drawing helpers are handed geometry rather than the config, hence the global.
@@ -2649,13 +2696,16 @@ namespace overlay
                                           (std::min)(cfg.size_frac * screen_h,
                                                      (std::min)(screen_w, screen_h) * 0.9f));
 
+            // A non-custom hud_preset overrides minimap_anchor (and puts the compass on
+            // the same vertical side - see draw_compass).
+            const mm::Anchor anchor = effective_anchor(cfg);
             float x0 = cfg.offset_x;
             float y0 = cfg.offset_y;
-            if (cfg.anchor == mm::Anchor::TopRight || cfg.anchor == mm::Anchor::BottomRight)
+            if (anchor == mm::Anchor::TopRight || anchor == mm::Anchor::BottomRight)
             {
                 x0 = screen_w - cfg.offset_x - side;
             }
-            if (cfg.anchor == mm::Anchor::BottomLeft || cfg.anchor == mm::Anchor::BottomRight)
+            if (anchor == mm::Anchor::BottomLeft || anchor == mm::Anchor::BottomRight)
             {
                 y0 = screen_h - cfg.offset_y - side;
             }
@@ -3098,10 +3148,15 @@ namespace overlay
 
             const ImGuiViewport* vp = ImGui::GetMainViewport();
             const float screen_w = vp->Size.x;
+            const float screen_h = vp->Size.y;
             const float width = (std::max)(120.0f, cfg.compass_width * screen_w);
             const float height = cfg.compass_height;
             const float x0 = vp->Pos.x + (screen_w - width) * 0.5f;
-            const float y0 = vp->Pos.y + cfg.compass_offset_y;
+            // compass_offset_y is the distance from whichever edge the strip hangs off,
+            // so the key means the same thing in both directions.
+            const float y0 = compass_at_bottom(cfg)
+                                 ? vp->Pos.y + screen_h - cfg.compass_offset_y - height
+                                 : vp->Pos.y + cfg.compass_offset_y;
             const float y1 = y0 + height;
 
             const float op = cfg.compass_opacity;
@@ -4308,14 +4363,44 @@ namespace overlay
                 cfg.round = (shape == 0);
             }
 
+            // ONE key that moves the whole HUD. `custom` keeps the three placement keys
+            // below in force; anything else overrides the minimap's corner and puts the
+            // compass on the same vertical side.
+            int preset = static_cast<int>(cfg.hud_preset);
+            const char* presets[] = {"custom", "top-left", "top-right", "bottom-left", "bottom-right"};
+            if (ImGui::Combo("HUD placement", &preset, presets, 5))
+            {
+                cfg.hud_preset = static_cast<mm::HudPreset>(preset);
+            }
+            const bool custom_placement = cfg.hud_preset == mm::HudPreset::Custom;
+            ImGui::BeginDisabled(!custom_placement);
             int anchor = static_cast<int>(cfg.anchor);
             const char* anchors[] = {"top-left", "top-right", "bottom-left", "bottom-right"};
             if (ImGui::Combo("Anchor", &anchor, anchors, 4))
             {
                 cfg.anchor = static_cast<mm::Anchor>(anchor);
             }
+            ImGui::EndDisabled();
             ImGui::DragFloat("Offset X", &cfg.offset_x, 1.0f, 0.0f, 2000.0f, "%.0f px");
             ImGui::DragFloat("Offset Y", &cfg.offset_y, 1.0f, 0.0f, 2000.0f, "%.0f px");
+            ImGui::TextDisabled("offsets are in 1080p pixels; the UI scale multiplies them");
+
+            // UI SCALE. `auto` is a checkbox over the slider rather than a magic value
+            // in the number, so the slider always says what is actually in force.
+            bool auto_scale = cfg.ui_scale_auto;
+            if (ImGui::Checkbox("Scale the UI automatically", &auto_scale))
+            {
+                cfg.ui_scale_auto = auto_scale;
+                if (!auto_scale)
+                {
+                    cfg.ui_scale = g_ui_scale; // start from what is on screen right now
+                }
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(in force: %.2f)", static_cast<double>(g_ui_scale));
+            ImGui::BeginDisabled(cfg.ui_scale_auto);
+            ImGui::SliderFloat("UI scale", &cfg.ui_scale, kUiScaleMin, kUiScaleMax, "%.2f");
+            ImGui::EndDisabled();
 
             ImGui::Checkbox("Rotate with player (off = north up)", &cfg.rotate_with_player);
             ImGui::Checkbox("Show the floor below / above (dimmed)", &cfg.show_adjacent_floors);
@@ -4754,7 +4839,17 @@ namespace overlay
                 ImGui::SameLine();
                 ImGui::Checkbox("Show the waypoint bearing", &cfg.compass_show_waypoint);
                 ImGui::SliderFloat("Width (fraction of the screen)", &cfg.compass_width, 0.1f, 1.0f, "%.2f");
-                ImGui::SliderFloat("Distance from the top (px)", &cfg.compass_offset_y, 0.0f, 400.0f, "%.0f");
+                // Overridden by a non-custom hud_preset, which is why it goes flat when
+                // one is chosen rather than silently doing nothing.
+                ImGui::BeginDisabled(cfg.hud_preset != mm::HudPreset::Custom);
+                int canchor = cfg.compass_anchor == mm::VAnchor::Bottom ? 1 : 0;
+                const char* canchors[] = {"top", "bottom"};
+                if (ImGui::Combo("Edge", &canchor, canchors, 2))
+                {
+                    cfg.compass_anchor = canchor == 1 ? mm::VAnchor::Bottom : mm::VAnchor::Top;
+                }
+                ImGui::EndDisabled();
+                ImGui::SliderFloat("Distance from that edge (px)", &cfg.compass_offset_y, 0.0f, 400.0f, "%.0f");
                 ImGui::SliderFloat("Height (px)", &cfg.compass_height, 10.0f, 120.0f, "%.0f");
                 ImGui::SliderFloat("Degrees across the strip", &cfg.compass_span_deg, 30.0f, 360.0f, "%.0f");
                 ImGui::SliderFloat("Opacity", &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");

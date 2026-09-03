@@ -537,7 +537,8 @@ namespace overlay
         int g_pf_markpass = -1; // build_frame_candidates
         int g_pf_slice = -1;    // the minimap height-slice cut (loop thread)
         int g_pf_mslice = -1;   // the full map's cut (loop thread)
-        int g_pf_input = -1;    // the hotkey block (loop thread)
+        int g_pf_input = -1;    // the hotkey block and the loop thread's file I/O
+        int g_pf_pad = -1;      // XInput only, split out of the block above
 
         Spinlock g_render_lock;
 
@@ -8377,9 +8378,20 @@ namespace overlay
             return;
         }
         last_input_ms = now;
+        // ONE COUNTER CANNOT ANSWER TWO QUESTIONS (lessons.md). This scope reaches to the
+        // end of the function, so besides the ~8 GetAsyncKeyState calls it also times the
+        // first-run sentinel write, the map screenshot's clipboard hand-off (a
+        // full-resolution DIB through GlobalAlloc + SetClipboardData), the waypoint file
+        // write, `mm::save_config_file()` (a ~28 KB rewrite) and `pad::poll`. The
+        // 2026-09-03 in-game reading was a 32 ms PEAK against a negligible average, i.e.
+        // one of those one-off blocking things and not the per-sample cost - so the name
+        // now says what is being measured, and the gamepad poll (the only candidate that
+        // could recur, and the one lessons.md warns about for disconnected slots) gets its
+        // own row. Both are on the LOOP thread, where a stall costs no frame and no game
+        // tick.
         if (g_pf_input < 0)
         {
-            g_pf_input = mm::perf_register("hotkeys + pad", perf::Thread::Loop);
+            g_pf_input = mm::perf_register("loop input + file I/O", perf::Thread::Loop);
         }
         const mm::PerfScope input_scope(g_pf_input);
 
@@ -8578,7 +8590,19 @@ namespace overlay
         const bool want_pad = (cfg.map_gamepad && mm::g_map_open.load()) ||
                               (cfg.highlight_enabled && cfg.highlight_gamepad &&
                                (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt));
-        pad::poll(want_pad, cfg.map_gamepad_deadzone);
+        // Its own row: `XInputGetState` on an empty slot costs about a millisecond, and
+        // the first call also pays a `LoadLibraryW("xinput1_4.dll")`. The enumeration is
+        // already behind a 1 Hz probe with the found slot pinned, so this should read
+        // ~0.00 ms average with a one-off peak - and if it does not, the number says so
+        // instead of hiding inside the block above.
+        if (g_pf_pad < 0)
+        {
+            g_pf_pad = mm::perf_register("gamepad poll", perf::Thread::Loop);
+        }
+        {
+            const mm::PerfScope pad_scope(g_pf_pad);
+            pad::poll(want_pad, cfg.map_gamepad_deadzone);
+        }
 
         // THE X-RAY HIGHLIGHT'S HOLD KEY. A hold, not a toggle - so it is sampled as a
         // level, never edge-detected, and it needs no debounce and no "close it again"

@@ -47,6 +47,7 @@
 #include "label_layout.hpp"
 #include "mapmanifest.hpp"
 #include "mapview.hpp"
+#include "mmstate.hpp"
 #include "markers_db.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
@@ -2413,6 +2414,80 @@ namespace
         }
     }
 
+    //==================================================================================
+    // mm::Config equality is COMPLETE (review B.19)
+    //==================================================================================
+    //
+    // The F2 panel and the full map both edit a copy of the config and publish it only
+    // if the copy differs. That test used to be a std::memcmp, which is right until a
+    // member stops being a flat POD and then silently wrong; it is an explicit,
+    // field-by-field operator== now, and the risk moved with it - a field added to the
+    // struct and forgotten in the comparison is a setting whose slider does nothing.
+    //
+    // This is the guard, and it needs no list of field names: fill two Configs with a
+    // byte pattern, then flip each byte of one in turn and require operator== to notice.
+    // The only bytes it cannot see are the struct's PADDING, so the count of invisible
+    // bytes is a constant - and the moment a field is added without being compared, that
+    // count grows and this fails, naming the offsets.
+    //
+    // The pattern is 0x01 rather than 0x00 or 0xA5 for two reasons: every float and
+    // double in it is a small NORMAL number (0x00 would make a zero, whose sign byte is
+    // invisible to ==, and 0xA5 patterns can flip into a NaN, which is never equal to
+    // itself and would make the baseline fail), and every bool is 1, so a flip to 0xFE
+    // is a different value rather than another shade of true.
+    void test_config_equality()
+    {
+        section("mm::Config equality is complete");
+
+        // The number of PADDING bytes in mm::Config. Not a magic number to be adjusted
+        // until the test passes: if this fails, either a field was added to the struct
+        // and not to operator== (fix operator==), or the struct's layout genuinely
+        // changed and the new padding count belongs here with a note saying why.
+        // Measured, and cross-checked: offset 0 (mod_enabled, a bool) and offsets 3-4
+        // (the two enum bytes) are NOT in the list, which is what proves the comparison
+        // sees a bool and an enum byte-for-byte rather than normalising them - so every
+        // byte it cannot see is a hole between fields. 1000-byte struct, 156 fields.
+        constexpr std::size_t kPaddingBytes = 75;
+
+        mm::Config a{};
+        mm::Config b{};
+        CHECK(a == b);
+        CHECK(!(a != b));
+
+        unsigned char* const pa = reinterpret_cast<unsigned char*>(&a);
+        unsigned char* const pb = reinterpret_cast<unsigned char*>(&b);
+        std::memset(pa, 0x01, sizeof(mm::Config));
+        std::memset(pb, 0x01, sizeof(mm::Config));
+        CHECK(a == b);
+
+        std::vector<std::size_t> invisible;
+        for (std::size_t i = 0; i < sizeof(mm::Config); ++i)
+        {
+            pb[i] = static_cast<unsigned char>(pb[i] ^ 0xFF);
+            const bool seen = !(a == b);
+            pb[i] = static_cast<unsigned char>(pb[i] ^ 0xFF);
+            if (!seen)
+            {
+                invisible.push_back(i);
+            }
+        }
+        CHECK(a == b); // every flip undone
+
+        if (invisible.size() != kPaddingBytes)
+        {
+            std::printf("    mm::Config is %d bytes; operator== cannot see %d of them",
+                        static_cast<int>(sizeof(mm::Config)), static_cast<int>(invisible.size()));
+            for (std::size_t i = 0; i < invisible.size() && i < 16; ++i)
+            {
+                std::printf("%s+%d", i == 0 ? " (offsets " : ", ", static_cast<int>(invisible[i]));
+            }
+            std::printf("%s\n", invisible.empty() ? "" : ")");
+            std::printf("    -> a field was probably added to mm::Config and not to mm::operator==\n");
+        }
+        check(invisible.size() == kPaddingBytes, "every byte of mm::Config is compared by operator==",
+              __FILE__, __LINE__);
+    }
+
     void test_config_keys(const std::string& markers_dir)
     {
         std::printf("config files - shipped keys vs. the tiers vs. the parser\n");
@@ -3783,6 +3858,7 @@ int main(int argc, char** argv)
     test_saveslot();
     test_clipimg();
     test_shrines_db(markers_dir);
+    test_config_equality();
     test_ids();
     test_intern_levels();
     test_perf();

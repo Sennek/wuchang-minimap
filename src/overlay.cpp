@@ -5912,8 +5912,14 @@ namespace overlay
             {
                 const mdb::Cat cat = static_cast<mdb::Cat>(i);
                 const bool on = mdb::cat_enabled(mask, cat);
+                // A GUTTER FOR THE GLYPH. The chip's own shape is the half of a
+                // category's identity that survives at map scale, so the filter shows it
+                // rather than only the colour: the button's label is padded on the left
+                // and the glyph is drawn into that gap afterwards.
+                const float glyph_r = (std::max)(4.0f, ImGui::GetTextLineHeight() * 0.30f);
+                const float gutter = glyph_r * 2.0f + 4.0f;
                 const char* label = mdb::cat_label(cat);
-                const float w = ImGui::CalcTextSize(label).x + style.FramePadding.x * 4.0f;
+                const float w = ImGui::CalcTextSize(label).x + gutter + style.FramePadding.x * 4.0f;
                 if (i > 0)
                 {
                     if (x + w < wrap_width)
@@ -5943,32 +5949,49 @@ namespace overlay
                                       ImVec4{fill.x * 0.75f, fill.y * 0.75f, fill.z * 0.75f, 1.0f});
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, fill);
                 ImGui::PushStyleColor(ImGuiCol_Text, text_col);
-                if (ImGui::SmallButton(label))
+                const std::string padded = std::string(static_cast<std::size_t>(
+                                               gutter / (std::max)(1.0f, ImGui::CalcTextSize(" ").x)) + 1,
+                                           ' ') + label;
+                if (ImGui::SmallButton(padded.c_str()))
                 {
                     mask = on ? (mask & ~mdb::cat_bit(cat)) : (mask | mdb::cat_bit(cat));
                     changed = true;
                 }
+                const ImVec2 rmin = ImGui::GetItemRectMin();
+                const ImVec2 rmax = ImGui::GetItemRectMax();
+                draw_marker_glyph(ImGui::GetWindowDrawList(), cat,
+                                  ImVec2{rmin.x + style.FramePadding.x + glyph_r,
+                                         (rmin.y + rmax.y) * 0.5f},
+                                  glyph_r, on ? IM_COL32(20, 22, 26, 235) : marker_color(cat, 210),
+                                  on ? IM_COL32(235, 238, 242, 200) : IM_COL32(14, 16, 20, 160));
                 ImGui::PopStyleColor(4);
                 ImGui::PopID();
             }
             return changed;
         }
 
-        // "All" / "None" next to a chip row. Same base_id discipline.
-        void chips_with_all_none(const char* what, std::uint32_t& mask, int base_id, float wrap_width)
+        // ONE CATEGORY FILTER, all three of them identical: a title, `all` / `none`, the
+        // config key it writes, then the chip grid. Three of these exist (the map and
+        // minimap share one mask, the compass has its own, the x-ray has its own) and a
+        // player has to be able to tell at a glance which is which - so the title says
+        // what the filter is FOR, not what the key is called.
+        void category_filter(const char* title, const char* key, std::uint32_t& mask, int base_id,
+                             float wrap_width)
         {
             ImGui::PushID(base_id);
-            if (ImGui::SmallButton("All"))
+            ImGui::TextUnformatted(title);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("all"))
             {
                 mask = mdb::kAllCats;
             }
             ImGui::SameLine();
-            if (ImGui::SmallButton("None"))
+            if (ImGui::SmallButton("none"))
             {
                 mask = 0u;
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("(config key: %s)", what);
+            ImGui::TextDisabled("(%s)", key);
             ImGui::PopID();
             category_chips(mask, base_id + 1, wrap_width);
         }
@@ -6250,7 +6273,7 @@ namespace overlay
             ImGui::SliderFloat("Marker size (px)", &cfg.markers_size, 2.0f, 16.0f, "%.1f");
             // The chips ARE the legend: each one is filled with the colour that category
             // is drawn in on the map.
-            chips_with_all_none("markers_categories", cfg.markers_categories, 1000, wrap);
+            category_filter("Map & minimap", "markers_categories", cfg.markers_categories, 1000, wrap);
 
             //--------------------------------------------------------------------------
             // Collection tracker
@@ -6336,7 +6359,8 @@ namespace overlay
             ImGui::SameLine();
             ImGui::Checkbox("Also tint the minimap / map / compass", &cfg.markers_rarity_tint);
             ImGui::TextDisabled("colours pickups by the game's own item-type grouping");
-            chips_with_all_none("highlight_categories", cfg.highlight_categories, 2000, wrap);
+            category_filter("X-ray highlight", "highlight_categories", cfg.highlight_categories, 2000,
+                            wrap);
 
             //--------------------------------------------------------------------------
             // The compass strip
@@ -6359,7 +6383,7 @@ namespace overlay
             ImGui::SliderFloat("Distance from that edge (px)", &cfg.compass_offset_y, 0.0f, 400.0f, "%.0f");
             ImGui::SliderFloat("Degrees across the strip", &cfg.compass_span_deg, 30.0f, 360.0f, "%.0f");
             ImGui::SliderFloat("Compass opacity", &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");
-            chips_with_all_none("compass_categories", cfg.compass_categories, 3000, wrap);
+            category_filter("Compass", "compass_categories", cfg.compass_categories, 3000, wrap);
 
             //--------------------------------------------------------------------------
             // Keys
@@ -6442,7 +6466,8 @@ namespace overlay
                 ImGui::SliderInt("Found file debounce (ms)", &cfg.found_save_debounce_ms, 200, 20000);
                 ImGui::SeparatorText("Absence as evidence of a collect");
                 ImGui::SliderInt("Confirming rounds", &cfg.markers_absence_rounds, 1, 30);
-                chips_with_all_none("markers_absence_categories", cfg.markers_absence_categories, 4000, wrap);
+                category_filter("Absence rule", "markers_absence_categories",
+                                cfg.markers_absence_categories, 4000, wrap);
             }
 
             if (ImGui::CollapsingHeader("Minimap look"))

@@ -4,16 +4,45 @@
 Categories: shrine, chest, pickup, boss, elite, enemy, npc, note, door,
 ladder, lift, fog_gate, hidden, other.
 
-`elite` is deliberately never produced offline: nothing in the cooked data
-distinguishes an elite from a normal enemy -- that is a runtime judgement.
+WHERE THE TABLE COMES FROM (review item C.10)
+---------------------------------------------
+It is **generated**, not hand-written.  `markers/categories.json`
+(`build_categories.py`) is the descendants of one base class per category, read
+out of the cooked `.uasset` export maps' `super` field, plus the precedence
+that resolves a class reachable from two bases.  A category is a property of
+the CLASS, and the class hierarchy is in the paks - so `door` is "the
+descendants of `BP_InteractionObject_Door_C`" rather than the four door
+blueprints somebody happened to notice.  The hand list this replaced knew two
+ladder classes and two lift classes, which is why Chapter 5 shipped 0 ladders
+and Chapter 4 shipped 0 lifts.
+
+`HAND_FALLBACK` below is the 1.0.0 list, used only when `categories.json` is
+absent (a checkout with no paks mounted).  It is deliberately the old, narrow
+answer: degrading to fewer markers is safe, silently degrading to a DIFFERENT
+answer is not.
+
+`elite` and `hidden` (review item C.9) are produced now:
+  * `hidden` = `BP_PickUpActor_Trap_C` and its descendants - the trap that
+    looks like an item.  It is a `BP_PickupActor_C` descendant, so the category
+    order in `categories.json` claims it before `pickup` does.
+  * `elite` = an enemy class whose name is another enemy class' name plus a
+    `_High` / `_Special` / `_S` suffix (`MingBing_Dao_High_C` next to
+    `MingBing_Dao_C`).  `build_enemies.py` decides that against the class graph
+    and records it in `markers/enemies.json`; this module only applies it.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
 
-# Exact class -> category.
-EXACT = {
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_MARKERS = os.path.join(_HERE, "..", "..", "markers")
+
+
+# --- the 1.0.0 hand list, kept as the no-paks fallback ---------------------
+HAND_FALLBACK = {
     "BP_RebornFire_C": "shrine",
 
     "BP_treasurebox_C": "chest",
@@ -44,16 +73,11 @@ EXACT = {
     # `Zhangfangxiansheng_NPC_C` out of `AI/npc/NPC_GuDongShang/`) is a plain
     # `BP_NPC_C` descendant and stays `npc`.
     "DKDC_NPC_C": "note",
-    # Same object, blue hint particle / a letter prop; the `NPC` regex would
-    # otherwise type them `npc`.
     "ReadPointSP_NPC_C": "note",
     "Letter01_NPC_C": "note",
 
-    # world mechanisms worth a pin but not a category of their own
-    # `BP_FireReed_C` is a lightable reed prop, not a character - it only ever
-    # looked like a boss because 8 of them sit in `Chapter1_Wanrenk_BOSS_AI`.
     "BP_FireReed_C": "other",
-    "BP_PickUpActor_Trap_C": "other",
+    "BP_PickUpActor_Trap_C": "hidden",
     "BP_zhuanjingta_C": "other",
     "BP_QiCaiShi_2_C": "other",
     "BP_WoodenExternalPushRod_C": "other",
@@ -61,51 +85,50 @@ EXACT = {
     "BP_StonePillar_C": "other",
 }
 
-# Ordered regex rules, applied when EXACT misses.
+
+def _load(name: str, key: str, default):
+    p = os.path.join(_MARKERS, name)
+    if not os.path.exists(p):
+        return default
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f).get(key, default)
+    except Exception:                                           # noqa: BLE001
+        return default
+
+
+CLASSES: dict[str, str] = _load("categories.json", "classes", {}) or dict(HAND_FALLBACK)
+GENERATED = bool(_load("categories.json", "classes", None))
+
+# class -> True for the tougher variant of another enemy class.
+ELITE: set[str] = {c for c, e in (_load("enemies.json", "enemies", {}) or {}).items()
+                   if isinstance(e, dict) and e.get("elite")}
+
+# Ordered regex rules, applied when the class table misses. Kept as a safety
+# net for classes whose `super` the graph never recorded (`BP_jiaheshang_AI_C`
+# has no parent in it), and every hit is COUNTED by the extractor so the gap is
+# visible instead of silently patched over by a name heuristic.
 PATTERNS = [
     (re.compile(r"^BP_Door"), "door"),
     (re.compile(r"NPC", re.I), "npc"),
 ]
 
-# --- enemies / bosses ------------------------------------------------------
-# Enemies are not identifiable by class name (the roster is transliterated
-# Chinese and open-ended), but they are identifiable by *where they live*:
-# only `*_AI` sublevels carry spawned characters.  So inside an `_AI` package
-# every actor that is not level plumbing is an enemy.
+# `*_AI` sublevels are where the game places spawned characters. This used to be
+# the PRIMARY enemy rule; `categories.json`'s `BP_BaseAI_C` root is now, and
+# this is the fallback for a class the graph does not know.
 AI_LEVEL = re.compile(r"_AI$")
 
-# BOSSES ARE A CLASS QUESTION (2026-09-03).  Every boss in the game is a placed
-# actor deriving from `BP_PlacedBossAI_C`; this is the complete list of that
-# class' descendants, read out of the cooked `.uasset` export maps' `super`
-# field.  Regenerate with:
+# Engine and level plumbing: actors that exist in every package and are never a
+# marker anywhere. Applied AFTER the class table, which is what makes it safe to
+# be this broad - `\w*Box_C` would otherwise swallow `BP_ItemRedBox_C` (a chest)
+# and `BP_ElevatorBox_C` (a lift), and both are claimed by the table first.
 #
-#     python class_graph.py --out class_graph.json --children BP_PlacedBossAI_C
-#     python build_bosses.py --report        # -> ../../markers/bosses.json
-#
-# It REPLACES the old `_BOSS_AI` sublevel / "Boss" in the class name heuristic,
-# which was wrong in both directions.  It missed chapters 2, 3 and 5 entirely
-# (their boss sublevels are named `Chapter3_ZhenWuG_ZhangXianZ_AI`, not
-# `_BOSS_AI`), which is the "no bosses in chapters 2/3" the user reported; and
-# it typed three non-characters as bosses because of where they sit or what
-# they are called -- `BP_FireReed_C` (8 in Chapter 1), `BP_BossPool_C` and
-# `BossLightingEffectActor_C`.  `context/markers-offline.md` section 7 blamed
-# `BP_BossPool_C` for the missing bosses; there is exactly one of it in the
-# whole game, so it never spawned anybody's.
-BOSS_CLASSES = {
-    "AI_YHJS_BP_C", "BP_Anim_ZXZ_StepA_C", "BP_Anim_ZXZ_StepB_C",
-    "BP_BKL_AI_C", "BP_BKL_AI_Special_C", "BP_CZ_AI_2_C", "BP_CZ_AI_3_C",
-    "BP_CZ_AI_C", "BP_DaYouYan_AI_C", "BP_Dashuguai_AI_C", "BP_E_LWX_AI_C",
-    "BP_Honglan_BossAI_C", "BP_MJJJ_AI_New_C", "BP_NRSL01_AI_C",
-    "BP_NRSL_AI_C", "BP_XBFR_AI_C", "BP_XMWC_AI_New_C", "BP_XMWC_LS_AI_C",
-    "BP_XYZ_AI_C", "BP_XYZ_AI_S_C", "BP_YHGN_AI_Special_C",
-    "BP_YHGN_AI_Special_CJD_C", "BP_YHHL_BossAI_C", "BP_YuHuaXNAI_C",
-    "BP_ZY_AI_C", "BP_toutuo_AI_C", "B_ANQ_C", "B_NW_C", "B_XBXN02_C",
-    "Boss_Luhongliu_FirstStage_01_C", "Boss_Luhongliu_FirstStage_01_special_C",
-    "Boss_Luhongliu_SecondStage_C",
-}
-
-# Level plumbing that shares the `_AI` packages with the actual spawners.
-AI_NOISE = re.compile(
+# It used to be applied only inside `_AI` packages, which left `Model`,
+# `LevelBounds`, `DCSWorldSettings`, `StaticMeshActor` and `LevelSequenceActor`
+# in the "matched no category" residue of every `_logic` level - 30 actors of
+# noise in the DLC alone, which is exactly the kind of thing that makes a
+# coverage report not worth reading.
+LEVEL_NOISE = re.compile(
     r"^(StaticMeshActor|SkeletalMeshActor|Actor|Model|LevelBounds|"
     r"DecalActor|NiagaraActor|Emitter|InstancedFoliageActor|Landscape\w*|"
     r"PointLight|SpotLight|RectLight|DirectionalLight|SkyLight|SkyAtmosphere|"
@@ -135,23 +158,36 @@ NEVER = re.compile(
 )
 
 
-def categorise(class_name: str, level_short: str) -> str | None:
-    """Return the marker category, or None if this actor is not a marker."""
+def categorise_ex(class_name: str, level_short: str) -> tuple[str | None, str]:
+    """`(category, which rule decided it)`.
+
+    The rule name is what makes the extractor's coverage report worth reading:
+    `table` means the class graph answered; every other value is a fallback and
+    a `rule:` counter in the extraction stats, so a growing fallback share is
+    visible rather than something to discover by noticing a wrong count.
+    """
     if NEVER.match(class_name):
-        return None
-    if class_name in BOSS_CLASSES:
-        return "boss"
-    cat = EXACT.get(class_name)
+        return None, "never"
+    cat = CLASSES.get(class_name)
     if cat:
-        return cat
+        if cat == "enemy" and class_name in ELITE:
+            return "elite", "table+elite"
+        return cat, "table"
+    if LEVEL_NOISE.match(class_name):
+        return None, "noise"
     if AI_LEVEL.search(level_short):
-        if AI_NOISE.match(class_name):
-            return None
-        return "enemy"
+        if class_name in ELITE:
+            return "elite", "ai-level+elite"
+        return "enemy", "ai-level"
     for rx, c in PATTERNS:
         if rx.search(class_name):
-            return c
-    return None
+            return c, "regex:" + rx.pattern
+    return None, "unmatched"
+
+
+def categorise(class_name: str, level_short: str) -> str | None:
+    """Return the marker category, or None if this actor is not a marker."""
+    return categorise_ex(class_name, level_short)[0]
 
 
 # Human-facing label per category, used to build the `name` field.
@@ -159,5 +195,5 @@ LABEL = {
     "shrine": "Shrine", "chest": "Chest", "pickup": "Pickup",
     "boss": "Boss", "elite": "Elite", "enemy": "Enemy", "npc": "NPC",
     "note": "Note", "door": "Door", "ladder": "Ladder",
-    "lift": "Lift", "fog_gate": "Fog gate", "hidden": "Hidden", "other": "Object",
+    "lift": "Lift", "fog_gate": "Fog gate", "hidden": "Trap", "other": "Object",
 }

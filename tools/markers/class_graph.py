@@ -52,6 +52,37 @@ def build(src: pakmaps.MapSource, verbose: bool = True) -> dict:
     return {"class_super": graph, "asset": where}
 
 
+# The whole-game sweep takes ~40 s and its answer only changes when the game
+# does, so it is cached beside this file and committed: every other tool in the
+# pipeline needs the graph, and none of them should pay for it or require the
+# paks to be mounted just to read a class' parent.
+CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "class_graph.json")
+
+
+def load_or_build(src=None, path: str = CACHE, verbose: bool = True) -> dict:
+    """`{class: super}` from the cache, building and saving it if it is absent.
+
+    Returns the bare `class_super` mapping, which is what every caller wants;
+    the `asset` half of the document is only useful for auditing.
+    """
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+        if verbose:
+            print(f"  class graph: {len(doc['class_super'])} classes from "
+                  f"{os.path.basename(path)}")
+        return doc["class_super"]
+    if src is None:
+        raise SystemExit(f"{path} is missing and no pak source was given - run "
+                         f"`python class_graph.py --out {path}`")
+    doc = build(src, verbose)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(doc, f, indent=1, sort_keys=True)
+    if verbose:
+        print(f"  class graph: built and cached {len(doc['class_super'])} classes")
+    return doc["class_super"]
+
+
 def chain(graph: dict, name: str, cap: int = 32) -> list[str]:
     out = [name]
     seen = {name}

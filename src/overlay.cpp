@@ -1084,13 +1084,13 @@ namespace overlay
                 return;
             }
             const bool visible = ::wcscmp(text, L"visible") == 0;
-            mm::logf(L"minimap {}: {} (previous state held {} ms{})",
-                     visible ? L"SHOWN" : L"HIDDEN",
-                     text,
-                     held,
-                     g_reason_suppressed != 0 ? std::format(L", {} change(s) suppressed",
-                                                            g_reason_suppressed)
-                                              : std::wstring{});
+            MM_LOGV(L"minimap {}: {} (previous state held {} ms{})",
+                    visible ? L"SHOWN" : L"HIDDEN",
+                    text,
+                    held,
+                    g_reason_suppressed != 0 ? std::format(L", {} change(s) suppressed",
+                                                           g_reason_suppressed)
+                                             : std::wstring{});
             ::wcsncpy_s(g_reason_logged, text, std::size(g_reason_logged) - 1);
             g_reason_log_ms = now;
             g_reason_suppressed = 0;
@@ -1487,7 +1487,7 @@ namespace overlay
                     if (is_escape_key_down(msg, wparam))
                     {
                         mm::g_map_open.store(false);
-                        mm::log(L"full map closed (Esc)");
+                        MM_LOGVS(L"full map closed (Esc)");
                     }
                     if (is_mouse_message(msg) || is_keyboard_message(msg) || msg == WM_INPUT)
                     {
@@ -1522,7 +1522,7 @@ namespace overlay
                     if (esc && !capturing && is_escape_key_down(msg, wparam))
                     {
                         mm::g_panel_open.store(false);
-                        mm::log(L"settings panel closed (Esc)");
+                        MM_LOGVS(L"settings panel closed (Esc)");
                     }
                     if (is_mouse_message(msg) || msg == WM_SETCURSOR || raw.mouse || esc ||
                         ((want_keys || capturing) && is_keyboard_message(msg)) ||
@@ -4893,15 +4893,35 @@ namespace overlay
                 }
             }
 
-            // ONE LINE PER SECOND WHILE THE KEY IS HELD, and only then. Every gate has a
-            // number, so "the chest is on the minimap but not in the x-ray" is answered
-            // by reading the log rather than by another in-game session. Throttled
-            // because this runs on the render thread once per Present (lessons.md).
+            // THE X-RAY CENSUS IS A TRACE LINE, AND EVEN THEN ONLY WHEN IT CHANGES.
+            //
+            // Every gate has a number, so "the chest is on the minimap but not in the
+            // x-ray" is answered by reading the log rather than by another in-game
+            // session - but it is a per-Present line about a steady state, and at one
+            // line per second it was 1299 of run 5's 2600 lines, half the log saying the
+            // same thing. So: `trace` only, at most once per ten seconds, and only if
+            // one of the counters actually moved since the last time it was printed.
+            // The level check comes FIRST, so at `normal` this whole block is one
+            // relaxed atomic load per Present and nothing else.
+            if (mm::log_enabled(mm::LogLv::Trace))
             {
                 static std::uint64_t last_log = 0;
-                if (now - last_log >= 1000)
+                static std::uint64_t last_sig = 0;
+                std::uint64_t sig = 0;
+                for (int i = 0; i < 5; ++i)
+                {
+                    sig = sig * 1000003ull + static_cast<std::uint64_t>(g_hl_debug.dropped[i]);
+                }
+                sig = sig * 1000003ull + static_cast<std::uint64_t>(g_hl_debug.gated);
+                sig = sig * 1000003ull + static_cast<std::uint64_t>(g_hl_debug.considered);
+                sig = sig * 1000003ull + static_cast<std::uint64_t>(g_hl_debug.drawn);
+                sig = sig * 1000003ull + static_cast<std::uint64_t>(g_hl_debug.on_screen);
+                sig = sig * 1000003ull + static_cast<std::uint64_t>(g_hl_debug.edge);
+                sig = sig * 1000003ull + static_cast<std::uint64_t>(g_hl_debug.labels);
+                if (sig != last_sig && now - last_log >= 10000)
                 {
                     last_log = now;
+                    last_sig = sig;
                     mm::logf(L"x-ray: {} published, dropped {} by category / {} found / {} not live / "
                              L"{} out of radius ({:.0f} m); of {} left, {} drawn ({} on screen, "
                              L"{} rim arrow, {} labelled), skipped {} behind the camera, {} off "
@@ -5637,7 +5657,7 @@ namespace overlay
             g_stats_page = false;
             g_shrine_panel = false;
             g_shot_canvas_valid = false;
-            mm::logf(L"full map closed: {}", why);
+            MM_LOGV(L"full map closed: {}", why);
         }
 
         void draw_full_map(mm::Config cfg, const mm::Snapshot& snap, bool have_state, float ui_scale)
@@ -9702,7 +9722,7 @@ namespace overlay
             last_key = now;
             const bool open = !mm::g_panel_open.load();
             mm::g_panel_open = open;
-            mm::logf(L"settings panel {}", open ? L"opened" : L"closed");
+            MM_LOGV(L"settings panel {}", open ? L"opened" : L"closed");
         }
         panel_down = panel_now;
 
@@ -9724,7 +9744,7 @@ namespace overlay
             last_key = now;
             const bool open = !mm::g_map_open.load();
             mm::g_map_open = open;
-            mm::logf(L"full map {}", open ? L"opened" : L"closed");
+            MM_LOGV(L"full map {}", open ? L"opened" : L"closed");
         }
         map_down = map_now;
 

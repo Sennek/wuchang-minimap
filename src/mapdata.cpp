@@ -10,6 +10,7 @@
 #include <format>
 
 #include "mapmanifest.hpp"
+#include "breadcrumb.hpp"
 #include "mmstate.hpp"
 
 namespace mapdata
@@ -388,6 +389,11 @@ namespace mapdata
             }
             // Only one retirement can ever be in flight, because a switch never starts
             // while one is pending. Free defensively in case that changes.
+            // A chapter swap is the longest, largest and rarest thing this mod does -
+            // a ~340 MB free followed by a ~340 MB decode - so it gets its own pair of
+            // breadcrumb stages. A crash reported as "it died on a loading screen" is
+            // then either inside the swap or not, with no guessing.
+            crumb::stage(crumb::kChapterSwapStart);
             delete g_retired;
             g_retired = const_cast<HeightMaps*>(planes);
             // `map_asset_retire_grace_ms` (default kRetireGraceMs), read here rather
@@ -620,6 +626,7 @@ namespace mapdata
         HeightMaps* planes = decode_heights(ch, entry);
         ch.heights = planes;
         g_active.store(index, std::memory_order_release);
+        crumb::stage(crumb::kChapterSwapEnd);
 
         // The composite is only the no-height-map fallback and it is off by default
         // (`fallback_use_composite = 0`). Note it IS re-decoded on a chapter switch, but

@@ -63,8 +63,10 @@
 #include "label_layout.hpp"
 #include "mapdata.hpp"
 #include "mapview.hpp"
+#include "breadcrumb.hpp"
 #include "clipimg.hpp"
 #include "markers.hpp"
+#include "modswitch.hpp"
 #include "shrines.hpp"
 #include "mmstate.hpp"
 #include "projection.hpp"
@@ -1940,7 +1942,17 @@ namespace overlay
             }
             g_slice_next = (g_slice_next + 1) % kSliceBufs;
             g_slice_last_ms = now;
-            ++g_slice_updates;
+            {
+                // The first slice is the stage where a map asset, the CPU slicer and a
+                // D3D12 upload heap are all live at once - i.e. the first moment a bad
+                // manifest or a bad buffer would take the process down.
+                static bool first = true;
+                if (first)
+                {
+                    first = false;
+                    crumb::stage(crumb::kFirstSlice);
+                }
+            }
         }
 
         // MAIN-MENU SELF-TEST. The slicer only ever runs inside draw_minimap, which is
@@ -2527,7 +2539,7 @@ namespace overlay
         }
 
         // ---- toasts ------------------------------------------------------------------
-        char g_toast[64]{};
+        char g_toast[160]{};
         std::uint64_t g_toast_until = 0;
 
         void toast_for(const char* text, unsigned ms)
@@ -2598,18 +2610,31 @@ namespace overlay
         // loop -> render: what to say in the toast. The loop thread owns the clipboard
         // call, but toasts are drawn by the render thread, so the text comes back the
         // same way everything else does - a buffer plus a flag.
-        char g_shot_toast[64]{};
+        // The loop thread posts toast text here; the render thread picks it up in
+        // build_ui. Used by the clipboard result AND by the first-run tip, because a
+        // toast may only be raised where toasts are drawn.
+        char g_shot_toast[160]{};
+        unsigned g_shot_toast_ms = 2500;
         std::atomic<bool> g_shot_toast_ready{false};
         // loop -> render: the handover is complete, so the next request may be recorded.
         // Without it a failed clipboard write would leave the state machine parked in
         // Waiting for ever and the key would silently stop working.
         std::atomic<bool> g_shot_stage_done{false};
 
+        // ANY THREAD. Queues a toast for the render thread to draw.
+        void post_toast(const char* text, unsigned ms)
+        {
+            {
+                SpinGuard guard(g_shot_lock);
+                ::strncpy_s(g_shot_toast, sizeof(g_shot_toast), text, _TRUNCATE);
+                g_shot_toast_ms = ms;
+            }
+            g_shot_toast_ready.store(true, std::memory_order_release);
+        }
+
         void shot_fail(const char* why)
         {
-            SpinGuard guard(g_shot_lock);
-            ::strncpy_s(g_shot_toast, sizeof(g_shot_toast), why, _TRUNCATE);
-            g_shot_toast_ready.store(true, std::memory_order_release);
+            post_toast(why, 2500);
         }
 
         void shot_reset()
@@ -6314,6 +6339,34 @@ namespace overlay
         void panel_debug(mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
         {
             panel_dev_keys(cfg);
+
+            //--------------------------------------------------------------------------
+            // The crash breadcrumb
+            //--------------------------------------------------------------------------
+            //
+            // Where the overlay is now, and - the useful half - what the PREVIOUS session
+            // left in wuchang_minimap_last_stage.txt. A non-terminal value there is the
+            // only surviving evidence when the process died with UE4SS's log buffer
+            // unflushed, so it is called out in colour rather than printed as a fact.
+            ImGui::SeparatorText("Stage");
+            ImGui::Text("now: %s", crumb::current()[0] != '\0' ? crumb::current() : "(none)");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(file %s)", cfg.crash_breadcrumb ? "on" : "off - crash_breadcrumb = 0");
+            if (crumb::previous_suspicious())
+            {
+                ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f},
+                                   "last session ended at '%s' - it did NOT shut down cleanly",
+                                   crumb::previous());
+            }
+            else if (crumb::previous()[0] != '\0')
+            {
+                ImGui::TextDisabled("last session ended at '%s'", crumb::previous());
+            }
+            else
+            {
+                ImGui::TextDisabled("no previous session recorded");
+            }
+
             draw_perf_table();
 
             //--------------------------------------------------------------------------
@@ -6671,6 +6724,22 @@ namespace overlay
                                    "The mod is shutting down. Set mod_enabled = 1 in %s to restart it.",
                                    "config_wuchang_minimap.txt");
             }
+            // THE OTHER OFF SWITCH. Same shutdown, no file written - for ruling the mod
+            // out of a problem without ending up with a config to repair afterwards.
+            ImGui::SameLine();
+            if (ImGui::Button("Disable for this session"))
+            {
+                modswitch::request_session_disable();
+                mm::log(L"master switch: disable for this session requested from the F2 panel - "
+                        L"nothing is written to the config file; save or edit it to turn the mod "
+                        L"back on (checked once a second).");
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Stops everything now, exactly like mod_enabled = 0, but leaves the\n"
+                                  "config file alone. Saving or editing the file turns it back on within\n"
+                                  "a second - F5 cannot, because with the mod off nothing reads the keyboard.");
+            }
 
             ImGui::End();
 
@@ -6793,12 +6862,14 @@ namespace overlay
             // turn it into a toast here, where toasts live.
             if (g_shot_toast_ready.exchange(false, std::memory_order_acquire))
             {
-                char text[64]{};
+                char text[160]{};
+                unsigned ms = 2500;
                 {
                     SpinGuard guard(g_shot_lock);
                     ::strncpy_s(text, sizeof(text), g_shot_toast, _TRUNCATE);
+                    ms = g_shot_toast_ms;
                 }
-                toast_for(text, 2500);
+                toast_for(text, ms);
             }
 
             // Toasts last, so they sit over everything they are talking about.
@@ -6930,6 +7001,7 @@ namespace overlay
             }
 
             g_imgui_ready = true;
+            crumb::stage(crumb::kImGuiUp);
             mm::logf(L"ImGui {} initialised on the game's swapchain: device {:p}, queue {:p}, {} frames in flight, "
                      L"RTV {}",
                      std::wstring(IMGUI_VERSION, IMGUI_VERSION + std::strlen(IMGUI_VERSION)),
@@ -7017,6 +7089,7 @@ namespace overlay
         {
             if (g_imgui_ready || g_device != nullptr)
             {
+                crumb::stage(crumb::kTeardownBegin);
                 // The slicer writes into mapped upload heaps we are about to release.
                 // It is a few milliseconds of arithmetic and it re-checks the pause flag
                 // on entry, so this always succeeds; if it somehow did not we would
@@ -7072,6 +7145,7 @@ namespace overlay
             g_queue.store(nullptr, std::memory_order_release);
             g_failed = false;
             g_render_stopped.store(true, std::memory_order_release);
+            crumb::stage(crumb::kTeardownEnd);
         }
 
         void render(IDXGISwapChain* swapchain)
@@ -7105,6 +7179,7 @@ namespace overlay
                     return;
                 }
                 g_swapchain = swapchain;
+                crumb::stage(crumb::kSwapchainChosen);
             }
             else if (swapchain != g_swapchain)
             {
@@ -7503,6 +7578,7 @@ namespace overlay
         if (!g_hooks_created)
         {
             g_hooks_created = install_hooks();
+            crumb::stage(g_hooks_created ? crumb::kHooksInstalled : "hook install FAILED");
         }
         else
         {
@@ -7711,6 +7787,38 @@ namespace overlay
             }
         }
 
+        // THE FIRST-RUN TIP. Once per install: a 10-second toast naming the keys that
+        // are actually bound, because "the mod does nothing" is almost always "I did not
+        // know which key opens it". The sentinel is a file next to the config, so
+        // reinstalling into a clean folder shows it again and a config reload does not.
+        static bool first_run_checked = false;
+        if (!first_run_checked && cfg.first_run_toast)
+        {
+            first_run_checked = true;
+            const std::wstring sentinel = mm::mod_dir() + L"\\wuchang_minimap_firstrun.txt";
+            if (::GetFileAttributesW(sentinel.c_str()) == INVALID_FILE_ATTRIBUTES)
+            {
+                const std::string text =
+                    std::format("{} settings   {} map   hold {} to see items through walls",
+                                key_name_ascii(cfg.panel_key), key_name_ascii(cfg.map_key),
+                                key_name_ascii(cfg.highlight_key));
+                post_toast(text.c_str(), 10000);
+                const HANDLE h = ::CreateFileW(sentinel.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                               FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (h != INVALID_HANDLE_VALUE)
+                {
+                    const char* note =
+                        "This file only records that the first-run tip has been shown.\r\n"
+                        "Delete it to see the tip again on the next launch.\r\n";
+                    DWORD written = 0;
+                    ::WriteFile(h, note, static_cast<DWORD>(std::strlen(note)), &written, nullptr);
+                    ::CloseHandle(h);
+                }
+                mm::logf(L"first run: showing the key tip - {}",
+                         std::wstring(text.begin(), text.end()));
+            }
+        }
+
         // MAP -> CLIPBOARD. Only while the full map is open, which is also what makes a
         // plain letter safe as the default: the map mode swallows every keyboard message
         // (lessons.md), so `C` cannot reach the game while this can fire.
@@ -7769,12 +7877,7 @@ namespace overlay
                 }
                 ::CloseClipboard();
             }
-            {
-                SpinGuard guard(g_shot_lock);
-                ::strncpy_s(g_shot_toast, sizeof(g_shot_toast), why != nullptr ? why : "map copied to clipboard",
-                            _TRUNCATE);
-            }
-            g_shot_toast_ready.store(true, std::memory_order_release);
+            post_toast(why != nullptr ? why : "map copied to clipboard", 2500);
             g_shot_stage_done.store(true, std::memory_order_release);
             mm::logf(L"screenshot: {} ({} bytes)",
                      why != nullptr ? std::wstring(why, why + std::strlen(why))

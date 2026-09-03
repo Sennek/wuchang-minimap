@@ -17,6 +17,7 @@
 #include <Mod/CppUserModBase.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 
+#include "breadcrumb.hpp"
 #include "modswitch.hpp"
 #include "overlay.hpp"
 #include "version.hpp"
@@ -42,7 +43,12 @@ class WuchangMinimap : public CppUserModBase
                                          STR(" loaded\n"));
     }
 
-    ~WuchangMinimap() override = default;
+    ~WuchangMinimap() override
+    {
+        // The one stage that means "this session ended on purpose". Everything else in
+        // wuchang_minimap_last_stage.txt is read by the NEXT launch as a crash.
+        crumb::stage(crumb::kCleanExit);
+    }
 
     // The 'Unreal' namespace is usable from here on.
     auto on_unreal_init() -> void override

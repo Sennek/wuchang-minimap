@@ -2,8 +2,12 @@
 
 #include <Windows.h>
 
+#include <atomic>
 #include <cstdint>
+#include <cstring>
+#include <string>
 
+#include "breadcrumb.hpp"
 #include "gamestate.hpp"
 #include "mapdata.hpp"
 #include "markers.hpp"
@@ -34,6 +38,11 @@ namespace modswitch
         };
 
         State g_state = State::Off;
+        // "Disable for this session": the F2 panel's other off switch. It goes through
+        // the SAME three-step stop as mod_enabled = 0, but writes nothing - so the file
+        // still says mod_enabled = 1 and saving it (or any other edit) turns the mod back
+        // on through the mtime watch, with no restart and no file to repair.
+        std::atomic<bool> g_session_disable{false};
         bool g_ever_started = false;
         std::uint64_t g_last_watch = 0;
         std::uint64_t g_config_mtime = 0;
@@ -148,12 +157,32 @@ namespace modswitch
         }
     } // namespace
 
+    void request_session_disable()
+    {
+        g_session_disable.store(true, std::memory_order_release);
+    }
+
     void on_unreal_init()
     {
         mm::set_loop_thread();
         mm::load_config_file();
         g_config_mtime = mm::config_mtime();
         g_last_watch = ::GetTickCount64();
+
+        // The crash breadcrumb, as early as it can possibly be: it reads what the
+        // PREVIOUS session left behind before overwriting it, and a non-terminal stage
+        // there is the only evidence that survives a process that died with the log
+        // buffer unflushed.
+        crumb::init(mm::mod_dir().c_str(), mm::config().crash_breadcrumb);
+        if (crumb::previous_suspicious())
+        {
+            const char* prev = crumb::previous();
+            mm::logf(L"WARNING: the previous session did not shut down cleanly - "
+                     L"wuchang_minimap_last_stage.txt says '{}'. If the game crashed, that is the "
+                     L"overlay stage it was in; send this line with the crash report.",
+                     std::wstring(prev, prev + std::strlen(prev)));
+        }
+        crumb::stage(crumb::kDllLoaded);
 
         if (!mm::config().mod_enabled)
         {
@@ -193,7 +222,16 @@ namespace modswitch
         if (g_state == State::Off)
         {
             // THE ONLY THING A DISABLED MOD DOES.
+            g_session_disable.store(false, std::memory_order_relaxed);
             watch(now);
+            mm::drain_log();
+            return;
+        }
+
+        if (g_session_disable.exchange(false, std::memory_order_acquire))
+        {
+            begin_disable(L"disabled for this session from the F2 panel - the config file is "
+                          L"unchanged, so saving it (or editing it) turns the mod back on");
             mm::drain_log();
             return;
         }

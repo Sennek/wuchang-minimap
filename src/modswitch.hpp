@@ -53,4 +53,12 @@ namespace modswitch
     // Loop thread, every tick. Runs the watcher, drives a pending stop, and forwards to
     // the subsystems' on_update while the mod is running.
     void on_update();
+
+    // ANY THREAD (in practice the render thread, from the F2 panel). "Disable for this
+    // session": the same three-step stop as `mod_enabled = 0`, but WITHOUT writing the
+    // config file. The file therefore still says `mod_enabled = 1`, and the 1 Hz mtime
+    // watch turns the mod back on the moment the file is saved or edited - so a player
+    // ruling the mod out of a problem never has to repair a config afterwards. (F5 cannot
+    // do it: with the mod off nothing samples the keyboard.)
+    void request_session_disable();
 } // namespace modswitch

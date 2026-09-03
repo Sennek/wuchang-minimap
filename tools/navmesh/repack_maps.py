@@ -24,7 +24,10 @@ extraction step and on the island filter's thresholds staying put.
 WHAT IT REWRITES
 ----------------
   * `<chapter>/small.png`     RGBA8 -> 256-colour palette PNG + tRNS array
-  * `<chapter>/small_z*.png`  16-bit codes 1..65535 -> 1..4095 (still 16-bit PNGs)
+  * `<chapter>/small_z*.png`  -> `<chapter>/small_h*.png`, 16-bit codes 1..65535 ->
+                              1..4095 (still 16-bit grayscale PNGs; the /3 files are
+                              deleted). THE FILES AND THE MANIFEST KEY ARE RENAMED ON
+                              PURPOSE - see src/mapmanifest.hpp.
   * `maps/maps.json`          the format fields (`z_bits`, `z_code_max`, `z_step_uu`,
                               `z_quantisation`, `composite_format`), the new byte
                               counts, and the tile-store numbers the runtime pays
@@ -97,9 +100,19 @@ def _repack_heights(key: str, entry: dict, src: Path, dst: Path, dry_run: bool) 
         raise SystemExit(f"{key}: unusable z_min/z_max ({z_min}..{z_max})")
     src_code_max = int(entry.get("z_code_max", mapfmt.Z_CODE_MAX_LEGACY))
 
-    files = list(entry.get("height_maps", []))
+    files, from_legacy = mapfmt.height_plane_list(entry)
     if not files:
-        raise SystemExit(f'{key}: no "height_maps" in the manifest')
+        raise SystemExit(
+            f'{key}: neither "{mapfmt.HEIGHT_KEY}" nor "{mapfmt.HEIGHT_KEY_LEGACY}" in the manifest'
+        )
+    # /4 renamed the plane files as well as the manifest key, so that a /3 build
+    # reading a /4 tree finds nothing instead of decoding at the wrong scale. The
+    # rename happens here, and the /3 files are deleted at the end - a maps/ folder
+    # holding both would double the download and the first stale one would win the
+    # next time somebody hand-edited the manifest.
+    stem = Path(files[0]).name
+    stem = stem[: stem.rfind("_z")] if "_z" in stem else Path(files[0]).stem
+    out_files = [mapfmt.height_plane_name(key, stem, k) for k in range(len(files))]
 
     sizes: list[int] = []
     before = 0
@@ -124,11 +137,20 @@ def _repack_heights(key: str, entry: dict, src: Path, dst: Path, dry_run: bool) 
             worst_uu = max(worst_uu, float(np.abs(new_uu - old_uu).max()))
         data = mapfmt.encode_height_png(out)
         if not dry_run:
-            (dst / hrel).parent.mkdir(parents=True, exist_ok=True)
-            (dst / hrel).write_bytes(data)
+            (dst / out_files[k]).parent.mkdir(parents=True, exist_ok=True)
+            (dst / out_files[k]).write_bytes(data)
         sizes.append(len(data))
         planes.append(out)
-        print(f"    z{k}: {mapfmt.mb(hp.stat().st_size)} -> {mapfmt.mb(sizes[-1])}")
+        print(
+            f"    {hrel} -> {out_files[k]}: "
+            f"{mapfmt.mb(hp.stat().st_size)} -> {mapfmt.mb(sizes[-1])}"
+        )
+
+    if not dry_run and from_legacy:
+        for hrel in files:
+            old = dst / hrel
+            if old.exists() and hrel not in out_files:
+                old.unlink()
 
     after = sum(sizes)
     present, total = mapfmt.tile_occupancy(planes, TILE)
@@ -146,6 +168,8 @@ def _repack_heights(key: str, entry: dict, src: Path, dst: Path, dry_run: bool) 
     )
 
     mapfmt.stamp_format(entry, z_min, z_max)
+    entry.pop(mapfmt.HEIGHT_KEY_LEGACY, None)
+    entry[mapfmt.HEIGHT_KEY] = out_files
     entry["height_map_bytes"] = sizes
     entry["height_map_raw_bytes"] = ram_dense
     entry["height_tile_px"] = TILE
@@ -266,7 +290,8 @@ def main(argv: list[str] | None = None) -> int:
             # would happily zip a maps/ with four chapters in it.
             done = {r["key"] for r in reports}
             for key, entry in chapters.items():
-                for rel in [entry.get("image", "")] + list(entry.get("height_maps", [])):
+                planes, _ = mapfmt.height_plane_list(entry)
+                for rel in [entry.get("image", "")] + planes:
                     if not rel:
                         continue
                     out = dst / rel

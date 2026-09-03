@@ -84,6 +84,31 @@ Z_CODE_MAX_LEGACY = 65535
 PALETTE_SIZE = 256
 FILL_ALPHA = 235  # must match build_map.FILL_ALPHA
 
+# The manifest key and the file naming for the height planes. BOTH changed with /4,
+# and not for tidiness: 1.0.0 is released and its parser cannot be taught to refuse a
+# /4 tree, so /4 has to be a tree it cannot find. A /3 build reading a /4 manifest
+# sees no `height_maps`, guesses the `_z` names it used to write, finds nothing on
+# disk and logs "NO height plane decoded ... build them with build_map.py" - which is
+# a loud, accurate failure instead of a map drawn 16x too high. See the version
+# discussion in src/mapmanifest.hpp.
+HEIGHT_KEY = "height_planes"
+HEIGHT_KEY_LEGACY = "height_maps"
+
+
+def height_plane_name(chapter_key: str, stem: str, k: int) -> str:
+    return f"{chapter_key}/{stem}_h{k}.png"
+
+
+def height_plane_list(entry: dict) -> tuple[list[str], bool]:
+    """(the plane list, whether it came from the /3 key) for a manifest entry."""
+    planes = entry.get(HEIGHT_KEY)
+    if isinstance(planes, list) and planes:
+        return [str(x) for x in planes], False
+    legacy = entry.get(HEIGHT_KEY_LEGACY)
+    if isinstance(legacy, list) and legacy:
+        return [str(x) for x in legacy], True
+    return [], False
+
 
 def z_step_uu(z_min: float, z_max: float, code_max: int = Z_CODE_MAX) -> float:
     """uu per height code - the number `HeightMaps::z_step()` recomputes at runtime."""
@@ -368,6 +393,10 @@ __all__ = [
     "write_composite_png",
     "read_rgba_png",
     "stamp_format",
+    "HEIGHT_KEY",
+    "HEIGHT_KEY_LEGACY",
+    "height_plane_name",
+    "height_plane_list",
     "load_manifest",
     "dumps_manifest",
     "tile_occupancy",

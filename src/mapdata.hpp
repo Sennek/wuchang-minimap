@@ -9,7 +9,17 @@
 // The chapter ships a MULTI-SURFACE HEIGHT MAP: `max_surfaces` (8) 16-bit grayscale
 // PNGs of identical size and bounds, where plane k at pixel (px, py) holds the Z of
 // the k-th walkable surface at that spot, lowest first, quantised over the chapter's
-// [z_min, z_max] into 1..65535 - and 0 means "no surface here".
+// [z_min, z_max] into 1..`z_code_max` - and 0 means "no surface here".
+//
+// TWELVE BITS, not sixteen (schema /4). Only 1..4095 of the 16-bit sample is used,
+// which is a third off the PNG (32.07 -> 21.23 MB over the five chapters) for a Z
+// step of 3.98..12.44 uu depending on the chapter's span. The slicer's floor
+// tolerance is 200 uu and its fade 800 uu, so the worst error (+/- 6.22 uu) is 3 %
+// of the decision it feeds; the pipeline's own storey separator is 250 uu. The
+// divisor comes from the manifest (`z_code_max`), so a wider asset needs no code
+// change - and the schema string is checked for EXACT equality, because a /3 plane
+// read here would put every surface sixteen times too low and look like an empty map
+// rather than like a version error. See src/mapmanifest.hpp.
 //
 // EIGHT, not four: four slots hold 93 % of the chapter's lit pixels but only 50 % of
 // them in the Digong-spiral / Hanguang-temple block, where a pixel can carry up to
@@ -94,6 +104,9 @@ namespace mapdata
         double px_per_uu = 0.0;
         float z_min = 0.0f;
         float z_max = 0.0f;
+        // Highest height code the asset uses; 0 always means "no surface". From
+        // maps.json (`z_code_max`), 4095 since schema /4.
+        int z_code_max = mapmanifest::kZCodeMax;
 
         // plane[k][py * width + px]; 0 = no surface, else 1 + round(t * 65534).
         std::vector<std::uint16_t> plane[kMaxSurfaces];
@@ -102,7 +115,9 @@ namespace mapdata
         // report can be checked against the asset instead of the renderer.
         float z_step() const
         {
-            return count > 0 ? (z_max - z_min) / 65534.0f : 0.0f;
+            return count > 0 && z_code_max > 1
+                       ? (z_max - z_min) / static_cast<float>(z_code_max - 1)
+                       : 0.0f;
         }
 
         float decode(std::uint16_t code) const

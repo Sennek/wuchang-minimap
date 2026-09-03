@@ -2185,24 +2185,25 @@ namespace
 
     void test_map_manifest(const std::string& markers_dir)
     {
-        std::printf("mapmanifest: schema /3, five chapters, and the ways it can be wrong\n");
+        std::printf("mapmanifest: schema /4, five chapters, and the ways it can be wrong\n");
 
         // --- the minimal well-formed document ----------------------------------------
         {
             const char* text = R"({
-              "schema": "wuchang-minimap-maps/3",
+              "schema": "wuchang-minimap-maps/4",
               "chapters": {
                 "chapter1": { "chapter": 1, "image": "chapter1/small.png",
                               "image_width": 100, "image_height": 200,
                               "min_x": -10, "min_y": -20, "max_x": 30, "max_y": 40,
                               "px_per_uu": 0.06, "z_min": -5, "z_max": 15,
+                              "z_bits": 12, "z_code_max": 4095,
                               "max_surfaces": 2,
-                              "height_maps": ["chapter1/small_z0.png", "chapter1/small_z1.png"] },
+                              "height_planes": ["chapter1/small_h0.png", "chapter1/small_h1.png"] },
                 "chapterdlc": { "chapter": 0, "image": "dlc/small.png",
                                 "image_width": 10, "image_height": 10,
                                 "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1,
                                 "px_per_uu": 0.5, "z_min": 0, "z_max": 1,
-                                "max_surfaces": 1, "height_maps": ["dlc/small_z0.png"] }
+                                "max_surfaces": 1, "height_planes": ["dlc/small_h0.png"] }
               } })";
             mapmanifest::Manifest m{};
             std::vector<std::string> problems;
@@ -2216,6 +2217,11 @@ namespace
             CHECK(m.chapters[0].geometry_ok());
             CHECK(m.chapters[0].heights_ok());
             CHECK(!m.chapters[0].height_maps_guessed);
+            CHECK(m.schema_ok());
+            CHECK_EQ(m.chapters[0].z_bits, 12);
+            CHECK_EQ(m.chapters[0].z_code_max, 4095);
+            // 20 uu of span over 4094 steps.
+            CHECK_NEAR(m.chapters[0].z_step_uu(), 20.0 / 4094.0, 1e-9);
             CHECK_EQ(m.index_of_number(1), 0);
             CHECK_EQ(m.index_of_number(chid::kDlc), 1);
             CHECK_EQ(m.index_of_number(4), -1);
@@ -2225,13 +2231,14 @@ namespace
             CHECK_EQ(m.default_index(), 0);
         }
 
-        // --- backward compatibility: the ONE-CHAPTER file this schema shipped with ---
+        // --- a chapter that states max_surfaces but no plane list --------------------
         //
-        // No "chapter" field and no "height_maps" array existed then. Both have to be
-        // recovered, or a mod update silently loses the map of an unchanged install.
+        // The names then have to be recovered from the composite's, with the /4 `_h`
+        // spelling - and the chapter number from the key. Anything else silently
+        // loses the map of an install whose manifest was hand-edited.
         {
             const char* text = R"({
-              "schema": "wuchang-minimap-maps/3",
+              "schema": "wuchang-minimap-maps/4",
               "chapters": {
                 "chapter1": { "image": "chapter1/small.png",
                               "image_width": 4947, "image_height": 4333,
@@ -2246,9 +2253,67 @@ namespace
             CHECK_EQ(m.chapters[0].chapter, 1); // derived from the key
             CHECK(m.chapters[0].height_maps_guessed);
             CHECK_EQ(static_cast<long long>(m.chapters[0].height_maps.size()), 8);
-            CHECK_STR(m.chapters[0].height_maps[0], std::string("chapter1/small_z0.png"));
-            CHECK_STR(m.chapters[0].height_maps[7], std::string("chapter1/small_z7.png"));
+            CHECK_STR(m.chapters[0].height_maps[0], std::string("chapter1/small_h0.png"));
+            CHECK_STR(m.chapters[0].height_maps[7], std::string("chapter1/small_h7.png"));
             CHECK(m.chapters[0].heights_ok());
+            // Absent z_bits / z_code_max default to what THIS build reads, which is
+            // only safe because the schema string was checked first.
+            CHECK_EQ(m.chapters[0].z_code_max, mapmanifest::kZCodeMax);
+        }
+
+        // --- THE VERSION GATE, both directions ---------------------------------------
+        //
+        // A /3 tree read here would put every surface sixteen times too low and look
+        // like an empty map, so a wrong (or missing) schema is fatal and says so. The
+        // other direction - a /3 build reading this /4 file - is covered by the plane
+        // list having moved to "height_planes": that parser finds none, guesses the
+        // "_z" names it used to write, and fails loudly on a missing file.
+        {
+            const char* v3 = R"({
+              "schema": "wuchang-minimap-maps/3",
+              "chapters": {
+                "chapter1": { "chapter": 1, "image": "chapter1/small.png",
+                              "image_width": 100, "image_height": 200,
+                              "min_x": -10, "min_y": -20, "max_x": 30, "max_y": 40,
+                              "px_per_uu": 0.06, "z_min": -5, "z_max": 15,
+                              "max_surfaces": 1,
+                              "height_maps": ["chapter1/small_z0.png"] }
+              } })";
+            mapmanifest::Manifest m{};
+            std::vector<std::string> problems;
+            CHECK(!mapmanifest::parse(v3, m, problems));
+            CHECK_EQ(static_cast<long long>(problems.size()), 1);
+            CHECK(!m.schema_ok());
+            CHECK(m.chapters.empty()); // nothing is drawn from a file we cannot read
+            // The message has to name BOTH strings and what to do; a bare "bad
+            // manifest" would send the reader to the wrong half of the mod.
+            CHECK(problems[0].find("wuchang-minimap-maps/3") != std::string::npos);
+            CHECK(problems[0].find("wuchang-minimap-maps/4") != std::string::npos);
+            CHECK(problems[0].find("build_map.py") != std::string::npos);
+
+            // No schema at all is the same answer.
+            problems.clear();
+            CHECK(!mapmanifest::parse(R"({"chapters":{}})", m, problems));
+            CHECK_EQ(static_cast<long long>(problems.size()), 1);
+            CHECK(problems[0].find("(none)") != std::string::npos);
+
+            // And a /4 file whose plane list is still spelled the /3 way loses the
+            // list, which is exactly the fallback that makes the missing files loud.
+            problems.clear();
+            const char* mixed_key = R"({
+              "schema": "wuchang-minimap-maps/4",
+              "chapters": {
+                "chapter1": { "chapter": 1, "image": "chapter1/small.png",
+                              "image_width": 100, "image_height": 200,
+                              "min_x": -10, "min_y": -20, "max_x": 30, "max_y": 40,
+                              "px_per_uu": 0.06, "z_min": -5, "z_max": 15,
+                              "max_surfaces": 1,
+                              "height_maps": ["chapter1/small_z0.png"] }
+              } })";
+            CHECK(mapmanifest::parse(mixed_key, m, problems));
+            CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
+            CHECK(m.chapters[0].height_maps_guessed);
+            CHECK_STR(m.chapters[0].height_maps[0], std::string("chapter1/small_h0.png"));
         }
 
         // --- the ways it can be wrong -------------------------------------------------
@@ -2259,15 +2324,18 @@ namespace
             CHECK(!problems.empty());
 
             problems.clear();
-            CHECK(!mapmanifest::parse(R"({"schema":"wuchang-minimap-maps/3"})", m, problems));
+            CHECK(!mapmanifest::parse(R"({"schema":"wuchang-minimap-maps/4"})", m, problems));
             CHECK(!problems.empty());
 
             problems.clear();
-            CHECK(!mapmanifest::parse(R"({"chapters": []})", m, problems)); // array, not object
+            // array, not object
+            CHECK(!mapmanifest::parse(
+                R"({"schema":"wuchang-minimap-maps/4","chapters": []})", m, problems));
 
             // A broken chapter is skipped and REPORTED, and its siblings still load.
             problems.clear();
             const char* mixed = R"({
+              "schema": "wuchang-minimap-maps/4",
               "chapters": {
                 "broken_no_image": { "chapter": 2, "image_width": 4, "image_height": 4,
                                      "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1,
@@ -2279,23 +2347,22 @@ namespace
                                      "image_width": 4, "image_height": 4,
                                      "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1,
                                      "px_per_uu": 0.5, "z_min": 0, "z_max": 1,
-                                     "height_maps": ["chapter4/small_z0.png"] }
+                                     "height_planes": ["chapter4/small_h0.png"] }
               } })";
             CHECK(mapmanifest::parse(mixed, m, problems));
             CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
             CHECK_EQ(static_cast<long long>(problems.size()), 2);
             CHECK_STR(m.chapters[0].key, std::string("chapter4"));
             CHECK_EQ(m.default_index(), 0);
-            // No schema string at all is not fatal - the mod logs and reads on.
-            CHECK_STR(m.schema, std::string(""));
         }
 
         // --- a chapter with no z range has geometry but no usable height maps ---------
         {
-            const char* text = R"({"chapters": {"chapter1": {
+            const char* text = R"({"schema": "wuchang-minimap-maps/4",
+              "chapters": {"chapter1": {
                 "chapter": 1, "image": "c/s.png", "image_width": 4, "image_height": 4,
                 "min_x": 0, "min_y": 0, "max_x": 1, "max_y": 1, "px_per_uu": 0.5,
-                "height_maps": ["c/s_z0.png"] }}})";
+                "height_planes": ["c/s_h0.png"] }}})";
             mapmanifest::Manifest m{};
             std::vector<std::string> problems;
             CHECK(mapmanifest::parse(text, m, problems));
@@ -2341,8 +2408,15 @@ namespace
                     CHECK(!e.height_maps_guessed);
                     CHECK_EQ(static_cast<long long>(e.height_maps.size()), 8);
                     CHECK(e.px_per_uu > 0.02 && e.px_per_uu <= 0.06);
-                    // Every plane is 16-bit and the whole set has to fit the RAM budget
-                    // build_map.py enforced (--max-ram-mb 340).
+                    // Every shipped chapter is 12-bit, and every plane is named the
+                    // /4 way - the two things a half-applied repack would get wrong.
+                    CHECK_EQ(e.z_bits, mapmanifest::kZBits);
+                    CHECK_EQ(e.z_code_max, mapmanifest::kZCodeMax);
+                    CHECK(e.height_maps[0].find("_h0.png") != std::string::npos);
+                    CHECK(e.z_step_uu() > 0.0 && e.z_step_uu() < 20.0);
+                    // The DENSE size still has to fit the budget build_map.py enforced
+                    // (--max-ram-mb 340); what is actually allocated is the sparse tile
+                    // subset, which test_map_assets() checks against the manifest.
                     const std::size_t bytes = static_cast<std::size_t>(e.image_width) *
                                               static_cast<std::size_t>(e.image_height) * 2u *
                                               e.height_maps.size();
@@ -2526,7 +2600,7 @@ namespace
             CHECK(opaque > total_px / 100 && opaque < total_px * 9 / 10);
 
             // ---- height plane z0 ----------------------------------------------------
-            const int z_code_max = static_cast<int>(number_in_chapter(e.key, "z_code_max", 65535.0));
+            const int z_code_max = e.z_code_max;
             std::vector<std::uint8_t> raw;
             const std::wstring hpath = widen(maps_dir + "/" + e.height_maps[0]);
             const pngdec::Result hres = pngdec::decode(hpath.c_str(), pngdec::kGray16, raw);
@@ -2582,12 +2656,26 @@ namespace
             const double shift = number_in_chapter(e.key, "z_requantise_worst_uu", 0.0);
             CHECK(shift < 20.0);
 
+            // What the runtime will actually allocate: the pipeline measured the
+            // non-empty 128-px tiles, and that is the number the review's 343 MB ->
+            // ~90 MB item is about. Checked here so a rebuild that quietly went back
+            // to a dense-ish asset cannot slip through.
+            const double tiles = number_in_chapter(e.key, "height_tiles_128", 0.0);
+            const double tile_ram = number_in_chapter(e.key, "height_tile_ram_bytes", 0.0);
+            const double dense_ram = number_in_chapter(e.key, "height_map_raw_bytes", 0.0);
+            CHECK(tiles > 0.0);
+            CHECK_NEAR(tile_ram, tiles * 128.0 * 128.0 * 2.0, 1.0);
+            CHECK(tile_ram > 0.0 && tile_ram <= 100.0 * 1024.0 * 1024.0);
+            CHECK(dense_ram > 3.0 * tile_ram); // the whole point of the tile store
+
             std::printf("  %s: composite %dx%d, %llu opaque px (%.0f %%), z0 %lld lit px, "
-                        "codes %d..%d of %d, step %.2f uu, requantise shift %.2f uu\n",
+                        "codes %d..%d of %d, step %.2f uu, requantise shift %.2f uu, "
+                        "%.0f tiles = %.0f MB resident against %.0f MB dense\n",
                         e.key.c_str(), cr.width, cr.height,
                         static_cast<unsigned long long>(opaque),
                         100.0 * static_cast<double>(opaque) / static_cast<double>(total_px), lit,
-                        code_lo, code_hi, z_code_max, step, shift);
+                        code_lo, code_hi, z_code_max, step, shift, tiles,
+                        tile_ram / (1024.0 * 1024.0), dense_ram / (1024.0 * 1024.0));
         }
     }
 

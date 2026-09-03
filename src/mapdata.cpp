@@ -210,6 +210,7 @@ namespace mapdata
             hm->px_per_uu = ch.px_per_uu;
             hm->z_min = static_cast<float>(e.z_min);
             hm->z_max = static_cast<float>(e.z_max);
+            hm->z_code_max = e.z_code_max;
 
             if (hm->z_max <= hm->z_min)
             {
@@ -365,15 +366,13 @@ namespace mapdata
         {
             return;
         }
-        if (parsed_manifest.schema != mapmanifest::kSchema)
-        {
-            // Not fatal: every field this build reads was already in schema /3 and a
-            // newer writer is expected to stay additive. Say so once, loudly.
-            mm::logf(L"maps: manifest schema is \"{}\", this build was written for \"{}\" - "
-                     L"reading it anyway",
-                     widen(parsed_manifest.schema),
-                     widen(mapmanifest::kSchema));
-        }
+        // NOTE there is no "schema mismatch, reading it anyway" branch any more:
+        // mapmanifest::parse() refuses a manifest whose schema is not exactly
+        // kSchema and puts the reason in `problems`, which was logged above. The /3
+        // and /4 height encodings differ by a factor of sixteen in one scale, so
+        // reading the wrong one draws a map that looks empty rather than reporting a
+        // version error - and an asset tree that old cannot be fixed by being
+        // tolerant of it.
         if (parsed_manifest.chapters.empty())
         {
             mm::log(L"maps: no usable chapter in the manifest");
@@ -414,7 +413,8 @@ namespace mapdata
                  ch.height_files.size()) /
                 (1024u * 1024u);
             mm::logf(L"maps: chapter \"{}\" (chapter {}) {} {}x{} px @ {:.4f} px/uu, world X {:.0f}..{:.0f} "
-                     L"Y {:.0f}..{:.0f}, Z {:.0f}..{:.0f}, {} height plane(s), {} MB when resident",
+                     L"Y {:.0f}..{:.0f}, Z {:.0f}..{:.0f} in {}-bit steps of {:.2f} uu, "
+                     L"{} height plane(s), {} MB when resident",
                      widen(ch.key),
                      ch.chapter,
                      widen(ch.image),
@@ -427,6 +427,8 @@ namespace mapdata
                      ch.max_y,
                      e.z_min,
                      e.z_max,
+                     e.z_bits,
+                     e.z_step_uu(),
                      ch.height_files.size(),
                      resident_mb);
             parsed.push_back(std::move(ch));

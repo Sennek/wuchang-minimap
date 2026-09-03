@@ -12,9 +12,9 @@ textures plus a `maps.json` manifest the C++ mod reads at start-up.
       chapter1/small.png       256-COLOUR PALETTE PNG, transparent background,
                                Z-shaded composite of every floor (the fallback /
                                full-map asset; `fallback_use_composite = 0`)
-      chapter1/small_z0.png    16-bit GRAYSCALE HEIGHT MAP of walkable surface 0,
+      chapter1/small_h0.png    16-bit GRAYSCALE HEIGHT MAP of walkable surface 0,
                                12-BIT codes 1..4095 (0 = no surface)
-      chapter1/small_z1.png    ... surface 1 (the next one up), and so on to z7
+      chapter1/small_h1.png    ... surface 1 (the next one up), and so on to h7
 
 The two ENCODINGS - the palette composite and the 12-bit height codes - and the
 schema string live in `mapfmt.py`, which `repack_maps.py` shares. Use `repack_maps.py`
@@ -867,7 +867,7 @@ def build_chapter(args: argparse.Namespace) -> dict:
     height_bytes: list[int] = []
     height_codes: list["np.ndarray"] = []  # kept for the tile-occupancy count below
     for k in range(used):
-        rel = f"{args.chapter}/{stem}_z{k}.png"
+        rel = mapfmt.height_plane_name(args.chapter, stem, k)
         code = quantize_heights(zbuf[k], z_min, z_max)
         nb = write_height_png(code, out_root / rel)
         height_codes.append(code)
@@ -916,7 +916,7 @@ def build_chapter(args: argparse.Namespace) -> dict:
                            "seeds", "seeded_components", "grid_uu", "z_tol_uu", "min_area_uu2",
                            "cluster_area_uu2", "cover_z_uu", "bridge_xy_uu", "bridge_z_uu",
                            "seed_radius_uu", "require_seed") if k in islands},
-        "height_maps": height_maps,
+        mapfmt.HEIGHT_KEY: height_maps,
         "height_map_bytes": height_bytes,
         "height_map_raw_bytes": raw,
         "surface_hist": hist,

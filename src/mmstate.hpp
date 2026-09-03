@@ -343,6 +343,16 @@ namespace mm
         bool first_run_toast = true;
         // The shrine list panel on the full map (names, chapter, distance, travel).
         bool shrine_list = true;
+        // EXTRA WIDGET CLASS-NAME PREFIXES THAT ARE NOT MENUS, on top of the built-in
+        // table in scan_sched.hpp (`kNonMenuRoots`). "A menu is open" == "an in-viewport
+        // widget's Visibility is Visible", and on 2026-09-03 a combat SUBTITLE
+        // (`WB_ZiMu_C`) satisfied it and hid the minimap for 2.4 s. The built-in table
+        // covers the furniture we know about; this is how the next one is silenced from
+        // the config file rather than from a rebuild - every root the mod discovers for
+        // the first time is logged by name, so the name to put here is in the log.
+        // Comma-separated, matched case-insensitively as a PREFIX. A fixed array, not
+        // std::string: Config is copied by value onto the render thread every frame.
+        char menu_ignore_roots[192] = "";
 
         //==============================================================================
         // The full map (step C1)

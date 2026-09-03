@@ -905,6 +905,15 @@ namespace mm
             {
                 cfg.first_run_toast = parse_bool(value, cfg.first_run_toast);
             }
+            else if (key == "menu_ignore_roots")
+            {
+                // Free text, and deliberately not validated against anything: it is a
+                // list of widget class-name prefixes and the whole point is that it can
+                // name a class this build has never seen. An empty value is legal (it
+                // means "the built-in table only").
+                ::strncpy_s(cfg.menu_ignore_roots, sizeof(cfg.menu_ignore_roots), trim(value).c_str(),
+                            _TRUNCATE);
+            }
             else if (key == "shrine_list")
             {
                 cfg.shrine_list = parse_bool(value, cfg.shrine_list);
@@ -2169,6 +2178,7 @@ namespace mm
         add("reader_widget_sweep_period_ms", std::to_string(cfg.reader_widget_sweep_period_ms));
         add("reader_widget_sweep_max_period_ms", std::to_string(cfg.reader_widget_sweep_max_period_ms));
         add("reader_widget_sweep_warm_ms", std::to_string(cfg.reader_widget_sweep_warm_ms));
+        add("menu_ignore_roots", std::string{cfg.menu_ignore_roots});
         add("reader_transition_cooldown_ms", std::to_string(cfg.reader_transition_cooldown_ms));
         add("reader_teleport_jump_uu", std::format("{:.0f}", cfg.reader_teleport_jump_uu));
         add("reader_chapter_period_ms", std::to_string(cfg.reader_chapter_period_ms));

@@ -209,6 +209,7 @@ namespace cfgkeys
         {"reader_widget_sweep_period_ms", Tier::Dev},
         {"reader_widget_sweep_max_period_ms", Tier::Dev},
         {"reader_widget_sweep_warm_ms", Tier::Dev},
+        {"menu_ignore_roots", Tier::Dev},
         {"reader_transition_cooldown_ms", Tier::Dev},
         {"reader_teleport_jump_uu", Tier::Dev},
         {"reader_chapter_period_ms", Tier::Dev},

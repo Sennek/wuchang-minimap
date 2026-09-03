@@ -92,6 +92,16 @@ hide_reason_log_ms = 2000
 ; buffers. RESTART ONLY (or turn mod_enabled off and on again).
 srv_heap_size = 64
 
+; Extra widget class-name PREFIXES that must never count as an open menu, on top of
+; the mod's built-in table (subtitles, damage numbers, tips and toasts, the HUD).
+; "A menu is open" means "an in-viewport widget's Visibility is Visible", and the
+; game authors a few pieces of transient combat furniture that way - a combat
+; SUBTITLE (WB_ZiMu_C) hid the minimap for 2.4 s on 2026-09-03. Every root the mod
+; discovers for the first time is logged by name ("menu root discovered: ..."), so if
+; something still hides the minimap when it should not, that log line is the name to
+; put here. Comma-separated, matched case-insensitively, empty = built-in table only.
+menu_ignore_roots =
+
 ; ---------------------------------------------------------------------------------
 ; THE X-RAY CAMERA READER
 ; ---------------------------------------------------------------------------------

@@ -881,6 +881,12 @@ namespace gamestate
             }
         }
 
+        // Forward declarations: the deny-list gate and the class memo behind it live
+        // with the SLICED walk further down, but the FindAllOf fallback above needs the
+        // same gate - one list, one answer, whichever path found the widget.
+        unsigned char widget_class_kind(UObject* obj);
+        bool widget_may_be_menu(UObject* obj);
+
         // Is this widget's reflected Visibility byte ESlateVisibility::Visible (0)?
         // Raw read at a cached offset: no ProcessEvent, so this is safe and cheap
         // enough to do on every pump.
@@ -1037,6 +1043,10 @@ namespace gamestate
                     continue;
                 }
                 ++seen;
+                if (!widget_may_be_menu(w))
+                {
+                    continue; // the same deny-list the sliced walk uses
+                }
                 bool has_byte = false;
                 const bool byte_visible = widget_is_visible_byte(w, has_byte);
                 if (has_byte)
@@ -1108,17 +1118,27 @@ namespace gamestate
         // answer per `UClass*`. Names rather than a `UClass*` compare because we have no
         // `UUserWidget::StaticClass()` to compare against - `ue_min.hpp` declares only
         // what UE4SS exports.
-        bool class_is_user_widget(UObject* obj)
+        //   0 = not a UUserWidget at all
+        //   1 = a widget that MAY hold a menu
+        //   2 = a widget whose class is on the not-a-menu deny-list
+        //
+        // The deny-list answer is memoised in the same map as the widget answer, keyed
+        // by `UClass*`, so it costs one `GetName()` per CLASS per session rather than
+        // one per instance per round - and the class name is what the list matches on
+        // (an object name is index-suffixed; `WB_ZiMu_C_2147458145` is an instance of
+        // `WB_ZiMu_C`). See scan_sched.hpp for why the list exists and why it is a list
+        // rather than a new rule.
+        unsigned char widget_class_kind(UObject* obj)
         {
             RC::Unreal::UClass* cls = obj->GetClassPrivate();
             if (cls == nullptr)
             {
-                return false;
+                return 0;
             }
             const auto it = g_wclass.find(cls);
             if (it != g_wclass.end())
             {
-                return it->second != 0;
+                return it->second;
             }
             bool is_widget = false;
             auto* current = static_cast<RC::Unreal::UStruct*>(cls);
@@ -1134,13 +1154,43 @@ namespace gamestate
                 }
                 current = current->GetSuperStruct();
             }
+            unsigned char kind = is_widget ? static_cast<unsigned char>(1) : static_cast<unsigned char>(0);
+            if (kind == 1)
+            {
+                const std::wstring cname = static_cast<UObject*>(cls)->GetName();
+                const char* why =
+                    scan::non_menu_root_reason(cname.c_str(), mm::cfg_cached().menu_ignore_roots);
+                if (why != nullptr)
+                {
+                    kind = 2;
+                    // Once per class per session, and it names the reason: this is the
+                    // line that says the deny-list did something, so a minimap that
+                    // stops hiding on a real menu can be traced to an over-broad entry.
+                    mm::logf(L"menu detector: '{}' is on the not-a-menu list ({}) - it can never "
+                             L"hide the minimap",
+                             cname,
+                             std::wstring(why, why + std::strlen(why)));
+                }
+            }
             if (g_wclass.size() > kWidgetClassCacheMax)
             {
                 g_wclass.clear();
             }
-            g_wclass.emplace(cls, is_widget ? static_cast<unsigned char>(1)
-                                            : static_cast<unsigned char>(0));
-            return is_widget;
+            g_wclass.emplace(cls, kind);
+            return kind;
+        }
+
+        bool class_is_user_widget(UObject* obj)
+        {
+            return widget_class_kind(obj) != 0;
+        }
+
+        // Could this widget hold a menu? A widget on the deny-list is still walked and
+        // still counted, so the state line's `widgets N/M` numbers do not change - it
+        // simply never becomes a candidate.
+        bool widget_may_be_menu(UObject* obj)
+        {
+            return widget_class_kind(obj) == 1;
         }
 
         // ONE SLICE. Raw reads only - no ProcessEvent - so this is safe on the fast path
@@ -1176,6 +1226,10 @@ namespace gamestate
                     continue;
                 }
                 ++g_wseen_round;
+                if (!widget_may_be_menu(obj))
+                {
+                    continue; // subtitles, damage numbers, toasts, the HUD - see scan_sched.hpp
+                }
                 // THE PREFILTER. `UWidget::Visibility` is a reflected TEnumAsByte and
                 // ESlateVisibility::Visible == 0, so ~900 widget instances cost one
                 // guarded byte read each and only the handful that say Visible are worth
@@ -1300,6 +1354,10 @@ namespace gamestate
                     continue; // captured a pump ago, dead by now
                 }
                 UObject* w = ref.obj;
+                if (!widget_may_be_menu(w))
+                {
+                    continue; // the config's list can grow between the slice and here
+                }
                 // Re-read the byte rather than trusting the slice's: the authoritative
                 // answer is always the fresh one, however short the gap.
                 bool has_byte = false;

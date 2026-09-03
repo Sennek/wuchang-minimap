@@ -1602,6 +1602,77 @@ namespace
         CHECK(scan::menu_open_from(false, true));
         CHECK(scan::menu_open_from(true, true));
 
+
+        //==============================================================================
+        // THE NOT-A-MENU DENY-LIST
+        //==============================================================================
+        //
+        // 2026-09-03 20:56:16, in combat: `menu root discovered: WB_ZiMu_C_2147458145`,
+        // `menu state -> OPEN`, `minimap HIDDEN: a menu is open`. ZiMu is the game's own
+        // name for SUBTITLES - a combat subtitle hid the minimap for 2.4 s. The rule
+        // ("an in-viewport widget whose Visibility is Visible") is still right for every
+        // menu the game has; the subtitle is furniture the game happens to author as
+        // plain Visible, so it needs a named exception.
+        std::printf("-- the not-a-menu deny-list --\n");
+
+        // The incident, in both character widths (the runtime matches a wchar_t class
+        // name; the table is ASCII).
+        CHECK(scan::builtin_non_menu_reason(L"WB_ZiMu_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason("WB_ZiMu_C") != nullptr);
+        // A prefix, so every instance's class variant is covered.
+        CHECK(scan::builtin_non_menu_reason(L"WB_ZiMu_Combat_C") != nullptr);
+        // Case-insensitive: the list must not depend on how the game capitalised it.
+        CHECK(scan::builtin_non_menu_reason(L"wb_zimu_c") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_ZIMU_C") != nullptr);
+
+        // THE THREE ROOTS THAT REALLY ARE MENUS MUST SURVIVE THE LIST. These are the
+        // only in-viewport `Visible` roots in any recon UI dump, and if any of them
+        // matched an entry the minimap would stop hiding on menus altogether - which is
+        // a worse bug than the one being fixed.
+        CHECK(scan::builtin_non_menu_reason(L"WB_MenuMain_C") == nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_PlumeArchive_Main_C") == nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_Login_C") == nullptr);
+        // And the fog-gate / transit screens the mod has not met yet.
+        CHECK(scan::builtin_non_menu_reason(L"WB_PlumeTransit_C") == nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_Setting_C") == nullptr);
+
+        // The HUD roots from the dumps. They are all HitTestInvisible, so the Visibility
+        // test already excludes them - the list is belt as well as braces for the day one
+        // of them is authored differently.
+        CHECK(scan::builtin_non_menu_reason(L"WB_MainUI_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_InteractionTips_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_ShowAddItemMain_New_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_NPCBG_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_GameSaving_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_AddressInfo_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_AnimationSlot_Fade_C") != nullptr);
+
+        // Every entry must carry a reason, and no entry may be empty (an empty prefix
+        // would match EVERY widget and switch menu detection off entirely).
+        for (const scan::NonMenuRoot& row : scan::kNonMenuRoots)
+        {
+            CHECK(row.prefix != nullptr && row.prefix[0] != '\0');
+            CHECK(row.why != nullptr && row.why[0] != '\0');
+        }
+
+        // A nullptr name is never a match, and the empty name is not either.
+        CHECK(scan::builtin_non_menu_reason(static_cast<const wchar_t*>(nullptr)) == nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"") == nullptr);
+
+        // `menu_ignore_roots`: the player's own additions, separators mixed.
+        CHECK(scan::non_menu_root_reason(L"WB_MenuMain_C", "") == nullptr);
+        CHECK(scan::non_menu_root_reason(L"WB_Weird_C", "WB_Weird") != nullptr);
+        CHECK(scan::non_menu_root_reason(L"WB_Weird_C", "WB_Other, WB_Weird ; WB_Third") != nullptr);
+        CHECK(scan::non_menu_root_reason(L"WB_Weird_C", "wb_weird") != nullptr);
+        CHECK(scan::non_menu_root_reason(L"WB_MenuMain_C", "WB_Weird,WB_Other") == nullptr);
+        // A list of nothing but separators must not match anything (an empty token would
+        // otherwise silence every menu in the game).
+        CHECK(scan::non_menu_root_reason(L"WB_MenuMain_C", " , ; ,, ") == nullptr);
+        CHECK(scan::non_menu_root_reason(L"WB_MenuMain_C", ",") == nullptr);
+        CHECK(scan::non_menu_root_reason(L"WB_MenuMain_C", static_cast<const char*>(nullptr)) == nullptr);
+        // A prefix longer than the name is not a match.
+        CHECK(scan::non_menu_root_reason(L"WB_", "WB_MenuMain_C") == nullptr);
+
         // THE COMMIT BATCH. A pump tests at most kWidgetCommitPerPump candidates and the
         // rest stay pending, so a burst costs latency and not a frame.
         CHECK_EQ(scan::commit_batch(0, 128), 0);

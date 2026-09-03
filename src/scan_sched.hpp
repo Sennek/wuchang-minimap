@@ -392,6 +392,180 @@ namespace scan
         return watchlist_open || commit_confirmed;
     }
 
+
+    //==================================================================================
+    // WHICH IN-VIEWPORT `Visible` ROOTS ARE NOT MENUS
+    //==================================================================================
+    //
+    // THE INCIDENT. 2026-09-03 20:56:16, in combat:
+    //     menu root discovered: WB_ZiMu_C_2147458145
+    //     menu state -> OPEN
+    //     minimap HIDDEN: a menu is open
+    // and 2.4 s later the same widget went out of the viewport and the state flipped
+    // back. `ZiMu` is 字幕 - SUBTITLES. A combat subtitle had just hidden the minimap.
+    //
+    // WHY THE RULE LET IT THROUGH, AND WHY THE RULE IS STILL RIGHT. "A menu is open" ==
+    // "some in-viewport widget's Visibility is ESlateVisibility::Visible", and that has
+    // held for every menu this game has: the gameplay HUD roots are all
+    // HitTestInvisible / SelfHitTestInvisible, so they never qualify (in every recon UI
+    // dump the only in-viewport `Visible` roots are WB_MenuMain_C, WB_PlumeArchive_Main_C
+    // and WB_Login_C, while WB_MainUI_C, WB_InteractionTips_C, WB_ShowAddItemMain_New_C,
+    // WB_NPCBG_C and WB_GameSaving_C are all HitTestInvisible). The subtitle widget is
+    // the one piece of transient combat furniture the game happens to author as plain
+    // `Visible`, so it satisfies a test that is otherwise exactly correct.
+    //
+    // SO THE FIX IS A DENY-LIST, NOT A NEW RULE. A named table of class-name prefixes
+    // that are known not to be menus, matched case-insensitively; anything not on it is
+    // still a menu, and every root that is discovered for the first time is logged by
+    // name, which is how the list grows without another guess.
+    //
+    // WHY NOT `bIsFocusable` OR "IT HIDES THE HUD" INSTEAD. Both were considered against
+    // what the widget tree actually shows. `bIsFocusable` cannot be checked offline (the
+    // recon dumps carry inViewport / isVisible / visibility / parent and nothing else),
+    // and it is exactly the kind of guess that has cost this project three in-game
+    // sessions already - a wrong property name or width reads as "no menus exist", which
+    // is worse than a subtitle hiding the minimap. "It hides the HUD" needs a second
+    // widget test per pump and is a guess about the game's own HUD lifetime. The
+    // deny-list needs neither: it is decidable from a string we already have, it fails
+    // safe (an unknown root is still a menu), and it is verifiable from the dumps.
+    struct NonMenuRoot
+    {
+        const char* prefix;
+        const char* why;
+    };
+
+    inline constexpr NonMenuRoot kNonMenuRoots[] = {
+        {"WB_ZiMu", "subtitles (ZiMu = the game's own name for them)"},
+        {"WB_Subtitle", "subtitles"},
+        {"WB_Damage", "damage numbers"},
+        {"WB_HurtNum", "damage numbers"},
+        {"WB_InteractionTips", "the interaction prompt"},
+        {"WB_Tips", "a tip / toast"},
+        {"WB_Toast", "a toast"},
+        {"WB_Tutorial", "a tutorial toast"},
+        {"WB_Guide", "a tutorial toast"},
+        {"WB_ShowAddItem", "the item-pickup toast"},
+        {"WB_MainUI", "the gameplay HUD"},
+        {"WB_HUD", "the gameplay HUD"},
+        {"WB_AddressInfo", "the area-name banner"},
+        {"WB_NPCBG", "the dialogue letterbox"},
+        {"WB_GameSaving", "the autosave spinner"},
+        {"WB_BossHp", "a boss health bar"},
+        {"WB_BossBlood", "a boss health bar"},
+        {"WB_AnimationSlot", "an animation wrapper, not a screen"},
+    };
+
+    // ASCII-only lowering. Widget class names in this game are ASCII (the CJK is in the
+    // asset paths and in the property names, never in a `WB_*_C` class name), and a
+    // non-ASCII byte simply cannot equal a prefix character.
+    template <class CharT>
+    constexpr char ascii_lower(CharT c) noexcept
+    {
+        const unsigned v = static_cast<unsigned>(c);
+        if (v > 127u)
+        {
+            return '\x01'; // never equal to any character of a prefix
+        }
+        const char ch = static_cast<char>(v);
+        return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch;
+    }
+
+    template <class CharT>
+    constexpr bool name_has_prefix_ci(const CharT* name, const char* prefix) noexcept
+    {
+        if (name == nullptr || prefix == nullptr || prefix[0] == '\0')
+        {
+            return false;
+        }
+        for (int i = 0; prefix[i] != '\0'; ++i)
+        {
+            if (name[i] == static_cast<CharT>(0))
+            {
+                return false;
+            }
+            if (ascii_lower(name[i]) != ascii_lower(prefix[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // The built-in table. Returns the REASON the class is not a menu, or nullptr when it
+    // could be one - a reason rather than a bool so the log line says why.
+    template <class CharT>
+    constexpr const char* builtin_non_menu_reason(const CharT* class_name) noexcept
+    {
+        if (class_name == nullptr)
+        {
+            return nullptr;
+        }
+        for (const NonMenuRoot& row : kNonMenuRoots)
+        {
+            if (name_has_prefix_ci(class_name, row.prefix))
+            {
+                return row.why;
+            }
+        }
+        return nullptr;
+    }
+
+    // The player's own additions (`menu_ignore_roots`): the same prefix match over a
+    // comma / semicolon / whitespace separated list, so a root the built-in table has
+    // never heard of can be silenced from the config file instead of from a rebuild.
+    template <class CharT>
+    inline bool extra_non_menu_match(const CharT* class_name, const char* list) noexcept
+    {
+        if (class_name == nullptr || list == nullptr)
+        {
+            return false;
+        }
+        int at = 0;
+        while (list[at] != '\0')
+        {
+            while (list[at] == ',' || list[at] == ';' || list[at] == ' ' || list[at] == '\t')
+            {
+                ++at;
+            }
+            const int start = at;
+            while (list[at] != '\0' && list[at] != ',' && list[at] != ';' && list[at] != ' ' &&
+                   list[at] != '\t')
+            {
+                ++at;
+            }
+            const int len = at - start;
+            if (len > 0)
+            {
+                bool all = true;
+                for (int i = 0; i < len && all; ++i)
+                {
+                    if (class_name[i] == static_cast<CharT>(0) ||
+                        ascii_lower(class_name[i]) != ascii_lower(list[start + i]))
+                    {
+                        all = false;
+                    }
+                }
+                if (all)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // THE ANSWER. nullptr = this class may hold a menu.
+    template <class CharT>
+    inline const char* non_menu_root_reason(const CharT* class_name, const char* extra) noexcept
+    {
+        const char* why = builtin_non_menu_reason(class_name);
+        if (why != nullptr)
+        {
+            return why;
+        }
+        return extra_non_menu_match(class_name, extra) ? "listed in menu_ignore_roots" : nullptr;
+    }
+
     // The slots of `pending` a pump takes, given the per-pump cap. Pure so the latency
     // contract can be arithmetic in a test rather than a claim in a comment.
     constexpr int commit_batch(int pending, int cap) noexcept

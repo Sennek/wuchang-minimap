@@ -25,6 +25,11 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   minimap**, **Compass** and **X-ray highlight**, all three the same widget with `all` /
   `none` buttons, and every chip now carrying its category's glyph as well as its colour.
 
+- **NPCs have names.** Every NPC marker used to read "NPC" and every merchant marker
+  "Merchant"; they now carry the game's own English name - "He Youzai", "Huang Jian'e",
+  "Wu Gang", "Qiao Ying", "Villager" - on the map, in the tooltip and in the x-ray label.
+  All 248 of them, and no marker moved. The ones typed as merchants turn out to be the
+  game's readable notes rather than shops, so they read "Reading point".
 - **Bosses in every chapter, with their real names.** Chapters 2, 3 and 5 had no boss
   markers at all and chapter 4 had two; they now have 5, 6, 2 and 5, and every boss
   marker is labelled with the game's own English name ("Reborn Treant - Soulwood",

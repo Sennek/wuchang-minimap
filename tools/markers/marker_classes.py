@@ -39,6 +39,9 @@ EXACT = {
     "DKDC_NPC_C": "merchant",
 
     # world mechanisms worth a pin but not a category of their own
+    # `BP_FireReed_C` is a lightable reed prop, not a character - it only ever
+    # looked like a boss because 8 of them sit in `Chapter1_Wanrenk_BOSS_AI`.
+    "BP_FireReed_C": "other",
     "BP_PickUpActor_Trap_C": "other",
     "BP_zhuanjingta_C": "other",
     "BP_QiCaiShi_2_C": "other",
@@ -57,11 +60,38 @@ PATTERNS = [
 # Enemies are not identifiable by class name (the roster is transliterated
 # Chinese and open-ended), but they are identifiable by *where they live*:
 # only `*_AI` sublevels carry spawned characters.  So inside an `_AI` package
-# every actor that is not level plumbing is an enemy, and every actor in a
-# `*_BOSS_AI` / `*_Boss_AI` package (or whose class names a boss) is a boss.
+# every actor that is not level plumbing is an enemy.
 AI_LEVEL = re.compile(r"_AI$")
-BOSS_LEVEL = re.compile(r"_BOSS_AI$|_Boss_AI$", re.I)
-BOSS_CLASS = re.compile(r"boss", re.I)
+
+# BOSSES ARE A CLASS QUESTION (2026-09-03).  Every boss in the game is a placed
+# actor deriving from `BP_PlacedBossAI_C`; this is the complete list of that
+# class' descendants, read out of the cooked `.uasset` export maps' `super`
+# field.  Regenerate with:
+#
+#     python class_graph.py --out class_graph.json --children BP_PlacedBossAI_C
+#     python build_bosses.py --report        # -> ../../markers/bosses.json
+#
+# It REPLACES the old `_BOSS_AI` sublevel / "Boss" in the class name heuristic,
+# which was wrong in both directions.  It missed chapters 2, 3 and 5 entirely
+# (their boss sublevels are named `Chapter3_ZhenWuG_ZhangXianZ_AI`, not
+# `_BOSS_AI`), which is the "no bosses in chapters 2/3" the user reported; and
+# it typed three non-characters as bosses because of where they sit or what
+# they are called -- `BP_FireReed_C` (8 in Chapter 1), `BP_BossPool_C` and
+# `BossLightingEffectActor_C`.  `context/markers-offline.md` section 7 blamed
+# `BP_BossPool_C` for the missing bosses; there is exactly one of it in the
+# whole game, so it never spawned anybody's.
+BOSS_CLASSES = {
+    "AI_YHJS_BP_C", "BP_Anim_ZXZ_StepA_C", "BP_Anim_ZXZ_StepB_C",
+    "BP_BKL_AI_C", "BP_BKL_AI_Special_C", "BP_CZ_AI_2_C", "BP_CZ_AI_3_C",
+    "BP_CZ_AI_C", "BP_DaYouYan_AI_C", "BP_Dashuguai_AI_C", "BP_E_LWX_AI_C",
+    "BP_Honglan_BossAI_C", "BP_MJJJ_AI_New_C", "BP_NRSL01_AI_C",
+    "BP_NRSL_AI_C", "BP_XBFR_AI_C", "BP_XMWC_AI_New_C", "BP_XMWC_LS_AI_C",
+    "BP_XYZ_AI_C", "BP_XYZ_AI_S_C", "BP_YHGN_AI_Special_C",
+    "BP_YHGN_AI_Special_CJD_C", "BP_YHHL_BossAI_C", "BP_YuHuaXNAI_C",
+    "BP_ZY_AI_C", "BP_toutuo_AI_C", "B_ANQ_C", "B_NW_C", "B_XBXN02_C",
+    "Boss_Luhongliu_FirstStage_01_C", "Boss_Luhongliu_FirstStage_01_special_C",
+    "Boss_Luhongliu_SecondStage_C",
+}
 
 # Level plumbing that shares the `_AI` packages with the actual spawners.
 AI_NOISE = re.compile(
@@ -85,6 +115,11 @@ NEVER = re.compile(
     r"LightTriggerBox_C|BP_OptimizedLayerBox_C|BP_CVarOptimizedBox_C|"
     r"BP_TopSlowTickBox_C|PlayerCamerExternController_Box_C|"
     r"BP_TerrainTrap_C|BP_DiCiCombine_C|BP_DiCiTrigger_C|BP_ArrowShooter_C|"
+    # Boss-arena plumbing. Both used to be typed `boss` by the old heuristic:
+    # `BP_BossPool_C` is a `Derivative_Negative_C` spawner (one instance in the
+    # whole game) and `BossLightingEffectActor_C` is a light rig. Neither is a
+    # boss, and pinning either duplicates the real boss marker beside it.
+    r"BP_BossPool_C|BossLightingEffectActor_C|"
     r"DI_\w*)$"
 )
 
@@ -93,13 +128,11 @@ def categorise(class_name: str, level_short: str) -> str | None:
     """Return the marker category, or None if this actor is not a marker."""
     if NEVER.match(class_name):
         return None
+    if class_name in BOSS_CLASSES:
+        return "boss"
     cat = EXACT.get(class_name)
     if cat:
         return cat
-    if BOSS_LEVEL.search(level_short) or BOSS_CLASS.search(class_name):
-        if not AI_NOISE.match(class_name):
-            return "boss"
-        return None
     if AI_LEVEL.search(level_short):
         if AI_NOISE.match(class_name):
             return None

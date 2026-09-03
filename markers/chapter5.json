@@ -5,6 +5,30 @@
  "generated_by": "tools/markers/extract_markers.py",
  "markers": [
   {
+   "id": "Chapter5_HaiBbaiHJS_LSXM_AI/BP_XMWC_LS_AI_C_1",
+   "cat": "boss",
+   "cls": "BP_XMWC_LS_AI_C",
+   "name": "Demon of Obsession",
+   "obj": "BP_XMWC_LS_AI_C_1",
+   "x": -126031.22,
+   "y": 6865.0,
+   "z": 7997.0,
+   "cell": "B5EX0_L0_X-13_Y0",
+   "level": "Chapter5_HaiBbaiHJS_LSXM_AI"
+  },
+  {
+   "id": "Chapter5_ZhenLiZM_YHXYZ_AI/BP_XYZ_AI_S_C_1",
+   "cat": "boss",
+   "cls": "BP_XYZ_AI_S_C",
+   "name": "Feathery Ambition - Xuanyangzi",
+   "obj": "BP_XYZ_AI_S_C_1",
+   "x": -199762.37,
+   "y": -18834.79,
+   "z": 2242.15,
+   "cell": "B5EX0_L0_X-20_Y-2",
+   "level": "Chapter5_ZhenLiZM_YHXYZ_AI"
+  },
+  {
    "id": "Chapter5_YuRenJT_logic/BP_treasurebox_C_0",
    "cat": "chest",
    "cls": "BP_treasurebox_C",
@@ -1145,18 +1169,6 @@
    "z": -1255.7,
    "cell": "B5EX0_L0_X-12_Y-2",
    "level": "Chapter5_HaiBbaiHJS_AI"
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_LSXM_AI/BP_XMWC_LS_AI_C_1",
-   "cat": "enemy",
-   "cls": "BP_XMWC_LS_AI_C",
-   "name": "Enemy",
-   "obj": "BP_XMWC_LS_AI_C_1",
-   "x": -126031.22,
-   "y": 6865.0,
-   "z": 7997.0,
-   "cell": "B5EX0_L0_X-13_Y0",
-   "level": "Chapter5_HaiBbaiHJS_LSXM_AI"
   },
   {
    "id": "Chapter5_YuRenJT_AI/BP_CQBR_AI_C_2",
@@ -2789,18 +2801,6 @@
    "z": 793.65,
    "cell": "B5EX0_L0_X-16_Y-1",
    "level": "Chapter5_ZhenLiZM_AI"
-  },
-  {
-   "id": "Chapter5_ZhenLiZM_YHXYZ_AI/BP_XYZ_AI_S_C_1",
-   "cat": "enemy",
-   "cls": "BP_XYZ_AI_S_C",
-   "name": "Enemy",
-   "obj": "BP_XYZ_AI_S_C_1",
-   "x": -199762.37,
-   "y": -18834.79,
-   "z": 2242.15,
-   "cell": "B5EX0_L0_X-20_Y-2",
-   "level": "Chapter5_ZhenLiZM_YHXYZ_AI"
   },
   {
    "id": "Chapter5_HaiBbaiHJS_logic/BP_Wumen_C_1",

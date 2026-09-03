@@ -126,9 +126,8 @@ NOT_PEOPLE = {
 # `NS_Hint01_Blue`) and `Letter01_NPC_C` (1) are the same thing.  So they are
 # readable inscriptions / notes, and "Reading point" is what they get: a
 # description, never a character's name, so it cannot be wrong about identity.
-# `DKDC_NPC_C` is typed `note` by `marker_classes.EXACT`; `ReadPointSP_NPC_C`
-# and `Letter01_NPC_C` are still typed `npc` (they match the `NPC` regex) and
-# re-typing those 15 markers is a category change left for the user to call.
+# All three are typed `note` by `marker_classes.EXACT` (the user's call on
+# 2026-09-03; the `NPC` regex would otherwise have typed the last two `npc`).
 #
 # The read ids themselves resolve nowhere offline: they are not in
 # `MMGame.locres` (the only locres in the game) and a scan of all 2 150

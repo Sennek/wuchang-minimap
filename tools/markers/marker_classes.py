@@ -44,6 +44,10 @@ EXACT = {
     # `Zhangfangxiansheng_NPC_C` out of `AI/npc/NPC_GuDongShang/`) is a plain
     # `BP_NPC_C` descendant and stays `npc`.
     "DKDC_NPC_C": "note",
+    # Same object, blue hint particle / a letter prop; the `NPC` regex would
+    # otherwise type them `npc`.
+    "ReadPointSP_NPC_C": "note",
+    "Letter01_NPC_C": "note",
 
     # world mechanisms worth a pin but not a category of their own
     # `BP_FireReed_C` is a lightable reed prop, not a character - it only ever

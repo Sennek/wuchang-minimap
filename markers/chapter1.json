@@ -6293,6 +6293,18 @@
    "level": "Chapter1_Shuwang_logic"
   },
   {
+   "id": "Chapter1_Shuwang_logic/ReadPointSP_NPC_C_0",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "ReadPointSP_NPC_C_0",
+   "x": 24511.94,
+   "y": 3433.48,
+   "z": 620.49,
+   "cell": "B1EX0_L0_X2_Y0",
+   "level": "Chapter1_Shuwang_logic"
+  },
+  {
    "id": "Chapter1_TangW_logic/DKDC_NPC_C_0",
    "cat": "note",
    "cls": "DKDC_NPC_C",
@@ -6326,6 +6338,18 @@
    "y": 12772.0,
    "z": 2518.0,
    "cell": "B1EX0_L0_X0_Y1",
+   "level": "Chapter1_TangW_logic"
+  },
+  {
+   "id": "Chapter1_TangW_logic/ReadPointSP_NPC_C_0",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "ReadPointSP_NPC_C_0",
+   "x": 13509.99,
+   "y": 16749.74,
+   "z": 6276.5,
+   "cell": "B1EX0_L0_X1_Y1",
    "level": "Chapter1_TangW_logic"
   },
   {
@@ -6917,18 +6941,6 @@
    "level": "Chapter1_Shuwang_logic"
   },
   {
-   "id": "Chapter1_Shuwang_logic/ReadPointSP_NPC_C_0",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "ReadPointSP_NPC_C_0",
-   "x": 24511.94,
-   "y": 3433.48,
-   "z": 620.49,
-   "cell": "B1EX0_L0_X2_Y0",
-   "level": "Chapter1_Shuwang_logic"
-  },
-  {
    "id": "Chapter1_Shuwang_logic/WuTouDiDi_NPC_C_1",
    "cat": "npc",
    "cls": "WTDD_N_NPC_C",
@@ -7034,18 +7046,6 @@
    "y": 14209.96,
    "z": 4038.49,
    "cell": "B1EX0_L0_X-1_Y1",
-   "level": "Chapter1_TangW_logic"
-  },
-  {
-   "id": "Chapter1_TangW_logic/ReadPointSP_NPC_C_0",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "ReadPointSP_NPC_C_0",
-   "x": 13509.99,
-   "y": 16749.74,
-   "z": 6276.5,
-   "cell": "B1EX0_L0_X1_Y1",
    "level": "Chapter1_TangW_logic"
   },
   {

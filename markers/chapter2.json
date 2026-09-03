@@ -6288,6 +6288,42 @@
    "level": "Chapter2_YunDingCN_logic"
   },
   {
+   "id": "Chapter2_JiSiK_logic/ReadPointSP_NPC_C_0",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "ReadPointSP_NPC_C_0",
+   "x": 43642.18,
+   "y": -43813.95,
+   "z": 6512.13,
+   "cell": "B2EX0_L0_X4_Y-5",
+   "level": "Chapter2_JiSiK_logic"
+  },
+  {
+   "id": "Chapter2_P1P2_logic/ReadPointSP_NPC_C_3",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "ReadPointSP_NPC_C_3",
+   "x": 47112.96,
+   "y": -3668.85,
+   "z": -2492.45,
+   "cell": "B2EX0_L0_X4_Y-1",
+   "level": "Chapter2_P1P2_logic"
+  },
+  {
+   "id": "Chapter2_ShuJing_logic/ReadPointSP_NPC_C_1",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "ReadPointSP_NPC_C_1",
+   "x": 70660.48,
+   "y": -40298.99,
+   "z": 12922.31,
+   "cell": "B2EX0_L0_X6_Y-4",
+   "level": "Chapter2_ShuJing_logic"
+  },
+  {
    "id": "Chapter2_WangShanC_logic/DKDC_NPC_C_0",
    "cat": "note",
    "cls": "DKDC_NPC_C",
@@ -6296,6 +6332,18 @@
    "x": 56715.71,
    "y": -12926.62,
    "z": 3795.12,
+   "cell": "B2EX0_L0_X5_Y-2",
+   "level": "Chapter2_WangShanC_logic"
+  },
+  {
+   "id": "Chapter2_WangShanC_logic/DKDC_NPC_C_1",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "DKDC_NPC_C_1",
+   "x": 52914.84,
+   "y": -15352.23,
+   "z": 2316.0,
    "cell": "B2EX0_L0_X5_Y-2",
    "level": "Chapter2_WangShanC_logic"
   },
@@ -6420,6 +6468,18 @@
    "level": "Chapter2_YunDingCW_logic"
   },
   {
+   "id": "Chapter2_YunDingCW_logic/ReadPointSP_NPC_C_2",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "ReadPointSP_NPC_C_2",
+   "x": 31372.91,
+   "y": -60979.95,
+   "z": 12776.7,
+   "cell": "B2EX0_L0_X3_Y-6",
+   "level": "Chapter2_YunDingCW_logic"
+  },
+  {
    "id": "Chapter2_DaXiJYD_logic/NSC_NPC_C_0",
    "cat": "npc",
    "cls": "NSC_N_NPC_C",
@@ -6430,30 +6490,6 @@
    "z": 10440.19,
    "cell": "B2EX0_L0_X1_Y-6",
    "level": "Chapter2_DaXiJYD_logic"
-  },
-  {
-   "id": "Chapter2_JiSiK_logic/ReadPointSP_NPC_C_0",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "ReadPointSP_NPC_C_0",
-   "x": 43642.18,
-   "y": -43813.95,
-   "z": 6512.13,
-   "cell": "B2EX0_L0_X4_Y-5",
-   "level": "Chapter2_JiSiK_logic"
-  },
-  {
-   "id": "Chapter2_P1P2_logic/ReadPointSP_NPC_C_3",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "ReadPointSP_NPC_C_3",
-   "x": 47112.96,
-   "y": -3668.85,
-   "z": -2492.45,
-   "cell": "B2EX0_L0_X4_Y-1",
-   "level": "Chapter2_P1P2_logic"
   },
   {
    "id": "Chapter2_ShuJing_logic/DY_NPC_C_0",
@@ -6528,18 +6564,6 @@
    "level": "Chapter2_ShuJing_logic"
   },
   {
-   "id": "Chapter2_ShuJing_logic/ReadPointSP_NPC_C_1",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "ReadPointSP_NPC_C_1",
-   "x": 70660.48,
-   "y": -40298.99,
-   "z": 12922.31,
-   "cell": "B2EX0_L0_X6_Y-4",
-   "level": "Chapter2_ShuJing_logic"
-  },
-  {
    "id": "Chapter2_WangShanC_logic/BP_NPC_cunmin_C_0",
    "cat": "npc",
    "cls": "BP_NPC_cunmin_C",
@@ -6561,18 +6585,6 @@
    "y": -12589.5,
    "z": -97.56,
    "cell": "B2EX0_L0_X4_Y-2",
-   "level": "Chapter2_WangShanC_logic"
-  },
-  {
-   "id": "Chapter2_WangShanC_logic/DKDC_NPC_C_1",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "DKDC_NPC_C_1",
-   "x": 52914.84,
-   "y": -15352.23,
-   "z": 2316.0,
-   "cell": "B2EX0_L0_X5_Y-2",
    "level": "Chapter2_WangShanC_logic"
   },
   {
@@ -6873,18 +6885,6 @@
    "y": -59095.56,
    "z": 11543.11,
    "cell": "B2EX0_L0_X4_Y-6",
-   "level": "Chapter2_YunDingCW_logic"
-  },
-  {
-   "id": "Chapter2_YunDingCW_logic/ReadPointSP_NPC_C_2",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "ReadPointSP_NPC_C_2",
-   "x": 31372.91,
-   "y": -60979.95,
-   "z": 12776.7,
-   "cell": "B2EX0_L0_X3_Y-6",
    "level": "Chapter2_YunDingCW_logic"
   },
   {

@@ -4473,6 +4473,18 @@
    "level": "Chapter3_ZhenWuG_logic"
   },
   {
+   "id": "Chapter3_JiangWangDK_logic/DKDC_NPC_C_0",
+   "cat": "note",
+   "cls": "Letter01_NPC_C",
+   "name": "Reading point",
+   "obj": "DKDC_NPC_C_0",
+   "x": 43297.41,
+   "y": 34274.03,
+   "z": -5029.33,
+   "cell": "B3EX0_L0_X4_Y3",
+   "level": "Chapter3_JiangWangDK_logic"
+  },
+  {
    "id": "Chapter3_JiangWangDK_logic/DKDC_NPC_C_1",
    "cat": "note",
    "cls": "DKDC_NPC_C",
@@ -4581,6 +4593,18 @@
    "level": "Chapter3_NiaoRenJL_logic"
   },
   {
+   "id": "Chapter3_NiaoRenJL_logic/ReadPointSP_NPC_C_1",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "ReadPointSP_NPC_C_1",
+   "x": 112711.67,
+   "y": 5883.55,
+   "z": -5895.88,
+   "cell": "B3EX0_L0_X11_Y0",
+   "level": "Chapter3_NiaoRenJL_logic"
+  },
+  {
    "id": "Chapter3_P2P3_logic/DKDC_NPC_C_0",
    "cat": "note",
    "cls": "DKDC_NPC_C",
@@ -4653,6 +4677,18 @@
    "level": "Chapter3_WuChangJZ_logic"
   },
   {
+   "id": "Chapter3_WuChangJZ_logic/ReadPointSP_NPC_C_0",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "ReadPointSP_NPC_C_0",
+   "x": 19867.82,
+   "y": 38800.69,
+   "z": -6046.0,
+   "cell": "B3EX0_L0_X1_Y3",
+   "level": "Chapter3_WuChangJZ_logic"
+  },
+  {
    "id": "Chapter3_ZhenWuG_logic/DKDC_NPC_C_0",
    "cat": "note",
    "cls": "DKDC_NPC_C",
@@ -4713,6 +4749,18 @@
    "level": "Chapter3_ZhenWuG_logic"
   },
   {
+   "id": "Chapter3_ZhenWuG_logic/ReadPointSP_NPC_C_0",
+   "cat": "note",
+   "cls": "ReadPointSP_NPC_C",
+   "name": "Reading point",
+   "obj": "ReadPointSP_NPC_C_0",
+   "x": 63651.22,
+   "y": 26448.35,
+   "z": -2960.98,
+   "cell": "B3EX0_L0_X6_Y2",
+   "level": "Chapter3_ZhenWuG_logic"
+  },
+  {
    "id": "Chapter3_DaXiJYD_logic/LLS_NPC_C_1",
    "cat": "npc",
    "cls": "LLS_N_NPC_C",
@@ -4734,18 +4782,6 @@
    "y": 40569.95,
    "z": -6764.77,
    "cell": "B3EX0_L0_X3_Y3",
-   "level": "Chapter3_JiangWangDK_logic"
-  },
-  {
-   "id": "Chapter3_JiangWangDK_logic/DKDC_NPC_C_0",
-   "cat": "npc",
-   "cls": "Letter01_NPC_C",
-   "name": "Reading point",
-   "obj": "DKDC_NPC_C_0",
-   "x": 43297.41,
-   "y": 34274.03,
-   "z": -5029.33,
-   "cell": "B3EX0_L0_X4_Y3",
    "level": "Chapter3_JiangWangDK_logic"
   },
   {
@@ -5061,18 +5097,6 @@
    "level": "Chapter3_NiaoRenJL_logic"
   },
   {
-   "id": "Chapter3_NiaoRenJL_logic/ReadPointSP_NPC_C_1",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "ReadPointSP_NPC_C_1",
-   "x": 112711.67,
-   "y": 5883.55,
-   "z": -5895.88,
-   "cell": "B3EX0_L0_X11_Y0",
-   "level": "Chapter3_NiaoRenJL_logic"
-  },
-  {
    "id": "Chapter3_NiaoRenJL_logic/ZY_NPC_Weapon_C_0",
    "cat": "npc",
    "cls": "ZY_N_NPC_ChangQiang_C",
@@ -5154,18 +5178,6 @@
    "y": 44704.74,
    "z": -4995.57,
    "cell": "B3EX0_L0_X1_Y4",
-   "level": "Chapter3_WuChangJZ_logic"
-  },
-  {
-   "id": "Chapter3_WuChangJZ_logic/ReadPointSP_NPC_C_0",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "ReadPointSP_NPC_C_0",
-   "x": 19867.82,
-   "y": 38800.69,
-   "z": -6046.0,
-   "cell": "B3EX0_L0_X1_Y3",
    "level": "Chapter3_WuChangJZ_logic"
   },
   {
@@ -5286,18 +5298,6 @@
    "y": 19050.16,
    "z": -632.47,
    "cell": "B3EX0_L0_X4_Y1",
-   "level": "Chapter3_ZhenWuG_logic"
-  },
-  {
-   "id": "Chapter3_ZhenWuG_logic/ReadPointSP_NPC_C_0",
-   "cat": "npc",
-   "cls": "ReadPointSP_NPC_C",
-   "name": "Reading point",
-   "obj": "ReadPointSP_NPC_C_0",
-   "x": 63651.22,
-   "y": 26448.35,
-   "z": -2960.98,
-   "cell": "B3EX0_L0_X6_Y2",
    "level": "Chapter3_ZhenWuG_logic"
   },
   {

@@ -2498,15 +2498,29 @@ namespace mm
     // last thing that happened - and (c) every few seconds from the loop thread.
     //
     // `modlog_line()` is only ever reached from the loop thread (mm::log's direct path and
-    // drain_log), but `modlog_flush()` is called from the breadcrumb, i.e. from any
-    // thread - so the buffer and the handle are behind the same spinlock the log queue
-    // uses. Nothing in here allocates while holding it.
+    // drain_log), but `modlog_flush()` is called from the breadcrumb and from the stall
+    // watchdog, i.e. from any thread - so the buffer and the handle are behind a spinlock
+    // of their OWN (see g_modlog_lock), never the log queue's, because everything under
+    // it is a blocking file syscall and the queue is what the game thread touches.
+    // Nothing in here allocates while holding it.
 
     namespace
     {
         constexpr std::size_t kModLogFlushAt = 8192;
         constexpr const wchar_t* kModLogName = L"\\wuchang_minimap.log";
 
+        // A LOCK OF ITS OWN, not the log QUEUE's.
+        //
+        // Both used to be behind `g_log_lock`, and that put a `WriteFile` /
+        // `FlushFileBuffers` / a four-file rotation INSIDE the lock that the game thread
+        // and the render thread take to enqueue a log line - a spinlock held across a
+        // blocking syscall, with the game thread as the victim. Nothing needs the two to
+        // be the same lock: the queue is a vector of strings, the buffer is bytes and a
+        // handle, and no path holds one while taking the other (`drain_log` swaps the
+        // queue out under `g_log_lock`, releases it, and only then writes). So they are
+        // separate, and enqueueing a line from the game thread can no longer wait on the
+        // disk.
+        Spinlock g_modlog_lock;
         HANDLE g_modlog = INVALID_HANDLE_VALUE;
         std::string g_modlog_buf;
         bool g_modlog_opened = false;
@@ -2586,7 +2600,7 @@ namespace mm
                            static_cast<unsigned>(st.wHour), static_cast<unsigned>(st.wMinute),
                            static_cast<unsigned>(st.wSecond), static_cast<unsigned>(st.wMilliseconds));
             const std::string text = utf8_of(std::wstring{stamp} + line);
-            SpinGuard guard(g_log_lock);
+            SpinGuard guard(g_modlog_lock);
             modlog_open_locked();
             if (g_modlog == INVALID_HANDLE_VALUE)
             {
@@ -2603,7 +2617,7 @@ namespace mm
 
     void modlog_flush()
     {
-        SpinGuard guard(g_log_lock);
+        SpinGuard guard(g_modlog_lock);
         modlog_write_locked();
         if (g_modlog != INVALID_HANDLE_VALUE)
         {

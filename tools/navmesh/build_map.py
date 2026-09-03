@@ -121,6 +121,7 @@ The input tree is produced by `offline/navchunk.py` (see
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import math
 import sys
@@ -728,6 +729,12 @@ def chapter_number(key: str) -> int:
     return int(digits) if digits else 0
 
 
+def default_marker_globs(chapter_key: str) -> list[Path]:
+    """`markers/<chapter key>.json` next to the repo root - the island filter's seeds."""
+    root = Path(__file__).resolve().parent.parent.parent / "markers"
+    return [root / f"{chapter_key}.json"]
+
+
 def build_chapter(args: argparse.Namespace) -> dict:
     root = args.input if args.input.is_absolute() else Path(__file__).resolve().parent / args.input
     agents = render.discover_agents(root)
@@ -742,14 +749,37 @@ def build_chapter(args: argparse.Namespace) -> dict:
 
     polys = render.polygons_of(dump)
     total = len(polys)
-    planes = render.classify_flat_planes(polys, render.DEFAULT_FLAT_PLANE_AREA)
+    planes = render.classify_flat_planes(
+        polys, render.DEFAULT_FLAT_PLANE_AREA,
+        sheet_min=args.flat_plane_sheet_min, isolation=args.flat_plane_isolation,
+    )
     polys = [p for p in polys if not p["plane"]]
+    dropped_sheets = ", ".join(f"Z={s['z']:.1f} x{s['polys']} ({s['reason']})" for s in planes["dropped_sheets"])
     print(
-        f"[{args.chapter}] {len(dump.tiles)} tiles, {total} polygons, "
-        f"{planes['count']} flat planes dropped ({total - len(polys)} polys), {len(polys)} drawn"
+        f"[{args.chapter}] {len(dump.tiles)} tiles, {total} polygons; "
+        f"{planes['candidates']} big flat quads in {len(planes['sheets'])} sheet(s), "
+        f"{planes['count']} of them out of bounds and dropped [{dropped_sheets or 'none'}]; "
+        f"{len(polys)} drawn"
     )
     if not polys:
         sys.exit("every polygon was filtered out")
+
+    islands = {}
+    if args.drop_islands:
+        seed_files = [Path(p) for pat in (args.markers or default_marker_globs(args.chapter))
+                      for p in sorted(glob.glob(str(pat)))]
+        seeds = render.load_marker_seeds(seed_files)
+        if not seeds:
+            print(f"  ! no marker seeds found ({', '.join(str(p) for p in seed_files) or 'no files'}); "
+                  f"the island filter falls back to the area threshold alone", file=sys.stderr)
+        polys, islands = render.filter_islands(
+            polys, seeds,
+            grid=args.island_grid, z_tol=args.island_z_tol, min_area=args.island_min_area,
+            seed_radius=args.island_seed_radius, require_seed=args.island_require_seed,
+        )
+        print(render.describe_islands(args.chapter, islands))
+        if not polys:
+            sys.exit("the island filter removed every polygon")
 
     bounds = render.compute_bounds(polys, args.px_per_uu, margin_uu=args.margin)
     # RAM budget FIRST, max-dim second: the budget scales continuously while the
@@ -869,6 +899,11 @@ def build_chapter(args: argparse.Namespace) -> dict:
         "max_surfaces": used,
         "max_surfaces_requested": args.max_surfaces,
         "surface_merge_tol_uu": args.merge_tol,
+        "flat_plane_sheets_dropped": planes["dropped_sheets"],
+        "island_filter": {k: islands[k] for k in
+                          ("components", "kept", "dropped", "polys_dropped", "area_dropped",
+                           "seeds", "seeded_components", "grid_uu", "z_tol_uu", "min_area_uu2",
+                           "seed_radius_uu", "require_seed") if k in islands},
         "height_maps": height_maps,
         "height_map_bytes": height_bytes,
         "height_map_raw_bytes": raw,
@@ -933,6 +968,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-mb", type=float, default=10.0, help="warn if the composite PNG exceeds this (MB)")
     ap.add_argument("--margin", type=float, default=256.0, help="world-space margin around the geometry, uu")
     ap.add_argument("--no-edges", action="store_true", help="do not draw polygon edges in the composite")
+    render.add_plane_args(ap)
+    render.add_island_args(ap, default_on=True)
     # ---- superseded schema-2 path ------------------------------------------------
     ap.add_argument(
         "--legacy-layers",

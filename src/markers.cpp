@@ -1493,6 +1493,11 @@ namespace markers
         return g_stats;
     }
 
+    std::uint64_t rounds()
+    {
+        return g_rounds.load(std::memory_order_relaxed);
+    }
+
     void on_unreal_init()
     {
         load_static_db();

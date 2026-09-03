@@ -2482,6 +2482,192 @@ namespace overlay
         int g_frame_marker_total = 0;         // rows in the published buffer
         int g_frame_bad_cat = 0;              // rows whose category byte is out of range
 
+        //==============================================================================
+        // Animation, toasts, and the "it just became found" event
+        //==============================================================================
+        //
+        // All of it is RENDER-THREAD state derived from what the frame already has. None
+        // of it costs the game thread anything, and - the rule that matters - none of it
+        // can keep something on screen after the state that allows it went away:
+        //
+        //   * the HUD fade's TARGET is the hud_gate result. A target of 0 is applied
+        //     instantly (hiding is immediate; the gate also stops the draw outright),
+        //     and only showing is eased. That is the no-latch rule from lessons.md
+        //     applied to an animation instead of to a condition.
+        //   * a toast is a string plus a deadline; it says what just happened and then
+        //     goes.
+        //   * the found ring is driven by comparing the PUBLISHED found flags of the
+        //     markers near the player between marker rounds - the game thread does no
+        //     extra work for it, and nothing is remembered longer than one round.
+
+        constexpr std::uint64_t kHudFadeMs = 150;
+        float g_hud_fade = 0.0f;
+        std::uint64_t g_hud_fade_ms = 0; // when the current show started
+
+        // Eases towards 1 while `target_on`, drops to 0 the instant it is false.
+        float hud_fade_step(bool target_on, std::uint64_t now)
+        {
+            if (!target_on)
+            {
+                g_hud_fade = 0.0f;
+                g_hud_fade_ms = 0;
+                return 0.0f;
+            }
+            if (g_hud_fade_ms == 0)
+            {
+                g_hud_fade_ms = now;
+            }
+            const std::uint64_t age = now - g_hud_fade_ms;
+            const float t = age >= kHudFadeMs ? 1.0f : static_cast<float>(age) / static_cast<float>(kHudFadeMs);
+            // Smoothstep: a linear ramp on an alpha reads as a hard edge at both ends.
+            g_hud_fade = t * t * (3.0f - 2.0f * t);
+            return g_hud_fade;
+        }
+
+        // ---- toasts ------------------------------------------------------------------
+        char g_toast[64]{};
+        std::uint64_t g_toast_until = 0;
+
+        void toast(const char* text)
+        {
+            ::strncpy_s(g_toast, sizeof(g_toast), text, _TRUNCATE);
+            g_toast_until = ::GetTickCount64() + 1000;
+        }
+
+        void draw_toast()
+        {
+            const std::uint64_t now = ::GetTickCount64();
+            if (g_toast[0] == '\0' || now >= g_toast_until)
+            {
+                return;
+            }
+            const std::uint64_t left = g_toast_until - now;
+            const float a = left >= 300 ? 1.0f : static_cast<float>(left) / 300.0f;
+            const ImGuiViewport* vp = ImGui::GetMainViewport();
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            const ImVec2 ts = ImGui::CalcTextSize(g_toast);
+            const float pad = ImGui::GetTextLineHeight() * 0.5f;
+            const ImVec2 c{vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.72f};
+            const ImVec2 tl{c.x - ts.x * 0.5f - pad, c.y - ts.y * 0.5f - pad * 0.5f};
+            const ImVec2 br{c.x + ts.x * 0.5f + pad, c.y + ts.y * 0.5f + pad * 0.5f};
+            dl->AddRectFilled(tl, br, plate_color(static_cast<int>(220.0f * a)), 4.0f);
+            dl->AddRect(tl, br, IM_COL32(150, 158, 168, static_cast<int>(180.0f * a)), 4.0f, 0, 1.2f);
+            dl->AddText(ImVec2{c.x - ts.x * 0.5f, c.y - ts.y * 0.5f},
+                        IM_COL32(240, 242, 246, static_cast<int>(255.0f * a)), g_toast);
+        }
+
+        // ---- "this marker just became found" -----------------------------------------
+        //
+        // A 400 ms ring where a marker was collected. The event has to come from
+        // somewhere cheap: the render thread already walks the published buffer every
+        // frame, so it keeps the found flags of the markers NEAR the player and diffs
+        // them whenever the marker sweep publishes a new round (~1 Hz). No game-thread
+        // work, no per-frame string compares, and nothing survives a round.
+        constexpr int kFoundWatch = 24;      // markers watched, nearest-ish first
+        constexpr int kFoundEvents = 6;      // rings that can be in flight at once
+        constexpr double kFoundWatchUu = 6000.0; // 60 m: as far as a ring is worth drawing
+        constexpr std::uint64_t kFoundRingMs = 400;
+
+        struct FoundWatch
+        {
+            char id[54]{};
+            bool found = false;
+        };
+
+        struct FoundEvent
+        {
+            double x = 0.0;
+            double y = 0.0;
+            std::uint64_t t0 = 0;
+        };
+
+        FoundWatch g_found_watch[kFoundWatch]{};
+        int g_found_watch_n = 0;
+        std::uint64_t g_found_watch_round = 0;
+        FoundEvent g_found_events[kFoundEvents]{};
+        int g_found_event_head = 0;
+
+        void note_found_event(double x, double y, std::uint64_t now)
+        {
+            g_found_events[g_found_event_head] = FoundEvent{x, y, now};
+            g_found_event_head = (g_found_event_head + 1) % kFoundEvents;
+        }
+
+        // Called from build_frame_candidates, once per PUBLISHED ROUND rather than per
+        // frame - the flags cannot change in between.
+        void update_found_watch(std::uint64_t round, std::uint64_t now)
+        {
+            if (round == g_found_watch_round)
+            {
+                return;
+            }
+            const bool first = g_found_watch_round == 0;
+            g_found_watch_round = round;
+
+            FoundWatch next[kFoundWatch]{};
+            int n = 0;
+            const float radius2 = static_cast<float>(kFoundWatchUu * kFoundWatchUu);
+            for (const FrameCand& fc : g_frame_cands)
+            {
+                if (n >= kFoundWatch)
+                {
+                    break;
+                }
+                if (fc.d2_xy > radius2 || fc.m->id[0] == '\0')
+                {
+                    continue;
+                }
+                ::strncpy_s(next[n].id, sizeof(next[n].id), fc.m->id, _TRUNCATE);
+                next[n].found = fc.found;
+                // A marker that was in the previous round's watch as NOT found and is
+                // found now is the event. A marker that was not being watched cannot
+                // produce one - which is what stops the first round after a load firing
+                // a ring for every item the save says is already collected.
+                if (!first && next[n].found)
+                {
+                    for (int j = 0; j < g_found_watch_n; ++j)
+                    {
+                        if (!g_found_watch[j].found && std::strcmp(g_found_watch[j].id, next[n].id) == 0)
+                        {
+                            note_found_event(fc.m->x, fc.m->y, now);
+                            break;
+                        }
+                    }
+                }
+                ++n;
+            }
+            for (int i = 0; i < n; ++i)
+            {
+                g_found_watch[i] = next[i];
+            }
+            g_found_watch_n = n;
+        }
+
+        // Draws whatever rings are still in flight, through a caller-supplied
+        // world -> screen mapping. `scale` sizes the ring to the view (a minimap glyph
+        // is much smaller than a full-map one).
+        template <typename ToScreen>
+        void draw_found_rings(ImDrawList* dl, std::uint64_t now, float scale, ToScreen to_screen)
+        {
+            for (const FoundEvent& e : g_found_events)
+            {
+                if (e.t0 == 0 || now - e.t0 > kFoundRingMs)
+                {
+                    continue;
+                }
+                const float t = static_cast<float>(now - e.t0) / static_cast<float>(kFoundRingMs);
+                float sx = 0.0f;
+                float sy = 0.0f;
+                if (!to_screen(e.x, e.y, sx, sy))
+                {
+                    continue;
+                }
+                const float rad = scale * (0.6f + 2.2f * t);
+                const int a = static_cast<int>(220.0f * (1.0f - t));
+                dl->AddCircle(ImVec2{sx, sy}, rad, IM_COL32(255, 236, 180, a), 20, 2.0f);
+            }
+        }
+
         void build_frame_candidates(const mm::Snapshot& snap)
         {
             if (g_pf_markpass < 0)
@@ -2520,6 +2706,10 @@ namespace overlay
                 c.found = (m.flags & markers::kFlagFound) != 0;
                 g_frame_cands.push_back(c);
             }
+
+            // The found-ring events. Diffed once per published marker round, not per
+            // frame - the flags cannot change in between.
+            update_found_watch(markers::rounds(), ::GetTickCount64());
         }
 
         void draw_markers(const mm::Config& cfg, const MiniGeom& g, bool round, float x0, float y0, float side,
@@ -2868,6 +3058,32 @@ namespace overlay
             // Markers go over the map and under the frame ring's highlight and the
             // player arrow, so the arrow is never hidden by a glyph standing on it.
             draw_markers(cfg, g, cfg.round, x0, y0, side, dl);
+
+            // A ring where something was just collected - so a pickup taken off screen
+            // (or behind the player) still registers on the minimap.
+            draw_found_rings(dl, now, (std::max)(4.0f, cfg.markers_size * 1.4f),
+                             [&](double wx, double wy, float& sx, float& sy) {
+                                 const double wdx = wx - g.px;
+                                 const double wdy = wy - g.py;
+                                 const double zz = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
+                                 const double dx = (-g.sin_yaw * wdx + g.cos_yaw * wdy) / zz;
+                                 const double dy = (-g.cos_yaw * wdx - g.sin_yaw * wdy) / zz;
+                                 const double lim = static_cast<double>(g.half) - 2.0;
+                                 if (cfg.round)
+                                 {
+                                     if (dx * dx + dy * dy > lim * lim)
+                                     {
+                                         return false;
+                                     }
+                                 }
+                                 else if (std::abs(dx) > lim || std::abs(dy) > lim)
+                                 {
+                                     return false;
+                                 }
+                                 sx = g.center.x + static_cast<float>(dx);
+                                 sy = g.center.y + static_cast<float>(dy);
+                                 return true;
+                             });
 
             // THE CARDINAL REFERENCE, always drawn (review-0.9.1 item 5). Until 0.9.3
             // the north dot appeared only when `rotate_with_player` was on - so the
@@ -3961,6 +4177,20 @@ namespace overlay
         void draw_waypoint_glyph(ImDrawList* dl, ImVec2 p, float r, int alpha)
         {
             const ImU32 col = IM_COL32(255, 92, 210, alpha);
+            // A 1 Hz pulse ring. The waypoint is the one marker that is never culled and
+            // never dimmed, and on a screen of static glyphs the eye finds the moving
+            // one - which is the whole job of a waypoint. Phase comes from the wall
+            // clock, so every view (minimap, full map, compass) pulses together.
+            {
+                const float phase =
+                    static_cast<float>(::GetTickCount64() % 1000) / 1000.0f;
+                const float rad = r * (1.2f + 1.1f * phase);
+                const int a = static_cast<int>(static_cast<float>(alpha) * 0.55f * (1.0f - phase));
+                if (a > 3)
+                {
+                    dl->AddCircle(p, rad, IM_COL32(255, 92, 210, a), 18, 1.6f);
+                }
+            }
             const ImU32 edge = IM_COL32(20, 8, 18, static_cast<int>(alpha * 0.9f));
             const ImVec2 tip{p.x, p.y + r * 1.5f};
             const ImVec2 l{p.x - r * 0.75f, p.y + r * 0.25f};
@@ -4486,6 +4716,11 @@ namespace overlay
             //--------------------------------------------------------------------------
             // The waypoint and the player
             //--------------------------------------------------------------------------
+            draw_found_rings(dl, now, (std::max)(5.0f, mr * 1.4f),
+                             [&](double wx, double wy, float& sx, float& sy) {
+                                 mv::world_to_screen(g_mv, canvas, wx, wy, sx, sy);
+                                 return canvas.contains(sx, sy);
+                             });
             const mv::Waypoint wp = mm::waypoint();
             if (wp.set)
             {
@@ -4528,22 +4763,46 @@ namespace overlay
             {
                 toggle_found(*hover);
             }
-            if (canvas_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-            {
+            // SET, or CLEAR when the same gesture lands on the waypoint that is
+            // already there. Clearing used to be possible only from the F2 panel, which
+            // means leaving the map to undo something done on the map.
+            const auto set_or_clear = [&](double wx, double wy) {
+                const mv::Waypoint had = mm::waypoint();
+                if (had.set)
+                {
+                    float hx = 0.0f;
+                    float hy = 0.0f;
+                    float cx2 = 0.0f;
+                    float cy2 = 0.0f;
+                    mv::world_to_screen(g_mv, canvas, had.x, had.y, hx, hy);
+                    mv::world_to_screen(g_mv, canvas, wx, wy, cx2, cy2);
+                    const float ddx = hx - cx2;
+                    const float ddy = hy - cy2;
+                    if (ddx * ddx + ddy * ddy <= pick_r * pick_r)
+                    {
+                        mm::set_waypoint(mv::Waypoint{});
+                        toast("waypoint cleared");
+                        return;
+                    }
+                }
                 mv::Waypoint set{};
                 set.set = true;
-                mv::screen_to_world(g_mv, canvas, io.MousePos.x, io.MousePos.y, set.x, set.y);
+                set.x = wx;
+                set.y = wy;
                 set.z = static_cast<double>(feet);
                 mm::set_waypoint(set);
+                toast("waypoint set");
+            };
+            if (canvas_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+            {
+                double wx = 0.0;
+                double wy = 0.0;
+                mv::screen_to_world(g_mv, canvas, io.MousePos.x, io.MousePos.y, wx, wy);
+                set_or_clear(wx, wy);
             }
             if (pad_waypoint || key_waypoint)
             {
-                mv::Waypoint set{};
-                set.set = true;
-                set.x = g_mv.cx;
-                set.y = g_mv.cy;
-                set.z = static_cast<double>(feet);
-                mm::set_waypoint(set);
+                set_or_clear(g_mv.cx, g_mv.cy);
             }
             if ((pad_toggle || key_toggle) && centre_marker != nullptr)
             {
@@ -4560,7 +4819,14 @@ namespace overlay
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(marker_color(cat, 255)), "%s",
                                    hover->label[0] != '\0' ? hover->label : mdb::cat_label(cat));
                 ImGui::Text("category: %s", mdb::cat_name(cat));
-                ImGui::TextDisabled("%s", hover->id);
+                // The stable id is a path (`Chapter1_DGong_logic/BP_treasurebox_C_12`).
+                // It is the join key with the live actors and is exactly what a bug
+                // report needs - and it is noise to everyone else, so it lives behind
+                // the debug switch now.
+                if (cfg.debug_readout)
+                {
+                    ImGui::TextDisabled("%s", hover->id);
+                }
                 const double ddx = hover->x - snap.x;
                 const double ddy = hover->y - snap.y;
                 const double ddz = hover->z - snap.z;
@@ -4599,7 +4865,7 @@ namespace overlay
                 add(left, "ctrl+wheel, Q / E", "floor down / up");
                 add(left, "Home", "zoom to fit the chapter");
                 add(left, key_name_ascii(cfg.map_recenter_key), "recentre on the player");
-                add(left, "right-click, Space", "set a waypoint");
+                add(left, "right-click, Space", "set a waypoint (again on it clears)");
                 add(left, "left-click, F", "toggle found");
                 add(left, "click a legend row", "filter that category");
                 add(left, "?", "this legend");
@@ -4610,7 +4876,7 @@ namespace overlay
                     add(right, "left stick", "pan");
                     add(right, "triggers, right stick", "zoom");
                     add(right, "LB / RB", "floor down / up");
-                    add(right, "A", "set a waypoint");
+                    add(right, "A", "set a waypoint (again on it clears)");
                     add(right, "X", "toggle found");
                     add(right, "Y", "recentre");
                     add(right, "Back", "this legend");
@@ -5248,7 +5514,8 @@ namespace overlay
             }
             else
             {
-                ImGui::TextDisabled("no waypoint (right-click on the full map sets one)");
+                ImGui::TextDisabled("no waypoint (right-click on the full map sets one; right-click it "
+                                    "again to clear it)");
             }
 
             //--------------------------------------------------------------------------
@@ -5925,7 +6192,7 @@ namespace overlay
             // the HUD draws from. Keeping them apart is what stops a scaled value ever
             // being written back into the config file.
             const mm::Config& raw = mm::cfg_cached();
-            const mm::Config cfg = ui_scaled(raw, g_ui_scale);
+            mm::Config cfg = ui_scaled(raw, g_ui_scale);
             // The look, once per frame: every draw path below reads these two globals
             // instead of asking the config what colour it is.
             g_palette = raw.palette;
@@ -5936,6 +6203,20 @@ namespace overlay
             const bool have = mm::read_snapshot(snap);
 
             const bool map_open = mm::g_map_open.load(std::memory_order_relaxed);
+            const std::uint64_t frame_now = ::GetTickCount64();
+
+            // THE HUD FADE. Its target is the gate result and nothing else: 0 is applied
+            // instantly (and the gate stops the draw anyway, so hiding is immediate),
+            // and only showing is eased - 150 ms, so a menu closing does not snap the
+            // HUD back on. It is applied by scaling the opacity keys of the per-frame
+            // config copy, which is why `cfg` is a mutable copy: nothing downstream has
+            // to know the fade exists, and no scaled value can reach the config file.
+            const bool gate_open = have && hud_gate(cfg, snap, have, frame_now) == nullptr;
+            const float fade = hud_fade_step(gate_open && cfg.overlay_enabled, frame_now);
+            cfg.opacity *= fade;
+            cfg.compass_opacity *= fade;
+            cfg.highlight_alpha_near *= fade;
+            cfg.highlight_alpha_far *= fade;
 
             // The mouse cursor belongs to whoever is taking the input. Both conditions
             // are plain reads of the live flags - nothing here is remembered, so the
@@ -6001,10 +6282,12 @@ namespace overlay
             // one evaluation, no second set of rules, no second latch - and additionally
             // stand down while the full map is open, because the map is a mode of its own
             // (it swallows the input and covers the scene they would be drawn over).
-            const bool gate_ok = hud_gate(cfg, snap, have, ::GetTickCount64()) == nullptr;
-            const bool hud_ok = gate_ok && !mm::g_map_open.load(std::memory_order_relaxed);
+            const bool hud_ok = gate_open && !mm::g_map_open.load(std::memory_order_relaxed);
             draw_compass(cfg, snap, hud_ok);
             draw_highlight(cfg, snap, hud_ok);
+
+            // Toasts last, so they sit over everything they are talking about.
+            draw_toast();
         }
 
         bool ensure_initialised(IDXGISwapChain* swapchain)

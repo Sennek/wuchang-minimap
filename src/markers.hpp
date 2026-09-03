@@ -123,6 +123,12 @@ namespace markers
 
     Stats stats();
 
+    // Lock-free: how many full sweep rounds have completed. `stats()` takes a spinlock
+    // and copies ~1.4 KB, which is the wrong price for the render thread's per-frame
+    // question "has the published buffer changed since I last looked?" - this is one
+    // relaxed atomic load.
+    std::uint64_t rounds();
+
     //==================================================================================
     // Thread entry points
     //==================================================================================

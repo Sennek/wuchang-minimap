@@ -19,7 +19,11 @@
 
         WuchangMinimap-<version>\
           INSTALL_GUIDE.html
+          README.md
           CHANGELOG.md
+          LICENSE
+          THIRD_PARTY_NOTICES.md
+          BUILD_INFO.txt
           ue4ss\Mods\WuchangMinimap\
             dlls\main.dll
             maps\maps.json, maps\chapter<1..5>\*.png
@@ -47,6 +51,18 @@
 
 .PARAMETER OutDir
     Where the package folder and the zip are written. Default: <repo>\dist.
+
+.PARAMETER AllowDirty
+    Package even though `git status --porcelain` is not empty. Off by default: a zip
+    built from a working tree that does not match any commit cannot be reproduced, and
+    the commit recorded in BUILD_INFO.txt would be a lie. Use it only while iterating
+    on the packaging itself.
+
+.PARAMETER Ue4ssBuild
+    The UE4SS release this DLL is ABI-tied to, recorded in BUILD_INFO.txt. The default
+    is the build sdk\lib\UE4SS.lib was synthesised from (see sdk\UE4SS.def and
+    tools\gen_ue4ss_importlib.ps1); change it when the mod is rebuilt against another
+    UE4SS. Override with -Ue4ssBuild or the WUCHANG_UE4SS_BUILD environment variable.
 #>
 [CmdletBinding()]
 param(
@@ -55,7 +71,10 @@ param(
     [ValidateSet('Game__Shipping__Win64', 'Game__Debug__Win64')]
     [string]$Mode = 'Game__Shipping__Win64',
     [string]$OutDir,
-    [switch]$NoBuild
+    [switch]$NoBuild,
+    [switch]$AllowDirty,
+    [string]$Ue4ssBuild = $(if ($env:WUCHANG_UE4SS_BUILD) { $env:WUCHANG_UE4SS_BUILD }
+                           else { 'v3.0.1-1111-g97b7e501' })
 )
 
 $ErrorActionPreference = 'Stop'
@@ -87,6 +106,33 @@ function Write-ModVersion([string]$v) {
 
 Push-Location $repo
 try {
+    #--------------------------------------------------------------------------------
+    # 0. The tree must match a commit
+    #--------------------------------------------------------------------------------
+    # A release zip that cannot be rebuilt from a commit is not a release, and
+    # BUILD_INFO.txt names a commit hash - which would be a lie if the tree that
+    # produced the DLL had uncommitted edits in it. Checked BEFORE -Version stamps
+    # version.hpp / xmake.lua, because that stamp is itself an uncommitted edit (the
+    # release commit comes after packaging; see docs\RELEASE.md).
+    $gitCommit = 'unknown'
+    $gitBranch = 'unknown'
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) {
+        if (-not $AllowDirty) { throw "git is not on PATH - cannot verify the tree is clean. Pass -AllowDirty to package anyway." }
+        Write-Warning "git not found: the package's BUILD_INFO.txt will not name a commit."
+    } else {
+        $dirty = @(& git -C $repo status --porcelain)
+        if ($LASTEXITCODE -ne 0) { throw "git status failed ($LASTEXITCODE) in '$repo'." }
+        if ($dirty.Count -gt 0 -and -not $AllowDirty) {
+            foreach ($line in ($dirty | Select-Object -First 20)) { Write-Host "  $line" -ForegroundColor Yellow }
+            if ($dirty.Count -gt 20) { Write-Host ("  ... and {0} more" -f ($dirty.Count - 20)) -ForegroundColor Yellow }
+            throw ("Working tree has {0} uncommitted change(s) - commit them first, or pass -AllowDirty (the package would name a commit it was not built from)." -f $dirty.Count)
+        }
+        $gitCommit = (& git -C $repo rev-parse HEAD).Trim()
+        $gitBranch = (& git -C $repo rev-parse --abbrev-ref HEAD).Trim()
+        if ($dirty.Count -gt 0) { $gitCommit = "$gitCommit (DIRTY: $($dirty.Count) uncommitted change(s))" }
+    }
+
     #--------------------------------------------------------------------------------
     # 1. Version
     #--------------------------------------------------------------------------------
@@ -196,6 +242,37 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $pkgRoot 'CHANGELOG.md'), $changelog,
                                    (New-Object System.Text.UTF8Encoding($false)))
 
+    #     The repo's README.md (the short, user-facing one), the licence and the
+    #     third-party attributions. The notices file is not optional politeness: the
+    #     DLL statically contains Dear ImGui and MinHook, whose licences both require
+    #     the notice to travel with a binary redistribution.
+    foreach ($doc in @('README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md')) {
+        $docSrc = Join-Path $repo $doc
+        if (-not (Test-Path -LiteralPath $docSrc -PathType Leaf)) { throw "'$doc' is missing from the repo root." }
+        Copy-Item -LiteralPath $docSrc -Destination (Join-Path $pkgRoot $doc) -Force
+    }
+
+    #     BUILD_INFO.txt - what this exact zip was built from. It is the first thing to
+    #     ask for in a bug report ("which build are you on?") and the only way to tie a
+    #     download back to a commit once several 1.0.x zips are in the wild.
+    $dllInfo = Get-Item -LiteralPath $builtDll
+    $buildInfo = @(
+        "WuchangMinimap $ver"
+        ""
+        "version    $ver"
+        "commit     $gitCommit"
+        "branch     $gitBranch"
+        "packaged   $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+        "mode       $Mode"
+        "main.dll   $([math]::Round($dllInfo.Length / 1KB)) KB, compiled $($dllInfo.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+        "UE4SS      $Ue4ssBuild  (compiled against this build's exports - sdk/UE4SS.def;"
+        "           UE4SS itself is NOT part of this package, the player installs it)"
+        ""
+        "Licence: see LICENSE. Third-party attributions: see THIRD_PARTY_NOTICES.md."
+    ) -join "`r`n"
+    [System.IO.File]::WriteAllText((Join-Path $pkgRoot 'BUILD_INFO.txt'), $buildInfo + "`r`n",
+                                   (New-Object System.Text.UTF8Encoding($false)))
+
     #--------------------------------------------------------------------------------
     # 4. Smoke check: is everything the runtime enumerates actually in the tree?
     #--------------------------------------------------------------------------------
@@ -213,6 +290,23 @@ try {
         return $true
     }
     Require-File (Join-Path $modDir 'dlls\main.dll') 'mod DLL' | Out-Null
+    # The package-root documents. A zip without LICENSE / THIRD_PARTY_NOTICES.md is not
+    # shippable (see the notices file), and one without the README/guide is a support
+    # ticket.
+    Require-File (Join-Path $pkgRoot 'INSTALL_GUIDE.html') 'install guide' | Out-Null
+    Require-File (Join-Path $pkgRoot 'README.md') 'README' | Out-Null
+    Require-File (Join-Path $pkgRoot 'CHANGELOG.md') 'changelog' | Out-Null
+    Require-File (Join-Path $pkgRoot 'LICENSE') 'licence' | Out-Null
+    Require-File (Join-Path $pkgRoot 'THIRD_PARTY_NOTICES.md') 'third-party notices' | Out-Null
+    Require-File (Join-Path $pkgRoot 'BUILD_INFO.txt') 'build info' | Out-Null
+    # Nothing may still carry an unexpanded template placeholder.
+    foreach ($tpl in @('INSTALL_GUIDE.html', 'CHANGELOG.md')) {
+        $t = Join-Path $pkgRoot $tpl
+        if ((Test-Path -LiteralPath $t -PathType Leaf) -and
+            (Get-Content -Raw -LiteralPath $t) -match '@@[A-Z]+@@') {
+            $problems.Add("$tpl still contains an @@PLACEHOLDER@@")
+        }
+    }
     Require-File (Join-Path $modDir 'config_wuchang_minimap.txt') 'overlay config' | Out-Null
     Require-File (Join-Path $modDir 'config.ini') 'navmesh config' | Out-Null
     if (-not (Test-Path -LiteralPath (Join-Path $modDir 'enabled.txt') -PathType Leaf)) {
@@ -280,16 +374,38 @@ try {
     Write-Host ("  markers        {0} manifest(s): {1}" -f $shippedMarkers.Count,
                 (($shippedMarkers | ForEach-Object { $_.Name }) -join ', '))
 
-    # Nothing that must never ship.
+    # Nothing that must never ship. Every file the MOD ITSELF writes at runtime is
+    # named wuchang_minimap*  (the log, the collection tracker and its per-save
+    # variants, the waypoint, firstrun/hookaddr/last_stage/watchdog breadcrumbs and the
+    # recon dumps) - none of them is ever a shipped file, so the whole prefix is
+    # forbidden in one rule. The two configs the release DOES carry are named
+    # config_wuchang_minimap*.txt and do not match it. This matters because the same
+    # folder layout is what the game writes into when someone runs the game from the
+    # deploy mirror.
     $forbidden = @(Get-ChildItem -LiteralPath $pkgRoot -Recurse -File |
-                   Where-Object { $_.Extension -in @('.pdb', '.exp', '.lib', '.ilk') -or
-                                  $_.Name -like 'wuchang_minimap_found*' -or
-                                  $_.Name -like 'wuchang_minimap_waypoint*' -or
-                                  $_.Name -like 'wuchang_minimap.log*' -or
-                                  $_.Name -like 'wuchang_minimap_last_stage*' -or
-                                  $_.Name -like 'tiles_*.json' })
+                   Where-Object { $_.Extension -in @('.pdb', '.exp', '.lib', '.ilk', '.orig', '.bak') -or
+                                  $_.Name -like 'wuchang_minimap*' -or
+                                  $_.Name -like 'tiles_*.json' -or
+                                  $_.Name -like '*.sample.json' -or
+                                  $_.Name -eq '.gitkeep' })
     foreach ($f in $forbidden) { $problems.Add("must not ship: $($f.FullName)") }
     if ((Test-Path (Join-Path $modDir 'navmesh'))) { $problems.Add('navmesh\ dump folder leaked into the package') }
+
+    # Allow-list, not just a deny-list: anything that appears in the package without
+    # this script having been taught about it is a leak by definition. (The tree is
+    # assembled file by file from the repo, so this can only fire after an edit here -
+    # which is exactly when it should.)
+    $allowedRoot = @('INSTALL_GUIDE.html', 'README.md', 'CHANGELOG.md', 'LICENSE',
+                     'THIRD_PARTY_NOTICES.md', 'BUILD_INFO.txt', 'ue4ss')
+    foreach ($e in Get-ChildItem -LiteralPath $pkgRoot) {
+        if ($e.Name -notin $allowedRoot) { $problems.Add("unexpected at package root: $($e.Name)") }
+    }
+    $allowedMod = @('dlls', 'maps', 'markers', 'config_wuchang_minimap.txt', 'config.ini', 'enabled.txt')
+    foreach ($e in Get-ChildItem -LiteralPath $modDir) {
+        if ($e.Name -notin $allowedMod) { $problems.Add("unexpected in the mod folder: $($e.Name)") }
+    }
+    $dllsExtra = @(Get-ChildItem -LiteralPath (Join-Path $modDir 'dlls') | Where-Object { $_.Name -ne 'main.dll' })
+    foreach ($e in $dllsExtra) { $problems.Add("unexpected in dlls\: $($e.Name)") }
 
     if ($problems.Count -gt 0) {
         foreach ($p in $problems) { Write-Host "  FAIL  $p" -ForegroundColor Red }

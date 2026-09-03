@@ -285,6 +285,8 @@ try {
                    Where-Object { $_.Extension -in @('.pdb', '.exp', '.lib', '.ilk') -or
                                   $_.Name -like 'wuchang_minimap_found*' -or
                                   $_.Name -like 'wuchang_minimap_waypoint*' -or
+                                  $_.Name -like 'wuchang_minimap.log*' -or
+                                  $_.Name -like 'wuchang_minimap_last_stage*' -or
                                   $_.Name -like 'tiles_*.json' })
     foreach ($f in $forbidden) { $problems.Add("must not ship: $($f.FullName)") }
     if ((Test-Path (Join-Path $modDir 'navmesh'))) { $problems.Add('navmesh\ dump folder leaked into the package') }

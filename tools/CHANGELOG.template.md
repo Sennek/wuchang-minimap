@@ -24,6 +24,11 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
 - **Three clearly separated category filters** in the Player tab, one per feature: **Map &
   minimap**, **Compass** and **X-ray highlight**, all three the same widget with `all` /
   `none` buttons, and every chip now carrying its category's glyph as well as its colour.
+- **The mod keeps its own log.** `wuchang_minimap.log`, next to the config file in the mod
+  folder, holds everything the mod writes and is rotated on every launch (`.1`, `.2`, `.3`
+  are the three previous sessions). UE4SS empties its own log each time the game starts, so
+  this is the file to attach to a bug report - it is still there after you have restarted
+  the game to try something else.
 
 - **NPCs have names.** Every NPC marker used to read "NPC"; they now carry the game's
   own English name - "He Youzai", "Huang Jian'e", "Wu Gang", "Qiao Ying", "Villager" -
@@ -47,8 +52,8 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   they are drawn on the map and the minimap but not on the compass or through walls. A
   config line that still says `merchant` keeps working and is rewritten as `note` the
   next time you press Save.
-- **The x-ray highlight ships with shrines, bosses and NPCs on** as well as chests and
-  pickups, so holding the key near a shrine or an NPC shows something. If your config
+- **The x-ray highlight ships with shrines, bosses, NPCs and notes on** as well as chests
+  and pickups, so holding the key near a shrine, an NPC or a readable sign shows something. If your config
   already spells `highlight_categories` out, that line still wins - change it in the
   panel.
 - **"Hide collected loot" now only hides loot.** `highlight_show_found = 0` used to drop
@@ -119,6 +124,43 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   instead of two.
 - Eight lightable reeds in a Chapter 1 boss arena, a boss spawner and a stage light were
   all drawn as bosses. They are not.
+- **Killing something registers, for real this time.** The health the dead-enemy and
+  boss-defeated rules read is stored as a wider number than the mod was asking for, so the
+  read failed 21 624 times in one session while reporting that the value was not there at
+  all - which is why corpses were still on the minimap and through walls, and why a boss
+  you had beaten still had a marker. It reads either width now, and if it ever fails again
+  it writes out every number on the component with its width, so the next attempt does not
+  need another play session.
+- **Items and chests no longer disappear from the x-ray.** A pickup lying in front of you
+  or a chest in the next room could be on the minimap and not in the x-ray, because the mod
+  had marked it collected: "I could not work out where this actor is" and "this actor has
+  been parked at the origin, so it has been taken" were the same answer internally, and the
+  first was being read as the second - permanently, since collected things are remembered.
+  They are now two different answers.
+- **A note reads "Note".** The readable signs were labelled "Reading point", which was our
+  description of the object rather than a name.
+- **Loot an enemy drops has a name.** It used to read `BP_PickupActor_C` - the internal
+  class of the object - in the x-ray. The mod now looks the item up and shows its real
+  name, and nothing anywhere can fall back to a class name any more: the last resort is a
+  plain word ("Item", "Enemy", "Chest").
+- **An NPC who has walked away is not drawn where they stood**, even when the mod cannot
+  tell whether their part of the level is loaded. Finding the person's actor and being
+  unable to locate it is this game's normal state for somebody who has moved on, and that
+  now counts as an answer on its own.
+- **"Met" in the log was always zero** after the first session, for the same reason
+  "Shrines lit" was. It reads `met 12 of 34` now.
+- **The minimap hides when you open a menu again.** It stopped doing so in the previous
+  build's performance work: the check now runs in small pieces spread over frames, and two
+  details of that split meant a menu could be missed entirely and then missed every time
+  afterwards. Fixed, with the numbers that would have shown it now printed in the log.
+- **Quitting with ALT+F4 is not a crash.** The next launch used to announce that the
+  previous session "did not shut down cleanly", because closing the window skips every
+  path the mod used to tidy up in.
+- **One more way the mod could lose the player after a fast travel.** Last time the fix
+  was to keep looking for the player; this time the thing it was asking had itself gone
+  stale, so the answer was always "no player". It now re-asks the game for the player
+  controller after three seconds without a player, and after five it writes out everything
+  about the situation so a report is answerable in one go.
 
 ## @@VERSION@@ - @@DATE@@
 

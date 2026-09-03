@@ -1036,6 +1036,15 @@ stable id per line, sorted, comments allowed, rewritten from the loop thread
 above); `wuchang_minimap_found.txt` without a suffix is the pre-0.9.4 shared file, still used when no
 slot can be identified and seeded into a new slot's file once. A deploy never touches either.
 
+`wuchang_minimap.log` (mod folder) is the mod's **own** copy of everything it logs, rotated on every
+launch: the live file plus `.1`, `.2`, `.3` for the three previous sessions. It exists because UE4SS
+truncates `UE4SS.log` on every launch, so the evidence from an in-game session is gone as soon as the
+game is started again to try the next build - which has cost this project two rounds of in-game
+testing. Writes are buffered and flushed on every crash-breadcrumb stage transition (so the log and
+`wuchang_minimap_last_stage.txt` always agree about the last thing that happened) and every three
+seconds from the loop thread. There is no config key: it is always on, and it is the file to ask for
+in a bug report.
+
 ## Next steps
 
 - [x] Markers: shrines, chests, pickups, doors, fog gates, ladders, lifts and enemies, drawn as

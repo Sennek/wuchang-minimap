@@ -130,6 +130,15 @@ namespace gamestate
         std::uint64_t g_log_stuck = 0;
         std::uint64_t g_no_pawn_since = 0;
         std::wstring g_rejected_class;
+        // How long the reader tolerates having no gameplay pawn before it stops trusting
+        // its cached PlayerController and re-resolves that too (a fast travel can leave
+        // an alive-but-wrong controller whose `Pawn` is null forever), and before the
+        // one-shot diagnosis is printed. Both are constants rather than config keys: they
+        // are recovery timings, not preferences.
+        constexpr std::uint64_t kNoPawnCtrlDropMs = 3000;
+        constexpr std::uint64_t kNoPawnDiagnoseMs = 5000;
+        std::uint64_t g_last_ctrl_drop = 0;
+        bool g_pawnless_diag_done = false;
 
         bool g_menu_open = true; // safe default: "a menu is up" hides the minimap
         std::uint64_t g_menu_change_ms = 0;
@@ -425,17 +434,88 @@ namespace gamestate
                 return nullptr;
             }
             const uer::ClassLayout* layout = g_layouts.get(g_controller.obj);
+            // Three names, in order of how directly they mean "the pawn this controller
+            // is driving right now". `AcknowledgedPawn` is the one that survives a
+            // re-possession the client has not been told about yet, and `Character` is
+            // what a game that subclasses ACharacter often keeps its own pointer in - a
+            // shrine fast travel left `Pawn` null for 86 s in the user's round-4 session
+            // while the controller itself was alive the whole time.
             UObject* pawn = uer::read_object_prop(layout, g_controller.obj, L"Pawn");
             if (pawn == nullptr)
             {
                 pawn = uer::read_object_prop(layout, g_controller.obj, L"AcknowledgedPawn");
             }
+            if (pawn == nullptr)
+            {
+                pawn = uer::read_object_prop(layout, g_controller.obj, L"Character");
+            }
             return pawn;
+        }
+
+        // THE WORLD'S OWN IDEA OF THE PLAYER CONTROLLER: UWorld -> OwningGameInstance ->
+        // LocalPlayers[0] -> PlayerController. All raw property reads, no ProcessEvent.
+        //
+        // WHY IT IS PREFERRED OVER FindFirstOf. `FindFirstOf(L"DCSPlayerController_C")`
+        // returns whichever instance the object array holds first, which after a travel
+        // can be one belonging to a world that is being torn down - it passes every
+        // liveness test (the allocation is still there and still says it is valid) and
+        // then reports a null `Pawn` forever. The GameInstance chain is the only route
+        // that answers "the controller the game is driving THIS world with".
+        UObject* controller_from_game_instance()
+        {
+            if (g_world == nullptr)
+            {
+                return nullptr;
+            }
+            UObject* world = static_cast<UObject*>(const_cast<void*>(g_world));
+            if (!mem::readable(world, 0x40))
+            {
+                return nullptr;
+            }
+            const uer::ClassLayout* wl = g_layouts.get(world);
+            UObject* gi = uer::read_object_prop(wl, world, L"OwningGameInstance");
+            if (gi == nullptr)
+            {
+                return nullptr;
+            }
+            const uer::ClassLayout* gl = g_layouts.get(gi);
+            // TArray<T> is { T* Data; int32 Num; int32 Max } - 16 bytes, which is also
+            // what FArrayProperty reports, so the read is size-checked.
+            struct ArrRaw
+            {
+                void* data = nullptr;
+                std::int32_t num = 0;
+                std::int32_t max = 0;
+            };
+            ArrRaw arr{};
+            if (!uer::read_prop(gl, gi, L"LocalPlayers", arr, static_cast<int>(sizeof(ArrRaw))))
+            {
+                return nullptr;
+            }
+            if (arr.num <= 0 || arr.num > 8 || arr.max < arr.num || !mem::plausible_ptr(arr.data) ||
+                !mem::readable(arr.data, sizeof(void*)))
+            {
+                return nullptr;
+            }
+            void* raw = nullptr;
+            if (!mem::read_at(arr.data, 0, raw) || !mem::plausible_ptr(raw))
+            {
+                return nullptr;
+            }
+            UObject* local_player = static_cast<UObject*>(raw);
+            const uer::ClassLayout* ll = g_layouts.get(local_player);
+            return uer::read_object_prop(ll, local_player, L"PlayerController");
         }
 
         void resolve_controller()
         {
-            UObject* controller = UObjectGlobals::FindFirstOf(kControllerClass);
+            // The world's own answer first; FindFirstOf is the fallback, because it can
+            // hand back a controller from a world that has already gone.
+            UObject* controller = controller_from_game_instance();
+            if (controller == nullptr)
+            {
+                controller = UObjectGlobals::FindFirstOf(kControllerClass);
+            }
             if (controller == nullptr)
             {
                 controller = UObjectGlobals::FindFirstOf(L"PlayerController");
@@ -467,30 +547,155 @@ namespace gamestate
             }
         }
 
-        void resolve_pawn(std::uint64_t now)
+        // ONE-SHOT DIAGNOSTIC FOR "NO GAMEPLAY PAWN, FOREVER".
+        //
+        // The user's round-4 report is `gameplay pawn NO ... held 86 s` after a shrine
+        // fast travel, with `teleport never this session` (so the position-jump detector
+        // never saw the travel either) and the controller alive throughout. Nothing in the
+        // log said WHICH of the three routes was empty, so this prints all of them once:
+        // the controller and what its three pawn properties hold, every instance of the
+        // player class with its outer chain, and the world.
+        void log_pawnless_diagnosis()
         {
-            UObject* candidate = nullptr;
-
+            const bool ctrl_alive = uer::alive(g_controller);
+            mm::logf(L"no-pawn diagnosis: controller {} ({}), world {}",
+                     ctrl_alive ? g_controller.obj->GetFullName() : std::wstring{L"NOT resolved"},
+                     ctrl_alive ? uer::class_name(g_controller) : std::wstring{L"-"},
+                     g_world == nullptr ? std::wstring{L"none"} : std::format(L"{}", g_world));
+            if (ctrl_alive)
+            {
+                const uer::ClassLayout* layout = g_layouts.get(g_controller.obj);
+                for (const wchar_t* name : {L"Pawn", L"AcknowledgedPawn", L"Character"})
+                {
+                    UObject* p = uer::read_object_prop(layout, g_controller.obj, name);
+                    uer::ObjRef ref{};
+                    if (p != nullptr && uer::capture(p, ref))
+                    {
+                        mm::logf(L"no-pawn diagnosis:   {} -> {} (class {})",
+                                 name,
+                                 ref.obj->GetFullName(),
+                                 uer::class_name(ref));
+                    }
+                    else
+                    {
+                        mm::logf(L"no-pawn diagnosis:   {} -> {}",
+                                 name,
+                                 p == nullptr ? L"null" : L"not a live object");
+                    }
+                }
+                const uer::ClassLayout* cl = g_layouts.get(g_controller.obj);
+                mm::logf(L"no-pawn diagnosis:   the controller class has {} readable propert(ies)",
+                         cl != nullptr ? cl->props.size() : 0u);
+            }
             std::vector<UObject*> found;
             UObjectGlobals::FindAllOf(kPlayerPawnClass, found);
+            mm::logf(L"no-pawn diagnosis: FindAllOf('{}') -> {} instance(s)",
+                     kPlayerPawnClass,
+                     found.size());
+            int listed = 0;
             for (UObject* obj : found)
             {
-                if (obj != nullptr && UObjectGlobals::IsValidObjectForFindXOf(obj))
+                if (obj == nullptr || listed >= 8)
                 {
-                    candidate = obj;
-                    break;
+                    continue;
+                }
+                ++listed;
+                uer::ObjRef ref{};
+                const bool ok = uer::capture(obj, ref);
+                mm::logf(L"no-pawn diagnosis:   {} ({}, {})",
+                         mem::readable(obj, 0x40) ? obj->GetFullName() : std::wstring{L"<unreadable>"},
+                         ok ? L"capturable" : L"NOT capturable",
+                         UObjectGlobals::IsValidObjectForFindXOf(obj) ? L"valid for FindXOf"
+                                                                      : L"rejected by IsValidObjectForFindXOf");
+            }
+            if (found.empty())
+            {
+                mm::log(L"no-pawn diagnosis:   (the player class has no instance at all - the pawn was "
+                        L"destroyed, or the class was renamed on this build)");
+            }
+        }
+
+        void resolve_pawn(std::uint64_t now)
+        {
+            // EVERY ROUTE IS TRIED, AND THE FIRST CANDIDATE THAT PASSES THE CLASS GATE
+            // WINS - not the first candidate that exists.
+            //
+            // The controller's own pointers come first: `FindAllOf` returns whichever
+            // instance the object array holds first, which after a travel can be a pawn
+            // belonging to a world that is being torn down, while the controller names the
+            // pawn it is actually driving. But the controller is also the route that hands
+            // out the Lobby `DefaultPawn`, and the old code RETURNED on the first
+            // candidate whose class was wrong - so preferring the controller without
+            // trying the next route would have swapped one stall for another.
+            UObject* candidates[3] = {nullptr, nullptr, nullptr};
+            candidates[0] = pawn_from_controller();
+            {
+                std::vector<UObject*> found;
+                UObjectGlobals::FindAllOf(kPlayerPawnClass, found);
+                for (UObject* obj : found)
+                {
+                    if (obj != nullptr && UObjectGlobals::IsValidObjectForFindXOf(obj))
+                    {
+                        candidates[1] = obj;
+                        break;
+                    }
+                }
+            }
+            // Last resort: the substring gate, in case the exact class name moved on this
+            // build. `FindAllOf` matches subclasses, so the base name is enough.
+            if (candidates[0] == nullptr && candidates[1] == nullptr)
+            {
+                std::vector<UObject*> found;
+                UObjectGlobals::FindAllOf(kGameplayPawnSubstr, found);
+                for (UObject* obj : found)
+                {
+                    if (obj != nullptr && UObjectGlobals::IsValidObjectForFindXOf(obj))
+                    {
+                        candidates[2] = obj;
+                        break;
+                    }
                 }
             }
 
-            // Fallback route: AController::Pawn. It also covers a build where the
-            // player class is renamed - but it is exactly the route that hands out the
-            // Lobby DefaultPawn, so the class gate below is mandatory.
-            if (candidate == nullptr)
+            uer::ObjRef ref{};
+            std::wstring cls;
+            bool have = false;
+            bool any_candidate = false;
+            bool any_capturable = false;
+            for (UObject* candidate : candidates)
             {
-                candidate = pawn_from_controller();
+                if (candidate == nullptr)
+                {
+                    continue;
+                }
+                any_candidate = true;
+                uer::ObjRef r{};
+                if (!uer::capture(candidate, r))
+                {
+                    continue;
+                }
+                any_capturable = true;
+                const std::wstring c = uer::class_name(r);
+                if (c.find(kGameplayPawnSubstr) == std::wstring::npos)
+                {
+                    if (c != g_rejected_class || throttled(g_log_rejected, now))
+                    {
+                        g_rejected_class = c;
+                        g_log_rejected = now;
+                        mm::logf(L"pawn candidate class '{}' is not a gameplay pawn (needs '{}') - "
+                                 L"trying the next route",
+                                 c.empty() ? std::wstring{L"<unknown>"} : c,
+                                 kGameplayPawnSubstr);
+                    }
+                    continue;
+                }
+                ref = r;
+                cls = c;
+                have = true;
+                break;
             }
 
-            if (candidate == nullptr)
+            if (!any_candidate)
             {
                 if (throttled(g_log_no_pawn, now))
                 {
@@ -498,9 +703,7 @@ namespace gamestate
                 }
                 return;
             }
-
-            uer::ObjRef ref{};
-            if (!uer::capture(candidate, ref))
+            if (!any_capturable)
             {
                 if (throttled(g_log_capture_failed, now))
                 {
@@ -509,20 +712,9 @@ namespace gamestate
                 }
                 return;
             }
-
-            const std::wstring cls = uer::class_name(ref);
-            if (cls.find(kGameplayPawnSubstr) == std::wstring::npos)
+            if (!have)
             {
-                if (cls != g_rejected_class || throttled(g_log_rejected, now))
-                {
-                    g_rejected_class = cls;
-                    g_log_rejected = now;
-                    mm::logf(L"pawn candidate class '{}' is not a gameplay pawn "
-                             L"(needs '{}') - reader idling, minimap stays hidden",
-                             cls.empty() ? std::wstring{L"<unknown>"} : cls,
-                             kGameplayPawnSubstr);
-                }
-                return;
+                return; // every candidate was rejected by the class gate; already logged
             }
 
             g_pawn = ref;
@@ -1578,10 +1770,38 @@ namespace gamestate
                 {
                     g_no_pawn_since = now;
                 }
-                else if (now - g_no_pawn_since >= 10000 && throttled(g_log_stuck, now))
+                // RE-RESOLVE THE CONTROLLER TOO, not just the pawn. A shrine fast travel
+                // can leave the controller we cached alive-but-wrong: it still passes
+                // every liveness test and reports a null `Pawn` for the rest of the
+                // session, which is exactly the user's 86-second "no player pawn". The
+                // pawn resolve above only ever asks that controller, so if the controller
+                // is the stale half nothing can ever recover - after three seconds
+                // without a pawn it is dropped and re-resolved from the world's own
+                // GameInstance chain.
+                if (now - g_no_pawn_since >= kNoPawnCtrlDropMs &&
+                    now - g_last_ctrl_drop >= kNoPawnCtrlDropMs)
+                {
+                    g_last_ctrl_drop = now;
+                    mm::logf(L"no gameplay pawn for {} ms - dropping the cached player controller and "
+                             L"re-resolving it from UWorld -> OwningGameInstance -> LocalPlayers[0] "
+                             L"-> PlayerController",
+                             now - g_no_pawn_since);
+                    g_controller.reset();
+                    g_funcs.clear();
+                    resolve_controller();
+                }
+                // ...and once, after five seconds, print everything the next session
+                // would otherwise have to be spent finding out.
+                if (now - g_no_pawn_since >= kNoPawnDiagnoseMs && !g_pawnless_diag_done)
+                {
+                    g_pawnless_diag_done = true;
+                    log_pawnless_diagnosis();
+                }
+                if (now - g_no_pawn_since >= 10000 && throttled(g_log_stuck, now))
                 {
                     mm::logf(L"no gameplay pawn for {} ms (controller {}, resolve every {} ms) - "
-                             L"the reader is retrying FindAllOf('{}') and the AController::Pawn fallback",
+                             L"the reader is retrying the controller's Pawn / AcknowledgedPawn / "
+                             L"Character and FindAllOf('{}')",
                              now - g_no_pawn_since,
                              uer::alive(g_controller) ? L"alive" : L"NOT resolved",
                              g_tune.resolve_ms,
@@ -1592,6 +1812,9 @@ namespace gamestate
                 return;
             }
             g_no_pawn_since = 0;
+            // A pawn is standing again, so the next stall gets its own diagnosis rather
+            // than being silent because an earlier one used the one shot up.
+            g_pawnless_diag_done = false;
 
             // ---- 4. from here on the pawn is validated: UFunctions are allowed -------
             //

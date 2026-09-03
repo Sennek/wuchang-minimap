@@ -22,7 +22,7 @@
 ; highlight_mode).
 ;
 ; A developer-only overlay file, config_wuchang_minimap_dev.txt, is read after this
-; one when it exists. It is not part of the release; see the README.
+; one when it exists. It is not part of the release; see docs/DEVELOPMENT.md.
 
 ; =================================================================================
 ; ---- PLAYER SETTINGS ----

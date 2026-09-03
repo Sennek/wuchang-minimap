@@ -692,6 +692,7 @@ Eight keys were added in 0.9.4 - four Player, two Advanced, two Dev:
 | `crash_breadcrumb` | Advanced | `1` | Write `wuchang_minimap_last_stage.txt` at every overlay stage transition (`src/breadcrumb.hpp`). |
 | `fast_travel_enabled` | Advanced | `0` | Adds a **Travel** action to the shrine list. Off until the in-game reflection self-check has been confirmed - see below. |
 | `saveslot_uuid_call` | Dev | `0` | Actually call `GameSaveExecutor::Get Save Slot Value` instead of only reading and logging its reflected signature. |
+| `menu_ignore_roots` | Dev | (empty) | Extra widget class-name PREFIXES that must never count as an open menu, on top of the built-in table (`scan::kNonMenuRoots` in `src/scan_sched.hpp`: subtitles, damage numbers, tips and toasts, the HUD). "A menu is open" means "an in-viewport widget's `Visibility` is `Visible`", and the game authors some transient combat furniture that way - a combat subtitle (`WB_ZiMu_C`) hid the minimap for 2.4 s on 2026-09-03. Every root the mod discovers for the first time is logged by name, so that line is what goes here. Comma-separated, case-insensitive. |
 
 ### The save-slot ladder (`src/saveslot.*`, 0.9.4)
 
@@ -1071,6 +1072,17 @@ testing. Writes are buffered and flushed on every crash-breadcrumb stage transit
 `wuchang_minimap_last_stage.txt` always agree about the last thing that happened) and every three
 seconds from the loop thread. There is no config key: it is always on, and it is the file to ask for
 in a bug report.
+
+`wuchang_minimap_watchdog.txt` (mod folder) is written ONLY when the game stops responding. The UE4SS
+loop thread watches two counters - Presents on the render thread and ProcessEvent position pumps on the
+game thread - and after six seconds of either not moving it appends one line naming which thread
+stopped, how long ago, and the coarse stage each of them was last in (`build_ui`,
+`imgui: ImplWin32_NewFrame (user32)`, `pawn validate`, ...). It is deliberately a second file with its
+own writer: the line is assembled in a stack buffer and written with flat `CreateFileW` / `WriteFile` /
+`FILE_FLAG_WRITE_THROUGH` and no allocation at all, because the failure it exists to describe can be a
+wedged process heap - in which case `std::format` would hang the last thread still running. The mod log
+is flushed straight afterwards, and the same line is written there too if the process can still manage
+it. A crash leaves a `CrashContext.runtime-xml`; a HANG leaves nothing, which is what this is for.
 
 ## Next steps
 

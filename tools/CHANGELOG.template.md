@@ -8,6 +8,12 @@ A pass over the first round of in-game feedback: the x-ray sees more, the panel 
 less, the numbers fit on the screen, and every hotkey can be rebound in the panel.
 
 ### Added
+- **The mod now notices when the game stops responding, and says which part stopped.**
+  If no frame is drawn or no game tick happens for six seconds, one line goes into the
+  normal log and one into a new `wuchang_minimap_watchdog.txt` beside it, naming the
+  stalled thread and what it was last doing. The second file is written in a way that
+  keeps working even when the rest of the process cannot allocate memory, which is
+  exactly the case a freeze needs diagnosing in.
 - **Bosses you beat before installing the mod now show as defeated.** The mod used to
   work this out by reading the boss' health, which needs the boss to be standing there -
   and a boss you have already killed never comes back, so those markers stayed unticked
@@ -116,6 +122,21 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   own row instead of sharing one with the hotkey polling.
 
 ### Fixed
+- **A freeze that needed the game killed.** The mod fed the game's mouse and keyboard
+  messages into its own interface from the game's own thread while the overlay was being
+  drawn on the render thread, and those two things share a list that neither of them
+  locked. Most of the time nothing came of it; when the timing lined up it damaged the
+  process's memory allocator, and after that every part of the game that needed memory
+  stopped - which looks exactly like the game hanging, with no crash and no error
+  message. Window messages are now handed over safely and only ever read on the one
+  thread that draws.
+- **A subtitle no longer hides the minimap.** The mod decides "a menu is open" from the
+  game's own interface, and one of the widgets the game puts on screen during combat -
+  the subtitle line - looks like a menu by that test. It is now on a named list of things
+  that are never menus (subtitles, damage numbers, tips and toasts, the HUD), with a new
+  `menu_ignore_roots` setting in the developer config for anything else that turns up.
+  The log names every new window the mod sees, so whatever hides the minimap next can be
+  added by name.
 - **The stutter three times a second is gone.** The mod's check for "is a game menu open?"
   swept every object in the game in one go, which cost about 25 ms of the game's own frame
   time - a dropped frame roughly three times a second, all the time, whether or not

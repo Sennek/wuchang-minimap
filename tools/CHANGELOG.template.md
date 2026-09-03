@@ -2,10 +2,14 @@
 
 All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 
-## Unreleased
+## 1.0.0 - 2026-09-03
 
-A pass over the first round of in-game feedback: the x-ray sees more, the panel says
-less, the numbers fit on the screen, and every hotkey can be rebound in the panel.
+**The first public release.** Everything below is the work between the last internal
+build and this one: five rounds of in-game feedback, after which the x-ray sees more, the
+panel says less, the numbers fit on the screen, every hotkey can be rebound in the panel,
+and every marker carries the game's own name rather than an internal id. The version
+number is 1.0.0 because the mod is feature-complete and has been played through, not
+because nothing is left to do - see **Known issues** at the end of this section.
 
 ### Added
 - **The mod now notices when the game stops responding, and says which part stopped.**
@@ -235,7 +239,29 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   time, and every launch after that uses them and creates nothing at all. The file
   rewrites itself whenever your graphics DLLs change; deleting it is always safe.
 
-## @@VERSION@@ - @@DATE@@
+### Known issues
+- **The DLC has no map.** The game ships no navigation data for it, so there is nothing to
+  draw. Markers still work there, but the DLC's 7 shrines keep their internal ids instead
+  of names: the DLC's fire points have no row in the game's fire-point table.
+- **A boss read from your save may be one you fought rather than one you beat.** For a
+  boss killed before the mod was installed nothing is left in the world to read, so the
+  mod uses the boss arena's respawn point, which the save remembers unlocking - and it is
+  not certain the game unlocks it on the kill rather than on the first attempt. It is
+  recomputed every launch and never written to the collection file, so
+  `boss_defeat_from_save = 0` undoes it completely.
+- **A few dozen detached patches of walkable ground per chapter are drawn although you
+  cannot walk to them.** The navmesh carries no notion of "reachable", and a strict
+  reachability filter costs 56 % of the walkable area, so the shipped filter keeps any
+  detached patch that is at least 40 m² or that carries a marker. The palace lake area in
+  Chapter 1 is the most visible case.
+- **The overlay draws underneath ReShade's effects**, so a heavy preset tints it. This is
+  cosmetic and follows from where in the frame the mod draws.
+- **Enemy markers are off by default.** The live sweep refreshes them about once a second,
+  so they lag behind anything that moves.
+- **Fast travel is off by default** and should be treated as experimental
+  (`fast_travel_enabled`).
+
+## 0.9.4 - 2026-09-03
 
 An extras release: one collection file per save, a statistics page, the map on your
 clipboard, a shrine list, and the diagnostics that make a bug report answerable.

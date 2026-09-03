@@ -1118,6 +1118,26 @@ namespace gamestate
 
         // Does this widget answer IsInViewport() == true right now? One ProcessEvent,
         // SEH-guarded inside uer::call_getter. Only ever asked of a handful of widgets.
+        // ESlateVisibility::Visible, by the cheap reflected byte where the class has one
+        // and by the getter where it does not. Shared by the FindAllOf sweep and by the
+        // sliced walk's commit - the two differ in everything else (whole array vs a
+        // batch of candidates, rebuild vs add) but this test has to be the same one.
+        bool widget_says_visible(UObject* w)
+        {
+            bool has_byte = false;
+            const bool byte_visible = widget_is_visible_byte(w, has_byte);
+            if (has_byte)
+            {
+                return byte_visible;
+            }
+            // No reflected Visibility on this class: ask the getter instead.
+            struct RetByte
+            {
+                std::uint8_t v = 0xFF;
+            } ret{};
+            return uer::call_getter(g_funcs, w, L"GetVisibility", ret) && ret.v == 0;
+        }
+
         bool widget_in_viewport(UObject* w)
         {
             struct RetBool
@@ -1235,33 +1255,11 @@ namespace gamestate
                 {
                     continue; // the same deny-list the sliced walk uses
                 }
-                bool has_byte = false;
-                const bool byte_visible = widget_is_visible_byte(w, has_byte);
-                if (has_byte)
+                if (!widget_says_visible(w))
                 {
-                    if (!byte_visible)
-                    {
-                        continue; // not ESlateVisibility::Visible
-                    }
+                    continue; // not ESlateVisibility::Visible
                 }
-                else
-                {
-                    // No reflected Visibility on this class: ask the getter instead.
-                    struct RetByte
-                    {
-                        std::uint8_t v = 0xFF;
-                    } ret{};
-                    if (!uer::call_getter(g_funcs, w, L"GetVisibility", ret) || ret.v != 0)
-                    {
-                        continue;
-                    }
-                }
-
-                struct RetBool
-                {
-                    bool v = false;
-                } in_viewport{};
-                if (uer::call_getter(g_funcs, w, L"IsInViewport", in_viewport) && in_viewport.v)
+                if (widget_in_viewport(w))
                 {
                     ++visible_in_viewport;
                     if (!menu)
@@ -1551,25 +1549,9 @@ namespace gamestate
                 }
                 // Re-read the byte rather than trusting the slice's: the authoritative
                 // answer is always the fresh one, however short the gap.
-                bool has_byte = false;
-                const bool byte_visible = widget_is_visible_byte(w, has_byte);
-                if (has_byte)
+                if (!widget_says_visible(w))
                 {
-                    if (!byte_visible)
-                    {
-                        continue;
-                    }
-                }
-                else
-                {
-                    struct RetByte
-                    {
-                        std::uint8_t v = 0xFF;
-                    } ret{};
-                    if (!uer::call_getter(g_funcs, w, L"GetVisibility", ret) || ret.v != 0)
-                    {
-                        continue;
-                    }
+                    continue;
                 }
                 if (!widget_in_viewport(w))
                 {
@@ -1760,25 +1742,17 @@ namespace gamestate
             return counted > 0;
         }
 
-        void refresh_chapter(std::uint64_t now)
+        // ENUMERATE THE STREAMED LEVELS, by whichever of the three routes works: the
+        // world's own Levels array, its StreamingLevels -> LoadedLevel, or - only when
+        // neither array could be read at all - a full GUObjectArray walk. Returns the
+        // route it used (0 = none named a level), and fills the chapter vote and the
+        // short names of every level it saw.
+        int enumerate_levels(UObject* world,
+                             chid::Vote& vote,
+                             int& counted,
+                             std::vector<std::string>& levels)
         {
-            if (g_world == nullptr)
-            {
-                return;
-            }
-            UObject* world = static_cast<UObject*>(const_cast<void*>(g_world));
-            if (!mem::readable(world, 0x40))
-            {
-                return;
-            }
-
-            chid::Vote vote{};
-            int counted = 0;
             int route = 0;
-            // The short names of every level this walk sees, for the marker sweep's
-            // absence rule (markers.hpp). Built here because this is the one place that
-            // already pays for the enumeration and the GetFullName() calls.
-            std::vector<std::string> levels;
             const uer::ClassLayout* layout = g_layouts.get(world);
             if (vote_from_array(world, layout, L"Levels", false, vote, counted, &levels))
             {
@@ -1804,6 +1778,28 @@ namespace gamestate
                 }
                 route = counted > 0 ? 3 : 0;
             }
+            return route;
+        }
+
+        void refresh_chapter(std::uint64_t now)
+        {
+            if (g_world == nullptr)
+            {
+                return;
+            }
+            UObject* world = static_cast<UObject*>(const_cast<void*>(g_world));
+            if (!mem::readable(world, 0x40))
+            {
+                return;
+            }
+
+            chid::Vote vote{};
+            int counted = 0;
+            // The short names of every level this walk sees, for the marker sweep's
+            // absence rule (markers.hpp). Built here because this is the one place that
+            // already pays for the enumeration and the GetFullName() calls.
+            std::vector<std::string> levels;
+            const int route = enumerate_levels(world, vote, counted, levels);
 
             if (route != g_chapter_route)
             {

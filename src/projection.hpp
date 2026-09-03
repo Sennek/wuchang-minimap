@@ -29,8 +29,11 @@
 // A point with camera-space depth <= near is never drawn at a screen position - a
 // naive divide would place it mirrored on the opposite side of the screen, which is
 // the classic "the marker for the chest behind me sits on the wall in front of me"
-// bug. project() flags it instead, and still returns a usable DIRECTION (computed
-// with |depth| and negated) so an edge arrow can point the right way.
+// bug. project() flags it instead (`behind = true`, and `sx`/`sy` are left at their defaults) and still
+// returns a usable DIRECTION: the raw camera-space right/up components, FOV-scaled but
+// never divided by depth, normalised and pushed to NDC length 2 so the caller's edge
+// clamp puts the arrow on the rim. Exactly behind the camera (right == up == 0) is the
+// one special case and points straight down.
 //
 
 #include <cmath>

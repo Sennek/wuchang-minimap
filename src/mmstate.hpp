@@ -383,10 +383,12 @@ namespace mm
         bool highlight_pad_lt = false;
         bool highlight_pad_rt = false;
         float highlight_radius = 3000.0f; // uu (30 m)
-        // Chests and pickups: the "uncollected loot" set. Everything mdb knows about is
-        // selectable, which is what makes this useful for shrines or fog gates too.
+        // Loot plus the people and landmarks worth spotting through a wall. Everything
+        // mdb knows about is selectable; this is only the shipped starting point.
         std::uint32_t highlight_categories =
-            mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup);
+            mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup) |
+            mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Boss) |
+            mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Merchant);
         bool highlight_show_found = false; // draw collected / opened ones too
         int highlight_max_draw = 60;       // nearest first
         float highlight_alpha_near = 1.0f; // at the camera

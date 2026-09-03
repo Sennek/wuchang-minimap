@@ -4692,9 +4692,26 @@ namespace overlay
                             g_compass_debug.pips);
             }
 
-            if (ImGui::Button("Save settings"))
+            // The button says WHICH FILE it writes: there are two now, and the panel is
+            // the only place that says which of them a setting lives in.
+            if (ImGui::Button("Save to config_wuchang_minimap.txt"))
             {
                 mm::g_save_config = true;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Rewrites only the values on the existing `key = value` lines.\n"
+                                  "Comments, ordering and keys this build does not know are kept.\n"
+                                  "Debug-tab settings go to config_wuchang_minimap_dev.txt instead.");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Revert"))
+            {
+                mm::g_revert_config = true;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Re-read both config files and throw away every unsaved change here.");
             }
             ImGui::SameLine();
             if (ImGui::Button("Reload settings + maps"))
@@ -5812,6 +5829,14 @@ namespace overlay
         if (mm::g_save_config.exchange(false))
         {
             mm::save_config_file();
+        }
+        // REVERT: re-read the config files and publish them, throwing away every
+        // unsaved edit made in the panel. Deliberately not a maps / markers reload -
+        // "undo what I just fiddled with" should not cost a 340 MB asset swap.
+        if (mm::g_revert_config.exchange(false))
+        {
+            mm::log(L"config: reverting to what is on disk");
+            mm::load_config_file();
         }
 
         if (!logged_first_present && g_present_count.load() > 0)

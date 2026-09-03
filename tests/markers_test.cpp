@@ -38,6 +38,7 @@
 
 #include "chapterid.hpp"
 #include "config_keys.hpp"
+#include "config_rewrite.hpp"
 #include "compass.hpp"
 #include "mapmanifest.hpp"
 #include "mapview.hpp"
@@ -1888,6 +1889,198 @@ namespace
     }
 
     //==================================================================================
+    // Saving: rewriting the VALUES in a config file and nothing else
+    //==================================================================================
+    //
+    // The F2 panel used to regenerate config_wuchang_minimap.txt from a thin comment
+    // block, so one click destroyed the whole documented file. cfgrw::rewrite is the
+    // replacement, and the property that matters is boring and absolute: a save that
+    // changes no value must produce the file BYTE FOR BYTE. That is checked against the
+    // real shipped file, which is the only version of it anyone will ever hold.
+
+    void test_config_rewrite(const std::string& markers_dir)
+    {
+        std::printf("config save - rewriting values in place\n");
+
+        std::string root = markers_dir;
+        while (!root.empty() && (root.back() == '/' || root.back() == '\\'))
+        {
+            root.pop_back();
+        }
+        const std::size_t slash = root.find_last_of("/\\");
+        root = slash == std::string::npos ? std::string{"."} : root.substr(0, slash);
+        const std::string dir = root + "/deploy/ue4ss/Mods/WuchangMinimap/";
+
+        const char* kBanner = "; ---- added by the settings panel ----";
+
+        // ---- the small cases, on a hand-written file --------------------------------
+        const std::string sample =
+            "; a header comment\n"
+            "\n"
+            "; what opacity does\n"
+            "opacity = 0.92\n"
+            "  minimap_zoom  =  26   ; tuned by hand\n"
+            "# a hash comment = with an equals in it\n"
+            "some_future_key = 7\n";
+
+        {
+            // Unchanged values -> byte-identical, and an inline comment survives.
+            std::vector<cfgrw::Pair> kv{{"opacity", "0.92"}, {"minimap_zoom", "26"}};
+            const cfgrw::Result r = cfgrw::rewrite(sample, kv, kBanner);
+            CHECK(r.text == sample);
+            CHECK_EQ(r.rewritten, 2);
+            CHECK_EQ(r.changed, 0);
+            CHECK_EQ(r.appended, 0);
+        }
+        {
+            // One changed value changes exactly one line, keeping its spacing and note.
+            std::vector<cfgrw::Pair> kv{{"opacity", "0.50"}, {"minimap_zoom", "26"}};
+            const cfgrw::Result r = cfgrw::rewrite(sample, kv, kBanner);
+            CHECK_EQ(r.changed, 1);
+            CHECK(r.text.find("opacity = 0.50\n") != std::string::npos);
+            CHECK(r.text.find("  minimap_zoom  =  26   ; tuned by hand\n") != std::string::npos);
+            CHECK(r.text.find("; what opacity does\n") != std::string::npos);
+            CHECK(r.text.find("some_future_key = 7\n") != std::string::npos);
+            CHECK(r.text.find("0.92") == std::string::npos);
+        }
+        {
+            // A changed value on a line that has an inline comment keeps the comment.
+            std::vector<cfgrw::Pair> kv{{"minimap_zoom", "40"}};
+            const cfgrw::Result r = cfgrw::rewrite(sample, kv, kBanner);
+            CHECK(r.text.find("  minimap_zoom  =  40   ; tuned by hand\n") != std::string::npos);
+        }
+        {
+            // A key the file does not carry is appended ONCE, under the banner.
+            std::vector<cfgrw::Pair> kv{{"opacity", "0.92"}, {"ui_scale", "auto"}};
+            const cfgrw::Result r = cfgrw::rewrite(sample, kv, kBanner);
+            CHECK_EQ(r.appended, 1);
+            CHECK(r.text.find(std::string{kBanner} + "\nui_scale = auto\n") != std::string::npos);
+            // ...and appending it a second time does not happen: feeding the OUTPUT
+            // back in with the same map is a fixed point.
+            const cfgrw::Result again = cfgrw::rewrite(r.text, kv, kBanner);
+            CHECK_EQ(again.appended, 0);
+            CHECK(again.text == r.text);
+        }
+        {
+            // A comment line that looks like a key is never touched.
+            std::vector<cfgrw::Pair> kv{{"a", "2"}};
+            const cfgrw::Result r = cfgrw::rewrite("; a = 1\n#a = 1\n", kv, kBanner);
+            CHECK_EQ(r.rewritten, 0);
+            CHECK(r.text.find("; a = 1\n#a = 1\n") == 0);
+        }
+        {
+            // A UTF-8 BOM belongs to the file, not to the first key.
+            const std::string bom = "\xEF\xBB\xBFopacity = 0.92\n";
+            std::vector<cfgrw::Pair> kv{{"opacity", "0.92"}};
+            const cfgrw::Result r = cfgrw::rewrite(bom, kv, kBanner);
+            CHECK(r.text == bom);
+        }
+        {
+            // CRLF: the file's own line ending is what an appended key gets.
+            std::vector<cfgrw::Pair> kv{{"a", "1"}, {"b", "2"}};
+            const cfgrw::Result r = cfgrw::rewrite("a = 1\r\n", kv, kBanner);
+            CHECK(r.text == std::string{"a = 1\r\n\r\n"} + kBanner + "\r\nb = 2\r\n");
+        }
+        {
+            // Duplicate lines for one key: the loader lets the last win, so BOTH have
+            // to be rewritten or a save would be undone by the earlier line.
+            std::vector<cfgrw::Pair> kv{{"a", "9"}};
+            const cfgrw::Result r = cfgrw::rewrite("a = 1\na = 2\n", kv, kBanner);
+            CHECK_EQ(r.rewritten, 2);
+            CHECK(r.text == "a = 9\na = 9\n");
+        }
+        {
+            // filter() is what keeps Dev keys out of the player file.
+            std::vector<cfgrw::Pair> kv{{"opacity", "1"}, {"srv_heap_size", "64"}};
+            const std::vector<cfgrw::Pair> player = cfgrw::filter(
+                kv, [](const std::string& k) { return !cfgkeys::tier_is(k, cfgkeys::Tier::Dev); });
+            CHECK_EQ(static_cast<int>(player.size()), 1);
+            if (!player.empty())
+            {
+                CHECK(player[0].first == "opacity");
+            }
+        }
+
+        // ---- the real shipped files --------------------------------------------------
+        for (const char* name : {"config_wuchang_minimap.txt", "config_wuchang_minimap_dev.txt"})
+        {
+            std::string text;
+            if (!read_file(dir + name, text))
+            {
+                std::printf("  SKIPPED %s (run from the repo)\n", name);
+                continue;
+            }
+            // Rewriting every key it carries with the value it already has must give
+            // the file back unchanged - all ~470 lines of documentation included.
+            std::vector<cfgrw::Pair> kv;
+            for (const std::string& k : cfgkeys::keys_in(text))
+            {
+                // The value as the file spells it, found the same way the loader does.
+                std::size_t at = 0;
+                std::string value;
+                while (at < text.size())
+                {
+                    const std::size_t nl = text.find('\n', at);
+                    const std::string line = text.substr(at, (nl == std::string::npos ? text.size() : nl) - at);
+                    at = (nl == std::string::npos) ? text.size() : nl + 1;
+                    const std::size_t hash = line.find_first_of(";#");
+                    const std::string body = line.substr(0, hash == std::string::npos ? line.size() : hash);
+                    const std::size_t eq = body.find('=');
+                    if (eq == std::string::npos)
+                    {
+                        continue;
+                    }
+                    std::string key = body.substr(0, eq);
+                    while (!key.empty() && (key.back() == ' ' || key.back() == '\t'))
+                    {
+                        key.pop_back();
+                    }
+                    std::size_t ks = 0;
+                    while (ks < key.size() && (key[ks] == ' ' || key[ks] == '\t'))
+                    {
+                        ++ks;
+                    }
+                    key = key.substr(ks);
+                    if (key != k)
+                    {
+                        continue;
+                    }
+                    std::string v = body.substr(eq + 1);
+                    while (!v.empty() && (v.back() == ' ' || v.back() == '\t' || v.back() == '\r'))
+                    {
+                        v.pop_back();
+                    }
+                    std::size_t vs = 0;
+                    while (vs < v.size() && (v[vs] == ' ' || v[vs] == '\t'))
+                    {
+                        ++vs;
+                    }
+                    value = v.substr(vs);
+                }
+                kv.emplace_back(k, value);
+            }
+            const cfgrw::Result r = cfgrw::rewrite(text, kv, kBanner);
+            const std::string msg = std::string{"round-trips byte for byte: "} + name;
+            check(r.text == text, msg.c_str(), __FILE__, __LINE__);
+            CHECK_EQ(r.changed, 0);
+            CHECK_EQ(r.appended, 0);
+            CHECK_EQ(r.rewritten, static_cast<int>(kv.size()));
+            std::printf("  %s: %d key(s), %d bytes, byte-identical round trip\n", name,
+                        static_cast<int>(kv.size()), static_cast<int>(text.size()));
+
+            // And changing ONE value changes exactly the bytes of that value.
+            if (!kv.empty())
+            {
+                std::vector<cfgrw::Pair> one = kv;
+                one[0].second += "X";
+                const cfgrw::Result r2 = cfgrw::rewrite(text, one, kBanner);
+                CHECK_EQ(r2.changed, 1);
+                CHECK_EQ(r2.text.size(), text.size() + 1);
+            }
+        }
+    }
+
+    //==================================================================================
     // Absence as evidence of a collect
     //==================================================================================
     //
@@ -2188,6 +2381,7 @@ int main(int argc, char** argv)
     test_marker_chapter_filter();
     test_map_manifest(markers_dir);
     test_config_keys(markers_dir);
+    test_config_rewrite(markers_dir);
     test_absence();
     test_rarity();
     test_rarity_db(markers_dir);

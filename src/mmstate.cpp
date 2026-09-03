@@ -1,6 +1,7 @@
 #include "mmstate.hpp"
 
 #include "config_keys.hpp"
+#include "config_rewrite.hpp"
 
 #include <Windows.h>
 
@@ -1840,20 +1841,78 @@ namespace mm
 
     namespace
     {
-        // The values of one tier, as `key = value` lines. Used ONLY when the file does
-        // not exist yet - an existing file is rewritten in place (config_rewrite.hpp)
-        // so its documentation survives a Save.
-        std::string tier_block(const std::vector<std::pair<std::string, std::string>>& kv, cfgkeys::Tier tier)
+        // The values of one tier as plain `key = value` lines. Used ONLY when a file
+        // does not exist yet; an existing file is rewritten in place, so its
+        // documentation, its ordering and any key we do not know survive a Save.
+        std::string tier_block(const std::vector<std::pair<std::string, std::string>>& kv,
+                               cfgkeys::Tier tier)
         {
             std::string out;
             for (const auto& [k, v] : kv)
             {
                 if (cfgkeys::tier_is(k, tier))
                 {
-                    out += k + " = " + v + "\n";
+                    out += k + " = " + v + "\r\n";
                 }
             }
             return out;
+        }
+
+        constexpr const char* kAppendedBanner = "; ---- added by the settings panel ----";
+
+        // Writes `mine` into `path`. If the file exists, only the VALUES on its
+        // existing `key = value` lines are replaced and anything missing is appended
+        // once under kAppendedBanner - nothing else about the file changes. If it does
+        // not exist, `fresh` is written verbatim.
+        void write_config(const std::wstring& path, const std::vector<cfgrw::Pair>& mine,
+                          const std::string& fresh)
+        {
+            std::string existing;
+            std::string out;
+            int changed = 0;
+            int appended = 0;
+            if (read_whole_file(path, existing))
+            {
+                const cfgrw::Result r = cfgrw::rewrite(existing, mine, kAppendedBanner);
+                out = r.text;
+                changed = r.changed;
+                appended = r.appended;
+            }
+            else
+            {
+                out = fresh;
+                appended = static_cast<int>(mine.size());
+            }
+
+            if (write_whole_file(path, out))
+            {
+                logf(L"config: saved -> {} ({} value(s) changed, {} key(s) appended)", path, changed, appended);
+            }
+            else
+            {
+                logf(L"config: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
+            }
+        }
+
+        // Does any Dev key differ from the built-in default? That is the test for
+        // "somebody actually wanted a dev file" - see save_config_file.
+        bool dev_values_differ(const std::vector<std::pair<std::string, std::string>>& kv)
+        {
+            const Config defaults{};
+            const std::vector<std::pair<std::string, std::string>> base = config_kv(defaults);
+            for (const auto& [k, v] : kv)
+            {
+                if (!cfgkeys::tier_is(k, cfgkeys::Tier::Dev))
+                {
+                    continue;
+                }
+                const std::string* d = cfgrw::lookup(base, k);
+                if (d != nullptr && *d != v)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
     } // namespace
 
@@ -1862,40 +1921,46 @@ namespace mm
         const Config cfg = config();
         const std::vector<std::pair<std::string, std::string>> kv = config_kv(cfg);
 
-        std::string out;
-        out += "; WuchangMinimap settings. Written by the F2 panel; hand edits are picked up with F5.\n";
-        out += "; Hotkeys may only be F1..F5, F7 or F8: F6 is the RenoDX DLSS5 toggle, F9/F11 engine\n";
-        out += "; binds, F10 the game console and F12 the Steam screenshot key.\n\n";
-        out += "; ---- PLAYER SETTINGS ----\n";
-        out += tier_block(kv, cfgkeys::Tier::Player);
-        out += "\n; ---- ADVANCED ----\n";
-        out += "; Correct as shipped. Change one to answer a symptom, not for fun.\n";
-        out += tier_block(kv, cfgkeys::Tier::Advanced);
-
-        const std::wstring path = config_path();
-        if (write_whole_file(path, out))
+        // ---- the player file: Player + Advanced -------------------------------------
         {
-            logf(L"config: saved -> {}", path);
+            const std::vector<cfgrw::Pair> mine = cfgrw::filter(kv, [](const std::string& k) {
+                return cfgkeys::tier_is(k, cfgkeys::Tier::Player) ||
+                       cfgkeys::tier_is(k, cfgkeys::Tier::Advanced);
+            });
+            std::string fresh;
+            fresh += "; WuchangMinimap settings. Written by the F2 panel; hand edits are picked up with F5.\r\n";
+            fresh += "; Only the VALUES on `key = value` lines are ever rewritten - comments, ordering and\r\n";
+            fresh += "; keys this build does not know are left exactly as they are.\r\n";
+            fresh += "; Hotkeys may only be F1..F5, F7 or F8: F6 is the RenoDX DLSS5 toggle, F9/F11 engine\r\n";
+            fresh += "; binds, F10 the game console and F12 the Steam screenshot key.\r\n\r\n";
+            fresh += "; ---- PLAYER SETTINGS ----\r\n";
+            fresh += tier_block(kv, cfgkeys::Tier::Player);
+            fresh += "\r\n; ---- ADVANCED ----\r\n";
+            fresh += "; Correct as shipped. Change one to answer a symptom, not for fun.\r\n";
+            fresh += tier_block(kv, cfgkeys::Tier::Advanced);
+            write_config(config_path(), mine, fresh);
         }
-        else
-        {
-            logf(L"config: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
-        }
 
-        // The dev file is only ever WRITTEN when it already exists: a player who never
-        // made one must not find a new file full of developer dials next to their config.
-        std::string existing;
-        if (read_whole_file(dev_config_path(), existing))
+        // ---- the dev file: Dev only, and never created for nothing -------------------
+        //
+        // It is written when it already exists (a developer is using it), or when some
+        // Dev key has been moved off its built-in default - which is the only way the
+        // Debug tab's edits can be persisted at all. A player who never touched one must
+        // not find a file full of developer dials appear next to their config, so an
+        // all-defaults Dev set with no file writes nothing. Dev keys never leak into the
+        // player file: the filter above cannot see them.
+        std::string dev_existing;
+        const bool have_dev = read_whole_file(dev_config_path(), dev_existing);
+        if (have_dev || dev_values_differ(kv))
         {
-            std::string dev;
-            dev += "; WuchangMinimap DEVELOPER settings - not shipped in the release zip.\n";
-            dev += "; Parsed only if this file exists, AFTER config_wuchang_minimap.txt, so a key set in\n";
-            dev += "; both wins here. Delete the file to go back to the built-in defaults.\n\n";
-            dev += tier_block(kv, cfgkeys::Tier::Dev);
-            if (write_whole_file(dev_config_path(), dev))
-            {
-                logf(L"config: saved -> {}", dev_config_path());
-            }
+            const std::vector<cfgrw::Pair> mine = cfgrw::filter(
+                kv, [](const std::string& k) { return cfgkeys::tier_is(k, cfgkeys::Tier::Dev); });
+            std::string fresh;
+            fresh += "; WuchangMinimap DEVELOPER settings - not shipped in the release zip.\r\n";
+            fresh += "; Read only if this file exists, and AFTER config_wuchang_minimap.txt, so a key set\r\n";
+            fresh += "; in both wins here. Delete the file to go back to the built-in defaults.\r\n\r\n";
+            fresh += tier_block(kv, cfgkeys::Tier::Dev);
+            write_config(dev_config_path(), mine, fresh);
         }
     }
 

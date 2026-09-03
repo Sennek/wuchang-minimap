@@ -148,6 +148,8 @@ HookInitGameState = 0</pre>
           with name and distance, coloured by item quality. It is a <strong>hold</strong>, not a
           toggle.</td></tr>
   <tr><td><kbd>LB</kbd>+<kbd>RB</kbd> <em>held</em></td><td>The same, on a controller</td></tr>
+  <tr><td><kbd>N</kbd></td><td>Cycle the minimap zoom</td></tr>
+  <tr><td><kbd>R</kbd></td><td>Recentre the full map on the player</td></tr>
 </table>
 
 <h3>While the full map is open</h3>
@@ -160,6 +162,10 @@ HookInitGameState = 0</pre>
   <tr><td><kbd>R</kbd></td><td>Recentre on the player, clear the floor offset</td></tr>
   <tr><td>Left-click a marker, or <kbd>F</kbd></td><td>Toggle "found" by hand (writes the tracker)</td></tr>
   <tr><td>Right-click, or <kbd>Space</kbd></td><td>Set the waypoint (it also shows on the minimap and compass)</td></tr>
+  <tr><td><kbd>C</kbd></td><td>Copy the map to the clipboard, ready to paste. Nothing is saved to disk.</td></tr>
+  <tr><td><strong>Stats</strong> button</td><td>Collection statistics: found / total per category and per chapter</td></tr>
+  <tr><td><strong>Shrines</strong> button</td><td>The chapter's shrines by distance. Click a row for a waypoint, double-click to centre the map.</td></tr>
+  <tr><td><kbd>?</kbd></td><td>Show this list in-game</td></tr>
   <tr><td><kbd>M</kbd> or <kbd>Esc</kbd></td><td>Close</td></tr>
   <tr><td>Gamepad</td><td>Left stick pan &middot; triggers or right stick zoom &middot;
       <kbd>LB</kbd>/<kbd>RB</kbd> floor &middot; <kbd>A</kbd> waypoint &middot;
@@ -265,16 +271,30 @@ in <code>ue4ss\Mods\WuchangMinimap\</code>, and no install or update ever overwr
 
 <table>
   <tr><th style="width:280px">File</th><th>What it is</th></tr>
+  <tr><td><code>wuchang_minimap_found_<em>&lt;slot&gt;</em>.txt</code></td>
+      <td>The collection tracker, <strong>one file per save game</strong>: one marker id per line.
+          The mod adds a line when it sees you open a chest or take a pickup, and you can toggle one
+          by hand by clicking it on the full map. Plain text, hand-editable; delete the file to reset
+          your tracking. The F2 Player tab shows which file is in force.</td></tr>
   <tr><td><code>wuchang_minimap_found.txt</code></td>
-      <td>The collection tracker: one marker id per line. The mod adds a line when it sees you
-          open a chest or take a pickup, and you can toggle one by hand by clicking it on the full
-          map. Plain text, hand-editable; delete the file to reset your tracking.</td></tr>
+      <td>The single shared tracker used before v0.9.4, and still used when the mod cannot work out
+          which save is loaded (or when you set <code>found_profile = shared</code>). The first time
+          the mod sees a new save slot it <em>copies</em> this file into that slot's file, so
+          upgrading loses nothing.</td></tr>
   <tr><td><code>wuchang_minimap_waypoint.txt</code></td>
       <td>Your waypoint, so it survives a restart. Three <code>key = value</code> lines.</td></tr>
+  <tr><td><code>wuchang_minimap_last_stage.txt</code></td>
+      <td>One line naming the stage the overlay was in. If the game ever crashes with the mod
+          loaded, <strong>this file survives when the log does not</strong> &mdash; please attach it to
+          a bug report. Set <code>crash_breadcrumb = 0</code> to stop writing it.</td></tr>
+  <tr><td><code>wuchang_minimap_firstrun.txt</code></td>
+      <td>Records that the first-run tip has been shown. Delete it to see the tip again.</td></tr>
+  <tr><td><code>wuchang_minimap_recon_<em>&lt;time&gt;</em>.txt</code></td>
+      <td>Only if you have been asked for one: a read-only diagnostic dump. Safe to delete.</td></tr>
 </table>
 
-<p>They are tied to a save, not to the game &mdash; if you start a new character, delete
-<code>wuchang_minimap_found.txt</code>.</p>
+<p>Starting a new character no longer means deleting anything: each save game gets its own tracker
+file automatically.</p>
 
 <h2 id="uninstall">6. Uninstall</h2>
 
@@ -283,10 +303,26 @@ in <code>ue4ss\Mods\WuchangMinimap\</code>, and no install or update ever overwr
   <li>Delete <code>Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangMinimap\</code>.</li>
 </ol>
 
-<p>That is the whole mod &mdash; it writes nothing anywhere else, touches no save file and modifies no
-game data. To keep it installed but switched off, either delete just
-<code>WuchangMinimap\enabled.txt</code>, or set <code>enabled = 0</code> in the config. To remove
-UE4SS as well, delete <code>dwmapi.dll</code> and the <code>ue4ss\</code> folder.</p>
+<p>That is the whole mod &mdash; it writes nothing anywhere else, <strong>touches no save file and
+modifies no game data</strong>, so uninstalling it cannot affect your playthrough. Deleting that one
+folder also removes your tracker and waypoint files; copy them out first if you want to keep them.</p>
+
+<p>To keep it installed but switched off, in increasing order of thoroughness:</p>
+<ul>
+  <li><strong>For this session only:</strong> <kbd>F2</kbd> &rarr; <em>Disable for this session</em>.
+      Everything stops within a second and your config file is not touched; saving or editing the
+      config file turns it back on, also within a second.</li>
+  <li><strong>Permanently, but reversibly:</strong> set <code>mod_enabled = 0</code> in
+      <code>config_wuchang_minimap.txt</code>. The DLL is then completely inert &mdash; no graphics
+      hook, no scanning, no map in memory &mdash; and setting it back to <code>1</code> restarts it
+      with no game restart. (<code>overlay_enabled = 0</code>, formerly <code>enabled</code>, only
+      stops it <em>drawing</em>.)</li>
+  <li><strong>Stop UE4SS loading it at all:</strong> delete
+      <code>WuchangMinimap\enabled.txt</code>.</li>
+</ul>
+
+<p>To remove UE4SS as well, delete <code>dwmapi.dll</code> and the <code>ue4ss\</code> folder from
+<code>Project_Plague\Binaries\Win64\</code>.</p>
 
 <h2 id="trouble">7. Troubleshooting</h2>
 
@@ -296,6 +332,18 @@ UE4SS as well, delete <code>dwmapi.dll</code> and the <code>ue4ss\</code> folder
 (<code>WuchangMinimap v@@VERSION@@ loaded</code>), and every line the mod writes is prefixed
 <code>[minimap]</code>, <code>[markers]</code> or <code>[navmesh]</code>. That file is the first thing to
 attach to a bug report.</p>
+
+<h3>The game crashed while playing</h3>
+<p>Two files answer this, in this order:</p>
+<ol>
+  <li><code>ue4ss\Mods\WuchangMinimap\wuchang_minimap_last_stage.txt</code> &mdash; one line naming
+      the stage the overlay was in. UE4SS's log is buffered and its last seconds can be lost when a
+      process dies; this file is closed after every write, so it cannot be. Anything other than
+      <code>clean exit</code> means the mod was mid-something when the game went.</li>
+  <li><code>%LOCALAPPDATA%\Project_Plague\Saved\Crashes\</code> &mdash; the game's own crash
+      report. Open <code>CrashContext.runtime-xml</code> and look at <code>&lt;CrashType&gt;</code>
+      first: <code>GPUCrash</code> is a graphics-driver or ReShade/DLSS problem, not this mod.</li>
+</ol>
 
 <h3>The game crashes on start-up</h3>
 <p>Almost always <code>HookInitGameState</code>. Set <code>[Hooks] HookInitGameState = 0</code> in
@@ -308,11 +356,13 @@ attach to a bug report.</p>
       cutscenes, in menus, and for a moment after a load.</li>
   <li>Press <kbd>F2</kbd>. If the panel opens, the mod is running and the graphics hooks are in;
       the minimap is just being suppressed.</li>
-  <li>With <code>debug_readout = 1</code> (the default) the panel prints one line
-      <strong><code>hidden because: &lt;reason&gt;</code></strong> that names the exact condition holding
-      it back &mdash; a stale snapshot, no gameplay pawn, an open menu (it even names the widget), the
-      grace period, or the camera not looking through the player. Read that line before anything
-      else; it is there specifically so "the minimap vanished" has an answer.</li>
+  <li><strong>Read the <code>hidden because:</code> line.</strong> Whenever the minimap is not on
+      screen, the top of the <kbd>F2</kbd> <em>Player</em> tab prints one orange line naming the exact
+      condition holding it back &mdash; a stale snapshot, no gameplay pawn, an open menu (it even names
+      the widget), the grace period after a load, or the camera not looking through the player. It is
+      there specifically so "the minimap vanished" has an answer.
+      <strong>If you report this problem, screenshot that line</strong> &mdash; it is worth more than
+      any description.</li>
   <li>If <kbd>F2</kbd> does nothing either, check <code>enabled.txt</code> exists and look for
       <code>WuchangMinimap v@@VERSION@@ loaded</code> in <code>UE4SS.log</code>.</li>
 </ul>

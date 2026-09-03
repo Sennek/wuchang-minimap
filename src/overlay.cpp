@@ -6154,6 +6154,19 @@ namespace overlay
             // Minimap
             //--------------------------------------------------------------------------
             ImGui::SeparatorText("Minimap");
+            // THE ONE LINE THAT ANSWERS "why is the minimap not there", on the tab a
+            // PLAYER actually opens. It used to live only on the Debug tab, which since
+            // 0.9.2 is hidden unless the unshipped dev config turns it on - so the
+            // diagnostic the whole show/hide design exists to produce was invisible to
+            // everyone it was written for. Only shown while the minimap is hidden;
+            // saying "minimap: shown" over a visible minimap is noise.
+            if (!g_last_mini.visible)
+            {
+                char reason[192]{};
+                ::WideCharToMultiByte(CP_UTF8, 0, g_hide_reason, -1, reason, sizeof(reason) - 1, nullptr,
+                                      nullptr);
+                ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f}, "hidden because: %s", reason);
+            }
             ImGui::Checkbox("Overlay enabled", &cfg.overlay_enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Show minimap", &cfg.show_minimap);

@@ -663,6 +663,69 @@ tiers pairwise disjoint, no removed or renamed key in either file, and the shipp
 `; ---- PLAYER SETTINGS ----` / `; ---- ADVANCED ----` banner order matching the tier tags key for
 key. So no layout, no table and no parser branch can drift away from the others.
 
+Eight keys were added in 0.9.4 - four Player, two Advanced, two Dev:
+
+| key | tier | default | meaning |
+|---|---|---|---|
+| `found_profile` | Player | `auto` | Which collection file. `auto` runs the save-slot ladder in `src/saveslot.hpp` and writes `wuchang_minimap_found_<key>.txt`; `shared` pins the pre-0.9.4 global file; anything else is used verbatim as the key. The key is sanitised to `[A-Za-z0-9_-]` and capped at 48 chars before it reaches a filename - `sanitise_key` is tested offline against traversal and non-ASCII input, because this is the one setting that decides a path. |
+| `first_run_toast` | Player | `1` | The once-per-install 10 s tip naming the bound keys. The sentinel is `wuchang_minimap_firstrun.txt` next to the config. |
+| `shrine_list` | Player | `1` | The **Shrines** panel on the full map. |
+| `screenshot_key` | Player | `C` | Copies the full map to the clipboard. A plain letter is safe as the default *because* it only fires while the map is open, and the map mode swallows the whole keyboard. |
+| `crash_breadcrumb` | Advanced | `1` | Write `wuchang_minimap_last_stage.txt` at every overlay stage transition (`src/breadcrumb.hpp`). |
+| `fast_travel_enabled` | Advanced | `0` | Adds a **Travel** action to the shrine list. Off until the in-game reflection self-check has been confirmed - see below. |
+| `saveslot_uuid_call` | Dev | `0` | Actually call `GameSaveExecutor::Get Save Slot Value` instead of only reading and logging its reflected signature. |
+| `recon_dump_key` | Dev | `F4` | One press writes `wuchang_minimap_recon_<ts>.txt` (`src/recon.hpp`). |
+
+### The save-slot ladder (`src/saveslot.*`, 0.9.4)
+
+`wuchang_minimap_found.txt` was global, so a second character inherited the first one's collection.
+The mod now answers "which save is this?" through four rungs, each **logged with the route that
+answered** - a silent fallback is what makes a wrong tracker file impossible to diagnose:
+
+1. **uuid** - `GameSaveExecutor`'s own KV accessor (research §1.2). The `UFunction` is resolved by
+   name over three candidate spellings and its **reflected parameter list is read and compared** to
+   the predicted shape before anything happens; the signature is logged either way, and the call
+   itself stays behind `saveslot_uuid_call` until one in-game dump has confirmed it.
+2. **slot path** - `Impl_GameSettingsSaver_C::TickCountSavPath`, a raw `FString` read with no
+   `ProcessEvent` at all, parsed for its `GameSlots\<slot>` component.
+3. **sav file** - the newest `*.sav` under `%LOCALAPPDATA%\Project_Plague\Saved\*\GameSlots\*`,
+   giving `<accountid>_<slot>` straight from the path. Runs on the loop thread before the game
+   thread ever pumps, so the first load already has a key.
+4. **shared** - the old global file.
+
+On first sight of a slot with no file of its own the shared file is **copied** into it once, and the
+copy is logged. A slot switch (main menu -> another save) drops every cache, which re-arms the
+resolution, so the tracker swaps files with no restart; a pending write goes to the *old* file first.
+
+### Fast travel is guarded, not disabled (`src/shrines.*`, 0.9.4)
+
+The route is the game's own (research §2.2):
+`PlayerModelLibrary_C::PlayerChuanSongFirePoint` on the library CDO, falling back to
+`BP_RebornFire_C::ChuanSong` on a resident shrine - **never `K2_TeleportTo`**, which would move the
+pawn without the pre-travel save, the reborn info or the `pmaps` level set and land the player in
+unstreamed geometry. `lessons.md` forbids calling a `UFunction` with a guessed signature, so the
+call is only issued after `uer::func_params()` has read the real parameter list and it matches the
+prediction (one to two 16-byte `FString` slots, the first at offset 0). A mismatch refuses and says
+so in the panel; a shrine the save has not unlocked refuses too. `ue_min.hpp` declares `UFunction`
+as a `UStruct` subclass, which is what makes reading a signature possible at all.
+
+The one press that closes it is `recon_dump_key` (`src/recon.cpp`): the game mode's components,
+every property of `RebornManagerComponent_C` with the three firepoint arrays, **the reflected
+parameter lists of the ten functions both routes name**, and the save-slot fallback strings - into a
+file, calling nothing. When a name does not resolve it prints the names that did.
+
+### `markers/shrines.json` (schema `wuchang-minimap-shrines/1`)
+
+`tools/markers/extract_shrines.py` reads the game's `DT_FirePoint` DataTable with no `.usmap`:
+88 contiguous rows, all named from `MMGame.locres`, all with a `BirthPosition`, 50 of them joined to
+a shrine marker by id (the rest are the `bossdoor_*` / `Task*` pseudo-rows, flagged
+`"shrine": false`). Three things make it safe: `BirthPosition` is schema slot 0 so it needs no walk
+over variable-sized values; the row scan is validated by **contiguity** (all 38 787 payload bytes
+accounted for), which rejects the ~54 spurious matches on its own; and the display name is found by
+its own evidence - `ShowName`'s locres key survives in the row as ASCII and the locres either has it
+or it does not. `src/shrines_db.hpp` is the pure parser and the shipped file's counts are asserted
+offline.
+
 Six keys were added in 0.9.3 - three Player, three Advanced:
 
 | key | tier | default | meaning |
@@ -906,7 +969,7 @@ State, all from the in-world recon (see the task workspace's `wuchang-classes.md
 
 | category | classes swept | "found" means |
 |---|---|---|
-| shrine | `BP_RebornFire_C` | *unknown* - no activation flag has been identified yet, so shrines are never auto-marked |
+| shrine | `BP_RebornFire_C` | not a per-actor flag at all: **`RebornManagerComponent_C::UnlockedFirepoints`**, a global `TArray<FString>` of shrine ids persisted under `lockqueue`, read raw at 1 Hz by `src/shrines.cpp`. That is what the statistics page's "shrines lit" and the shrine list's `Lit` column show. Shrine markers are still never *auto-marked found* - the tracker follows collectables, not rest points. |
 | chest | `BP_treasurebox_C`, `BP_ItemRedBox_C` | `Used == true` (persisted under `SavedStatuKey = statu_use`) |
 | pickup | `BP_PickupActor_C` and subclasses (incl. `BP_DropItem_C`) | `dying == true` **or** the actor is parked at `(0,0,0)` |
 | door | `BP_NewPuzzlesDoor_C` (`DoorOpen`), `BP_DoorZhong_C` (`Used`) | the door is open |
@@ -953,9 +1016,11 @@ its shape long after it has lost its colour contrast). The F2 panel carries the 
 checkboxes and the per-chapter found/total counts; the same filter is the config file's
 `markers_categories` list.
 
-`wuchang_minimap_found.txt` (mod folder, next to the config) is the collection tracker: one stable id
-per line, sorted, comments allowed, rewritten from the loop thread `found_save_debounce_ms` after the
-last change. A deploy never touches it.
+`wuchang_minimap_found_<slot>.txt` (mod folder, next to the config) is the collection tracker: one
+stable id per line, sorted, comments allowed, rewritten from the loop thread
+`found_save_debounce_ms` after the last change. There is one per save game (see the save-slot ladder
+above); `wuchang_minimap_found.txt` without a suffix is the pre-0.9.4 shared file, still used when no
+slot can be identified and seeded into a new slot's file once. A deploy never touches either.
 
 ## Next steps
 
@@ -987,6 +1052,12 @@ last change. A deploy never touches it.
       signature, PSO, `D3DCompile` and `ImDrawList::AddCallback` juggling on a ReShade-wrapped
       swapchain, and it would only save the few ms per update and the ~1 MB upload - the CPU slicer
       already has the exactly-correct semantics.
+- [x] Per-save-slot collection tracker, a collection statistics page, the full map on the clipboard,
+      a first-run tip, an overlay crash breadcrumb and a "disable for this session" switch (0.9.4).
+      **Not yet verified in-game** - see `context/extras-test-instructions.md`.
+- [x] Shrine list on the full map with names from the game's own `DT_FirePoint` table, and guarded
+      fast travel behind `fast_travel_enabled` plus a reflection self-check. **The route is not yet
+      confirmed in-game**; one press of `recon_dump_key` produces everything needed to confirm it.
 - [ ] Build the other four chapters' maps and load/unload them by area.
 - [ ] Sweep all streaming cells so the runtime navmesh dumps cover a whole region, not just the
       4-6 cells resident around the player.

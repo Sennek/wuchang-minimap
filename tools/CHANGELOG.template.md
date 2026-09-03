@@ -4,6 +4,55 @@ All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 
 ## @@VERSION@@ - @@DATE@@
 
+An extras release: one collection file per save, a statistics page, the map on your
+clipboard, a shrine list, and the diagnostics that make a bug report answerable.
+
+### Added
+- **One collection file per save game.** `wuchang_minimap_found.txt` was global, so a
+  second character started with the first one's collection already ticked off. The mod
+  now works out which save slot is loaded and uses
+  `wuchang_minimap_found_<slot>.txt`; the first time it sees a new slot it copies your
+  old shared file into it, so nothing is lost. Switching saves from the main menu swaps
+  files with no restart. `found_profile = auto | shared | <name>` if you want to decide
+  yourself, and the F2 Player tab always shows which file is in force and how it was
+  chosen.
+- **A collection statistics page** - found / total for every category, the same per
+  chapter, the shrines your save has lit, and one overall percentage. On the F2 Player
+  tab and behind a **Stats** button on the full map.
+- **`C` copies the full map to the clipboard** while the map is open, ready to paste into
+  a chat or an image editor. Nothing is written to disk.
+- **A shrine list on the full map** (**Shrines** in the header): every shrine of the
+  chapter with its in-game name, the distance to it and whether you have lit it. Click a
+  row to put a waypoint on it, double-click to centre the map there.
+- **Fast travel, off by default.** With `fast_travel_enabled = 1` each unlocked shrine
+  gets a **Travel** button that calls the game's own fast-travel function - the same one
+  the shrine menu uses, so the loading screen, the save and the level streaming all happen
+  normally. It refuses to travel to a shrine your save has not unlocked, and it refuses
+  outright unless a check of the game's own function signature passes, saying why in the
+  panel. Treat it as experimental.
+- **A first-run tip**: on the first launch after installing, a ten-second message naming
+  the keys that are actually bound. `first_run_toast = 0` to skip it.
+- **A crash breadcrumb.** `wuchang_minimap_last_stage.txt` holds one line saying which
+  stage the overlay was in. If the game ever dies with the mod loaded, that file survives
+  when the log does not - please include it in a bug report. `crash_breadcrumb = 0` to
+  turn the file off.
+- **"Disable for this session"** next to the master switch: stops everything now, exactly
+  like `mod_enabled = 0`, but without touching your config file. Saving or editing the
+  file turns it back on within a second, so ruling the mod out of a problem no longer
+  leaves you with a config to repair.
+
+### Changed
+- The F2 Player tab's collection block is the new statistics page rather than a
+  three-category table.
+- The full map's `?` legend lists the new `C` and **Shrines** actions.
+
+### Notes
+- The shrine names and destinations come from a new `markers\shrines.json`, extracted from
+  the game's own fire-point table: 88 rows, all of them named, 50 of them real shrines
+  (the rest are the boss doors and quest points that share the table).
+
+## 0.9.3 - 2026-09-03
+
 A legibility release. Everything you look at got easier to read; nothing about the map,
 the markers or the tracker changed.
 

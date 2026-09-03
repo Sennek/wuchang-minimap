@@ -11,7 +11,7 @@
 // package.ps1 -Version x.y.z REWRITES the literal below (and xmake.lua's set_version,
 // which is metadata only), so keep the definition on one line in exactly this shape.
 //
-#define WUCHANG_MINIMAP_VERSION "0.9.3"
+#define WUCHANG_MINIMAP_VERSION "0.9.4"
 
 // The UE4SS mod API and DynamicOutput are wide (RC_IS_ANSI=0, STR(x) == L##x), so the
 // version literal needs a wide twin. Two-step so the argument is expanded first.

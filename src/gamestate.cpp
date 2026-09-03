@@ -136,6 +136,14 @@ namespace gamestate
         // scan_sched.hpp, tested offline).
         scan::SweepSched g_sweep{};
 
+        // Perf counter ids (perf.hpp). Namespace-scope ints rather than function
+        // statics: a guarded static's first call would run the CRT's thread-safe-init
+        // path on the game thread.
+        int g_pf_position = -1;
+        int g_pf_sweep = -1;
+        int g_pf_retest = -1;
+        int g_pf_chapter = -1;
+
         // The level set last handed to markers::set_loaded_levels(). Cleared whenever
         // the marker module's caches are dropped, so the next enumeration always
         // republishes into an empty g_levels.
@@ -1148,7 +1156,15 @@ namespace gamestate
             // the overlay hides on the next frame, not seconds later.
             std::uint32_t roots_visible = 0;
             std::wstring holder;
-            bool menu = menu_from_cached_roots(roots_visible, holder);
+            bool menu = false;
+            {
+                if (g_pf_retest < 0)
+                {
+                    g_pf_retest = mm::perf_register("menu root re-test", perf::Thread::Game);
+                }
+                const mm::PerfScope scope(g_pf_retest);
+                menu = menu_from_cached_roots(roots_visible, holder);
+            }
 
             // The discovery sweep's cadence. Every event that can have created a menu
             // root we have never seen re-arms the fast cadence (and makes a sweep due
@@ -1166,7 +1182,13 @@ namespace gamestate
             {
                 std::wstring sweep_holder;
                 bool discovered_new = false;
+                if (g_pf_sweep < 0)
+                {
+                    g_pf_sweep = mm::perf_register("widget sweep (FindAllOf)", perf::Thread::Game);
+                }
+                const std::uint64_t sweep_t0 = mm::qpc_us();
                 const bool sweep_menu = update_widgets(sweep_holder, discovered_new);
+                mm::perf_record(g_pf_sweep, sweep_t0);
                 scan::sweep_done(g_sweep, now, discovered_new, g_menu_watch.empty());
                 // After a sweep the sweep IS the answer. OR-ing the cached pass's older
                 // answer over it - which is what the first version did - lets a root the
@@ -1193,6 +1215,11 @@ namespace gamestate
             if (now - g_last_chapter >= g_tune.chapter_ms)
             {
                 g_last_chapter = now;
+                if (g_pf_chapter < 0)
+                {
+                    g_pf_chapter = mm::perf_register("refresh_chapter", perf::Thread::Game);
+                }
+                const mm::PerfScope scope(g_pf_chapter);
                 refresh_chapter(now);
             }
 
@@ -1215,7 +1242,14 @@ namespace gamestate
             double y = 0.0;
             double z = 0.0;
             float yaw = 0.0f;
-            if (read_location(pawn, x, y, z, yaw, via_function))
+            if (g_pf_position < 0)
+            {
+                g_pf_position = mm::perf_register("position pump", perf::Thread::Game);
+            }
+            const std::uint64_t pos_t0 = mm::qpc_us();
+            const bool got_location = read_location(pawn, x, y, z, yaw, via_function);
+            mm::perf_record(g_pf_position, pos_t0);
+            if (got_location)
             {
                 snap.has_pawn = true;
                 snap.x = x;

@@ -41,6 +41,7 @@
 #include "mapmanifest.hpp"
 #include "mapview.hpp"
 #include "markers_db.hpp"
+#include "perf.hpp"
 #include "projection.hpp"
 #include "scan_sched.hpp"
 
@@ -531,6 +532,102 @@ namespace
         mdb::intern_levels(none, levels, marker_level);
         CHECK(levels.empty());
         CHECK(marker_level.empty());
+    }
+
+    //======================================================================================
+    // The per-activity performance counters (src/perf.hpp)
+    //======================================================================================
+    //
+    // The F2 debug table is only as useful as this arithmetic: a wrong window reset
+    // would show a rate of zero for something running at 1 kHz, and the failure mode of
+    // a diagnostic is that nobody notices it is lying.
+
+    void test_perf()
+    {
+        section("per-activity performance counters");
+
+        perf::Table t{};
+        CHECK(t.count == 0);
+
+        const int a = perf::register_counter(t, "publish_round", perf::Thread::Game);
+        const int b = perf::register_counter(t, "render frame", perf::Thread::Render);
+        CHECK(a == 0);
+        CHECK(b == 1);
+        CHECK(t.count == 2);
+        // The same name pointer registers once, so a call site's lazy "if (id < 0)"
+        // cannot duplicate a row.
+        CHECK(perf::register_counter(t, "publish_round", perf::Thread::Game) == 0);
+        CHECK(t.count == 2);
+        CHECK(perf::register_counter(t, nullptr, perf::Thread::Loop) == -1);
+
+        // Recording into an id that was never handed out must be a no-op, not a write
+        // past the array.
+        perf::record(t, -1, 5.0, 1000);
+        perf::record(t, 99, 5.0, 1000);
+        CHECK(t.c[0].calls == 0);
+
+        // last / peak update immediately; avg and rate only when a window closes.
+        perf::record(t, a, 2.0, 1000);
+        CHECK(t.c[a].calls == 1);
+        CHECK_NEAR(t.c[a].last_ms, 2.0, 1e-12);
+        CHECK_NEAR(t.c[a].peak_ms, 2.0, 1e-12);
+        CHECK_NEAR(t.c[a].avg_ms, 0.0, 1e-12);
+        perf::record(t, a, 6.0, 1500);
+        CHECK_NEAR(t.c[a].last_ms, 6.0, 1e-12);
+        CHECK_NEAR(t.c[a].peak_ms, 6.0, 1e-12);
+        perf::record(t, a, 4.0, 1999);
+        CHECK_NEAR(t.c[a].peak_ms, 6.0, 1e-12); // a smaller sample never lowers the peak
+        CHECK_NEAR(t.c[a].avg_ms, 0.0, 1e-12);  // still inside the first window
+
+        // The window closes at kWindowMs: four samples of 2+6+4+8 over 2000 ms.
+        perf::record(t, a, 8.0, 3000);
+        CHECK(t.c[a].calls == 4);
+        CHECK_NEAR(t.c[a].avg_ms, 5.0, 1e-9);
+        CHECK_NEAR(t.c[a].rate_hz, 2.0, 1e-9); // 4 calls in 2000 ms
+        // ...and the window restarts empty, so the next average is not diluted.
+        CHECK(t.c[a].win_calls == 0);
+        CHECK_NEAR(t.c[a].win_total_ms, 0.0, 1e-12);
+
+        // A clock that goes backwards (it can, across a suspend) must not wedge the
+        // window or produce a negative rate.
+        perf::record(t, a, 1.0, 10);
+        CHECK(t.c[a].calls == 5);
+        CHECK(t.c[a].rate_hz >= 0.0);
+
+        // Idle detection: a counter nobody has recorded into is idle, one just recorded
+        // is not, and one whose window has been open for several windows is idle again.
+        perf::Table q{};
+        const int c = perf::register_counter(q, "widget sweep", perf::Thread::Game);
+        CHECK(perf::idle(q.c[c], 0));
+        perf::record(q, c, 30.0, 5000);
+        CHECK(!perf::idle(q.c[c], 5000));
+        CHECK(!perf::idle(q.c[c], 5000 + perf::kWindowMs * 2));
+        CHECK(perf::idle(q.c[c], 5000 + perf::kWindowMs * 4));
+
+        // Peaks are resettable - a hitch during a loading screen must not hide every
+        // later regression behind it - and nothing else is disturbed.
+        CHECK_NEAR(q.c[c].peak_ms, 30.0, 1e-12);
+        perf::reset_peaks(q);
+        CHECK_NEAR(q.c[c].peak_ms, 0.0, 1e-12);
+        CHECK(q.c[c].calls == 1);
+        CHECK_NEAR(q.c[c].last_ms, 30.0, 1e-12);
+
+        // The table is a fixed array: registering past it is refused, never written.
+        perf::Table full{};
+        // Distinct pointers, so nothing is deduplicated by the name check.
+        static char storage[perf::kMaxCounters + 4][2] = {};
+        for (int i = 0; i < perf::kMaxCounters; ++i)
+        {
+            CHECK(perf::register_counter(full, storage[i], perf::Thread::Loop) == i);
+        }
+        CHECK(full.count == perf::kMaxCounters);
+        CHECK(perf::register_counter(full, storage[perf::kMaxCounters], perf::Thread::Loop) == -1);
+        CHECK(full.count == perf::kMaxCounters);
+
+        CHECK_STR(perf::thread_name(perf::Thread::Loop), "loop");
+        CHECK_STR(perf::thread_name(perf::Thread::Game), "game");
+        CHECK_STR(perf::thread_name(perf::Thread::Render), "render");
+        CHECK_STR(perf::thread_name(perf::Thread::Unknown), "?");
     }
 
     void test_ids()
@@ -1979,6 +2076,7 @@ int main(int argc, char** argv)
     test_found_file();
     test_ids();
     test_intern_levels();
+    test_perf();
     test_mapview();
     test_scan_sched();
     test_sweep_sched();

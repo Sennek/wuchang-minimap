@@ -385,6 +385,16 @@ namespace overlay
             return freq;
         }
 
+        // Perf counter ids (perf.hpp). Namespace-scope, initialised on first use by
+        // their single owning thread - never a guarded function static, because one of
+        // these paths is entered from the game thread's callback chain.
+        int g_pf_frame = -1;    // the whole render prologue + build_ui
+        int g_pf_minimap = -1;  // draw_minimap
+        int g_pf_markpass = -1; // build_frame_candidates
+        int g_pf_slice = -1;    // the minimap height-slice cut (loop thread)
+        int g_pf_mslice = -1;   // the full map's cut (loop thread)
+        int g_pf_input = -1;    // the hotkey block (loop thread)
+
         Spinlock g_render_lock;
 
         ID3D12Device* g_device = nullptr;
@@ -1751,16 +1761,24 @@ namespace overlay
                          g_feet_z, st);
             ::QueryPerformanceCounter(&t1);
             const std::int64_t freq = qpc_freq();
+            double g_slice_last_cut_ms = 0.0;
             if (freq > 0)
             {
                 const double ms =
                     1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) / static_cast<double>(freq);
+                g_slice_last_cut_ms = ms;
                 g_slice_ms = g_slice_ms == 0.0 ? ms : g_slice_ms * 0.8 + ms * 0.2;
                 if (ms > g_slice_ms_peak)
                 {
                     g_slice_ms_peak = ms;
                 }
             }
+
+            if (g_pf_slice < 0)
+            {
+                g_pf_slice = mm::perf_register("minimap slice cut", perf::Thread::Loop);
+            }
+            mm::perf_record_ms(g_pf_slice, g_slice_last_cut_ms);
 
             g_slice_copy_pending[g_slice_next].store(true, std::memory_order_release);
             {
@@ -2246,6 +2264,11 @@ namespace overlay
 
         void build_frame_candidates(const mm::Snapshot& snap)
         {
+            if (g_pf_markpass < 0)
+            {
+                g_pf_markpass = mm::perf_register("marker pass", perf::Thread::Render);
+            }
+            const mm::PerfScope scope(g_pf_markpass);
             g_frame_cands.clear();
             g_frame_marker_total = 0;
             g_frame_bad_cat = 0;
@@ -3445,10 +3468,12 @@ namespace overlay
                          b.footprint.Footprint.RowPitch, req.feet, st, g_mslice_scratch, g_mslice_counts);
             ::QueryPerformanceCounter(&t1);
             const std::int64_t freq = qpc_freq();
+            double g_mslice_last_cut_ms = 0.0;
             if (freq > 0)
             {
                 const double ms =
                     1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) / static_cast<double>(freq);
+                g_mslice_last_cut_ms = ms;
                 g_mslice_ms = g_mslice_ms == 0.0 ? ms : g_mslice_ms * 0.7 + ms * 0.3;
                 if (ms > g_mslice_ms_peak)
                 {
@@ -3466,6 +3491,12 @@ namespace overlay
             g_mr_w = b.w;
             g_mr_h = b.h;
             g_mr_valid = true;
+
+            if (g_pf_mslice < 0)
+            {
+                g_pf_mslice = mm::perf_register("full map cut", perf::Thread::Loop);
+            }
+            mm::perf_record_ms(g_pf_mslice, g_mslice_last_cut_ms);
 
             g_mslice_copy_pending[g_mslice_next].store(true, std::memory_order_release);
             {
@@ -4035,6 +4066,91 @@ namespace overlay
         // Drawing: the F2 panel
         //==============================================================================
 
+        //==============================================================================
+        // The per-activity performance table
+        //==============================================================================
+        //
+        // Every periodic activity in this mod records into perf.hpp's counter table;
+        // this prints it. The review of v0.9.1 found two costs that had been invisible
+        // for weeks (the 4 Hz widget sweep at 28-51 ms, and publish_round, never timed
+        // at all) by reading code - this is so the next one is found by looking.
+        //
+        // The columns: how often it runs, what an average invocation costs, the worst
+        // one since the peaks were last reset, the most recent one, and which thread
+        // pays. `avg` and `Hz` are over a rolling window (perf::kWindowMs), so they
+        // react instead of being diluted by the whole session.
+        void draw_perf_table()
+        {
+            const perf::Table& pt = mm::perf_table();
+            if (pt.count == 0)
+            {
+                return;
+            }
+            const std::uint64_t now = ::GetTickCount64();
+            if (!ImGui::CollapsingHeader("Performance (per activity)"))
+            {
+                return;
+            }
+            if (ImGui::SmallButton("reset peaks"))
+            {
+                mm::perf_reset_peaks();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("a peak from a loading screen otherwise hides every later one");
+
+            if (ImGui::BeginTable("perf", 6,
+                                  ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                      ImGuiTableFlags_SizingStretchProp))
+            {
+                ImGui::TableSetupColumn("activity");
+                ImGui::TableSetupColumn("Hz");
+                ImGui::TableSetupColumn("avg ms");
+                ImGui::TableSetupColumn("peak ms");
+                ImGui::TableSetupColumn("last ms");
+                ImGui::TableSetupColumn("thread");
+                ImGui::TableHeadersRow();
+                for (int i = 0; i < pt.count; ++i)
+                {
+                    const perf::Counter& c = pt.c[i];
+                    const bool is_idle = perf::idle(c, now);
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%s", c.name != nullptr ? c.name : "?");
+                    ImGui::TableNextColumn();
+                    if (is_idle)
+                    {
+                        ImGui::TextDisabled("idle");
+                    }
+                    else
+                    {
+                        ImGui::Text("%.1f", c.rate_hz);
+                    }
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.3f", c.avg_ms);
+                    ImGui::TableNextColumn();
+                    // The one number worth colouring: anything over a millisecond on a
+                    // periodic path is a frame-time or game-thread problem.
+                    if (c.peak_ms >= 4.0)
+                    {
+                        ImGui::TextColored(ImVec4{1.0f, 0.45f, 0.35f, 1.0f}, "%.3f", c.peak_ms);
+                    }
+                    else if (c.peak_ms >= 1.0)
+                    {
+                        ImGui::TextColored(ImVec4{1.0f, 0.85f, 0.4f, 1.0f}, "%.3f", c.peak_ms);
+                    }
+                    else
+                    {
+                        ImGui::Text("%.3f", c.peak_ms);
+                    }
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.3f", c.last_ms);
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("%s", perf::thread_name(c.thread));
+                }
+                ImGui::EndTable();
+            }
+        }
+
         void draw_panel(mm::Config cfg, const mm::Snapshot& snap, bool have_state)
         {
             bool open = true;
@@ -4589,6 +4705,7 @@ namespace overlay
             if (cfg.debug_readout)
             {
                 ImGui::SeparatorText("Debug");
+                draw_perf_table();
                 if (!have_state)
                 {
                     ImGui::TextColored(ImVec4{1.0f, 0.6f, 0.4f, 1.0f}, "no game-state snapshot yet");
@@ -4767,6 +4884,11 @@ namespace overlay
             }
             else
             {
+                if (g_pf_minimap < 0)
+                {
+                    g_pf_minimap = mm::perf_register("minimap draw", perf::Thread::Render);
+                }
+                const mm::PerfScope scope(g_pf_minimap);
                 draw_minimap(cfg, snap, have);
             }
 
@@ -5122,11 +5244,17 @@ namespace overlay
             }
             release_finished_uploads();
 
+            if (g_pf_frame < 0)
+            {
+                g_pf_frame = mm::perf_register("render frame (ImGui)", perf::Thread::Render);
+            }
+            const std::uint64_t frame_t0 = mm::qpc_us();
             ImGui_ImplWin32_NewFrame();
             ImGui_ImplDX12_NewFrame();
             ImGui::NewFrame();
             build_ui();
             ImGui::Render();
+            mm::perf_record(g_pf_frame, frame_t0);
 
             if (FAILED(frame.allocator->Reset()) || FAILED(g_cmd_list->Reset(frame.allocator, nullptr)))
             {
@@ -5570,6 +5698,11 @@ namespace overlay
             return;
         }
         last_input_ms = now;
+        if (g_pf_input < 0)
+        {
+            g_pf_input = mm::perf_register("hotkeys + pad", perf::Thread::Loop);
+        }
+        const mm::PerfScope input_scope(g_pf_input);
 
         // The foreground answer changes only when the player alt-tabs, so it is worth
         // 250 ms of cache: two user32 round-trips saved per sample.

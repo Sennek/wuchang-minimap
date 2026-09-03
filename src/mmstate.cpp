@@ -1190,6 +1190,16 @@ namespace mm
     // that a thread-local generation of 0 always means "never loaded".
     std::atomic<std::uint32_t> g_cfg_gen{1};
 
+    // The per-activity counter table (see perf.hpp). Plain storage on purpose: every
+    // counter has exactly one writing thread, and the F2 panel is a reader that can
+    // live with a row being one update stale.
+    perf::Table g_perf{};
+
+    // "config refresh" - the generation-cached config's slow path. Registered from
+    // load_config_file (loop thread, at start-up) so no call site needs a guarded
+    // static on a hot path.
+    int g_pf_config = -1;
+
     std::atomic<bool> g_panel_open{false};
     std::atomic<bool> g_map_open{false};
     std::atomic<bool> g_reload_config{false};
@@ -1255,6 +1265,54 @@ namespace mm
         g_cfg_gen.fetch_add(1, std::memory_order_release);
     }
 
+    //==================================================================================
+    // Per-activity performance counters
+    //==================================================================================
+
+    std::uint64_t qpc_us()
+    {
+        static const std::int64_t freq = [] {
+            LARGE_INTEGER f{};
+            ::QueryPerformanceFrequency(&f);
+            return static_cast<std::int64_t>(f.QuadPart);
+        }();
+        LARGE_INTEGER now{};
+        ::QueryPerformanceCounter(&now);
+        return freq > 0 ? static_cast<std::uint64_t>(now.QuadPart * 1000000 / freq) : 0;
+    }
+
+    int perf_register(const char* name, perf::Thread thread)
+    {
+        // Registration happens once per call site, from that call site's own thread,
+        // before or during the first invocation. Two threads registering at the same
+        // instant could in theory both take the same slot; every registration in this
+        // mod is a `static const int` initialised on the first call of a periodic
+        // activity, and the periodic activities start seconds apart.
+        return perf::register_counter(g_perf, name, thread);
+    }
+
+    void perf_record(int id, std::uint64_t t0_us)
+    {
+        const std::uint64_t now_us = qpc_us();
+        const double ms = now_us > t0_us ? static_cast<double>(now_us - t0_us) / 1000.0 : 0.0;
+        perf::record(g_perf, id, ms, ::GetTickCount64());
+    }
+
+    void perf_record_ms(int id, double ms)
+    {
+        perf::record(g_perf, id, ms, ::GetTickCount64());
+    }
+
+    const perf::Table& perf_table()
+    {
+        return g_perf;
+    }
+
+    void perf_reset_peaks()
+    {
+        perf::reset_peaks(g_perf);
+    }
+
     const Config& cfg_cached()
     {
         // Generation 0 is never published (g_cfg_gen starts at 1), so a thread that has
@@ -1265,8 +1323,12 @@ namespace mm
         const std::uint32_t gen = g_cfg_gen.load(std::memory_order_acquire);
         if (tls_gen != gen)
         {
+            const std::uint64_t t0 = qpc_us();
             tls_cfg = config();
             tls_gen = gen;
+            // Counts and times the SLOW path only, which is the whole point: the table
+            // shows how often a thread actually had to take the spinlock and copy.
+            perf_record(g_pf_config, t0);
         }
         return tls_cfg;
     }
@@ -1325,6 +1387,10 @@ namespace mm
 
     void load_config_file()
     {
+        if (g_pf_config < 0)
+        {
+            g_pf_config = perf_register("config refresh", perf::Thread::Unknown);
+        }
         Config cfg{};
         std::string text;
         const std::wstring path = config_path();

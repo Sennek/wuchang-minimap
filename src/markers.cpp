@@ -954,9 +954,19 @@ namespace markers
             }
         }
 
+        // Perf counters (see perf.hpp). Namespace-scope ints rather than function
+        // statics: a guarded static's first call would run the CRT's thread-safe-init
+        // path on the game thread, and this mod does not touch the host CRT there.
+        int g_pf_publish = -1;
+        int g_pf_scan = -1;
+
         void publish_round()
         {
             const std::uint64_t t0 = qpc_us();
+            if (g_pf_publish < 0)
+            {
+                g_pf_publish = mm::perf_register("publish_round", perf::Thread::Game);
+            }
 
             // Drop live actors that have not answered for two rounds: their level was
             // unloaded, or (for an enemy) they died. Absence is NEVER treated as
@@ -1166,6 +1176,7 @@ namespace markers
             ++g_publish_count;
             g_publish_ms_avg.store(g_publish_ms_sum / static_cast<double>(g_publish_count),
                                    std::memory_order_relaxed);
+            mm::perf_record(g_pf_publish, t0);
             if (ms > g_publish_ms_peak.load(std::memory_order_relaxed))
             {
                 g_publish_ms_peak.store(ms, std::memory_order_relaxed);
@@ -1800,6 +1811,12 @@ namespace markers
         const std::uint64_t t0 = qpc_us();
         const int visited = slice.empty() ? 0 : scan_slice(slice);
         const double slice_ms = static_cast<double>(qpc_us() - t0) / 1000.0;
+
+        if (g_pf_scan < 0)
+        {
+            g_pf_scan = mm::perf_register("marker scan slice", perf::Thread::Game);
+        }
+        mm::perf_record(g_pf_scan, t0);
 
         scan::note_slice(g_round_stats, slice_ms, visited);
         g_scan_slice_ms.store(slice_ms, std::memory_order_relaxed);

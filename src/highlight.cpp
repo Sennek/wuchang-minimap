@@ -102,6 +102,7 @@ namespace hl
         const void* g_world = nullptr;
         std::uint64_t g_last_resolve = 0;
         std::uint64_t g_last_read = 0; // QPC MICROseconds, not tick count
+        int g_pf_pump = -1;            // perf counter id (see perf.hpp)
         int g_cache_offset = -1; // CameraCachePrivate inside APlayerCameraManager
         int g_cache_size = 0;
         int g_pov_offset = -1; // POV inside CameraCachePrivate
@@ -527,6 +528,11 @@ namespace hl
         }
         g_last_read = now_us;
 
+        if (g_pf_pump < 0)
+        {
+            g_pf_pump = mm::perf_register("highlight camera", perf::Thread::Game);
+        }
+        const mm::PerfScope scope(g_pf_pump);
         read_camera(now);
     }
 } // namespace hl

@@ -27,6 +27,7 @@
 
 #include "mapview.hpp"
 #include "markers_db.hpp"
+#include "perf.hpp"
 #include "scan_sched.hpp"
 
 namespace mm
@@ -501,6 +502,54 @@ namespace mm
     extern std::atomic<std::uint32_t> g_cfg_gen;
 
     const Config& cfg_cached();
+
+    //==================================================================================
+    // Per-activity performance counters (perf.hpp)
+    //==================================================================================
+    //
+    // Every periodic activity in this mod registers one counter and records how long
+    // each invocation took; the F2 debug block prints the table. The instance lives
+    // here because mmstate is the one module every other one already links against.
+    //
+    // Recording is lock-free and allocation-free (see perf.hpp) - it is called from the
+    // game thread inside ProcessEvent, so it has to be.
+
+    // Microseconds from QueryPerformanceCounter, with the frequency read exactly once.
+    std::uint64_t qpc_us();
+
+    // `name` must have static storage. Registering the same pointer twice returns the
+    // same id, so a `static const int` at a call site is the intended idiom.
+    int perf_register(const char* name, perf::Thread thread);
+
+    // Records one invocation that started at `t0_us` (from qpc_us()).
+    void perf_record(int id, std::uint64_t t0_us);
+
+    // Records one invocation whose duration was measured by the caller (the two
+    // slicers already time themselves for the F2 slice line).
+    void perf_record_ms(int id, double ms);
+
+    // The table, for the F2 panel. Read-only by convention.
+    const perf::Table& perf_table();
+    void perf_reset_peaks();
+
+    // RAII: times the enclosing scope into counter `id`.
+    class PerfScope
+    {
+      public:
+        explicit PerfScope(int id) noexcept : id_(id), t0_(qpc_us())
+        {
+        }
+        ~PerfScope()
+        {
+            perf_record(id_, t0_);
+        }
+        PerfScope(const PerfScope&) = delete;
+        PerfScope& operator=(const PerfScope&) = delete;
+
+      private:
+        int id_;
+        std::uint64_t t0_;
+    };
 
     //==================================================================================
     // The master switch, as a lock-free flag

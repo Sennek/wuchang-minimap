@@ -60,6 +60,7 @@ import pakmaps                                              # noqa: E402
 import marker_classes                                       # noqa: E402
 import itemdb                                               # noqa: E402
 import extract_shrines                                      # noqa: E402
+import provenance                                         # noqa: E402
 from uprops import (Schema, compose, find_strings, finite_vec, parse_header,   # noqa: E402
                     read_vec, SC_ATTACH_PARENT, SC_ATTACH_SOCKET,
                     SC_COMPONENT_VELOCITY, SC_REL_LOCATION, SC_REL_ROTATION,
@@ -464,6 +465,25 @@ ITEM_ARRAY_MAX_LEN = 8
 # instance in the game.  Anything not listed uses array 0.
 ITEM_ARRAY_INDEX = {"BP_AutoPickUp_C": 1}
 
+# An id a placed pickup carries because nobody configured it, not because the
+# pickup grants it (review item C.1).  All 77 configured `BP_PickupActor_C`
+# instances in the DLC carry `[{20001, 1}]`, and the whole `ChapterDLC_*_logic`
+# set contains exactly **one** distinct valid item id where a single Chapter-1
+# sublevel carries 19.  20001 is the FIRST row of `DT_Item_ToolTable` (the
+# "Ancient Chisel", a homeward item that is never a world pickup) and it appears
+# **zero** times across the ~970 authored pickups of chapters 1-5.  So the
+# per-instance read is not failing - the value really is in the level bytes at
+# the same offset that gives 20020 / 20222 / 23245 in chapters 1-5.  It is the
+# default index of the blueprint's own editor tool (`BP_PickupActor_C` exposes
+# `GetItemsByEditorTool` and `ReplaceItemIDByGamePlus`), i.e. a pickup nobody
+# filled in, and taking it at face value is what labelled all 77 DLC pickups
+# "Ancient Chisel".  Suppressing it costs nothing: the marker reads "Pickup",
+# which is true, instead of an item name that is false.
+#
+# This is a NAMED exception with a witness, not a filter on a suspicious-looking
+# number.  Do not add an id here without one.
+PLACEHOLDER_ITEM_IDS = {20001}
+
 
 def item_ids(pkg, actor, items: "itemdb.ItemDB") -> list[int]:
     """The item ids a pickup grants, read straight out of its cooked export.
@@ -502,7 +522,7 @@ def item_ids(pkg, actor, items: "itemdb.ItemDB") -> list[int]:
                 ids.append(iid)
             if ids:
                 if seen == want:
-                    return ids
+                    return [] if set(ids) <= PLACEHOLDER_ITEM_IDS else ids
                 seen += 1
                 o += 4 + 8 * count
                 continue
@@ -583,6 +603,26 @@ def npc_names() -> dict[str, str]:
     return {c: e["name"] for c, e in doc.get("npcs", {}).items() if e.get("name")}
 
 
+def enemy_names() -> dict[str, str]:
+    """class -> display name from markers/enemies.json, or {} if it is absent.
+
+    Only the enemy classes the GAME names: the minions, phases and re-skins
+    that own a `DT_AiTable` id with a `boss_name_<id>` behind it.  Wuchang has
+    no name for an ordinary enemy at all - four independent proofs in
+    `build_enemies.py`'s docstring, and `python build_enemies.py --prove`
+    re-runs them - so most enemies keep the generic label.  That is the honest
+    answer; a tidied Pinyin class name would only look like a name.
+    """
+    p = os.path.join(_HERE, "..", "..", "markers", "enemies.json")
+    if not os.path.exists(p):
+        print(f"  ! {p} not found - run build_enemies.py; enemies stay unnamed "
+              f"and nothing is typed `elite`", file=sys.stderr)
+        return {}
+    with open(p, encoding="utf-8") as f:
+        doc = json.load(f)
+    return {c: e["name"] for c, e in doc.get("enemies", {}).items() if e.get("name")}
+
+
 def shrine_names(ms) -> dict[str, str]:
     """shrine (fire-point) id -> the game's own localised rest-point name.
 
@@ -603,12 +643,14 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
             bosses: "dict[str, str] | None" = None,
             npcs: "dict[str, str] | None" = None,
             doors: "dict[str, dict] | None" = None,
-            shrines: "dict[str, str] | None" = None):
+            shrines: "dict[str, str] | None" = None,
+            enemies: "dict[str, str] | None" = None):
     items = items if items is not None else itemdb.ItemDB.load()
     bosses = bosses if bosses is not None else boss_names()
     npcs = npcs if npcs is not None else npc_names()
     doors = doors if doors is not None else boss_doors()
     shrines = shrines if shrines is not None else shrine_names(ms)
+    enemies = enemies if enemies is not None else enemy_names()
     keys = chapter_packages(ms, chapter)
     t0 = time.time()
     pkgs = {}
@@ -644,8 +686,17 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
     for k, lvl in pkgs.items():
         cache = infos[k]
         for actor in lvl.actors():
-            cat = marker_classes.categorise(actor.class_name, lvl.short)
+            cat, rule = marker_classes.categorise_ex(actor.class_name, lvl.short)
+            stats["rule:" + rule] += 1
             if cat is None:
+                # C.10's report: what a `_logic` level places that we type as
+                # nothing.  `_AI` levels are excluded because their unmatched
+                # residue is level plumbing by construction (`AI_NOISE`), while a
+                # `_logic` level holds the hand-placed interactables - so an
+                # unmatched class there is either a marker category we are
+                # missing or a prop that belongs in `NEVER`.
+                if rule == "unmatched" and lvl.short.endswith("_logic"):
+                    stats["unmatched-logic:" + actor.class_name] += 1
                 continue
             stats["candidate"] += 1
             got = root_component(lvl, actor, schema, cache)
@@ -707,6 +758,16 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                     stats["npc-named"] += 1
                 else:
                     stats["npc-unnamed:" + actor.class_name] += 1
+            # The handful of enemy classes the game DOES name (variants and
+            # phases of named characters, plus the two friendly AI). Everything
+            # else keeps "Enemy" / "Elite" - see `enemy_names()`.
+            if cat in ("enemy", "elite"):
+                ename = enemies.get(actor.class_name)
+                if ename:
+                    name = ename
+                    stats["enemy-named"] += 1
+                else:
+                    stats["enemy-unnamed"] += 1
             # The boss' own save-backed defeat signal: the `bossdoor_*`
             # firepoint id the level script names for this boss actor
             # (`build_bossdoors.py`).  Stamped on the marker so the runtime can
@@ -745,6 +806,16 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                 "z": round(loc[2], 2),
                 "cell": cell_of(loc[0], loc[1], chapter),
                 "level": lvl.short,
+                # The game's own fire-point id, as an explicit field rather than
+                # something to recover from `id` by string surgery.  `id` IS the
+                # fire-point id for a shrine except when two shrines share one -
+                # the two `ChapterDLC_LiuHuangKK_logic` shrines genuinely both
+                # answer `LiuHKK01` - and then `id` takes an `@<level>/<obj>`
+                # suffix to stay unique.  `src/shrines.cpp` recovers the authored
+                # id by truncating at `@`, which is correct: the game keeps ONE
+                # unlock flag for that one id, so both shrines really do light
+                # together.  `fp` only makes the join explicit for a later reader.
+                **({"fp": sid} if sid else {}),
                 **({"items": ids} if ids else {}),
                 **({"rarity": rarity} if rarity else {}),
                 **({"mark": mark} if mark else {}),
@@ -845,6 +916,7 @@ def main(argv=None):
     ap.add_argument("--items-check", action="store_true",
                     help="cross-check item_ids() against the export labels")
     ap.add_argument("--stats", action="store_true")
+    provenance.add_arg(ap)
     a = ap.parse_args(argv)
 
     ms = pakmaps.MapSource(a.pak)
@@ -860,6 +932,12 @@ def main(argv=None):
     npcs = npc_names()
     doors = boss_doors()
     shrines = shrine_names(ms)
+    enemies = enemy_names()
+    prov = provenance.stamp(ms, a.pak, not a.no_pak_hash)
+    if not marker_classes.GENERATED:
+        print("  ! markers/categories.json is missing - falling back to the 1.0.0 "
+              "hand-written class list, which ships fewer markers. Run "
+              "build_categories.py.", file=sys.stderr)
     if not len(items):
         print(f"  ! no item database at {a.items} -- pickups keep the generic label "
               f"(run build_items.py first)", file=sys.stderr)
@@ -868,7 +946,8 @@ def main(argv=None):
     os.makedirs(a.out, exist_ok=True)
     for ch in chapters:
         markers, stats, _schema, _pkgs = extract(ms, ch, items=items, bosses=bosses,
-                                                 npcs=npcs, doors=doors, shrines=shrines)
+                                                 npcs=npcs, doors=doors, shrines=shrines,
+                                                 enemies=enemies)
         if not markers:
             print(f"  chapter {ch}: nothing extracted, skipped")
             continue
@@ -877,12 +956,22 @@ def main(argv=None):
             "chapter": int(ch) if ch.isdigit() else ch,
             "source": "cooked .umap sublevels, offline pak extraction",
             "generated_by": "tools/markers/extract_markers.py",
+            **prov,
             "markers": markers,
         }
         dst = os.path.join(a.out, f"chapter{ch.lower()}.json")
         with open(dst, "w", encoding="utf-8") as fh:
             json.dump(doc, fh, ensure_ascii=False, indent=1)
         print(f"  -> {dst}  ({len(markers)} markers)")
+        unmatched = {k[len("unmatched-logic:"):]: v for k, v in stats.items()
+                     if k.startswith("unmatched-logic:")}
+        if unmatched:
+            print(f"      {len(unmatched)} class(es) placed in a _logic level and "
+                  f"typed as nothing ({sum(unmatched.values())} actors):")
+            for c, n in sorted(unmatched.items(), key=lambda kv: (-kv[1], kv[0]))[:25]:
+                print(f"        {n:>5}  {c}")
+        for k2 in sorted(k for k in stats if k.startswith("rule:")):
+            print(f"      {k2:32s} {stats[k2]}")
         if a.stats:
             for k2, v in sorted(stats.items()):
                 print(f"      {k2:32s} {v}")

@@ -1405,6 +1405,13 @@ namespace overlay
         // every packet; if a game turns out to read gameplay keys that way, the
         // GetRegisteredRawInputDevices line already in the log says so.
         std::atomic<std::uint32_t> g_swallow_bits[8]{};
+        // WHEN THE SET WAS LAST PUBLISHED. The loop thread refreshes it on every 60 Hz
+        // pass, so a stale set means the loop thread has stopped sampling (the mod was
+        // disabled for the session, the process is shutting down) - and a mod that has
+        // stopped running must not still be eating the player's keys. Nothing here is
+        // latched, which is the same rule the show/hide conditions obey (lessons.md).
+        std::atomic<std::uint64_t> g_swallow_stamp{0};
+        constexpr std::uint64_t kSwallowStaleMs = 250;
 
         void swallow_set_clear()
         {
@@ -1434,6 +1441,11 @@ namespace overlay
         {
             const unsigned vk = static_cast<unsigned>(wparam);
             if (vk == 0 || vk >= 256)
+            {
+                return false;
+            }
+            const std::uint64_t stamp = g_swallow_stamp.load(std::memory_order_relaxed);
+            if (stamp == 0 || ::GetTickCount64() - stamp > kSwallowStaleMs)
             {
                 return false;
             }
@@ -10985,6 +10997,7 @@ namespace overlay
                 }
                 swallow_set_add(vk);
             };
+            g_swallow_stamp.store(now, std::memory_order_relaxed);
             if (mm::mod_active() && foreground)
             {
                 arm(cfg.panel_key, true);

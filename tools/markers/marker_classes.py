@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Actor class -> marker category, for schema `wuchang-minimap-markers/1`.
 
-Categories: shrine, chest, pickup, boss, elite, enemy, npc, merchant, door,
+Categories: shrine, chest, pickup, boss, elite, enemy, npc, note, door,
 ladder, lift, fog_gate, hidden, other.
 
 `elite` is deliberately never produced offline: nothing in the cooked data
@@ -36,7 +36,14 @@ EXACT = {
     "BP_WoodenElevator_C": "lift",
     "BP_ElevatorBox_C": "lift",
 
-    "DKDC_NPC_C": "merchant",
+    # NOT a merchant, despite shipping as one up to 0.9.4: every placed
+    # instance carries a read-point id (`NPC_DG_READ08`), the blueprint has no
+    # character mesh, its only interaction string is `ui_263` = "Check" and it
+    # spawns the `NS_Hint01` hint particle.  It is one of the game's readable
+    # notes; see `build_npcs.READ_POINT`.  The game's actual merchant (Tao Qing,
+    # `Zhangfangxiansheng_NPC_C` out of `AI/npc/NPC_GuDongShang/`) is a plain
+    # `BP_NPC_C` descendant and stays `npc`.
+    "DKDC_NPC_C": "note",
 
     # world mechanisms worth a pin but not a category of their own
     # `BP_FireReed_C` is a lightable reed prop, not a character - it only ever
@@ -147,6 +154,6 @@ def categorise(class_name: str, level_short: str) -> str | None:
 LABEL = {
     "shrine": "Shrine", "chest": "Chest", "pickup": "Pickup",
     "boss": "Boss", "elite": "Elite", "enemy": "Enemy", "npc": "NPC",
-    "merchant": "Merchant", "door": "Door", "ladder": "Ladder",
+    "note": "Note", "door": "Door", "ladder": "Ladder",
     "lift": "Lift", "fog_gate": "Fog gate", "hidden": "Hidden", "other": "Object",
 }

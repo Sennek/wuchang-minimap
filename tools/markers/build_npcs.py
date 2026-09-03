@@ -3,9 +3,9 @@ r"""Build `markers/npcs.json` - the game's NPC roster, offline, with no `.usmap`
 
 WHY
 ---
-Every `npc` marker in `markers/chapter*.json` read the literal label "NPC" and
-every `merchant` marker "Merchant", which is exactly as useful as no label at
-all when the map draws fifty of them.  Bosses were fixed by finding the game's
+Every `npc` marker in `markers/chapter*.json` read the literal label "NPC",
+which is exactly as useful as no label at all when the map draws fifty of
+them.  Bosses were fixed by finding the game's
 own English name for the class (`build_bosses.py`); this does the same for the
 78 descendants of `BP_NPC_C`.
 
@@ -63,7 +63,7 @@ lesson - a super-chain rule renamed a Chongsheng variant after another boss):
 
 `NO_NAME` classes deliberately keep the generic category label - see the
 comment on that table; a two-to-five letter initialism is not a name and
-"DKDC" on the map would be worse than "Merchant".
+"DKDC" on the map would be worse than the category's own label.
 
     python build_npcs.py                  # -> ..\..\markers\npcs.json
     python build_npcs.py --report         # + per-class witnesses and placement
@@ -117,8 +117,8 @@ NOT_PEOPLE = {
 
 # Classes that keep the generic category label on purpose.
 #
-# The DKDC family is the interesting one, and it is NOT a merchant despite
-# `marker_classes.EXACT` typing it as one (76 markers).  What the data says:
+# The DKDC family is the interesting one, and it is what put the `note`
+# category on the map (76 markers).  What the data says:
 # every placed instance carries a per-instance `FString` naming a read-point id
 # (`NPC_DG_READ08`, `NPC_FYZ_READ03`, `NPC_SWC_READ01`), the blueprint has no
 # character mesh at all, its only interaction string is `ui_263` = "Check", and
@@ -126,8 +126,9 @@ NOT_PEOPLE = {
 # `NS_Hint01_Blue`) and `Letter01_NPC_C` (1) are the same thing.  So they are
 # readable inscriptions / notes, and "Reading point" is what they get: a
 # description, never a character's name, so it cannot be wrong about identity.
-# Re-typing them out of `merchant` is a CATEGORY change and deliberately not
-# done here - it would move markers between buckets.
+# `DKDC_NPC_C` is typed `note` by `marker_classes.EXACT`; `ReadPointSP_NPC_C`
+# and `Letter01_NPC_C` are still typed `npc` (they match the `NPC` regex) and
+# re-typing those 15 markers is a category change left for the user to call.
 #
 # The read ids themselves resolve nowhere offline: they are not in
 # `MMGame.locres` (the only locres in the game) and a scan of all 2 150

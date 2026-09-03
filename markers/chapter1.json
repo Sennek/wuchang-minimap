@@ -6030,7 +6030,7 @@
   },
   {
    "id": "Chapter1_DGong_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -6042,7 +6042,7 @@
   },
   {
    "id": "Chapter1_DGong_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -6054,7 +6054,7 @@
   },
   {
    "id": "Chapter1_DGong_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -6066,7 +6066,7 @@
   },
   {
    "id": "Chapter1_DGong_logic/DKDC_NPC_C_3",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_3",
@@ -6078,7 +6078,7 @@
   },
   {
    "id": "Chapter1_DGong_logic/DKDC_NPC_C_4",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_4",
@@ -6090,7 +6090,7 @@
   },
   {
    "id": "Chapter1_DGong_logic/DKDC_NPC_C_5",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_5",
@@ -6102,7 +6102,7 @@
   },
   {
    "id": "Chapter1_DGong_logic/DKDC_NPC_C_6",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_6",
@@ -6114,7 +6114,7 @@
   },
   {
    "id": "Chapter1_DGong_logic/DKDC_NPC_C_7",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_7",
@@ -6126,7 +6126,7 @@
   },
   {
    "id": "Chapter1_FoYuanZ_logic/BP_NPC_cunmin_C_11",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_11",
@@ -6138,7 +6138,7 @@
   },
   {
    "id": "Chapter1_FoYuanZ_logic/BP_NPC_cunmin_C_12",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_12",
@@ -6150,7 +6150,7 @@
   },
   {
    "id": "Chapter1_FoYuanZ_logic/BP_NPC_cunmin_C_8",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_8",
@@ -6162,7 +6162,7 @@
   },
   {
    "id": "Chapter1_FoYuanZ_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -6174,7 +6174,7 @@
   },
   {
    "id": "Chapter1_FoYuanZ_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -6186,7 +6186,7 @@
   },
   {
    "id": "Chapter1_Hanguang_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -6198,7 +6198,7 @@
   },
   {
    "id": "Chapter1_Hanguang_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -6210,7 +6210,7 @@
   },
   {
    "id": "Chapter1_PYuan_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -6222,7 +6222,7 @@
   },
   {
    "id": "Chapter1_PYuan_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -6234,7 +6234,7 @@
   },
   {
    "id": "Chapter1_PYuan_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -6246,7 +6246,7 @@
   },
   {
    "id": "Chapter1_Shuwang_logic/BP_NPC_cunmin_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_0",
@@ -6258,7 +6258,7 @@
   },
   {
    "id": "Chapter1_Shuwang_logic/BP_NPC_cunmin_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_2",
@@ -6270,7 +6270,7 @@
   },
   {
    "id": "Chapter1_Shuwang_logic/BP_NPC_cunmin_C_4",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_4",
@@ -6282,7 +6282,7 @@
   },
   {
    "id": "Chapter1_Shuwang_logic/BP_NPC_cunmin_C_6",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_6",
@@ -6294,7 +6294,7 @@
   },
   {
    "id": "Chapter1_TangW_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -6306,7 +6306,7 @@
   },
   {
    "id": "Chapter1_TangW_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -6318,7 +6318,7 @@
   },
   {
    "id": "Chapter1_TangW_logic/DKDC_NPC_C_3",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_3",
@@ -6330,7 +6330,7 @@
   },
   {
    "id": "Chapter1_Wanrenk_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -6342,7 +6342,7 @@
   },
   {
    "id": "Chapter1_Wanrenk_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -6354,7 +6354,7 @@
   },
   {
    "id": "Chapter1_Wanrenk_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -6366,7 +6366,7 @@
   },
   {
    "id": "Chapter1_Wanrenk_logic/DKDC_NPC_C_3",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_3",
@@ -6378,7 +6378,7 @@
   },
   {
    "id": "Chapter1_Wanrenk_logic/DKDC_NPC_C_4",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_4",
@@ -6390,7 +6390,7 @@
   },
   {
    "id": "Chapter1_Wanrenk_logic/DKDC_NPC_C_5",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_5",
@@ -6402,7 +6402,7 @@
   },
   {
    "id": "Chapter1_Wanrenk_logic/DKDC_NPC_C_6",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_6",
@@ -6414,7 +6414,7 @@
   },
   {
    "id": "Chapter1_Wanrenk_logic/DKDC_NPC_C_7",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_7",

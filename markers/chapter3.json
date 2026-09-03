@@ -4474,7 +4474,7 @@
   },
   {
    "id": "Chapter3_JiangWangDK_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -4486,7 +4486,7 @@
   },
   {
    "id": "Chapter3_JiangWangDK_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -4498,7 +4498,7 @@
   },
   {
    "id": "Chapter3_JiangWangDK_logic/DKDC_NPC_C_3",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_3",
@@ -4510,7 +4510,7 @@
   },
   {
    "id": "Chapter3_MuDi_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -4522,7 +4522,7 @@
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -4534,7 +4534,7 @@
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -4546,7 +4546,7 @@
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/DKDC_NPC_C_3",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_3",
@@ -4558,7 +4558,7 @@
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/DKDC_NPC_C_4",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_4",
@@ -4570,7 +4570,7 @@
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/DKDC_NPC_C_5",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_5",
@@ -4582,7 +4582,7 @@
   },
   {
    "id": "Chapter3_P2P3_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -4594,7 +4594,7 @@
   },
   {
    "id": "Chapter3_P3P4_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -4606,7 +4606,7 @@
   },
   {
    "id": "Chapter3_P3P4_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -4618,7 +4618,7 @@
   },
   {
    "id": "Chapter3_WuChangJZ_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -4630,7 +4630,7 @@
   },
   {
    "id": "Chapter3_WuChangJZ_logic/DKDC_NPC_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_1",
@@ -4642,7 +4642,7 @@
   },
   {
    "id": "Chapter3_WuChangJZ_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -4654,7 +4654,7 @@
   },
   {
    "id": "Chapter3_ZhenWuG_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -4666,7 +4666,7 @@
   },
   {
    "id": "Chapter3_ZhenWuG_logic/DKDC_NPC_C_3",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_3",
@@ -4678,7 +4678,7 @@
   },
   {
    "id": "Chapter3_ZhenWuG_logic/DKDC_NPC_C_5",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_5",
@@ -4690,7 +4690,7 @@
   },
   {
    "id": "Chapter3_ZhenWuG_logic/DKDC_NPC_C_7",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_7",
@@ -4702,7 +4702,7 @@
   },
   {
    "id": "Chapter3_ZhenWuG_logic/DKDC_NPC_C_9",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_9",

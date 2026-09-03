@@ -19,7 +19,7 @@ five slots into that block.
 Join key with the runtime: `obj` -- the cooked export name, which is exactly
 what `FindAllOf` reports in-game (`...PersistentLevel.BP_RebornFire_C_0`).
 
-NPC and merchant markers carry the character's real English name from
+NPC and note markers carry the character's real English name from
 `markers/npcs.json` (`build_npcs.py`: the `npc_Dianame_<nn>` / `npc_name_<nn>`
 FText key embedded in the NPC blueprint -> `MMGame.locres`), so a marker reads
 "Huang Jian'e" instead of "NPC".
@@ -547,7 +547,7 @@ def npc_names() -> dict[str, str]:
 
     The same deal as bosses.json: a toolchain artifact (`build_npcs.py`), read
     only here, baked into chapter*.json, never shipped.  Missing it degrades
-    npc/merchant labels to "NPC" / "Merchant", nothing else.
+    npc/note labels to "NPC" / "Note", nothing else.
     """
     p = os.path.join(_HERE, "..", "..", "markers", "npcs.json")
     if not os.path.exists(p):
@@ -637,12 +637,12 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                     stats["boss-named"] += 1
                 else:
                     stats["boss-unnamed:" + actor.class_name] += 1
-            # NPCs and merchants get the game's own English name from
+            # NPCs and notes get the game's own English name from
             # markers/npcs.json (`build_npcs.py`: the `npc_Dianame_<nn>` /
             # `npc_name_<nn>` FText key embedded in the NPC blueprint ->
             # MMGame.locres), so an npc marker reads "Huang Jian'e" rather
             # than "NPC".
-            if cat in ("npc", "merchant"):
+            if cat in ("npc", "note"):
                 nname = npcs.get(actor.class_name)
                 if nname:
                     name = nname

@@ -6289,7 +6289,7 @@
   },
   {
    "id": "Chapter2_WangShanC_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -6301,7 +6301,7 @@
   },
   {
    "id": "Chapter2_WangShanC_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -6313,7 +6313,7 @@
   },
   {
    "id": "Chapter2_WangShanC_logic/DKDC_NPC_C_3",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_3",
@@ -6325,7 +6325,7 @@
   },
   {
    "id": "Chapter2_YunDingCN_logic/BP_NPC_cunmin_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_0",
@@ -6337,7 +6337,7 @@
   },
   {
    "id": "Chapter2_YunDingCN_logic/BP_NPC_cunmin_C_1",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_1",
@@ -6349,7 +6349,7 @@
   },
   {
    "id": "Chapter2_YunDingCN_logic/BP_NPC_cunmin_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_2",
@@ -6361,7 +6361,7 @@
   },
   {
    "id": "Chapter2_YunDingCN_logic/BP_NPC_cunmin_C_3",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_3",
@@ -6373,7 +6373,7 @@
   },
   {
    "id": "Chapter2_YunDingCN_logic/BP_NPC_cunmin_C_4",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "BP_NPC_cunmin_C_4",
@@ -6385,7 +6385,7 @@
   },
   {
    "id": "Chapter2_YunDingCN_logic/DKDC_NPC_C_0",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_0",
@@ -6397,7 +6397,7 @@
   },
   {
    "id": "Chapter2_YunDingCN_logic/DKDC_NPC_C_2",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_2",
@@ -6409,7 +6409,7 @@
   },
   {
    "id": "Chapter2_YunDingCW_logic/DKDC_NPC_C_5",
-   "cat": "merchant",
+   "cat": "note",
    "cls": "DKDC_NPC_C",
    "name": "Reading point",
    "obj": "DKDC_NPC_C_5",

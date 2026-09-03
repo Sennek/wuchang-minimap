@@ -174,7 +174,14 @@ namespace modswitch
         // PREVIOUS session left behind before overwriting it, and a non-terminal stage
         // there is the only evidence that survives a process that died with the log
         // buffer unflushed.
+        // The mod's own rolling log is opened by the first line written; wiring the flush
+        // hook first means every breadcrumb stage from here on also flushes it, so the
+        // two files can never disagree about the last thing that happened.
+        crumb::set_flush_hook(&mm::modlog_flush);
         crumb::init(mm::mod_dir().c_str(), mm::config().crash_breadcrumb);
+        mm::logf(L"log: this session is also written to {} (rotated per launch, .1/.2/.3 kept) - "
+                 L"UE4SS truncates its own log every launch",
+                 mm::modlog_path());
         if (crumb::previous_suspicious())
         {
             const char* prev = crumb::previous();
@@ -248,5 +255,8 @@ namespace modswitch
         markers::on_update();
         recon::on_update();
         watch(now);
+        // The mod's own log is buffered; this is the "every few seconds" flush, so a
+        // session that ends without any breadcrumb transition still has its tail on disk.
+        mm::modlog_tick(now);
     }
 } // namespace modswitch

@@ -45,6 +45,14 @@ namespace crumb
     inline constexpr const char* kTeardownBegin = "teardown begin";
     inline constexpr const char* kTeardownEnd = "teardown end";
     inline constexpr const char* kCleanExit = "clean exit";
+    // ALT+F4 / the window's close button / DLL_PROCESS_DETACH. A TERMINAL stage: the
+    // player closed the game, which is not a crash, and the next launch must not report
+    // one. Before this existed, quitting with ALT+F4 always produced
+    // "last session ended at 'first slice' - it did NOT shut down cleanly", because none
+    // of the mod's teardown paths run when the window is closed from the outside: the
+    // render thread is never asked to tear ImGui down and `~WuchangMinimap()` (the only
+    // writer of `kCleanExit`) is not called either.
+    inline constexpr const char* kWindowClosed = "window closed";
 
     // Loop thread, once, as early as possible. `dir` is the mod directory; the full path
     // is built here and never again, so `stage()` allocates nothing. Reads the previous
@@ -54,6 +62,19 @@ namespace crumb
     // ANY THREAD. Rewrites the file with `name`, a timestamp and the calling thread id,
     // then closes it. POD-only by construction - see the header comment.
     void stage(const char* name);
+
+    // ANY THREAD, and idempotent: writes the terminal `kWindowClosed` stage exactly once.
+    // Called from the WndProc hook on WM_CLOSE / WM_DESTROY / WM_QUIT and from
+    // DLL_PROCESS_DETACH, i.e. from the paths an ALT+F4 actually takes. Idempotency
+    // matters because those fire in sequence and the last writer would otherwise be the
+    // one racing the process teardown.
+    void mark_closing();
+
+    // A hook the breadcrumb calls right after every successful write, used to flush the
+    // mod's own rolling log so the two always agree about the last thing that happened.
+    // A plain function pointer keeps this file free of everything but the flat Win32 API
+    // (see the header comment); nullptr disables it.
+    void set_flush_hook(void (*hook)());
 
     // The stage the PREVIOUS session's file held, or "" when there was none. Loop thread
     // (it is set once by init and never written again).

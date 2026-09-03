@@ -1010,6 +1010,15 @@ namespace overlay
 
         LRESULT CALLBACK hooked_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
+            // ALT+F4 / the close button: write the terminal crash-breadcrumb stage while
+            // there is still a process to write it from. None of the mod's teardown paths
+            // run on this route (see the comment on DllMain in dllmain.cpp), so without
+            // this every ALT+F4 made the NEXT launch report a crash. Idempotent, and it
+            // never swallows the message.
+            if (msg == WM_CLOSE || msg == WM_DESTROY || msg == WM_QUIT)
+            {
+                crumb::mark_closing();
+            }
             if (g_imgui_ready && ImGui::GetCurrentContext() != nullptr)
             {
                 ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam);

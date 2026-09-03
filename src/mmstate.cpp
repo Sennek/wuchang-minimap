@@ -2407,6 +2407,154 @@ namespace mm
         g_loop_thread = ::GetCurrentThreadId();
     }
 
+    //==================================================================================
+    // THE MOD'S OWN ROLLING LOG - wuchang_minimap.log
+    //==================================================================================
+    //
+    // WHY THIS EXISTS. Every line the mod writes also goes to UE4SS's `UE4SS.log`, and
+    // UE4SS TRUNCATES that file on every launch. So the evidence from an in-game session
+    // is gone the moment the player starts the game again to try the next build - which
+    // happened twice in this project, and both times the answer to "which gate dropped
+    // the marker" had been printed in plain text and then overwritten. A log the mod owns
+    // and ROTATES (`.1` / `.2` / `.3`) keeps the last four sessions whatever UE4SS does.
+    //
+    // THE CONSTRAINTS. Same family as the crash breadcrumb (breadcrumb.hpp): the game
+    // thread must never touch C++ iostreams or the C++ locale in this process, so this is
+    // flat `CreateFileW` / `WriteFile` over a hand-built UTF-8 buffer. Writing is
+    // BUFFERED (8 KB) because a state line every 10 s plus a marker census is not worth a
+    // syscall each, and flushed (a) whenever the buffer fills, (b) on every crash
+    // breadcrumb write - which is what makes the log and the breadcrumb agree about the
+    // last thing that happened - and (c) every few seconds from the loop thread.
+    //
+    // `modlog_line()` is only ever reached from the loop thread (mm::log's direct path and
+    // drain_log), but `modlog_flush()` is called from the breadcrumb, i.e. from any
+    // thread - so the buffer and the handle are behind the same spinlock the log queue
+    // uses. Nothing in here allocates while holding it.
+
+    namespace
+    {
+        constexpr std::size_t kModLogFlushAt = 8192;
+        constexpr const wchar_t* kModLogName = L"\\wuchang_minimap.log";
+
+        HANDLE g_modlog = INVALID_HANDLE_VALUE;
+        std::string g_modlog_buf;
+        bool g_modlog_opened = false;
+        std::uint64_t g_modlog_last_flush_ms = 0;
+
+        std::string utf8_of(const std::wstring& w)
+        {
+            if (w.empty())
+            {
+                return {};
+            }
+            const int need = ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()),
+                                                   nullptr, 0, nullptr, nullptr);
+            if (need <= 0)
+            {
+                return {};
+            }
+            std::string out;
+            out.resize(static_cast<std::size_t>(need));
+            ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), out.data(), need,
+                                  nullptr, nullptr);
+            return out;
+        }
+
+        // ROTATE, then create. `.3` is dropped, everything else shifts up one, and the
+        // live file is always `wuchang_minimap.log` - so "the log" is one stable name in a
+        // bug report and the three previous sessions are still on disk beside it.
+        void modlog_rotate(const std::wstring& base)
+        {
+            const std::wstring p1 = base + L".1";
+            const std::wstring p2 = base + L".2";
+            const std::wstring p3 = base + L".3";
+            ::DeleteFileW(p3.c_str());
+            ::MoveFileExW(p2.c_str(), p3.c_str(), MOVEFILE_REPLACE_EXISTING);
+            ::MoveFileExW(p1.c_str(), p2.c_str(), MOVEFILE_REPLACE_EXISTING);
+            ::MoveFileExW(base.c_str(), p1.c_str(), MOVEFILE_REPLACE_EXISTING);
+        }
+
+        // Loop thread, lazily on the first line. FILE_SHARE_READ so the file can be read
+        // (and pasted into a bug report) while the game is still running.
+        void modlog_open_locked()
+        {
+            if (g_modlog_opened)
+            {
+                return;
+            }
+            g_modlog_opened = true; // one attempt per session, success or not
+            const std::wstring base = mod_dir() + kModLogName;
+            modlog_rotate(base);
+            g_modlog = ::CreateFileW(base.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
+                                     FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (g_modlog == INVALID_HANDLE_VALUE)
+            {
+                return;
+            }
+            g_modlog_buf.reserve(kModLogFlushAt * 2);
+        }
+
+        void modlog_write_locked()
+        {
+            if (g_modlog == INVALID_HANDLE_VALUE || g_modlog_buf.empty())
+            {
+                return;
+            }
+            DWORD written = 0;
+            ::WriteFile(g_modlog, g_modlog_buf.data(), static_cast<DWORD>(g_modlog_buf.size()), &written,
+                        nullptr);
+            g_modlog_buf.clear();
+        }
+
+        void modlog_line(const std::wstring& line)
+        {
+            SYSTEMTIME st{};
+            ::GetLocalTime(&st);
+            wchar_t stamp[32]{};
+            ::_snwprintf_s(stamp, std::size(stamp), _TRUNCATE, L"%02u:%02u:%02u.%03u ",
+                           static_cast<unsigned>(st.wHour), static_cast<unsigned>(st.wMinute),
+                           static_cast<unsigned>(st.wSecond), static_cast<unsigned>(st.wMilliseconds));
+            const std::string text = utf8_of(std::wstring{stamp} + line);
+            SpinGuard guard(g_log_lock);
+            modlog_open_locked();
+            if (g_modlog == INVALID_HANDLE_VALUE)
+            {
+                return;
+            }
+            g_modlog_buf.append(text);
+            g_modlog_buf.append("\r\n");
+            if (g_modlog_buf.size() >= kModLogFlushAt)
+            {
+                modlog_write_locked();
+            }
+        }
+    } // namespace
+
+    void modlog_flush()
+    {
+        SpinGuard guard(g_log_lock);
+        modlog_write_locked();
+        if (g_modlog != INVALID_HANDLE_VALUE)
+        {
+            ::FlushFileBuffers(g_modlog);
+        }
+    }
+
+    void modlog_tick(std::uint64_t now_ms)
+    {
+        if (now_ms - g_modlog_last_flush_ms < 3000)
+        {
+            return;
+        }
+        g_modlog_last_flush_ms = now_ms;
+        modlog_flush();
+    }
+
+    std::wstring modlog_path()
+    {
+        return mod_dir() + kModLogName;
+    }
+
     void log(const std::wstring& line)
     {
         if (g_loop_thread == 0 || ::GetCurrentThreadId() != g_loop_thread)
@@ -2419,6 +2567,7 @@ namespace mm
             return;
         }
         Output::send<LogLevel::Verbose>(STR("[minimap] {}\n"), line);
+        modlog_line(line);
     }
 
     void drain_log()
@@ -2435,6 +2584,7 @@ namespace mm
         for (const std::wstring& l : lines)
         {
             Output::send<LogLevel::Verbose>(STR("[minimap] {}\n"), l);
+            modlog_line(l);
         }
     }
 } // namespace mm

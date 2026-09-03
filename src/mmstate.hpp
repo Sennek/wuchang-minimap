@@ -780,6 +780,17 @@ namespace mm
     void set_loop_thread();
     void drain_log();
 
+    // The mod's OWN rolling log, `wuchang_minimap.log` in the mod folder, rotated per
+    // launch keeping `.1` / `.2` / `.3`. Every line that reaches UE4SS's log goes here
+    // too - UE4SS truncates its own log on every launch, so without this the evidence
+    // from an in-game session is gone as soon as the game is started again. Writes are
+    // buffered; `modlog_flush()` is safe from any thread (the crash breadcrumb calls it,
+    // so the log and the breadcrumb always agree about the last thing that happened) and
+    // `modlog_tick()` flushes it every few seconds from the loop thread.
+    void modlog_flush();
+    void modlog_tick(std::uint64_t now_ms);
+    std::wstring modlog_path();
+
     template <typename... Args>
     void logf(std::wformat_string<Args...> fmt, Args&&... args)
     {

@@ -14,6 +14,8 @@
 // See navmesh_dump.hpp.
 //
 
+#include <Windows.h>
+
 #include <Mod/CppUserModBase.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 
@@ -79,6 +81,27 @@ class WuchangMinimap : public CppUserModBase
 };
 
 #define WUCHANG_MINIMAP_API __declspec(dllexport)
+
+// ALT+F4 AND EVERY OTHER "THE PLAYER CLOSED THE GAME" ROUTE.
+//
+// None of the mod's teardown paths run when the window is closed from the outside:
+// `~WuchangMinimap()` (the only writer of `crumb::kCleanExit`) is not called, and neither
+// is the render thread's ImGui teardown - so every ALT+F4 left a non-terminal stage in
+// wuchang_minimap_last_stage.txt and the next launch reported a crash that never
+// happened ("last session ended at 'first slice'"). DLL_PROCESS_DETACH is the last thing
+// this module is told about, and the WndProc hook (overlay.cpp) covers the window
+// messages that arrive before it. Both call the same idempotent `crumb::mark_closing()`.
+//
+// Nothing else may happen here: DllMain runs under the loader lock, so this is two
+// flat Win32 calls and no allocation, no engine access and no thread synchronisation.
+BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID)
+{
+    if (reason == DLL_PROCESS_DETACH)
+    {
+        crumb::mark_closing();
+    }
+    return TRUE;
+}
 
 extern "C"
 {

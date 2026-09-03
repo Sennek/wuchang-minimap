@@ -20,6 +20,8 @@ namespace crumb
         char g_previous[64]{};
         bool g_had_previous = false;
         char g_current[64]{};
+        void (*g_flush_hook)() = nullptr;
+        LONG g_closing_written = 0; // interlocked: mark_closing() writes exactly once
 
         // strlen without <string>, so this file can stay free of anything that reaches
         // into the host CRT beyond the flat Win32 API.
@@ -160,6 +162,27 @@ namespace crumb
         ::WriteFile(h, line, static_cast<DWORD>(n), &written, nullptr);
         ::FlushFileBuffers(h);
         ::CloseHandle(h);
+
+        // And flush the mod's own rolling log in the same breath: a stage transition is
+        // exactly the moment its buffered tail is worth having on disk.
+        if (g_flush_hook != nullptr)
+        {
+            g_flush_hook();
+        }
+    }
+
+    void mark_closing()
+    {
+        if (::InterlockedCompareExchange(&g_closing_written, 1, 0) != 0)
+        {
+            return; // WM_CLOSE, WM_DESTROY, WM_QUIT and DLL_PROCESS_DETACH all arrive
+        }
+        stage(kWindowClosed);
+    }
+
+    void set_flush_hook(void (*hook)())
+    {
+        g_flush_hook = hook;
     }
 
     const char* previous()
@@ -178,6 +201,7 @@ namespace crumb
         {
             return false; // a first run is not a crash
         }
-        return ::strcmp(g_previous, kCleanExit) != 0 && ::strcmp(g_previous, kTeardownEnd) != 0;
+        return ::strcmp(g_previous, kCleanExit) != 0 && ::strcmp(g_previous, kTeardownEnd) != 0 &&
+               ::strcmp(g_previous, kWindowClosed) != 0;
     }
 } // namespace crumb

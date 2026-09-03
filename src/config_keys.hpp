@@ -124,6 +124,7 @@ namespace cfgkeys
         {"panel_key", Tier::Player},
         {"map_key", Tier::Player},
         {"map_recenter_key", Tier::Player},
+        {"zoom_key", Tier::Player},
         {"reload_key", Tier::Player},
 
         //------------------------------------------------------------------------------
@@ -150,6 +151,7 @@ namespace cfgkeys
         {"found_save_debounce_ms", Tier::Advanced},
         {"markers_absence_rounds", Tier::Advanced},
         {"markers_absence_categories", Tier::Advanced},
+        {"minimap_zoom_presets", Tier::Advanced},
         {"minimap_backdrop", Tier::Advanced},
         {"minimap_backdrop_color", Tier::Advanced},
         {"minimap_frame_color", Tier::Advanced},
@@ -177,6 +179,7 @@ namespace cfgkeys
         {"highlight_camera_hz", Tier::Advanced},
         {"xray_rarity_colors", Tier::Advanced},
         {"compass_anchor", Tier::Advanced},
+        {"compass_plate", Tier::Advanced},
         {"compass_height", Tier::Advanced},
         {"compass_marker_distance", Tier::Advanced},
         {"compass_show_waypoint", Tier::Advanced},

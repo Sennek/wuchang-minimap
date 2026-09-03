@@ -104,6 +104,118 @@ namespace mv
         return clamp_zoom(z * std::pow(factor, -notches), lo, hi);
     }
 
+    //==================================================================================
+    // Minimap zoom presets
+    //==================================================================================
+
+    int parse_zoom_presets(std::string_view text, float out[kMaxZoomPresets], std::string* rejected)
+    {
+        float found[kMaxZoomPresets]{};
+        int n = 0;
+        std::string token;
+        const auto flush = [&]() {
+            const std::string t = trim(token);
+            token.clear();
+            if (t.empty())
+            {
+                return;
+            }
+            double v = 0.0;
+            // The same clamps the zoom itself obeys (mmstate's clamp_config), so a
+            // ladder can never contain a rung the minimap would refuse to stand on.
+            if (!parse_double(t, v) || v < 2.0 || v > 400.0)
+            {
+                if (rejected != nullptr)
+                {
+                    if (!rejected->empty())
+                    {
+                        *rejected += ", ";
+                    }
+                    *rejected += t;
+                }
+                return;
+            }
+            const float f = static_cast<float>(v);
+            for (int i = 0; i < n; ++i)
+            {
+                if (found[i] == f)
+                {
+                    return; // a duplicate rung would make the key look stuck
+                }
+            }
+            if (n < kMaxZoomPresets)
+            {
+                found[n++] = f;
+            }
+        };
+        for (const char c : text)
+        {
+            if (c == ',' || c == ';' || c == ' ' || c == '\t')
+            {
+                flush();
+            }
+            else
+            {
+                token.push_back(c);
+            }
+        }
+        flush();
+
+        if (n == 0)
+        {
+            return 0;
+        }
+        // Ascending, so next_zoom_preset() can walk the array and wrap at the end.
+        for (int i = 1; i < n; ++i)
+        {
+            const float key = found[i];
+            int j = i - 1;
+            while (j >= 0 && found[j] > key)
+            {
+                found[j + 1] = found[j];
+                --j;
+            }
+            found[j + 1] = key;
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            out[i] = found[i];
+        }
+        return n;
+    }
+
+    float step_zoom_preset(const float* presets, int count, float current, int dir)
+    {
+        if (presets == nullptr || count <= 0 || dir == 0)
+        {
+            return current;
+        }
+        if (dir > 0)
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                if (presets[i] > current * 1.001f)
+                {
+                    return presets[i];
+                }
+            }
+            return presets[0]; // past the top rung: wrap to the most zoomed-in one
+        }
+        for (int i = count; i-- > 0;)
+        {
+            if (presets[i] < current * 0.999f)
+            {
+                return presets[i];
+            }
+        }
+        return presets[count - 1];
+    }
+
+    float next_zoom_preset(const float* presets, int count, float current)
+    {
+        return step_zoom_preset(presets, count, current, 1);
+    }
+
     std::string waypoint_serialize(const Waypoint& wp)
     {
         std::string out;

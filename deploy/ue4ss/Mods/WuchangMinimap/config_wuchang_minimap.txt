@@ -249,9 +249,10 @@ markers_rarity_tint = 0
 ; ---------------------------------------------------------------------------------
 compass_enabled = 1
 
-; Strip width as a fraction of the screen width, distance from the top of the screen
-; in pixels, and the strip's height in pixels.
-compass_width = 0.420
+; Strip width as a fraction of the screen width, and the distance from the anchored
+; edge in pixels. 0.34 is the default (0.42 before 0.9.3): the strip sits where the
+; game's own HUD lives, and a narrower one fights it less.
+compass_width = 0.340
 compass_offset_y = 18
 
 ; How many degrees the whole strip covers. 120 is a comfortable "what is in front of
@@ -270,6 +271,14 @@ panel_key = F2
 map_key = M
 map_recenter_key = R
 reload_key = F5
+
+; Cycles the minimap zoom through minimap_zoom_presets (ADVANCED section) and wraps
+; round. Allowed: F1..F5, F7, F8, a single letter or digit, TAB, SPACE, or L/R
+; ALT / SHIFT / CTRL - F6 / F9..F12 are refused (RenoDX, engine binds, the game
+; console, Steam's screenshot key). The mouse wheel over the minimap does the same
+; thing, but ONLY while the F2 panel is open: during play the wheel belongs to the
+; game, and the overlay does not swallow it.
+zoom_key = N
 
 
 ; =================================================================================
@@ -390,6 +399,11 @@ markers_absence_categories = chest,pickup
 ; ---------------------------------------------------------------------------------
 ; MINIMAP LOOK
 ; ---------------------------------------------------------------------------------
+; The zoom ladder zoom_key steps through, in uu per minimap pixel: 1 to 8 numbers
+; between 2 and 400, in any order (they are sorted, and duplicates are dropped).
+; 13 / 26 / 52 is "this room" / the shipped default / "this district".
+minimap_zoom_presets = 13, 26, 52
+
 ; The dark disc the map is drawn on. The first in-world screenshot was a light grey
 ; map over a light grey scene - this is what the walkable fill sits on.
 minimap_backdrop = 0.86
@@ -480,6 +494,11 @@ xray_rarity_colors = ADAFDA, DAADC5, DAD6AD
 ; from that edge either way. A non-custom hud_preset overrides this.
 compass_anchor = top
 compass_height = 26
+
+; The filled plate behind the strip. 0 = ticks and letters only, each with a
+; one-pixel shadow so they stay readable without it - the strip then sits much more
+; lightly on top of the game's own HUD.
+compass_plate = 1
 compass_marker_distance = 15000
 
 ; The waypoint is never culled: off the strip it clamps to the edge with an arrow.

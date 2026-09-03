@@ -627,6 +627,33 @@ namespace mm
             {
                 cfg.zoom_uu_per_px = parse_float(value, cfg.zoom_uu_per_px);
             }
+            else if (key == "minimap_zoom_presets")
+            {
+                std::string rejected;
+                float presets[mv::kMaxZoomPresets]{};
+                const int n = mv::parse_zoom_presets(value, presets, &rejected);
+                if (n > 0)
+                {
+                    for (int i = 0; i < n; ++i)
+                    {
+                        cfg.minimap_zoom_presets[i] = presets[i];
+                    }
+                    cfg.minimap_zoom_preset_count = n;
+                }
+                if (!rejected.empty() || n == 0)
+                {
+                    logf(L"config: minimap_zoom_presets - {} usable rung(s){}{}. Expected 1..{} numbers "
+                         L"between 2 and 400, e.g. 13, 26, 52",
+                         n,
+                         rejected.empty() ? L"" : L", ignored: ",
+                         widen_ascii(rejected),
+                         mv::kMaxZoomPresets);
+                }
+            }
+            else if (key == "zoom_key")
+            {
+                cfg.zoom_key = vk_from_name(value, cfg.zoom_key, "zoom_key");
+            }
             else if (key == "minimap_shape")
             {
                 cfg.round = (value != "square");
@@ -995,6 +1022,10 @@ namespace mm
             else if (key == "compass_width")
             {
                 cfg.compass_width = parse_float(value, cfg.compass_width);
+            }
+            else if (key == "compass_plate")
+            {
+                cfg.compass_plate = parse_bool(value, cfg.compass_plate);
             }
             else if (key == "compass_anchor")
             {
@@ -1799,6 +1830,18 @@ namespace mm
         add("palette", gly::palette_name(cfg.palette));
         add("minimap_size", f3(cfg.size_frac));
         add("minimap_zoom", f1(cfg.zoom_uu_per_px));
+        add("minimap_zoom_presets", [&cfg] {
+            std::string out;
+            for (int i = 0; i < cfg.minimap_zoom_preset_count && i < mv::kMaxZoomPresets; ++i)
+            {
+                if (!out.empty())
+                {
+                    out += ", ";
+                }
+                out += std::format("{:.0f}", cfg.minimap_zoom_presets[i]);
+            }
+            return out;
+        }());
         add("minimap_shape", cfg.round ? "round" : "square");
         add("minimap_anchor", anchor_name(cfg.anchor));
         add("minimap_offset_x", f0(cfg.offset_x));
@@ -1842,6 +1885,7 @@ namespace mm
         add("markers_rarity_tint", b(cfg.markers_rarity_tint));
         add("compass_enabled", b(cfg.compass_enabled));
         add("compass_width", f3(cfg.compass_width));
+        add("compass_plate", b(cfg.compass_plate));
         add("compass_offset_y", f0(cfg.compass_offset_y));
         add("compass_span_deg", f0(cfg.compass_span_deg));
         add("compass_opacity", f2(cfg.compass_opacity));
@@ -1849,6 +1893,7 @@ namespace mm
         add("panel_key", vk(cfg.panel_key));
         add("map_key", vk(cfg.map_key));
         add("map_recenter_key", vk(cfg.map_recenter_key));
+        add("zoom_key", vk(cfg.zoom_key));
         add("reload_key", vk(cfg.reload_key));
 
         // ---- Advanced ---------------------------------------------------------------

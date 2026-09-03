@@ -96,6 +96,40 @@ namespace mv
     double zoom_by(double z, double notches, double factor, double lo, double hi);
 
     //==================================================================================
+    // Minimap zoom presets
+    //==================================================================================
+    //
+    // Until 0.9.3 the minimap's zoom could only be changed by opening the F2 panel or
+    // by editing a file, which is the one setting a player wants to change while
+    // walking. `minimap_zoom_presets` is the ladder and `zoom_key` steps through it.
+    //
+    // Both halves are here because both are pure: parsing a hand-edited list, and
+    // deciding which rung comes next.
+
+    constexpr int kMaxZoomPresets = 8;
+
+    // "13, 26, 52" -> `out`, ascending, duplicates and out-of-range values dropped.
+    // Returns how many presets were stored (0 when the text carries none usable, in
+    // which case `out` is untouched and the caller keeps whatever it had). Malformed
+    // tokens are appended to `rejected` (comma separated) for the loader to log; unlike
+    // a colour list a bad token here does NOT consume a slot, because a zoom ladder is
+    // a set, not a tier-indexed table.
+    int parse_zoom_presets(std::string_view text, float out[kMaxZoomPresets], std::string* rejected = nullptr);
+
+    // One rung along the ladder: `dir > 0` the next rung above `current`, `dir < 0` the
+    // next one below, both wrapping round. `presets` must be ascending
+    // (parse_zoom_presets sorts it). Returns `current` unchanged when there is nothing
+    // to cycle through, so no caller has to special-case an empty ladder.
+    //
+    // "Above" and "below" are deliberately fuzzy (a 0.1 % margin): the current zoom
+    // usually IS one of the presets, and an exact comparison would then be answered by
+    // that same rung - the key would appear to do nothing.
+    float step_zoom_preset(const float* presets, int count, float current, int dir);
+
+    // step_zoom_preset(..., +1): what `zoom_key` does.
+    float next_zoom_preset(const float* presets, int count, float current);
+
+    //==================================================================================
     // The waypoint - wuchang_minimap_waypoint.txt
     //==================================================================================
     //

@@ -193,6 +193,12 @@ namespace mm
         HudPreset hud_preset = HudPreset::Custom;
         float size_frac = 0.24f;      // minimap side as a fraction of screen height
         float zoom_uu_per_px = 26.0f; // world uu per minimap pixel (smaller = closer)
+        // THE ZOOM LADDER. `zoom_key` steps through these in order and wraps; it is the
+        // one HUD setting a player wants to change while walking, and until 0.9.3 it
+        // could only be changed by opening the panel or editing this file. Parsed and
+        // stepped by pure functions in mapview (parse_zoom_presets / next_zoom_preset).
+        float minimap_zoom_presets[mv::kMaxZoomPresets] = {13.0f, 26.0f, 52.0f};
+        int minimap_zoom_preset_count = 3;
         bool round = true;            // round mask instead of a square
         Anchor anchor = Anchor::TopLeft;
         float offset_x = 24.0f;
@@ -422,7 +428,13 @@ namespace mm
         // second set of show/hide rules, no second latch.
 
         bool compass_enabled = true;
-        float compass_width = 0.42f;    // fraction of the screen width
+        // 0.34 rather than 0.42 (0.9.2): the strip sits where the game's own HUD lives,
+        // and a narrower strip both fights it less and spreads the same span over fewer
+        // pixels, which reads as MORE precise rather than less.
+        float compass_width = 0.34f;    // fraction of the screen width
+        // The filled plate behind the strip. Off = ticks and letters only, each drawn
+        // with a one-pixel shadow so they survive on a bright scene.
+        bool compass_plate = true;
         // Which edge the strip hangs off, and how far from it. A non-custom
         // `hud_preset` overrides the anchor (top presets -> Top, bottom -> Bottom).
         VAnchor compass_anchor = VAnchor::Top;
@@ -525,6 +537,10 @@ namespace mm
         int reload_key = 0x74;                  // VK_F5
         int map_key = 0x4D;                     // 'M' - full map
         int map_recenter_key = 0x52;            // 'R' - recentre the full map on the player
+        // Cycles minimap_zoom_presets. 'N' is not bound by the game, by this machine's
+        // injected DLLs (RenoDX F6, Steam F12) or by the rest of the mod (F2 / M / R /
+        // F5 / LALT), and it is next to M - the other map key.
+        int zoom_key = 0x4E;                    // 'N' - cycle the minimap zoom
     };
 
     // The config lives here and is copied under a spinlock. The loop thread writes it

@@ -379,6 +379,73 @@ namespace
     // is a table, and the property that makes the table right - no two categories share
     // a shape AND a colour - is exactly the kind of thing a build machine can prove
     // while the game is closed.
+    //==================================================================================
+    // The minimap zoom ladder (src/mapview.cpp)
+    //==================================================================================
+    //
+    // `zoom_key` (and the wheel over the disc while the panel is open) steps through
+    // `minimap_zoom_presets`. Both halves are pure, so both are proven here: the parse
+    // of a hand-edited list, and the wrap-around step.
+    void test_zoom_presets()
+    {
+        section("minimap zoom presets");
+
+        float p[mv::kMaxZoomPresets]{};
+        std::string rejected;
+        CHECK_EQ(mv::parse_zoom_presets("13, 26, 52", p, &rejected), 3);
+        CHECK(rejected.empty());
+        CHECK(p[0] == 13.0f && p[1] == 26.0f && p[2] == 52.0f);
+
+        // Sorted, deduplicated, and tolerant of the separators a hand-edited file has.
+        rejected.clear();
+        CHECK_EQ(mv::parse_zoom_presets("52;13 26  26", p, &rejected), 3);
+        CHECK(p[0] == 13.0f && p[1] == 26.0f && p[2] == 52.0f);
+        CHECK(rejected.empty());
+
+        // Out of range and unparseable tokens are named, not silently dropped - and
+        // they do NOT consume a slot (a zoom ladder is a set, unlike a rarity palette,
+        // where a bad entry has to keep its tier).
+        rejected.clear();
+        CHECK_EQ(mv::parse_zoom_presets("1, 26, 900, wide", p, &rejected), 1);
+        CHECK(p[0] == 26.0f);
+        CHECK(rejected == "1, 900, wide");
+
+        // Nothing usable: the caller keeps whatever it had, which is what the loader
+        // relies on to leave the shipped ladder in place.
+        float keep[mv::kMaxZoomPresets] = {13.0f, 26.0f, 52.0f};
+        CHECK_EQ(mv::parse_zoom_presets("nonsense", keep, nullptr), 0);
+        CHECK(keep[0] == 13.0f && keep[1] == 26.0f && keep[2] == 52.0f);
+        CHECK_EQ(mv::parse_zoom_presets("", keep, nullptr), 0);
+
+        // At most kMaxZoomPresets rungs survive a long list.
+        CHECK_EQ(mv::parse_zoom_presets("2,3,4,5,6,7,8,9,10,11,12", p, nullptr), mv::kMaxZoomPresets);
+
+        // ---- stepping ----------------------------------------------------------------
+        const float ladder[3] = {13.0f, 26.0f, 52.0f};
+        CHECK(mv::next_zoom_preset(ladder, 3, 13.0f) == 26.0f);
+        CHECK(mv::next_zoom_preset(ladder, 3, 26.0f) == 52.0f);
+        CHECK(mv::next_zoom_preset(ladder, 3, 52.0f) == 13.0f); // wraps
+        // A zoom that is not on the ladder at all (hand-edited minimap_zoom) still
+        // lands on the next rung above it, and one above the top wraps.
+        CHECK(mv::next_zoom_preset(ladder, 3, 20.0f) == 26.0f);
+        CHECK(mv::next_zoom_preset(ladder, 3, 400.0f) == 13.0f);
+        CHECK(mv::step_zoom_preset(ladder, 3, 26.0f, -1) == 13.0f);
+        CHECK(mv::step_zoom_preset(ladder, 3, 13.0f, -1) == 52.0f); // wraps the other way
+        CHECK(mv::step_zoom_preset(ladder, 3, 30.0f, -1) == 26.0f);
+        // An empty ladder, a null ladder and a zero direction all leave the zoom alone -
+        // no caller has to special-case them.
+        CHECK(mv::step_zoom_preset(ladder, 0, 26.0f, 1) == 26.0f);
+        CHECK(mv::step_zoom_preset(nullptr, 3, 26.0f, 1) == 26.0f);
+        CHECK(mv::step_zoom_preset(ladder, 3, 26.0f, 0) == 26.0f);
+        // Every rung is reachable: three presses of the key from any rung come back.
+        float z = 26.0f;
+        for (int i = 0; i < 3; ++i)
+        {
+            z = mv::next_zoom_preset(ladder, 3, z);
+        }
+        CHECK(z == 26.0f);
+    }
+
     void test_glyphs()
     {
         section("glyph shapes and marker palettes");
@@ -2512,6 +2579,7 @@ int main(int argc, char** argv)
     test_real_db(markers_dir);
     test_categories();
     test_glyphs();
+    test_zoom_presets();
     test_found_file();
     test_ids();
     test_intern_levels();

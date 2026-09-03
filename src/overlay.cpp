@@ -2179,10 +2179,12 @@ namespace overlay
         // full map. One builder, so the two can never drift apart.
         std::string bindings_hint(const mm::Config& cfg)
         {
-            std::string s = std::format("{} panel   {} full map ({} recentres)   {} reload",
+            std::string s = std::format("{} panel   {} full map ({} recentres)   {} minimap zoom   "
+                                        "{} reload",
                                         key_name_ascii(cfg.panel_key),
                                         key_name_ascii(cfg.map_key),
                                         key_name_ascii(cfg.map_recenter_key),
+                                        key_name_ascii(cfg.zoom_key),
                                         key_name_ascii(cfg.reload_key));
             if (cfg.highlight_enabled)
             {
@@ -2230,6 +2232,12 @@ namespace overlay
         // the theme's other colours are resolved into the ordinary colour config keys at
         // load time (mmstate.cpp's apply_theme_defaults), which is what lets an explicit
         // key in the file override a theme.
+        // MINIMAP ZOOM STEPS the loop thread still owes the config. The render thread
+        // may not write the config file and the loop thread cannot see the cursor, so
+        // the wheel-over-the-disc gesture and the zoom_key press both land here and are
+        // applied in on_update(). Accumulated, so a fast flick of the wheel is not lost.
+        std::atomic<int> g_zoom_steps{0};
+
         gly::Palette g_palette = gly::Palette::Default;
         mdb::Rgb g_plate = gly::theme_colors(gly::Theme::Neutral).plate;
 
@@ -2857,13 +2865,45 @@ namespace overlay
             // player arrow, so the arrow is never hidden by a glyph standing on it.
             draw_markers(cfg, g, cfg.round, x0, y0, side, dl);
 
-            // North marker, only meaningful when the map itself is rotating.
-            if (cfg.rotate_with_player)
+            // THE CARDINAL REFERENCE, always drawn (review-0.9.1 item 5). Until 0.9.3
+            // the north dot appeared only when `rotate_with_player` was on - so the
+            // SHIPPED north-up default had no cardinal reference at all, and nothing on
+            // screen said which way the picture was oriented. Now: four ticks on the
+            // rim plus the letter N, rotating with the yaw in rotate mode and standing
+            // still (N straight up) in north-up mode, where they say "this is north-up"
+            // rather than nothing.
             {
+                // A point on the rim, `inset` pixels in from it - the disc's circle or
+                // the square's edge, so the ticks sit ON the frame either way.
+                const auto rim = [&](float ang, float inset) {
+                    const float dx = std::sin(ang);
+                    const float dy = -std::cos(ang);
+                    const float lim = (std::max)(4.0f, g.half - inset);
+                    if (cfg.round)
+                    {
+                        return ImVec2{g.center.x + dx * lim, g.center.y + dy * lim};
+                    }
+                    const float m = (std::max)(std::abs(dx), std::abs(dy));
+                    const float sc = m > 1e-4f ? lim / m : 0.0f;
+                    return ImVec2{g.center.x + dx * sc, g.center.y + dy * sc};
+                };
+                const ImU32 tick_col = IM_COL32(226, 230, 236, alpha(0.6f));
+                const ImU32 north_col = IM_COL32(255, 226, 160, alpha(0.95f));
+                for (int i = 0; i < 4; ++i)
+                {
+                    const float ang = (static_cast<float>(i) * 90.0f - eff_yaw) * kPi / 180.0f;
+                    const bool north = i == 0;
+                    dl->AddLine(rim(ang, 3.0f), rim(ang, north ? 11.0f : 8.0f),
+                                north ? north_col : tick_col, north ? 2.2f : 1.4f);
+                }
                 const float na = -eff_yaw * kPi / 180.0f;
-                const ImVec2 np{g.center.x + std::sin(na) * (g.half - 12.0f),
-                                g.center.y - std::cos(na) * (g.half - 12.0f)};
-                dl->AddCircleFilled(np, 3.5f, IM_COL32(230, 90, 80, 235), 12);
+                const ImVec2 np = rim(na, 19.0f);
+                const ImVec2 ts = ImGui::CalcTextSize("N");
+                const ImVec2 tp{np.x - ts.x * 0.5f, np.y - ts.y * 0.5f};
+                // A shadow rather than a plate: a plate at the rim would cover the map,
+                // and the letter has to be legible over both the fill and the backdrop.
+                dl->AddText(ImVec2{tp.x + 1.0f, tp.y + 1.0f}, IM_COL32(0, 0, 0, alpha(0.8f)), "N");
+                dl->AddText(tp, north_col, "N");
             }
 
             // The waypoint, edge-clamped with its distance. It is the one marker that
@@ -2913,6 +2953,32 @@ namespace overlay
 
             add_player_arrow(dl, g.center, snap.yaw - eff_yaw,
                              (std::max)(cfg.minimap_arrow_min_px, side * cfg.minimap_arrow_frac));
+
+            // THE WHEEL OVER THE DISC, and why it is gated on the panel being open.
+            // Nothing here swallows the wheel: the WndProc hook only swallows input for
+            // a MODE (the full map), so during play a wheel notch reaches the game as
+            // well - and stealing the player's weapon / item wheel to zoom a minimap is
+            // not a trade anybody asked for. While the F2 panel is up the cursor is
+            // already ours and the wheel is already an overlay gesture, so it is safe
+            // there. `zoom_key` is the route that works during play.
+            if (mm::g_panel_open.load(std::memory_order_relaxed) && !ImGui::GetIO().WantCaptureMouse)
+            {
+                const ImGuiIO& io = ImGui::GetIO();
+                if (io.MouseWheel != 0.0f)
+                {
+                    const float mdx = io.MousePos.x - g.center.x;
+                    const float mdy = io.MousePos.y - g.center.y;
+                    const bool over = cfg.round
+                                          ? (mdx * mdx + mdy * mdy) <= g.half * g.half
+                                          : (std::abs(mdx) <= g.half && std::abs(mdy) <= g.half);
+                    if (over)
+                    {
+                        // Away from the player = zoom out = a LARGER uu/px, so the sign
+                        // matches the full map's wheel.
+                        g_zoom_steps.fetch_add(io.MouseWheel > 0.0f ? -1 : 1, std::memory_order_relaxed);
+                    }
+                }
+            }
 
             set_hide_reason(L"visible");
             g.uv = uv_of(chapter);
@@ -3191,6 +3257,7 @@ namespace overlay
             bool from_camera = false;
             double heading = 0.0;
             int pips = 0;
+            int deduped = 0; // pips left after the 3-px dedupe
         };
 
         CompassDebug g_compass_debug{};
@@ -3232,9 +3299,32 @@ namespace overlay
             const auto alpha = [op](float a) { return static_cast<int>((std::min)(1.0f, op * a) * 255.0f + 0.5f); };
 
             ImDrawList* dl = ImGui::GetForegroundDrawList();
-            dl->AddRectFilled(ImVec2{x0, y0}, ImVec2{x0 + width, y1}, IM_COL32(6, 9, 13, alpha(0.72f)), 4.0f);
-            dl->AddRect(ImVec2{x0, y0}, ImVec2{x0 + width, y1}, IM_COL32(150, 158, 168, alpha(0.55f)), 4.0f, 0,
-                        1.2f);
+            // THE PLATE. `compass_plate = 0` leaves ticks and letters only, which is what
+            // the strip needs to sit lightly over the game's own top-centre HUD; with no
+            // plate every glyph gets a one-pixel shadow instead, or a bright scene
+            // swallows it.
+            if (cfg.compass_plate)
+            {
+                dl->AddRectFilled(ImVec2{x0, y0}, ImVec2{x0 + width, y1}, plate_color(alpha(0.72f)), 4.0f);
+                dl->AddRect(ImVec2{x0, y0}, ImVec2{x0 + width, y1}, IM_COL32(150, 158, 168, alpha(0.55f)),
+                            4.0f, 0, 1.2f);
+            }
+            const bool shadow = !cfg.compass_plate;
+            const auto shadowed_line = [&](ImVec2 sa, ImVec2 sb, ImU32 scol, float thick) {
+                if (shadow)
+                {
+                    dl->AddLine(ImVec2{sa.x + 1.0f, sa.y + 1.0f}, ImVec2{sb.x + 1.0f, sb.y + 1.0f},
+                                IM_COL32(0, 0, 0, alpha(0.75f)), thick);
+                }
+                dl->AddLine(sa, sb, scol, thick);
+            };
+            const auto shadowed_text = [&](ImVec2 at, ImU32 scol, const char* text) {
+                if (shadow)
+                {
+                    dl->AddText(ImVec2{at.x + 1.0f, at.y + 1.0f}, IM_COL32(0, 0, 0, alpha(0.8f)), text);
+                }
+                dl->AddText(at, scol, text);
+            };
 
             cmp::Strip strip{};
             strip.x0 = static_cast<double>(x0);
@@ -3253,13 +3343,14 @@ namespace overlay
                 const float x = static_cast<float>(t.x);
                 const float len = t.rank == 2 ? height * 0.5f : (t.rank == 1 ? height * 0.34f : height * 0.22f);
                 const int a = t.rank == 2 ? alpha(0.95f) : (t.rank == 1 ? alpha(0.75f) : alpha(0.45f));
-                dl->AddLine(ImVec2{x, y1 - len}, ImVec2{x, y1 - 2.0f}, IM_COL32(226, 230, 236, a),
-                            t.rank == 2 ? 2.0f : 1.2f);
+                shadowed_line(ImVec2{x, y1 - len}, ImVec2{x, y1 - 2.0f}, IM_COL32(226, 230, 236, a),
+                              t.rank == 2 ? 2.0f : 1.2f);
                 if (t.label[0] != '\0')
                 {
                     const ImVec2 ts = ImGui::CalcTextSize(t.label);
-                    dl->AddText(ImVec2{x - ts.x * 0.5f, y0 + 1.0f},
-                                IM_COL32(240, 242, 246, t.rank == 2 ? alpha(1.0f) : alpha(0.8f)), t.label);
+                    shadowed_text(ImVec2{x - ts.x * 0.5f, y0 + 1.0f},
+                                  IM_COL32(240, 242, 246, t.rank == 2 ? alpha(1.0f) : alpha(0.8f)),
+                                  t.label);
                 }
             }
 
@@ -3284,7 +3375,7 @@ namespace overlay
                 struct Pip
                 {
                     float d2 = 0.0f; // squared: only ever compared and sorted on
-                    double bearing = 0.0;
+                    double x = 0.0;  // where on the strip it lands, in screen px
                     std::uint8_t cat = 0;
                     std::uint8_t rarity = 0;
                     bool found = false;
@@ -3306,9 +3397,18 @@ namespace overlay
                         continue;
                     }
                     const markers::DrawMarker& m = *fc.m;
+                    double px = 0.0;
+                    double rel = 0.0;
+                    // Off-strip pips are dropped HERE rather than in the draw loop, so
+                    // the cap and the dedupe below both work on pips that will actually
+                    // be drawn.
+                    if (!cmp::strip_x(strip, cmp::bearing_deg(snap.x, snap.y, m.x, m.y), px, rel))
+                    {
+                        continue;
+                    }
                     Pip p{};
                     p.d2 = fc.d2_xy;
-                    p.bearing = cmp::bearing_deg(snap.x, snap.y, m.x, m.y);
+                    p.x = px;
                     p.cat = fc.cat;
                     p.rarity = fc.rarity;
                     p.found = fc.found;
@@ -3327,19 +3427,42 @@ namespace overlay
                 {
                     std::sort(pips.begin(), pips.end(), [](const Pip& a, const Pip& b) { return a.d2 < b.d2; });
                 }
+                // DEDUPE. Six chests in one room are six pips within a pixel of each
+                // other: a solid smear that says "chests" less clearly than one glyph
+                // would. The list is sorted NEAREST FIRST, so keeping the first pip in
+                // each 3-px column keeps the nearest one of every cluster - and the
+                // walk is O(n x kept) over at most compass_max_pips entries.
+                constexpr double kDedupePx = 3.0;
+                std::size_t kept = 0;
+                for (std::size_t i = 0; i < pips.size(); ++i)
+                {
+                    bool crowded = false;
+                    for (std::size_t j = 0; j < kept; ++j)
+                    {
+                        if (pips[j].cat == pips[i].cat &&
+                            std::abs(pips[j].x - pips[i].x) < kDedupePx)
+                        {
+                            crowded = true;
+                            break;
+                        }
+                    }
+                    if (!crowded)
+                    {
+                        pips[kept++] = pips[i];
+                    }
+                }
+                pips.resize(kept);
+                g_compass_debug.deduped = static_cast<int>(pips.size());
+
+                // Drawn back to front, so the nearest pip of a cluster ends up on top -
+                // the same trick as draw_markers.
                 for (std::size_t pi = pips.size(); pi-- > 0;)
                 {
                     const Pip& p = pips[pi];
-                    double x = 0.0;
-                    double rel = 0.0;
-                    if (!cmp::strip_x(strip, p.bearing, x, rel))
-                    {
-                        continue;
-                    }
                     const int a = p.found ? alpha(0.35f) : alpha(1.0f);
                     const ImU32 col = marker_color_q(static_cast<mdb::Cat>(p.cat), p.rarity, a,
                                                      cfg.markers_rarity_tint, cfg.xray_rarity_colors);
-                    const ImVec2 at{static_cast<float>(x), y1 - height * 0.30f};
+                    const ImVec2 at{static_cast<float>(p.x), y1 - height * 0.30f};
                     draw_marker_glyph(dl, static_cast<mdb::Cat>(p.cat), at, height * 0.22f, col,
                                       IM_COL32(10, 12, 16, a), p.found);
                     ++g_compass_debug.pips;
@@ -4893,7 +5016,7 @@ namespace overlay
             ImGui::SeparatorText("Keys");
             ImGui::TextWrapped("%s", bindings_hint(cfg).c_str());
             ImGui::TextDisabled("rebind them in config_wuchang_minimap.txt (panel_key, map_key, "
-                                "map_recenter_key, reload_key, highlight_key)");
+                                "map_recenter_key, zoom_key, reload_key, highlight_key)");
         }
 
         void panel_advanced(mm::Config& cfg)
@@ -4989,6 +5112,19 @@ namespace overlay
                     cfg.minimap_frame_b = frame[2] * 255.0f;
                 }
                 ImGui::SliderFloat("Frame alpha", &cfg.minimap_frame_alpha, 0.0f, 1.0f, "%.2f");
+                // The zoom ladder is edited in the file (it is a list); the panel shows
+                // what is in force and which key steps through it, because "nothing
+                // happens when I press N" is otherwise unanswerable from in-game.
+                {
+                    std::string ladder;
+                    for (int i = 0; i < cfg.minimap_zoom_preset_count && i < mv::kMaxZoomPresets; ++i)
+                    {
+                        ladder += std::format("{}{:.0f}", ladder.empty() ? "" : ", ",
+                                              cfg.minimap_zoom_presets[i]);
+                    }
+                    ImGui::TextDisabled("zoom presets (%s cycles): %s", key_name_ascii(cfg.zoom_key).c_str(),
+                                        ladder.empty() ? "none - edit minimap_zoom_presets" : ladder.c_str());
+                }
                 ImGui::SliderFloat("Minimum side (px)", &cfg.minimap_min_px, 16.0f, 512.0f, "%.0f");
                 ImGui::SliderFloat("Player arrow (fraction of the side)", &cfg.minimap_arrow_frac, 0.01f,
                                    0.3f, "%.3f");
@@ -5051,6 +5187,9 @@ namespace overlay
             if (ImGui::CollapsingHeader("Compass tuning"))
             {
                 ImGui::SliderFloat("Height (px)", &cfg.compass_height, 10.0f, 120.0f, "%.0f");
+                ImGui::Checkbox("Filled plate behind the strip", &cfg.compass_plate);
+                ImGui::SameLine();
+                ImGui::TextDisabled("off = ticks and letters with a shadow");
                 ImGui::SliderFloat("Marker bearing range (uu)", &cfg.compass_marker_distance, 500.0f,
                                    60000.0f, "%.0f");
                 ImGui::SliderFloat("Minor tick spacing (deg)", &cfg.compass_tick_step_deg, 1.0f, 90.0f, "%.0f");
@@ -6425,6 +6564,40 @@ namespace overlay
             mm::logf(L"full map {}", open ? L"opened" : L"closed");
         }
         map_down = map_now;
+
+        // THE MINIMAP ZOOM LADDER. `zoom_key` is a press, the wheel gesture arrives as
+        // accumulated steps from the render thread, and both are applied here - the loop
+        // thread is the only one allowed to publish a config. Skipped while the full map
+        // is open: it swallows the keyboard and owns its own zoom.
+        static bool zoom_down = false;
+        const bool zoom_now = (::GetAsyncKeyState(cfg.zoom_key) & 0x8000) != 0;
+        if (zoom_now && !zoom_down && foreground && !mm::g_map_open.load() && now - last_key > 250)
+        {
+            last_key = now;
+            g_zoom_steps.fetch_add(1, std::memory_order_relaxed);
+        }
+        zoom_down = zoom_now;
+        if (const int steps = g_zoom_steps.exchange(0, std::memory_order_relaxed); steps != 0)
+        {
+            mm::Config edit = mm::config();
+            const int n = (std::min)(edit.minimap_zoom_preset_count, mv::kMaxZoomPresets);
+            const int dir = steps > 0 ? 1 : -1;
+            for (int i = 0, taken = steps > 0 ? steps : -steps; i < taken && i < 64; ++i)
+            {
+                edit.zoom_uu_per_px =
+                    mv::step_zoom_preset(edit.minimap_zoom_presets, n, edit.zoom_uu_per_px, dir);
+            }
+            if (edit.zoom_uu_per_px != cfg.zoom_uu_per_px)
+            {
+                mm::set_config(edit);
+                mm::logf(L"minimap zoom: {:.0f} uu/px (cycled with {} over {} preset(s))",
+                         edit.zoom_uu_per_px, mm::key_name(edit.zoom_key), n);
+            }
+            else if (n <= 0)
+            {
+                mm::log(L"minimap zoom: minimap_zoom_presets is empty - nothing to cycle through");
+            }
+        }
 
         static bool recenter_down = false;
         const bool recenter_now = (::GetAsyncKeyState(cfg.map_recenter_key) & 0x8000) != 0;

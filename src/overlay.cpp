@@ -302,6 +302,167 @@ namespace overlay
                                reinterpret_cast<std::uintptr_t>(addr) - reinterpret_cast<std::uintptr_t>(mod));
         }
 
+        //==============================================================================
+        // WHOSE FUNCTION IS THIS, AND WAS SOMEBODY ALREADY THERE
+        //==============================================================================
+        //
+        // Three overlays live in this process - ReShade (this game's dxgi.dll IS a
+        // ReShade proxy), Steam's GameOverlayRenderer64 and us - and all three want
+        // IDXGISwapChain::Present. When the Steam FPS counter stops appearing the first
+        // question is always "is our hook ON TOP of Steam's, UNDER it, or did we replace
+        // it", and that is answerable in one line: read the first bytes of the function
+        // BEFORE hooking it. A jmp already sitting there names the module that put it
+        // there - which is the proof that our MinHook trampoline chains INTO that module
+        // rather than around it.
+        //
+        // MinHook is a trampoline on the function, never a vtable patch, so a detour
+        // installed before ours ends up downstream of ours (its bytes are relocated into
+        // our trampoline) and one installed after ours ends up upstream. Either way the
+        // chain is intact, and hk_Present / hk_ResizeBuffers / hk_Present1 call the
+        // original unconditionally, for every swapchain, ours or not.
+
+        struct ModuleId
+        {
+            wchar_t name[64]{};      // file name only, lower case
+            std::uint32_t size = 0;  // SizeOfImage
+            std::uint32_t stamp = 0; // TimeDateStamp
+            std::uint32_t sum = 0;   // CheckSum
+            std::uint32_t rva = 0;   // the address's offset into the module
+            HMODULE base = nullptr;
+        };
+
+        // The three PE fields that identify a BUILD of a DLL. All of them are baked into
+        // the file, so they are identical on every launch - which is what makes an RVA
+        // captured in one session safe to reuse in the next.
+        bool module_identity(HMODULE mod, ModuleId& out)
+        {
+            if (mod == nullptr)
+            {
+                return false;
+            }
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(mod);
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+            {
+                return false;
+            }
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
+                reinterpret_cast<const std::uint8_t*>(mod) + dos->e_lfanew);
+            if (nt->Signature != IMAGE_NT_SIGNATURE)
+            {
+                return false;
+            }
+            out.base = mod;
+            out.size = nt->OptionalHeader.SizeOfImage;
+            out.stamp = nt->FileHeader.TimeDateStamp;
+            out.sum = nt->OptionalHeader.CheckSum;
+
+            wchar_t path[MAX_PATH * 2]{};
+            if (::GetModuleFileNameW(mod, path, static_cast<DWORD>(std::size(path))) == 0)
+            {
+                return false;
+            }
+            std::wstring p{path};
+            const auto slash = p.find_last_of(L'\\');
+            std::wstring name = slash == std::wstring::npos ? p : p.substr(slash + 1);
+            for (wchar_t& c : name)
+            {
+                if (c >= L'A' && c <= L'Z')
+                {
+                    c = static_cast<wchar_t>(c + 32);
+                }
+            }
+            if (name.size() + 1 >= std::size(out.name))
+            {
+                return false;
+            }
+            std::memcpy(out.name, name.c_str(), (name.size() + 1) * sizeof(wchar_t));
+            return true;
+        }
+
+        bool module_id_of(const void* addr, ModuleId& out)
+        {
+            HMODULE mod = nullptr;
+            if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                     reinterpret_cast<LPCWSTR>(addr),
+                                     &mod) == 0 ||
+                !module_identity(mod, out))
+            {
+                return false;
+            }
+            out.rva = static_cast<std::uint32_t>(reinterpret_cast<const std::uint8_t*>(addr) -
+                                                 reinterpret_cast<const std::uint8_t*>(mod));
+            return true;
+        }
+
+        // "ALREADY DETOURED -> <module>+<offset>" or "no detour", plus the raw bytes.
+        std::wstring detour_report(const void* addr)
+        {
+            if (addr == nullptr)
+            {
+                return L"<null>";
+            }
+            const auto* p = reinterpret_cast<const std::uint8_t*>(addr);
+            std::wstring bytes;
+            for (int i = 0; i < 8; ++i)
+            {
+                bytes += std::format(L"{:02X} ", p[i]);
+            }
+            const std::uint8_t* target = nullptr;
+            if (p[0] == 0xE9) // jmp rel32 - MinHook's own shape, and Steam's
+            {
+                std::int32_t rel = 0;
+                std::memcpy(&rel, p + 1, sizeof(rel));
+                target = p + 5 + rel;
+            }
+            else if (p[0] == 0xFF && p[1] == 0x25) // jmp [rip+disp32]
+            {
+                std::int32_t disp = 0;
+                std::memcpy(&disp, p + 2, sizeof(disp));
+                const void* const* slot = reinterpret_cast<const void* const*>(p + 6 + disp);
+                target = reinterpret_cast<const std::uint8_t*>(*slot);
+            }
+            else if (p[0] == 0x48 && p[1] == 0xB8) // mov rax, imm64 (followed by jmp rax)
+            {
+                std::uint64_t imm = 0;
+                std::memcpy(&imm, p + 2, sizeof(imm));
+                target = reinterpret_cast<const std::uint8_t*>(imm);
+            }
+            if (target != nullptr)
+            {
+                return std::format(L"[{}] ALREADY DETOURED -> {}", bytes, module_of(target));
+            }
+            return std::format(L"[{}] no detour", bytes);
+        }
+
+        // The overlays sharing this process, with their bases - so "who is here" sits in
+        // the log next to the hook report instead of being guessed at.
+        void log_overlay_modules()
+        {
+            static const wchar_t* const names[] = {L"dxgi.dll",
+                                                   L"d3d12.dll",
+                                                   L"GameOverlayRenderer64.dll",
+                                                   L"ReShade64.dll",
+                                                   L"nvngx_dlssg.dll",
+                                                   L"sl.interposer.dll"};
+            for (const wchar_t* name : names)
+            {
+                const HMODULE mod = ::GetModuleHandleW(name);
+                if (mod == nullptr)
+                {
+                    continue;
+                }
+                ModuleId id{};
+                module_identity(mod, id);
+                mm::logf(L"  module {} @ {:p}  size 0x{:X}  stamp 0x{:08X}  sum 0x{:08X}",
+                         name,
+                         static_cast<void*>(mod),
+                         id.size,
+                         id.stamp,
+                         id.sum);
+            }
+        }
+
         const wchar_t* format_name(DXGI_FORMAT f)
         {
             switch (f)
@@ -831,6 +992,11 @@ namespace overlay
         // keep it a fixed buffer rather than a std::string being reallocated.
         wchar_t g_hide_reason[96] = L"not evaluated yet";
         std::wstring g_hook_report = L"not installed";
+        // True when this launch hooked the addresses out of wuchang_minimap_hookaddr.txt
+        // instead of discovering them with a dummy device + queue + swapchain. It is what
+        // the watchdog needs: no Present with cached addresses means the cache is stale,
+        // and deleting it makes the next launch rediscover them.
+        bool g_hooks_from_cache = false;
 
         // Every hide/show transition is logged with its reason, so one line in the log
         // pins "why did the minimap vanish" without a screenshot. Rate-limited: a
@@ -7899,6 +8065,44 @@ namespace overlay
                 return false;
             }
 
+            // WHICH DEVICES THE GAME READS THROUGH WM_INPUT. This decides whether
+            // swallowing a key as a window message is enough: a game that registers a
+            // raw KEYBOARD also has to have the raw packet filtered (which the panel's
+            // Esc path does), and one that registers only the mouse does not. It is one
+            // call, once, and it turns "does UE read Esc through raw input?" from a
+            // guess into a log line.
+            {
+                UINT count = 0;
+                if (::GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) == 0 &&
+                    count > 0 && count < 64)
+                {
+                    std::vector<RAWINPUTDEVICE> devs(count);
+                    if (::GetRegisteredRawInputDevices(devs.data(), &count, sizeof(RAWINPUTDEVICE)) !=
+                        static_cast<UINT>(-1))
+                    {
+                        std::wstring list;
+                        for (UINT i = 0; i < count && i < devs.size(); ++i)
+                        {
+                            list += std::format(L"{}usage {:#x}/{:#x} flags {:#x}",
+                                                list.empty() ? L"" : L", ",
+                                                devs[i].usUsagePage,
+                                                devs[i].usUsage,
+                                                devs[i].dwFlags);
+                        }
+                        mm::logf(L"raw input: the game has {} device(s) registered ({}). Usage 1/6 is a "
+                                 L"KEYBOARD - if it is in that list, keys reach the game through WM_INPUT "
+                                 L"as well as WM_KEYDOWN.",
+                                 count,
+                                 list);
+                    }
+                }
+                else
+                {
+                    mm::log(L"raw input: the game has no raw-input devices registered - every key and "
+                            L"mouse move reaches it as a window message only");
+                }
+            }
+
             g_prev_wndproc = reinterpret_cast<WNDPROC>(
                 ::SetWindowLongPtrW(g_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&hooked_wndproc)));
             if (g_prev_wndproc == nullptr)
@@ -8310,7 +8514,317 @@ namespace overlay
         // Hook installation via a throwaway device + swapchain
         //==============================================================================
 
-        bool install_hooks()
+        //==============================================================================
+        // THE HOOK-ADDRESS CACHE (and why the Steam overlay wants it)
+        //==============================================================================
+        //
+        // Discovery creates a throwaway D3D12 device, a DIRECT command queue and a 64x64
+        // swapchain on a hidden window, reads four vtable slots and destroys all three.
+        // That is the hudhook recipe and it is what found the addresses in the first
+        // place - but Steam's GameOverlayRenderer64 hooks the device-, queue- and
+        // swapchain-creating entry points and re-targets its overlay onto what it sees
+        // created. Ours are created LATER than the game's (this runs from
+        // on_unreal_init, long after RHI init) and are then destroyed, which is a
+        // textbook way to leave the Steam overlay pointed at a dead object - the
+        // reported symptom, "the Steam FPS counter stopped rendering with the mod".
+        //
+        // The addresses, though, are a property of the DLL and not of the session: the
+        // first launch writes them down as module + RVA, and every launch after that
+        // hooks them directly and creates NOTHING. The cache is keyed to the module's
+        // SizeOfImage, TimeDateStamp and CheckSum - all three baked into the file - so a
+        // ReShade, driver or Windows update invalidates it and discovery runs once more.
+        // If cached addresses ever produce no Present at all, the watchdog deletes the
+        // file, so a stale cache costs one launch and heals itself.
+
+        constexpr int kHookCount = 4;
+        const wchar_t* const kHookNames[kHookCount] = {L"present", L"resize", L"present1", L"execute"};
+
+        std::wstring hook_cache_path()
+        {
+            return mm::mod_dir() + L"\\wuchang_minimap_hookaddr.txt";
+        }
+
+        bool write_hook_cache(const ModuleId* ids)
+        {
+            std::wstring text = L"; WuchangMinimap - the DX12 hook addresses found on a previous launch.\n"
+                                L"; Deleting this file forces a fresh discovery; it is rewritten by itself\n"
+                                L"; whenever one of these modules changes. schema 1\n"
+                                L"; <what> = <module> <rva> <SizeOfImage> <TimeDateStamp> <CheckSum>\n";
+            for (int i = 0; i < kHookCount; ++i)
+            {
+                if (ids[i].name[0] == L'\0' || ids[i].rva == 0)
+                {
+                    return false;
+                }
+                text += std::format(L"{} = {} 0x{:X} 0x{:X} 0x{:08X} 0x{:08X}\n",
+                                    kHookNames[i],
+                                    ids[i].name,
+                                    ids[i].rva,
+                                    ids[i].size,
+                                    ids[i].stamp,
+                                    ids[i].sum);
+            }
+            HANDLE h = ::CreateFileW(hook_cache_path().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                     FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return false;
+            }
+            std::string narrow;
+            narrow.reserve(text.size());
+            for (const wchar_t c : text)
+            {
+                narrow.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
+            }
+            DWORD wrote = 0;
+            const bool ok =
+                ::WriteFile(h, narrow.data(), static_cast<DWORD>(narrow.size()), &wrote, nullptr) != 0;
+            ::CloseHandle(h);
+            return ok;
+        }
+
+        // A hex field ("0x1F" or "1F"). False on anything else, so a hand-edited or
+        // truncated file is refused rather than half-read.
+        bool parse_hex_field(std::string_view t, std::uint64_t& out)
+        {
+            if (t.size() > 2 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X'))
+            {
+                t.remove_prefix(2);
+            }
+            if (t.empty() || t.size() > 16)
+            {
+                return false;
+            }
+            std::uint64_t v = 0;
+            for (const char c : t)
+            {
+                int d = -1;
+                if (c >= '0' && c <= '9')
+                {
+                    d = c - '0';
+                }
+                else if (c >= 'a' && c <= 'f')
+                {
+                    d = c - 'a' + 10;
+                }
+                else if (c >= 'A' && c <= 'F')
+                {
+                    d = c - 'A' + 10;
+                }
+                if (d < 0)
+                {
+                    return false;
+                }
+                v = v * 16 + static_cast<std::uint64_t>(d);
+            }
+            out = v;
+            return true;
+        }
+
+        // Resolves every entry against the module loaded RIGHT NOW. Any mismatch refuses
+        // the WHOLE cache: a half-valid one would hook an address inside the wrong DLL,
+        // which is a crash rather than a missing overlay.
+        bool read_hook_cache(void** addr)
+        {
+            HANDLE h = ::CreateFileW(hook_cache_path().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return false;
+            }
+            char buf[4096]{};
+            DWORD got = 0;
+            const bool read_ok = ::ReadFile(h, buf, sizeof(buf) - 1, &got, nullptr) != 0;
+            ::CloseHandle(h);
+            if (!read_ok || got == 0)
+            {
+                return false;
+            }
+            const std::string text{buf, buf + got};
+
+            for (int i = 0; i < kHookCount; ++i)
+            {
+                addr[i] = nullptr;
+            }
+            int found = 0;
+            std::size_t at = 0;
+            while (at < text.size())
+            {
+                std::size_t nl = text.find('\n', at);
+                if (nl == std::string::npos)
+                {
+                    nl = text.size();
+                }
+                std::string_view line{text.data() + at, nl - at};
+                at = nl + 1;
+                while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+                {
+                    line.remove_suffix(1);
+                }
+                if (line.empty() || line.front() == ';')
+                {
+                    continue;
+                }
+                const std::size_t eq = line.find(" = ");
+                if (eq == std::string_view::npos)
+                {
+                    continue;
+                }
+                const std::string_view key = line.substr(0, eq);
+                std::string_view rest = line.substr(eq + 3);
+
+                int slot = -1;
+                for (int i = 0; i < kHookCount; ++i)
+                {
+                    std::string want;
+                    for (const wchar_t* p = kHookNames[i]; *p != L'\0'; ++p)
+                    {
+                        want.push_back(static_cast<char>(*p));
+                    }
+                    if (key == want)
+                    {
+                        slot = i;
+                        break;
+                    }
+                }
+                if (slot < 0)
+                {
+                    continue;
+                }
+
+                std::string_view field[5];
+                int n = 0;
+                while (n < 5 && !rest.empty())
+                {
+                    const std::size_t sp = rest.find(' ');
+                    field[n++] = rest.substr(0, sp);
+                    rest = sp == std::string_view::npos ? std::string_view{} : rest.substr(sp + 1);
+                }
+                std::uint64_t rva = 0;
+                std::uint64_t size = 0;
+                std::uint64_t stamp = 0;
+                std::uint64_t sum = 0;
+                if (n != 5 || field[0].empty() || field[0].size() + 1 >= 64 ||
+                    !parse_hex_field(field[1], rva) || !parse_hex_field(field[2], size) ||
+                    !parse_hex_field(field[3], stamp) || !parse_hex_field(field[4], sum))
+                {
+                    mm::log(L"hook cache: a malformed line - falling back to discovery");
+                    return false;
+                }
+
+                wchar_t wname[64]{};
+                for (std::size_t k = 0; k < field[0].size(); ++k)
+                {
+                    wname[k] = static_cast<wchar_t>(field[0][k]);
+                }
+                const HMODULE mod = ::GetModuleHandleW(wname);
+                ModuleId live{};
+                if (mod == nullptr || !module_identity(mod, live))
+                {
+                    mm::logf(L"hook cache: '{}' is not loaded - falling back to discovery", wname);
+                    return false;
+                }
+                if (live.size != static_cast<std::uint32_t>(size) ||
+                    live.stamp != static_cast<std::uint32_t>(stamp) ||
+                    live.sum != static_cast<std::uint32_t>(sum))
+                {
+                    mm::logf(L"hook cache: {} is a different build now (size 0x{:X} vs 0x{:X}, stamp "
+                             L"0x{:08X} vs 0x{:08X}, sum 0x{:08X} vs 0x{:08X}) - falling back to discovery",
+                             wname,
+                             live.size,
+                             static_cast<std::uint32_t>(size),
+                             live.stamp,
+                             static_cast<std::uint32_t>(stamp),
+                             live.sum,
+                             static_cast<std::uint32_t>(sum));
+                    return false;
+                }
+                if (rva == 0 || rva >= live.size)
+                {
+                    return false;
+                }
+                addr[slot] = reinterpret_cast<std::uint8_t*>(mod) + rva;
+                ++found;
+            }
+            if (found != kHookCount)
+            {
+                mm::logf(L"hook cache: {} of {} entries resolved - falling back to discovery",
+                         found,
+                         kHookCount);
+                return false;
+            }
+            return true;
+        }
+
+        void delete_hook_cache(const wchar_t* why)
+        {
+            if (::DeleteFileW(hook_cache_path().c_str()) != 0)
+            {
+                mm::logf(L"hook cache: deleted ({}). The next launch rediscovers the addresses.", why);
+            }
+        }
+
+        // Both routes end here: four MH_CreateHook calls, one MH_EnableHook, one report.
+        bool create_and_enable(void** addr, const wchar_t* how)
+        {
+            const MH_STATUS s1 = MH_CreateHook(addr[0], reinterpret_cast<void*>(&hk_Present),
+                                               reinterpret_cast<void**>(&o_Present));
+            const MH_STATUS s2 = MH_CreateHook(addr[1], reinterpret_cast<void*>(&hk_ResizeBuffers),
+                                               reinterpret_cast<void**>(&o_ResizeBuffers));
+            const MH_STATUS s3 = MH_CreateHook(addr[2], reinterpret_cast<void*>(&hk_Present1),
+                                               reinterpret_cast<void**>(&o_Present1));
+            const MH_STATUS s4 = MH_CreateHook(addr[3], reinterpret_cast<void*>(&hk_ExecuteCommandLists),
+                                               reinterpret_cast<void**>(&o_ExecuteCommandLists));
+            const MH_STATUS en = MH_EnableHook(MH_ALL_HOOKS);
+
+            g_hook_report = std::format(L"{} | Present {} @ {} | ResizeBuffers {} @ {} | Present1 {} @ {} | "
+                                        L"ExecuteCommandLists {} @ {} | enable {}",
+                                        how,
+                                        static_cast<int>(s1),
+                                        module_of(addr[0]),
+                                        static_cast<int>(s2),
+                                        module_of(addr[1]),
+                                        static_cast<int>(s3),
+                                        module_of(addr[2]),
+                                        static_cast<int>(s4),
+                                        module_of(addr[3]),
+                                        static_cast<int>(en));
+            mm::logf(L"hooks: {}", g_hook_report);
+            mm::logf(L"hook addresses: Present {:p}  ResizeBuffers {:p}  Present1 {:p}  ExecuteCommandLists {:p}",
+                     addr[0],
+                     addr[1],
+                     addr[2],
+                     addr[3]);
+            log_overlay_modules();
+            const bool ok = (s1 == MH_OK && s4 == MH_OK && en == MH_OK);
+            if (!ok)
+            {
+                mm::log(L"at least one required hook did not install - the overlay will not draw");
+            }
+            return ok;
+        }
+
+        bool install_hooks_from_cache()
+        {
+            void* addr[kHookCount]{};
+            if (!read_hook_cache(addr))
+            {
+                return false;
+            }
+            // WHO WAS ALREADY THERE, read before we write a byte.
+            for (int i = 0; i < kHookCount; ++i)
+            {
+                mm::logf(L"hook cache: {} -> {} {}", kHookNames[i], module_of(addr[i]),
+                         detour_report(addr[i]));
+            }
+            mm::log(L"hook cache: the addresses came out of wuchang_minimap_hookaddr.txt, so NO dummy "
+                    L"device, queue, swapchain or window was created this launch - the Steam overlay has "
+                    L"nothing of ours to re-target onto");
+            g_hooks_from_cache = true;
+            return create_and_enable(addr, L"from the address cache");
+        }
+
+        bool install_hooks_by_discovery()
         {
             const MH_STATUS init = MH_Initialize();
             if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
@@ -8372,42 +8886,38 @@ namespace overlay
                 void** sc_vtable = *reinterpret_cast<void***>(swapchain);
                 void** q_vtable = *reinterpret_cast<void***>(queue);
 
-                void* present = sc_vtable[8];        // IDXGISwapChain::Present
-                void* resize = sc_vtable[13];        // IDXGISwapChain::ResizeBuffers
-                void* present1 = sc_vtable[22];      // IDXGISwapChain1::Present1
-                void* execute = q_vtable[10];        // ID3D12CommandQueue::ExecuteCommandLists
+                void* addr[kHookCount] = {
+                    sc_vtable[8],  // IDXGISwapChain::Present
+                    sc_vtable[13], // IDXGISwapChain::ResizeBuffers
+                    sc_vtable[22], // IDXGISwapChain1::Present1
+                    q_vtable[10],  // ID3D12CommandQueue::ExecuteCommandLists
+                };
 
-                const MH_STATUS s1 = MH_CreateHook(present, reinterpret_cast<void*>(&hk_Present),
-                                                   reinterpret_cast<void**>(&o_Present));
-                const MH_STATUS s2 = MH_CreateHook(resize, reinterpret_cast<void*>(&hk_ResizeBuffers),
-                                                   reinterpret_cast<void**>(&o_ResizeBuffers));
-                const MH_STATUS s3 = MH_CreateHook(present1, reinterpret_cast<void*>(&hk_Present1),
-                                                   reinterpret_cast<void**>(&o_Present1));
-                const MH_STATUS s4 = MH_CreateHook(execute, reinterpret_cast<void*>(&hk_ExecuteCommandLists),
-                                                   reinterpret_cast<void**>(&o_ExecuteCommandLists));
-                const MH_STATUS en = MH_EnableHook(MH_ALL_HOOKS);
-
-                g_hook_report = std::format(L"Present {} @ {} | ResizeBuffers {} @ {} | Present1 {} @ {} | "
-                                            L"ExecuteCommandLists {} @ {} | enable {}",
-                                            static_cast<int>(s1),
-                                            module_of(present),
-                                            static_cast<int>(s2),
-                                            module_of(resize),
-                                            static_cast<int>(s3),
-                                            module_of(present1),
-                                            static_cast<int>(s4),
-                                            module_of(execute),
-                                            static_cast<int>(en));
-                mm::logf(L"hooks: {}", g_hook_report);
-                mm::logf(L"hook addresses: Present {:p}  ResizeBuffers {:p}  Present1 {:p}  ExecuteCommandLists {:p}",
-                         present,
-                         resize,
-                         present1,
-                         execute);
-                ok = (s1 == MH_OK && s4 == MH_OK && en == MH_OK);
-                if (!ok)
+                // WHO WAS ALREADY THERE. Read before we write a byte: a jmp in front of
+                // Present names the module that installed it, and MinHook relocates
+                // those bytes into our trampoline - which is the proof that the other
+                // overlay stays in the chain below us instead of being replaced.
+                ModuleId ids[kHookCount]{};
+                bool all_identified = true;
+                for (int i = 0; i < kHookCount; ++i)
                 {
-                    mm::log(L"at least one required hook did not install - the overlay will not draw");
+                    mm::logf(L"hook discovery: {} -> {} {}",
+                             kHookNames[i],
+                             module_of(addr[i]),
+                             detour_report(addr[i]));
+                    all_identified = module_id_of(addr[i], ids[i]) && all_identified;
+                }
+
+                ok = create_and_enable(addr, L"by dummy-swapchain discovery");
+
+                // The addresses belong to the DLLs, so the next launch can hook them
+                // without creating (and then destroying) a device, a queue and a
+                // swapchain that Steam's overlay may have re-targeted itself onto.
+                if (ok && all_identified && write_hook_cache(ids))
+                {
+                    mm::logf(L"hook cache: written to {} - the next launch hooks these addresses directly "
+                             L"and creates no dummy objects at all",
+                             hook_cache_path());
                 }
             }
             else
@@ -8426,6 +8936,26 @@ namespace overlay
             g_hooks_installed = ok;
             g_hook_install_ms = ::GetTickCount64();
             return ok;
+        }
+
+        // THE ONE ENTRY POINT. The cache first (it creates nothing), the dummy-swapchain
+        // discovery as the fallback that also refreshes the cache.
+        bool install_hooks()
+        {
+            const MH_STATUS init = MH_Initialize();
+            if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
+            {
+                mm::logf(L"MH_Initialize failed: {}", static_cast<int>(init));
+                return false;
+            }
+            if (install_hooks_from_cache())
+            {
+                g_hooks_installed = true;
+                g_hook_install_ms = ::GetTickCount64();
+                return true;
+            }
+            g_hooks_from_cache = false;
+            return install_hooks_by_discovery();
         }
 
         //==============================================================================
@@ -8930,6 +9460,10 @@ namespace overlay
             now - g_hook_install_ms > 8000 && g_present_count.load() == 0)
         {
             g_watchdog_reported = true;
+            if (g_hooks_from_cache)
+            {
+                delete_hook_cache(L"8 s with the cached addresses and no Present at all");
+            }
             mm::log(L"WATCHDOG: 8 s after installing the hooks not a single Present has arrived. The game's "
                     L"swapchain is behind a proxy we did not create ours through (a DLSS frame-generation wrapper "
                     L"is the likely candidate). Loaded graphics modules follow:");

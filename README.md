@@ -496,7 +496,27 @@ the overlay draws before ReShade's effects. Two things that surprised us and are
 `swapchain->GetDevice(IID_ID3D12Device)` **fails** on the wrapper (the device is taken off the captured
 queue instead), and the game presents a decoy **144x8 D3D11** swapchain every frame next to the real
 **1920x1080 R10G10B10A2_UNORM** one, so the overlay picks one swapchain -
-`GetBuffer(0, IID_ID3D12Resource)` is the test - and ignores Presents from any other.
+`GetBuffer(0, IID_ID3D12Resource)` is the test - and ignores Presents from any other. A swapchain that
+is not ours is ignored for *drawing* only: `hk_Present`, `hk_Present1` and `hk_ResizeBuffers` call the
+original unconditionally, for every swapchain, so nothing else in the process ever loses a frame to us.
+
+**The hook-address cache, and coexisting with the Steam overlay.** Discovery creates a throwaway device,
+queue and swapchain and destroys them again. Steam's `GameOverlayRenderer64.dll` hooks the same creation
+entry points and re-targets its overlay onto what it sees created, so a dummy object created *after* the
+game's and then destroyed is a standard way to leave the Steam FPS counter pointing at nothing - and
+that is the reported symptom. The addresses are a property of the DLL, not of the session, so the first
+launch writes them to `wuchang_minimap_hookaddr.txt` next to the config as `module + RVA` and **every
+launch after that hooks them directly and creates nothing at all**. The cache is keyed to the module's
+`SizeOfImage`, `TimeDateStamp` and `CheckSum` (all three baked into the file), so a ReShade, driver or
+Windows update invalidates it and discovery runs once more; if cached addresses ever produce no Present,
+the 8 s watchdog deletes the file and the next launch rediscovers them. Delete it by hand to force that.
+
+The log also answers *who else is on this function*: before a byte is written, the first 8 bytes at each
+address are read and, if a `jmp` is already there, its target is resolved to `module+offset`
+(`ALREADY DETOURED -> GameOverlayRenderer64.dll+0x...`). MinHook is a trampoline on the function and
+never a vtable patch, so a detour installed before ours ends up *downstream* of ours - its bytes are
+relocated into our trampoline - and one installed after ours ends up *upstream*. Either way the chain is
+intact, and the log line proves which layer we are on instead of leaving it to be argued about.
 
 Rendering owns its own SRV descriptor heap (ImGui 1.92's `ImGui_ImplDX12_InitInfo` allocates through
 callbacks), one command allocator per back buffer fenced against reuse, and RTVs recreated lazily after

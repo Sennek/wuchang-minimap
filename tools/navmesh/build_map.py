@@ -8,10 +8,18 @@ textures plus a `maps.json` manifest the C++ mod reads at start-up.
 
     maps/
       maps.json                {"chapters": {"chapter1": {...}}}
-      chapter1/small.png       RGBA, transparent background, Z-shaded composite of
-                               every floor (the fallback / future full-map asset)
-      chapter1/small_z0.png    16-bit GRAYSCALE HEIGHT MAP of walkable surface 0
+      maps.json                schema `wuchang-minimap-maps/4` (see mapfmt.py)
+      chapter1/small.png       256-COLOUR PALETTE PNG, transparent background,
+                               Z-shaded composite of every floor (the fallback /
+                               full-map asset; `fallback_use_composite = 0`)
+      chapter1/small_z0.png    16-bit GRAYSCALE HEIGHT MAP of walkable surface 0,
+                               12-BIT codes 1..4095 (0 = no surface)
       chapter1/small_z1.png    ... surface 1 (the next one up), and so on to z7
+
+The two ENCODINGS - the palette composite and the 12-bit height codes - and the
+schema string live in `mapfmt.py`, which `repack_maps.py` shares. Use `repack_maps.py`
+to change the encoding of chapters that already ship: it needs nothing but `maps/`,
+where this script needs the 400 MB `dumps_offline/` extraction.
 
 The shipped asset is a MULTI-SURFACE HEIGHT MAP
 -----------------------------------------------
@@ -132,6 +140,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np  # noqa: E402
 
+import mapfmt  # noqa: E402  (the on-disk format: schema, palette PNG, 12-bit heights)
 import render  # noqa: E402  (same directory; the loader/geometry code is shared)
 
 try:
@@ -139,7 +148,10 @@ try:
 except ImportError:  # pragma: no cover
     sys.exit("This script needs Pillow:  pip install pillow")
 
-SCHEMA = "wuchang-minimap-maps/3"
+# The schema string and the two encodings live in mapfmt.py, which repack_maps.py
+# shares, so a freshly built chapter and a re-encoded one are the same format by
+# construction rather than by two matching constants.
+SCHEMA = mapfmt.SCHEMA
 
 # Light, desaturated cool grey ramp: low ground -> high ground. Deliberately low
 # saturation so marker colours (and the player arrow) stay the only saturated
@@ -159,7 +171,12 @@ LAYER_FILL = 255  # coverage inside a walkable polygon      (legacy ordinal laye
 LAYER_EDGE = 176  # coverage on the polygon outline         (legacy ordinal layers)
 LAYER_MARGIN_PX = 8  # transparent border so CLAMP sampling smears nothing
 
-Z_CODE_MAX = 65535  # 1..65535 are heights; 0 means "no surface"
+Z_CODE_MAX = mapfmt.Z_CODE_MAX  # 1..4095 are heights; 0 means "no surface" (schema /4)
+
+# The tile size src/mapdata.cpp's sparse height store uses. Only reported here (the
+# PNGs stay whole images); it is what turns "26 % of the pixels are lit" into a
+# resident-RAM number the manifest can be tested against.
+HEIGHT_TILE_PX = 128
 
 
 def clamp_scale(bounds: render.Bounds, max_dim: int) -> render.Bounds:
@@ -417,26 +434,13 @@ def rasterize_heights(
 
 
 def quantize_heights(z: "np.ndarray", z_min: float, z_max: float) -> "np.ndarray":
-    """One slot of `zbuf` -> uint16 codes. 0 = no surface, 1..65535 = height."""
-    span = z_max - z_min if z_max > z_min else 1.0
-    code = np.zeros(z.shape, dtype=np.uint16)
-    m = ~np.isnan(z)
-    if m.any():
-        v = 1.0 + np.rint((z[m].astype(np.float64) - z_min) / span * (Z_CODE_MAX - 1))
-        code[m] = np.clip(v, 1.0, float(Z_CODE_MAX)).astype(np.uint16)
-    return code
+    """One slot of `zbuf` -> uint16 codes. 0 = no surface, 1..Z_CODE_MAX = height."""
+    return mapfmt.quantise_z(z, z_min, z_max)
 
 
 def write_height_png(code: "np.ndarray", path: Path) -> int:
     """Write a 16-bit grayscale PNG and verify it reads back bit-exact."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    Image.frombytes("I;16", (code.shape[1], code.shape[0]), code.astype("<u2").tobytes()).save(
-        path, optimize=True
-    )
-    back = np.asarray(Image.open(path))
-    if back.shape != code.shape or not np.array_equal(back.astype(np.int64), code.astype(np.int64)):
-        raise RuntimeError(f"16-bit PNG did not round-trip: {path}")
-    return path.stat().st_size
+    return mapfmt.write_height_png(code, path)
 
 
 # =================================================================================
@@ -804,11 +808,16 @@ def build_chapter(args: argparse.Namespace) -> dict:
     rel_png = f"{args.chapter}/{stem}.png"
     png_path = out_root / rel_png
     png_path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(png_path, optimize=True)
+    # A 256-COLOUR PALETTE PNG, not RGBA8 (schema /4): the render is flat-filled from
+    # a 5-stop ramp with a darkened outline, so ~650 distinct colours cover the whole
+    # picture and 255 of them are within 3/255 of every one. See mapfmt.py.
+    _, pal_stats = mapfmt.write_composite_png(np.array(img), png_path)
     size_mb = png_path.stat().st_size / (1024 * 1024)
     print(
-        f"[{args.chapter}] wrote {png_path}  ({size_mb:.2f} MB, "
-        f"{bounds.width * bounds.height * 4 / (1024 * 1024):.0f} MB as RGBA8)"
+        f"[{args.chapter}] wrote {png_path}  ({size_mb:.2f} MB palette PNG, "
+        f"{pal_stats['unique_rgba_in']} -> {pal_stats['palette_colours']} colours, "
+        f"worst channel delta {pal_stats['max_channel_delta']}/255, "
+        f"{bounds.width * bounds.height * 4 / (1024 * 1024):.0f} MB as RGBA8 in VRAM)"
     )
     if size_mb > args.max_mb:
         print(
@@ -823,8 +832,8 @@ def build_chapter(args: argparse.Namespace) -> dict:
     z_max = float(zvals.max())
     z_step = (z_max - z_min) / (Z_CODE_MAX - 1)
     print(
-        f"[{args.chapter}] walkable Z {z_min:.1f}..{z_max:.1f} uu -> 16-bit step "
-        f"{z_step:.4f} uu (code 0 = no surface)"
+        f"[{args.chapter}] walkable Z {z_min:.1f}..{z_max:.1f} uu -> {mapfmt.Z_BITS}-bit step "
+        f"{z_step:.4f} uu (codes 1..{Z_CODE_MAX}, code 0 = no surface)"
     )
     print(
         f"[{args.chapter}] rasterising up to {args.max_surfaces} height slot(s), "
@@ -856,10 +865,12 @@ def build_chapter(args: argparse.Namespace) -> dict:
 
     height_maps: list[str] = []
     height_bytes: list[int] = []
+    height_codes: list["np.ndarray"] = []  # kept for the tile-occupancy count below
     for k in range(used):
         rel = f"{args.chapter}/{stem}_z{k}.png"
         code = quantize_heights(zbuf[k], z_min, z_max)
         nb = write_height_png(code, out_root / rel)
+        height_codes.append(code)
         height_maps.append(rel)
         height_bytes.append(nb)
         nz = int(np.count_nonzero(code))
@@ -894,9 +905,6 @@ def build_chapter(args: argparse.Namespace) -> dict:
         "png_bytes": png_path.stat().st_size,
         "z_min": z_min,
         "z_max": z_max,
-        "z_step_uu": z_step,
-        "z_code_no_surface": 0,
-        "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 65534) ; 0 = no surface",
         "chapter": chapter_number(args.chapter),
         "max_surfaces": used,
         "max_surfaces_requested": args.max_surfaces,
@@ -913,6 +921,23 @@ def build_chapter(args: argparse.Namespace) -> dict:
         "height_map_raw_bytes": raw,
         "surface_hist": hist,
     }
+    # The format fields (z_bits / z_code_max / z_step_uu / z_quantisation /
+    # composite_format) come from mapfmt so this tool and repack_maps.py cannot
+    # disagree about what they just wrote.
+    mapfmt.stamp_format(entry, z_min, z_max)
+    # What the runtime's SPARSE tile store will actually cost, measured here rather
+    # than guessed in-game: RAM = non-empty 128-px tiles x 128 x 128 x 2 B.
+    tiles, tiles_total = mapfmt.tile_occupancy(height_codes, HEIGHT_TILE_PX)
+    entry["height_tile_px"] = HEIGHT_TILE_PX
+    entry["height_tiles_128"] = tiles
+    entry["height_tiles_128_total"] = tiles_total
+    entry["height_tile_ram_bytes"] = tiles * HEIGHT_TILE_PX * HEIGHT_TILE_PX * 2
+    print(
+        f"[{args.chapter}] tile store: {tiles}/{tiles_total} tiles of {HEIGHT_TILE_PX} px "
+        f"({100.0 * tiles / max(1, tiles_total):.1f} %) = "
+        f"{entry['height_tile_ram_bytes'] / (1024 * 1024):.0f} MB resident, "
+        f"against {raw / (1024 * 1024):.0f} MB dense"
+    )
 
     if args.legacy_layers:
         entry.update(build_legacy_layers(args, polys, bounds, out_root))

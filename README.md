@@ -135,7 +135,7 @@ update overwrites them.
 | `wuchang_minimap_found.txt` | The shared tracker, used when the save slot cannot be worked out or with `found_profile = shared`. A new slot's file is seeded from this one, so nothing is lost. |
 | `wuchang_minimap_waypoint.txt` | Your waypoint, so it survives a restart. Three `key = value` lines. |
 | `wuchang_minimap_firstrun.txt` | Records that the first-run tip has been shown. Delete it to see the tip again. |
-| `wuchang_minimap.log` (+ `.1` … `.3`) | The mod's own log, rotated per launch. |
+| `wuchang_minimap.log` (+ `.1` … `.3`) | The mod's own log, rotated per launch. How much goes into it is `log_level` (`normal` by default). |
 | `wuchang_minimap_watchdog.txt` | Written only if the game stops responding for six seconds. |
 | `wuchang_minimap_last_stage.txt` | One line naming the stage the overlay was in. |
 | `wuchang_minimap_hookaddr.txt` | The cached graphics hook addresses. Deleting it is always safe. |
@@ -169,8 +169,9 @@ update overwrites them.
   cutscenes, in menus and for a moment after a load. Load a save first.
 * **Nothing shows in the world** — press `F2`. If the panel opens, the mod is running and
   only the minimap is suppressed; the top of the Player tab prints one orange
-  `hidden because:` line naming the exact condition. Screenshot that line. If `F2` does
-  nothing either, check `enabled.txt` exists.
+  `hidden because:` line naming the exact condition. Screenshot that line — it is the
+  first thing to look at, and the log only repeats it at `log_level = verbose`. If `F2`
+  does nothing either, check `enabled.txt` exists.
 * **A hotkey does nothing** — check the Bindings tab, which prints what is actually in
   force, and that it is not one of the refused keys above.
 
@@ -186,8 +187,21 @@ update overwrites them.
 * For a crash, also `%LOCALAPPDATA%\Project_Plague\Saved\Crashes\` —
   `CrashContext.runtime-xml`, whose `<CrashType>` says whether it was a `GPUCrash` (a
   driver / ReShade / DLSS problem, not this mod).
-* Your `config_wuchang_minimap.txt` if you have edited it, and the version, which is on
-  the first line of the log.
+* Your `config_wuchang_minimap.txt` — most "it does not work" reports turn out to be a
+  setting.
+* The **first six lines of the log**, if you want to say something useful in one paragraph:
+  the startup header carries the mod version, the game executable's build, UE4SS's build
+  and the Windows build. (UE4SS's build reads `(not loaded / no version info)` on installs
+  whose `UE4SS.dll` carries no version resource; that is not an error.)
+
+**If you are asked to reproduce something**: set `log_level = verbose` in the config (or
+pick it under **Advanced → Diagnostics → Log detail** in the `F2` panel — no restart
+needed), reproduce the problem, then send `wuchang_minimap.log`. The default `normal` is
+quiet on purpose — a long session is a few hundred lines — and `verbose` adds the running
+commentary: the player-state line, per-round marker timings, menu open and close, why the
+minimap is hidden, x-ray toggles. `trace` adds everything else and is only worth turning
+on if somebody asks for it by name. Nothing was removed at `normal`; every line is one
+config value away.
 
 ## Uninstall
 

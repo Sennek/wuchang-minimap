@@ -35,7 +35,7 @@ An interactive minimap, full map, compass and collection tracker for Wuchang: Fa
 [*][b]A compass strip[/b] with bearing pips, the distance in metres under each, and an up or down arrow for anything well above or below you.
 [*][b]An x-ray highlight[/b] on LALT (or LB+RB): nearby chests, pickups, shrines, bosses, NPCs and notes drawn through walls with their names and distances, and an arrow on the screen edge for anything behind you. A toggle by default; hold is one radio button away.
 [*][b]A shrine list[/b] on the full map: every shrine of the chapter by distance, with its name and whether you have lit it. Click for a waypoint.
-[*][b]Everything is configurable[/b] — one documented plain-text file, an in-game settings panel on F2 with Player / Advanced / Bindings tabs, three one-click presets, a colour-blind palette, a UI scale that gets 4K right, and F5 to reload without restarting the game.
+[*][b]Everything is configurable[/b] — one documented plain-text file, an in-game settings panel on F2 with Player / Advanced / Bindings tabs, three one-click presets, a colour-blind palette, a UI scale that gets 4K right, a log detail level for when something needs reporting, and F5 to reload without restarting the game.
 [*][b]Every hotkey is rebindable[/b] in the panel by pressing the new key.
 [/list]
 
@@ -91,10 +91,13 @@ Please attach these, from [code]ue4ss\Mods\WuchangMinimap\[/code]:
 [*][code]wuchang_minimap.log[/code] — the mod's own log, and [code]wuchang_minimap.log.1[/code] if the problem was in the previous session. This is the important one: UE4SS empties [i]its[/i] log every launch, so restarting the game to try something else destroys it; this file is rotated instead.
 [*][code]wuchang_minimap_watchdog.txt[/code] — if the game froze. It names the thread that stopped.
 [*][code]wuchang_minimap_last_stage.txt[/code] — if the game crashed. It names the stage the overlay was in, and survives when a log does not.
-[*]Your [code]config_wuchang_minimap.txt[/code], if you have edited it.
+[*]Your [code]config_wuchang_minimap.txt[/code] — most "it does not work" reports turn out to be a setting, so send it whether or not you think you changed anything.
+[*]Or, if you would rather paste than attach: the [b]first six lines of the log[/b] are a startup header carrying the mod version, the game executable's build, UE4SS's build and the Windows build.
 [*]For a crash, [code]%LOCALAPPDATA%\Project_Plague\Saved\Crashes\CrashContext.runtime-xml[/code]. If its [code]<CrashType>[/code] says [code]GPUCrash[/code], it is a driver or ReShade/DLSS problem rather than this mod.
 [/list]
-If the minimap simply is not on screen, open F2 and screenshot the orange [code]hidden because:[/code] line at the top of the Player tab — it names the exact condition holding it back, and is worth more than any description.
+If the minimap simply is not on screen, open F2 and screenshot the orange [code]hidden because:[/code] line at the top of the Player tab — it names the exact condition holding it back, and is worth more than any description. The log only repeats it at [code]verbose[/code].
+
+[b]If I ask you to reproduce something:[/b] set [code]log_level = verbose[/code] in the config, or pick it under [i]Advanced → Diagnostics → Log detail[/i] in the F2 panel (it takes effect at once, no restart), reproduce the problem, then send [code]wuchang_minimap.log[/code]. The default [code]normal[/code] is quiet on purpose — a long session is a few hundred lines — and nothing is missing from it that is not one config value away.
 
 [size=5]Permissions and credits[/size]
 Source and full documentation: see the Docs tab / the repository link. The mod is [b]MIT licensed[/b] — do what you like with it, including forking or reusing the map pipeline, as long as the licence travels with it. Credit is appreciated, not required. If you want to publish a translation or a variant, go ahead; a link back is enough.

@@ -368,6 +368,14 @@ you were fiddling with.</p>
       <td>The bindings. Easiest changed in the <kbd>F2</kbd> panel's <em>Bindings</em> tab by pressing
           the new key. The panel and the full map's footer read the key hints straight out of this
           file, so they cannot go stale after a rebind.</td></tr>
+  <tr><td><code>log_level</code></td>
+      <td>How much the mod writes to <code>wuchang_minimap.log</code>: <code>normal</code> (the
+          default), <code>verbose</code> or <code>trace</code>. Also a <strong>Log detail</strong>
+          dropdown in the <kbd>F2</kbd> panel under <em>Advanced &rarr; Diagnostics</em>, which prints
+          the log file's full path beside it. It takes effect on Save or <kbd>F5</kbd> &mdash; no
+          restart. <code>normal</code> writes what a bug report needs and nothing else, so a long
+          session is a few hundred lines; turn it up only when someone asks you to reproduce a
+          problem with it on. See <a href="#trouble">section&nbsp;7</a>.</td></tr>
   <tr><td><code>crash_breadcrumb</code>, <code>fast_travel_enabled</code></td>
       <td>Diagnostics and fast travel. The breadcrumb file is what answers "what was the mod doing
           when the game died" (see section&nbsp;7). Fast travel is <strong>off by default and
@@ -471,12 +479,32 @@ exist &mdash; the first one always does:</p>
   <li><code>wuchang_minimap_last_stage.txt</code> &mdash; <strong>if the game crashed.</strong> One
       line naming the stage the overlay was in. Anything other than <code>clean exit</code> means the
       mod was mid-something when the game went.</li>
-  <li>Your <code>config_wuchang_minimap.txt</code>, if you have changed anything in it.</li>
+  <li>Your <code>config_wuchang_minimap.txt</code>. Most "it does not work" reports turn out to be a
+      setting, so send it whether or not you think you changed anything.</li>
+  <li>If you would rather paste than attach: the <strong>first six lines of the log</strong> are a
+      startup header carrying the mod version, the game executable's build, UE4SS's build and the
+      Windows build, which answers most of the first round of questions on its own. (UE4SS's build
+      reads <code>(not loaded / no version info)</code> on installs whose <code>UE4SS.dll</code>
+      carries no version resource; that is not an error.)</li>
   <li>For a crash, the game's own report from
       <code>%LOCALAPPDATA%\Project_Plague\Saved\Crashes\</code>. Open
       <code>CrashContext.runtime-xml</code> and look at <code>&lt;CrashType&gt;</code> first:
       <code>GPUCrash</code> is a graphics-driver or ReShade/DLSS problem, not this mod.</li>
 </ul>
+<div class="box warn">
+  <h4>If you are asked to reproduce it</h4>
+  <p>Set <code>log_level = verbose</code> in <code>config_wuchang_minimap.txt</code>, or pick it under
+  <em>Advanced &rarr; Diagnostics &rarr; Log detail</em> in the <kbd>F2</kbd> panel &mdash; it takes
+  effect at once, with no restart. Then reproduce the problem and send
+  <code>wuchang_minimap.log</code>.</p>
+  <p><code>normal</code> is deliberately quiet: startup, what loaded, chapter and save-slot changes,
+  every warning and error, the first-time diagnostics and a health summary once a minute.
+  <code>verbose</code> adds the running commentary &mdash; the player-state line, per-round marker
+  timings, menu open and close, <strong>why the minimap is hidden</strong>, x-ray toggles.
+  <code>trace</code> adds everything else and is only worth turning on if somebody asks for it by
+  name. Nothing is <em>missing</em> at <code>normal</code>; it is one config value away.</p>
+</div>
+
 <p>UE4SS also writes <code>Project_Plague\Binaries\Win64\ue4ss\UE4SS.log</code>, which carries the same
 mod lines (prefixed <code>[minimap]</code>, <code>[markers]</code> or <code>[navmesh]</code>) plus
 UE4SS's own start-up. It is worth sending when the mod does not load at all &mdash; but UE4SS empties
@@ -499,7 +527,8 @@ it every launch, so it is the mod's own log that survives.</p>
       the widget), the grace period after a load, or the camera not looking through the player. It is
       there specifically so "the minimap vanished" has an answer.
       <strong>If you report this problem, screenshot that line</strong> &mdash; it is worth more than
-      any description.</li>
+      any description. The log repeats it only at <code>log_level = verbose</code>, so the panel is
+      the first place to look and turning the log up is the follow-up.</li>
   <li>If <kbd>F2</kbd> does nothing either, check <code>enabled.txt</code> exists and look for
       <code>WuchangMinimap v@@VERSION@@ loaded</code> in <code>wuchang_minimap.log</code> (or, if that
       file was never created, in UE4SS's own <code>UE4SS.log</code>).</li>

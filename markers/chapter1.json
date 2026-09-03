@@ -3,6 +3,30 @@
  "chapter": 1,
  "source": "cooked .umap sublevels, offline pak extraction",
  "generated_by": "tools/markers/extract_markers.py",
+ "game_build": "5.1.1.0",
+ "pak": [
+  {
+   "name": "Project_Plague-Windows.pak",
+   "size": 44740955247,
+   "sha256": "8d5888f6510bfaa3620150d91a9cb8ecfc737c683aeba35c20cef88152f4d581"
+  },
+  {
+   "name": "Project_Plague-Windows_0_P.pak",
+   "size": 15139103055,
+   "sha256": "98f5ad3efe2ff1b084f4536d76f354b83d61d9e8a4d66ab389c96309521dd267"
+  },
+  {
+   "name": "Project_Plague-Windows_1_P.pak",
+   "size": 4049445139,
+   "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
+  }
+ ],
+ "extractor_commit": "9a46681+dirty",
+ "exe": {
+  "name": "Project_Plague-Win64-Shipping.exe",
+  "size": 141464648,
+  "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9"
+ },
  "markers": [
   {
    "id": "Chapter1_DGong_Boss_AI/BP_DaYouYan_AI_C_3",
@@ -565,6 +589,42 @@
    "level": "Chapter1_Wanrenk_logic"
   },
   {
+   "id": "Chapter1_DGong_AI/BP_duanjian_high_C_1",
+   "cat": "elite",
+   "cls": "BP_DJYHZ_high_C",
+   "name": "Elite",
+   "obj": "BP_duanjian_high_C_1",
+   "x": 21580.24,
+   "y": 8551.99,
+   "z": -2777.04,
+   "cell": "B1EX0_L0_X2_Y0",
+   "level": "Chapter1_DGong_AI"
+  },
+  {
+   "id": "Chapter1_DanQingYuan_AI/Pangzi_JiasuoStart_Special_C_1",
+   "cat": "elite",
+   "cls": "Pangzi_JiasuoStart_Special_C",
+   "name": "Elite",
+   "obj": "Pangzi_JiasuoStart_Special_C_1",
+   "x": 23837.63,
+   "y": 28599.74,
+   "z": 3638.28,
+   "cell": "B1EX0_L0_X2_Y2",
+   "level": "Chapter1_DanQingYuan_AI"
+  },
+  {
+   "id": "Chapter1_Shuwang_AI/guanbing_YanYueDao_high_C_1",
+   "cat": "elite",
+   "cls": "guanbing_YanYueDao_high_C",
+   "name": "Elite",
+   "obj": "guanbing_YanYueDao_high_C_1",
+   "x": 26843.32,
+   "y": 2556.29,
+   "z": -92.33,
+   "cell": "B1EX0_L0_X2_Y0",
+   "level": "Chapter1_Shuwang_AI"
+  },
+  {
    "id": "Chapter1_Cave_AI/DaoMuZei_bishou_Onboarding_C_2",
    "cat": "enemy",
    "cls": "DaoMuZei_bishou_Onboarding_C",
@@ -874,18 +934,6 @@
    "y": -8190.16,
    "z": -6248.91,
    "cell": "B1EX0_L0_X2_Y-1",
-   "level": "Chapter1_DGong_AI"
-  },
-  {
-   "id": "Chapter1_DGong_AI/BP_duanjian_high_C_1",
-   "cat": "enemy",
-   "cls": "BP_DJYHZ_high_C",
-   "name": "Enemy",
-   "obj": "BP_duanjian_high_C_1",
-   "x": 21580.24,
-   "y": 8551.99,
-   "z": -2777.04,
-   "cell": "B1EX0_L0_X2_Y0",
    "level": "Chapter1_DGong_AI"
   },
   {
@@ -1582,18 +1630,6 @@
    "y": 26560.3,
    "z": 3317.0,
    "cell": "B1EX0_L0_X3_Y2",
-   "level": "Chapter1_DanQingYuan_AI"
-  },
-  {
-   "id": "Chapter1_DanQingYuan_AI/Pangzi_JiasuoStart_Special_C_1",
-   "cat": "enemy",
-   "cls": "Pangzi_JiasuoStart_Special_C",
-   "name": "Enemy",
-   "obj": "Pangzi_JiasuoStart_Special_C_1",
-   "x": 23837.63,
-   "y": 28599.74,
-   "z": 3638.28,
-   "cell": "B1EX0_L0_X2_Y2",
    "level": "Chapter1_DanQingYuan_AI"
   },
   {
@@ -3550,18 +3586,6 @@
    "y": -1914.71,
    "z": 1628.13,
    "cell": "B1EX0_L0_X1_Y-1",
-   "level": "Chapter1_Shuwang_AI"
-  },
-  {
-   "id": "Chapter1_Shuwang_AI/guanbing_YanYueDao_high_C_1",
-   "cat": "enemy",
-   "cls": "guanbing_YanYueDao_high_C",
-   "name": "Enemy",
-   "obj": "guanbing_YanYueDao_high_C_1",
-   "x": 26843.32,
-   "y": 2556.29,
-   "z": -92.33,
-   "cell": "B1EX0_L0_X2_Y0",
    "level": "Chapter1_Shuwang_AI"
   },
   {
@@ -5569,6 +5593,54 @@
    "level": "Chapter1_special_logic"
   },
   {
+   "id": "Chapter1_DGong_logic/BP_PickUpActor_Trap_C_1",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_1",
+   "x": 21291.96,
+   "y": 3267.47,
+   "z": -3343.52,
+   "cell": "B1EX0_L0_X2_Y0",
+   "level": "Chapter1_DGong_logic"
+  },
+  {
+   "id": "Chapter1_DGong_logic/BP_PickUpActor_Trap_C_3",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_3",
+   "x": 18877.96,
+   "y": 5168.17,
+   "z": -2178.47,
+   "cell": "B1EX0_L0_X1_Y0",
+   "level": "Chapter1_DGong_logic"
+  },
+  {
+   "id": "Chapter1_DanQingYuan_logic/BP_PickUpActor_Trap_C_0",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_0",
+   "x": 31412.03,
+   "y": 30565.92,
+   "z": 3257.84,
+   "cell": "B1EX0_L0_X3_Y2",
+   "level": "Chapter1_DanQingYuan_logic"
+  },
+  {
+   "id": "Chapter1_Shuwang_logic/BP_PickUpActor_Trap_C_1",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_1",
+   "x": 15156.18,
+   "y": -4522.91,
+   "z": 1578.0,
+   "cell": "B1EX0_L0_X1_Y-1",
+   "level": "Chapter1_Shuwang_logic"
+  },
+  {
    "id": "Chapter1_DGong_logic/BP_LadderV12_7",
    "cat": "ladder",
    "cls": "BP_LadderV2_C",
@@ -7093,30 +7165,6 @@
    "level": "Chapter1_Wanrenk_logic"
   },
   {
-   "id": "Chapter1_DGong_logic/BP_PickUpActor_Trap_C_1",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_1",
-   "x": 21291.96,
-   "y": 3267.47,
-   "z": -3343.52,
-   "cell": "B1EX0_L0_X2_Y0",
-   "level": "Chapter1_DGong_logic"
-  },
-  {
-   "id": "Chapter1_DGong_logic/BP_PickUpActor_Trap_C_3",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_3",
-   "x": 18877.96,
-   "y": 5168.17,
-   "z": -2178.47,
-   "cell": "B1EX0_L0_X1_Y0",
-   "level": "Chapter1_DGong_logic"
-  },
-  {
    "id": "Chapter1_DGong_logic/BP_WoodenExternalPushRodB_C_11",
    "cat": "other",
    "cls": "BP_WoodenExternalPushRod_C",
@@ -7187,18 +7235,6 @@
    "z": -3551.93,
    "cell": "B1EX0_L0_X1_Y0",
    "level": "Chapter1_DGong_logic"
-  },
-  {
-   "id": "Chapter1_DanQingYuan_logic/BP_PickUpActor_Trap_C_0",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_0",
-   "x": 31412.03,
-   "y": 30565.92,
-   "z": 3257.84,
-   "cell": "B1EX0_L0_X3_Y2",
-   "level": "Chapter1_DanQingYuan_logic"
   },
   {
    "id": "Chapter1_Digong_Boss_Props_Dst/BP_StonePillar_C_0",
@@ -7354,18 +7390,6 @@
    "y": 4283.1,
    "z": 2675.79,
    "cell": "B1EX0_L0_X2_Y0",
-   "level": "Chapter1_Shuwang_logic"
-  },
-  {
-   "id": "Chapter1_Shuwang_logic/BP_PickUpActor_Trap_C_1",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_1",
-   "x": 15156.18,
-   "y": -4522.91,
-   "z": 1578.0,
-   "cell": "B1EX0_L0_X1_Y-1",
    "level": "Chapter1_Shuwang_logic"
   },
   {
@@ -11699,7 +11723,8 @@
    "y": 5505.09,
    "z": -1578.55,
    "cell": "B1EX0_L0_X1_Y0",
-   "level": "Chapter1_DGong_logic"
+   "level": "Chapter1_DGong_logic",
+   "fp": "digong01"
   },
   {
    "id": "digong02",
@@ -11711,7 +11736,8 @@
    "y": -6645.52,
    "z": -5994.67,
    "cell": "B1EX0_L0_X2_Y-1",
-   "level": "Chapter1_DGong_logic"
+   "level": "Chapter1_DGong_logic",
+   "fp": "digong02"
   },
   {
    "id": "danqingy01",
@@ -11723,7 +11749,8 @@
    "y": 23348.56,
    "z": 2396.55,
    "cell": "B1EX0_L0_X3_Y2",
-   "level": "Chapter1_DanQingYuan_logic"
+   "level": "Chapter1_DanQingYuan_logic",
+   "fp": "danqingy01"
   },
   {
    "id": "hanguang04",
@@ -11735,7 +11762,8 @@
    "y": -24124.85,
    "z": 5793.77,
    "cell": "B1EX0_L0_X2_Y-3",
-   "level": "Chapter1_Hanguang_logic"
+   "level": "Chapter1_Hanguang_logic",
+   "fp": "hanguang04"
   },
   {
    "id": "hanguang02",
@@ -11747,7 +11775,8 @@
    "y": -11583.54,
    "z": -526.56,
    "cell": "B1EX0_L0_X2_Y-2",
-   "level": "Chapter1_Hanguang_logic"
+   "level": "Chapter1_Hanguang_logic",
+   "fp": "hanguang02"
   },
   {
    "id": "temple02",
@@ -11759,7 +11788,8 @@
    "y": -12138.06,
    "z": 605.0,
    "cell": "B1EX0_L0_X3_Y-2",
-   "level": "Chapter1_PYuan_logic"
+   "level": "Chapter1_PYuan_logic",
+   "fp": "temple02"
   },
   {
    "id": "shuwang02",
@@ -11771,7 +11801,8 @@
    "y": 4233.09,
    "z": 1260.51,
    "cell": "B1EX0_L0_X1_Y0",
-   "level": "Chapter1_Shuwang_logic"
+   "level": "Chapter1_Shuwang_logic",
+   "fp": "shuwang02"
   },
   {
    "id": "tangw04",
@@ -11783,7 +11814,8 @@
    "y": 6601.02,
    "z": 1705.13,
    "cell": "B1EX0_L0_X0_Y0",
-   "level": "Chapter1_TangW_logic"
+   "level": "Chapter1_TangW_logic",
+   "fp": "tangw04"
   },
   {
    "id": "tangw03",
@@ -11795,7 +11827,8 @@
    "y": 16374.5,
    "z": 3363.65,
    "cell": "B1EX0_L0_X-1_Y1",
-   "level": "Chapter1_TangW_logic"
+   "level": "Chapter1_TangW_logic",
+   "fp": "tangw03"
   },
   {
    "id": "wanrenk04",
@@ -11807,7 +11840,8 @@
    "y": -30228.77,
    "z": -6236.82,
    "cell": "B1EX0_L0_X-2_Y-3",
-   "level": "Chapter1_Wanrenk_logic"
+   "level": "Chapter1_Wanrenk_logic",
+   "fp": "wanrenk04"
   },
   {
    "id": "wanrenk02",
@@ -11819,7 +11853,8 @@
    "y": -25764.43,
    "z": 587.56,
    "cell": "B1EX0_L0_X0_Y-3",
-   "level": "Chapter1_Wanrenk_logic"
+   "level": "Chapter1_Wanrenk_logic",
+   "fp": "wanrenk02"
   },
   {
    "id": "wanrenk01",
@@ -11831,7 +11866,8 @@
    "y": -20967.92,
    "z": -3159.74,
    "cell": "B1EX0_L0_X0_Y-3",
-   "level": "Chapter1_Wanrenk_logic"
+   "level": "Chapter1_Wanrenk_logic",
+   "fp": "wanrenk01"
   }
  ]
 }

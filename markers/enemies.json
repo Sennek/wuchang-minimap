@@ -1,0 +1,1207 @@
+{
+ "count": 289,
+ "elite": 32,
+ "enemies": {
+  "AI_BHJG_C": {
+   "markers": 0
+  },
+  "AI_Monster_YHBH_C": {
+   "ai_id": "41601",
+   "markers": 3
+  },
+  "AI_Monster_YHBH_Special_C": {
+   "ai_id": "41605",
+   "elite": true,
+   "elite_of": "AI_Monster_YHBH_C",
+   "markers": 1
+  },
+  "AI_Monster_baihu_C": {
+   "ai_id": "38110",
+   "markers": 8
+  },
+  "AI_Monster_baihu_chapter_4_C": {
+   "ai_id": "38115",
+   "markers": 1
+  },
+  "AI_Monster_baihu_high_C": {
+   "ai_id": "40601",
+   "elite": true,
+   "elite_of": "AI_Monster_baihu_C",
+   "markers": 1
+  },
+  "AI_Monster_baihu_high_chapter_4_C": {
+   "elite": true,
+   "elite_of": "AI_Monster_baihu_chapter_4_C",
+   "markers": 0
+  },
+  "BP_BossSpawnedAI_C": {
+   "markers": 0
+  },
+  "BP_CQBR_AI_C": {
+   "ai_id": "38600",
+   "markers": 5
+  },
+  "BP_CQBR_AI_S_C": {
+   "ai_id": "38800",
+   "elite": true,
+   "elite_of": "BP_CQBR_AI_C",
+   "markers": 9
+  },
+  "BP_CQBR_Special_AI_C": {
+   "ai_id": "38602",
+   "elite": true,
+   "elite_of": "BP_CQBR_AI_C",
+   "markers": 1
+  },
+  "BP_DJYHZ_C": {
+   "ai_id": "32400",
+   "markers": 7
+  },
+  "BP_DJYHZ_high_C": {
+   "ai_id": "40900",
+   "elite": true,
+   "elite_of": "BP_DJYHZ_C",
+   "markers": 1
+  },
+  "BP_DSPT_AI_2_C": {
+   "ai_id": "37500",
+   "markers": 1
+  },
+  "BP_DSPT_AI_C": {
+   "ai_id": "37501",
+   "markers": 14
+  },
+  "BP_DSPT_AI_Chapter1_C": {
+   "ai_id": "37504",
+   "markers": 1
+  },
+  "BP_DXJSB_AI_C": {
+   "ai_id": "34200",
+   "markers": 16
+  },
+  "BP_DXJSB_S_C": {
+   "markers": 0
+  },
+  "BP_DXJSB_Special_C": {
+   "markers": 1
+  },
+  "BP_DY_AI_C": {
+   "ai_id": "58500",
+   "markers": 0
+  },
+  "BP_E_DLSW_AI_C": {
+   "ai_id": "33900",
+   "markers": 4
+  },
+  "BP_E_QH_AI_C": {
+   "ai_id": "40602",
+   "markers": 1
+  },
+  "BP_E_XBSN_AI_C": {
+   "ai_id": "33200",
+   "markers": 6
+  },
+  "BP_E_YHGY_AI_C": {
+   "ai_id": "33400",
+   "markers": 1
+  },
+  "BP_E_ZF_AI_C": {
+   "ai_id": "33700",
+   "markers": 0
+  },
+  "BP_E_ZSCF_AI_C": {
+   "ai_id": "37000",
+   "markers": 0
+  },
+  "BP_FFXN_AI_C": {
+   "ai_id": "34500",
+   "markers": 20
+  },
+  "BP_HJE_AI_C": {
+   "ai_id": "58101",
+   "markers": 1
+  },
+  "BP_HYZ_AI_C": {
+   "ai_id": "58300",
+   "markers": 0
+  },
+  "BP_KlesaInbreak_C": {
+   "markers": 6
+  },
+  "BP_KuLou_Boss_AI_C": {
+   "ai_id": "35200",
+   "markers": 0
+  },
+  "BP_KuLou_C": {
+   "markers": 69
+  },
+  "BP_LDG_AI_C": {
+   "ai_id": "58700",
+   "markers": 1
+  },
+  "BP_MG_Ai_C": {
+   "ai_id": "58800",
+   "markers": 0
+  },
+  "BP_M_BL_AI__C": {
+   "ai_id": "51300",
+   "markers": 0
+  },
+  "BP_M_DXJDG_AI_C": {
+   "ai_id": "35100",
+   "markers": 2
+  },
+  "BP_M_DXJDG_AI_Low_C": {
+   "ai_id": "33000",
+   "markers": 21
+  },
+  "BP_M_NB_AI_C": {
+   "ai_id": "32703",
+   "markers": 2
+  },
+  "BP_M_SG_1_AI_C": {
+   "ai_id": "32800",
+   "markers": 2
+  },
+  "BP_M_SG_2_AI_C": {
+   "ai_id": "32801",
+   "markers": 0
+  },
+  "BP_M_SKG_C": {
+   "ai_id": "60200",
+   "markers": 4
+  },
+  "BP_M_ShiXinDog_C": {
+   "ai_id": "37800",
+   "markers": 17
+  },
+  "BP_M_XBSN_AI_C": {
+   "ai_id": "33100",
+   "markers": 17
+  },
+  "BP_M_ZSG_C": {
+   "ai_id": "60100",
+   "markers": 20
+  },
+  "BP_Monster_Dog_C": {
+   "ai_id": "30210",
+   "markers": 56
+  },
+  "BP_Monster_Dog_chapter_4_C": {
+   "ai_id": "30213",
+   "markers": 0
+  },
+  "BP_NAA_ZGN_C": {
+   "markers": 105
+  },
+  "BP_NAA_shitijia_C": {
+   "markers": 2
+  },
+  "BP_NPC_XYZ_AI_C": {
+   "ai_id": "58400",
+   "markers": 0
+  },
+  "BP_NSC_AI_C": {
+   "ai_id": "58003",
+   "markers": 0
+  },
+  "BP_NSC_AI_Friend_C": {
+   "markers": 0
+  },
+  "BP_N_CSBMG_AI_C": {
+   "markers": 0
+  },
+  "BP_Nongbao01_AI_C": {
+   "ai_id": "32700",
+   "markers": 0
+  },
+  "BP_Nongbao02_AI_C": {
+   "ai_id": "32701",
+   "markers": 0
+  },
+  "BP_Nongbao03_AI_C": {
+   "ai_id": "32702",
+   "markers": 0
+  },
+  "BP_NotDamageFalling_C": {
+   "markers": 2
+  },
+  "BP_PHNR_AI_C": {
+   "ai_id": "37101",
+   "markers": 9
+  },
+  "BP_PHNR_AI_high_C": {
+   "ai_id": "37100",
+   "elite": true,
+   "elite_of": "BP_PHNR_AI_C",
+   "markers": 1
+  },
+  "BP_PlacedAI_C": {
+   "markers": 0
+  },
+  "BP_PlacedBossAI_C": {
+   "markers": 0
+  },
+  "BP_PlaySceneSound_C": {
+   "markers": 2
+  },
+  "BP_QLYC_AI_C": {
+   "ai_id": "31500",
+   "markers": 6
+  },
+  "BP_QQHZ_AI_C": {
+   "ai_id": "34400",
+   "markers": 9
+  },
+  "BP_RR_AI_C": {
+   "ai_id": "33500",
+   "markers": 5
+  },
+  "BP_RebornAI_C": {
+   "markers": 0
+  },
+  "BP_SKG_Special_C": {
+   "ai_id": "60205",
+   "markers": 1
+  },
+  "BP_SS_Ai_C": {
+   "ai_id": "60300",
+   "markers": 76
+  },
+  "BP_SS_high_C": {
+   "ai_id": "60302",
+   "markers": 11
+  },
+  "BP_SS_spell_C": {
+   "markers": 26
+  },
+  "BP_STG_Ai_C": {
+   "ai_id": "38700",
+   "markers": 13
+  },
+  "BP_SYR_C": {
+   "ai_id": "40100",
+   "markers": 12
+  },
+  "BP_SYR_Special_C": {
+   "ai_id": "40104",
+   "elite": true,
+   "elite_of": "BP_SYR_C",
+   "markers": 1
+  },
+  "BP_ShuGen01_AI_C": {
+   "ai_id": "32810",
+   "markers": 0
+  },
+  "BP_ShuGen02_AI_C": {
+   "ai_id": "32811",
+   "markers": 0
+  },
+  "BP_SpawnedAI_C": {
+   "markers": 0
+  },
+  "BP_SpawnedNpcFriend_C": {
+   "markers": 0
+  },
+  "BP_WuChang_ChangDao_C": {
+   "ai_id": "55503",
+   "markers": 0
+  },
+  "BP_WuChang_ChangDao_Chapter_3_C": {
+   "ai_id": "55504",
+   "markers": 0
+  },
+  "BP_WuChang_ChangDao_Chapter_4_C": {
+   "ai_id": "55505",
+   "markers": 0
+  },
+  "BP_WuChang_ChangDao_Chapter_5_C": {
+   "markers": 0
+  },
+  "BP_WuChang_ChangDao_Soul_C": {
+   "ai_id": "55500",
+   "markers": 0
+  },
+  "BP_WuChang_ChangDao_chapter_2_C": {
+   "ai_id": "55510",
+   "markers": 0
+  },
+  "BP_WuChang_ChangQiang_C": {
+   "ai_id": "55803",
+   "markers": 0
+  },
+  "BP_WuChang_ChangQiang_Chapter_2_C": {
+   "ai_id": "55804",
+   "markers": 0
+  },
+  "BP_WuChang_ChangQiang_Chapter_3_C": {
+   "ai_id": "55810",
+   "markers": 0
+  },
+  "BP_WuChang_ChangQiang_Chapter_4_C": {
+   "ai_id": "55805",
+   "markers": 0
+  },
+  "BP_WuChang_ChangQiang_Chapter_5_C": {
+   "markers": 0
+  },
+  "BP_WuChang_ChangQiang_Soul_C": {
+   "ai_id": "55800",
+   "markers": 0
+  },
+  "BP_WuChang_DanShouJian_C": {
+   "ai_id": "55903",
+   "markers": 0
+  },
+  "BP_WuChang_DanShouJian_Chapter_2_C": {
+   "ai_id": "55910",
+   "markers": 0
+  },
+  "BP_WuChang_DanShouJian_Chapter_3_C": {
+   "ai_id": "55904",
+   "markers": 0
+  },
+  "BP_WuChang_DanShouJian_Chapter_4_C": {
+   "ai_id": "55905",
+   "markers": 0
+  },
+  "BP_WuChang_DanShouJian_Chapter_5_C": {
+   "markers": 0
+  },
+  "BP_WuChang_DanShouJian_Soul_C": {
+   "ai_id": "55900",
+   "markers": 0
+  },
+  "BP_WuChang_ShuangDao_C": {
+   "ai_id": "55610",
+   "markers": 0
+  },
+  "BP_WuChang_ShuangDao_Chapter_4_C": {
+   "ai_id": "55605",
+   "markers": 0
+  },
+  "BP_WuChang_ShuangDao_Chapter_5_C": {
+   "markers": 0
+  },
+  "BP_WuChang_ShuangDao_Soul_C": {
+   "ai_id": "55600",
+   "markers": 0
+  },
+  "BP_WuChang_ShuangDao_chapter_2_C": {
+   "ai_id": "55604",
+   "markers": 0
+  },
+  "BP_WuChang_ShuangDao_chapter_3_C": {
+   "ai_id": "55620",
+   "markers": 0
+  },
+  "BP_WuChang_futou_C": {
+   "ai_id": "55710",
+   "markers": 0
+  },
+  "BP_WuChang_futou_Chapter_3_C": {
+   "markers": 0
+  },
+  "BP_WuChang_futou_Chapter_4_C": {
+   "ai_id": "55705",
+   "markers": 0
+  },
+  "BP_WuChang_futou_Chapter_5_C": {
+   "markers": 0
+  },
+  "BP_WuChang_futou_Soul_C": {
+   "ai_id": "55700",
+   "markers": 0
+  },
+  "BP_WuChang_futou_chapter_2_C": {
+   "ai_id": "55704",
+   "markers": 0
+  },
+  "BP_XBGJ_AI_C": {
+   "ai_id": "34000",
+   "markers": 0
+  },
+  "BP_XP_AI_C": {
+   "ai_id": "58900",
+   "markers": 0
+  },
+  "BP_YB_AI_2_C": {
+   "markers": 0
+  },
+  "BP_YB_AI_C": {
+   "ai_id": "36800",
+   "markers": 0
+  },
+  "BP_YB_AI_normal_C": {
+   "markers": 0
+  },
+  "BP_YHCKR_AI_C": {
+   "ai_id": "33600",
+   "markers": 27
+  },
+  "BP_YHGN_AI_C": {
+   "ai_id": "31700",
+   "markers": 4,
+   "name": "Tang Palace Maid",
+   "via": "neighbour:31703"
+  },
+  "BP_YHGN_AI_chapter_3_C": {
+   "ai_id": "31702",
+   "markers": 1,
+   "name": "Tang Palace Maid",
+   "via": "neighbour:31703"
+  },
+  "BP_YHGN_AI_chapter_4_C": {
+   "ai_id": "31701",
+   "markers": 0,
+   "name": "Tang Palace Maid",
+   "via": "neighbour:31703"
+  },
+  "BP_YHGY_AI_C": {
+   "ai_id": "33300",
+   "markers": 5
+  },
+  "BP_YHNM_Spawn_C": {
+   "ai_id": "32910",
+   "markers": 0
+  },
+  "BP_YHSM_01_C": {
+   "ai_id": "32100",
+   "markers": 3
+  },
+  "BP_YHSM_01_chapter_4_C": {
+   "ai_id": "32101",
+   "markers": 0
+  },
+  "BP_YHXY_AI_C": {
+   "ai_id": "32200",
+   "markers": 28
+  },
+  "BP_YHXY_Low_C": {
+   "ai_id": "32206",
+   "markers": 31
+  },
+  "BP_YHXY_XMMJ_C": {
+   "ai_id": "32216",
+   "markers": 2
+  },
+  "BP_YHjiaheshang_AI_C": {
+   "ai_id": "32300",
+   "markers": 77
+  },
+  "BP_YHjiaheshang_AI_chapter_4_C": {
+   "ai_id": "32301",
+   "markers": 2
+  },
+  "BP_YHxiangyong_AI_chapter_4_C": {
+   "ai_id": "32203",
+   "markers": 11
+  },
+  "BP_YNSS_AI_C": {
+   "ai_id": "38500",
+   "markers": 2
+  },
+  "BP_YNSS_Special_AI_C": {
+   "ai_id": "38501",
+   "elite": true,
+   "elite_of": "BP_YNSS_AI_C",
+   "markers": 1
+  },
+  "BP_YRMY_BL_AI_C": {
+   "ai_id": "45100",
+   "markers": 4
+  },
+  "BP_YRMY_BL_Special_AI_C": {
+   "ai_id": "45105",
+   "elite": true,
+   "elite_of": "BP_YRMY_BL_AI_C",
+   "markers": 1
+  },
+  "BP_YRMY_DY_AI_C": {
+   "ai_id": "45000",
+   "markers": 7
+  },
+  "BP_YRMY_DY_AI_Gold_C": {
+   "markers": 4
+  },
+  "BP_YRMY_DY_Special_AI_C": {
+   "ai_id": "45004",
+   "elite": true,
+   "elite_of": "BP_YRMY_DY_AI_C",
+   "markers": 0
+  },
+  "BP_YXD_AI_C": {
+   "ai_id": "41000",
+   "markers": 14
+  },
+  "BP_ZF_Ai_C": {
+   "ai_id": "58600",
+   "markers": 1
+  },
+  "BP_ZY_AI_Xinmo_C": {
+   "ai_id": "38000",
+   "markers": 0,
+   "name": "Eternal Glory - Zhao Yun's Spirit",
+   "via": "sibling:BP_ZY_AI_C"
+  },
+  "BP_duanjian_high_yaohuangzei_chapter_4_C": {
+   "ai_id": "40902",
+   "markers": 0
+  },
+  "BP_jiaheshang_AI_C": {
+   "ai_id": "30904",
+   "markers": 14
+  },
+  "BP_jiaheshang_Special_C": {
+   "ai_id": "42500",
+   "markers": 1
+  },
+  "BP_monsterYC_AI_C": {
+   "markers": 0
+  },
+  "BP_monster_AI_C": {
+   "markers": 0
+  },
+  "BP_nvjuan_AI_C": {
+   "ai_id": "30800",
+   "markers": 13
+  },
+  "BP_nvjuan_AI_S_C": {
+   "ai_id": "34600",
+   "elite": true,
+   "elite_of": "BP_nvjuan_AI_C",
+   "markers": 0
+  },
+  "BP_nvjuan_AI_chapter_4_C": {
+   "ai_id": "30803",
+   "markers": 0
+  },
+  "BP_paoche_C": {
+   "markers": 18
+  },
+  "BP_shuguai_2_AI_C": {
+   "ai_id": "31610",
+   "markers": 7
+  },
+  "BP_shuguai_2_AI_chapter_4_C": {
+   "ai_id": "31611",
+   "markers": 0
+  },
+  "BP_shuguai_3_AI_C": {
+   "ai_id": "31620",
+   "markers": 1
+  },
+  "BP_shuguai_3_AI_chapter_4_C": {
+   "ai_id": "31621",
+   "markers": 0
+  },
+  "BP_wangsizhe_AI_C": {
+   "ai_id": "31400",
+   "markers": 7
+  },
+  "BP_xiaoshuguai_1_AI_C": {
+   "ai_id": "31600",
+   "markers": 2
+  },
+  "BP_xiaoshuguai_1_AI_chapter_4_C": {
+   "ai_id": "31601",
+   "markers": 0
+  },
+  "BP_xiaoyouyan_AI_C": {
+   "ai_id": "31200",
+   "markers": 27
+  },
+  "BP_xiaoyouyan_AI_chapter_4_C": {
+   "ai_id": "35001",
+   "markers": 0
+  },
+  "BP_yaohuangzei_caocha_AI_C": {
+   "ai_id": "31000",
+   "markers": 11
+  },
+  "BP_yaohuangzei_caocha_AI_chapter_4_C": {
+   "ai_id": "31005",
+   "markers": 16
+  },
+  "BP_yaohuangzei_caocha_AI_high_C": {
+   "elite": true,
+   "elite_of": "BP_yaohuangzei_caocha_AI_C",
+   "markers": 0
+  },
+  "BP_yaohuangzei_duanjian_chapter_4_C": {
+   "ai_id": "32406",
+   "markers": 14
+  },
+  "BP_yaohuangzei_fu_AI_C": {
+   "ai_id": "32500",
+   "markers": 8
+  },
+  "BP_yaohuangzei_fu_AI_chapter_4_C": {
+   "ai_id": "32506",
+   "markers": 19
+  },
+  "BP_yaohuangzei_fu_AI_high_C": {
+   "ai_id": "42600",
+   "elite": true,
+   "elite_of": "BP_yaohuangzei_fu_AI_C",
+   "markers": 1
+  },
+  "BP_zhu_AI_C": {
+   "ai_id": "32000",
+   "markers": 7
+  },
+  "BP_zhu_AI_chapter_4_C": {
+   "ai_id": "32001",
+   "markers": 0
+  },
+  "COMM_FriendAI_Test_C": {
+   "ai_id": "58001",
+   "markers": 0
+  },
+  "DY_FriendAI_Chp05_C": {
+   "markers": 0
+  },
+  "DaoMuZei_YuanCheng_C": {
+   "ai_id": "30120",
+   "markers": 41
+  },
+  "DaoMuZei_YuanCheng_chapter_4_C": {
+   "ai_id": "30123",
+   "markers": 1
+  },
+  "DaoMuZei_YuanCheng_penhuo_C": {
+   "ai_id": "30125",
+   "markers": 1
+  },
+  "DaoMuZei_bishou_C": {
+   "ai_id": "30131",
+   "markers": 32
+  },
+  "DaoMuZei_bishou_Onboarding_C": {
+   "markers": 1
+  },
+  "DaoMuZei_bishou_chapter_4_C": {
+   "ai_id": "30133",
+   "markers": 0
+  },
+  "DaoMuZei_bishou_ice_C": {
+   "ai_id": "30172",
+   "markers": 1
+  },
+  "DaoMuZei_bishou_poison_C": {
+   "ai_id": "30171",
+   "markers": 1
+  },
+  "DaoMuZei_chutou_C": {
+   "ai_id": "30150",
+   "markers": 31
+  },
+  "DaoMuZei_chutou_Mask_C": {
+   "ai_id": "30161",
+   "markers": 1
+  },
+  "DaoMuZei_chutou_Onboarding_C": {
+   "markers": 1
+  },
+  "DaoMuZei_chutou_chapter_4_C": {
+   "ai_id": "30153",
+   "markers": 1
+  },
+  "E_BLYR_Bing_C": {
+   "markers": 2
+  },
+  "E_BLYR_C": {
+   "ai_id": "36000",
+   "markers": 3
+  },
+  "E_BLYR_Huo_C": {
+   "markers": 1
+  },
+  "E_PHSRO_C": {
+   "ai_id": "33800",
+   "markers": 2
+  },
+  "E_YHGB_huochong_C": {
+   "ai_id": "41200",
+   "markers": 4
+  },
+  "E_YHGB_huochong_Special_C": {
+   "ai_id": "41202",
+   "elite": true,
+   "elite_of": "E_YHGB_huochong_C",
+   "markers": 1
+  },
+  "E_YHGB_qiangdun_C": {
+   "ai_id": "41500",
+   "markers": 3
+  },
+  "E_YHGB_qiangdun_Special_C": {
+   "ai_id": "41502",
+   "elite": true,
+   "elite_of": "E_YHGB_qiangdun_C",
+   "markers": 1
+  },
+  "E_YHGB_shuangji_C": {
+   "ai_id": "41400",
+   "markers": 2
+  },
+  "E_YHGB_shuangji_Special_C": {
+   "ai_id": "41405",
+   "elite": true,
+   "elite_of": "E_YHGB_shuangji_C",
+   "markers": 1
+  },
+  "E_YHGB_yanyuedao_C": {
+   "ai_id": "41300",
+   "markers": 6
+  },
+  "E_YHGB_yanyuedao_Special_C": {
+   "ai_id": "41302",
+   "elite": true,
+   "elite_of": "E_YHGB_yanyuedao_C",
+   "markers": 1
+  },
+  "HJE_FriendAI_Chp03_C": {
+   "ai_id": "58100",
+   "markers": 0
+  },
+  "HYZ_FriendAI_Chp03_C": {
+   "markers": 0
+  },
+  "LuHongLiu_C": {
+   "markers": 0
+  },
+  "M_BRSW_C": {
+   "ai_id": "40000",
+   "markers": 11
+  },
+  "M_BRSW_Special_C": {
+   "ai_id": "40003",
+   "elite": true,
+   "elite_of": "M_BRSW_C",
+   "markers": 1
+  },
+  "M_DXJLG_C": {
+   "ai_id": "34100",
+   "markers": 26
+  },
+  "M_FSNM_C": {
+   "ai_id": "36200",
+   "markers": 16
+  },
+  "M_FSNM_S_C": {
+   "ai_id": "36203",
+   "elite": true,
+   "elite_of": "M_FSNM_C",
+   "markers": 1
+  },
+  "M_FSNM_chapter_4_C": {
+   "ai_id": "36201",
+   "markers": 4
+  },
+  "M_GBHC_C": {
+   "ai_id": "34300",
+   "markers": 3
+  },
+  "M_GBHC_S_C": {
+   "ai_id": "40700",
+   "elite": true,
+   "elite_of": "M_GBHC_C",
+   "markers": 1
+  },
+  "M_GBHC_chapter_4_C": {
+   "markers": 1
+  },
+  "M_JLDD_C": {
+   "ai_id": "36100",
+   "markers": 17
+  },
+  "M_JLDD_chapter_4_C": {
+   "ai_id": "36101",
+   "markers": 0
+  },
+  "M_JLDD_shixin_C": {
+   "ai_id": "46100",
+   "markers": 10
+  },
+  "M_QWD_C": {
+   "ai_id": "36900",
+   "markers": 11
+  },
+  "M_QWD_high_C": {
+   "ai_id": "37900",
+   "elite": true,
+   "elite_of": "M_QWD_C",
+   "markers": 2
+  },
+  "M_TSHB_A_C": {
+   "ai_id": "36300",
+   "markers": 0
+  },
+  "M_TSHB_NS_C": {
+   "ai_id": "37700",
+   "markers": 12
+  },
+  "M_TSHB_NS_chapter_4_C": {
+   "ai_id": "37701",
+   "markers": 0
+  },
+  "M_TSHB_N_C": {
+   "ai_id": "36400",
+   "markers": 3
+  },
+  "M_TSHB_N_chapter_4_C": {
+   "ai_id": "36401",
+   "markers": 0
+  },
+  "M_YHNM_C": {
+   "ai_id": "32900",
+   "markers": 66
+  },
+  "M_YHNM_Low_C": {
+   "markers": 41
+  },
+  "M_YHNM_ZiBao_C": {
+   "markers": 41
+  },
+  "M_YHNM_ZiBao_chapter_4_C": {
+   "markers": 10
+  },
+  "M_YHNM_chapter_4_C": {
+   "ai_id": "32902",
+   "markers": 18
+  },
+  "MingBing_ChangQian_C": {
+   "ai_id": "30407",
+   "markers": 28
+  },
+  "MingBing_ChangQian_Child_C": {
+   "markers": 10
+  },
+  "MingBing_ChangQian_High_C": {
+   "ai_id": "30410",
+   "elite": true,
+   "elite_of": "MingBing_ChangQian_C",
+   "markers": 11
+  },
+  "MingBing_ChangQian_High_chapter_4_C": {
+   "elite": true,
+   "elite_of": "MingBing_ChangQian_chapter_4_C",
+   "markers": 0
+  },
+  "MingBing_ChangQian_chapter_03_C": {
+   "ai_id": "30400",
+   "markers": 2
+  },
+  "MingBing_ChangQian_chapter_4_C": {
+   "ai_id": "30412",
+   "markers": 6
+  },
+  "MingBing_ChangQiang_KuiJia_chapter_03_C": {
+   "ai_id": "31412",
+   "markers": 0
+  },
+  "MingBing_Dao_C": {
+   "ai_id": "30324",
+   "markers": 42
+  },
+  "MingBing_Dao_High_C": {
+   "ai_id": "30320",
+   "elite": true,
+   "elite_of": "MingBing_Dao_C",
+   "markers": 8
+  },
+  "MingBing_Dao_High_chapter_4_C": {
+   "elite": true,
+   "elite_of": "MingBing_Dao_chapter_4_C",
+   "markers": 0
+  },
+  "MingBing_Dao_KuiJia_chapter_03_C": {
+   "ai_id": "31322",
+   "markers": 0
+  },
+  "MingBing_Dao_chapter_03_C": {
+   "ai_id": "30313",
+   "markers": 5
+  },
+  "MingBing_Dao_chapter_4_C": {
+   "markers": 13
+  },
+  "MingBing_HuoBa_C": {
+   "ai_id": "30310",
+   "markers": 26
+  },
+  "MingBing_HuoBa_Changqiang_C": {
+   "markers": 10
+  },
+  "MingBing_HuoBa_Changqiang_chapter_4_C": {
+   "markers": 0
+  },
+  "MingBing_HuoBa_Dao_C": {
+   "ai_id": "30325",
+   "markers": 0
+  },
+  "MingBing_HuoBa_Dao_chapter_4_C": {
+   "markers": 4
+  },
+  "MingBing_HuoBa_dao_KuiJia_chapter_03_C": {
+   "ai_id": "31321",
+   "markers": 0
+  },
+  "MingBing_HuoBa_dao_chapter_03_C": {
+   "ai_id": "30322",
+   "markers": 1
+  },
+  "MingBing_HuoChong_C": {
+   "markers": 2
+  },
+  "MingBing_HuoChong_Child_C": {
+   "ai_id": "38200",
+   "markers": 12
+  },
+  "MingBing_Huoyoudan_C": {
+   "ai_id": "30323",
+   "markers": 8
+  },
+  "MingBing_JianDun_C": {
+   "ai_id": "30372",
+   "markers": 27
+  },
+  "MingBing_JianDun_KuiJia_chapter_03_C": {
+   "ai_id": "31366",
+   "markers": 0
+  },
+  "MingBing_JianDun_chapter_03_C": {
+   "ai_id": "30360",
+   "markers": 4
+  },
+  "MingBing_JianDun_chapter_4_C": {
+   "ai_id": "30366",
+   "markers": 5
+  },
+  "MingBing_NPC_C": {
+   "ai_id": "30311",
+   "markers": 0
+  },
+  "MingBing_Nu_01_C": {
+   "markers": 0
+  },
+  "MingBing_Nu_C": {
+   "ai_id": "30340",
+   "markers": 0
+  },
+  "MingBing_Podao_High1_C": {
+   "markers": 0
+  },
+  "MingBing_Podao_High_C": {
+   "ai_id": "40800",
+   "markers": 2
+  },
+  "MingBing_Podao_High_Child_C": {
+   "ai_id": "40802",
+   "markers": 0
+  },
+  "MingBing_Podao_High_chapter_03_C": {
+   "ai_id": "40803",
+   "markers": 0
+  },
+  "MingBing_Podao_High_chapter_4_C": {
+   "ai_id": "40804",
+   "markers": 0
+  },
+  "MingBing_Podao_KuiJia_chapter_03_C": {
+   "ai_id": "31344",
+   "markers": 0
+  },
+  "MingBing_jiandun_High_C": {
+   "ai_id": "30370",
+   "elite": true,
+   "elite_of": "MingBing_JianDun_C",
+   "markers": 2
+  },
+  "MingBing_jiandun_High_chapter_4_C": {
+   "elite": true,
+   "elite_of": "MingBing_JianDun_chapter_4_C",
+   "markers": 0
+  },
+  "MingBing_weak01_C": {
+   "markers": 0
+  },
+  "MingBing_weak02_C": {
+   "markers": 0
+  },
+  "MingBing_weak03_C": {
+   "markers": 0
+  },
+  "NSC_AI_Chp04_C": {
+   "markers": 1
+  },
+  "NSC_FriendAI_Chp01_C": {
+   "ai_id": "58000",
+   "markers": 0
+  },
+  "NSC_FriendAI_Chp02_C": {
+   "markers": 0
+  },
+  "NSC_FriendAI_Chp03_C": {
+   "ai_id": "58002",
+   "markers": 0
+  },
+  "Pangzi_Dapao_C": {
+   "ai_id": "30520",
+   "markers": 6
+  },
+  "Pangzi_Dapao_chapter_4_C": {
+   "ai_id": "30523",
+   "markers": 0
+  },
+  "Pangzi_JiasuoStart_C": {
+   "ai_id": "30540",
+   "markers": 11
+  },
+  "Pangzi_JiasuoStart_Special_C": {
+   "ai_id": "53000",
+   "elite": true,
+   "elite_of": "Pangzi_JiasuoStart_C",
+   "markers": 1
+  },
+  "Pangzi_JiasuoStart_chapter_4_C": {
+   "ai_id": "30543",
+   "markers": 2
+  },
+  "Pangzi_MubeiToJiasuo_C": {
+   "markers": 2
+  },
+  "Pangzi_MubeiToJiasuo_chapter_4_C": {
+   "ai_id": "30532",
+   "markers": 0
+  },
+  "Pangzi_NPC_C": {
+   "markers": 1
+  },
+  "Pangzi_tiesuo_C": {
+   "ai_id": "30510",
+   "markers": 0
+  },
+  "Special_NW_2_C": {
+   "markers": 0,
+   "name": "Bo Magus",
+   "via": "sibling:B_NW_C"
+  },
+  "Special_NW_C": {
+   "ai_id": "50702",
+   "markers": 2,
+   "name": "Bo Magus",
+   "via": "neighbour:50700"
+  },
+  "XYZ_FriendAI_Chp04_C": {
+   "markers": 0,
+   "name": "Feathery Ambition - Xuanyangzi",
+   "via": "sibling:BP_XYZ_AI_C"
+  },
+  "ZY_FriendAI_Chp03_C": {
+   "ai_id": "58200",
+   "markers": 0,
+   "name": "Eternal Glory - Zhao Yun's Spirit",
+   "via": "sibling:BP_ZY_AI_C"
+  },
+  "guanbing_YanYueDao_C": {
+   "ai_id": "30620",
+   "markers": 14
+  },
+  "guanbing_YanYueDao_high_C": {
+   "ai_id": "40302",
+   "elite": true,
+   "elite_of": "guanbing_YanYueDao_C",
+   "markers": 6
+  },
+  "guanbing_YanYueDao_high_chapter_4_C": {
+   "ai_id": "40303",
+   "elite": true,
+   "elite_of": "guanbing_yanYueDao_chapter_4_C",
+   "markers": 0
+  },
+  "guanbing_huochong_C": {
+   "ai_id": "30640",
+   "markers": 0
+  },
+  "guanbing_qiangdun_C": {
+   "ai_id": "30610",
+   "markers": 10
+  },
+  "guanbing_qiangdun_Special_C": {
+   "elite": true,
+   "elite_of": "guanbing_qiangdun_C",
+   "markers": 0
+  },
+  "guanbing_qiangdun_chapter_4_C": {
+   "ai_id": "30614",
+   "markers": 3
+  },
+  "guanbing_qiangdun_high__C": {
+   "ai_id": "40502",
+   "markers": 1
+  },
+  "guanbing_shuangji_2_C": {
+   "ai_id": "30630",
+   "markers": 7
+  },
+  "guanbing_shuangji_2_chapter_4_C": {
+   "ai_id": "30634",
+   "markers": 4
+  },
+  "guanbing_shuangji_High_C": {
+   "ai_id": "40403",
+   "markers": 1
+  },
+  "guanbing_yanYueDao_chapter_4_C": {
+   "ai_id": "30625",
+   "markers": 2
+  },
+  "guancaiguai_C": {
+   "ai_id": "31300",
+   "markers": 20
+  },
+  "guancaiguai_near_C": {
+   "ai_id": "31301",
+   "markers": 6
+  },
+  "guanziguai_C": {
+   "ai_id": "31100",
+   "markers": 14
+  },
+  "guanziguai_chapter_4_C": {
+   "ai_id": "31103",
+   "markers": 0
+  }
+ },
+ "exe": {
+  "name": "Project_Plague-Win64-Shipping.exe",
+  "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
+  "size": 141464648
+ },
+ "extractor_commit": "9a46681+dirty",
+ "game_build": "5.1.1.0",
+ "generated_by": "tools/markers/build_enemies.py",
+ "name_note": "Wuchang has no display name for an ordinary enemy: no enemy/monster key family in MMGame.locres, no name in a DT_AiTable row, no FText key embedded in an enemy blueprint, and no bestiary. Only the classes that own a boss_name_<id> get a name here; the rest keep the generic label. See this file's module docstring.",
+ "named": 8,
+ "pak": [
+  {
+   "name": "Project_Plague-Windows.pak",
+   "sha256": "8d5888f6510bfaa3620150d91a9cb8ecfc737c683aeba35c20cef88152f4d581",
+   "size": 44740955247
+  },
+  {
+   "name": "Project_Plague-Windows_0_P.pak",
+   "sha256": "98f5ad3efe2ff1b084f4536d76f354b83d61d9e8a4d66ab389c96309521dd267",
+   "size": 15139103055
+  },
+  {
+   "name": "Project_Plague-Windows_1_P.pak",
+   "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72",
+   "size": 4049445139
+  }
+ ],
+ "schema": "wuchang-minimap-enemies/1",
+ "source": "cooked .uasset export maps (class graph) + DT_AiTable + MMGame.locres, offline pak extraction"
+}

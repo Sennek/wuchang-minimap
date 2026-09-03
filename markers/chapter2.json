@@ -3,6 +3,30 @@
  "chapter": 2,
  "source": "cooked .umap sublevels, offline pak extraction",
  "generated_by": "tools/markers/extract_markers.py",
+ "game_build": "5.1.1.0",
+ "pak": [
+  {
+   "name": "Project_Plague-Windows.pak",
+   "size": 44740955247,
+   "sha256": "8d5888f6510bfaa3620150d91a9cb8ecfc737c683aeba35c20cef88152f4d581"
+  },
+  {
+   "name": "Project_Plague-Windows_0_P.pak",
+   "size": 15139103055,
+   "sha256": "98f5ad3efe2ff1b084f4536d76f354b83d61d9e8a4d66ab389c96309521dd267"
+  },
+  {
+   "name": "Project_Plague-Windows_1_P.pak",
+   "size": 4049445139,
+   "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
+  }
+ ],
+ "extractor_commit": "9a46681+dirty",
+ "exe": {
+  "name": "Project_Plague-Win64-Shipping.exe",
+  "size": 141464648,
+  "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9"
+ },
  "markers": [
   {
    "id": "Chapter2_ShuJing_YHXN_AI/BP_YuHuaXNAI_C_1",
@@ -519,6 +543,30 @@
    "z": 10006.0,
    "cell": "B2EX0_L0_X3_Y-4",
    "level": "Chapter2_YunDingCW_logic"
+  },
+  {
+   "id": "Chapter2_P1P2_AI/BP_yaohuangzei_fu_AI_high_C_1",
+   "cat": "elite",
+   "cls": "BP_yaohuangzei_fu_AI_high_C",
+   "name": "Elite",
+   "obj": "BP_yaohuangzei_fu_AI_high_C_1",
+   "x": 46385.86,
+   "y": -12439.19,
+   "z": -6903.71,
+   "cell": "B2EX0_L0_X4_Y-2",
+   "level": "Chapter2_P1P2_AI"
+  },
+  {
+   "id": "Chapter2_YunDingCW01_AI/M_GBHC_S_C_1",
+   "cat": "elite",
+   "cls": "M_GBHC_S_C",
+   "name": "Elite",
+   "obj": "M_GBHC_S_C_1",
+   "x": 27204.59,
+   "y": -49270.23,
+   "z": 10897.57,
+   "cell": "B2EX0_L0_X2_Y-5",
+   "level": "Chapter2_YunDingCW01_AI"
   },
   {
    "id": "Chapter2_DaXiJYD01_AI/BP_DXJSB_AI_C_0",
@@ -1610,18 +1658,6 @@
    "y": -5281.6,
    "z": -6310.95,
    "cell": "B2EX0_L0_X4_Y-1",
-   "level": "Chapter2_P1P2_AI"
-  },
-  {
-   "id": "Chapter2_P1P2_AI/BP_yaohuangzei_fu_AI_high_C_1",
-   "cat": "enemy",
-   "cls": "BP_yaohuangzei_fu_AI_high_C",
-   "name": "Enemy",
-   "obj": "BP_yaohuangzei_fu_AI_high_C_1",
-   "x": 46385.86,
-   "y": -12439.19,
-   "z": -6903.71,
-   "cell": "B2EX0_L0_X4_Y-2",
    "level": "Chapter2_P1P2_AI"
   },
   {
@@ -4841,18 +4877,6 @@
    "level": "Chapter2_YunDingCW01_AI"
   },
   {
-   "id": "Chapter2_YunDingCW01_AI/M_GBHC_S_C_1",
-   "cat": "enemy",
-   "cls": "M_GBHC_S_C",
-   "name": "Enemy",
-   "obj": "M_GBHC_S_C_1",
-   "x": 27204.59,
-   "y": -49270.23,
-   "z": 10897.57,
-   "cell": "B2EX0_L0_X2_Y-5",
-   "level": "Chapter2_YunDingCW01_AI"
-  },
-  {
    "id": "Chapter2_YunDingCW01_AI/M_QWD_C_1",
    "cat": "enemy",
    "cls": "M_QWD_C",
@@ -5681,6 +5705,102 @@
    "level": "Chapter2_YunDingCW_logic"
   },
   {
+   "id": "Chapter2_DaXiJYD_logic/BP_PickUpActor_Trap_C_1",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_1",
+   "x": 6990.28,
+   "y": -47472.47,
+   "z": 12175.68,
+   "cell": "B2EX0_L0_X0_Y-5",
+   "level": "Chapter2_DaXiJYD_logic"
+  },
+  {
+   "id": "Chapter2_JiSiK_logic/BP_PickUpActor_Trap_C_1",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_1",
+   "x": 43958.74,
+   "y": -51453.41,
+   "z": 4309.77,
+   "cell": "B2EX0_L0_X4_Y-6",
+   "level": "Chapter2_JiSiK_logic"
+  },
+  {
+   "id": "Chapter2_WangShanC_logic/BP_PickUpActor_Trap_C_0",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_0",
+   "x": 49847.64,
+   "y": -16911.54,
+   "z": 3255.8,
+   "cell": "B2EX0_L0_X4_Y-2",
+   "level": "Chapter2_WangShanC_logic"
+  },
+  {
+   "id": "Chapter2_WangShanC_logic/BP_PickUpActor_Trap_C_1",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_1",
+   "x": 55467.75,
+   "y": -14147.89,
+   "z": 3588.99,
+   "cell": "B2EX0_L0_X5_Y-2",
+   "level": "Chapter2_WangShanC_logic"
+  },
+  {
+   "id": "Chapter2_YunDingCN_logic/BP_PickUpActor_Trap_C_0",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_0",
+   "x": 58268.0,
+   "y": -61760.0,
+   "z": 12103.61,
+   "cell": "B2EX0_L0_X5_Y-7",
+   "level": "Chapter2_YunDingCN_logic"
+  },
+  {
+   "id": "Chapter2_YunDingCN_logic/BP_PickUpActor_Trap_C_2",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_2",
+   "x": 52278.98,
+   "y": -59454.4,
+   "z": 11599.77,
+   "cell": "B2EX0_L0_X5_Y-6",
+   "level": "Chapter2_YunDingCN_logic"
+  },
+  {
+   "id": "Chapter2_YunDingCW_logic/BP_PickUpActor_Trap_C_0",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_0",
+   "x": 19637.35,
+   "y": -46785.21,
+   "z": 13754.07,
+   "cell": "B2EX0_L0_X1_Y-5",
+   "level": "Chapter2_YunDingCW_logic"
+  },
+  {
+   "id": "Chapter2_YunDingCW_logic/BP_PickUpActor_Trap_C_3",
+   "cat": "hidden",
+   "cls": "BP_PickUpActor_Trap_C",
+   "name": "Trap",
+   "obj": "BP_PickUpActor_Trap_C_3",
+   "x": 36174.66,
+   "y": -51779.45,
+   "z": 8709.68,
+   "cell": "B2EX0_L0_X3_Y-6",
+   "level": "Chapter2_YunDingCW_logic"
+  },
+  {
    "id": "Chapter2_DaXiJYD_logic/BP_LadderV2_C_0",
    "cat": "ladder",
    "cls": "BP_LadderV2_C",
@@ -6279,6 +6399,18 @@
    "z": 13318.68,
    "cell": "B2EX0_L0_X6_Y-4",
    "level": "Chapter2_ShuJing_logic"
+  },
+  {
+   "id": "Chapter2_YunDingCN_logic/BP_PedalElevator_C_1",
+   "cat": "lift",
+   "cls": "BP_CylinderElevator_C",
+   "name": "Lift",
+   "obj": "BP_PedalElevator_C_1",
+   "x": 63805.12,
+   "y": -43261.09,
+   "z": 20817.0,
+   "cell": "B2EX0_L0_X6_Y-5",
+   "level": "Chapter2_YunDingCN_logic"
   },
   {
    "id": "Chapter2_YunDingCN_logic/BP_WoodenElevator_C_1",
@@ -6917,18 +7049,6 @@
    "level": "Chapter2_YunDingCW_logic"
   },
   {
-   "id": "Chapter2_DaXiJYD_logic/BP_PickUpActor_Trap_C_1",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_1",
-   "x": 6990.28,
-   "y": -47472.47,
-   "z": 12175.68,
-   "cell": "B2EX0_L0_X0_Y-5",
-   "level": "Chapter2_DaXiJYD_logic"
-  },
-  {
    "id": "Chapter2_DaXiJYD_logic/BP_WoodenExternalPushRodB_C_1",
    "cat": "other",
    "cls": "BP_WoodenExternalPushRod_C",
@@ -6951,18 +7071,6 @@
    "z": 11849.25,
    "cell": "B2EX0_L0_X1_Y-6",
    "level": "Chapter2_DaXiJYD_logic"
-  },
-  {
-   "id": "Chapter2_JiSiK_logic/BP_PickUpActor_Trap_C_1",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_1",
-   "x": 43958.74,
-   "y": -51453.41,
-   "z": 4309.77,
-   "cell": "B2EX0_L0_X4_Y-6",
-   "level": "Chapter2_JiSiK_logic"
   },
   {
    "id": "Chapter2_JiSiK_logic/BP_WoodenExternalPushRodB_C_0",
@@ -7085,76 +7193,76 @@
    "level": "Chapter2_ShuJing_logic"
   },
   {
-   "id": "Chapter2_WangShanC_logic/BP_PickUpActor_Trap_C_0",
+   "id": "Chapter2_YunDingCN_logic/BP_WoodenExternalPushRod_Child_C_3",
    "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
+   "cls": "BP_WoodenExternalPushRod_Child_C",
    "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_0",
-   "x": 49847.64,
-   "y": -16911.54,
-   "z": 3255.8,
-   "cell": "B2EX0_L0_X4_Y-2",
-   "level": "Chapter2_WangShanC_logic"
-  },
-  {
-   "id": "Chapter2_WangShanC_logic/BP_PickUpActor_Trap_C_1",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_1",
-   "x": 55467.75,
-   "y": -14147.89,
-   "z": 3588.99,
-   "cell": "B2EX0_L0_X5_Y-2",
-   "level": "Chapter2_WangShanC_logic"
-  },
-  {
-   "id": "Chapter2_YunDingCN_logic/BP_PickUpActor_Trap_C_0",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_0",
-   "x": 58268.0,
-   "y": -61760.0,
-   "z": 12103.61,
-   "cell": "B2EX0_L0_X5_Y-7",
+   "obj": "BP_WoodenExternalPushRod_Child_C_3",
+   "x": 59382.49,
+   "y": -45065.59,
+   "z": 19889.0,
+   "cell": "B2EX0_L0_X5_Y-5",
    "level": "Chapter2_YunDingCN_logic"
   },
   {
-   "id": "Chapter2_YunDingCN_logic/BP_PickUpActor_Trap_C_2",
+   "id": "Chapter2_YunDingCN_logic/BP_WoodenExternalPushRod_Child_C_6",
    "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
+   "cls": "BP_WoodenExternalPushRod_Child_C",
    "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_2",
-   "x": 52278.98,
-   "y": -59454.4,
-   "z": 11599.77,
-   "cell": "B2EX0_L0_X5_Y-6",
+   "obj": "BP_WoodenExternalPushRod_Child_C_6",
+   "x": 60438.02,
+   "y": -44735.2,
+   "z": 17897.0,
+   "cell": "B2EX0_L0_X5_Y-5",
    "level": "Chapter2_YunDingCN_logic"
   },
   {
-   "id": "Chapter2_YunDingCW_logic/BP_PickUpActor_Trap_C_0",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_0",
-   "x": 19637.35,
-   "y": -46785.21,
-   "z": 13754.07,
-   "cell": "B2EX0_L0_X1_Y-5",
-   "level": "Chapter2_YunDingCW_logic"
+   "id": "Chapter2_DaXiJYD_logic/BP_BombsBox_C_1",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_1",
+   "x": 7151.0,
+   "y": -50043.0,
+   "z": 12170.18,
+   "cell": "B2EX0_L0_X0_Y-5",
+   "level": "Chapter2_DaXiJYD_logic"
   },
   {
-   "id": "Chapter2_YunDingCW_logic/BP_PickUpActor_Trap_C_3",
-   "cat": "other",
-   "cls": "BP_PickUpActor_Trap_C",
-   "name": "Object",
-   "obj": "BP_PickUpActor_Trap_C_3",
-   "x": 36174.66,
-   "y": -51779.45,
-   "z": 8709.68,
-   "cell": "B2EX0_L0_X3_Y-6",
-   "level": "Chapter2_YunDingCW_logic"
+   "id": "Chapter2_DaXiJYD_logic/BP_BombsBox_C_2",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_2",
+   "x": 14959.33,
+   "y": -54043.02,
+   "z": 11837.82,
+   "cell": "B2EX0_L0_X1_Y-6",
+   "level": "Chapter2_DaXiJYD_logic"
+  },
+  {
+   "id": "Chapter2_DaXiJYD_logic/BP_BombsBox_C_3",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_3",
+   "x": 10241.52,
+   "y": -53579.28,
+   "z": 12077.0,
+   "cell": "B2EX0_L0_X1_Y-6",
+   "level": "Chapter2_DaXiJYD_logic"
+  },
+  {
+   "id": "Chapter2_DaXiJYD_logic/BP_BombsBox_C_4",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_4",
+   "x": 15469.42,
+   "y": -54749.2,
+   "z": 11860.82,
+   "cell": "B2EX0_L0_X1_Y-6",
+   "level": "Chapter2_DaXiJYD_logic"
   },
   {
    "id": "Chapter2_DaXiJYD_logic/BP_PickupActor_C_0",
@@ -9355,6 +9463,18 @@
    "rarity": 1
   },
   {
+   "id": "Chapter2_YunDingCN_logic/BP_BombsBox_C_1",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_1",
+   "x": 48040.57,
+   "y": -62502.36,
+   "z": 11501.61,
+   "cell": "B2EX0_L0_X4_Y-7",
+   "level": "Chapter2_YunDingCN_logic"
+  },
+  {
    "id": "Chapter2_YunDingCN_logic/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
@@ -10480,6 +10600,54 @@
    "rarity": 2
   },
   {
+   "id": "Chapter2_YunDingCW_logic/BP_BombsBox_C_0",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_0",
+   "x": 28792.58,
+   "y": -53020.93,
+   "z": 11405.3,
+   "cell": "B2EX0_L0_X2_Y-6",
+   "level": "Chapter2_YunDingCW_logic"
+  },
+  {
+   "id": "Chapter2_YunDingCW_logic/BP_BombsBox_C_1",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_1",
+   "x": 21302.07,
+   "y": -38430.74,
+   "z": 11403.61,
+   "cell": "B2EX0_L0_X2_Y-4",
+   "level": "Chapter2_YunDingCW_logic"
+  },
+  {
+   "id": "Chapter2_YunDingCW_logic/BP_BombsBox_C_2",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_2",
+   "x": 25979.74,
+   "y": -53909.17,
+   "z": 12213.34,
+   "cell": "B2EX0_L0_X2_Y-6",
+   "level": "Chapter2_YunDingCW_logic"
+  },
+  {
+   "id": "Chapter2_YunDingCW_logic/BP_BombsBox_C_3",
+   "cat": "pickup",
+   "cls": "BP_BombsBox_C",
+   "name": "Pickup",
+   "obj": "BP_BombsBox_C_3",
+   "x": 23119.7,
+   "y": -36571.28,
+   "z": 11642.23,
+   "cell": "B2EX0_L0_X2_Y-4",
+   "level": "Chapter2_YunDingCW_logic"
+  },
+  {
    "id": "Chapter2_YunDingCW_logic/BP_PickupActor_C_10",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
@@ -11512,7 +11680,8 @@
    "y": -52740.51,
    "z": 12127.43,
    "cell": "B2EX0_L0_X1_Y-6",
-   "level": "Chapter2_DaXiJYD_logic"
+   "level": "Chapter2_DaXiJYD_logic",
+   "fp": "daxijunyingdi01"
   },
   {
    "id": "jisik01",
@@ -11524,7 +11693,8 @@
    "y": -52491.51,
    "z": 5379.72,
    "cell": "B2EX0_L0_X3_Y-6",
-   "level": "Chapter2_JiSiK_logic"
+   "level": "Chapter2_JiSiK_logic",
+   "fp": "jisik01"
   },
   {
    "id": "shujing01",
@@ -11536,7 +11706,8 @@
    "y": -38768.38,
    "z": 15547.92,
    "cell": "B2EX0_L0_X6_Y-4",
-   "level": "Chapter2_ShuJing_logic"
+   "level": "Chapter2_ShuJing_logic",
+   "fp": "shujing01"
   },
   {
    "id": "yuhuaxinniang01",
@@ -11548,7 +11719,8 @@
    "y": -37620.86,
    "z": 2950.89,
    "cell": "B2EX0_L0_X6_Y-4",
-   "level": "Chapter2_ShuJing_logic"
+   "level": "Chapter2_ShuJing_logic",
+   "fp": "yuhuaxinniang01"
   },
   {
    "id": "shujing02",
@@ -11560,7 +11732,8 @@
    "y": -38677.41,
    "z": 13927.16,
    "cell": "B2EX0_L0_X6_Y-4",
-   "level": "Chapter2_ShuJing_logic"
+   "level": "Chapter2_ShuJing_logic",
+   "fp": "shujing02"
   },
   {
    "id": "wangshanc01",
@@ -11572,7 +11745,8 @@
    "y": -12997.34,
    "z": -162.61,
    "cell": "B2EX0_L0_X4_Y-2",
-   "level": "Chapter2_WangShanC_logic"
+   "level": "Chapter2_WangShanC_logic",
+   "fp": "wangshanc01"
   },
   {
    "id": "yundingcn04",
@@ -11584,7 +11758,8 @@
    "y": -41847.64,
    "z": 17953.73,
    "cell": "B2EX0_L0_X6_Y-5",
-   "level": "Chapter2_YunDingCN_logic"
+   "level": "Chapter2_YunDingCN_logic",
+   "fp": "yundingcn04"
   },
   {
    "id": "yundingcn01",
@@ -11596,7 +11771,8 @@
    "y": -44732.67,
    "z": 14140.28,
    "cell": "B2EX0_L0_X4_Y-5",
-   "level": "Chapter2_YunDingCN_logic"
+   "level": "Chapter2_YunDingCN_logic",
+   "fp": "yundingcn01"
   },
   {
    "id": "yundingcn02",
@@ -11608,7 +11784,8 @@
    "y": -51839.98,
    "z": 19961.75,
    "cell": "B2EX0_L0_X5_Y-6",
-   "level": "Chapter2_YunDingCN_logic"
+   "level": "Chapter2_YunDingCN_logic",
+   "fp": "yundingcn02"
   },
   {
    "id": "yundingcw01",
@@ -11620,7 +11797,8 @@
    "y": -33390.77,
    "z": 6507.82,
    "cell": "B2EX0_L0_X3_Y-4",
-   "level": "Chapter2_YunDingCW_logic"
+   "level": "Chapter2_YunDingCW_logic",
+   "fp": "yundingcw01"
   },
   {
    "id": "mingjianjun01",
@@ -11632,7 +11810,8 @@
    "y": -59184.22,
    "z": 11523.53,
    "cell": "B2EX0_L0_X4_Y-6",
-   "level": "Chapter2_YunDingCW_logic"
+   "level": "Chapter2_YunDingCW_logic",
+   "fp": "mingjianjun01"
   },
   {
    "id": "yundingcw02",
@@ -11644,7 +11823,8 @@
    "y": -44956.0,
    "z": 10034.76,
    "cell": "B2EX0_L0_X2_Y-5",
-   "level": "Chapter2_YunDingCW_logic"
+   "level": "Chapter2_YunDingCW_logic",
+   "fp": "yundingcw02"
   }
  ]
 }

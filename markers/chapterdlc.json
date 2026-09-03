@@ -3,6 +3,30 @@
  "chapter": "DLC",
  "source": "cooked .umap sublevels, offline pak extraction",
  "generated_by": "tools/markers/extract_markers.py",
+ "game_build": "5.1.1.0",
+ "pak": [
+  {
+   "name": "Project_Plague-Windows.pak",
+   "size": 44740955247,
+   "sha256": "8d5888f6510bfaa3620150d91a9cb8ecfc737c683aeba35c20cef88152f4d581"
+  },
+  {
+   "name": "Project_Plague-Windows_0_P.pak",
+   "size": 15139103055,
+   "sha256": "98f5ad3efe2ff1b084f4536d76f354b83d61d9e8a4d66ab389c96309521dd267"
+  },
+  {
+   "name": "Project_Plague-Windows_1_P.pak",
+   "size": 4049445139,
+   "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
+  }
+ ],
+ "extractor_commit": "9a46681+dirty",
+ "exe": {
+  "name": "Project_Plague-Win64-Shipping.exe",
+  "size": 141464648,
+  "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9"
+ },
  "markers": [
   {
    "id": "ChapterDLC_BOSS_ZhuoJinEL_AI/BP_Honglan_BossAI_C_1",
@@ -137,6 +161,330 @@
    "level": "ChapterDLC_LiuHuangKK_logic"
   },
   {
+   "id": "ChapterDLC_BaiYaS01_AI/AI_Monster_baihu_high_C_1",
+   "cat": "elite",
+   "cls": "AI_Monster_baihu_high_C",
+   "name": "Elite",
+   "obj": "AI_Monster_baihu_high_C_1",
+   "x": 111100.28,
+   "y": -24572.54,
+   "z": -7828.33,
+   "cell": "BDLCEX0_L0_X10_Y-3",
+   "level": "ChapterDLC_BaiYaS01_AI"
+  },
+  {
+   "id": "ChapterDLC_BaiYaS01_AI/MingBing_Dao_High_C_1",
+   "cat": "elite",
+   "cls": "MingBing_Dao_High_C",
+   "name": "Elite",
+   "obj": "MingBing_Dao_High_C_1",
+   "x": 99271.84,
+   "y": -25161.22,
+   "z": -6713.13,
+   "cell": "BDLCEX0_L0_X9_Y-3",
+   "level": "ChapterDLC_BaiYaS01_AI"
+  },
+  {
+   "id": "ChapterDLC_BaiYaS01_AI/MingBing_Dao_High_C_2",
+   "cat": "elite",
+   "cls": "MingBing_Dao_High_C",
+   "name": "Elite",
+   "obj": "MingBing_Dao_High_C_2",
+   "x": 111348.46,
+   "y": -24018.75,
+   "z": -6713.13,
+   "cell": "BDLCEX0_L0_X10_Y-3",
+   "level": "ChapterDLC_BaiYaS01_AI"
+  },
+  {
+   "id": "ChapterDLC_BaiYaS01_AI/MingBing_Dao_High_C_3",
+   "cat": "elite",
+   "cls": "MingBing_Dao_High_C",
+   "name": "Elite",
+   "obj": "MingBing_Dao_High_C_3",
+   "x": 112773.83,
+   "y": -25310.93,
+   "z": -6713.13,
+   "cell": "BDLCEX0_L0_X11_Y-3",
+   "level": "ChapterDLC_BaiYaS01_AI"
+  },
+  {
+   "id": "ChapterDLC_BaiYaS01_AI/MingBing_jiandun_High_C_1",
+   "cat": "elite",
+   "cls": "MingBing_jiandun_High_C",
+   "name": "Elite",
+   "obj": "MingBing_jiandun_High_C_1",
+   "x": 118850.14,
+   "y": -26620.45,
+   "z": -6125.97,
+   "cell": "BDLCEX0_L0_X11_Y-3",
+   "level": "ChapterDLC_BaiYaS01_AI"
+  },
+  {
+   "id": "ChapterDLC_BaiYaS01_AI/guanbing_YanYueDao_high_C_1",
+   "cat": "elite",
+   "cls": "guanbing_YanYueDao_high_C",
+   "name": "Elite",
+   "obj": "guanbing_YanYueDao_high_C_1",
+   "x": 101525.65,
+   "y": -23604.79,
+   "z": -7236.49,
+   "cell": "BDLCEX0_L0_X9_Y-3",
+   "level": "ChapterDLC_BaiYaS01_AI"
+  },
+  {
+   "id": "ChapterDLC_BaiYaS01_AI/guanbing_YanYueDao_high_C_2",
+   "cat": "elite",
+   "cls": "guanbing_YanYueDao_high_C",
+   "name": "Elite",
+   "obj": "guanbing_YanYueDao_high_C_2",
+   "x": 111326.96,
+   "y": -22729.54,
+   "z": -6679.32,
+   "cell": "BDLCEX0_L0_X10_Y-3",
+   "level": "ChapterDLC_BaiYaS01_AI"
+  },
+  {
+   "id": "ChapterDLC_BaiYaS01_AI/guanbing_YanYueDao_high_C_3",
+   "cat": "elite",
+   "cls": "guanbing_YanYueDao_high_C",
+   "name": "Elite",
+   "obj": "guanbing_YanYueDao_high_C_3",
+   "x": 127058.36,
+   "y": -33623.36,
+   "z": -6699.05,
+   "cell": "BDLCEX0_L0_X12_Y-4",
+   "level": "ChapterDLC_BaiYaS01_AI"
+  },
+  {
+   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_10",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_10",
+   "x": 58580.15,
+   "y": -18150.13,
+   "z": -534.18,
+   "cell": "BDLCEX0_L0_X5_Y-2",
+   "level": "ChapterDLC_DiXiaSM_AI"
+  },
+  {
+   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_12",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_12",
+   "x": 59309.2,
+   "y": -19337.18,
+   "z": -519.98,
+   "cell": "BDLCEX0_L0_X5_Y-2",
+   "level": "ChapterDLC_DiXiaSM_AI"
+  },
+  {
+   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_14",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_14",
+   "x": 58119.57,
+   "y": -19041.87,
+   "z": -542.96,
+   "cell": "BDLCEX0_L0_X5_Y-2",
+   "level": "ChapterDLC_DiXiaSM_AI"
+  },
+  {
+   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_2",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_2",
+   "x": 64108.07,
+   "y": -19706.98,
+   "z": -63.37,
+   "cell": "BDLCEX0_L0_X6_Y-2",
+   "level": "ChapterDLC_DiXiaSM_AI"
+  },
+  {
+   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_4",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_4",
+   "x": 59914.0,
+   "y": -16815.54,
+   "z": 1050.96,
+   "cell": "BDLCEX0_L0_X5_Y-2",
+   "level": "ChapterDLC_DiXiaSM_AI"
+  },
+  {
+   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_6",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_6",
+   "x": 60539.2,
+   "y": -15560.99,
+   "z": 1054.96,
+   "cell": "BDLCEX0_L0_X5_Y-2",
+   "level": "ChapterDLC_DiXiaSM_AI"
+  },
+  {
+   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_8",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_8",
+   "x": 61179.8,
+   "y": -16208.6,
+   "z": 1054.96,
+   "cell": "BDLCEX0_L0_X5_Y-2",
+   "level": "ChapterDLC_DiXiaSM_AI"
+  },
+  {
+   "id": "ChapterDLC_DiXiaSM_AI/MingBing_Dao_High_C_1",
+   "cat": "elite",
+   "cls": "MingBing_Dao_High_C",
+   "name": "Elite",
+   "obj": "MingBing_Dao_High_C_1",
+   "x": 73330.22,
+   "y": -23004.48,
+   "z": -1791.4,
+   "cell": "BDLCEX0_L0_X7_Y-3",
+   "level": "ChapterDLC_DiXiaSM_AI"
+  },
+  {
+   "id": "ChapterDLC_JuShiX_AI/MingBing_ChangQian_High_C_1",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_1",
+   "x": 109538.78,
+   "y": -71095.42,
+   "z": -22801.0,
+   "cell": "BDLCEX0_L0_X10_Y-7",
+   "level": "ChapterDLC_JuShiX_AI"
+  },
+  {
+   "id": "ChapterDLC_JuShiX_AI/MingBing_Dao_High_C_16",
+   "cat": "elite",
+   "cls": "MingBing_Dao_High_C",
+   "name": "Elite",
+   "obj": "MingBing_Dao_High_C_16",
+   "x": 105831.0,
+   "y": -75143.0,
+   "z": -22805.0,
+   "cell": "BDLCEX0_L0_X10_Y-8",
+   "level": "ChapterDLC_JuShiX_AI"
+  },
+  {
+   "id": "ChapterDLC_JuShiX_AI/MingBing_Dao_High_C_18",
+   "cat": "elite",
+   "cls": "MingBing_Dao_High_C",
+   "name": "Elite",
+   "obj": "MingBing_Dao_High_C_18",
+   "x": 104589.0,
+   "y": -72006.0,
+   "z": -21075.0,
+   "cell": "BDLCEX0_L0_X10_Y-8",
+   "level": "ChapterDLC_JuShiX_AI"
+  },
+  {
+   "id": "ChapterDLC_JuShiX_AI/MingBing_Dao_High_C_19",
+   "cat": "elite",
+   "cls": "MingBing_Dao_High_C",
+   "name": "Elite",
+   "obj": "MingBing_Dao_High_C_19",
+   "x": 104674.0,
+   "y": -74605.0,
+   "z": -22805.0,
+   "cell": "BDLCEX0_L0_X10_Y-8",
+   "level": "ChapterDLC_JuShiX_AI"
+  },
+  {
+   "id": "ChapterDLC_JuShiX_AI/MingBing_Dao_High_C_7",
+   "cat": "elite",
+   "cls": "MingBing_Dao_High_C",
+   "name": "Elite",
+   "obj": "MingBing_Dao_High_C_7",
+   "x": 111512.75,
+   "y": -65305.38,
+   "z": -20640.63,
+   "cell": "BDLCEX0_L0_X10_Y-7",
+   "level": "ChapterDLC_JuShiX_AI"
+  },
+  {
+   "id": "ChapterDLC_LiuHuangKK01_AI/guanbing_YanYueDao_high_C_1",
+   "cat": "elite",
+   "cls": "guanbing_YanYueDao_high_C",
+   "name": "Elite",
+   "obj": "guanbing_YanYueDao_high_C_1",
+   "x": 85236.12,
+   "y": -12241.81,
+   "z": -24796.45,
+   "cell": "BDLCEX0_L0_X8_Y-2",
+   "level": "ChapterDLC_LiuHuangKK01_AI"
+  },
+  {
+   "id": "ChapterDLC_LiuHuangKK01_AI/guanbing_YanYueDao_high_C_3",
+   "cat": "elite",
+   "cls": "guanbing_YanYueDao_high_C",
+   "name": "Elite",
+   "obj": "guanbing_YanYueDao_high_C_3",
+   "x": 85180.63,
+   "y": -11306.3,
+   "z": -24796.45,
+   "cell": "BDLCEX0_L0_X8_Y-2",
+   "level": "ChapterDLC_LiuHuangKK01_AI"
+  },
+  {
+   "id": "ChapterDLC_PingMinK01_AI/MingBing_ChangQian_High_C_1",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_1",
+   "x": 141600.08,
+   "y": -83315.03,
+   "z": -17604.68,
+   "cell": "BDLCEX0_L0_X13_Y-9",
+   "level": "ChapterDLC_PingMinK01_AI"
+  },
+  {
+   "id": "ChapterDLC_PingMinK01_AI/MingBing_ChangQian_High_C_2",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_2",
+   "x": 126473.39,
+   "y": -73293.82,
+   "z": -19815.81,
+   "cell": "BDLCEX0_L0_X12_Y-8",
+   "level": "ChapterDLC_PingMinK01_AI"
+  },
+  {
+   "id": "ChapterDLC_PingMinK01_AI/MingBing_ChangQian_High_C_4",
+   "cat": "elite",
+   "cls": "MingBing_ChangQian_High_C",
+   "name": "Elite",
+   "obj": "MingBing_ChangQian_High_C_4",
+   "x": 123572.2,
+   "y": -81861.4,
+   "z": -20023.74,
+   "cell": "BDLCEX0_L0_X12_Y-8",
+   "level": "ChapterDLC_PingMinK01_AI"
+  },
+  {
+   "id": "ChapterDLC_PingMinK01_AI/MingBing_jiandun_High_C_2",
+   "cat": "elite",
+   "cls": "MingBing_jiandun_High_C",
+   "name": "Elite",
+   "obj": "MingBing_jiandun_High_C_2",
+   "x": 131205.74,
+   "y": -85412.89,
+   "z": -17749.39,
+   "cell": "BDLCEX0_L0_X12_Y-9",
+   "level": "ChapterDLC_PingMinK01_AI"
+  },
+  {
    "id": "ChapterDLC_BaiYaS01_AI/AI_Monster_baihu_C_0",
    "cat": "enemy",
    "cls": "AI_Monster_baihu_C",
@@ -161,18 +509,6 @@
    "level": "ChapterDLC_BaiYaS01_AI"
   },
   {
-   "id": "ChapterDLC_BaiYaS01_AI/AI_Monster_baihu_high_C_1",
-   "cat": "enemy",
-   "cls": "AI_Monster_baihu_high_C",
-   "name": "Enemy",
-   "obj": "AI_Monster_baihu_high_C_1",
-   "x": 111100.28,
-   "y": -24572.54,
-   "z": -7828.33,
-   "cell": "BDLCEX0_L0_X10_Y-3",
-   "level": "ChapterDLC_BaiYaS01_AI"
-  },
-  {
    "id": "ChapterDLC_BaiYaS01_AI/BP_Monster_Dog_C_1",
    "cat": "enemy",
    "cls": "BP_Monster_Dog_C",
@@ -188,7 +524,7 @@
    "id": "ChapterDLC_BaiYaS01_AI/BP_YHGN_AI_C_1",
    "cat": "enemy",
    "cls": "BP_YHGN_AI_C",
-   "name": "Enemy",
+   "name": "Tang Palace Maid",
    "obj": "BP_YHGN_AI_C_1",
    "x": 93743.09,
    "y": -23394.84,
@@ -200,7 +536,7 @@
    "id": "ChapterDLC_BaiYaS01_AI/BP_YHGN_AI_C_2",
    "cat": "enemy",
    "cls": "BP_YHGN_AI_C",
-   "name": "Enemy",
+   "name": "Tang Palace Maid",
    "obj": "BP_YHGN_AI_C_2",
    "x": 111463.48,
    "y": -24156.79,
@@ -212,7 +548,7 @@
    "id": "ChapterDLC_BaiYaS01_AI/BP_YHGN_AI_C_3",
    "cat": "enemy",
    "cls": "BP_YHGN_AI_C",
-   "name": "Enemy",
+   "name": "Tang Palace Maid",
    "obj": "BP_YHGN_AI_C_3",
    "x": 111184.89,
    "y": -22916.28,
@@ -341,42 +677,6 @@
    "level": "ChapterDLC_BaiYaS01_AI"
   },
   {
-   "id": "ChapterDLC_BaiYaS01_AI/MingBing_Dao_High_C_1",
-   "cat": "enemy",
-   "cls": "MingBing_Dao_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_Dao_High_C_1",
-   "x": 99271.84,
-   "y": -25161.22,
-   "z": -6713.13,
-   "cell": "BDLCEX0_L0_X9_Y-3",
-   "level": "ChapterDLC_BaiYaS01_AI"
-  },
-  {
-   "id": "ChapterDLC_BaiYaS01_AI/MingBing_Dao_High_C_2",
-   "cat": "enemy",
-   "cls": "MingBing_Dao_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_Dao_High_C_2",
-   "x": 111348.46,
-   "y": -24018.75,
-   "z": -6713.13,
-   "cell": "BDLCEX0_L0_X10_Y-3",
-   "level": "ChapterDLC_BaiYaS01_AI"
-  },
-  {
-   "id": "ChapterDLC_BaiYaS01_AI/MingBing_Dao_High_C_3",
-   "cat": "enemy",
-   "cls": "MingBing_Dao_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_Dao_High_C_3",
-   "x": 112773.83,
-   "y": -25310.93,
-   "z": -6713.13,
-   "cell": "BDLCEX0_L0_X11_Y-3",
-   "level": "ChapterDLC_BaiYaS01_AI"
-  },
-  {
    "id": "ChapterDLC_BaiYaS01_AI/MingBing_HuoBa_Dao_C_1",
    "cat": "enemy",
    "cls": "MingBing_HuoBa_C",
@@ -413,18 +713,6 @@
    "level": "ChapterDLC_BaiYaS01_AI"
   },
   {
-   "id": "ChapterDLC_BaiYaS01_AI/MingBing_jiandun_High_C_1",
-   "cat": "enemy",
-   "cls": "MingBing_jiandun_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_jiandun_High_C_1",
-   "x": 118850.14,
-   "y": -26620.45,
-   "z": -6125.97,
-   "cell": "BDLCEX0_L0_X11_Y-3",
-   "level": "ChapterDLC_BaiYaS01_AI"
-  },
-  {
    "id": "ChapterDLC_BaiYaS01_AI/Pangzi_JiasuoStart_C_1",
    "cat": "enemy",
    "cls": "Pangzi_JiasuoStart_C",
@@ -434,42 +722,6 @@
    "y": -24180.9,
    "z": -6044.12,
    "cell": "BDLCEX0_L0_X10_Y-3",
-   "level": "ChapterDLC_BaiYaS01_AI"
-  },
-  {
-   "id": "ChapterDLC_BaiYaS01_AI/guanbing_YanYueDao_high_C_1",
-   "cat": "enemy",
-   "cls": "guanbing_YanYueDao_high_C",
-   "name": "Enemy",
-   "obj": "guanbing_YanYueDao_high_C_1",
-   "x": 101525.65,
-   "y": -23604.79,
-   "z": -7236.49,
-   "cell": "BDLCEX0_L0_X9_Y-3",
-   "level": "ChapterDLC_BaiYaS01_AI"
-  },
-  {
-   "id": "ChapterDLC_BaiYaS01_AI/guanbing_YanYueDao_high_C_2",
-   "cat": "enemy",
-   "cls": "guanbing_YanYueDao_high_C",
-   "name": "Enemy",
-   "obj": "guanbing_YanYueDao_high_C_2",
-   "x": 111326.96,
-   "y": -22729.54,
-   "z": -6679.32,
-   "cell": "BDLCEX0_L0_X10_Y-3",
-   "level": "ChapterDLC_BaiYaS01_AI"
-  },
-  {
-   "id": "ChapterDLC_BaiYaS01_AI/guanbing_YanYueDao_high_C_3",
-   "cat": "enemy",
-   "cls": "guanbing_YanYueDao_high_C",
-   "name": "Enemy",
-   "obj": "guanbing_YanYueDao_high_C_3",
-   "x": 127058.36,
-   "y": -33623.36,
-   "z": -6699.05,
-   "cell": "BDLCEX0_L0_X12_Y-4",
    "level": "ChapterDLC_BaiYaS01_AI"
   },
   {
@@ -1649,90 +1901,6 @@
    "level": "ChapterDLC_DiXiaSM_AI"
   },
   {
-   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_10",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_10",
-   "x": 58580.15,
-   "y": -18150.13,
-   "z": -534.18,
-   "cell": "BDLCEX0_L0_X5_Y-2",
-   "level": "ChapterDLC_DiXiaSM_AI"
-  },
-  {
-   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_12",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_12",
-   "x": 59309.2,
-   "y": -19337.18,
-   "z": -519.98,
-   "cell": "BDLCEX0_L0_X5_Y-2",
-   "level": "ChapterDLC_DiXiaSM_AI"
-  },
-  {
-   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_14",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_14",
-   "x": 58119.57,
-   "y": -19041.87,
-   "z": -542.96,
-   "cell": "BDLCEX0_L0_X5_Y-2",
-   "level": "ChapterDLC_DiXiaSM_AI"
-  },
-  {
-   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_2",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_2",
-   "x": 64108.07,
-   "y": -19706.98,
-   "z": -63.37,
-   "cell": "BDLCEX0_L0_X6_Y-2",
-   "level": "ChapterDLC_DiXiaSM_AI"
-  },
-  {
-   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_4",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_4",
-   "x": 59914.0,
-   "y": -16815.54,
-   "z": 1050.96,
-   "cell": "BDLCEX0_L0_X5_Y-2",
-   "level": "ChapterDLC_DiXiaSM_AI"
-  },
-  {
-   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_6",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_6",
-   "x": 60539.2,
-   "y": -15560.99,
-   "z": 1054.96,
-   "cell": "BDLCEX0_L0_X5_Y-2",
-   "level": "ChapterDLC_DiXiaSM_AI"
-  },
-  {
-   "id": "ChapterDLC_DiXiaSM_AI/MingBing_ChangQian_High_C_8",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_8",
-   "x": 61179.8,
-   "y": -16208.6,
-   "z": 1054.96,
-   "cell": "BDLCEX0_L0_X5_Y-2",
-   "level": "ChapterDLC_DiXiaSM_AI"
-  },
-  {
    "id": "ChapterDLC_DiXiaSM_AI/MingBing_Dao_C_0",
    "cat": "enemy",
    "cls": "MingBing_Dao_C",
@@ -1765,18 +1933,6 @@
    "x": 72805.41,
    "y": -21506.67,
    "z": -1785.04,
-   "cell": "BDLCEX0_L0_X7_Y-3",
-   "level": "ChapterDLC_DiXiaSM_AI"
-  },
-  {
-   "id": "ChapterDLC_DiXiaSM_AI/MingBing_Dao_High_C_1",
-   "cat": "enemy",
-   "cls": "MingBing_Dao_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_Dao_High_C_1",
-   "x": 73330.22,
-   "y": -23004.48,
-   "z": -1791.4,
    "cell": "BDLCEX0_L0_X7_Y-3",
    "level": "ChapterDLC_DiXiaSM_AI"
   },
@@ -2141,18 +2297,6 @@
    "level": "ChapterDLC_JuShiX_AI"
   },
   {
-   "id": "ChapterDLC_JuShiX_AI/MingBing_ChangQian_High_C_1",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_1",
-   "x": 109538.78,
-   "y": -71095.42,
-   "z": -22801.0,
-   "cell": "BDLCEX0_L0_X10_Y-7",
-   "level": "ChapterDLC_JuShiX_AI"
-  },
-  {
    "id": "ChapterDLC_JuShiX_AI/MingBing_Dao_C_10",
    "cat": "enemy",
    "cls": "MingBing_Dao_C",
@@ -2209,54 +2353,6 @@
    "x": 107072.44,
    "y": -66848.72,
    "z": -21988.0,
-   "cell": "BDLCEX0_L0_X10_Y-7",
-   "level": "ChapterDLC_JuShiX_AI"
-  },
-  {
-   "id": "ChapterDLC_JuShiX_AI/MingBing_Dao_High_C_16",
-   "cat": "enemy",
-   "cls": "MingBing_Dao_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_Dao_High_C_16",
-   "x": 105831.0,
-   "y": -75143.0,
-   "z": -22805.0,
-   "cell": "BDLCEX0_L0_X10_Y-8",
-   "level": "ChapterDLC_JuShiX_AI"
-  },
-  {
-   "id": "ChapterDLC_JuShiX_AI/MingBing_Dao_High_C_18",
-   "cat": "enemy",
-   "cls": "MingBing_Dao_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_Dao_High_C_18",
-   "x": 104589.0,
-   "y": -72006.0,
-   "z": -21075.0,
-   "cell": "BDLCEX0_L0_X10_Y-8",
-   "level": "ChapterDLC_JuShiX_AI"
-  },
-  {
-   "id": "ChapterDLC_JuShiX_AI/MingBing_Dao_High_C_19",
-   "cat": "enemy",
-   "cls": "MingBing_Dao_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_Dao_High_C_19",
-   "x": 104674.0,
-   "y": -74605.0,
-   "z": -22805.0,
-   "cell": "BDLCEX0_L0_X10_Y-8",
-   "level": "ChapterDLC_JuShiX_AI"
-  },
-  {
-   "id": "ChapterDLC_JuShiX_AI/MingBing_Dao_High_C_7",
-   "cat": "enemy",
-   "cls": "MingBing_Dao_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_Dao_High_C_7",
-   "x": 111512.75,
-   "y": -65305.38,
-   "z": -20640.63,
    "cell": "BDLCEX0_L0_X10_Y-7",
    "level": "ChapterDLC_JuShiX_AI"
   },
@@ -2477,30 +2573,6 @@
    "level": "ChapterDLC_LiuHuangKK01_AI"
   },
   {
-   "id": "ChapterDLC_LiuHuangKK01_AI/guanbing_YanYueDao_high_C_1",
-   "cat": "enemy",
-   "cls": "guanbing_YanYueDao_high_C",
-   "name": "Enemy",
-   "obj": "guanbing_YanYueDao_high_C_1",
-   "x": 85236.12,
-   "y": -12241.81,
-   "z": -24796.45,
-   "cell": "BDLCEX0_L0_X8_Y-2",
-   "level": "ChapterDLC_LiuHuangKK01_AI"
-  },
-  {
-   "id": "ChapterDLC_LiuHuangKK01_AI/guanbing_YanYueDao_high_C_3",
-   "cat": "enemy",
-   "cls": "guanbing_YanYueDao_high_C",
-   "name": "Enemy",
-   "obj": "guanbing_YanYueDao_high_C_3",
-   "x": 85180.63,
-   "y": -11306.3,
-   "z": -24796.45,
-   "cell": "BDLCEX0_L0_X8_Y-2",
-   "level": "ChapterDLC_LiuHuangKK01_AI"
-  },
-  {
    "id": "ChapterDLC_LiuHuangKK01_AI/guanbing_qiangdun_C_1",
    "cat": "enemy",
    "cls": "guanbing_qiangdun_C",
@@ -2552,7 +2624,7 @@
    "id": "ChapterDLC_PingMinK01_AI/BP_YHGN_AI_C_1",
    "cat": "enemy",
    "cls": "BP_YHGN_AI_C",
-   "name": "Enemy",
+   "name": "Tang Palace Maid",
    "obj": "BP_YHGN_AI_C_1",
    "x": 132283.42,
    "y": -88608.13,
@@ -2957,42 +3029,6 @@
    "level": "ChapterDLC_PingMinK01_AI"
   },
   {
-   "id": "ChapterDLC_PingMinK01_AI/MingBing_ChangQian_High_C_1",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_1",
-   "x": 141600.08,
-   "y": -83315.03,
-   "z": -17604.68,
-   "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK01_AI"
-  },
-  {
-   "id": "ChapterDLC_PingMinK01_AI/MingBing_ChangQian_High_C_2",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_2",
-   "x": 126473.39,
-   "y": -73293.82,
-   "z": -19815.81,
-   "cell": "BDLCEX0_L0_X12_Y-8",
-   "level": "ChapterDLC_PingMinK01_AI"
-  },
-  {
-   "id": "ChapterDLC_PingMinK01_AI/MingBing_ChangQian_High_C_4",
-   "cat": "enemy",
-   "cls": "MingBing_ChangQian_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_ChangQian_High_C_4",
-   "x": 123572.2,
-   "y": -81861.4,
-   "z": -20023.74,
-   "cell": "BDLCEX0_L0_X12_Y-8",
-   "level": "ChapterDLC_PingMinK01_AI"
-  },
-  {
    "id": "ChapterDLC_PingMinK01_AI/MingBing_Dao_C_1",
    "cat": "enemy",
    "cls": "MingBing_Dao_C",
@@ -3221,18 +3257,6 @@
    "level": "ChapterDLC_PingMinK01_AI"
   },
   {
-   "id": "ChapterDLC_PingMinK01_AI/MingBing_jiandun_High_C_2",
-   "cat": "enemy",
-   "cls": "MingBing_jiandun_High_C",
-   "name": "Enemy",
-   "obj": "MingBing_jiandun_High_C_2",
-   "x": 131205.74,
-   "y": -85412.89,
-   "z": -17749.39,
-   "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK01_AI"
-  },
-  {
    "id": "ChapterDLC_PingMinK01_AI/Pangzi_Dapao_C_0",
    "cat": "enemy",
    "cls": "Pangzi_Dapao_C",
@@ -3368,151 +3392,121 @@
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_0",
    "x": 133978.88,
    "y": -56155.75,
    "z": -13687.03,
    "cell": "BDLCEX0_L0_X13_Y-6",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_1",
    "x": 135833.86,
    "y": -40999.6,
    "z": -9667.57,
    "cell": "BDLCEX0_L0_X13_Y-5",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_10",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_10",
    "x": 136252.86,
    "y": -55531.26,
    "z": -11175.32,
    "cell": "BDLCEX0_L0_X13_Y-6",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_12",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_12",
    "x": 137542.16,
    "y": -46258.02,
    "z": -11686.91,
    "cell": "BDLCEX0_L0_X13_Y-5",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_14",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_14",
    "x": 133423.72,
    "y": -55433.53,
    "z": -14187.54,
    "cell": "BDLCEX0_L0_X13_Y-6",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_15",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_15",
    "x": 135381.8,
    "y": -52227.81,
    "z": -14187.62,
    "cell": "BDLCEX0_L0_X13_Y-6",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_16",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_16",
    "x": 132017.75,
    "y": -46022.51,
    "z": -13627.37,
    "cell": "BDLCEX0_L0_X12_Y-5",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_19",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_19",
    "x": 147188.67,
    "y": -45578.67,
    "z": -12687.59,
    "cell": "BDLCEX0_L0_X14_Y-5",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_2",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_2",
    "x": 143617.47,
    "y": -43500.99,
    "z": -9339.96,
    "cell": "BDLCEX0_L0_X14_Y-5",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_20",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_20",
    "x": 140628.52,
    "y": -56003.52,
    "z": -13687.57,
    "cell": "BDLCEX0_L0_X13_Y-6",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_22",
@@ -3530,1006 +3524,805 @@
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_3",
    "x": 146142.57,
    "y": -46004.55,
    "z": -9686.86,
    "cell": "BDLCEX0_L0_X14_Y-5",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_4",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_4",
    "x": 132088.73,
    "y": -61150.95,
    "z": -14187.49,
    "cell": "BDLCEX0_L0_X12_Y-6",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_5",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_5",
    "x": 146298.53,
    "y": -50482.5,
    "z": -11187.59,
    "cell": "BDLCEX0_L0_X14_Y-5",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_6",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_6",
    "x": 148272.43,
    "y": -49807.64,
    "z": -10073.58,
    "cell": "BDLCEX0_L0_X14_Y-5",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_7",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_7",
    "x": 145220.48,
    "y": -56248.74,
    "z": -11087.59,
    "cell": "BDLCEX0_L0_X14_Y-6",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_8",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_8",
    "x": 142571.27,
    "y": -53551.56,
    "z": -11087.59,
    "cell": "BDLCEX0_L0_X13_Y-6",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_BoRenCL_logic/BP_PickupActor_C_9",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_9",
    "x": 135530.24,
    "y": -44892.2,
    "z": -9686.39,
    "cell": "BDLCEX0_L0_X13_Y-5",
-   "level": "ChapterDLC_BoRenCL_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_BoRenCL_logic"
   },
   {
    "id": "ChapterDLC_JuShiX_AI/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_3",
    "x": 113910.0,
    "y": -66884.0,
    "z": -22587.0,
    "cell": "BDLCEX0_L0_X11_Y-7",
-   "level": "ChapterDLC_JuShiX_AI",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_JuShiX_AI"
   },
   {
    "id": "ChapterDLC_JuShiX_AI/BP_PickupActor_C_5",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_5",
    "x": 87279.62,
    "y": -64501.61,
    "z": -19317.7,
    "cell": "BDLCEX0_L0_X8_Y-7",
-   "level": "ChapterDLC_JuShiX_AI",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_JuShiX_AI"
   },
   {
    "id": "ChapterDLC_PingMinK01_AI/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_0",
    "x": 144167.41,
    "y": -84093.26,
    "z": -18088.34,
    "cell": "BDLCEX0_L0_X14_Y-9",
-   "level": "ChapterDLC_PingMinK01_AI",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK01_AI"
   },
   {
    "id": "ChapterDLC_PingMinK01_AI/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_1",
    "x": 128600.6,
    "y": -88301.25,
    "z": -18963.6,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK01_AI",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK01_AI"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_0",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_0",
    "x": 141457.81,
    "y": -78099.08,
    "z": -18088.32,
    "cell": "BDLCEX0_L0_X13_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_1",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_1",
    "x": 141484.0,
    "y": -82188.01,
    "z": -18088.32,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_10",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_10",
    "x": 135485.57,
    "y": -85454.93,
    "z": -18088.34,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_11",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_11",
    "x": 132194.63,
    "y": -82420.96,
    "z": -20192.96,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_12",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_12",
    "x": 133423.44,
    "y": -82919.24,
    "z": -20250.8,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_13",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_13",
    "x": 129415.49,
    "y": -77678.68,
    "z": -19838.48,
    "cell": "BDLCEX0_L0_X12_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_14",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_14",
    "x": 130730.07,
    "y": -78367.03,
    "z": -20000.01,
    "cell": "BDLCEX0_L0_X12_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_15",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_15",
    "x": 126534.1,
    "y": -72342.29,
    "z": -19911.87,
    "cell": "BDLCEX0_L0_X12_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_16",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_16",
    "x": 127774.99,
    "y": -84844.24,
    "z": -20519.61,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_17",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_17",
    "x": 128886.4,
    "y": -84463.25,
    "z": -19055.79,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_18",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_18",
    "x": 137249.18,
    "y": -67847.09,
    "z": -17028.33,
    "cell": "BDLCEX0_L0_X13_Y-7",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_19",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_19",
    "x": 151779.08,
    "y": -89166.27,
    "z": -18088.32,
    "cell": "BDLCEX0_L0_X14_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_2",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_2",
    "x": 143400.55,
    "y": -82562.6,
    "z": -18088.32,
    "cell": "BDLCEX0_L0_X14_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_20",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_20",
    "x": 151805.27,
    "y": -93255.19,
    "z": -18088.32,
    "cell": "BDLCEX0_L0_X14_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_21",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_21",
    "x": 153721.82,
    "y": -93629.78,
    "z": -18088.32,
    "cell": "BDLCEX0_L0_X15_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_22",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_22",
    "x": 155196.21,
    "y": -91976.92,
    "z": -17944.17,
    "cell": "BDLCEX0_L0_X15_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_23",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_23",
    "x": 151665.08,
    "y": -93797.74,
    "z": -17805.12,
    "cell": "BDLCEX0_L0_X14_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_24",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_24",
    "x": 151575.88,
    "y": -94660.2,
    "z": -17298.93,
    "cell": "BDLCEX0_L0_X14_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_25",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_25",
    "x": 150955.11,
    "y": -91671.57,
    "z": -17685.53,
    "cell": "BDLCEX0_L0_X14_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_26",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_26",
    "x": 137835.89,
    "y": -96458.79,
    "z": -18644.82,
    "cell": "BDLCEX0_L0_X13_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_27",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_27",
    "x": 136681.52,
    "y": -97548.16,
    "z": -16694.92,
    "cell": "BDLCEX0_L0_X13_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_28",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_28",
    "x": 137252.93,
    "y": -97455.86,
    "z": -17612.72,
    "cell": "BDLCEX0_L0_X13_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_29",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_29",
    "x": 145806.84,
    "y": -96522.11,
    "z": -18088.34,
    "cell": "BDLCEX0_L0_X14_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_3",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_3",
    "x": 144874.94,
    "y": -80909.73,
    "z": -17944.17,
    "cell": "BDLCEX0_L0_X14_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_30",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_30",
    "x": 142515.9,
    "y": -93488.14,
    "z": -20192.96,
    "cell": "BDLCEX0_L0_X13_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_31",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_31",
    "x": 143744.71,
    "y": -93986.42,
    "z": -20250.8,
    "cell": "BDLCEX0_L0_X14_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_32",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_32",
    "x": 139736.76,
    "y": -88745.86,
    "z": -19838.48,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_33",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_33",
    "x": 141051.34,
    "y": -89434.21,
    "z": -20000.01,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_34",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_34",
    "x": 136855.37,
    "y": -83409.47,
    "z": -20359.16,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_35",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_35",
    "x": 138096.26,
    "y": -95911.42,
    "z": -20519.61,
    "cell": "BDLCEX0_L0_X13_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_36",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_36",
    "x": 139207.67,
    "y": -95530.43,
    "z": -19055.79,
    "cell": "BDLCEX0_L0_X13_Y-10",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_37",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_37",
    "x": 147570.45,
    "y": -78914.27,
    "z": -18088.33,
    "cell": "BDLCEX0_L0_X14_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_38",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_38",
    "x": 144059.01,
    "y": -82288.15,
    "z": -18088.34,
    "cell": "BDLCEX0_L0_X14_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_39",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_39",
    "x": 142980.64,
    "y": -84341.75,
    "z": -17701.07,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_4",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_4",
    "x": 141343.8,
    "y": -82730.56,
    "z": -17805.12,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_40",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_40",
    "x": 139233.08,
    "y": -86505.32,
    "z": -18088.34,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_41",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_41",
    "x": 133203.48,
    "y": -81069.91,
    "z": -18143.7,
    "cell": "BDLCEX0_L0_X13_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_42",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_42",
    "x": 131812.85,
    "y": -87876.05,
    "z": -18810.53,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_43",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_43",
    "x": 130207.06,
    "y": -87121.85,
    "z": -18107.97,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_44",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_44",
    "x": 129619.15,
    "y": -88776.93,
    "z": -18131.72,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_45",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_45",
    "x": 131135.29,
    "y": -85514.12,
    "z": -17841.39,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_46",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_46",
    "x": 127542.02,
    "y": -82005.8,
    "z": -19050.7,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_47",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_47",
    "x": 127752.85,
    "y": -81704.7,
    "z": -19049.51,
    "cell": "BDLCEX0_L0_X12_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_48",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_48",
    "x": 130779.38,
    "y": -85242.93,
    "z": -18099.21,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_49",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_49",
    "x": 120848.54,
    "y": -68770.64,
    "z": -21559.76,
    "cell": "BDLCEX0_L0_X11_Y-7",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_5",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_5",
    "x": 141254.61,
    "y": -83593.02,
    "z": -17298.93,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_50",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_50",
    "x": 129476.55,
    "y": -79427.29,
    "z": -20105.89,
    "cell": "BDLCEX0_L0_X12_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_51",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_51",
    "x": 119689.9,
    "y": -72151.49,
    "z": -21559.76,
    "cell": "BDLCEX0_L0_X11_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_52",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_52",
    "x": 131982.34,
    "y": -89064.03,
    "z": -21629.6,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_53",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_53",
    "x": 138306.79,
    "y": -83261.44,
    "z": -21968.8,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_54",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_54",
    "x": 135023.01,
    "y": -83749.54,
    "z": -21968.8,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_55",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_55",
    "x": 134637.89,
    "y": -82513.53,
    "z": -21274.45,
    "cell": "BDLCEX0_L0_X13_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_6",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_6",
    "x": 140633.83,
    "y": -80604.38,
    "z": -17685.53,
    "cell": "BDLCEX0_L0_X13_Y-8",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_7",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_7",
    "x": 127514.62,
    "y": -85391.61,
    "z": -18644.82,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_8",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_8",
    "x": 126360.25,
    "y": -86480.97,
    "z": -16694.92,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "ChapterDLC_PingMinK_logic/BP_PickupActor_C_9",
    "cat": "pickup",
    "cls": "BP_PickupActor_C",
-   "name": "Ancient Chisel",
+   "name": "Pickup",
    "obj": "BP_PickupActor_C_9",
    "x": 126931.65,
    "y": -86388.68,
    "z": -17612.72,
    "cell": "BDLCEX0_L0_X12_Y-9",
-   "level": "ChapterDLC_PingMinK_logic",
-   "items": [
-    20001
-   ]
+   "level": "ChapterDLC_PingMinK_logic"
   },
   {
    "id": "BaiYS01",
@@ -4541,7 +4334,8 @@
    "y": -24934.17,
    "z": -7343.54,
    "cell": "BDLCEX0_L0_X9_Y-3",
-   "level": "ChapterDLC_BaiYaS_logic"
+   "level": "ChapterDLC_BaiYaS_logic",
+   "fp": "BaiYS01"
   },
   {
    "id": "BaiYS02",
@@ -4553,7 +4347,8 @@
    "y": -26000.89,
    "z": -6743.32,
    "cell": "BDLCEX0_L0_X10_Y-3",
-   "level": "ChapterDLC_BaiYaS_logic"
+   "level": "ChapterDLC_BaiYaS_logic",
+   "fp": "BaiYS02"
   },
   {
    "id": "borencl01",
@@ -4565,7 +4360,8 @@
    "y": -39433.91,
    "z": -8200.59,
    "cell": "BDLCEX0_L0_X12_Y-4",
-   "level": "ChapterDLC_BoRenCL_logic"
+   "level": "ChapterDLC_BoRenCL_logic",
+   "fp": "borencl01"
   },
   {
    "id": "borencl02",
@@ -4577,7 +4373,8 @@
    "y": -64126.5,
    "z": -14131.86,
    "cell": "BDLCEX0_L0_X13_Y-7",
-   "level": "ChapterDLC_BoRenCL_logic"
+   "level": "ChapterDLC_BoRenCL_logic",
+   "fp": "borencl02"
   },
   {
    "id": "LiuHKK01@ChapterDLC_LiuHuangKK_logic/BP_RebornFire_C_0",
@@ -4589,7 +4386,8 @@
    "y": -19570.16,
    "z": -20485.6,
    "cell": "BDLCEX0_L0_X8_Y-2",
-   "level": "ChapterDLC_LiuHuangKK_logic"
+   "level": "ChapterDLC_LiuHuangKK_logic",
+   "fp": "LiuHKK01"
   },
   {
    "id": "LiuHKK01@ChapterDLC_LiuHuangKK_logic/BP_RebornFire_C_1",
@@ -4601,7 +4399,8 @@
    "y": -9005.32,
    "z": -26443.35,
    "cell": "BDLCEX0_L0_X8_Y-1",
-   "level": "ChapterDLC_LiuHuangKK_logic"
+   "level": "ChapterDLC_LiuHuangKK_logic",
+   "fp": "LiuHKK01"
   },
   {
    "id": "pinmingk01",
@@ -4613,7 +4412,8 @@
    "y": -80715.2,
    "z": -18032.31,
    "cell": "BDLCEX0_L0_X13_Y-8",
-   "level": "ChapterDLC_PingMinK_logic"
+   "level": "ChapterDLC_PingMinK_logic",
+   "fp": "pinmingk01"
   }
  ]
 }

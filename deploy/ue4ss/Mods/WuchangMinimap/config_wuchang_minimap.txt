@@ -576,6 +576,17 @@ compass_pip_height_uu = 300
 ; ---------------------------------------------------------------------------------
 ; DIAGNOSTICS AND FAST TRAVEL
 ; ---------------------------------------------------------------------------------
+; How much the mod writes to its log (wuchang_minimap.log beside this file, and
+; UE4SS.log). Three levels:
+;   normal   what a bug report needs - startup, what loaded, chapter and save-slot
+;            changes, every warning and error, first-time diagnostics, and a health
+;            summary once a minute. A long session is a few hundred kilobytes.
+;   verbose  adds the running commentary: the player-state line, per-round marker
+;            timings, menu open/close, why the minimap is hidden, x-ray toggles.
+;   trace    adds everything else, including a marker census every two seconds.
+; Turn this up only when someone asks you to reproduce a problem with it on.
+log_level = normal
+
 ; Rewrite wuchang_minimap_last_stage.txt at every stage the overlay passes through
 ; (hooks installed, swapchain chosen, ImGui up, first map slice, chapter swap,
 ; teardown, clean exit). If the game ever dies with the overlay loaded, that one line

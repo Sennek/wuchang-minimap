@@ -194,6 +194,7 @@ namespace cfgkeys
         {"compass_tick_step_deg", Tier::Advanced},
         {"compass_max_pips", Tier::Advanced},
         {"compass_pip_height_uu", Tier::Advanced},
+        {"log_level", Tier::Advanced},
         {"crash_breadcrumb", Tier::Advanced},
         {"fast_travel_enabled", Tier::Advanced},
 

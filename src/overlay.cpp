@@ -7381,6 +7381,27 @@ namespace overlay
                 }
             }
 
+            if (ImGui::CollapsingHeader("Diagnostics"))
+            {
+                // The one Advanced key a bug report cares about. `normal` is what
+                // ships; the other two exist so a problem can be reproduced with the
+                // running commentary on without editing a file.
+                int lv = static_cast<int>(cfg.log_level);
+                if (ImGui::Combo("Log detail", &lv, "normal\0verbose\0trace\0"))
+                {
+                    cfg.log_level = static_cast<mm::LogLv>(lv);
+                }
+                ImGui::TextWrapped(
+                    "normal = what a bug report needs. verbose = the running commentary "
+                    "(player state, menu open/close, why the minimap is hidden). trace = "
+                    "everything, including a marker census every two seconds. Takes effect "
+                    "as soon as you press Save.");
+                char logpath[MAX_PATH * 2]{};
+                ::WideCharToMultiByte(CP_UTF8, 0, mm::modlog_path().c_str(), -1, logpath,
+                                      sizeof(logpath) - 1, nullptr, nullptr);
+                ImGui::TextDisabled("Log file: %s", logpath);
+            }
+
             if (ImGui::CollapsingHeader("Compass tuning"))
             {
                 ImGui::SliderFloat("Height (px)", &cfg.compass_height, 10.0f, 120.0f, "%.0f");

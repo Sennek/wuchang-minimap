@@ -14,6 +14,7 @@
 #include "mem.hpp"
 #include "mmstate.hpp"
 #include "shrines.hpp"
+#include "spinlock.hpp"
 #include "ue_min.hpp"
 #include "uereflect.hpp"
 
@@ -24,44 +25,7 @@ namespace recon
         using RC::Unreal::UObject;
         namespace UObjectGlobals = RC::Unreal::UObjectGlobals;
 
-        class Spin
-        {
-          public:
-            void lock() noexcept
-            {
-                while (flag_.test_and_set(std::memory_order_acquire))
-                {
-                    ::YieldProcessor();
-                }
-            }
-            void unlock() noexcept
-            {
-                flag_.clear(std::memory_order_release);
-            }
-
-          private:
-            std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
-        };
-
-        class Guard
-        {
-          public:
-            explicit Guard(Spin& s) noexcept : s_(s)
-            {
-                s_.lock();
-            }
-            ~Guard()
-            {
-                s_.unlock();
-            }
-            Guard(const Guard&) = delete;
-            Guard& operator=(const Guard&) = delete;
-
-          private:
-            Spin& s_;
-        };
-
-        Spin g_lock;
+        spin::Spinlock g_lock;
         Status g_status;                 // guarded by g_lock
         std::vector<std::string> g_text; // guarded by g_lock; game thread fills, loop drains
         std::atomic<bool> g_requested{false};
@@ -392,7 +356,7 @@ namespace recon
             o.add("    end of dump");
 
             {
-                Guard guard(g_lock);
+                spin::SpinGuard guard(g_lock);
                 g_text = std::move(o.lines);
                 g_status.lines = static_cast<int>(g_text.size());
                 g_status.pending = false;
@@ -404,7 +368,7 @@ namespace recon
     void request()
     {
         {
-            Guard guard(g_lock);
+            spin::SpinGuard guard(g_lock);
             g_status.pending = true;
             g_status.error[0] = '\0';
         }
@@ -413,7 +377,7 @@ namespace recon
 
     Status status()
     {
-        Guard guard(g_lock);
+        spin::SpinGuard guard(g_lock);
         return g_status;
     }
 
@@ -434,7 +398,7 @@ namespace recon
         }
         std::vector<std::string> lines;
         {
-            Guard guard(g_lock);
+            spin::SpinGuard guard(g_lock);
             lines.swap(g_text);
         }
         SYSTEMTIME t{};
@@ -454,7 +418,7 @@ namespace recon
                                        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (h == INVALID_HANDLE_VALUE)
         {
-            Guard guard(g_lock);
+            spin::SpinGuard guard(g_lock);
             ::strncpy_s(g_status.error, sizeof(g_status.error), "could not create the dump file",
                         _TRUNCATE);
             mm::logf(L"recon: could not create {} (error {})", path,
@@ -465,7 +429,7 @@ namespace recon
         ::WriteFile(h, blob.data(), static_cast<DWORD>(blob.size()), &written, nullptr);
         ::CloseHandle(h);
         {
-            Guard guard(g_lock);
+            spin::SpinGuard guard(g_lock);
             const std::string narrow = uer::narrow_ascii(path);
             ::strncpy_s(g_status.file, sizeof(g_status.file), narrow.c_str(), _TRUNCATE);
         }

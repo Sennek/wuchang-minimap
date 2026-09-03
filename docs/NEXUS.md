@@ -5,7 +5,14 @@ the description box with the BBCode editor, not the rich-text one.
 
 **Category**: User Interface. **Tags**: UI, HUD, Map, Quality of Life, UE4SS.
 **Requirements** (set these in the Nexus *Requirements* tab, not just in the text):
-*UE4SS for Wuchang: Fallen Feathers* — Wuchang mod **384**.
+*UE4SS for Wuchang: Fallen Feathers* — Wuchang mod **384**, the **`experimental-latest`**
+asset, which is UE4SS build **`v3.0.1-1111-g97b7e501`**.
+
+> The exact build matters and belongs in the Requirements note, not only in the
+> description: `main.dll` links directly to that DLL's exports, so any other UE4SS build
+> fails to load with no overlay and no in-game message. Keep this string identical to the
+> one in `BUILD_INFO.txt`, `README.md`, `THIRD_PARTY_NOTICES.md` and
+> `tools/INSTALL_GUIDE.html` — `tools/check_release.ps1` fails the release if they drift.
 
 ---
 
@@ -27,6 +34,10 @@ A minimap, a full chapter map, a compass and a collection tracker for Wuchang: F
 
 [size=5]Requirements[/size]
 [b]UE4SS for Wuchang: Fallen Feathers[/b] (Wuchang mod 384), installed into [code]Project_Plague\Binaries\Win64\[/code].
+
+[b]It has to be this exact UE4SS build:[/b]
+[code]UE4SS v3.0.1-1111-g97b7e501   (the "experimental-latest" asset of mod 384)[/code]
+This mod links straight to that DLL's exports, so [b]another UE4SS build will not work[/b] — and it fails silently. A mismatch looks like: the game launches and plays normally, no overlay ever appears, F2 does nothing, and [code]ue4ss\UE4SS.log[/code] says [code]Failed to load dll <...\Mods\WuchangMinimap\dlls\main.dll> for mod WuchangMinimap, error: The specified procedure could not be found.[/code] instead of [code]WuchangMinimap v1.0.0 loaded[/code]. [code]BUILD_INFO.txt[/code] in the download repeats the version.
 
 [size=4][color=#ff6600]Then: HookInitGameState = 0[/color][/size]
 Open [code]Project_Plague\Binaries\Win64\ue4ss\UE4SS-settings.ini[/code] and set:
@@ -53,6 +64,14 @@ To uninstall, delete [code]ue4ss\Mods\WuchangMinimap\[/code]. That is the whole 
 [*][b]N[/b] — cycle the minimap zoom · [b]R[/b] — recentre the map · [b]F5[/b] — reload the config and data
 [/list]
 Everything is rebindable in F2 → Bindings.
+
+[size=5]Known conflicts[/size]
+None of these stops the mod working, but all three have surprised someone.
+[list]
+[*][b]ReShade / RenoDX[/b] (any [code]dxgi.dll[/code] or [code]d3d12.dll[/code] next to the game exe) — the mod draws [i]before[/i] ReShade's effects, so grading and sharpening are applied on top of the minimap and a strong LUT tints it. Cosmetic only. Related: RenoDX's default toggle is F6, which is why F6 is refused as a mod hotkey.
+[*][b]Another UE4SS C++ mod that also hooks Present[/b] — the one combination that can actually lose an overlay. Whichever installs second usually wins; the loser is invisible. Test them one at a time before reporting a blank screen.
+[*][b]The Steam overlay[/b] — start-up creates and destroys a throwaway swapchain once and Steam's overlay follows what it sees created, so the Steam FPS counter can end up pointing at nothing. First run of a new install only; the addresses are cached afterwards. Shift+Tab still works.
+[/list]
 
 [size=5]Reporting a bug[/size]
 Attach [code]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/code] — the mod's own log, rotated per launch, so it survives restarting the game. Its first six lines carry every version number a report needs. Add [code]wuchang_minimap_last_stage.txt[/code] if the game crashed, [code]wuchang_minimap_watchdog.txt[/code] if it froze, and your [code]config_wuchang_minimap.txt[/code].

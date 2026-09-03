@@ -37,8 +37,18 @@
     Before zipping, the script smoke-checks that everything the runtime enumerates is
     actually in the tree: maps.json parses, every image and height-map PNG it names
     exists and is non-empty, the five chapter marker manifests are there and parse, and
-    the config / enabled.txt / main.dll are present. Afterwards it round-trips the zip
+    the config / enabled.txt / main.dll are present. It then runs
+    tools\check_release.ps1 over the assembled tree - one version everywhere, one UE4SS
+    build string everywhere, no unfilled placeholders, and every relative link in a
+    shipped document resolving inside the package. Afterwards it round-trips the zip
     (entry count and per-entry length against the tree on disk).
+
+    Two archives come out of a run:
+
+        dist\WuchangMinimap-<ver>.zip           what a player downloads
+        dist\WuchangMinimap-<ver>-symbols.zip   main.pdb + BUILD_INFO.txt, for reading a
+                                                crash dump from that exact build. Never
+                                                upload this as the main file.
 
 .PARAMETER Version
     Stamp a new version. REWRITES src\version.hpp (the single source of truth that the
@@ -299,13 +309,17 @@ try {
     Require-File (Join-Path $pkgRoot 'LICENSE') 'licence' | Out-Null
     Require-File (Join-Path $pkgRoot 'THIRD_PARTY_NOTICES.md') 'third-party notices' | Out-Null
     Require-File (Join-Path $pkgRoot 'BUILD_INFO.txt') 'build info' | Out-Null
-    # Nothing may still carry an unexpanded template placeholder.
-    foreach ($tpl in @('INSTALL_GUIDE.html', 'CHANGELOG.md')) {
-        $t = Join-Path $pkgRoot $tpl
-        if ((Test-Path -LiteralPath $t -PathType Leaf) -and
-            (Get-Content -Raw -LiteralPath $t) -match '@@[A-Z]+@@') {
-            $problems.Add("$tpl still contains an @@PLACEHOLDER@@")
-        }
+    # Placeholders, version agreement, the UE4SS build string and every relative link in
+    # a shipped document are all checked by tools\check_release.ps1, against THIS package
+    # tree. It lives in its own script so it can also be run before a release starts, and
+    # so there is exactly one definition of "consistent".
+    #
+    # The old check here was `-match '@@[A-Z]+@@'` over two files, which is why 1.0.0
+    # shipped a LICENSE reading "Copyright (c) 2026 <AUTHOR>": a `<...>` placeholder is
+    # not an `@@...@@` one, and LICENSE was not one of the two files.
+    & (Join-Path $PSScriptRoot 'check_release.ps1') -PackageRoot $pkgRoot -Ue4ssBuild $Ue4ssBuild
+    if ($LASTEXITCODE -ne 0) {
+        $problems.Add("release consistency check reported $LASTEXITCODE problem(s) - see above")
     }
     Require-File (Join-Path $modDir 'config_wuchang_minimap.txt') 'overlay config' | Out-Null
     Require-File (Join-Path $modDir 'config.ini') 'navmesh config' | Out-Null
@@ -447,12 +461,51 @@ try {
     Write-Host ("  zip            round-trip OK ({0} entries)" -f $onDisk.Count) -ForegroundColor Green
 
     #--------------------------------------------------------------------------------
+    # 5b. The symbol archive - a SEPARATE zip, never inside the player's download
+    #--------------------------------------------------------------------------------
+    # main.pdb is what makes a crash dump readable, and until now it existed only in the
+    # gitignored build\ folder: once a release was cut and the tree moved on, the symbols
+    # for the DLL players were running were effectively gone. It must not go in the player
+    # zip (25 MB of nothing they can use, and the smoke check above forbids any .pdb in
+    # the tree), so it gets its own archive next to it. Upload it as an optional file or
+    # keep it with the tag; either way, keep it.
+    $symZip = Join-Path $OutDir "$pkgName-symbols.zip"
+    if (Test-Path $symZip) { Remove-Item -Force -LiteralPath $symZip }
+    $builtPdb = Join-Path $repo "build\windows\x64\$Mode\main.pdb"
+    if (-not (Test-Path -LiteralPath $builtPdb)) {
+        Write-Warning "main.pdb not found at '$builtPdb' - no symbol archive was written."
+    } else {
+        # Staged in a temp folder so the archive holds main.pdb + BUILD_INFO.txt at its
+        # root, and so the pdb is never copied into $pkgRoot even briefly.
+        $symStage = Join-Path $OutDir ".symbols-$ver"
+        if (Test-Path $symStage) { Remove-Item -Recurse -Force -LiteralPath $symStage }
+        New-Item -ItemType Directory -Force -Path $symStage | Out-Null
+        try {
+            Copy-Item -LiteralPath $builtPdb -Destination (Join-Path $symStage 'main.pdb') -Force
+            # The same BUILD_INFO.txt as the package: it is what ties this pdb to a
+            # commit, a version and a DLL timestamp. A pdb with no provenance is a
+            # 25 MB file nobody can be sure matches anything.
+            Copy-Item -LiteralPath (Join-Path $pkgRoot 'BUILD_INFO.txt') `
+                      -Destination (Join-Path $symStage 'BUILD_INFO.txt') -Force
+            [System.IO.Compression.ZipFile]::CreateFromDirectory(
+                $symStage, $symZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+        } finally {
+            Remove-Item -Recurse -Force -LiteralPath $symStage -ErrorAction SilentlyContinue
+        }
+        $symMB = (Get-Item -LiteralPath $symZip).Length / 1MB
+        Write-Host ("  symbols        {0} ({1:N1} MB)" -f (Split-Path -Leaf $symZip), $symMB) -ForegroundColor Green
+    }
+
+    #--------------------------------------------------------------------------------
     # 6. Report
     #--------------------------------------------------------------------------------
     $zipMB = (Get-Item -LiteralPath $zipPath).Length / 1MB
     $treeMB = ((Get-ChildItem -LiteralPath $pkgRoot -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB
     Write-Host ""
     Write-Host ("Package: {0}" -f $zipPath) -ForegroundColor Green
+    if (Test-Path -LiteralPath $symZip) {
+        Write-Host ("Symbols: {0}  (do NOT upload as the main file)" -f $symZip)
+    }
     Write-Host ("         {0:N1} MB zipped, {1:N1} MB unpacked, {2} files" -f $zipMB, $treeMB, $onDisk.Count)
     Write-Host ("Folder:  {0}" -f $pkgRoot)
 }

@@ -330,12 +330,10 @@ one directory per `ARecastNavMesh` actor (`Small` / `Big` / `BitFat` / `Giant`, 
 > ```ini
 > [navmesh]
 > navmesh_dump = 1
-> navmesh_dump_key = F3
 > ```
 >
-> `F6`, `F10` and `F12` are **rejected** as hotkeys: F6 is the RenoDX DLSS 5 toggle (pressing
-> it in-world GPU-crashed the game on 2026-09-02), F10 the game console, F12 the Steam
-> screenshot key.
+> With it on, **Dump the live navmesh tiles** on the F2 panel's Debug tab forces a dump. There
+> is no hotkey: a memory scan that writes files must not be startable by a stray key press.
 
 When enabled, a dump happens automatically 3 s after the set of live tiles stops changing —
 i.e. once per area as you walk — and on demand on **F3** (or `CTRL+F3`), which also writes a
@@ -674,7 +672,6 @@ Eight keys were added in 0.9.4 - four Player, two Advanced, two Dev:
 | `crash_breadcrumb` | Advanced | `1` | Write `wuchang_minimap_last_stage.txt` at every overlay stage transition (`src/breadcrumb.hpp`). |
 | `fast_travel_enabled` | Advanced | `0` | Adds a **Travel** action to the shrine list. Off until the in-game reflection self-check has been confirmed - see below. |
 | `saveslot_uuid_call` | Dev | `0` | Actually call `GameSaveExecutor::Get Save Slot Value` instead of only reading and logging its reflected signature. |
-| `recon_dump_key` | Dev | `F4` | One press writes `wuchang_minimap_recon_<ts>.txt` (`src/recon.hpp`). |
 
 ### The save-slot ladder (`src/saveslot.*`, 0.9.4)
 
@@ -709,7 +706,7 @@ prediction (one to two 16-byte `FString` slots, the first at offset 0). A mismat
 so in the panel; a shrine the save has not unlocked refuses too. `ue_min.hpp` declares `UFunction`
 as a `UStruct` subclass, which is what makes reading a signature possible at all.
 
-The one press that closes it is `recon_dump_key` (`src/recon.cpp`): the game mode's components,
+The one press that closes it is **Dump the fast-travel / save-slot recon** on the Debug tab (`src/recon.cpp`): the game mode's components,
 every property of `RebornManagerComponent_C` with the three firepoint arrays, **the reflected
 parameter lists of the ten functions both routes name**, and the save-slot fallback strings - into a
 file, calling nothing. When a name does not resolve it prints the names that did.
@@ -1061,7 +1058,7 @@ slot can be identified and seeded into a new slot's file once. A deploy never to
       **Not yet verified in-game** - see `context/extras-test-instructions.md`.
 - [x] Shrine list on the full map with names from the game's own `DT_FirePoint` table, and guarded
       fast travel behind `fast_travel_enabled` plus a reflection self-check. **The route is not yet
-      confirmed in-game**; one press of `recon_dump_key` produces everything needed to confirm it.
+      confirmed in-game**; one press of the Debug tab's recon-dump button produces everything needed to confirm it.
 - [ ] Build the other four chapters' maps and load/unload them by area.
 - [ ] Sweep all streaming cells so the runtime navmesh dumps cover a whole region, not just the
       4-6 cells resident around the player.

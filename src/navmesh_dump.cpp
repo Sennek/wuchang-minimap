@@ -85,7 +85,6 @@ namespace navmesh
 
         constexpr std::uint64_t kActorPollMs = 2000;  // FindAllOf + tile-set poll throttle
         constexpr std::uint64_t kDebounceMs = 3000;   // tile set changed -> auto dump
-        constexpr std::uint64_t kHotkeyGuardMs = 500; // key-repeat guard
         constexpr std::uint64_t kDiscoveryRetryMs = 10000; // re-scan for the dtNavMesh at most this often
 
         // Where the blind scan for RecastNavMeshImpl starts / stops when reflection could
@@ -124,18 +123,19 @@ namespace navmesh
         // The map background now comes from the offline pak extraction
         // (tools/navmesh/offline, see context/navmesh-offline.md), so this module is only
         // needed for DLC cells missing from the paks and for checking runtime-carved
-        // tiles. It scans engine memory and it binds a hotkey, neither of which has any
+        // tiles. It scans engine memory, which has no
         // business happening during normal play - so it ships disabled and is enabled
         // per-session from
         //     ue4ss\Mods\WuchangMinimap\config.ini
         //         [navmesh]
         //         navmesh_dump = 1
-        //         navmesh_dump_key = F3
+        //
+        // With it on, the dump is forced from the F2 panel's Debug tab. It used to be a
+        // hotkey; a memory scan that writes files is not something a key press should be
+        // able to start by accident.
         struct Config
         {
             bool enabled = false;
-            int hotkey_vk = VK_F3;
-            std::wstring hotkey_name = L"F3";
         };
 
         Config g_cfg;
@@ -1466,8 +1466,6 @@ namespace navmesh
         std::unordered_map<const void*, AgentState> g_agents;
         bool g_initialised = false;
         std::uint64_t g_last_poll = 0;
-        std::uint64_t g_last_hotkey = 0;
-        bool g_hotkey_was_down = false;
         int g_last_actor_count = -1;
         std::filesystem::path g_out_root;
 
@@ -2442,45 +2440,8 @@ namespace navmesh
         }
 
         //==============================================================================
-        // Hotkey
-        //==============================================================================
-
-        bool this_process_is_foreground()
-        {
-            const HWND fg = ::GetForegroundWindow();
-            if (fg == nullptr)
-            {
-                return false;
-            }
-            DWORD pid = 0;
-            ::GetWindowThreadProcessId(fg, &pid);
-            return pid == ::GetCurrentProcessId();
-        }
-
-        //==============================================================================
         // Config file
         //==============================================================================
-
-        int vk_from_name(std::wstring_view name)
-        {
-            if (name.size() >= 2 && (name[0] == L'F' || name[0] == L'f'))
-            {
-                int n = 0;
-                for (std::size_t i = 1; i < name.size(); ++i)
-                {
-                    if (name[i] < L'0' || name[i] > L'9')
-                    {
-                        return 0;
-                    }
-                    n = n * 10 + (name[i] - L'0');
-                }
-                if (n >= 1 && n <= 24)
-                {
-                    return VK_F1 + (n - 1);
-                }
-            }
-            return 0;
-        }
 
         Config load_config()
         {
@@ -2520,22 +2481,6 @@ namespace navmesh
                 if (key == L"navmesh_dump")
                 {
                     cfg.enabled = (value == L"1" || value == L"true" || value == L"yes" || value == L"on");
-                }
-                else if (key == L"navmesh_dump_key")
-                {
-                    const int vk = vk_from_name(value);
-                    if (vk != 0 && vk != VK_F6 && vk != VK_F10 && vk != VK_F12)
-                    {
-                        cfg.hotkey_vk = vk;
-                        cfg.hotkey_name = value;
-                    }
-                    else
-                    {
-                        logf(L"config.ini: navmesh_dump_key '{}' rejected - F6 is the RenoDX DLSS5 toggle, F10 the "
-                             L"game console, F12 the Steam screenshot key. Keeping {}",
-                             value,
-                             cfg.hotkey_name);
-                    }
                 }
             }
             return cfg;
@@ -2601,7 +2546,7 @@ namespace navmesh
 
         void run_forced_dump()
         {
-            logf(L"{} pressed - forcing a dump of {} agent(s)", g_cfg.hotkey_name, static_cast<int>(g_agents.size()));
+            logf(L"forced dump requested - dumping {} agent(s)", static_cast<int>(g_agents.size()));
             if (g_agents.empty())
             {
                 logf(L"  nothing to dump: no RecastNavMesh actor is loaded. At the main menu this is expected - "
@@ -2677,7 +2622,7 @@ namespace navmesh
         {
             logf(L"runtime dtNavMesh dumper is DISABLED (the default). The map background comes from the offline "
                  L"pak extraction (tools/navmesh/offline), so this module is only needed for cells missing from "
-                 L"the paks. No hotkey is bound and no memory is scanned.");
+                 L"the paks. No memory is scanned.");
             logf(L"to enable it, put   [navmesh]  navmesh_dump = 1   in {}",
                  (g_out_root.parent_path() / L"config.ini").wstring());
             return;
@@ -2687,10 +2632,8 @@ namespace navmesh
         g_loop_thread = ::GetCurrentThreadId();
         set_stage(L"module up (enabled)");
         logf(L"module up, ENABLED by config.ini. Output root: {}", g_out_root.wstring());
-        logf(L"{} / CTRL+{} forces a dump of every agent; an automatic dump follows {} ms after the set of live "
-             L"tiles changes; the primary agent for the map is \"{}\"",
-             g_cfg.hotkey_name,
-             g_cfg.hotkey_name,
+        logf(L"the F2 panel's Debug tab forces a dump of every agent; an automatic dump follows {} ms after "
+             L"the set of live tiles changes; the primary agent for the map is \"{}\"",
              static_cast<int>(kDebounceMs),
              kPrimaryAgent);
 
@@ -2704,27 +2647,33 @@ namespace navmesh
         logf(L"UObject traversal is pumped from the game thread via the UE4SS ProcessEvent pre-callback");
     }
 
+    bool enabled()
+    {
+        return g_cfg.enabled && g_initialised;
+    }
+
+    // ANY THREAD (the F2 Debug tab's button). The game-thread pump picks the flag up on
+    // its next call; nothing here touches a UObject.
+    void request_dump()
+    {
+        if (g_initialised)
+        {
+            g_force_requested = true;
+        }
+    }
+
     void on_update()
     {
         // UE4SS EVENT-LOOP THREAD. Nothing here may touch g_agents, UObjects or engine
         // memory - it only samples the keyboard and raises a flag for the game thread.
         if (!mm::mod_active())
         {
-            return; // the master switch: not even the hotkey is sampled
+            return; // the master switch
         }
         if (!g_initialised)
         {
             return;
         }
-
-        const std::uint64_t now = ::GetTickCount64();
-        const bool down = (::GetAsyncKeyState(g_cfg.hotkey_vk) & 0x8000) != 0;
-        if (down && !g_hotkey_was_down && now - g_last_hotkey > kHotkeyGuardMs && this_process_is_foreground())
-        {
-            g_last_hotkey = now;
-            g_force_requested = true;
-        }
-        g_hotkey_was_down = down;
 
         // Everything the game thread produced comes out here, where iostreams are safe.
         drain_log();

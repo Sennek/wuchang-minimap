@@ -684,10 +684,6 @@ namespace mm
             {
                 cfg.screenshot_key = vk_from_name(value, cfg.screenshot_key, "screenshot_key");
             }
-            else if (key == "recon_dump_key")
-            {
-                cfg.recon_dump_key = vk_from_name(value, cfg.recon_dump_key, "recon_dump_key");
-            }
             else if (key == "minimap_shape")
             {
                 cfg.round = (value != "square");
@@ -2113,7 +2109,6 @@ namespace mm
         add("highlight_pov_scan_bytes", std::to_string(cfg.highlight_pov_scan_bytes));
         add("highlight_pov_bad_reads", std::to_string(cfg.highlight_pov_bad_reads));
         add("saveslot_uuid_call", b(cfg.saveslot_uuid_call));
-        add("recon_dump_key", vk(cfg.recon_dump_key));
 
         return kv;
     }

@@ -219,7 +219,6 @@ namespace cfgkeys
         {"highlight_pov_scan_bytes", Tier::Dev},
         {"highlight_pov_bad_reads", Tier::Dev},
         {"saveslot_uuid_call", Tier::Dev},
-        {"recon_dump_key", Tier::Dev},
 
         //------------------------------------------------------------------------------
         // REMOVED - hard-coded constants since 0.9.2. A wrong value here was never a
@@ -241,6 +240,7 @@ namespace cfgkeys
         //------------------------------------------------------------------------------
         // LEGACY - old names, still accepted with one warning
         //------------------------------------------------------------------------------
+        {"recon_dump_key", Tier::Removed}, // the recon dump is a Debug-tab button now
         {"enabled", Tier::Legacy}, // -> overlay_enabled (0.9.2)
     };
 

@@ -580,7 +580,6 @@ namespace mm
         // saveslot.cpp for the hazard.
         bool saveslot_uuid_call = false;
         // The one-press in-game recon dump (research §3). 0 = unbound.
-        int recon_dump_key = 0x73;              // F4
     };
 
     // The config lives here and is copied under a spinlock. The loop thread writes it

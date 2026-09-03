@@ -67,6 +67,7 @@
 #include "clipimg.hpp"
 #include "markers.hpp"
 #include "modswitch.hpp"
+#include "navmesh_dump.hpp"
 #include "recon.hpp"
 #include "shrines.hpp"
 #include "mmstate.hpp"
@@ -6893,8 +6894,6 @@ namespace overlay
                 recon::request();
             }
             ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::TextDisabled("or press %s", key_name_ascii(cfg.recon_dump_key).c_str());
             if (rc.pending)
             {
                 ImGui::TextDisabled("gathering on the next game-thread pump...");
@@ -6906,6 +6905,28 @@ namespace overlay
             else if (rc.file[0] != '\0')
             {
                 ImGui::TextWrapped("wrote %d line(s) to %s", rc.lines, rc.file);
+            }
+
+            //--------------------------------------------------------------------------
+            // The runtime navmesh dump
+            //--------------------------------------------------------------------------
+            //
+            // A button, not a binding: it scans engine memory and writes JSON, which is
+            // never something a player should be able to trigger by leaning on a key.
+            // The module ships disabled (config.ini [navmesh] navmesh_dump = 1), and the
+            // button says so rather than doing nothing.
+            ImGui::SeparatorText("Runtime navmesh dump");
+            ImGui::BeginDisabled(!navmesh::enabled());
+            if (ImGui::Button("Dump the live navmesh tiles"))
+            {
+                navmesh::request_dump();
+                post_toast("navmesh dump requested", 2500);
+            }
+            ImGui::EndDisabled();
+            if (!navmesh::enabled())
+            {
+                ImGui::SameLine();
+                ImGui::TextDisabled("off - set navmesh_dump = 1 in config.ini and restart");
             }
 
             draw_perf_table();
@@ -8439,18 +8460,6 @@ namespace overlay
                                     : std::wstring{L"copied to the clipboard"},
                      dib.size());
         }
-
-        // THE RECON HOTKEY (Dev). Read-only, so it is safe to leave bound; it is a Dev
-        // key, so it only exists when the dev config file does.
-        static bool recon_down = false;
-        const bool recon_now = cfg.recon_dump_key != 0 &&
-                               (::GetAsyncKeyState(cfg.recon_dump_key) & 0x8000) != 0;
-        if (recon_now && !recon_down && foreground)
-        {
-            recon::request();
-            post_toast("recon dump requested", 2500);
-        }
-        recon_down = recon_now;
 
         static bool recenter_down = false;
         const bool recenter_now = (::GetAsyncKeyState(cfg.map_recenter_key) & 0x8000) != 0;

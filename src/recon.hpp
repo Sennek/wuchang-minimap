@@ -38,7 +38,7 @@
 
 namespace recon
 {
-    // ANY THREAD (the F2 Debug button, or the `recon_dump_key` hotkey).
+    // ANY THREAD (the F2 Debug tab button).
     void request();
 
     struct Status

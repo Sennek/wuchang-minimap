@@ -55,6 +55,17 @@
     DLL, the F2 panel and this script all read) and xmake.lua's set_version, then builds.
     Omit it to package whatever version.hpp already says.
 
+.PARAMETER StampOnly
+    Write the version into src\version.hpp and xmake.lua, print the commit/tag commands,
+    and stop. Nothing is built and nothing is packaged.
+
+    This exists to fix an ordering trap. package.ps1 refuses a dirty tree, because
+    BUILD_INFO.txt names a commit hash that would otherwise be a lie - but -Version
+    itself dirties the tree, so a run that stamps a new version records the commit
+    BEFORE the stamp. The release order is therefore: stamp (-StampOnly), commit and
+    tag, then package with no -Version at all, so the recorded commit is exactly the
+    tagged one. docs\RELEASE.md walks through it.
+
 .PARAMETER NoBuild
     Skip build.ps1 and package the main.dll that is already in build\. For iterating on
     the packaging itself; a release must never use it.
@@ -82,6 +93,7 @@ param(
     [string]$Mode = 'Game__Shipping__Win64',
     [string]$OutDir,
     [switch]$NoBuild,
+    [switch]$StampOnly,
     [switch]$AllowDirty,
     [string]$Ue4ssBuild = $(if ($env:WUCHANG_UE4SS_BUILD) { $env:WUCHANG_UE4SS_BUILD }
                            else { 'v3.0.1-1111-g97b7e501' })
@@ -146,8 +158,29 @@ try {
     #--------------------------------------------------------------------------------
     # 1. Version
     #--------------------------------------------------------------------------------
+    if ($StampOnly -and -not $Version) { throw "-StampOnly needs -Version x.y.z." }
     if ($Version) { Write-ModVersion $Version }
     $ver = Read-ModVersion
+
+    if ($StampOnly) {
+        Write-Host ""
+        Write-Host "Stamped only - nothing built, nothing packaged." -ForegroundColor Cyan
+        Write-Host "Next:" -ForegroundColor Cyan
+        Write-Host "    git commit -am `"release $ver`""
+        Write-Host "    git tag v$ver"
+        Write-Host "    .\tools\package.ps1            # no -Version: BUILD_INFO then names the tagged commit"
+        exit 0
+    }
+
+    # Stamping and packaging in one run is the trap -StampOnly exists to avoid: the
+    # clean-tree check above already passed, so BUILD_INFO.txt is about to record the
+    # commit from BEFORE this stamp.
+    if ($Version) {
+        Write-Warning ("-Version stamped $ver into a tree that is now dirty, so BUILD_INFO.txt " +
+                       "will name the commit before the stamp. For a real release use " +
+                       "-StampOnly, commit, tag, then run package.ps1 with no -Version " +
+                       "(see docs\RELEASE.md).")
+    }
 
     $luaVer = [regex]::Match((Get-Content -Raw -LiteralPath $xmakeLua),
                              '(?m)^set_version\("([0-9]+\.[0-9]+\.[0-9]+)"\)')

@@ -435,12 +435,17 @@ namespace mdb
 
         const mjson::JValue* schema = root.find("schema");
         report.schema = schema != nullptr ? schema->string_or("") : "";
-        // Accept any minor of major 1; refuse anything else rather than guess at a
-        // layout we have never seen.
+        // Accept any MINOR of major 1 - "…/1", "…/1.2" - and refuse everything else
+        // rather than guess at a layout we have never seen. A plain prefix compare is
+        // not that test: it also accepted "…/10", i.e. a future major with a different
+        // layout, which would have been parsed as if it were this one.
         constexpr std::string_view kWant = "wuchang-minimap-markers/1";
-        if (report.schema.compare(0, kWant.size(), kWant) != 0)
+        const bool major_1 = report.schema.compare(0, kWant.size(), kWant) == 0 &&
+                             (report.schema.size() == kWant.size() || report.schema[kWant.size()] == '.');
+        if (!major_1)
         {
-            report.error = "unexpected schema \"" + report.schema + "\" (want " + std::string(kWant) + ")";
+            report.error = "unexpected schema \"" + report.schema + "\" (want " + std::string(kWant) +
+                           ", or any /1.x minor of it)";
             return false;
         }
 

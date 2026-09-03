@@ -47,12 +47,19 @@
 #include "label_layout.hpp"
 #include "mapmanifest.hpp"
 #include "mapview.hpp"
+#include "atomicfile.hpp"
+#include "marker_dedupe.hpp"
 #include "markers_db.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
 #include "saveslot.hpp"
 #include "scan_sched.hpp"
 #include "shrines_db.hpp"
+
+// atomicfile.hpp pulls in <windows.h>, whose legacy `near` / `far` no-op macros collide
+// with a local array called `near` further down this file.
+#undef near
+#undef far
 
 namespace
 {
@@ -897,6 +904,201 @@ namespace
         }
         const std::uint32_t shipped = mdb::kAllCats & ~mdb::cat_bit(mdb::Cat::Enemy);
         CHECK_EQ(mdb::parse_category_mask(mdb::format_category_mask(shipped), 0u), shipped);
+    }
+
+    void test_schema_gate()
+    {
+        section("manifest schema gate (major 1 only)");
+
+        // A prefix compare accepted "…/10" - a future major with a layout this reader
+        // has never seen - and parsed it as if it were /1. Only major 1 may pass, with
+        // or without a minor.
+        const struct
+        {
+            const char* schema;
+            bool want_ok;
+        } cases[] = {
+            {"wuchang-minimap-markers/1", true},
+            {"wuchang-minimap-markers/1.0", true},
+            {"wuchang-minimap-markers/1.7", true},
+            {"wuchang-minimap-markers/10", false},
+            {"wuchang-minimap-markers/11.0", false},
+            {"wuchang-minimap-markers/2", false},
+            {"wuchang-minimap-markers/", false},
+            {"wuchang-minimap-markers", false},
+            {"wuchang-minimap-items/1", false},
+            {"", false},
+        };
+        for (const auto& c : cases)
+        {
+            const std::string text = std::string("{\"schema\":\"") + c.schema +
+                                     "\",\"chapter\":1,\"markers\":[{\"id\":\"a/b\",\"cat\":\"chest\","
+                                     "\"x\":1,\"y\":2,\"z\":3}]}";
+            std::vector<mdb::StaticMarker> out;
+            mdb::ParseReport r{};
+            const bool ok = mdb::parse_markers_json(text, out, r);
+            ++g_checks;
+            if (ok != c.want_ok || (!ok && !out.empty()))
+            {
+                ++g_failures;
+                std::printf("  FAIL  schema \"%s\": got %s, want %s\n", c.schema, ok ? "accepted" : "rejected",
+                            c.want_ok ? "accepted" : "rejected");
+            }
+            // The schema string is reported either way - the loader logs it.
+            CHECK_STR(r.schema, c.schema);
+        }
+    }
+
+    mdb::StaticMarker marker(const char* id, double x)
+    {
+        mdb::StaticMarker m{};
+        m.id = id;
+        m.x = x;
+        m.cat = mdb::Cat::Chest;
+        return m;
+    }
+
+    void test_dedupe()
+    {
+        section("duplicate marker ids are dropped at load");
+
+        std::vector<mdb::StaticMarker> markers;
+        markers.push_back(marker("a", 1));
+        markers.push_back(marker("b", 2));
+        markers.push_back(marker("a", 3)); // duplicate of index 0
+        markers.push_back(marker("c", 4));
+        markers.push_back(marker("b", 5)); // duplicate of index 1
+        markers.push_back(marker("a", 6)); // duplicate of index 0 again
+
+        std::unordered_map<std::string, int> by_id;
+        std::vector<mdb::DupDrop> drops;
+        CHECK_EQ(mdb::dedupe_by_id(markers, by_id, drops), 3);
+
+        // What is left is the FIRST copy of each id, in order, and nothing else.
+        CHECK_EQ(markers.size(), 3);
+        CHECK_STR(markers[0].id, "a");
+        CHECK_STR(markers[1].id, "b");
+        CHECK_STR(markers[2].id, "c");
+        CHECK(markers[0].x == 1.0 && markers[1].x == 2.0 && markers[2].x == 4.0);
+
+        // by_id indexes the SHRUNK vector - that is the map note_found() resolves
+        // through, and an index into the pre-dedupe vector would flag the wrong marker.
+        CHECK_EQ(by_id.size(), 3);
+        for (std::size_t i = 0; i < markers.size(); ++i)
+        {
+            const auto it = by_id.find(markers[i].id);
+            ++g_checks;
+            if (it == by_id.end() || it->second != static_cast<int>(i))
+            {
+                ++g_failures;
+                std::printf("  FAIL  by_id[%s] does not point at index %d\n", markers[i].id.c_str(),
+                            static_cast<int>(i));
+            }
+        }
+
+        // Every drop is reported in ORIGINAL indices, so the loader can name the file
+        // the loser came from and the file whose copy survived.
+        CHECK_EQ(drops.size(), 3);
+        CHECK_EQ(drops[0].dropped, 2);
+        CHECK_EQ(drops[0].kept, 0);
+        CHECK_STR(drops[0].id, "a");
+        CHECK_EQ(drops[1].dropped, 4);
+        CHECK_EQ(drops[1].kept, 1);
+        CHECK_EQ(drops[2].dropped, 5);
+        CHECK_EQ(drops[2].kept, 0);
+
+        // The ordinary case allocates no drops and changes nothing.
+        std::vector<mdb::StaticMarker> clean;
+        clean.push_back(marker("x", 1));
+        clean.push_back(marker("y", 2));
+        CHECK_EQ(mdb::dedupe_by_id(clean, by_id, drops), 0);
+        CHECK_EQ(clean.size(), 2);
+        CHECK_EQ(drops.size(), 0);
+        CHECK_STR(clean[0].id, "x");
+        CHECK_STR(clean[1].id, "y");
+        CHECK(clean[1].x == 2.0); // the entries were not left moved-from
+    }
+
+    void test_atomic_write()
+    {
+        section("crash-safe file writes (temp file + rename)");
+
+        wchar_t dir[MAX_PATH]{};
+        const DWORD n = ::GetTempPathW(MAX_PATH, dir);
+        ++g_checks;
+        if (n == 0 || n >= MAX_PATH)
+        {
+            ++g_failures;
+            std::printf("  FAIL  GetTempPathW\n");
+            return;
+        }
+        const std::wstring path = std::wstring(dir) + L"wuchang_minimap_test_atomic.txt";
+        ::DeleteFileW(path.c_str());
+        ::DeleteFileW(mmfile::tmp_path(path).c_str());
+        ::DeleteFileW(mmfile::bak_path(path).c_str());
+
+        CHECK(mmfile::tmp_path(path) == path + L".tmp");
+        CHECK(mmfile::bak_path(path) == path + L".bak");
+
+        // A read of a file that is not there is NotFound, not Failed - the found
+        // tracker's whole "do not write over a file I could not read" rule hangs on
+        // that distinction.
+        std::string text;
+        CHECK(mmfile::read_whole_file(path, text, 1 << 20).status == mmfile::ReadStatus::NotFound);
+
+        unsigned err = 123;
+        CHECK(mmfile::write_whole_file_atomic(path, "first generation\n", true, &err));
+        CHECK_EQ(err, 0);
+        // The temp file is gone: the rename IS the commit.
+        CHECK(::GetFileAttributesW(mmfile::tmp_path(path).c_str()) == INVALID_FILE_ATTRIBUTES);
+        // Nothing to back up on the first write.
+        CHECK(::GetFileAttributesW(mmfile::bak_path(path).c_str()) == INVALID_FILE_ATTRIBUTES);
+        mmfile::ReadInfo info = mmfile::read_whole_file(path, text, 1 << 20);
+        CHECK(info.status == mmfile::ReadStatus::Ok);
+        CHECK_STR(text, "first generation\n");
+
+        // The second write keeps the previous generation as .bak.
+        CHECK(mmfile::write_whole_file_atomic(path, "second generation\n", true, &err));
+        info = mmfile::read_whole_file(path, text, 1 << 20);
+        CHECK(info.status == mmfile::ReadStatus::Ok);
+        CHECK_STR(text, "second generation\n");
+        info = mmfile::read_whole_file(mmfile::bak_path(path), text, 1 << 20);
+        CHECK(info.status == mmfile::ReadStatus::Ok);
+        CHECK_STR(text, "first generation\n");
+
+        // keep_backup = false leaves the old .bak alone (config / waypoint writes).
+        CHECK(mmfile::write_whole_file_atomic(path, "third\n", false, &err));
+        info = mmfile::read_whole_file(mmfile::bak_path(path), text, 1 << 20);
+        CHECK(info.status == mmfile::ReadStatus::Ok);
+        CHECK_STR(text, "first generation\n");
+
+        // A shorter write must not leave a tail of the longer one behind - CREATE_ALWAYS
+        // on the temp file, and the rename replaces rather than merges.
+        info = mmfile::read_whole_file(path, text, 1 << 20);
+        CHECK_STR(text, "third\n");
+
+        // The size cap is reported as such, and returns no data.
+        CHECK(mmfile::write_whole_file_atomic(path, std::string(4096, 'x'), false, &err));
+        info = mmfile::read_whole_file(path, text, 1024);
+        CHECK(info.too_big);
+        CHECK(info.status == mmfile::ReadStatus::Failed);
+        CHECK_EQ(info.size, 4096);
+        CHECK(text.empty());
+
+        // An empty payload is a valid write (a cleared waypoint file).
+        CHECK(mmfile::write_whole_file_atomic(path, "", false, &err));
+        info = mmfile::read_whole_file(path, text, 1 << 20);
+        CHECK(info.status == mmfile::ReadStatus::Ok);
+        CHECK_EQ(info.size, 0);
+
+        // A path that cannot be created fails and says why, and does not throw.
+        const std::wstring bad = std::wstring(dir) + L"no_such_dir_wuchang\\deeper\\x.txt";
+        err = 0;
+        CHECK(!mmfile::write_whole_file_atomic(bad, "nope", false, &err));
+        CHECK(err != 0);
+
+        ::DeleteFileW(path.c_str());
+        ::DeleteFileW(mmfile::bak_path(path).c_str());
     }
 
     void test_found_file()
@@ -3768,6 +3970,9 @@ int main(int argc, char** argv)
     test_fit_zoom();
     test_label_layout();
     test_zoom_presets();
+    test_schema_gate();
+    test_dedupe();
+    test_atomic_write();
     test_found_file();
     test_saveslot();
     test_clipimg();

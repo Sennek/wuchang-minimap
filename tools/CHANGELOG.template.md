@@ -21,6 +21,30 @@ All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
   mod.
 - If another overlay (ReShade, the Steam overlay) attaches to the game window after
   us, turning the minimap off no longer uninstalls theirs.
+- **Your collection progress can no longer be lost to a crash or a power cut.** The
+  found list, the settings file and the waypoint are now written to a temporary file and
+  swapped into place in one step, so the real file is either the old one or the new one -
+  never a half-written one. The found list also keeps one previous copy as
+  `wuchang_minimap_found*.txt.bak`.
+- **Closing the game no longer throws away the last few marks.** Marks were written a
+  couple of seconds after they happened, so an ALT+F4 in that window lost them. They are
+  now flushed when the game closes and when the mod is switched off.
+- **A found list the mod cannot read is no longer treated as missing.** If something else
+  has the file open (anti-virus, a cloud sync client, a text editor), the mod says so in
+  the log, refuses to write over it, and retries every ten seconds instead of replacing
+  your collection with whatever this session had marked.
+- **A failed save is now retried.** Marks used to be dropped on the floor if the write
+  failed once; they are kept and re-tried with a growing delay until it works.
+- **Two markers sharing an id no longer produce one that can never be ticked off.** The
+  duplicate is dropped when the marker files are loaded, and the log names which file
+  lost it.
+- **A collected item can no longer mark the wrong thing as found.** The mod's actor
+  identity cache now re-checks who it is talking to, so an actor that reuses a dead one's
+  memory cannot inherit its id.
+- **Marker files the mod cannot use are no longer dropped silently** - an unreadable
+  file, a file over the size cap, more than 64 files in `markers/`, or a marker file from
+  a future format version each get a line in the log.
+- **Reloading maps and markers with F5 no longer leaks a few MB every time.**
 
 ## 1.0.0 - 2026-09-03
 

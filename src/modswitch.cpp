@@ -207,6 +207,10 @@ namespace modswitch
         void finish_disable(bool timed_out)
         {
             overlay::finish_stop(); // step 3a: the hooks come out
+            // Step 3a': persisted state before anything is torn down. The found
+            // tracker's write is debounced by a couple of seconds, so turning the mod
+            // off used to drop the marks made just before the switch was flipped.
+            markers::flush_found_tracker();
             mapdata::unload();      // step 3b: the chapter's height planes are freed
             g_state = State::Off;
             if (timed_out)

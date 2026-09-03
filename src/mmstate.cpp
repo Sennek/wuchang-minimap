@@ -1,5 +1,6 @@
 #include "mmstate.hpp"
 
+#include "atomicfile.hpp"
 #include "config_keys.hpp"
 #include "config_rewrite.hpp"
 
@@ -144,43 +145,48 @@ namespace mm
         // Plain Win32 text file I/O - no iostreams anywhere in this mod (lessons.md)
         //==============================================================================
 
+        // A read that fails on a file which EXISTS is not the same thing as a missing
+        // file, and both used to come back as a bare `false` - so a config file held
+        // open by something else looked exactly like a fresh install and the defaults
+        // silently won. The distinction is made in mmfile::read_whole_file; this
+        // wrapper keeps the old bool signature for the callers and says out loud, at
+        // the normal log level, when data was dropped.
         bool read_whole_file(const std::wstring& path, std::string& out)
         {
-            const HANDLE h = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                           FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h == INVALID_HANDLE_VALUE)
+            const mmfile::ReadInfo info = mmfile::read_whole_file(path, out, 64ull << 20);
+            if (info.status == mmfile::ReadStatus::Ok)
             {
-                return false;
+                return true;
             }
-            LARGE_INTEGER size{};
-            if (::GetFileSizeEx(h, &size) == 0 || size.QuadPart < 0 || size.QuadPart > (64 << 20))
+            if (info.too_big)
             {
-                ::CloseHandle(h);
-                return false;
+                logf(L"FAILED to read {} - it is {} byte(s), over the 64 MB cap this mod reads; "
+                     L"it was IGNORED",
+                     path,
+                     info.size);
             }
-            out.resize(static_cast<std::size_t>(size.QuadPart));
-            DWORD read = 0;
-            const bool ok = out.empty() ||
-                            (::ReadFile(h, out.data(), static_cast<DWORD>(out.size()), &read, nullptr) != 0 &&
-                             read == out.size());
-            ::CloseHandle(h);
-            return ok;
+            else if (info.status == mmfile::ReadStatus::Failed)
+            {
+                logf(L"FAILED to read {} (error {}) - the file exists but could not be read, so its "
+                     L"contents were IGNORED (something else may have it open)",
+                     path,
+                     info.error);
+            }
+            return false;
         }
 
+        // ATOMIC. See atomicfile.hpp: temp file, flush, rename. No backup for these -
+        // the config and the waypoint are cheap to recreate; the found tracker (which
+        // keeps one) is not.
         bool write_whole_file(const std::wstring& path, const std::string& data)
         {
-            const HANDLE h = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                           FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h == INVALID_HANDLE_VALUE)
+            unsigned err = 0;
+            if (mmfile::write_whole_file_atomic(path, data, false, &err))
             {
-                return false;
+                return true;
             }
-            DWORD written = 0;
-            const bool ok = data.empty() ||
-                            (::WriteFile(h, data.data(), static_cast<DWORD>(data.size()), &written, nullptr) != 0 &&
-                             written == data.size());
-            ::CloseHandle(h);
-            return ok;
+            ::SetLastError(err);
+            return false;
         }
 
         std::string trim(std::string_view v)

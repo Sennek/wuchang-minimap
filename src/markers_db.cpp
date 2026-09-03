@@ -14,12 +14,24 @@ namespace mdb
         // config file's spelling depend on it.
         constexpr const char* kCatNames[kCatCount] = {
             "shrine", "chest", "pickup", "boss",   "elite",  "enemy",  "npc",
-            "merchant", "door", "ladder", "lift",  "fog_gate", "hidden", "other",
+            "note",   "door",  "ladder", "lift",   "fog_gate", "hidden", "other",
         };
 
         constexpr const char* kCatLabels[kCatCount] = {
             "Shrines", "Chests", "Pickups", "Bosses", "Elites",  "Enemies", "NPCs",
-            "Merchants", "Doors", "Ladders", "Lifts", "Fog gates", "Hidden", "Other",
+            "Notes",   "Doors",  "Ladders", "Lifts",  "Fog gates", "Hidden", "Other",
+        };
+
+        // Renamed categories: {what an older file says, what it means now}. Kept for
+        // one release, so a 0.9.4 config or a stale `markers/` folder still parses.
+        struct LegacyCatName
+        {
+            const char* name;
+            Cat cat;
+        };
+
+        constexpr LegacyCatName kLegacyCatNames[] = {
+            {"merchant", Cat::Note},
         };
 
         char lower(char c)
@@ -94,11 +106,30 @@ namespace mdb
         return false;
     }
 
-    std::uint32_t parse_category_mask(std::string_view text, std::uint32_t fallback, std::string* rejected)
+    bool cat_from_legacy_name(std::string_view name, Cat& out)
+    {
+        const std::string_view n = trim(name);
+        for (const LegacyCatName& l : kLegacyCatNames)
+        {
+            if (iequal(n, l.name))
+            {
+                out = l.cat;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::uint32_t parse_category_mask(std::string_view text, std::uint32_t fallback, std::string* rejected,
+                                      std::string* legacy)
     {
         if (rejected != nullptr)
         {
             rejected->clear();
+        }
+        if (legacy != nullptr)
+        {
+            legacy->clear();
         }
         const std::string_view whole = trim(text);
         if (iequal(whole, "all"))
@@ -131,6 +162,21 @@ namespace mdb
             {
                 mask |= cat_bit(cat);
                 any = true;
+            }
+            else if (cat_from_legacy_name(token, cat))
+            {
+                // A renamed category still selects its slot - the setting the player
+                // made is honoured - and is reported so the caller can say so once.
+                mask |= cat_bit(cat);
+                any = true;
+                if (legacy != nullptr)
+                {
+                    if (!legacy->empty())
+                    {
+                        *legacy += ",";
+                    }
+                    legacy->append(token);
+                }
             }
             else if (rejected != nullptr)
             {
@@ -401,8 +447,17 @@ namespace mdb
             const std::string cat_text = str("cat");
             if (!cat_from_name(cat_text, m.cat))
             {
-                m.cat = Cat::Other;
-                ++report.unknown_cat;
+                // A manifest written by an older release: accept the old spelling for
+                // one release rather than dumping 76 markers into `other`.
+                if (cat_from_legacy_name(cat_text, m.cat))
+                {
+                    ++report.legacy_cat;
+                }
+                else
+                {
+                    m.cat = Cat::Other;
+                    ++report.unknown_cat;
+                }
             }
 
             // Item quality tier. Optional and additive: extract_markers.py omits it when

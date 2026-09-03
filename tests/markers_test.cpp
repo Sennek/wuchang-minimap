@@ -158,6 +158,22 @@ namespace
 }
 )JSON";
 
+    // A manifest from an older release: `merchant` is what `note` used to be called.
+    // A stale markers/ folder beside a new DLL must still load, and those markers must
+    // land in `note` rather than in `other` - 76 of them, all reading points.
+    const char* const kLegacyCatJson = R"JSON(
+{
+  "schema": "wuchang-minimap-markers/1",
+  "chapter": 1,
+  "markers": [
+    {"id":"Chapter1_DGong_logic/DKDC_NPC_C_0","cat":"merchant","cls":"DKDC_NPC_C",
+     "name":"Reading point","x":1,"y":2,"z":3,"level":"Chapter1_DGong_logic"},
+    {"id":"Chapter1_DGong_logic/DKDC_NPC_C_1","cat":"note","cls":"DKDC_NPC_C",
+     "name":"Reading point","x":4,"y":5,"z":6,"level":"Chapter1_DGong_logic"}
+  ]
+}
+)JSON";
+
     void test_loader()
     {
         section("markers/<chapter>.json loader");
@@ -172,6 +188,7 @@ namespace
         CHECK_EQ(rep.added, 5);       // two entries are rejected
         CHECK_EQ(rep.skipped, 2);     // empty id, and the one with no coordinates
         CHECK_EQ(rep.unknown_cat, 1); // "totally_made_up"
+        CHECK_EQ(rep.legacy_cat, 0);
         CHECK_EQ(db.size(), 5);
 
         CHECK_STR(db[0].id, "digong01");
@@ -678,6 +695,22 @@ namespace
         CHECK(gly::shape_of(mdb::Cat::Elite) != gly::shape_of(mdb::Cat::Enemy));
         CHECK(gly::shape_of(mdb::Cat::Hidden) != gly::shape_of(mdb::Cat::Shrine));
 
+        // ---- the note category ----------------------------------------------------
+        // A note gets its OWN hue in both palettes, distinct from the categories that
+        // sit next to it in the legend (npc above it, door below it) and from the ones
+        // its folded page could be mistaken for at 6 px (chest, door, pickup).
+        for (const gly::Palette pal : palettes)
+        {
+            const mdb::Cat near[] = {mdb::Cat::Npc, mdb::Cat::Door, mdb::Cat::Chest,
+                                     mdb::Cat::Pickup, mdb::Cat::Ladder, mdb::Cat::Other};
+            for (const mdb::Cat other : near)
+            {
+                CHECK(!(gly::marker_rgb(mdb::Cat::Note, pal) == gly::marker_rgb(other, pal)));
+                CHECK(gly::shape_of(mdb::Cat::Note) != gly::shape_of(other));
+            }
+        }
+        CHECK(gly::shape_of(mdb::Cat::Note) == gly::Shape::NotePage);
+
         // ---- palette and theme names -------------------------------------------------
         //
         // Both values come out of a hand-edited text file, so the parsers have to be
@@ -758,6 +791,21 @@ namespace
         }
     }
 
+    void test_legacy_manifest_category()
+    {
+        section("a manifest with a renamed category");
+
+        std::vector<mdb::StaticMarker> db;
+        mdb::ParseReport rep{};
+        CHECK(mdb::parse_markers_json(kLegacyCatJson, db, rep));
+        CHECK_EQ(rep.added, 2);
+        CHECK_EQ(rep.unknown_cat, 0); // NOT dumped into `other`
+        CHECK_EQ(rep.legacy_cat, 1);  // counted, so the loader can say so once
+        CHECK_EQ(db.size(), 2);
+        CHECK(db[0].cat == mdb::Cat::Note);
+        CHECK(db[1].cat == mdb::Cat::Note);
+    }
+
     void test_categories()
     {
         section("category names and the filter mask");
@@ -802,6 +850,37 @@ namespace
         CHECK_EQ(mdb::parse_category_mask("", mdb::kAllCats), mdb::kAllCats);
         CHECK_EQ(mdb::parse_category_mask("wombat,badger", mdb::kAllCats, &rejected), mdb::kAllCats);
         CHECK_STR(rejected, "wombat,badger");
+
+        // ---- the renamed category ----------------------------------------------
+        // `merchant` was the name of what is now `note` up to 0.9.4. An existing
+        // config file must keep working AND the caller must be told, so the value
+        // lands in `legacy` rather than in `rejected`, and the bit set is Note's.
+        CHECK(!mdb::cat_from_name("merchant", unused)); // no longer a current name
+        mdb::Cat legacy_cat = mdb::Cat::Other;
+        CHECK(mdb::cat_from_legacy_name("merchant", legacy_cat));
+        CHECK(legacy_cat == mdb::Cat::Note);
+        CHECK(mdb::cat_from_legacy_name("  MERCHANT ", legacy_cat) && legacy_cat == mdb::Cat::Note);
+        CHECK(!mdb::cat_from_legacy_name("note", legacy_cat));  // current names are not aliases
+        CHECK(!mdb::cat_from_legacy_name("wombat", legacy_cat));
+
+        std::string legacy;
+        CHECK_EQ(mdb::parse_category_mask("chest,pickup,shrine,boss,npc,merchant", 0u, &rejected, &legacy),
+                 mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup) |
+                     mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Boss) |
+                     mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note));
+        CHECK_STR(legacy, "merchant");
+        CHECK_STR(rejected, "");
+        // A legacy-only value is a usable value, so it must NOT fall back.
+        CHECK_EQ(mdb::parse_category_mask("merchant", mdb::kAllCats, &rejected, &legacy),
+                 mdb::cat_bit(mdb::Cat::Note));
+        CHECK_STR(legacy, "merchant");
+        // Both kinds of oddity in one line, each reported in its own bucket.
+        CHECK_EQ(mdb::parse_category_mask("merchant,wombat", 0u, &rejected, &legacy),
+                 mdb::cat_bit(mdb::Cat::Note));
+        CHECK_STR(legacy, "merchant");
+        CHECK_STR(rejected, "wombat");
+        // And what Save writes back is the CURRENT name, so the warning clears itself.
+        CHECK_STR(mdb::format_category_mask(mdb::cat_bit(mdb::Cat::Note)), "note");
 
         CHECK_STR(mdb::format_category_mask(mdb::kAllCats), "all");
         CHECK_STR(mdb::format_category_mask(0u), "none");
@@ -2805,18 +2884,20 @@ namespace
             CHECK_EQ(streak, 1);
         }
 
-        section("npc / merchant markers that have walked away");
+        section("npc markers that have walked away");
 
         // Only people move. Every other category's authored position is a fact about
         // the level, so nothing else may ever be hidden by this rule - a chest that has
         // not been seen yet is the ABSENCE rule's business, and that one marks it found
-        // rather than making it disappear.
+        // rather than making it disappear. `Note` is explicitly NOT mobile: a reading
+        // point hangs on a wall (it was in this set while it was misnamed `merchant`).
         for (int c = 0; c < mdb::kCatCount; ++c)
         {
             const auto cat = static_cast<mdb::Cat>(c);
-            const bool expect = cat == mdb::Cat::Npc || cat == mdb::Cat::Merchant;
+            const bool expect = cat == mdb::Cat::Npc;
             CHECK_EQ(mdb::is_mobile_category(cat), expect);
         }
+        CHECK(!mdb::is_mobile_category(mdb::Cat::Note));
 
         {
             mdb::MobileTwinFacts f{};
@@ -3166,6 +3247,7 @@ int main(int argc, char** argv)
     std::printf("WuchangMinimap - offline marker tests\n\n");
 
     test_loader();
+    test_legacy_manifest_category();
     const std::string markers_dir = argc > 1 ? argv[1] : "markers";
     test_sample_file(markers_dir);
     test_real_db(markers_dir);

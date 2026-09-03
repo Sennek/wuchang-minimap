@@ -44,7 +44,7 @@ namespace gly
         TriangleNotched, // elite    - a smaller triangle with a bar across it
         DotRing,         // enemy    - a small dot inside a detached ring
         Pentagon,        // npc      - a filled 5-gon, point up
-        Coin,            // merchant - a circle with a dark centre
+        NotePage,        // note     - a page with a folded top-right corner + two rules
         DoorBox,         // door     - a tall narrow box
         Ladder,          // ladder   - two rails and three rungs
         Lift,            // lift     - a flat box under an up arrow
@@ -74,8 +74,8 @@ namespace gly
             return "dot in a ring";
         case Shape::Pentagon:
             return "pentagon";
-        case Shape::Coin:
-            return "coin";
+        case Shape::NotePage:
+            return "folded page";
         case Shape::DoorBox:
             return "door";
         case Shape::Ladder:
@@ -104,7 +104,7 @@ namespace gly
         Shape::TriangleNotched, // Elite
         Shape::DotRing,         // Enemy
         Shape::Pentagon,        // Npc
-        Shape::Coin,            // Merchant
+        Shape::NotePage,        // Note
         Shape::DoorBox,         // Door
         Shape::Ladder,          // Ladder
         Shape::Lift,            // Lift
@@ -185,7 +185,8 @@ namespace gly
         mdb::Rgb{255, 140, 80},  // Elite
         mdb::Rgb{232, 96, 96},   // Enemy
         mdb::Rgb{140, 235, 140}, // Npc
-        mdb::Rgb{120, 230, 210}, // Merchant
+        mdb::Rgb{238, 232, 205}, // Note  - parchment; its legend neighbours are the
+                                 //         npc green and the door's cold blue-grey
         mdb::Rgb{172, 194, 224}, // Door
         mdb::Rgb{206, 184, 142}, // Ladder
         mdb::Rgb{206, 184, 142}, // Lift  (same hue as the ladder, different shape)
@@ -210,7 +211,9 @@ namespace gly
         mdb::Rgb{204, 121, 167}, // Elite    - reddish purple
         mdb::Rgb{213, 94, 0},    // Enemy    - vermillion (dot-in-ring vs the boss triangle)
         mdb::Rgb{0, 158, 115},   // Npc      - bluish green
-        mdb::Rgb{0, 158, 115},   // Merchant - bluish green (coin vs the npc pentagon)
+        mdb::Rgb{0, 114, 178},   // Note     - blue, the one Okabe-Ito hue nothing else
+                                 //            uses (the ladder/lift near-white would
+                                 //            have been the parchment analogue)
         mdb::Rgb{86, 180, 233},  // Door     - sky blue (tall box vs the pickup dot)
         mdb::Rgb{235, 235, 235}, // Ladder   - near-white
         mdb::Rgb{235, 235, 235}, // Lift     - near-white

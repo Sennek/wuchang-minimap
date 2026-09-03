@@ -94,7 +94,7 @@ namespace markers
         // absence_marks above: "0 met / 0 dead dropped with health unknown climbing"
         // means the property name is wrong, which is the failure worth seeing.
         int shrine_lit_marks = 0; // shrine markers marked from UnlockedFirepoints
-        int met_marks = 0;        // NPC / merchant markers marked as met
+        int met_marks = 0;        // NPC / note markers marked as met
         int boss_defeated = 0;    // boss markers marked as defeated
         int dead_dropped = 0;     // live enemies dropped because their health read 0
         int health_unknown = 0;   // characters whose Health.Current could not be read

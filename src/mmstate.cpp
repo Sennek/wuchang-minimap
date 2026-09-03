@@ -417,6 +417,35 @@ namespace mm
             {"LEFT", 0x0004},  {"RIGHT", 0x0008},
         };
 
+        // ONE parser for every `*_categories` key, because there are four of them and
+        // each one needs the same two diagnostics: unknown names are ignored with a log
+        // line naming the whole known set, and a RENAMED name (`merchant` -> `note`)
+        // is honoured with a log line saying it will be rewritten. The next Save writes
+        // the current spelling, so the warning is self-clearing.
+        std::uint32_t parse_cats(std::string_view key, const std::string& value, std::uint32_t current)
+        {
+            std::string rejected;
+            std::string legacy;
+            const std::uint32_t mask = mdb::parse_category_mask(value, current, &rejected, &legacy);
+            const std::wstring wkey(key.begin(), key.end());
+            if (!rejected.empty())
+            {
+                const std::string known = mdb::format_category_mask(mdb::kAllCats);
+                logf(L"config: {} - unknown name(s) '{}' ignored. Known: {}",
+                     wkey,
+                     std::wstring(rejected.begin(), rejected.end()),
+                     std::wstring(known.begin(), known.end()));
+            }
+            if (!legacy.empty())
+            {
+                logf(L"config: {} - '{}' is the old name of a renamed category and was "
+                     L"accepted; Save will rewrite the line with the current name",
+                     wkey,
+                     std::wstring(legacy.begin(), legacy.end()));
+            }
+            return mask;
+        }
+
         void parse_pad_chord(const std::string& value, std::uint16_t& mask, bool& lt, bool& rt)
         {
             std::uint16_t new_mask = 0;
@@ -834,15 +863,7 @@ namespace mm
             }
             else if (key == "markers_categories")
             {
-                std::string rejected;
-                cfg.markers_categories = mdb::parse_category_mask(value, cfg.markers_categories, &rejected);
-                if (!rejected.empty())
-                {
-                    const std::string known = mdb::format_category_mask(mdb::kAllCats);
-                    logf(L"config: markers_categories - unknown name(s) '{}' ignored. Known: {}",
-                         std::wstring(rejected.begin(), rejected.end()),
-                         std::wstring(known.begin(), known.end()));
-                }
+                cfg.markers_categories = parse_cats(key, value, cfg.markers_categories);
             }
             else if (key == "markers_hide_found")
             {
@@ -1010,14 +1031,7 @@ namespace mm
             }
             else if (key == "highlight_categories")
             {
-                std::string rejected;
-                cfg.highlight_categories =
-                    mdb::parse_category_mask(value, cfg.highlight_categories, &rejected);
-                if (!rejected.empty())
-                {
-                    logf(L"config: highlight_categories - unknown name(s) '{}' ignored",
-                         std::wstring(rejected.begin(), rejected.end()));
-                }
+                cfg.highlight_categories = parse_cats(key, value, cfg.highlight_categories);
             }
             else if (key == "highlight_show_found")
             {
@@ -1119,13 +1133,7 @@ namespace mm
             }
             else if (key == "compass_categories")
             {
-                std::string rejected;
-                cfg.compass_categories = mdb::parse_category_mask(value, cfg.compass_categories, &rejected);
-                if (!rejected.empty())
-                {
-                    logf(L"config: compass_categories - unknown name(s) '{}' ignored",
-                         std::wstring(rejected.begin(), rejected.end()));
-                }
+                cfg.compass_categories = parse_cats(key, value, cfg.compass_categories);
             }
             else if (key == "compass_marker_distance")
             {
@@ -1153,14 +1161,7 @@ namespace mm
             }
             else if (key == "markers_absence_categories")
             {
-                std::string rejected;
-                cfg.markers_absence_categories =
-                    mdb::parse_category_mask(value, cfg.markers_absence_categories, &rejected);
-                if (!rejected.empty())
-                {
-                    logf(L"config: markers_absence_categories - unknown name(s) '{}' ignored",
-                         std::wstring(rejected.begin(), rejected.end()));
-                }
+                cfg.markers_absence_categories = parse_cats(key, value, cfg.markers_absence_categories);
             }
             else
             {

@@ -64,7 +64,7 @@ namespace markers
             PickupDying,   // pickups: `dying` (early) or parked at (0,0,0) (durable)
             ActiveBool,    // fog gates: SavedStatuKey=status_active, so `Active` is the flag
             ControllerPawn, // AI controller: the marker is its possessed Pawn
-            Proximity,     // NPC / merchant: "met" = seen loaded within kMetRadius of the player
+            Proximity,     // NPC / note: "met" = seen loaded within kMetRadius of the player
             BossPawn       // boss character: defeated when its controller's Health.Current <= 0
         };
 
@@ -113,26 +113,31 @@ namespace markers
             {L"BP_Wumen_C", mdb::Cat::FogGate, Rule::ActiveBool, true},
             {L"BP_LadderV2_C", mdb::Cat::Ladder, Rule::None, false},
             {L"BP_WoodenElevator_C", mdb::Cat::Lift, Rule::None, false},
-            // ---- NPCs and merchants (2026-09-03) --------------------------------
+            // ---- NPCs and reading points (2026-09-03) ---------------------------
             //
             // `BP_NPC_C` is the game's interactable-character base and it covers all
             // ~50 `*_NPC_C` blueprints in one entry, because spec_for_class() walks the
             // super chain by name. That is not a guess: `tools/markers/class_graph.py`
             // reads the `super` field out of every cooked `.uasset`'s export map and
             // lists 78 descendants of `BP_NPC_C` - every class the offline extractor
-            // ever put in the `npc` or `merchant` bucket, and nothing else that is a
+            // ever put in the `npc` or `note` bucket, and nothing else that is a
             // character.
             //
             // Five of those 78 are NOT people, so they get their own exact entries
             // (an exact match at depth 0 always beats the base class): the shrine
-            // above, the merchant below, and the three after it. Anything else that
+            // above, the reading point below, and the three after it. Anything else that
             // ever derives from BP_NPC_C lands in `npc`, which is the right default.
             //
             // "Found" means MET: the actor was seen loaded within kMetRadius of the
             // player. There is no per-NPC saved flag to read (and dialogue state is not
             // reachable from here), so proximity is the honest definition - and it is
             // persisted, because "I have been there" does not become false again.
-            {L"DKDC_NPC_C", mdb::Cat::Merchant, Rule::Proximity, true},
+            // `DKDC_NPC_C` is NOT a merchant (it shipped as one up to 0.9.4): every
+            // placed instance carries a read-point id, the blueprint has no character
+            // mesh, its only interaction string is "Check" and it spawns the hint
+            // particle. It is one of the game's readable notes. The game's actual
+            // merchant, Tao Qing, is an ordinary `BP_NPC_C` descendant and stays `npc`.
+            {L"DKDC_NPC_C", mdb::Cat::Note, Rule::Proximity, true},
             {L"BP_NPC_C", mdb::Cat::Npc, Rule::Proximity, true},
             // Not people, despite deriving from BP_NPC_C. Categories match what
             // tools/markers/marker_classes.py puts in the static DB, so the live actor
@@ -455,12 +460,12 @@ namespace markers
 
         // Diagnostics for the two rules added on 2026-09-03, so an in-game session can
         // tell "the rule never fired" from "the property is not there".
-        std::atomic<int> g_met_marks{0};      // NPC/merchant markers marked as met
+        std::atomic<int> g_met_marks{0};      // NPC/note markers marked as met
         std::atomic<int> g_dead_dropped{0};   // live enemies dropped because health == 0
         std::atomic<int> g_boss_defeated{0};  // boss markers marked as defeated
         std::atomic<int> g_health_unknown{0}; // characters whose health could not be read
         std::atomic<int> g_shrine_lit_marks{0}; // shrine markers marked from UnlockedFirepoints
-        // Static NPC / merchant markers hidden this round because the person has moved
+        // Static NPC markers hidden this round because the person has moved
         // on (their level is loaded and no live actor answers for the id).
         std::atomic<int> g_mobile_hidden{0};
 
@@ -472,8 +477,8 @@ namespace markers
         // one that discovered them. A gauge cannot lie that way.
         std::atomic<int> g_shrine_lit_found{0}; // shrines in this chapter that are lit AND found
         std::atomic<int> g_shrine_total{0};     // shrines in this chapter's static DB
-        std::atomic<int> g_mobile_static{0};      // npc/merchant static markers considered
-        std::atomic<int> g_mobile_live{0};        // npc/merchant live entries held
+        std::atomic<int> g_mobile_static{0};      // npc static markers considered
+        std::atomic<int> g_mobile_live{0};        // npc live entries held
         std::atomic<int> g_mobile_joined{0};      // static markers whose live twin answered
         std::atomic<int> g_mobile_superseded{0};  // ... and stands more than kMovedUu away
         std::atomic<int> g_mobile_level_known{0}; // ... whose own level is resident
@@ -1750,7 +1755,7 @@ namespace markers
 
                     // ---- A PERSON WHO HAS WALKED AWAY IS NOT DRAWN WHERE THEY WERE -
                     //
-                    // NPCs and merchants move: talk to a quest NPC and it relocates,
+                    // NPCs move: talk to a quest NPC and it relocates,
                     // usually to a different placed actor in a different sublevel and so
                     // under a different marker id. The authored position then has no live
                     // twin and never will, and the x-ray happily labelled it "NPC 2 m
@@ -2190,6 +2195,7 @@ namespace markers
 
             auto db = std::make_unique<StaticDb>();
             int files = 0;
+            bool warned_legacy_cat = false; // one line per load, not one per file
             for (const std::wstring& name : files_found)
             {
                 const std::wstring path = dir + L"\\" + name;
@@ -2232,6 +2238,18 @@ namespace markers
                          report.skipped != 0 ? std::format(L", {} skipped", report.skipped) : std::wstring{},
                          report.unknown_cat != 0 ? std::format(L", {} unknown category", report.unknown_cat)
                                                  : std::wstring{});
+                // A manifest still spelling a renamed category the old way parses fine
+                // (mdb::cat_from_legacy_name), but it means the `markers/` folder is
+                // older than the DLL - which is worth saying ONCE, not once per file.
+                if (report.legacy_cat != 0 && !warned_legacy_cat)
+                {
+                    warned_legacy_cat = true;
+                    mm::logf(L"markers: this markers/ folder still uses a category name "
+                             L"from an older release ({} marker(s), e.g. 'merchant', now "
+                             L"'note') - they were accepted, but the folder should be "
+                             L"replaced with the one shipped beside this DLL",
+                             report.legacy_cat);
+                }
             }
 
             int duplicates = 0;
@@ -2521,8 +2539,8 @@ namespace markers
                          g_dead_hidden.load(std::memory_order_relaxed),
                          g_dead_dropped.load(std::memory_order_relaxed),
                          g_health_unknown.load(std::memory_order_relaxed));
-                // THE NPC / MERCHANT CENSUS, one line, so the next run pins which half
-                // of the join fails. static = markers of those two categories in the
+                // THE NPC CENSUS, one line, so the next run pins which half
+                // of the join fails. static = markers of that category in the
                 // chapter; live = live entries held; joined = static markers a live
                 // actor answered for THIS round with a usable position; superseded =
                 // those standing more than 3 m from where they were authored (i.e. the

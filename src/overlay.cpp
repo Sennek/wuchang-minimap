@@ -2399,9 +2399,9 @@ namespace overlay
                     dl->AddTriangle(a, b, c, edge, w);
                 }
             };
-            // A pip is the dark centre that tells a shrine from a plain diamond and a
-            // merchant's coin from a pickup's dot. On a hollow glyph it is drawn in the
-            // marker's own colour, because there is no fill for it to contrast against.
+            // A pip is the dark centre that tells a shrine from a plain diamond. On a
+            // hollow glyph it is drawn in the marker's own colour, because there is no
+            // fill for it to contrast against.
             const auto pip = [&](float rad) {
                 dl->AddCircleFilled(p, r * rad, hollow ? col : edge, 8);
             };
@@ -2441,10 +2441,46 @@ namespace overlay
             case gly::Shape::Pentagon:
                 ngon(r * 1.05f, 5);
                 break;
-            case gly::Shape::Coin:
-                circle(p, r * 0.82f, 12);
-                pip(0.30f);
+            case gly::Shape::NotePage:
+            {
+                // A page with its top-right corner folded away, plus two text rules.
+                // The fold is what keeps it apart from the door's plain tall box at
+                // glyph size: same family of silhouette, but one corner is missing and
+                // the inside is not empty. Wider than the door (0.62 vs 0.55 half-
+                // width) and shorter (0.88 vs 0.95) for the same reason.
+                const float hw = r * 0.62f;
+                const float hh = r * 0.88f;
+                const float fold = r * 0.44f; // the 45-degree bite out of the corner
+                const ImVec2 pts[5] = {
+                    ImVec2{p.x - hw, p.y - hh},
+                    ImVec2{p.x + hw - fold, p.y - hh},
+                    ImVec2{p.x + hw, p.y - hh + fold},
+                    ImVec2{p.x + hw, p.y + hh},
+                    ImVec2{p.x - hw, p.y + hh},
+                };
+                if (hollow)
+                {
+                    dl->AddPolyline(pts, 5, col, ImDrawFlags_Closed, w);
+                }
+                else
+                {
+                    dl->AddConvexPolyFilled(pts, 5, col);
+                    dl->AddPolyline(pts, 5, edge, ImDrawFlags_Closed, w);
+                }
+                // The fold itself: the two edges of the turned-down corner.
+                const ImU32 ink = hollow ? col : edge;
+                dl->AddLine(ImVec2{p.x + hw - fold, p.y - hh}, ImVec2{p.x + hw - fold, p.y - hh + fold},
+                            ink, w);
+                dl->AddLine(ImVec2{p.x + hw - fold, p.y - hh + fold}, ImVec2{p.x + hw, p.y - hh + fold},
+                            ink, w);
+                // Two rules of "writing", inset from the edges.
+                for (int i = 0; i < 2; ++i)
+                {
+                    const float y = p.y + r * (i == 0 ? 0.10f : 0.45f);
+                    dl->AddLine(ImVec2{p.x - hw * 0.6f, y}, ImVec2{p.x + hw * 0.6f, y}, ink, w * 0.8f);
+                }
                 break;
+            }
             case gly::Shape::DoorBox:
                 rect(0.55f, 0.95f);
                 break;
@@ -3126,7 +3162,7 @@ namespace overlay
         // gets its column and the layout does not move between chapters.
         constexpr mdb::Cat kStatsCats[] = {
             mdb::Cat::Shrine, mdb::Cat::Chest, mdb::Cat::Pickup,
-            mdb::Cat::Boss,   mdb::Cat::Npc,   mdb::Cat::Merchant,
+            mdb::Cat::Boss,   mdb::Cat::Npc,   mdb::Cat::Note,
         };
         constexpr int kStatsCatCount = static_cast<int>(std::size(kStatsCats));
 
@@ -4146,8 +4182,8 @@ namespace overlay
                     continue;
                 }
                 // FOUND ONLY HIDES LOOT. A chest you have opened is noise; a shrine you
-                // have lit, a boss you have beaten, an NPC you have met and a merchant
-                // you have traded with are still landmarks worth seeing through a wall -
+                // have lit, a boss you have beaten, an NPC you have met and a note
+                // you have read are still landmarks worth seeing through a wall -
                 // and hiding them was why holding the key near a shrine showed nothing.
                 // A DEFEATED BOSS IS NOT A LANDMARK EITHER. It is not loot - the map
                 // keeps its hollow "found" glyph, which is the point of the collection
@@ -4160,8 +4196,8 @@ namespace overlay
                 {
                     continue;
                 }
-                // PEOPLE ARE HIGHLIGHTED WHERE THEY ARE, OR NOT AT ALL. An NPC or a
-                // merchant that has moved leaves the authored position behind, and
+                // PEOPLE ARE HIGHLIGHTED WHERE THEY ARE, OR NOT AT ALL. An NPC
+                // that has moved leaves the authored position behind, and
                 // seeing an "NPC 2 m" label through a wall at a spot the NPC has left is
                 // worse than seeing nothing: the whole point of the x-ray is that it
                 // tells you where a thing IS. publish_round already drops such a hint
@@ -5230,7 +5266,7 @@ namespace overlay
             const ImVec2 avail = ImGui::GetContentRegionAvail();
             // Sized from the text, so it is right at every ui_scale.
             const float legend_w =
-                ImGui::CalcTextSize("      merchant   9999/9999").x + ImGui::GetStyle().FramePadding.x * 4.0f;
+                ImGui::CalcTextSize("      fog_gate   9999/9999").x + ImGui::GetStyle().FramePadding.x * 4.0f;
             const ImVec2 csize{(std::max)(64.0f, avail.x - legend_w - ImGui::GetStyle().ItemSpacing.x),
                                (std::max)(64.0f, avail.y - footer_h)};
             const ImVec2 cpos = ImGui::GetCursorScreenPos();
@@ -6142,7 +6178,6 @@ namespace overlay
             const std::uint32_t boss = mdb::cat_bit(mdb::Cat::Boss);
             const std::uint32_t elite = mdb::cat_bit(mdb::Cat::Elite);
             const std::uint32_t fog = mdb::cat_bit(mdb::Cat::FogGate);
-            const std::uint32_t merchant = mdb::cat_bit(mdb::Cat::Merchant);
             const std::uint32_t npc = mdb::cat_bit(mdb::Cat::Npc);
             const std::uint32_t door = mdb::cat_bit(mdb::Cat::Door);
             const std::uint32_t ladder = mdb::cat_bit(mdb::Cat::Ladder);
@@ -6174,7 +6209,7 @@ namespace overlay
                 cfg.size_frac = 0.24f;
                 cfg.zoom_uu_per_px = 20.0f;
                 cfg.opacity = 0.92f;
-                cfg.markers_categories = chest | pickup | hidden | merchant;
+                cfg.markers_categories = chest | pickup | hidden;
                 cfg.markers_hide_found = true;
                 cfg.markers_clamp_to_edge = true;
                 cfg.compass_enabled = true;
@@ -6199,7 +6234,7 @@ namespace overlay
                 cfg.markers_clamp_to_edge = true;
                 cfg.compass_enabled = true;
                 cfg.compass_categories = shrine | boss | elite | fog | door | ladder | lift | npc;
-                cfg.highlight_categories = chest | pickup | shrine | boss | npc | merchant;
+                cfg.highlight_categories = chest | pickup | shrine | boss | npc;
                 break;
             }
         }

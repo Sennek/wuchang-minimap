@@ -50,7 +50,11 @@ namespace mdb
         Elite,
         Enemy,
         Npc,
-        Merchant,
+        // The game's readable notes / inscriptions (`DKDC_NPC_C` and friends). This
+        // slot shipped as `merchant` up to 0.9.4 and every one of its 76 markers was
+        // in fact a reading point - see `cat_from_legacy_name()` for the alias that
+        // keeps an existing config file working.
+        Note,
         Door,
         Ladder,
         Lift,
@@ -72,6 +76,14 @@ namespace mdb
     // Exact, case-insensitive match against cat_name(). False for an unknown name.
     bool cat_from_name(std::string_view name, Cat& out);
 
+    // The RENAMED categories of past releases, so a config file or a marker manifest
+    // written by an older version still means what it said. `merchant` -> `Note`: the
+    // slot never held a merchant (all 76 of its markers are the game's reading points,
+    // and the game's one actual merchant is typed `npc`), so the alias is a spelling
+    // change, not a re-typing. Callers accept the value AND warn, once, so the file
+    // gets rewritten with the current name the next time Save runs.
+    bool cat_from_legacy_name(std::string_view name, Cat& out);
+
     inline std::uint32_t cat_bit(Cat cat)
     {
         return 1u << static_cast<int>(cat);
@@ -86,7 +98,13 @@ namespace mdb
     // "all" and "none" are accepted as the whole value. Unknown names are collected
     // into `rejected` (comma separated) so the caller can log them; they never change
     // the result. An empty / all-unknown list yields `fallback`.
-    std::uint32_t parse_category_mask(std::string_view text, std::uint32_t fallback, std::string* rejected = nullptr);
+    //
+    // A legacy spelling (see cat_from_legacy_name) DOES set its category's bit and is
+    // reported in `legacy` (comma separated) rather than in `rejected`, so the caller
+    // can say "your config still says `merchant`; it now reads `note`" once instead of
+    // silently ignoring the line.
+    std::uint32_t parse_category_mask(std::string_view text, std::uint32_t fallback,
+                                      std::string* rejected = nullptr, std::string* legacy = nullptr);
 
     // The inverse, for save_config_file(): "all", "none", or a comma-separated list.
     std::string format_category_mask(std::uint32_t mask);
@@ -260,7 +278,7 @@ namespace mdb
     // Categories that WALK AWAY (pure, tested offline)
     //==========================================================================
     //
-    // An NPC and a merchant are people. The static database records where one was
+    // An NPC is a person. The static database records where one was
     // AUTHORED, and the game moves them: talk to a quest NPC and it relocates,
     // usually to a different sublevel with a different placed actor and therefore a
     // different marker id. So the authored position is only ever a hint, and it goes
@@ -275,9 +293,14 @@ namespace mdb
     //     just unseen - the actor is provably not there, so it is not drawn at all;
     //   * when the level is not loaded we know nothing, so the hint is kept.
     // The found ("met") state is untouched either way: it lives in the found set.
+    //
+    // `Note` used to be in here, back when it was called `merchant` and was believed
+    // to be one. A reading point is a thing on a wall: it does not walk away, so its
+    // authored position never goes stale and dropping it when no live actor answered
+    // would only hide notes in a level that had not finished streaming.
     constexpr bool is_mobile_category(Cat cat)
     {
-        return cat == Cat::Npc || cat == Cat::Merchant;
+        return cat == Cat::Npc;
     }
 
     struct MobileTwinFacts
@@ -305,6 +328,11 @@ namespace mdb
         std::size_t added = 0;   // markers appended to `out`
         std::size_t skipped = 0; // entries rejected (bad id / coords)
         std::size_t unknown_cat = 0; // entries whose "cat" was not a known name -> Other
+        // Entries whose "cat" was a RENAMED category (`merchant` -> `note`). Accepted,
+        // counted, and worth one log line: a manifest that still spells it the old way
+        // is a stale `markers/` folder, which is exactly the thing a player copies over
+        // a new release and then wonders about.
+        std::size_t legacy_cat = 0;
         std::string error;       // empty on success; a human-readable reason otherwise
     };
 

@@ -336,9 +336,12 @@ namespace overlay
             // rectangle's aspect, so nothing is cut that is never sampled.
             int w = 0;
             int h = 0;
-            bool needs_copy = false;      // filled by the CPU, copy not recorded yet
             bool in_copy_dest = true;     // resource state tracking for the barriers
-            UINT64 in_flight_fence = 0;   // last frame that sampled it
+            // `needs_copy` (loop -> render: the CPU has filled this one) and
+            // `in_flight_fence` (render -> loop: the last frame that sampled it) used to
+            // live here. The slice runs on the LOOP thread now, so both are atomics in
+            // the parallel arrays below; everything left in this struct is written only
+            // while the slicer is paused.
         };
 
         // Per-pixel scratch for the PLANE-MAJOR slice pass, plus the destination ->
@@ -370,6 +373,18 @@ namespace overlay
             int surfaces = 0;
         };
 
+        // QueryPerformanceFrequency is a constant for the life of the process, and it
+        // was being asked for on every slice and every map cut. Once, lazily.
+        std::int64_t qpc_freq()
+        {
+            static const std::int64_t freq = [] {
+                LARGE_INTEGER f{};
+                ::QueryPerformanceFrequency(&f);
+                return static_cast<std::int64_t>(f.QuadPart);
+            }();
+            return freq;
+        }
+
         Spinlock g_render_lock;
 
         ID3D12Device* g_device = nullptr;
@@ -397,16 +412,28 @@ namespace overlay
         // the height maps failed to load at all.
         MapTexture g_map;
 
+        // How long the render thread will wait for the loop-thread slicer to leave its
+        // critical section before giving up on (re)allocating buffers this frame. The
+        // slice itself is 1-4 ms and never blocks, so this is generous by an order of
+        // magnitude and a timeout means something is badly wrong.
+        constexpr unsigned kSlicerPauseMs = 50;
+
         constexpr int kSliceBufs = 2;
+        // Declared here rather than with the full map's own block below, because the
+        // slicer handshake arrays need both counts.
+        constexpr int kMapSliceBufs = 2;
         // Defaults for `slice_min_px` / `slice_max_px`, which is what slice_size_for()
         // actually reads.
         constexpr int kSliceMinPx = 128;
         constexpr int kSliceMaxPx = 1024;
         SliceBuf g_slice[kSliceBufs];
-        int g_slice_next = 0;  // the buffer the next update writes
-        int g_slice_shown = -1; // the buffer the minimap is drawing
+        int g_slice_next = 0;  // the buffer the next update writes (loop thread)
         int g_slice_size = 0;   // side of the currently allocated buffers, px
         std::uint64_t g_slice_last_ms = 0;
+        // DIAGNOSTICS ONLY, and written by the LOOP thread (the slicer) while the F2
+        // panel reads them on the render thread. They are lone scalars refreshed many
+        // times a second; a torn read would show one stale number for one frame, which
+        // is why they are not atomics.
         double g_slice_ms = 0.0;     // cost of the last slice, ms (EMA)
         double g_slice_ms_peak = 0.0;
         std::uint64_t g_slice_updates = 0;
@@ -426,6 +453,142 @@ namespace overlay
         SliceScratch g_slice_scratch;
 
         //==============================================================================
+        // The slicer runs on the LOOP thread
+        //==============================================================================
+        //
+        // `slice_region` is 1-4 ms of pure CPU that writes into a persistently mapped
+        // upload heap. Nothing about it needs Present, and running it inside the frame
+        // put a 1-4 ms spike into frame time twelve times a second. It now runs from
+        // `overlay::on_update` on the UE4SS loop thread; `render()` only records the
+        // CopyTextureRegion for a buffer the slicer has finished and stamps the fence of
+        // the frame that sampled it.
+        //
+        // THE OWNERSHIP RULES, which are what keep this safe:
+        //   * the RENDER thread owns creation and destruction of every D3D12 object,
+        //     including the slice buffers, and publishes what it wants cut;
+        //   * the LOOP thread only ever writes into `mapped` memory of a buffer that
+        //     already exists, and only while the slicer is not paused;
+        //   * a buffer may be written only when the fence of the last frame that
+        //     sampled it has completed (`g_slice_in_flight`), exactly as before;
+        //   * before creating or destroying any slice buffer the render thread PAUSES
+        //     the slicer and waits, with a bound, for it to leave the critical section.
+        //     If it cannot, it does not touch the buffers this frame and tries again.
+        //   * `g_slice_gen` is bumped by every create/destroy; the slicer re-reads it
+        //     after writing and throws the result away if it moved, so a cut can never
+        //     be published against a buffer set that no longer exists.
+
+        std::atomic<bool> g_slicer_pause{false};
+        std::atomic<bool> g_slicer_busy{false};
+        std::atomic<std::uint32_t> g_slice_gen{0};
+
+        // loop -> render: this buffer has been filled and its copy is not recorded yet.
+        std::atomic<bool> g_slice_copy_pending[kSliceBufs];
+        std::atomic<bool> g_mslice_copy_pending[kMapSliceBufs];
+        // render -> loop: the fence value of the last frame that SAMPLED this buffer.
+        std::atomic<std::uint64_t> g_slice_in_flight[kSliceBufs];
+        std::atomic<std::uint64_t> g_mslice_in_flight[kMapSliceBufs];
+
+        // render -> loop: what the minimap needs. 0 = the minimap is not drawing, so
+        // the slicer stands down (one relaxed load per loop iteration).
+        std::atomic<int> g_slice_want_px{0};
+        std::atomic<std::uint64_t> g_slice_want_ms{0}; // GetTickCount64 of the last request
+
+        // render -> loop: the full map's viewport. Only meaningful while the map is open.
+        struct MapSliceReq
+        {
+            bool wanted = false;
+            double cx = 0.0;
+            double cy = 0.0;
+            double zoom = 0.0;
+            float canvas_w = 0.0f;
+            float canvas_h = 0.0f;
+            float feet = 0.0f;
+            bool show_all_floors = false;
+        };
+        Spinlock g_slice_req_lock;
+        MapSliceReq g_map_req;
+        std::atomic<std::uint64_t> g_map_req_ms{0}; // GetTickCount64 of the last request
+
+        // loop -> render: which buffer to draw and the world mapping it covers. Copied
+        // under the lock so the index and its geometry can never disagree.
+        struct SliceView
+        {
+            int shown = -1;
+            double min_y = 0.0;
+            double max_x = 0.0;
+            double px_per_uu = 0.0;
+        };
+        struct MapSliceView
+        {
+            int shown = -1;
+            bool valid = false;
+            double x0 = 0.0; // south edge
+            double x1 = 0.0; // north edge
+            double y0 = 0.0; // west edge
+            double y1 = 0.0; // east edge
+        };
+        Spinlock g_slice_view_lock;
+        SliceView g_slice_view;
+        MapSliceView g_mslice_view;
+
+        SliceView slice_view()
+        {
+            SpinGuard guard(g_slice_view_lock);
+            return g_slice_view;
+        }
+
+        MapSliceView map_slice_view()
+        {
+            SpinGuard guard(g_slice_view_lock);
+            return g_mslice_view;
+        }
+
+        void clear_slice_view()
+        {
+            SpinGuard guard(g_slice_view_lock);
+            g_slice_view = SliceView{};
+        }
+
+        void clear_map_slice_view()
+        {
+            SpinGuard guard(g_slice_view_lock);
+            g_mslice_view = MapSliceView{};
+        }
+
+        // RENDER THREAD. Stop the slicer and wait for it to leave its critical section.
+        // Returns false when it did not stop inside `budget_ms` - the caller must then
+        // leave every slice buffer alone and try again on the next frame. The slicer's
+        // critical section is a few milliseconds of arithmetic and never blocks, so a
+        // timeout means something is very wrong and skipping is the safe answer.
+        bool slicer_pause_begin(unsigned budget_ms)
+        {
+            g_slicer_pause.store(true); // seq_cst on purpose: it pairs with the loop's
+                                        // "check, mark busy, check again" sequence
+            const std::uint64_t deadline = ::GetTickCount64() + budget_ms;
+            while (g_slicer_busy.load())
+            {
+                if (::GetTickCount64() > deadline)
+                {
+                    g_slicer_pause.store(false);
+                    return false;
+                }
+                ::SwitchToThread();
+            }
+            return true;
+        }
+
+        void slicer_pause_end()
+        {
+            g_slicer_pause.store(false);
+        }
+
+        // Bumped by every create/destroy so a cut in flight can be discarded.
+        void note_slice_buffers_changed()
+        {
+            g_slice_gen.fetch_add(1, std::memory_order_release);
+        }
+
+        //==============================================================================
         // The full map (step C1)
         //==============================================================================
         //
@@ -437,10 +600,8 @@ namespace overlay
         // re-cuts when something actually changed (pan out of the cut region, zoom,
         // floor slice, a big player move), capped at map_slice_hz.
 
-        constexpr int kMapSliceBufs = 2;
         SliceBuf g_mslice[kMapSliceBufs];
         int g_mslice_next = 0;
-        int g_mslice_shown = -1;
         SliceScratch g_mslice_scratch;
         SliceCounts g_mslice_counts{};
         double g_mslice_ms = 0.0;
@@ -455,6 +616,11 @@ namespace overlay
         double g_mr_y0 = 0.0; // west edge
         double g_mr_y1 = 0.0; // east edge
         bool g_mr_valid = false;
+        // Render -> loop: "throw the cut region away and re-cut" (the map was recentred).
+        // g_mr_* is the loop thread's now, so the render thread may not clear it itself.
+        std::atomic<bool> g_map_recut{false};
+        int g_mr_w = 0; // the buffer size the cut was made at (a resize is urgent)
+        int g_mr_h = 0;
         double g_mr_zoom = 0.0;
         float g_mr_feet = 0.0f;
         double g_mr_px = 0.0; // the player position the cut was made at
@@ -740,24 +906,41 @@ namespace overlay
             }
         }
 
+        // RENDER THREAD, and only with the slicer paused.
         void destroy_slice_buffers()
         {
             destroy_slice_set(g_slice, kSliceBufs);
+            for (int i = 0; i < kSliceBufs; ++i)
+            {
+                g_slice_copy_pending[i].store(false);
+                g_slice_in_flight[i].store(0);
+            }
             g_slice_size = 0;
             g_slice_next = 0;
-            g_slice_shown = -1;
+            clear_slice_view();
             g_slice_last_ms = 0;
+            note_slice_buffers_changed();
         }
 
+        // RENDER THREAD, and only with the slicer paused.
         void destroy_map_slice_buffers()
         {
             destroy_slice_set(g_mslice, kMapSliceBufs);
+            for (int i = 0; i < kMapSliceBufs; ++i)
+            {
+                g_mslice_copy_pending[i].store(false);
+                g_mslice_in_flight[i].store(0);
+            }
             g_mslice_next = 0;
-            g_mslice_shown = -1;
+            clear_map_slice_view();
             g_mslice_last_ms = 0;
             g_mr_valid = false;
+            note_slice_buffers_changed();
         }
 
+        // RENDER THREAD. Every caller must already have the slicer paused; the two
+        // that matter (the F5 texture drop and shutdown_render) do it around
+        // wait_for_gpu() as well, so the GPU is idle AND the loop thread is out.
         void destroy_all_map_textures()
         {
             destroy_texture(g_map);
@@ -765,7 +948,14 @@ namespace overlay
             destroy_map_slice_buffers();
             g_feet_z_valid = false;
             g_slice_scratch.clear();
+            // g_mslice_scratch belongs to the loop thread now, but the slicer is paused
+            // here, so clearing it is safe and keeps the memory from a closed map.
             g_mslice_scratch.clear();
+            g_slice_want_px.store(0, std::memory_order_relaxed);
+            {
+                SpinGuard guard(g_slice_req_lock);
+                g_map_req.wanted = false;
+            }
         }
 
         // An upload buffer only has to live until the GPU has run the copy. Releasing
@@ -1154,8 +1344,6 @@ namespace overlay
                 b.w = w;
                 b.h = h;
                 b.in_copy_dest = true;
-                b.in_flight_fence = 0;
-                b.needs_copy = false;
             }
             mm::logf(L"slice ({}): {} dynamic texture(s) of {}x{} RGBA created ({} KB each, {} KB of "
                      L"mapped upload memory)",
@@ -1168,6 +1356,7 @@ namespace overlay
             return true;
         }
 
+        // RENDER THREAD, and only with the slicer paused.
         bool create_slice_buffers(int size)
         {
             if (!create_slice_set(g_slice, kSliceBufs, size, size, L"minimap"))
@@ -1175,9 +1364,15 @@ namespace overlay
                 destroy_slice_buffers();
                 return false;
             }
+            for (int i = 0; i < kSliceBufs; ++i)
+            {
+                g_slice_copy_pending[i].store(false);
+                g_slice_in_flight[i].store(0);
+            }
             g_slice_size = size;
             g_slice_next = 0;
-            g_slice_shown = -1;
+            clear_slice_view();
+            note_slice_buffers_changed();
             return true;
         }
 
@@ -1408,17 +1603,94 @@ namespace overlay
             g_slice_surfaces = counts.surfaces;
         }
 
-        // Re-slices into the next buffer if it is time and that buffer is free.
-        // Returns true when a buffer is available to draw (this frame's or the previous
-        // one's - the window has margin, so a skipped update is invisible).
-        bool update_slice(const mm::Config& cfg, const mapdata::Chapter& ch, const mm::Snapshot& snap,
-                          float half_px, std::uint64_t now)
+        // The slice style, built from the config. Both slicers use it and the loop
+        // thread builds its own copy, so it lives in one place.
+        SliceStyle style_from(const mm::Config& cfg)
+        {
+            SliceStyle st{};
+            st.base_r = cfg.floor_base_r;
+            st.base_g = cfg.floor_base_g;
+            st.base_b = cfg.floor_base_b;
+            st.strength = cfg.floor_gradient_strength;
+            st.tol = cfg.floor_z_tolerance;
+            st.fade = cfg.floor_fade_uu;
+            st.a_dim = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity : 0.0f;
+            st.a_faint = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity * 0.6f : 0.0f;
+            return st;
+        }
+
+        // RENDER THREAD. Everything about the minimap slice that must happen inside the
+        // frame: size the buffers (creation is the render thread's alone) and tell the
+        // slicer the minimap is drawing and how big a window it needs. The CUT itself
+        // runs on the loop thread - see slice_minimap_step().
+        //
+        // Returns true when a buffer is available to draw. The window carries margin,
+        // so a cut that has not landed yet is invisible.
+        bool plan_slice(const mm::Config& cfg, const mapdata::Chapter& ch, float half_px, std::uint64_t now)
         {
             if (!ch.has_heights())
             {
+                g_slice_want_px.store(0, std::memory_order_relaxed);
                 return false;
             }
             const mapdata::HeightMaps& hm = *ch.heights;
+
+            const int want = slice_size_for(cfg, hm, half_px);
+            if (want != g_slice_size)
+            {
+                // The buffers are the render thread's to allocate, and the slicer may be
+                // writing into the old ones right now. If it will not stand down we
+                // simply keep the current size for this frame.
+                if (slicer_pause_begin(kSlicerPauseMs))
+                {
+                    wait_for_gpu(); // the old buffers may still be in flight
+                    const bool ok = create_slice_buffers(want);
+                    slicer_pause_end();
+                    if (!ok)
+                    {
+                        g_slice_want_px.store(0, std::memory_order_relaxed);
+                        return false;
+                    }
+                }
+            }
+            g_slice_want_px.store(g_slice_size, std::memory_order_relaxed);
+            g_slice_want_ms.store(now, std::memory_order_relaxed);
+            return slice_view().shown >= 0;
+        }
+
+        // LOOP THREAD. The actual cut: pace it, take the next buffer if the GPU is done
+        // with it, fill the mapped upload heap and publish the result.
+        //
+        // The height planes are re-read from `mapdata` on EVERY call and never cached
+        // across one: a chapter switch retires the old planes and frees them after a
+        // grace period, so a pointer held from the previous slice could be freed memory.
+        void slice_minimap_step(std::uint64_t now)
+        {
+            const int want = g_slice_want_px.load(std::memory_order_relaxed);
+            if (want <= 0 || want != g_slice_size)
+            {
+                return; // the minimap is not drawing, or the render thread is resizing
+            }
+            // The minimap stopped drawing (the overlay hid, the map opened) and nobody
+            // has asked since: stop cutting rather than burning a millisecond forever.
+            if (now - g_slice_want_ms.load(std::memory_order_relaxed) > 500)
+            {
+                return;
+            }
+
+            mm::Snapshot snap{};
+            if (!mm::read_snapshot(snap) || !snap.has_pawn)
+            {
+                return;
+            }
+            const mapdata::Chapter* ch = mapdata::chapter_ptr_for(snap.x, snap.y);
+            if (ch == nullptr || !ch->has_heights())
+            {
+                return;
+            }
+            const mapdata::HeightMaps& hm = *ch->heights;
+
+            const mm::Config& cfg = mm::cfg_cached();
 
             // ---- feet Z, EMA-smoothed ------------------------------------------------
             const float raw_feet = static_cast<float>(snap.z) - cfg.player_z_offset;
@@ -1432,45 +1704,36 @@ namespace overlay
             {
                 g_feet_z = raw_feet;
                 g_feet_z_valid = true;
-                g_slice_last_ms = 0; // a teleport must re-slice on this very frame
+                g_slice_last_ms = 0; // a teleport must re-slice immediately
             }
             else
             {
                 const float tau = cfg.feet_z_smooth_ms > 1 ? static_cast<float>(cfg.feet_z_smooth_ms) : 1.0f;
-                // One frame is ~16 ms; the exact dt does not matter for a 100 ms EMA.
+                // The loop runs at roughly frame rate; the exact dt does not matter for
+                // a 100 ms EMA.
                 const float a = 16.0f / tau;
                 g_feet_z += (raw_feet - g_feet_z) * (a > 1.0f ? 1.0f : a);
             }
 
-            // ---- (re)allocate when the needed window size changes --------------------
-            const int want = slice_size_for(cfg, hm, half_px);
-            if (want != g_slice_size)
-            {
-                wait_for_gpu(); // the old buffers may still be in flight
-                if (!create_slice_buffers(want))
-                {
-                    return false;
-                }
-            }
-
             const int period = cfg.slice_hz > 0 ? 1000 / cfg.slice_hz : 80;
-            if (g_slice_shown >= 0 && now - g_slice_last_ms < static_cast<std::uint64_t>(period))
+            if (g_slice_last_ms != 0 && now - g_slice_last_ms < static_cast<std::uint64_t>(period))
             {
-                return true; // the previous window is still good enough
+                return; // the previous window is still good enough
             }
 
             SliceBuf& b = g_slice[g_slice_next];
             if (b.tex == nullptr || b.mapped == nullptr || b.w <= 0)
             {
-                return g_slice_shown >= 0;
+                return;
             }
-            if (b.in_flight_fence != 0 && g_fence != nullptr &&
-                g_fence->GetCompletedValue() < b.in_flight_fence)
+            const std::uint64_t in_flight = g_slice_in_flight[g_slice_next].load(std::memory_order_acquire);
+            ID3D12Fence* fence = g_fence;
+            if (in_flight != 0 && fence != nullptr && fence->GetCompletedValue() < in_flight)
             {
-                // The GPU is still sampling this one. Never stall Present for the map:
-                // keep showing the other buffer and try again next frame.
+                // The GPU is still sampling this one. Never stall for the map: keep
+                // showing the other buffer and try again on the next loop iteration.
                 ++g_slice_skipped;
-                return g_slice_shown >= 0;
+                return;
             }
 
             double pxc = 0.0;
@@ -1479,28 +1742,19 @@ namespace overlay
             const int x0 = static_cast<int>(std::lround(pxc)) - b.w / 2;
             const int y0 = static_cast<int>(std::lround(pyc)) - b.w / 2;
 
-            SliceStyle st{};
-            st.base_r = cfg.floor_base_r;
-            st.base_g = cfg.floor_base_g;
-            st.base_b = cfg.floor_base_b;
-            st.strength = cfg.floor_gradient_strength;
-            st.tol = cfg.floor_z_tolerance;
-            st.fade = cfg.floor_fade_uu;
-            st.a_dim = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity : 0.0f;
-            st.a_faint = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity * 0.6f : 0.0f;
+            const SliceStyle st = style_from(cfg);
 
             LARGE_INTEGER t0{};
             LARGE_INTEGER t1{};
-            LARGE_INTEGER freq{};
-            ::QueryPerformanceFrequency(&freq);
             ::QueryPerformanceCounter(&t0);
             slice_window(hm, x0, y0, b.w, b.mapped + b.footprint.Offset, b.footprint.Footprint.RowPitch,
                          g_feet_z, st);
             ::QueryPerformanceCounter(&t1);
-            if (freq.QuadPart > 0)
+            const std::int64_t freq = qpc_freq();
+            if (freq > 0)
             {
-                const double ms = 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) /
-                                  static_cast<double>(freq.QuadPart);
+                const double ms =
+                    1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) / static_cast<double>(freq);
                 g_slice_ms = g_slice_ms == 0.0 ? ms : g_slice_ms * 0.8 + ms * 0.2;
                 if (ms > g_slice_ms_peak)
                 {
@@ -1508,18 +1762,20 @@ namespace overlay
                 }
             }
 
-            b.needs_copy = true;
-            g_slice_shown = g_slice_next;
+            g_slice_copy_pending[g_slice_next].store(true, std::memory_order_release);
+            {
+                SpinGuard guard(g_slice_view_lock);
+                g_slice_view.shown = g_slice_next;
+                // The window's own world -> pixel mapping (see mapdata::HeightMaps::to_px):
+                //   px_local = px - x0 = (Y - (min_y + x0/s)) * s
+                //   py_local = py - y0 = ((max_x - y0/s) - X) * s
+                g_slice_view.px_per_uu = hm.px_per_uu;
+                g_slice_view.min_y = hm.min_y + static_cast<double>(x0) / hm.px_per_uu;
+                g_slice_view.max_x = hm.max_x - static_cast<double>(y0) / hm.px_per_uu;
+            }
             g_slice_next = (g_slice_next + 1) % kSliceBufs;
             g_slice_last_ms = now;
             ++g_slice_updates;
-            // The window's own world -> pixel mapping (see mapdata::HeightMaps::to_px):
-            //   px_local = px - x0 = (Y - (min_y + x0/s)) * s
-            //   py_local = py - y0 = ((max_x - y0/s) - X) * s
-            g_slice_px_per_uu = hm.px_per_uu;
-            g_slice_min_y = hm.min_y + static_cast<double>(x0) / hm.px_per_uu;
-            g_slice_max_x = hm.max_x - static_cast<double>(y0) / hm.px_per_uu;
-            return true;
         }
 
         // MAIN-MENU SELF-TEST. The slicer only ever runs inside draw_minimap, which is
@@ -1529,8 +1785,21 @@ namespace overlay
         // centre so a Lobby log line proves the whole path: texture + mapped upload heap
         // created, the loop ran, and what it cost. It also removes the first-frame hitch
         // in-world, since the buffers already exist.
+        // RENDER THREAD, during set-up. It creates the buffers and writes into one of
+        // them, so the loop-thread slicer must be held off for its duration.
         void slice_selftest()
         {
+            if (!slicer_pause_begin(kSlicerPauseMs))
+            {
+                return; // the next frame will try again
+            }
+            struct Resume
+            {
+                ~Resume()
+                {
+                    slicer_pause_end();
+                }
+            } resume;
             const mm::Config cfg = mm::config();
             std::vector<mapdata::Chapter> list = mapdata::chapters();
             const mapdata::Chapter* ch = nullptr;
@@ -1569,8 +1838,6 @@ namespace overlay
 
             LARGE_INTEGER t0{};
             LARGE_INTEGER t1{};
-            LARGE_INTEGER freq{};
-            ::QueryPerformanceFrequency(&freq);
             ::QueryPerformanceCounter(&t0);
             // Slice a window that actually HAS geometry in it, at a feet Z taken from
             // that geometry - a window over empty map at the mid-Z of the chapter comes
@@ -1598,9 +1865,10 @@ namespace overlay
             slice_window(hm, sx0, sy0, b.w, b.mapped + b.footprint.Offset,
                          b.footprint.Footprint.RowPitch, probe_z, st);
             ::QueryPerformanceCounter(&t1);
-            const double ms = freq.QuadPart > 0 ? 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) /
-                                                      static_cast<double>(freq.QuadPart)
-                                                : 0.0;
+            const std::int64_t freq = qpc_freq();
+            const double ms = freq > 0 ? 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) /
+                                             static_cast<double>(freq)
+                                       : 0.0;
             // Deliberately NOT marked needs_copy: nothing may be drawn at the main menu.
             mm::logf(L"slice: self-test sliced a {}x{} window of \"{}\" at source ({}, {}), feet Z "
                      L"{:.0f}, over {} surface(s) in {:.2f} ms (opaque {}, dim {}, faint {}) - the CPU "
@@ -1623,12 +1891,16 @@ namespace overlay
 
         // Render thread, inside a frame, after the command list has been reset: record
         // the copy for whichever buffer the CPU just filled.
-        void record_slice_copies(ID3D12GraphicsCommandList* list, SliceBuf* bufs, int count)
+        void record_slice_copies(ID3D12GraphicsCommandList* list, SliceBuf* bufs,
+                                std::atomic<bool>* pending, std::atomic<std::uint64_t>* in_flight,
+                                int count)
         {
             for (int i = 0; i < count; ++i)
             {
                 SliceBuf& b = bufs[i];
-                if (!b.needs_copy || b.tex == nullptr)
+                // exchange, not load+store: the slicer may fill this buffer again the
+                // instant we clear the flag, and that next fill must not be lost.
+                if (b.tex == nullptr || !pending[i].exchange(false))
                 {
                     continue;
                 }
@@ -1657,14 +1929,21 @@ namespace overlay
                 barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
                 list->ResourceBarrier(1, &barrier);
                 b.in_copy_dest = false;
-                b.needs_copy = false;
+                // The upload heap this copy READS may not be rewritten until the GPU has
+                // run it, so claim the fence this frame is about to signal. Without this
+                // the loop thread could refill the heap between the recording and the
+                // execution of the copy (two buffers, and a stalled frame is all it
+                // takes) and the texture would show a window the mapping does not
+                // describe. The stamp for a buffer that is merely being SAMPLED happens
+                // at the end of the frame, alongside the fence signal.
+                in_flight[i].store(g_fence_value + 1, std::memory_order_release);
             }
         }
 
         void record_slice_copy(ID3D12GraphicsCommandList* list)
         {
-            record_slice_copies(list, g_slice, kSliceBufs);
-            record_slice_copies(list, g_mslice, kMapSliceBufs);
+            record_slice_copies(list, g_slice, g_slice_copy_pending, g_slice_in_flight, kSliceBufs);
+            record_slice_copies(list, g_mslice, g_mslice_copy_pending, g_mslice_in_flight, kMapSliceBufs);
         }
 
         //==============================================================================
@@ -2231,11 +2510,12 @@ namespace overlay
             // around the player at slice_hz and returns true while a window is
             // available to draw (its own or the previous one's - the window carries
             // margin, so a skipped update is invisible).
-            const bool slice_ok = update_slice(cfg, chapter, snap, g.half, now);
-            if (slice_ok && g_slice_shown >= 0)
+            const bool slice_ok = plan_slice(cfg, chapter, g.half, now);
+            const SliceView sv = slice_view();
+            if (slice_ok && sv.shown >= 0)
             {
-                const SliceBuf& b = g_slice[g_slice_shown];
-                const UvMap window{g_slice_min_y, g_slice_max_x, g_slice_px_per_uu, b.w, b.h};
+                const SliceBuf& b = g_slice[sv.shown];
+                const UvMap window{sv.min_y, sv.max_x, sv.px_per_uu, b.w, b.h};
                 draw_srv(dl, b.srv_gpu, window, g, tint_slice, cfg.round, x0, y0, side);
             }
             else if (composite_ready)
@@ -2846,31 +3126,17 @@ namespace overlay
             markers::request_toggle_found(m.id, want);
         }
 
-        // Cuts the visible region (plus a margin) into the map's own dynamic texture,
-        // if anything changed and the next buffer is free. Returns true while a buffer
-        // is available to draw.
-        bool update_map_slice(const mm::Config& cfg, const mapdata::Chapter& ch, const mv::Rect& canvas,
-                              float feet, std::uint64_t now)
+        // The full map's texture size for a given canvas. Pure geometry, so both the
+        // render thread (which allocates) and the loop thread (which cuts) can derive
+        // the same numbers from the same request.
+        void map_slice_size(const mm::Config& cfg, const mv::Rect& canvas, int& tw, int& th)
         {
-            if (!ch.has_heights() || canvas.w() < 8.0f || canvas.h() < 8.0f)
-            {
-                return false;
-            }
-            const mapdata::HeightMaps& hm = *ch.heights;
-            if (hm.px_per_uu <= 0.0)
-            {
-                return false;
-            }
-
-            // 30 % of margin around the viewport: a drag can move ~15 % of the canvas
-            // in either direction before the cut has to be redone, which at 6 Hz is
-            // most of a fast drag.
             const double kMargin = static_cast<double>(cfg.map_slice_margin);
             const double zoom = g_mv.uu_per_px;
             const double want_w_uu = static_cast<double>(canvas.w()) * zoom * kMargin;
             const double want_h_uu = static_cast<double>(canvas.h()) * zoom * kMargin;
 
-            int tw = static_cast<int>(std::lround(static_cast<double>(canvas.w()) * kMargin));
+            tw = static_cast<int>(std::lround(static_cast<double>(canvas.w()) * kMargin));
             if (tw > cfg.map_slice_px)
             {
                 tw = cfg.map_slice_px;
@@ -2882,8 +3148,10 @@ namespace overlay
             }
             // One step for both axes (a non-square pixel would shear the picture), so
             // the height follows from it rather than from the aspect ratio directly.
-            const double step = (want_w_uu * hm.px_per_uu) / static_cast<double>(tw);
-            int th = static_cast<int>(std::lround(want_h_uu * hm.px_per_uu / step));
+            const double step = (want_w_uu * static_cast<double>(tw) > 0.0)
+                                    ? (want_w_uu / static_cast<double>(tw))
+                                    : 1.0;
+            th = step > 0.0 ? static_cast<int>(std::lround(want_h_uu / step)) : 64;
             th = (th / 8) * 8;
             if (th < 64)
             {
@@ -2893,9 +3161,33 @@ namespace overlay
             {
                 th = (cfg.map_slice_px * 2 / 8) * 8;
             }
+        }
 
-            const bool resized = g_mslice[0].w != tw || g_mslice[0].h != th || g_mslice[0].tex == nullptr;
-            if (resized)
+        // RENDER THREAD. Size and allocate the full map's buffers and publish what the
+        // slicer should cut. The cut runs on the loop thread - see slice_map_step().
+        // Returns true while a buffer is available to draw.
+        bool plan_map_slice(const mm::Config& cfg, const mapdata::Chapter& ch, const mv::Rect& canvas,
+                            float feet, std::uint64_t now)
+        {
+            if (!ch.has_heights() || canvas.w() < 8.0f || canvas.h() < 8.0f)
+            {
+                SpinGuard guard(g_slice_req_lock);
+                g_map_req.wanted = false;
+                return false;
+            }
+            const mapdata::HeightMaps& hm = *ch.heights;
+            if (hm.px_per_uu <= 0.0)
+            {
+                SpinGuard guard(g_slice_req_lock);
+                g_map_req.wanted = false;
+                return false;
+            }
+
+            int tw = 0;
+            int th = 0;
+            map_slice_size(cfg, canvas, tw, th);
+
+            if (g_mslice[0].w != tw || g_mslice[0].h != th || g_mslice[0].tex == nullptr)
             {
                 // A failing allocation must not retry (and log) once per frame - the
                 // same "back a failing blind path off" rule the navmesh scan learned.
@@ -2904,69 +3196,148 @@ namespace overlay
                 {
                     return false;
                 }
+                if (!slicer_pause_begin(kSlicerPauseMs))
+                {
+                    return map_slice_view().shown >= 0; // try again next frame
+                }
                 wait_for_gpu(); // the old buffers may still be in flight
-                if (!create_slice_set(g_mslice, kMapSliceBufs, tw, th, L"full map"))
+                const bool ok = create_slice_set(g_mslice, kMapSliceBufs, tw, th, L"full map");
+                if (!ok)
                 {
                     destroy_map_slice_buffers();
+                }
+                else
+                {
+                    for (int i = 0; i < kMapSliceBufs; ++i)
+                    {
+                        g_mslice_copy_pending[i].store(false);
+                        g_mslice_in_flight[i].store(0);
+                    }
+                    g_mslice_next = 0;
+                    clear_map_slice_view();
+                    note_slice_buffers_changed();
+                }
+                slicer_pause_end();
+                if (!ok)
+                {
                     create_failed_ms = now;
                     return false;
                 }
                 create_failed_ms = 0;
-                g_mslice_next = 0;
-                g_mslice_shown = -1;
-                g_mr_valid = false;
+            }
+
+            {
+                SpinGuard guard(g_slice_req_lock);
+                g_map_req.wanted = true;
+                g_map_req.cx = g_mv.cx;
+                g_map_req.cy = g_mv.cy;
+                g_map_req.zoom = g_mv.uu_per_px;
+                g_map_req.canvas_w = canvas.w();
+                g_map_req.canvas_h = canvas.h();
+                g_map_req.feet = feet;
+                g_map_req.show_all_floors = cfg.map_show_all_floors;
+            }
+            g_map_req_ms.store(now, std::memory_order_relaxed);
+            return map_slice_view().shown >= 0;
+        }
+
+        // LOOP THREAD. Cut the visible region (plus a margin) into the map's own dynamic
+        // texture, if anything changed and the next buffer is free.
+        void slice_map_step(std::uint64_t now)
+        {
+            MapSliceReq req{};
+            {
+                SpinGuard guard(g_slice_req_lock);
+                req = g_map_req;
+            }
+            if (!req.wanted || now - g_map_req_ms.load(std::memory_order_relaxed) > 500)
+            {
+                return; // the map is closed, or the render thread stopped asking
+            }
+
+            mm::Snapshot snap{};
+            if (!mm::read_snapshot(snap))
+            {
+                return;
+            }
+            // Re-read the planes on EVERY cut: a chapter switch retires them and frees
+            // them after a grace period. mapdata's retire runs on this same thread, so a
+            // pointer read here cannot be freed while the cut is running.
+            const mapdata::Chapter* chp = mapdata::chapter_ptr_for(snap.x, snap.y);
+            if (chp == nullptr || !chp->has_heights())
+            {
+                return;
+            }
+            const mapdata::Chapter& ch = *chp;
+            const mapdata::HeightMaps& hm = *ch.heights;
+            if (hm.px_per_uu <= 0.0)
+            {
+                return;
+            }
+
+            if (g_map_recut.exchange(false, std::memory_order_acq_rel))
+            {
+                g_mr_valid = false; // the map was recentred: the old region says nothing
+            }
+
+            const mm::Config& cfg = mm::cfg_cached();
+            SliceBuf& b = g_mslice[g_mslice_next];
+            if (b.tex == nullptr || b.mapped == nullptr || b.w <= 0 || b.h <= 0)
+            {
+                return;
+            }
+
+            // The step the render thread's sizing implies, recomputed from the buffer
+            // that actually exists.
+            const double kMargin = static_cast<double>(cfg.map_slice_margin);
+            const double want_w_uu = static_cast<double>(req.canvas_w) * req.zoom * kMargin;
+            const double step = want_w_uu * hm.px_per_uu / static_cast<double>(b.w);
+            if (!(step > 0.0))
+            {
+                return;
             }
 
             // The world rectangle this cut will cover, derived from the texture so the
             // drawn quad matches the pixels exactly.
-            const double half_w = static_cast<double>(tw) * step / hm.px_per_uu * 0.5;
-            const double half_h = static_cast<double>(th) * step / hm.px_per_uu * 0.5;
+            const double half_w = static_cast<double>(b.w) * step / hm.px_per_uu * 0.5;
+            const double half_h = static_cast<double>(b.h) * step / hm.px_per_uu * 0.5;
 
             // Does the visible viewport still sit inside the region we already cut?
-            const double view_half_x = static_cast<double>(canvas.h()) * zoom * 0.5;
-            const double view_half_y = static_cast<double>(canvas.w()) * zoom * 0.5;
-            const bool inside = g_mr_valid && g_mv.cx - view_half_x >= g_mr_x0 && g_mv.cx + view_half_x <= g_mr_x1 &&
-                                g_mv.cy - view_half_y >= g_mr_y0 && g_mv.cy + view_half_y <= g_mr_y1;
-            const bool feet_moved = !g_mr_valid || std::abs(feet - g_mr_feet) > 20.0f;
-            const bool zoomed = !g_mr_valid || zoom != g_mr_zoom;
+            const double view_half_x = static_cast<double>(req.canvas_h) * req.zoom * 0.5;
+            const double view_half_y = static_cast<double>(req.canvas_w) * req.zoom * 0.5;
+            const bool inside = g_mr_valid && req.cx - view_half_x >= g_mr_x0 &&
+                                req.cx + view_half_x <= g_mr_x1 && req.cy - view_half_y >= g_mr_y0 &&
+                                req.cy + view_half_y <= g_mr_y1;
+            const bool feet_moved = !g_mr_valid || std::abs(req.feet - g_mr_feet) > 20.0f;
+            const bool zoomed = !g_mr_valid || req.zoom != g_mr_zoom;
             const bool chapter_changed = g_mr_chapter != ch.key;
-            const bool urgent = !inside || zoomed || chapter_changed;
-            if (!urgent && !feet_moved && !resized)
+            const bool resized = g_mr_w != b.w || g_mr_h != b.h;
+            const bool urgent = !inside || zoomed || chapter_changed || resized;
+            if (!urgent && !feet_moved)
             {
-                return g_mslice_shown >= 0;
+                return;
             }
 
             // The rate cap. An urgent cut (the view has left the region, or the zoom
             // changed) still has to wait for the buffer, but not for the clock: showing
             // an empty edge is worse than one extra cut.
             const int period = cfg.map_slice_hz > 0 ? 1000 / cfg.map_slice_hz : 166;
-            if (!urgent && g_mslice_shown >= 0 &&
+            if (!urgent && g_mslice_last_ms != 0 &&
                 now - g_mslice_last_ms < static_cast<std::uint64_t>(period))
             {
-                return true;
+                return;
             }
 
-            SliceBuf& b = g_mslice[g_mslice_next];
-            if (b.tex == nullptr || b.mapped == nullptr)
-            {
-                return g_mslice_shown >= 0;
-            }
-            if (b.in_flight_fence != 0 && g_fence != nullptr && g_fence->GetCompletedValue() < b.in_flight_fence)
+            const std::uint64_t in_flight = g_mslice_in_flight[g_mslice_next].load(std::memory_order_acquire);
+            ID3D12Fence* fence = g_fence;
+            if (in_flight != 0 && fence != nullptr && fence->GetCompletedValue() < in_flight)
             {
                 ++g_mslice_skipped;
-                return g_mslice_shown >= 0; // never stall Present for the map
+                return; // the GPU is still sampling it; keep showing the other buffer
             }
 
-            SliceStyle st{};
-            st.base_r = cfg.floor_base_r;
-            st.base_g = cfg.floor_base_g;
-            st.base_b = cfg.floor_base_b;
-            st.strength = cfg.floor_gradient_strength;
-            st.tol = cfg.floor_z_tolerance;
-            st.fade = cfg.floor_fade_uu;
-            st.a_dim = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity : 0.0f;
-            st.a_faint = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity * 0.6f : 0.0f;
-            if (cfg.map_show_all_floors)
+            SliceStyle st = style_from(cfg);
+            if (req.show_all_floors)
             {
                 // "Show everything": no surface is ever out of range, so the whole
                 // chapter's walkable area is on screen with the current storey still
@@ -2976,23 +3347,22 @@ namespace overlay
                 st.a_faint = 0.24f;
             }
 
-            const double x1 = g_mv.cx + half_h; // north edge
-            const double y0 = g_mv.cy - half_w; // west edge
+            const double x1 = req.cx + half_h; // north edge
+            const double y0 = req.cy - half_w; // west edge
             const double src_x0 = (y0 - hm.min_y) * hm.px_per_uu;
             const double src_y0 = (hm.max_x - x1) * hm.px_per_uu;
 
             LARGE_INTEGER t0{};
             LARGE_INTEGER t1{};
-            LARGE_INTEGER freq{};
-            ::QueryPerformanceFrequency(&freq);
             ::QueryPerformanceCounter(&t0);
             slice_region(hm, src_x0, src_y0, step, b.w, b.h, b.mapped + b.footprint.Offset,
-                         b.footprint.Footprint.RowPitch, feet, st, g_mslice_scratch, g_mslice_counts);
+                         b.footprint.Footprint.RowPitch, req.feet, st, g_mslice_scratch, g_mslice_counts);
             ::QueryPerformanceCounter(&t1);
-            if (freq.QuadPart > 0)
+            const std::int64_t freq = qpc_freq();
+            if (freq > 0)
             {
                 const double ms =
-                    1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) / static_cast<double>(freq.QuadPart);
+                    1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) / static_cast<double>(freq);
                 g_mslice_ms = g_mslice_ms == 0.0 ? ms : g_mslice_ms * 0.7 + ms * 0.3;
                 if (ms > g_mslice_ms_peak)
                 {
@@ -3000,20 +3370,30 @@ namespace overlay
                 }
             }
 
-            b.needs_copy = true;
-            g_mslice_shown = g_mslice_next;
+            g_mr_x0 = req.cx - half_h;
+            g_mr_x1 = x1;
+            g_mr_y0 = y0;
+            g_mr_y1 = req.cy + half_w;
+            g_mr_zoom = req.zoom;
+            g_mr_feet = req.feet;
+            g_mr_chapter = ch.key;
+            g_mr_w = b.w;
+            g_mr_h = b.h;
+            g_mr_valid = true;
+
+            g_mslice_copy_pending[g_mslice_next].store(true, std::memory_order_release);
+            {
+                SpinGuard guard(g_slice_view_lock);
+                g_mslice_view.shown = g_mslice_next;
+                g_mslice_view.valid = true;
+                g_mslice_view.x0 = g_mr_x0;
+                g_mslice_view.x1 = g_mr_x1;
+                g_mslice_view.y0 = g_mr_y0;
+                g_mslice_view.y1 = g_mr_y1;
+            }
             g_mslice_next = (g_mslice_next + 1) % kMapSliceBufs;
             g_mslice_last_ms = now;
             ++g_mslice_updates;
-            g_mr_x0 = g_mv.cx - half_h;
-            g_mr_x1 = x1;
-            g_mr_y0 = y0;
-            g_mr_y1 = g_mv.cy + half_w;
-            g_mr_zoom = zoom;
-            g_mr_feet = feet;
-            g_mr_chapter = ch.key;
-            g_mr_valid = true;
-            return true;
         }
 
         void draw_waypoint_glyph(ImDrawList* dl, ImVec2 p, float r, int alpha)
@@ -3100,7 +3480,7 @@ namespace overlay
                                                 static_cast<double>(cfg.map_zoom_min),
                                                 static_cast<double>(cfg.map_zoom_max));
                 g_map_floor_off = 0.0f;
-                g_mr_valid = false;
+                g_map_recut.store(true, std::memory_order_release);
                 g_mv_init = true;
                 pad::clear_pressed();
                 g_map_recenter.store(false, std::memory_order_relaxed);
@@ -3352,17 +3732,19 @@ namespace overlay
 
             const float feet = static_cast<float>(snap.z) - cfg.player_z_offset + g_map_floor_off;
             bool have_picture = false;
-            if (chapter_ptr != nullptr && update_map_slice(cfg, *chapter_ptr, canvas, feet, now) &&
-                g_mslice_shown >= 0)
+            const bool map_slice_ok =
+                chapter_ptr != nullptr && plan_map_slice(cfg, *chapter_ptr, canvas, feet, now);
+            const MapSliceView msv = map_slice_view();
+            if (map_slice_ok && msv.shown >= 0 && msv.valid)
             {
-                const SliceBuf& b = g_mslice[g_mslice_shown];
+                const SliceBuf& b = g_mslice[msv.shown];
                 float sx0 = 0.0f;
                 float sy0 = 0.0f;
                 float sx1 = 0.0f;
                 float sy1 = 0.0f;
                 // Top-left of the cut region is its NORTH-WEST corner (max X, min Y).
-                mv::world_to_screen(g_mv, canvas, g_mr_x1, g_mr_y0, sx0, sy0);
-                mv::world_to_screen(g_mv, canvas, g_mr_x0, g_mr_y1, sx1, sy1);
+                mv::world_to_screen(g_mv, canvas, msv.x1, msv.y0, sx0, sy0);
+                mv::world_to_screen(g_mv, canvas, msv.x0, msv.y1, sx1, sy1);
                 const ImTextureRef tex{static_cast<ImTextureID>(b.srv_gpu.ptr)};
                 dl->AddImage(tex, ImVec2{sx0, sy0}, ImVec2{sx1, sy1}, ImVec2{0.0f, 0.0f}, ImVec2{1.0f, 1.0f},
                              IM_COL32(255, 255, 255, 255));
@@ -4509,8 +4891,22 @@ namespace overlay
         {
             if (g_imgui_ready || g_device != nullptr)
             {
+                // The slicer writes into mapped upload heaps we are about to release.
+                // It is a few milliseconds of arithmetic and it re-checks the pause flag
+                // on entry, so this always succeeds; if it somehow did not we would
+                // rather leak the buffers than free memory under a live writer.
+                const bool paused = slicer_pause_begin(1000);
                 wait_for_gpu();
-                destroy_all_map_textures();
+                if (!paused)
+                {
+                    mm::log(L"slice: the loop-thread slicer did not stand down in 1 s - "
+                            L"the slice buffers are left allocated on purpose");
+                }
+                else
+                {
+                    destroy_all_map_textures();
+                }
+                slicer_pause_end();
                 if (g_imgui_ready)
                 {
                     if (g_hwnd != nullptr && g_prev_wndproc != nullptr)
@@ -4610,11 +5006,18 @@ namespace overlay
             // first - and they may only be released here, on the render thread, and
             // BEFORE the frame's draw lists are built, or this frame would reference
             // an SRV slot we just handed back.
-            if (g_drop_textures.exchange(false, std::memory_order_acq_rel))
+            if (g_drop_textures.load(std::memory_order_acquire))
             {
-                wait_for_gpu();
-                destroy_all_map_textures();
-                mm::log(L"map textures and slice buffers dropped for a reload");
+                if (slicer_pause_begin(kSlicerPauseMs))
+                {
+                    g_drop_textures.store(false, std::memory_order_release);
+                    wait_for_gpu();
+                    destroy_all_map_textures();
+                    slicer_pause_end();
+                    mm::log(L"map textures and slice buffers dropped for a reload");
+                }
+                // else: the request stays pending and the next frame retries. Never
+                // release a resource the loop thread may still be writing into.
             }
             release_finished_uploads();
 
@@ -4671,13 +5074,19 @@ namespace overlay
             frame.fence_value = g_fence_value;
             // The buffer this frame sampled may not be rewritten until the GPU is past
             // this fence.
-            if (g_slice_shown >= 0)
             {
-                g_slice[g_slice_shown].in_flight_fence = g_fence_value;
+                const int shown = slice_view().shown;
+                if (shown >= 0)
+                {
+                    g_slice_in_flight[shown].store(g_fence_value, std::memory_order_release);
+                }
             }
-            if (g_mslice_shown >= 0)
             {
-                g_mslice[g_mslice_shown].in_flight_fence = g_fence_value;
+                const int shown = map_slice_view().shown;
+                if (shown >= 0)
+                {
+                    g_mslice_in_flight[shown].store(g_fence_value, std::memory_order_release);
+                }
             }
 
             if (g_map.upload != nullptr && g_map.upload_fence == 0)
@@ -5017,6 +5426,37 @@ namespace overlay
 
         const mm::Config& cfg = mm::cfg_cached();
         const std::uint64_t now = ::GetTickCount64();
+
+        // THE HEIGHT SLICER. 1-4 ms of CPU that used to run inside Present twelve times
+        // a second; it writes into a persistently mapped upload heap and needs nothing
+        // from the frame. render() now only records the CopyTextureRegion.
+        //
+        // The guard sequence is the loop-thread half of the pause handshake: check,
+        // mark busy, check AGAIN. The render thread sets `pause` and then waits for
+        // `busy`, so whichever order the two interleave in, one of them backs off.
+        if (mm::mod_active() && !g_slicer_pause.load())
+        {
+            g_slicer_busy.store(true);
+            if (g_slicer_pause.load())
+            {
+                g_slicer_busy.store(false);
+            }
+            else
+            {
+                const std::uint32_t gen = g_slice_gen.load(std::memory_order_acquire);
+                slice_minimap_step(now);
+                slice_map_step(now);
+                if (g_slice_gen.load(std::memory_order_acquire) != gen)
+                {
+                    // The buffer set was recreated while we were cutting. Whatever was
+                    // just published describes buffers that no longer exist, so drop it;
+                    // the next iteration cuts into the new ones.
+                    clear_slice_view();
+                    clear_map_slice_view();
+                }
+                g_slicer_busy.store(false);
+            }
+        }
 
         const HWND fg = ::GetForegroundWindow();
         DWORD pid = 0;

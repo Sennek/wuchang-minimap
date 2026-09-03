@@ -6341,11 +6341,19 @@ namespace overlay
         // Each tab is its own function for a reason beyond tidiness: MSVC counts nested
         // blocks and C1061'd this file once already (lessons.md).
 
-        void panel_player(mm::Config& cfg)
-        {
-            const float wrap = ImGui::GetContentRegionAvail().x;
+        // ONE PLAYER-TAB SECTION EACH. They were one 300-line function with
+        // SeparatorText between the blocks; the user asked for the Advanced tab's
+        // collapsible sections here too, and a CollapsingHeader has to be able to
+        // SKIP its contents - which a separator cannot. Splitting the blocks into
+        // functions is what makes that possible without wrapping 300 lines in an if.
+        //
+        // The open state is not persisted, exactly as on the Advanced tab: ImGui's ini
+        // file is disabled (io.IniFilename = nullptr), so every header opens at its
+        // default - open here, because a player tab that starts collapsed hides the
+        // settings it exists for.
 
-            ImGui::SeparatorText("Presets");
+        void player_presets(mm::Config& cfg)
+        {
             ImGui::TextDisabled("set several of the settings on this tab at once");
             if (ImGui::Button("Minimal HUD"))
             {
@@ -6361,18 +6369,20 @@ namespace overlay
             {
                 apply_preset(cfg, Preset::Exploration);
             }
+        }
 
-            //--------------------------------------------------------------------------
-            // Look: theme and palette
-            //--------------------------------------------------------------------------
-            //
-            // In the FILE a theme only fills in colours the file does not mention; in
-            // the PANEL choosing one is an explicit act, so it writes the theme's
-            // colours into the five colour keys there and then (they are on the Advanced
-            // tab, and the change is visible on the next frame). Anything else would
-            // make the combo look broken for a player whose config happens to spell one
-            // of those keys out.
-            ImGui::SeparatorText("Look");
+        //--------------------------------------------------------------------------
+        // Look: theme and palette
+        //--------------------------------------------------------------------------
+        //
+        // In the FILE a theme only fills in colours the file does not mention; in
+        // the PANEL choosing one is an explicit act, so it writes the theme's
+        // colours into the five colour keys there and then (they are on the Advanced
+        // tab, and the change is visible on the next frame). Anything else would
+        // make the combo look broken for a player whose config happens to spell one
+        // of those keys out.
+        void player_look(mm::Config& cfg)
+        {
             int theme_i = static_cast<int>(cfg.theme);
             const char* themes[] = {"neutral", "ink"};
             if (ImGui::Combo("Theme (frame / backdrop / plates / fill)", &theme_i, themes, 2))
@@ -6415,11 +6425,13 @@ namespace overlay
                 }
             }
             ImGui::TextDisabled("every category has its own glyph shape");
+        }
 
-            //--------------------------------------------------------------------------
-            // Minimap
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Minimap");
+        //--------------------------------------------------------------------------
+        // Minimap
+        //--------------------------------------------------------------------------
+        void player_minimap(mm::Config& cfg)
+        {
             // THE ONE LINE THAT ANSWERS "why is the minimap not there", on the tab a
             // PLAYER actually opens. It used to live only on the Debug tab, which since
             // 0.9.2 is hidden unless the unshipped dev config turns it on - so the
@@ -6451,11 +6463,13 @@ namespace overlay
             ImGui::SameLine();
             ImGui::Checkbox("Hide while a menu is open", &cfg.hide_in_menus);
             ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 20.0f, 800.0f, "%.0f");
+        }
 
-            //--------------------------------------------------------------------------
-            // Placement and scale
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Placement and scale");
+        //--------------------------------------------------------------------------
+        // Placement and scale
+        //--------------------------------------------------------------------------
+        void player_placement(mm::Config& cfg)
+        {
             // ONE key that moves the whole HUD. `custom` keeps the three placement keys
             // below in force; anything else overrides the minimap's corner and puts the
             // compass on the same vertical side.
@@ -6493,11 +6507,13 @@ namespace overlay
             ImGui::BeginDisabled(cfg.ui_scale_auto);
             ImGui::SliderFloat("UI scale", &cfg.ui_scale, kUiScaleMin, kUiScaleMax, "%.2f");
             ImGui::EndDisabled();
+        }
 
-            //--------------------------------------------------------------------------
-            // Markers
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Markers");
+        //--------------------------------------------------------------------------
+        // Markers
+        //--------------------------------------------------------------------------
+        void player_markers(mm::Config& cfg, float wrap)
+        {
             ImGui::Checkbox("Show markers", &cfg.markers_enabled);
             ImGui::SameLine();
             // The INVERSE of markers_hide_found. The config key is phrased as "hide",
@@ -6516,11 +6532,13 @@ namespace overlay
             // The chips ARE the legend: each one is filled with the colour that category
             // is drawn in on the map.
             category_filter("Map & minimap", "markers_categories", cfg.markers_categories, 1000, wrap);
+        }
 
-            //--------------------------------------------------------------------------
-            // Collection tracker
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Collection tracker");
+        //--------------------------------------------------------------------------
+        // Collection tracker
+        //--------------------------------------------------------------------------
+        void player_tracker(mm::Config& cfg)
+        {
             ImGui::Checkbox("Remember what I have collected", &cfg.found_tracker);
             ImGui::SameLine();
             ImGui::Checkbox("Mark items whose level is loaded but absent", &cfg.markers_absence_marks);
@@ -6546,11 +6564,13 @@ namespace overlay
             // The whole collection-statistics page, shared with the full map's Stats
             // panel. One function, so the two views can never disagree about a number.
             draw_collection_stats(::GetTickCount64(), false);
+        }
 
-            //--------------------------------------------------------------------------
-            // Full map
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Full map");
+        //--------------------------------------------------------------------------
+        // Full map
+        //--------------------------------------------------------------------------
+        void player_fullmap(mm::Config& cfg)
+        {
             ImGui::TextDisabled("Press %s in-world.",
                                 key_name_ascii(cfg.map_key).c_str());
             ImGui::SliderFloat("Zoom on open (uu per screen px)", &cfg.map_zoom, cfg.map_zoom_min,
@@ -6575,11 +6595,13 @@ namespace overlay
             {
                 ImGui::TextDisabled("no waypoint - right-click on the full map to set one");
             }
+        }
 
-            //--------------------------------------------------------------------------
-            // The hold-key x-ray highlight
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("X-ray highlight");
+        //--------------------------------------------------------------------------
+        // The hold-key x-ray highlight
+        //--------------------------------------------------------------------------
+        void player_xray(mm::Config& cfg, float wrap)
+        {
             std::string hold = key_name_ascii(cfg.highlight_key);
             if (cfg.highlight_gamepad)
             {
@@ -6627,11 +6649,13 @@ namespace overlay
             ImGui::TextDisabled("colours pickups by the game's own item-type grouping");
             category_filter("X-ray highlight", "highlight_categories", cfg.highlight_categories, 2000,
                             wrap);
+        }
 
-            //--------------------------------------------------------------------------
-            // The compass strip
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Compass");
+        //--------------------------------------------------------------------------
+        // The compass strip
+        //--------------------------------------------------------------------------
+        void player_compass(mm::Config& cfg, float wrap)
+        {
             ImGui::Checkbox("Enabled##compass", &cfg.compass_enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Show the waypoint bearing", &cfg.compass_show_waypoint);
@@ -6651,15 +6675,73 @@ namespace overlay
             ImGui::SliderFloat("Compass opacity", &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");
             ImGui::Checkbox("Distance in metres under each pip", &cfg.compass_pip_labels);
             category_filter("Compass", "compass_categories", cfg.compass_categories, 3000, wrap);
+        }
 
-            //--------------------------------------------------------------------------
-            // Keys
-            //--------------------------------------------------------------------------
-            // Read from the config by the SAME builder the full map's footer uses, so a
-            // rebind cannot make one of the two lie.
-            ImGui::SeparatorText("Keys");
+        //--------------------------------------------------------------------------
+        // Keys
+        //--------------------------------------------------------------------------
+        // Read from the config by the SAME builder the full map's footer uses, so a
+        // rebind cannot make one of the two lie.
+        void player_keys(mm::Config& cfg)
+        {
             ImGui::TextWrapped("%s", bindings_hint(cfg).c_str());
             ImGui::TextDisabled("rebind them on the Bindings tab");
+        }
+
+        void panel_player(mm::Config& cfg)
+        {
+            const float wrap = ImGui::GetContentRegionAvail().x;
+            constexpr ImGuiTreeNodeFlags kOpen = ImGuiTreeNodeFlags_DefaultOpen;
+
+            if (ImGui::CollapsingHeader("Presets", kOpen))
+            {
+                player_presets(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Look", kOpen))
+            {
+                player_look(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Minimap", kOpen))
+            {
+                player_minimap(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Placement and scale", kOpen))
+            {
+                player_placement(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Markers", kOpen))
+            {
+                player_markers(cfg, wrap);
+            }
+
+            if (ImGui::CollapsingHeader("Collection tracker", kOpen))
+            {
+                player_tracker(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("Full map", kOpen))
+            {
+                player_fullmap(cfg);
+            }
+
+            if (ImGui::CollapsingHeader("X-ray highlight", kOpen))
+            {
+                player_xray(cfg, wrap);
+            }
+
+            if (ImGui::CollapsingHeader("Compass", kOpen))
+            {
+                player_compass(cfg, wrap);
+            }
+
+            if (ImGui::CollapsingHeader("Keys", kOpen))
+            {
+                player_keys(cfg);
+            }
         }
 
         void panel_advanced(mm::Config& cfg)

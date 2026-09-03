@@ -709,6 +709,18 @@ namespace mm
     // Any thread.
     std::wstring pad_chord_name(std::uint16_t mask, bool lt, bool rt);
 
+    // Can this virtual key be written into the config file and read back? The F2
+    // Bindings tab's "press a key" capture only accepts keys this returns true for, so
+    // a captured binding always round-trips through key_name(). Any thread (pure).
+    bool vk_bindable(int vk);
+
+    // Every bindable virtual key, ascending - what the capture widget scans.
+    const std::vector<int>& bindable_vks();
+
+    // Parse a gamepad chord ("LB+RB", "A", "none") into the three fields the config
+    // carries. Returns true when any of them changed. Any thread.
+    bool set_pad_chord(const std::string& text, std::uint16_t& mask, bool& lt, bool& rt);
+
     //==================================================================================
     // The waypoint
     //==================================================================================
@@ -740,6 +752,10 @@ namespace mm
     extern std::atomic<bool> g_revert_config;
     extern std::atomic<bool> g_save_config;     // panel -> loop thread saves
     extern std::atomic<bool> g_panel_drew_frame; // set by the render thread, for the log
+    // The Bindings tab is waiting for a key press. While it is set the WndProc hook
+    // swallows the whole keyboard, so the key being captured cannot also reach the
+    // game. Set and cleared by the render thread; read by the WndProc hook.
+    extern std::atomic<bool> g_key_capture;
     extern std::atomic<bool> g_waypoint_dirty;   // render -> loop: write the waypoint file
 
     //==================================================================================

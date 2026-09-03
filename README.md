@@ -859,11 +859,15 @@ with how long that state has held, and every transition is written to `UE4SS.log
 `minimap HIDDEN: <reason> (previous state held N ms)`, rate-limited to one line per 2 s. When the reason
 is a menu, the block also names the in-viewport widget holding it open.
 **F2** opens the panel, **M** opens the full map (**R** recentres it), **F5** reloads the config, the
-maps and the markers, and **holding LALT** turns on the x-ray highlight. Accepted hotkey names are
-F1-F5, F7, F8, any single letter or digit, TAB, SPACE and the L/R modifier keys
-(`LALT`/`ALT`/`LSHIFT`/`LCTRL`/...); F6 (RenoDX DLSS 5), F9/F11 (engine binds), F10 (game console) and
-F12 (Steam) are rejected in code, not merely discouraged in a comment. The panel and the full map both
-print the live binding list, built from the config - so a rebound key is what you are told.
+maps and the markers, and **holding LALT** turns on the x-ray highlight. The F2 panel's **Bindings**
+tab rebinds every one of them: click the key, press the new one (Esc cancels), with a per-row reset and
+a warning when two actions land on the same key. Accepted hotkey names are F1-F5, F7, F8, any single
+letter or digit, TAB, SPACE, ENTER, BACKSPACE, the arrows, INSERT/DELETE/HOME/END/PAGEUP/PAGEDOWN,
+NUM0-NUM9 and the numpad operators, MOUSE3-MOUSE5, the L/R modifier keys
+(`LALT`/`ALT`/`LSHIFT`/`LCTRL`/...) and `none`; F6 (RenoDX DLSS 5), F9/F11 (engine binds), F10 (game
+console) and F12 (Steam) are rejected in code, not merely discouraged in a comment. The panel and the
+full map both print the live binding list, built from the config - so a rebound key is what you are
+told.
 
 ## The x-ray highlight (hold `LALT`)
 

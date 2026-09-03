@@ -5,8 +5,12 @@
 ; ordering and any key it does not know are left exactly as they are. Re-read by F5 or
 ; by the panel's "Reload", so the game does not have to be restarted for an edit here.
 ;
-; HOTKEYS: F1..F5, F7, F8, any single letter (A..Z) or digit (0..9), TAB, SPACE, or
-; one of LALT / RALT / ALT / LSHIFT / RSHIFT / SHIFT / LCTRL / RCTRL / CTRL.
+; HOTKEYS: F1..F5, F7, F8, any single letter (A..Z) or digit (0..9), TAB, SPACE,
+; ENTER, BACKSPACE, the arrows (UP / DOWN / LEFT / RIGHT), INSERT / DELETE / HOME /
+; END / PAGEUP / PAGEDOWN, NUM0..NUM9 / NUMPLUS / NUMMINUS / NUMMUL / NUMDIV /
+; NUMDOT, MOUSE3 / MOUSE4 / MOUSE5, or one of LALT / RALT / ALT / LSHIFT / RSHIFT /
+; SHIFT / LCTRL / RCTRL / CTRL. `none` leaves an action unbound.
+; The F2 panel's Bindings tab rebinds all of them by pressing the new key.
 ; F6 and F9..F12 are REJECTED and fall back to the default, because on this machine
 ;   F6  toggles RenoDX / DLSS 5 Neural Rendering (it ignores modifiers, and pressing
 ;       it in-world hung the GPU on 2026-09-02)
@@ -291,11 +295,8 @@ map_recenter_key = R
 reload_key = F5
 
 ; Cycles the minimap zoom through minimap_zoom_presets (ADVANCED section) and wraps
-; round. Allowed: F1..F5, F7, F8, a single letter or digit, TAB, SPACE, or L/R
-; ALT / SHIFT / CTRL - F6 / F9..F12 are refused (RenoDX, engine binds, the game
-; console, Steam's screenshot key). The mouse wheel over the minimap does the same
-; thing, but ONLY while the F2 panel is open: during play the wheel belongs to the
-; game, and the overlay does not swallow it.
+; round. See the hotkey list at the top of this file. The mouse wheel over the
+; minimap does the same thing while the F2 panel is open.
 zoom_key = N
 
 ; Copies the full map to the Windows clipboard as a bitmap, ready to paste into a chat

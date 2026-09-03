@@ -258,10 +258,26 @@ namespace mm
         };
 
         constexpr NamedKey kNamedKeys[] = {
-            {"TAB", VK_TAB},         {"SPACE", VK_SPACE},   {"LALT", VK_LMENU},
-            {"RALT", VK_RMENU},      {"ALT", VK_MENU},      {"LSHIFT", VK_LSHIFT},
-            {"RSHIFT", VK_RSHIFT},   {"SHIFT", VK_SHIFT},   {"LCTRL", VK_LCONTROL},
-            {"RCTRL", VK_RCONTROL},  {"CTRL", VK_CONTROL},
+            {"TAB", VK_TAB},          {"SPACE", VK_SPACE},        {"LALT", VK_LMENU},
+            {"RALT", VK_RMENU},       {"ALT", VK_MENU},           {"LSHIFT", VK_LSHIFT},
+            {"RSHIFT", VK_RSHIFT},    {"SHIFT", VK_SHIFT},        {"LCTRL", VK_LCONTROL},
+            {"RCTRL", VK_RCONTROL},   {"CTRL", VK_CONTROL},
+            // Arrows, the navigation block and Enter / Backspace: ordinary keys a
+            // player may well prefer for a toggle.
+            {"UP", VK_UP},            {"DOWN", VK_DOWN},          {"LEFT", VK_LEFT},
+            {"RIGHT", VK_RIGHT},      {"ENTER", VK_RETURN},       {"BACKSPACE", VK_BACK},
+            {"INSERT", VK_INSERT},    {"DELETE", VK_DELETE},      {"HOME", VK_HOME},
+            {"END", VK_END},          {"PAGEUP", VK_PRIOR},       {"PAGEDOWN", VK_NEXT},
+            // The numpad. Named apart from the digit row, because the two are different
+            // virtual keys and a player who binds one means that one.
+            {"NUM0", VK_NUMPAD0},     {"NUM1", VK_NUMPAD1},       {"NUM2", VK_NUMPAD2},
+            {"NUM3", VK_NUMPAD3},     {"NUM4", VK_NUMPAD4},       {"NUM5", VK_NUMPAD5},
+            {"NUM6", VK_NUMPAD6},     {"NUM7", VK_NUMPAD7},       {"NUM8", VK_NUMPAD8},
+            {"NUM9", VK_NUMPAD9},     {"NUMPLUS", VK_ADD},        {"NUMMINUS", VK_SUBTRACT},
+            {"NUMMUL", VK_MULTIPLY},  {"NUMDIV", VK_DIVIDE},      {"NUMDOT", VK_DECIMAL},
+            // Mouse buttons 3-5 only. Left and right belong to the game and to the
+            // overlay's own clicks; taking either of them away would break both.
+            {"MOUSE3", VK_MBUTTON},   {"MOUSE4", VK_XBUTTON1},    {"MOUSE5", VK_XBUTTON2},
         };
 
         std::string upper(const std::string& s)
@@ -290,7 +306,9 @@ namespace mm
 
             const auto reject = [&](const wchar_t* why) {
                 logf(L"config: {} = '{}' rejected ({}) - keeping the default. Allowed: F1..F5, F7, F8, "
-                     L"a single letter or digit, TAB, SPACE, or L/R ALT / SHIFT / CTRL.",
+                     L"a single letter or digit, TAB, SPACE, ENTER, BACKSPACE, the arrows, the "
+                     L"navigation block, NUM0..NUM9 and the numpad operators, MOUSE3..MOUSE5, or "
+                     L"L/R ALT / SHIFT / CTRL. `none` leaves the action unbound.",
                      label,
                      shown,
                      std::wstring{why});
@@ -304,6 +322,10 @@ namespace mm
 
             {
                 const std::string up = upper(name);
+                if (up == "NONE")
+                {
+                    return 0; // deliberately unbound
+                }
                 for (const NamedKey& k : kNamedKeys)
                 {
                     if (up == k.name)
@@ -352,6 +374,10 @@ namespace mm
 
         std::string vk_name(int vk)
         {
+            if (vk == 0)
+            {
+                return "none";
+            }
             if (vk >= VK_F1 && vk <= VK_F24)
             {
                 return "F" + std::to_string(vk - VK_F1 + 1);
@@ -367,7 +393,7 @@ namespace mm
             {
                 return std::string(1, static_cast<char>(vk));
             }
-            return "F2";
+            return "none";
         }
 
         //==============================================================================
@@ -1340,6 +1366,7 @@ namespace mm
     std::atomic<bool> g_reload_config{false};
     std::atomic<bool> g_revert_config{false};
     std::atomic<bool> g_save_config{false};
+    std::atomic<bool> g_key_capture{false};
     std::atomic<bool> g_panel_drew_frame{false};
     std::atomic<bool> g_waypoint_dirty{false};
 
@@ -1482,6 +1509,58 @@ namespace mm
     {
         const std::string n = vk_name(vk);
         return std::wstring(n.begin(), n.end());
+    }
+
+    // THE ACCEPTED SET, in one place, so the Bindings tab's capture widget can only ever
+    // produce a key the config file can also spell. Mirrors vk_from_name exactly:
+    // F1..F5 / F7 / F8, a letter or a digit, and every entry of kNamedKeys.
+    bool vk_bindable(int vk)
+    {
+        if (vk == 0)
+        {
+            return false;
+        }
+        if (vk >= VK_F1 && vk <= VK_F8 && vk != VK_F6)
+        {
+            return true;
+        }
+        if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9'))
+        {
+            return true;
+        }
+        for (const NamedKey& k : kNamedKeys)
+        {
+            if (vk == k.vk)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    const std::vector<int>& bindable_vks()
+    {
+        static const std::vector<int> all = [] {
+            std::vector<int> v;
+            for (int vk = 1; vk < 256; ++vk)
+            {
+                if (vk_bindable(vk))
+                {
+                    v.push_back(vk);
+                }
+            }
+            return v;
+        }();
+        return all;
+    }
+
+    bool set_pad_chord(const std::string& text, std::uint16_t& mask, bool& lt, bool& rt)
+    {
+        const std::uint16_t was_mask = mask;
+        const bool was_lt = lt;
+        const bool was_rt = rt;
+        parse_pad_chord(text, mask, lt, rt);
+        return mask != was_mask || lt != was_lt || rt != was_rt;
     }
 
     std::wstring pad_chord_name(std::uint16_t mask, bool lt, bool rt)

@@ -1041,9 +1041,11 @@ namespace overlay
                     // ImGui wants it (a text field), so the panel key - sampled with
                     // GetAsyncKeyState on the loop thread - always closes it again.
                     const ImGuiIO& io = ImGui::GetIO();
+                    const bool capturing = mm::g_key_capture.load(std::memory_order_relaxed);
                     if (is_mouse_message(msg) || msg == WM_SETCURSOR ||
                         is_raw_mouse_message(msg, lparam) ||
-                        (io.WantCaptureKeyboard && is_keyboard_message(msg)))
+                        ((io.WantCaptureKeyboard || capturing) && is_keyboard_message(msg)) ||
+                        (capturing && msg == WM_INPUT))
                     {
                         return 1;
                     }
@@ -6417,8 +6419,7 @@ namespace overlay
             // rebind cannot make one of the two lie.
             ImGui::SeparatorText("Keys");
             ImGui::TextWrapped("%s", bindings_hint(cfg).c_str());
-            ImGui::TextDisabled("rebind them in config_wuchang_minimap.txt (panel_key, map_key, "
-                                "map_recenter_key, zoom_key, reload_key, highlight_key)");
+            ImGui::TextDisabled("rebind them on the Bindings tab");
         }
 
         void panel_advanced(mm::Config& cfg)
@@ -6645,6 +6646,204 @@ namespace overlay
             ImGui::SliderInt("Getter fallback period (ms)", &cfg.highlight_getter_period_ms, 10, 1000);
             ImGui::SliderInt("POV scan bytes", &cfg.highlight_pov_scan_bytes, 64, 1024);
             ImGui::SliderInt("POV bad reads before re-pin", &cfg.highlight_pov_bad_reads, 1, 64);
+        }
+
+        //==============================================================================
+        // The Bindings tab
+        //==============================================================================
+        //
+        // Every hotkey a player has, in one place, with a "press a key" capture instead
+        // of a text field in a file. Three rules make it safe:
+        //   * the capture only accepts a key mm::vk_bindable() says the config file can
+        //     spell, so a binding always survives a save and a reload;
+        //   * while it is armed mm::g_key_capture makes the WndProc hook swallow the
+        //     whole keyboard, so the key being bound cannot also reach the game;
+        //   * it waits for every key to be released first, or the click that armed it
+        //     would capture whatever the player is still holding down.
+        // A change lands in the live config on the same frame (draw_panel diffs the
+        // struct and publishes it), and is written to the file by Save like anything
+        // else.
+
+        struct KeyBind
+        {
+            const char* label;
+            const char* key;
+            int mm::Config::*member;
+        };
+
+        constexpr KeyBind kKeyBinds[] = {
+            {"Settings panel", "panel_key", &mm::Config::panel_key},
+            {"Full map", "map_key", &mm::Config::map_key},
+            {"Recentre the map on the player", "map_recenter_key", &mm::Config::map_recenter_key},
+            {"Cycle the minimap zoom", "zoom_key", &mm::Config::zoom_key},
+            {"Reload settings, maps and markers", "reload_key", &mm::Config::reload_key},
+            {"Copy the full map to the clipboard", "screenshot_key", &mm::Config::screenshot_key},
+            {"Hold for the x-ray highlight", "highlight_key", &mm::Config::highlight_key},
+        };
+        constexpr int kKeyBindCount = static_cast<int>(std::size(kKeyBinds));
+
+        int g_capture_row = -1;            // render thread only; -1 = nothing armed
+        bool g_capture_wait_release = false;
+
+        void arm_capture(int row)
+        {
+            g_capture_row = row;
+            g_capture_wait_release = true;
+            mm::g_key_capture.store(row >= 0, std::memory_order_relaxed);
+        }
+
+        void panel_bindings(mm::Config& cfg)
+        {
+            static const mm::Config kDefaults{};
+
+            // ---- the capture, before anything is drawn --------------------------------
+            if (g_capture_row >= 0 && g_capture_row < kKeyBindCount)
+            {
+                bool any_down = false;
+                int pressed = 0;
+                for (const int vk : mm::bindable_vks())
+                {
+                    if ((::GetAsyncKeyState(vk) & 0x8000) != 0)
+                    {
+                        any_down = true;
+                        if (pressed == 0)
+                        {
+                            pressed = vk;
+                        }
+                    }
+                }
+                if ((::GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0)
+                {
+                    arm_capture(-1);
+                }
+                else if (g_capture_wait_release)
+                {
+                    g_capture_wait_release = any_down;
+                }
+                else if (pressed != 0)
+                {
+                    cfg.*kKeyBinds[g_capture_row].member = pressed;
+                    mm::logf(L"binding: {} = {}",
+                             std::wstring(kKeyBinds[g_capture_row].key,
+                                          kKeyBinds[g_capture_row].key +
+                                              std::strlen(kKeyBinds[g_capture_row].key)),
+                             mm::key_name(pressed));
+                    arm_capture(-1);
+                }
+            }
+            else if (g_capture_row >= 0)
+            {
+                arm_capture(-1);
+            }
+
+            ImGui::TextDisabled("Click a key to rebind it, then press the new key. Esc cancels.");
+
+            if (ImGui::BeginTable("bindings", 4,
+                                  ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
+                                      ImGuiTableFlags_BordersInnerV))
+            {
+                ImGui::TableSetupColumn("Action");
+                ImGui::TableSetupColumn("Key");
+                ImGui::TableSetupColumn("");
+                ImGui::TableSetupColumn("");
+                ImGui::TableHeadersRow();
+                for (int i = 0; i < kKeyBindCount; ++i)
+                {
+                    const int vk = cfg.*kKeyBinds[i].member;
+                    // CONFLICT. Two actions on one key is not an error the mod can
+                    // resolve - both fire - so it is named rather than prevented.
+                    const char* clash = nullptr;
+                    for (int j = 0; j < kKeyBindCount && clash == nullptr; ++j)
+                    {
+                        if (j != i && vk != 0 && cfg.*kKeyBinds[j].member == vk)
+                        {
+                            clash = kKeyBinds[j].label;
+                        }
+                    }
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(kKeyBinds[i].label);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%s)", kKeyBinds[i].key);
+
+                    ImGui::TableNextColumn();
+                    ImGui::PushID(i + 900);
+                    const std::string shown = g_capture_row == i
+                                                  ? std::string("press a key...")
+                                                  : key_name_ascii(vk);
+                    if (ImGui::Button(shown.c_str(), ImVec2{130.0f * g_ui_scale, 0.0f}))
+                    {
+                        arm_capture(g_capture_row == i ? -1 : i);
+                    }
+
+                    ImGui::TableNextColumn();
+                    ImGui::BeginDisabled(vk == kDefaults.*kKeyBinds[i].member);
+                    if (ImGui::SmallButton("reset"))
+                    {
+                        cfg.*kKeyBinds[i].member = kDefaults.*kKeyBinds[i].member;
+                    }
+                    ImGui::EndDisabled();
+
+                    ImGui::TableNextColumn();
+                    if (clash != nullptr)
+                    {
+                        ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "also %s", clash);
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+
+            if (ImGui::Button("Reset every binding"))
+            {
+                for (int i = 0; i < kKeyBindCount; ++i)
+                {
+                    cfg.*kKeyBinds[i].member = kDefaults.*kKeyBinds[i].member;
+                }
+                arm_capture(-1);
+            }
+
+            //--------------------------------------------------------------------------
+            // The gamepad chord
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("Gamepad");
+            ImGui::Checkbox("X-ray on a gamepad chord", &cfg.highlight_gamepad);
+            static char chord[64]{};
+            static bool chord_primed = false;
+            const std::string live = wide_to_ascii(
+                mm::pad_chord_name(cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt));
+            if (!chord_primed)
+            {
+                ::strncpy_s(chord, sizeof(chord), live.c_str(), _TRUNCATE);
+                chord_primed = true;
+            }
+            ImGui::SetNextItemWidth(180.0f * g_ui_scale);
+            if (ImGui::InputText("highlight_pad_chord", chord, sizeof(chord),
+                                 ImGuiInputTextFlags_EnterReturnsTrue))
+            {
+                mm::set_pad_chord(chord, cfg.highlight_pad_mask, cfg.highlight_pad_lt,
+                                  cfg.highlight_pad_rt);
+                ::strncpy_s(chord, sizeof(chord),
+                            wide_to_ascii(mm::pad_chord_name(cfg.highlight_pad_mask,
+                                                             cfg.highlight_pad_lt,
+                                                             cfg.highlight_pad_rt))
+                                .c_str(),
+                            _TRUNCATE);
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("in force: %s   (LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, RS, "
+                                "UP, DOWN, LEFT, RIGHT, joined with +; `none` disables it)",
+                                live.c_str());
+            if (ImGui::SmallButton("reset the chord"))
+            {
+                cfg.highlight_pad_mask = kDefaults.highlight_pad_mask;
+                cfg.highlight_pad_lt = kDefaults.highlight_pad_lt;
+                cfg.highlight_pad_rt = kDefaults.highlight_pad_rt;
+                chord_primed = false;
+            }
+            ImGui::TextDisabled("the full map's own gamepad controls are fixed (left stick pans, "
+                                "triggers zoom, LB / RB change floor)");
         }
 
         void panel_debug(mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
@@ -7013,6 +7212,11 @@ namespace overlay
                     // The Debug tab EXISTS only while debug_readout is on, which is a
                     // Dev key in a file players do not have. So the panel a player sees
                     // has two tabs and no developer surface at all.
+                    if (ImGui::BeginTabItem("Bindings"))
+                    {
+                        panel_bindings(cfg);
+                        ImGui::EndTabItem();
+                    }
                     if (cfg.debug_readout && ImGui::BeginTabItem("Debug"))
                     {
                         panel_debug(cfg, snap, have_state);
@@ -7159,6 +7363,13 @@ namespace overlay
             {
                 draw_panel(raw, snap, have);
                 mm::g_panel_drew_frame.store(true, std::memory_order_relaxed);
+            }
+            else if (g_capture_row >= 0)
+            {
+                // The panel closed with a capture armed. Disarm it here rather than in
+                // the close paths: this is the one place that runs on every frame, so
+                // the keyboard can never stay swallowed with no panel on screen.
+                arm_capture(-1);
             }
 
             if (map_open)

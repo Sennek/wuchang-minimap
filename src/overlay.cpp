@@ -7628,61 +7628,340 @@ namespace overlay
             ImGui::TextDisabled("rebind them on the Bindings tab");
         }
 
+        //==============================================================================
+        // THE PANEL'S OWN STATE FILE (review B.14)
+        //==============================================================================
+        //
+        // Which Player-tab sections are folded up, remembered between sessions.
+        //
+        // NOT imgui.ini: io.IniFilename is nullptr and stays that way. ImGui's ini is a
+        // whole window-layout store - positions, sizes, docking, every window the mod
+        // has ever opened - and turning it on would mean the panel's own "come back
+        // centred" behaviour stops working, plus a file whose format is ImGui's business
+        // and which nobody can hand-edit meaningfully in a bug report.
+        //
+        // So: one line, one number, in wuchang_minimap_panel.txt beside the config. Also
+        // not a config key, because it is not a setting - it is where the player left a
+        // window, and it must not appear in the file a Save writes or in the drift test
+        // that guards that file.
+        //
+        // THREADS. The render thread owns the bits (it is the one drawing the headers)
+        // and raises a flag; the LOOP thread does the file I/O, in the same block as
+        // every other write this mod does. One atomic each way, no lock.
+        constexpr std::uint32_t kPanelSectionsDefault = 0xFFFFFFFFu; // all open, as 1.0.0 shipped
+        std::atomic<std::uint32_t> g_panel_sections{kPanelSectionsDefault};
+        std::atomic<bool> g_panel_state_dirty{false};
+        std::atomic<bool> g_panel_state_loaded{false};
+
+        std::wstring panel_state_path()
+        {
+            return mm::mod_dir() + L"\\wuchang_minimap_panel.txt";
+        }
+
+        // LOOP THREAD. Plain CreateFileW/ReadFile and a hand-rolled hex parse: no
+        // iostreams anywhere in this mod (lessons.md), and this runs before the render
+        // thread has drawn a panel.
+        void panel_state_load()
+        {
+            if (g_panel_state_loaded.exchange(true))
+            {
+                return;
+            }
+            const HANDLE h = ::CreateFileW(panel_state_path().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return; // no file yet: every section open, which is what 1.0.0 did
+            }
+            char buf[256]{};
+            DWORD read = 0;
+            const bool ok = ::ReadFile(h, buf, sizeof(buf) - 1, &read, nullptr) != 0;
+            ::CloseHandle(h);
+            if (!ok || read == 0)
+            {
+                return;
+            }
+            const char* p = ::strstr(buf, "sections");
+            if (p == nullptr)
+            {
+                return;
+            }
+            p = ::strchr(p, '=');
+            if (p == nullptr)
+            {
+                return;
+            }
+            ++p;
+            while (*p == ' ' || *p == '\t')
+            {
+                ++p;
+            }
+            int base = 10;
+            if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
+            {
+                base = 16;
+                p += 2;
+            }
+            std::uint32_t v = 0;
+            bool any = false;
+            for (; *p != '\0'; ++p)
+            {
+                int d = -1;
+                if (*p >= '0' && *p <= '9')
+                {
+                    d = *p - '0';
+                }
+                else if (base == 16 && *p >= 'a' && *p <= 'f')
+                {
+                    d = *p - 'a' + 10;
+                }
+                else if (base == 16 && *p >= 'A' && *p <= 'F')
+                {
+                    d = *p - 'A' + 10;
+                }
+                if (d < 0)
+                {
+                    break;
+                }
+                v = v * static_cast<std::uint32_t>(base) + static_cast<std::uint32_t>(d);
+                any = true;
+            }
+            if (any)
+            {
+                g_panel_sections.store(v, std::memory_order_relaxed);
+                MM_LOGV(L"panel state: sections 0x{:X}", v);
+            }
+        }
+
+        // LOOP THREAD, and only when the render thread says something changed.
+        void panel_state_save()
+        {
+            char text[256]{};
+            const int n = std::snprintf(text, sizeof(text),
+                                        "; WuchangMinimap - where you left the F2 panel. Not a setting:\r\n"
+                                        "; delete this file to get every section back open.\r\n"
+                                        "sections = 0x%X\r\n",
+                                        g_panel_sections.load(std::memory_order_relaxed));
+            if (n <= 0)
+            {
+                return;
+            }
+            const HANDLE h = ::CreateFileW(panel_state_path().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                           FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return;
+            }
+            DWORD written = 0;
+            ::WriteFile(h, text, static_cast<DWORD>(n), &written, nullptr);
+            ::CloseHandle(h);
+        }
+
+        //==============================================================================
+        // THE PLAYER TAB (review B.14)
+        //==============================================================================
+        //
+        // Ten sections, all of them DefaultOpen in 1.0.0, in a window with no ini file -
+        // so folding one up lasted until the panel was closed, and finding one setting
+        // meant scrolling past nine sections you were not looking for.
+        //
+        // Three things fix that, and they are listed here rather than spread through the
+        // section functions:
+        //   * the fold state is remembered, in the panel's own state file (see
+        //     panel_state_load / panel_state_save - never imgui.ini);
+        //   * a filter box hides the sections that have nothing to do with what was
+        //     typed. Matching is per SECTION, against its title AND the words its
+        //     settings are named with (`kSections` below), not per widget: filtering
+        //     individual widgets would mean wrapping every one of the ~120 calls inside
+        //     the section functions in a test, and a table of a section's own vocabulary
+        //     is one thing to keep true instead of 120;
+        //   * "Reset to the shipped defaults" is a real reset - Config{} - which is what
+        //     Revert never was: Revert re-reads the FILE, so it cannot undo a bad value
+        //     that was saved.
+        struct PanelSection
+        {
+            const char* title;
+            // The words a player would type looking for something in here. The section's
+            // own setting names, in lower case; matched as substrings both ways.
+            const char* words;
+            void (*draw)(mm::Config&, float);
+        };
+
+        // Thin adapters, so every section has the same signature and the table stays a
+        // table. (`wrap` is the content width the category-chip rows need.)
+        void sec_presets(mm::Config& cfg, float) { player_presets(cfg); }
+        void sec_look(mm::Config& cfg, float) { player_look(cfg); }
+        void sec_minimap(mm::Config& cfg, float) { player_minimap(cfg); }
+        void sec_placement(mm::Config& cfg, float) { player_placement(cfg); }
+        void sec_markers(mm::Config& cfg, float wrap) { player_markers(cfg, wrap); }
+        void sec_tracker(mm::Config& cfg, float) { player_tracker(cfg); }
+        void sec_fullmap(mm::Config& cfg, float) { player_fullmap(cfg); }
+        void sec_xray(mm::Config& cfg, float wrap) { player_xray(cfg, wrap); }
+        void sec_compass(mm::Config& cfg, float wrap) { player_compass(cfg, wrap); }
+        void sec_keys(mm::Config& cfg, float) { player_keys(cfg); }
+
+        constexpr PanelSection kSections[] = {
+            {"Presets", "preset hud layout corner placement", &sec_presets},
+            {"Look", "theme palette colour color opacity ink neutral colourblind font scale", &sec_look},
+            {"Minimap", "minimap shape round square zoom size rotate north floors adjacent", &sec_minimap},
+            {"Placement and scale", "anchor offset position ui scale dpi corner", &sec_placement},
+            {"Markers", "markers categories glyph size found hide clamp edge rarity quality", &sec_markers},
+            {"Collection tracker", "collection tracker found profile save slot absence", &sec_tracker},
+            {"Full map", "full map zoom gamepad waypoint shrine list travel", &sec_fullmap},
+            {"X-ray highlight", "x-ray xray highlight through walls hold toggle radius labels", &sec_xray},
+            {"Compass", "compass strip heading pips width degrees plate", &sec_compass},
+            {"Keys", "keys hotkeys bindings rebind", &sec_keys},
+        };
+        constexpr int kSectionCount = static_cast<int>(std::size(kSections));
+        static_assert(kSectionCount <= 32, "one bit per section in g_panel_sections");
+
+        // Case-insensitive substring, both ways round: typing "colour" finds "Look"
+        // through its words, and typing "compa" finds "Compass" through its title.
+        bool section_matches(const PanelSection& s, const char* needle)
+        {
+            if (needle == nullptr || needle[0] == '\0')
+            {
+                return true;
+            }
+            char low[64]{};
+            std::size_t n = 0;
+            for (const char* p = needle; *p != '\0' && n + 1 < sizeof(low); ++p)
+            {
+                low[n++] = (*p >= 'A' && *p <= 'Z') ? static_cast<char>(*p - 'A' + 'a') : *p;
+            }
+            if (n == 0)
+            {
+                return true;
+            }
+            // Both haystacks are ASCII literals; _stristr does not exist, so lower the
+            // needle once (above) and walk the haystacks with a case-insensitive compare.
+            const auto contains = [&low, n](const char* hay) {
+                for (const char* h = hay; *h != '\0'; ++h)
+                {
+                    if (::_strnicmp(h, low, n) == 0)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            return contains(s.title) || contains(s.words);
+        }
+
         void panel_player(mm::Config& cfg)
         {
             const float wrap = ImGui::GetContentRegionAvail().x;
-            constexpr ImGuiTreeNodeFlags kOpen = ImGuiTreeNodeFlags_DefaultOpen;
 
-            if (ImGui::CollapsingHeader("Presets", kOpen))
+            // ---- the filter ----------------------------------------------------------
+            static char filter[64]{};
+            ImGui::SetNextItemWidth(220.0f * g_ui_scale);
+            ImGui::InputTextWithHint("##filter", "filter settings...", filter, sizeof(filter));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("clear"))
             {
-                player_presets(cfg);
+                filter[0] = '\0';
+            }
+            const bool filtering = filter[0] != '\0';
+            ImGui::SameLine();
+            if (filtering)
+            {
+                ImGui::TextDisabled("matching sections only");
+            }
+            else
+            {
+                ImGui::TextDisabled("type a setting's name");
             }
 
-            if (ImGui::CollapsingHeader("Look", kOpen))
+            // ---- the sections --------------------------------------------------------
+            std::uint32_t bits = g_panel_sections.load(std::memory_order_relaxed);
+            const std::uint32_t before_bits = bits;
+            int shown = 0;
+            for (int i = 0; i < kSectionCount; ++i)
             {
-                player_look(cfg);
+                const PanelSection& sec = kSections[i];
+                if (!section_matches(sec, filter))
+                {
+                    continue;
+                }
+                ++shown;
+                const std::uint32_t bit = 1u << i;
+                // While filtering, everything that matched is forced OPEN - the answer to
+                // "where is that setting" must not be a folded header. The stored bit is
+                // deliberately not touched by that (`Always` sets the state without
+                // asking the header), so clearing the filter restores the fold exactly.
+                if (filtering)
+                {
+                    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+                }
+                else
+                {
+                    ImGui::SetNextItemOpen((bits & bit) != 0, ImGuiCond_Always);
+                }
+                if (ImGui::CollapsingHeader(sec.title))
+                {
+                    if (!filtering)
+                    {
+                        bits |= bit;
+                    }
+                    sec.draw(cfg, wrap);
+                }
+                else if (!filtering)
+                {
+                    bits &= ~bit;
+                }
+            }
+            if (shown == 0)
+            {
+                ImGui::TextDisabled("nothing matches '%s'", filter);
+            }
+            if (bits != before_bits)
+            {
+                g_panel_sections.store(bits, std::memory_order_relaxed);
+                g_panel_state_dirty.store(true, std::memory_order_release);
             }
 
-            if (ImGui::CollapsingHeader("Minimap", kOpen))
+            // ---- reset ---------------------------------------------------------------
+            ImGui::Spacing();
+            ImGui::Separator();
+            // TWO CLICKS. This throws away every tuned value in the struct, and a stray
+            // click on a settings panel should not be able to do that. It is armed until
+            // the panel is closed or the button is pressed.
+            static bool confirm_reset = false;
+            if (!confirm_reset)
             {
-                player_minimap(cfg);
+                if (ImGui::Button("Reset to the shipped defaults"))
+                {
+                    confirm_reset = true;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Every setting back to what the mod ships with.\n"
+                                      "Revert only re-reads the file, so it cannot undo a saved value.");
+                }
             }
-
-            if (ImGui::CollapsingHeader("Placement and scale", kOpen))
+            else
             {
-                player_placement(cfg);
+                ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "Reset every setting?");
+                ImGui::SameLine();
+                if (ImGui::Button("Yes, reset"))
+                {
+                    confirm_reset = false;
+                    const bool was_on = cfg.mod_enabled;
+                    cfg = mm::Config{};
+                    // The master switch is not a preference, it is whether the mod is
+                    // running - and it has its own checkbox and its own log line.
+                    cfg.mod_enabled = was_on;
+                    mm::log(L"config: reset to the shipped defaults from the F2 panel (not saved yet)");
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel"))
+                {
+                    confirm_reset = false;
+                }
             }
-
-            if (ImGui::CollapsingHeader("Markers", kOpen))
-            {
-                player_markers(cfg, wrap);
-            }
-
-            if (ImGui::CollapsingHeader("Collection tracker", kOpen))
-            {
-                player_tracker(cfg);
-            }
-
-            if (ImGui::CollapsingHeader("Full map", kOpen))
-            {
-                player_fullmap(cfg);
-            }
-
-            if (ImGui::CollapsingHeader("X-ray highlight", kOpen))
-            {
-                player_xray(cfg, wrap);
-            }
-
-            if (ImGui::CollapsingHeader("Compass", kOpen))
-            {
-                player_compass(cfg, wrap);
-            }
-
-            if (ImGui::CollapsingHeader("Keys", kOpen))
-            {
-                player_keys(cfg);
-            }
+            ImGui::TextDisabled("Nothing is written until Save.");
         }
+
 
         void panel_advanced(mm::Config& cfg)
         {
@@ -10793,6 +11072,14 @@ namespace overlay
                 const mm::PerfScope save_scope(g_pf_save);
                 mm::save_waypoint_file();
             }
+        }
+
+        panel_state_load();
+        if (g_panel_state_dirty.exchange(false, std::memory_order_acquire))
+        {
+            // Tiny (one line), and on the same thread as every other write this mod
+            // does. It shares the file-write perf row above by design.
+            panel_state_save();
         }
 
         if (mm::g_reload_config.exchange(false))

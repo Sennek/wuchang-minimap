@@ -1747,7 +1747,6 @@ namespace mm
         a.map_pad_open_chord == b.map_pad_open_chord &&
         eq(a.ui_font, b.ui_font) &&
         a.zoom_dpi_scaled == b.zoom_dpi_scaled &&
-        a.panel_sections_open == b.panel_sections_open &&
                true;
     }
 

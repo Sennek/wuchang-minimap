@@ -675,12 +675,6 @@ namespace mm
         // twice as much ground. With it off, uu/px is literal: the 4K disc shows twice
         // the radius, which is what 1.0.0 did.
         bool zoom_dpi_scaled = true;
-
-        // The F2 Player tab's collapsed sections, one bit per header, persisted in
-        // wuchang_minimap_panel.txt rather than here - this is only the runtime copy so
-        // the render thread can read it without touching a file. See panel_state_*() in
-        // overlay.cpp. Not a config key.
-        std::uint32_t panel_sections_open = 0xFFFFFFFFu;
     };
 
     // A CONFIG IS A VALUE, and several things depend on that: it is copied by value onto

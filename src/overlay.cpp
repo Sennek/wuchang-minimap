@@ -4302,67 +4302,243 @@ namespace overlay
             }
         }
 
-        void draw_panel(mm::Config cfg, const mm::Snapshot& snap, bool have_state)
+        //==============================================================================
+        // Category chips
+        //==============================================================================
+        //
+        // Three places used to draw fourteen `ImGui::Checkbox`es in a hand-computed grid
+        // (the minimap filter, the x-ray filter, the compass filter) - forty-two
+        // checkboxes in one window, all identical, none of them telling you what colour
+        // the category is on the map.
+        //
+        // A chip is a SmallButton filled with the category's own glyph colour when the
+        // category is on and drawn as a flat outline when it is off, so the row doubles
+        // as the legend. `base_id` keeps the three rows apart: ImGui identifies a widget
+        // by its label, and three rows of "Chest" in one window would be one widget
+        // (that is the PushID rule in lessons.md, and it is why each row passes its own
+        // base).
+        bool category_chips(std::uint32_t& mask, int base_id, float wrap_width)
         {
-            bool open = true;
-            ImGui::SetNextWindowSize(ImVec2{460.0f, 0.0f}, ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowPos(ImVec2{ImGui::GetMainViewport()->Pos.x + 60.0f,
-                                           ImGui::GetMainViewport()->Pos.y + 60.0f},
-                                    ImGuiCond_FirstUseEver);
-            if (!ImGui::Begin("Wuchang Minimap  v" WUCHANG_MINIMAP_VERSION
-                              "###wuchang_minimap_panel",
-                              &open, ImGuiWindowFlags_NoCollapse))
+            bool changed = false;
+            const ImGuiStyle& style = ImGui::GetStyle();
+            float x = 0.0f;
+            for (int i = 0; i < mdb::kCatCount; ++i)
             {
-                ImGui::End();
-                if (!open)
+                const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                const bool on = mdb::cat_enabled(mask, cat);
+                const char* label = mdb::cat_label(cat);
+                const float w = ImGui::CalcTextSize(label).x + style.FramePadding.x * 4.0f;
+                if (i > 0)
                 {
-                    mm::g_panel_open = false;
+                    if (x + w < wrap_width)
+                    {
+                        ImGui::SameLine();
+                    }
+                    else
+                    {
+                        x = 0.0f;
+                    }
                 }
-                return;
+                x += w + style.ItemSpacing.x;
+
+                const ImU32 col = marker_color(cat, 255);
+                const ImVec4 fill = ImGui::ColorConvertU32ToFloat4(col);
+                // Black text on a saturated fill, the category's own colour as a thin
+                // outline when off. The luminance test is what stops a yellow chip from
+                // getting white text nobody can read.
+                const float lum = 0.299f * fill.x + 0.587f * fill.y + 0.114f * fill.z;
+                const ImVec4 text_col = on ? (lum > 0.55f ? ImVec4{0.06f, 0.06f, 0.06f, 1.0f}
+                                                          : ImVec4{1.0f, 1.0f, 1.0f, 1.0f})
+                                           : ImVec4{fill.x, fill.y, fill.z, 0.75f};
+                const ImVec4 bg = on ? fill : ImVec4{fill.x * 0.18f, fill.y * 0.18f, fill.z * 0.18f, 0.55f};
+                ImGui::PushID(base_id + i);
+                ImGui::PushStyleColor(ImGuiCol_Button, bg);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                                      ImVec4{fill.x * 0.75f, fill.y * 0.75f, fill.z * 0.75f, 1.0f});
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, fill);
+                ImGui::PushStyleColor(ImGuiCol_Text, text_col);
+                if (ImGui::SmallButton(label))
+                {
+                    mask = on ? (mask & ~mdb::cat_bit(cat)) : (mask | mdb::cat_bit(cat));
+                    changed = true;
+                }
+                ImGui::PopStyleColor(4);
+                ImGui::PopID();
+            }
+            return changed;
+        }
+
+        // "All" / "None" next to a chip row. Same base_id discipline.
+        void chips_with_all_none(const char* what, std::uint32_t& mask, int base_id, float wrap_width)
+        {
+            ImGui::PushID(base_id);
+            if (ImGui::SmallButton("All"))
+            {
+                mask = mdb::kAllCats;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("None"))
+            {
+                mask = 0u;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(config key: %s)", what);
+            ImGui::PopID();
+            category_chips(mask, base_id + 1, wrap_width);
+        }
+
+        //==============================================================================
+        // Player presets
+        //==============================================================================
+        //
+        // Three named starting points, each setting SEVERAL Player keys at once, so the
+        // common answers to "what do I want on screen" are one click instead of fifteen.
+        // They deliberately do not touch anything on the Advanced tab, the hotkeys, the
+        // master switch or the UI scale: a preset must never undo a machine-specific
+        // setting the player had to get right once.
+        enum class Preset
+        {
+            Minimal,
+            Loot,
+            Exploration,
+        };
+
+        void apply_preset(mm::Config& cfg, Preset which)
+        {
+            const std::uint32_t chest = mdb::cat_bit(mdb::Cat::Chest);
+            const std::uint32_t pickup = mdb::cat_bit(mdb::Cat::Pickup);
+            const std::uint32_t hidden = mdb::cat_bit(mdb::Cat::Hidden);
+            const std::uint32_t shrine = mdb::cat_bit(mdb::Cat::Shrine);
+            const std::uint32_t boss = mdb::cat_bit(mdb::Cat::Boss);
+            const std::uint32_t elite = mdb::cat_bit(mdb::Cat::Elite);
+            const std::uint32_t fog = mdb::cat_bit(mdb::Cat::FogGate);
+            const std::uint32_t merchant = mdb::cat_bit(mdb::Cat::Merchant);
+            const std::uint32_t npc = mdb::cat_bit(mdb::Cat::Npc);
+            const std::uint32_t door = mdb::cat_bit(mdb::Cat::Door);
+            const std::uint32_t ladder = mdb::cat_bit(mdb::Cat::Ladder);
+            const std::uint32_t lift = mdb::cat_bit(mdb::Cat::Lift);
+
+            cfg.overlay_enabled = true;
+            cfg.markers_enabled = true;
+            cfg.highlight_enabled = true;
+            switch (which)
+            {
+            case Preset::Minimal:
+                // As little as possible while still being a map: a small disc, only the
+                // landmarks you navigate by, nothing you have already taken, no compass.
+                cfg.show_minimap = true;
+                cfg.size_frac = 0.16f;
+                cfg.zoom_uu_per_px = 30.0f;
+                cfg.opacity = 0.85f;
+                cfg.markers_categories = shrine | boss | fog;
+                cfg.markers_hide_found = true;
+                cfg.markers_clamp_to_edge = false;
+                cfg.compass_enabled = false;
+                cfg.highlight_categories = chest | pickup;
+                break;
+            case Preset::Loot:
+                // Sweeping a level for what is left in it: a close zoom, only loot on
+                // the map, found things gone, everything that is off the disc kept on
+                // its rim, and the x-ray tuned wide with the quality colours on.
+                cfg.show_minimap = true;
+                cfg.size_frac = 0.24f;
+                cfg.zoom_uu_per_px = 20.0f;
+                cfg.opacity = 0.92f;
+                cfg.markers_categories = chest | pickup | hidden | merchant;
+                cfg.markers_hide_found = true;
+                cfg.markers_clamp_to_edge = true;
+                cfg.compass_enabled = true;
+                cfg.compass_categories = chest | pickup;
+                cfg.highlight_categories = chest | pickup | hidden;
+                cfg.highlight_radius = 5000.0f;
+                cfg.highlight_labels = true;
+                cfg.xray_rarity_colors_enabled = true;
+                break;
+            case Preset::Exploration:
+            default:
+                // Learning the level: a wide view, every landmark and every connection
+                // (doors, ladders, lifts), found markers still drawn so you can see
+                // where you have been. Enemies stay off - the sweep only refreshes them
+                // once a second, so they lag while they move.
+                cfg.show_minimap = true;
+                cfg.size_frac = 0.28f;
+                cfg.zoom_uu_per_px = 40.0f;
+                cfg.opacity = 0.92f;
+                cfg.markers_categories = mdb::kAllCats & ~mdb::cat_bit(mdb::Cat::Enemy);
+                cfg.markers_hide_found = false;
+                cfg.markers_clamp_to_edge = true;
+                cfg.compass_enabled = true;
+                cfg.compass_categories = shrine | boss | elite | fog | door | ladder | lift | npc;
+                cfg.highlight_categories = chest | pickup;
+                break;
+            }
+        }
+
+        //==============================================================================
+        // The F2 panel: Player / Advanced / Debug
+        //==============================================================================
+        //
+        // Until 0.9.2 this was one flat window with fourteen category checkboxes three
+        // times over, scan-chunk sliders, POV offsets and fence counters - a developer
+        // console with the player's settings mixed into it. The three tabs below are the
+        // §2 classification of the config made visible: the Player tab is the Player
+        // tier, the Advanced tab is the Advanced tier, and the Debug tab is the Dev tier
+        // plus every read-only diagnostic. NOTHING was dropped in the move; the
+        // diagnostics that used to sit inside the Markers / Full map / X-ray / Compass
+        // headers are on the Debug tab now.
+        //
+        // Each tab is its own function for a reason beyond tidiness: MSVC counts nested
+        // blocks and C1061'd this file once already (lessons.md).
+
+        void panel_player(mm::Config& cfg)
+        {
+            const float wrap = ImGui::GetContentRegionAvail().x;
+
+            ImGui::SeparatorText("Presets");
+            ImGui::TextDisabled("set several settings on this tab at once; hotkeys, the UI scale and "
+                                "the Advanced tab are never touched");
+            if (ImGui::Button("Minimal HUD"))
+            {
+                apply_preset(cfg, Preset::Minimal);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Loot hunting"))
+            {
+                apply_preset(cfg, Preset::Loot);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Exploration"))
+            {
+                apply_preset(cfg, Preset::Exploration);
             }
 
-            const mm::Config before = cfg;
-
-            ImGui::TextColored(ImVec4{0.62f, 0.68f, 0.78f, 1.0f},
-                               "WuchangMinimap v" WUCHANG_MINIMAP_VERSION
-                               "  -  beta: chapters 2-5 maps and the x-ray highlight are not yet verified in-game");
-            ImGui::Spacing();
+            //--------------------------------------------------------------------------
+            // Minimap
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("Minimap");
             ImGui::Checkbox("Overlay enabled", &cfg.overlay_enabled);
             ImGui::SameLine();
             ImGui::Checkbox("Show minimap", &cfg.show_minimap);
-            // THE MASTER SWITCH. Unticking it does not stop anything from here - it
-            // only writes mod_enabled = 0 into the config file, which the loop thread's
-            // 1 Hz watcher then acts on (modswitch.hpp). That keeps the whole shutdown
-            // sequence on the one thread that is allowed to run it, and it means the
-            // file and the running state can never disagree.
-            if (ImGui::Checkbox("Mod enabled (master switch - turns EVERYTHING off)", &cfg.mod_enabled))
-            {
-                if (!cfg.mod_enabled)
-                {
-                    mm::set_config(cfg);
-                    mm::g_save_config = true;
-                    mm::log(L"master switch: turned off from the F2 panel - writing mod_enabled = 0; the "
-                            L"mod stops within a second. Edit the config file to turn it back on.");
-                }
-            }
-            if (!cfg.mod_enabled)
-            {
-                ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f},
-                                   "The mod is shutting down. Set mod_enabled = 1 in %s to restart it.",
-                                   "config_wuchang_minimap.txt");
-            }
-
             ImGui::SliderFloat("Size (fraction of screen height)", &cfg.size_frac, 0.08f, 0.6f, "%.2f");
             ImGui::SliderFloat("Zoom (uu per minimap pixel)", &cfg.zoom_uu_per_px, 4.0f, 200.0f, "%.0f");
             ImGui::SliderFloat("Opacity", &cfg.opacity, 0.15f, 1.0f, "%.2f");
 
-            int shape = cfg.round ? 0 : 1;
-            const char* shapes[] = {"round", "square"};
-            if (ImGui::Combo("Shape", &shape, shapes, 2))
+            bool round_shape = cfg.round;
+            if (ImGui::Checkbox("Round (off = square)", &round_shape))
             {
-                cfg.round = (shape == 0);
+                cfg.round = round_shape;
             }
+            ImGui::SameLine();
+            ImGui::Checkbox("Rotate with player (off = north up)", &cfg.rotate_with_player);
+            ImGui::Checkbox("Show the floor below / above (dimmed)", &cfg.show_adjacent_floors);
+            ImGui::SameLine();
+            ImGui::Checkbox("Hide while a menu is open", &cfg.hide_in_menus);
+            ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 20.0f, 800.0f, "%.0f");
 
+            //--------------------------------------------------------------------------
+            // Placement and scale
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("Placement and scale");
             // ONE key that moves the whole HUD. `custom` keeps the three placement keys
             // below in force; anything else overrides the minimap's corner and puts the
             // compass on the same vertical side.
@@ -4372,11 +4548,10 @@ namespace overlay
             {
                 cfg.hud_preset = static_cast<mm::HudPreset>(preset);
             }
-            const bool custom_placement = cfg.hud_preset == mm::HudPreset::Custom;
-            ImGui::BeginDisabled(!custom_placement);
+            ImGui::BeginDisabled(cfg.hud_preset != mm::HudPreset::Custom);
             int anchor = static_cast<int>(cfg.anchor);
             const char* anchors[] = {"top-left", "top-right", "bottom-left", "bottom-right"};
-            if (ImGui::Combo("Anchor", &anchor, anchors, 4))
+            if (ImGui::Combo("Minimap corner", &anchor, anchors, 4))
             {
                 cfg.anchor = static_cast<mm::Anchor>(anchor);
             }
@@ -4386,7 +4561,7 @@ namespace overlay
             ImGui::TextDisabled("offsets are in 1080p pixels; the UI scale multiplies them");
 
             // UI SCALE. `auto` is a checkbox over the slider rather than a magic value
-            // in the number, so the slider always says what is actually in force.
+            // inside the number, so the slider always says what is actually in force.
             bool auto_scale = cfg.ui_scale_auto;
             if (ImGui::Checkbox("Scale the UI automatically", &auto_scale))
             {
@@ -4402,32 +4577,228 @@ namespace overlay
             ImGui::SliderFloat("UI scale", &cfg.ui_scale, kUiScaleMin, kUiScaleMax, "%.2f");
             ImGui::EndDisabled();
 
-            ImGui::Checkbox("Rotate with player (off = north up)", &cfg.rotate_with_player);
-            ImGui::Checkbox("Show the floor below / above (dimmed)", &cfg.show_adjacent_floors);
-            ImGui::SliderFloat("Adjacent floor opacity", &cfg.adjacent_floor_opacity, 0.0f, 0.6f, "%.2f");
-            ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 20.0f, 800.0f, "%.0f");
-            ImGui::SliderFloat("Below / above fade range (uu)", &cfg.floor_fade_uu, 100.0f, 4000.0f, "%.0f");
-            ImGui::SliderFloat("Height gradient strength", &cfg.floor_gradient_strength, 0.0f, 0.6f, "%.2f");
-            ImGui::SliderFloat("Player Z offset (uu, capsule -> feet)", &cfg.player_z_offset, -200.0f, 200.0f, "%.0f");
-            ImGui::SliderInt("Slice rate (Hz)", &cfg.slice_hz, 2, 30);
-            ImGui::Checkbox("Hide while a menu is open", &cfg.hide_in_menus);
-            ImGui::SameLine();
-            ImGui::Checkbox("Only when the camera follows the pawn", &cfg.require_pawn_view);
-            ImGui::Checkbox("Debug readout", &cfg.debug_readout);
-
             //--------------------------------------------------------------------------
             // Markers
             //--------------------------------------------------------------------------
-            if (ImGui::CollapsingHeader("Markers", ImGuiTreeNodeFlags_DefaultOpen))
+            ImGui::SeparatorText("Markers");
+            ImGui::Checkbox("Show markers", &cfg.markers_enabled);
+            ImGui::SameLine();
+            ImGui::Checkbox("Hide found", &cfg.markers_hide_found);
+            ImGui::SameLine();
+            ImGui::Checkbox("Keep out-of-range markers on the rim", &cfg.markers_clamp_to_edge);
+            ImGui::SliderFloat("Marker size (px)", &cfg.markers_size, 2.0f, 16.0f, "%.1f");
+            // The chips ARE the legend: each one is filled with the colour that category
+            // is drawn in on the map.
+            chips_with_all_none("markers_categories", cfg.markers_categories, 1000, wrap);
+
+            //--------------------------------------------------------------------------
+            // Collection tracker
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("Collection tracker");
+            ImGui::Checkbox("Write wuchang_minimap_found.txt", &cfg.found_tracker);
+            ImGui::SameLine();
+            ImGui::Checkbox("Mark items whose level is loaded but absent", &cfg.markers_absence_marks);
+            const markers::Stats st = markers::stats();
+            if (!st.db_loaded || st.static_markers == 0)
             {
-                ImGui::Checkbox("Show markers", &cfg.markers_enabled);
+                ImGui::TextDisabled("no markers\\<chapter>.json loaded - live markers only");
+            }
+            else if (ImGui::BeginTable("found", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg))
+            {
+                ImGui::TableSetupColumn("Chapter");
+                ImGui::TableSetupColumn("Shrines");
+                ImGui::TableSetupColumn("Chests");
+                ImGui::TableSetupColumn("Pickups");
+                ImGui::TableHeadersRow();
+                const auto cell = [](const markers::CatStat& s) {
+                    ImGui::TableNextColumn();
+                    if (s.total == 0)
+                    {
+                        ImGui::TextDisabled("-");
+                    }
+                    else
+                    {
+                        ImGui::Text("%d / %d", s.found, s.total);
+                    }
+                };
+                // Row 0 is the bucket for a manifest whose "chapter" is not a number -
+                // the DLC one spells it "DLC".
+                for (int ch = 0; ch <= 8; ++ch)
+                {
+                    int any = 0;
+                    for (int i = 0; i < mdb::kCatCount; ++i)
+                    {
+                        any += st.chapter[ch][i].total;
+                    }
+                    if (any == 0)
+                    {
+                        continue;
+                    }
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    if (ch == 0)
+                    {
+                        ImGui::Text("DLC");
+                    }
+                    else
+                    {
+                        ImGui::Text("%d", ch);
+                    }
+                    cell(st.chapter[ch][static_cast<int>(mdb::Cat::Shrine)]);
+                    cell(st.chapter[ch][static_cast<int>(mdb::Cat::Chest)]);
+                    cell(st.chapter[ch][static_cast<int>(mdb::Cat::Pickup)]);
+                }
+                // The summary row follows the filter: when only one chapter is drawn, a
+                // whole-DB total would count five chapters the player cannot see.
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                const int fch = st.filter_chapter;
+                if (fch >= 0 && fch <= 8)
+                {
+                    ImGui::TextDisabled("current");
+                    cell(st.chapter[fch][static_cast<int>(mdb::Cat::Shrine)]);
+                    cell(st.chapter[fch][static_cast<int>(mdb::Cat::Chest)]);
+                    cell(st.chapter[fch][static_cast<int>(mdb::Cat::Pickup)]);
+                }
+                else
+                {
+                    ImGui::TextDisabled("all");
+                    cell(st.cat[static_cast<int>(mdb::Cat::Shrine)]);
+                    cell(st.cat[static_cast<int>(mdb::Cat::Chest)]);
+                    cell(st.cat[static_cast<int>(mdb::Cat::Pickup)]);
+                }
+                ImGui::EndTable();
+            }
+
+            //--------------------------------------------------------------------------
+            // Full map
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("Full map");
+            ImGui::TextDisabled("Press %s in-world. The minimap hides while it is open.",
+                                key_name_ascii(cfg.map_key).c_str());
+            ImGui::SliderFloat("Zoom on open (uu per screen px)", &cfg.map_zoom, cfg.map_zoom_min,
+                               cfg.map_zoom_max, "%.0f");
+            ImGui::SliderFloat("Map marker size (px)", &cfg.map_marker_size, 3.0f, 24.0f, "%.1f");
+            ImGui::Checkbox("Show every floor (ignore the height slice)", &cfg.map_show_all_floors);
+            ImGui::SameLine();
+            ImGui::Checkbox("Gamepad (XInput)", &cfg.map_gamepad);
+            ImGui::SameLine();
+            ImGui::Checkbox("Remember the waypoint", &cfg.map_waypoint_persist);
+            const mv::Waypoint wp = mm::waypoint();
+            if (wp.set)
+            {
+                ImGui::Text("waypoint  X %.0f  Y %.0f  Z %.0f", wp.x, wp.y, wp.z);
                 ImGui::SameLine();
+                if (ImGui::SmallButton("Clear waypoint"))
+                {
+                    mm::set_waypoint(mv::Waypoint{});
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("no waypoint (right-click on the full map sets one)");
+            }
+
+            //--------------------------------------------------------------------------
+            // The hold-key x-ray highlight
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("X-ray highlight (hold a key)");
+            std::string hold = key_name_ascii(cfg.highlight_key);
+            if (cfg.highlight_gamepad)
+            {
+                hold += " or pad " + wide_to_ascii(mm::pad_chord_name(cfg.highlight_pad_mask,
+                                                                     cfg.highlight_pad_lt,
+                                                                     cfg.highlight_pad_rt));
+            }
+            ImGui::TextWrapped("HOLD %s in-world: every uncollected marker of the categories below, "
+                               "within the radius, is drawn through walls at its position on screen.",
+                               hold.c_str());
+            ImGui::Checkbox("Enabled##xray", &cfg.highlight_enabled);
+            ImGui::SameLine();
+            ImGui::Checkbox("Gamepad chord", &cfg.highlight_gamepad);
+            ImGui::SameLine();
+            ImGui::Checkbox("Names + distance", &cfg.highlight_labels);
+            ImGui::SliderFloat("Radius (uu)", &cfg.highlight_radius, 200.0f, 20000.0f, "%.0f");
+            ImGui::SameLine();
+            ImGui::TextDisabled("= %.0f m", static_cast<double>(cfg.highlight_radius) / 100.0);
+            ImGui::SliderFloat("Glyph size (px)", &cfg.highlight_size, 2.0f, 24.0f, "%.1f");
+            ImGui::Checkbox("Colour by item quality", &cfg.xray_rarity_colors_enabled);
+            ImGui::SameLine();
+            ImGui::Checkbox("Also tint the minimap / map / compass", &cfg.markers_rarity_tint);
+            ImGui::TextDisabled("Wuchang has no rarity ladder - these are the game's own pickup-beam "
+                                "groups (E_ItemType). Tier 0 keeps its category colour.");
+            chips_with_all_none("highlight_categories", cfg.highlight_categories, 2000, wrap);
+
+            //--------------------------------------------------------------------------
+            // The compass strip
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("Compass");
+            ImGui::Checkbox("Enabled##compass", &cfg.compass_enabled);
+            ImGui::SameLine();
+            ImGui::Checkbox("Show the waypoint bearing", &cfg.compass_show_waypoint);
+            ImGui::SliderFloat("Width (fraction of the screen)", &cfg.compass_width, 0.1f, 1.0f, "%.2f");
+            // Overridden by a non-custom hud_preset, which is why it goes flat when one
+            // is chosen rather than silently doing nothing.
+            ImGui::BeginDisabled(cfg.hud_preset != mm::HudPreset::Custom);
+            int canchor = cfg.compass_anchor == mm::VAnchor::Bottom ? 1 : 0;
+            const char* canchors[] = {"top", "bottom"};
+            if (ImGui::Combo("Edge", &canchor, canchors, 2))
+            {
+                cfg.compass_anchor = canchor == 1 ? mm::VAnchor::Bottom : mm::VAnchor::Top;
+            }
+            ImGui::EndDisabled();
+            ImGui::SliderFloat("Distance from that edge (px)", &cfg.compass_offset_y, 0.0f, 400.0f, "%.0f");
+            ImGui::SliderFloat("Degrees across the strip", &cfg.compass_span_deg, 30.0f, 360.0f, "%.0f");
+            ImGui::SliderFloat("Compass opacity", &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");
+            chips_with_all_none("compass_categories", cfg.compass_categories, 3000, wrap);
+
+            //--------------------------------------------------------------------------
+            // Keys
+            //--------------------------------------------------------------------------
+            // Read from the config by the SAME builder the full map's footer uses, so a
+            // rebind cannot make one of the two lie.
+            ImGui::SeparatorText("Keys");
+            ImGui::TextWrapped("%s", bindings_hint(cfg).c_str());
+            ImGui::TextDisabled("rebind them in config_wuchang_minimap.txt (panel_key, map_key, "
+                                "map_recenter_key, reload_key, highlight_key)");
+        }
+
+        void panel_advanced(mm::Config& cfg)
+        {
+            const float wrap = ImGui::GetContentRegionAvail().x;
+
+            ImGui::TextDisabled("Correct as shipped. Change one of these to answer a symptom.");
+
+            if (ImGui::CollapsingHeader("When the overlay is allowed on screen"))
+            {
+                ImGui::Checkbox("Only when the camera follows the pawn", &cfg.require_pawn_view);
+                ImGui::SliderInt("State stale after (ms)", &cfg.state_stale_ms, 100, 5000);
+                ImGui::SliderInt("Grace after a valid pawn (ms)", &cfg.min_visible_after_state_ok_ms, 0, 3000);
+                ImGui::SliderInt("Delay after a menu closes (ms)", &cfg.menu_close_show_delay_ms, 0, 1000);
+            }
+
+            if (ImGui::CollapsingHeader("Height slicing"))
+            {
+                ImGui::SliderFloat("Adjacent floor opacity", &cfg.adjacent_floor_opacity, 0.0f, 0.6f, "%.2f");
+                ImGui::SliderFloat("Below / above fade range (uu)", &cfg.floor_fade_uu, 100.0f, 4000.0f, "%.0f");
+                ImGui::SliderFloat("Height gradient strength", &cfg.floor_gradient_strength, 0.0f, 0.6f, "%.2f");
+                float base[3] = {cfg.floor_base_r / 255.0f, cfg.floor_base_g / 255.0f, cfg.floor_base_b / 255.0f};
+                if (ImGui::ColorEdit3("Walkable fill colour", base, ImGuiColorEditFlags_NoInputs))
+                {
+                    cfg.floor_base_r = base[0] * 255.0f;
+                    cfg.floor_base_g = base[1] * 255.0f;
+                    cfg.floor_base_b = base[2] * 255.0f;
+                }
+                ImGui::SliderInt("Slice rate (Hz)", &cfg.slice_hz, 2, 30);
+                ImGui::SliderInt("Feet Z smoothing (ms)", &cfg.feet_z_smooth_ms, 1, 1000);
+                ImGui::SliderFloat("Player Z offset (uu, capsule -> feet)", &cfg.player_z_offset, -200.0f,
+                                   200.0f, "%.0f");
+            }
+
+            if (ImGui::CollapsingHeader("Marker sweep and tracker"))
+            {
                 ImGui::Checkbox("Live actor sweep", &cfg.markers_live);
                 ImGui::SameLine();
-                ImGui::Checkbox("Hide found", &cfg.markers_hide_found);
-                // The chapters' world bounds overlap (chapter 4 covers nearly all of
-                // chapter 1), so the static DB has to be cut down to the chapter the
-                // player is actually in - otherwise foreign markers paint over the map.
                 ImGui::Checkbox("Only this chapter's markers", &cfg.markers_filter_chapter);
                 ImGui::SameLine();
                 {
@@ -4449,290 +4820,76 @@ namespace overlay
                         ImGui::Text("(showing chapter %d)", fs.filter_chapter);
                     }
                 }
-
-                ImGui::SliderFloat("Marker size (px)", &cfg.markers_size, 2.0f, 16.0f, "%.1f");
-                ImGui::SliderFloat("Found marker opacity", &cfg.markers_found_alpha, 0.0f, 1.0f, "%.2f");
-                ImGui::Checkbox("Keep out-of-range markers on the rim", &cfg.markers_clamp_to_edge);
-
-                // The two knobs that trade game-thread time for marker freshness.
-                // Higher chunk / lower period = a fresher set and a costlier pump; the
-                // "scan pump" line below is the read-out that says which way to move.
+                // The two knobs that trade game-thread time for marker freshness. The
+                // "scan pump" line on the Debug tab is the read-out that says which way
+                // to move them.
+                ImGui::SliderInt("Full passes per second", &cfg.markers_rounds_per_sec, 1, 10);
                 ImGui::SliderInt("Object slots per pump", &cfg.markers_scan_chunk, scan::kChunkMin,
                                  scan::kChunkMax);
                 ImGui::SliderInt("Min ms between pumps", &cfg.markers_scan_period_ms, scan::kPeriodMinMs,
                                  scan::kPeriodMaxMs);
-
-                // The category filter. Exactly the same set of names the config file's
-                // `markers_categories` list uses, so a filter set here and one written
-                // into the file are one setting, not two.
-                ImGui::SeparatorText("Categories");
-                if (ImGui::SmallButton("All"))
-                {
-                    cfg.markers_categories = mdb::kAllCats;
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("None"))
-                {
-                    cfg.markers_categories = 0u;
-                }
-                ImGui::SameLine();
-                ImGui::TextDisabled("(config key: markers_categories)");
-
-                const markers::Stats st = markers::stats();
-                for (int i = 0; i < mdb::kCatCount; ++i)
-                {
-                    const mdb::Cat cat = static_cast<mdb::Cat>(i);
-                    bool on = mdb::cat_enabled(cfg.markers_categories, cat);
-                    ImGui::PushID(i);
-                    if (ImGui::Checkbox(mdb::cat_label(cat), &on))
-                    {
-                        if (on)
-                        {
-                            cfg.markers_categories |= mdb::cat_bit(cat);
-                        }
-                        else
-                        {
-                            cfg.markers_categories &= ~mdb::cat_bit(cat);
-                        }
-                    }
-                    ImGui::PopID();
-                    if ((i % 3) != 2 && i + 1 < mdb::kCatCount)
-                    {
-                        ImGui::SameLine(static_cast<float>(((i % 3) + 1) * 150));
-                    }
-                }
-
-                //----------------------------------------------------------------------
-                // The collection tracker
-                //----------------------------------------------------------------------
-                ImGui::SeparatorText("Collection tracker");
-                ImGui::Checkbox("Write wuchang_minimap_found.txt", &cfg.found_tracker);
-                if (!st.db_loaded || st.static_markers == 0)
-                {
-                    ImGui::TextDisabled("no markers\\<chapter>.json loaded - live markers only");
-                }
-                else if (ImGui::BeginTable("found", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg))
-                {
-                    ImGui::TableSetupColumn("Chapter");
-                    ImGui::TableSetupColumn("Shrines");
-                    ImGui::TableSetupColumn("Chests");
-                    ImGui::TableSetupColumn("Pickups");
-                    ImGui::TableHeadersRow();
-                    const auto cell = [](const markers::CatStat& s) {
-                        ImGui::TableNextColumn();
-                        if (s.total == 0)
-                        {
-                            ImGui::TextDisabled("-");
-                        }
-                        else
-                        {
-                            ImGui::Text("%d / %d", s.found, s.total);
-                        }
-                    };
-                    // Row 0 is the bucket for a manifest whose "chapter" is not a
-                    // number - the DLC one spells it "DLC".
-                    for (int ch = 0; ch <= 8; ++ch)
-                    {
-                        int any = 0;
-                        for (int i = 0; i < mdb::kCatCount; ++i)
-                        {
-                            any += st.chapter[ch][i].total;
-                        }
-                        if (any == 0)
-                        {
-                            continue;
-                        }
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn();
-                        if (ch == 0)
-                        {
-                            ImGui::Text("DLC");
-                        }
-                        else
-                        {
-                            ImGui::Text("%d", ch);
-                        }
-                        cell(st.chapter[ch][static_cast<int>(mdb::Cat::Shrine)]);
-                        cell(st.chapter[ch][static_cast<int>(mdb::Cat::Chest)]);
-                        cell(st.chapter[ch][static_cast<int>(mdb::Cat::Pickup)]);
-                    }
-                    // The summary row follows the filter: when only one chapter is
-                    // drawn, a whole-DB total would count five chapters the player
-                    // cannot see and can never collect from here.
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    const int fch = st.filter_chapter;
-                    if (fch >= 0 && fch <= 8)
-                    {
-                        ImGui::TextDisabled("current");
-                        cell(st.chapter[fch][static_cast<int>(mdb::Cat::Shrine)]);
-                        cell(st.chapter[fch][static_cast<int>(mdb::Cat::Chest)]);
-                        cell(st.chapter[fch][static_cast<int>(mdb::Cat::Pickup)]);
-                    }
-                    else
-                    {
-                        ImGui::TextDisabled("all");
-                        cell(st.cat[static_cast<int>(mdb::Cat::Shrine)]);
-                        cell(st.cat[static_cast<int>(mdb::Cat::Chest)]);
-                        cell(st.cat[static_cast<int>(mdb::Cat::Pickup)]);
-                    }
-                    ImGui::EndTable();
-                }
-                ImGui::Text("db %d marker(s) / %d chapter(s)   found file %d id(s)   published %d   live %d",
-                            st.static_markers,
-                            st.chapters_loaded,
-                            st.found_ids,
-                            st.published,
-                            st.live_entries);
-                // The absence rule (markers_absence_*). Both numbers are diagnostics:
-                // `levels loaded` at 0 means the rule can NEVER fire (nothing to match a
-                // marker's level against), which is the failure worth seeing at a glance.
-                ImGui::Text("absence marks %d   levels loaded %d   (rule %s, %d round(s), %s)",
-                            st.absence_marks,
-                            st.levels_loaded,
-                            cfg.markers_absence_marks ? "on" : "off",
-                            cfg.markers_absence_rounds,
-                            mdb::format_category_mask(cfg.markers_absence_categories).c_str());
-                // Two independent numbers, and they answer different questions.
-                //   PUMP  - what one game-thread pump costs. This is the frame-hitch
-                //           number; the target is well under 1 ms, and `max` is the
-                //           worst single pump since the mod loaded.
-                //   ROUND - what a full pass over the object array cost and how many
-                //           object slots it visited. This is the freshness number: the
-                //           marker set is `slices x period_ms` old at worst.
-                // `!` marks the FindAllOf fallback, which is the old 28 ms-per-pump
-                // path and only runs when GUObjectArray reports no elements.
-                ImGui::Text("scan pump %.3f ms (avg %.3f, peak %.3f, max %.3f)%s",
-                            st.scan_slice_ms,
-                            st.scan_slice_ms_avg,
-                            st.scan_slice_ms_peak,
-                            st.scan_slice_ms_max,
-                            st.scan_fallback ? "   ! FindAllOf fallback" : "");
-                ImGui::Text("round %.1f ms / %d pump(s) / %d object(s) of %d   chunk %d   %llu round(s)",
-                            st.scan_round_ms,
-                            st.scan_round_slices,
-                            st.scan_round_objects,
-                            st.scan_total,
-                            st.scan_chunk,
-                            static_cast<unsigned long long>(st.rounds));
-                ImGui::Text("publish %.3f ms (avg %.3f, peak %.3f)",
-                            st.publish_ms,
-                            st.publish_ms_avg,
-                            st.publish_ms_peak);
-                ImGui::Text("drawn %d of %d (%d clamped, %d filtered)",
-                            g_marker_draw.drawn,
-                            g_marker_draw.total,
-                            g_marker_draw.clamped,
-                            g_marker_draw.filtered);
-                if (g_marker_draw.nearest[0] != 0)
-                {
-                    ImGui::Text("nearest: %s (%.0f uu)", g_marker_draw.nearest, g_marker_draw.nearest_uu);
-                }
+                ImGui::SliderFloat("Found marker opacity", &cfg.markers_found_alpha, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderInt("Max markers drawn per frame", &cfg.markers_max_draw, 0, 4000);
+                ImGui::SliderInt("Found file debounce (ms)", &cfg.found_save_debounce_ms, 200, 20000);
+                ImGui::SeparatorText("Absence as evidence of a collect");
+                ImGui::SliderInt("Confirming rounds", &cfg.markers_absence_rounds, 1, 30);
+                chips_with_all_none("markers_absence_categories", cfg.markers_absence_categories, 4000, wrap);
             }
 
-            //--------------------------------------------------------------------------
-            // The full map
-            //--------------------------------------------------------------------------
-            if (ImGui::CollapsingHeader("Full map"))
+            if (ImGui::CollapsingHeader("Minimap look"))
             {
-                ImGui::TextDisabled("Press %s in-world. The minimap hides while it is open.",
-                                    key_name_ascii(cfg.map_key).c_str());
-                ImGui::SliderFloat("Zoom on open (uu per screen px)", &cfg.map_zoom, cfg.map_zoom_min,
-                                   cfg.map_zoom_max, "%.0f");
+                ImGui::SliderFloat("Backdrop opacity", &cfg.minimap_backdrop, 0.0f, 1.0f, "%.2f");
+                float back[3] = {cfg.minimap_backdrop_r / 255.0f, cfg.minimap_backdrop_g / 255.0f,
+                                 cfg.minimap_backdrop_b / 255.0f};
+                if (ImGui::ColorEdit3("Backdrop colour", back, ImGuiColorEditFlags_NoInputs))
+                {
+                    cfg.minimap_backdrop_r = back[0] * 255.0f;
+                    cfg.minimap_backdrop_g = back[1] * 255.0f;
+                    cfg.minimap_backdrop_b = back[2] * 255.0f;
+                }
+                float frame[3] = {cfg.minimap_frame_r / 255.0f, cfg.minimap_frame_g / 255.0f,
+                                  cfg.minimap_frame_b / 255.0f};
+                if (ImGui::ColorEdit3("Frame colour", frame, ImGuiColorEditFlags_NoInputs))
+                {
+                    cfg.minimap_frame_r = frame[0] * 255.0f;
+                    cfg.minimap_frame_g = frame[1] * 255.0f;
+                    cfg.minimap_frame_b = frame[2] * 255.0f;
+                }
+                ImGui::SliderFloat("Frame alpha", &cfg.minimap_frame_alpha, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Minimum side (px)", &cfg.minimap_min_px, 16.0f, 512.0f, "%.0f");
+                ImGui::SliderFloat("Player arrow (fraction of the side)", &cfg.minimap_arrow_frac, 0.01f,
+                                   0.3f, "%.3f");
+                ImGui::SliderFloat("Player arrow minimum (px)", &cfg.minimap_arrow_min_px, 2.0f, 64.0f, "%.0f");
+                ImGui::SliderFloat("Waypoint size (x marker size)", &cfg.waypoint_size_scale, 0.2f, 4.0f,
+                                   "%.2f");
+            }
+
+            if (ImGui::CollapsingHeader("Full map tuning"))
+            {
                 ImGui::SliderFloat("Zoom limit - closest", &cfg.map_zoom_min, 1.0f, 200.0f, "%.0f");
                 ImGui::SliderFloat("Zoom limit - furthest", &cfg.map_zoom_max, 100.0f, 4000.0f, "%.0f");
                 ImGui::SliderFloat("Zoom per wheel notch", &cfg.map_zoom_factor, 1.02f, 1.6f, "%.2f");
                 ImGui::SliderFloat("Pan speed (screen px per second)", &cfg.map_pan_speed, 100.0f, 4000.0f,
                                    "%.0f");
+                ImGui::SliderFloat("Margin (fraction of screen height)", &cfg.map_margin, 0.0f, 0.3f, "%.3f");
+                ImGui::SliderFloat("Backdrop opacity##map", &cfg.map_backdrop, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderInt("Max markers drawn##map", &cfg.map_markers_max_draw, 0, 20000);
                 ImGui::SliderFloat("Floor step (uu)", &cfg.map_floor_step, 20.0f, 2000.0f, "%.0f");
-                ImGui::SliderFloat("Marker size (px)", &cfg.map_marker_size, 3.0f, 24.0f, "%.1f");
-                ImGui::Checkbox("Show every floor (ignore the height slice)", &cfg.map_show_all_floors);
                 ImGui::SliderInt("Slice texture width (px)", &cfg.map_slice_px, 256, 2048);
                 ImGui::SliderInt("Slice rate cap (Hz)", &cfg.map_slice_hz, 1, 30);
-                ImGui::Checkbox("Gamepad (XInput)", &cfg.map_gamepad);
-                ImGui::SameLine();
-                ImGui::Checkbox("Remember the waypoint", &cfg.map_waypoint_persist);
                 ImGui::SliderFloat("Gamepad deadzone", &cfg.map_gamepad_deadzone, 0.05f, 0.6f, "%.2f");
-
-                const pad::State gp = pad::state();
-                char padmod[64]{};
-                ::WideCharToMultiByte(CP_UTF8, 0, pad::module_name(), -1, padmod, sizeof(padmod) - 1, nullptr,
-                                      nullptr);
-                ImGui::Text("pad: %s (%s)   sticks %.2f,%.2f / %.2f,%.2f   triggers %.2f/%.2f",
-                            gp.connected ? "connected" : "none",
-                            padmod,
-                            static_cast<double>(gp.lx),
-                            static_cast<double>(gp.ly),
-                            static_cast<double>(gp.rx),
-                            static_cast<double>(gp.ry),
-                            static_cast<double>(gp.lt),
-                            static_cast<double>(gp.rt));
-                ImGui::Text("map slice %dx%d   %.2f ms (peak %.2f)   %llu cut(s), %llu skipped   "
-                            "opaque %u / dim %u / faint %u",
-                            g_mslice[0].w,
-                            g_mslice[0].h,
-                            g_mslice_ms,
-                            g_mslice_ms_peak,
-                            static_cast<unsigned long long>(g_mslice_updates),
-                            static_cast<unsigned long long>(g_mslice_skipped),
-                            g_mslice_counts.opaque,
-                            g_mslice_counts.dim,
-                            g_mslice_counts.faint);
-                const mv::Waypoint wp = mm::waypoint();
-                if (wp.set)
-                {
-                    ImGui::Text("waypoint  X %.0f  Y %.0f  Z %.0f", wp.x, wp.y, wp.z);
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Clear waypoint"))
-                    {
-                        mm::set_waypoint(mv::Waypoint{});
-                    }
-                }
-                else
-                {
-                    ImGui::TextDisabled("no waypoint (right-click on the full map sets one)");
-                }
             }
 
-            //--------------------------------------------------------------------------
-            // The hold-key x-ray highlight
-            //--------------------------------------------------------------------------
-            if (ImGui::CollapsingHeader("X-ray highlight (hold a key)"))
+            if (ImGui::CollapsingHeader("X-ray tuning"))
             {
-                std::string hold = key_name_ascii(cfg.highlight_key);
-                if (cfg.highlight_gamepad)
-                {
-                    hold += " or pad " + wide_to_ascii(mm::pad_chord_name(cfg.highlight_pad_mask,
-                                                                         cfg.highlight_pad_lt,
-                                                                         cfg.highlight_pad_rt));
-                }
-                ImGui::TextWrapped("HOLD %s in-world: every uncollected marker of the categories below, "
-                                   "within the radius, is drawn through walls at its position on screen.",
-                                   hold.c_str());
-                ImGui::Checkbox("Enabled", &cfg.highlight_enabled);
-                ImGui::SameLine();
-                ImGui::Checkbox("Gamepad chord", &cfg.highlight_gamepad);
-                ImGui::SliderFloat("Radius (uu)", &cfg.highlight_radius, 200.0f, 20000.0f, "%.0f");
-                ImGui::SameLine();
-                ImGui::TextDisabled("= %.0f m", static_cast<double>(cfg.highlight_radius) / 100.0);
-                ImGui::Checkbox("Names + distance", &cfg.highlight_labels);
+                ImGui::Checkbox("Include found", &cfg.highlight_show_found);
                 ImGui::SameLine();
                 ImGui::Checkbox("Edge arrows (off screen / behind)", &cfg.highlight_edge_arrows);
-                ImGui::SameLine();
-                ImGui::Checkbox("Include found", &cfg.highlight_show_found);
-                ImGui::SliderFloat("Glyph size (px)", &cfg.highlight_size, 2.0f, 24.0f, "%.1f");
+                ImGui::SliderInt("Max drawn (nearest first)", &cfg.highlight_max_draw, 1, 400);
                 ImGui::SliderFloat("Alpha at the camera", &cfg.highlight_alpha_near, 0.1f, 1.0f, "%.2f");
                 ImGui::SliderFloat("Alpha at the radius", &cfg.highlight_alpha_far, 0.0f, 1.0f, "%.2f");
-                ImGui::SliderInt("Max drawn (nearest first)", &cfg.highlight_max_draw, 1, 400);
                 ImGui::SliderInt("Camera read rate (Hz)", &cfg.highlight_camera_hz, 5, 240);
-
-                // ---- ITEM QUALITY COLOURS ------------------------------------------
-                ImGui::Separator();
-                ImGui::Checkbox("Colour by item quality", &cfg.xray_rarity_colors_enabled);
-                ImGui::SameLine();
-                ImGui::Checkbox("Also tint the minimap / map / compass", &cfg.markers_rarity_tint);
-                ImGui::TextDisabled("Wuchang has no rarity ladder - these are the game's own pickup-beam "
-                                    "groups (E_ItemType). Tier 0 keeps its category colour.");
+                ImGui::SeparatorText("Item quality palette");
                 for (int i = 1; i < mdb::kRarityCount; ++i)
                 {
                     mdb::Rgb& c = cfg.xray_rarity_colors[i];
@@ -4756,129 +4913,375 @@ namespace overlay
                         ImGui::SameLine();
                     }
                 }
-
-                // The category filter: the same names the config file uses.
-                std::uint32_t hcats = cfg.highlight_categories;
-                for (int i = 0; i < mdb::kCatCount; ++i)
-                {
-                    const mdb::Cat cat = static_cast<mdb::Cat>(i);
-                    bool on = mdb::cat_enabled(hcats, cat);
-                    if (i % 4 != 0)
-                    {
-                        ImGui::SameLine();
-                    }
-                    ImGui::PushID(i + 200);
-                    if (ImGui::Checkbox(mdb::cat_name(cat), &on))
-                    {
-                        hcats = on ? (hcats | mdb::cat_bit(cat)) : (hcats & ~mdb::cat_bit(cat));
-                    }
-                    ImGui::PopID();
-                }
-                cfg.highlight_categories = hcats;
-
-                // WHERE THE CAMERA COMES FROM. This is the block to screenshot if the
-                // labels are in the wrong place: it names the route, the pinned offset
-                // and how old the pose is.
-                const hl::Stats hs = hl::stats();
-                const char* route = "none yet";
-                switch (hs.route)
-                {
-                case hl::Route::RawPinned:
-                    route = "raw POV read (offset calibrated against the getters)";
-                    break;
-                case hl::Route::RawSane:
-                    route = "raw POV read (offset accepted on sanity ranges only)";
-                    break;
-                case hl::Route::Getters:
-                    route = "GetCameraLocation / GetCameraRotation / GetFOVAngle per read";
-                    break;
-                case hl::Route::None:
-                default:
-                    break;
-                }
-                ImGui::Text("camera: %s", route);
-                ImGui::Text("manager %s   CameraCachePrivate +%d   POV +%d   %llu read(s), %llu rejected",
-                            hs.have_manager ? "yes" : "NO",
-                            hs.cache_offset,
-                            hs.pov_offset,
-                            static_cast<unsigned long long>(hs.reads),
-                            static_cast<unsigned long long>(hs.fails));
-                hl::Pose pose{};
-                if (hl::camera(pose))
-                {
-                    ImGui::Text("pose  X %.0f  Y %.0f  Z %.0f   pitch %.1f  yaw %.1f  roll %.1f   FOV %.1f   "
-                                "%llu ms old",
-                                pose.x,
-                                pose.y,
-                                pose.z,
-                                pose.pitch,
-                                pose.yaw,
-                                pose.roll,
-                                pose.fov,
-                                static_cast<unsigned long long>(
-                                    pose.stamp_ms == 0 ? 0 : ::GetTickCount64() - pose.stamp_ms));
-                }
-                else
-                {
-                    ImGui::TextDisabled("no camera pose published yet (hold the key in-world)");
-                }
-                ImGui::Text("held %s   %d of %d in range drawn (%d on screen, %d on the rim)",
-                            g_hl_debug.active ? "YES" : "no",
-                            g_hl_debug.drawn,
-                            g_hl_debug.considered,
-                            g_hl_debug.on_screen,
-                            g_hl_debug.edge);
             }
 
-            //--------------------------------------------------------------------------
-            // The compass strip
-            //--------------------------------------------------------------------------
-            if (ImGui::CollapsingHeader("Compass"))
+            if (ImGui::CollapsingHeader("Compass tuning"))
             {
-                ImGui::Checkbox("Enabled", &cfg.compass_enabled);
-                ImGui::SameLine();
-                ImGui::Checkbox("Show the waypoint bearing", &cfg.compass_show_waypoint);
-                ImGui::SliderFloat("Width (fraction of the screen)", &cfg.compass_width, 0.1f, 1.0f, "%.2f");
-                // Overridden by a non-custom hud_preset, which is why it goes flat when
-                // one is chosen rather than silently doing nothing.
-                ImGui::BeginDisabled(cfg.hud_preset != mm::HudPreset::Custom);
-                int canchor = cfg.compass_anchor == mm::VAnchor::Bottom ? 1 : 0;
-                const char* canchors[] = {"top", "bottom"};
-                if (ImGui::Combo("Edge", &canchor, canchors, 2))
-                {
-                    cfg.compass_anchor = canchor == 1 ? mm::VAnchor::Bottom : mm::VAnchor::Top;
-                }
-                ImGui::EndDisabled();
-                ImGui::SliderFloat("Distance from that edge (px)", &cfg.compass_offset_y, 0.0f, 400.0f, "%.0f");
                 ImGui::SliderFloat("Height (px)", &cfg.compass_height, 10.0f, 120.0f, "%.0f");
-                ImGui::SliderFloat("Degrees across the strip", &cfg.compass_span_deg, 30.0f, 360.0f, "%.0f");
-                ImGui::SliderFloat("Opacity", &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");
-                ImGui::SliderFloat("Marker bearing range (uu)", &cfg.compass_marker_distance, 500.0f, 60000.0f,
-                                   "%.0f");
-                std::uint32_t ccats = cfg.compass_categories;
-                for (int i = 0; i < mdb::kCatCount; ++i)
+                ImGui::SliderFloat("Marker bearing range (uu)", &cfg.compass_marker_distance, 500.0f,
+                                   60000.0f, "%.0f");
+                ImGui::SliderFloat("Minor tick spacing (deg)", &cfg.compass_tick_step_deg, 1.0f, 90.0f, "%.0f");
+                ImGui::SliderInt("Max bearing pips", &cfg.compass_max_pips, 0, 256);
+            }
+        }
+
+        // The Dev tier (config_wuchang_minimap_dev.txt). Its own function so the Debug
+        // tab does not become one more 300-line block.
+        void panel_dev_keys(mm::Config& cfg)
+        {
+            if (!ImGui::CollapsingHeader("Developer settings (config_wuchang_minimap_dev.txt)"))
+            {
+                return;
+            }
+            ImGui::TextDisabled("Saved to the dev file, never into the player config. Deleting that "
+                                "file restores every default here.");
+            ImGui::Checkbox("Debug readout (this tab)", &cfg.debug_readout);
+            ImGui::SameLine();
+            ImGui::Checkbox("Open the panel on start", &cfg.debug_show_panel_on_start);
+            ImGui::Checkbox("Load the composite fallback picture", &cfg.fallback_use_composite);
+            ImGui::SliderFloat("Composite alpha", &cfg.minimap_composite_alpha, 0.0f, 1.0f, "%.2f");
+            ImGui::SeparatorText("Game-state reader");
+            ImGui::SliderInt("Position period (ms)", &cfg.reader_position_period_ms, 16, 1000);
+            ImGui::SliderInt("Resolve period (ms)", &cfg.reader_resolve_period_ms, 100, 10000);
+            ImGui::SliderInt("Widget sweep, fast (ms)", &cfg.reader_widget_sweep_period_ms, 50, 5000);
+            ImGui::SliderInt("Widget sweep, backed off (ms)", &cfg.reader_widget_sweep_max_period_ms, 50,
+                             30000);
+            ImGui::SliderInt("Widget sweep warm window (ms)", &cfg.reader_widget_sweep_warm_ms, 0, 60000);
+            ImGui::SliderInt("Transition cooldown (ms)", &cfg.reader_transition_cooldown_ms, 0, 30000);
+            {
+                float jump = static_cast<float>(cfg.reader_teleport_jump_uu);
+                if (ImGui::SliderFloat("Teleport jump (uu per pump)", &jump, 200.0f, 20000.0f, "%.0f"))
                 {
-                    const mdb::Cat cat = static_cast<mdb::Cat>(i);
-                    bool on = mdb::cat_enabled(ccats, cat);
-                    if (i % 4 != 0)
-                    {
-                        ImGui::SameLine();
-                    }
-                    ImGui::PushID(i + 100);
-                    if (ImGui::Checkbox(mdb::cat_name(cat), &on))
-                    {
-                        ccats = on ? (ccats | mdb::cat_bit(cat)) : (ccats & ~mdb::cat_bit(cat));
-                    }
-                    ImGui::PopID();
+                    cfg.reader_teleport_jump_uu = static_cast<double>(jump);
                 }
-                cfg.compass_categories = ccats;
-                ImGui::Text("%s   heading %.1f deg from the %s   %d bearing pip(s)",
-                            g_compass_debug.visible ? "visible" : "hidden (same gate as the minimap)",
-                            g_compass_debug.heading,
-                            g_compass_debug.from_camera ? "camera" : "pawn",
-                            g_compass_debug.pips);
+            }
+            ImGui::SliderInt("Chapter period (ms)", &cfg.reader_chapter_period_ms, 200, 60000);
+            ImGui::SliderInt("Reader log throttle (ms)", &cfg.reader_log_throttle_ms, 500, 60000);
+            ImGui::SeparatorText("Sweep, assets, diagnostics");
+            ImGui::SliderInt("Live grace rounds", &cfg.markers_live_grace_rounds, 1, 30);
+            ImGui::SliderInt("Asset retire grace (ms)", &cfg.map_asset_retire_grace_ms, 0, 60000);
+            ImGui::SliderInt("Hide-reason log throttle (ms)", &cfg.hide_reason_log_ms, 0, 60000);
+            ImGui::SliderInt("SRV heap size (RESTART)", &cfg.srv_heap_size, 16, 1024);
+            ImGui::SeparatorText("X-ray camera reader");
+            ImGui::SliderInt("Camera resolve (ms)", &cfg.highlight_camera_resolve_ms, 100, 10000);
+            ImGui::SliderInt("Compass-only period (ms)", &cfg.highlight_compass_period_ms, 10, 1000);
+            ImGui::SliderInt("Getter fallback period (ms)", &cfg.highlight_getter_period_ms, 10, 1000);
+            ImGui::SliderInt("POV scan bytes", &cfg.highlight_pov_scan_bytes, 64, 1024);
+            ImGui::SliderInt("POV bad reads before re-pin", &cfg.highlight_pov_bad_reads, 1, 64);
+        }
+
+        void panel_debug(mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
+        {
+            panel_dev_keys(cfg);
+            draw_perf_table();
+
+            //--------------------------------------------------------------------------
+            // Marker sweep
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("Markers");
+            const markers::Stats st = markers::stats();
+            ImGui::Text("db %d marker(s) / %d chapter(s)   found file %d id(s)   published %d   live %d",
+                        st.static_markers,
+                        st.chapters_loaded,
+                        st.found_ids,
+                        st.published,
+                        st.live_entries);
+            // The absence rule (markers_absence_*). Both numbers are diagnostics:
+            // `levels loaded` at 0 means the rule can NEVER fire (nothing to match a
+            // marker's level against), which is the failure worth seeing at a glance.
+            ImGui::Text("absence marks %d   levels loaded %d   (rule %s, %d round(s), %s)",
+                        st.absence_marks,
+                        st.levels_loaded,
+                        cfg.markers_absence_marks ? "on" : "off",
+                        cfg.markers_absence_rounds,
+                        mdb::format_category_mask(cfg.markers_absence_categories).c_str());
+            // Two independent numbers, and they answer different questions.
+            //   PUMP  - what one game-thread pump costs. This is the frame-hitch number;
+            //           the target is well under 1 ms, and `max` is the worst single pump
+            //           since the mod loaded.
+            //   ROUND - what a full pass over the object array cost and how many object
+            //           slots it visited. This is the freshness number: the marker set is
+            //           `slices x period_ms` old at worst.
+            // `!` marks the FindAllOf fallback, which is the old 28 ms-per-pump path and
+            // only runs when GUObjectArray reports no elements.
+            ImGui::Text("scan pump %.3f ms (avg %.3f, peak %.3f, max %.3f)%s",
+                        st.scan_slice_ms,
+                        st.scan_slice_ms_avg,
+                        st.scan_slice_ms_peak,
+                        st.scan_slice_ms_max,
+                        st.scan_fallback ? "   ! FindAllOf fallback" : "");
+            ImGui::Text("round %.1f ms / %d pump(s) / %d object(s) of %d   chunk %d   %llu round(s)",
+                        st.scan_round_ms,
+                        st.scan_round_slices,
+                        st.scan_round_objects,
+                        st.scan_total,
+                        st.scan_chunk,
+                        static_cast<unsigned long long>(st.rounds));
+            ImGui::Text("publish %.3f ms (avg %.3f, peak %.3f)",
+                        st.publish_ms,
+                        st.publish_ms_avg,
+                        st.publish_ms_peak);
+            ImGui::Text("drawn %d of %d (%d clamped, %d filtered)",
+                        g_marker_draw.drawn,
+                        g_marker_draw.total,
+                        g_marker_draw.clamped,
+                        g_marker_draw.filtered);
+            if (g_marker_draw.nearest[0] != 0)
+            {
+                ImGui::Text("nearest: %s (%.0f uu)", g_marker_draw.nearest, g_marker_draw.nearest_uu);
             }
 
+            //--------------------------------------------------------------------------
+            // Full map / gamepad
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("Full map and gamepad");
+            const pad::State gp = pad::state();
+            char padmod[64]{};
+            ::WideCharToMultiByte(CP_UTF8, 0, pad::module_name(), -1, padmod, sizeof(padmod) - 1, nullptr,
+                                  nullptr);
+            ImGui::Text("pad: %s (%s)   sticks %.2f,%.2f / %.2f,%.2f   triggers %.2f/%.2f",
+                        gp.connected ? "connected" : "none",
+                        padmod,
+                        static_cast<double>(gp.lx),
+                        static_cast<double>(gp.ly),
+                        static_cast<double>(gp.rx),
+                        static_cast<double>(gp.ry),
+                        static_cast<double>(gp.lt),
+                        static_cast<double>(gp.rt));
+            ImGui::Text("map slice %dx%d   %.2f ms (peak %.2f)   %llu cut(s), %llu skipped   "
+                        "opaque %u / dim %u / faint %u",
+                        g_mslice[0].w,
+                        g_mslice[0].h,
+                        g_mslice_ms,
+                        g_mslice_ms_peak,
+                        static_cast<unsigned long long>(g_mslice_updates),
+                        static_cast<unsigned long long>(g_mslice_skipped),
+                        g_mslice_counts.opaque,
+                        g_mslice_counts.dim,
+                        g_mslice_counts.faint);
+
+            //--------------------------------------------------------------------------
+            // The x-ray camera
+            //--------------------------------------------------------------------------
+            // WHERE THE CAMERA COMES FROM. This is the block to screenshot if the labels
+            // are in the wrong place: it names the route, the pinned offset and how old
+            // the pose is.
+            ImGui::SeparatorText("X-ray camera");
+            const hl::Stats hs = hl::stats();
+            const char* route = "none yet";
+            switch (hs.route)
+            {
+            case hl::Route::RawPinned:
+                route = "raw POV read (offset calibrated against the getters)";
+                break;
+            case hl::Route::RawSane:
+                route = "raw POV read (offset accepted on sanity ranges only)";
+                break;
+            case hl::Route::Getters:
+                route = "GetCameraLocation / GetCameraRotation / GetFOVAngle per read";
+                break;
+            case hl::Route::None:
+            default:
+                break;
+            }
+            ImGui::Text("camera: %s", route);
+            ImGui::Text("manager %s   CameraCachePrivate +%d   POV +%d   %llu read(s), %llu rejected",
+                        hs.have_manager ? "yes" : "NO",
+                        hs.cache_offset,
+                        hs.pov_offset,
+                        static_cast<unsigned long long>(hs.reads),
+                        static_cast<unsigned long long>(hs.fails));
+            hl::Pose pose{};
+            if (hl::camera(pose))
+            {
+                ImGui::Text("pose  X %.0f  Y %.0f  Z %.0f   pitch %.1f  yaw %.1f  roll %.1f   FOV %.1f   "
+                            "%llu ms old",
+                            pose.x,
+                            pose.y,
+                            pose.z,
+                            pose.pitch,
+                            pose.yaw,
+                            pose.roll,
+                            pose.fov,
+                            static_cast<unsigned long long>(
+                                pose.stamp_ms == 0 ? 0 : ::GetTickCount64() - pose.stamp_ms));
+            }
+            else
+            {
+                ImGui::TextDisabled("no camera pose published yet (hold the key in-world)");
+            }
+            ImGui::Text("held %s   %d of %d in range drawn (%d on screen, %d on the rim)",
+                        g_hl_debug.active ? "YES" : "no",
+                        g_hl_debug.drawn,
+                        g_hl_debug.considered,
+                        g_hl_debug.on_screen,
+                        g_hl_debug.edge);
+            ImGui::Text("compass: %s   heading %.1f deg from the %s   %d bearing pip(s)",
+                        g_compass_debug.visible ? "visible" : "hidden (same gate as the minimap)",
+                        g_compass_debug.heading,
+                        g_compass_debug.from_camera ? "camera" : "pawn",
+                        g_compass_debug.pips);
+
+            //--------------------------------------------------------------------------
+            // The game state
+            //--------------------------------------------------------------------------
+            ImGui::SeparatorText("Game state");
+            if (!have_state)
+            {
+                ImGui::TextColored(ImVec4{1.0f, 0.6f, 0.4f, 1.0f}, "no game-state snapshot yet");
+            }
+            else
+            {
+                const std::uint64_t age = ::GetTickCount64() - snap.stamp_ms;
+                ImGui::Text("world  X %.1f  Y %.1f  Z %.1f   yaw %.1f deg", snap.x, snap.y, snap.z, snap.yaw);
+                ImGui::Text("uv     %.5f, %.5f   chapter '%s'",
+                            g_last_mini.u,
+                            g_last_mini.v,
+                            g_last_mini.chapter.empty() ? "-" : g_last_mini.chapter.c_str());
+                ImGui::Text("gameplay pawn %s   transition %s   state-ok age %llu ms",
+                            snap.pawn_is_gameplay ? "yes" : "NO",
+                            snap.transition ? "YES" : "no",
+                            static_cast<unsigned long long>(
+                                snap.state_ok_since_ms == 0 ? 0 : ::GetTickCount64() - snap.state_ok_since_ms));
+                // The height slicer: what it cut, how much it cost, where it is.
+                ImGui::Text("slice  %dx%d px x %d surface(s) @ %.4f px/uu   %.2f ms (peak %.2f)   "
+                            "%llu update(s), %llu skipped",
+                            g_slice_size,
+                            g_slice_size,
+                            g_slice_surfaces,
+                            g_slice_px_per_uu,
+                            g_slice_ms,
+                            g_slice_ms_peak,
+                            static_cast<unsigned long long>(g_slice_updates),
+                            static_cast<unsigned long long>(g_slice_skipped));
+                ImGui::Text("       feet Z %.0f (raw %.0f)   tol %.0f  fade %.0f  gradient %.2f   "
+                            "opaque %u / dim %u / faint %u",
+                            static_cast<double>(g_feet_z),
+                            snap.z - static_cast<double>(cfg.player_z_offset),
+                            static_cast<double>(cfg.floor_z_tolerance),
+                            static_cast<double>(cfg.floor_fade_uu),
+                            static_cast<double>(cfg.floor_gradient_strength),
+                            g_slice_opaque,
+                            g_slice_dim,
+                            g_slice_faint);
+                ImGui::Text("pawn %s   pawn-view %s   menu %s   state age %llu ms",
+                            snap.has_pawn ? "yes" : "no",
+                            snap.is_pawn_view ? "yes" : "no",
+                            snap.menu_open ? "OPEN" : "no",
+                            static_cast<unsigned long long>(age));
+                ImGui::Text("widgets seen %u, visible in viewport %u   location via %s",
+                            snap.widgets_seen,
+                            snap.widgets_visible_in_viewport,
+                            snap.loc_from_function ? "K2_GetActorLocation" : "RootComponent");
+                // Menu hide/show latency: how long ago the game thread saw the menu state
+                // change, and how many roots it re-tests on every pump.
+                char holder[128]{};
+                ::WideCharToMultiByte(CP_UTF8, 0, snap.menu_holder, -1, holder, sizeof(holder) - 1, nullptr,
+                                      nullptr);
+                ImGui::Text("menu state changed %llu ms ago   %u cached in-viewport root(s)   "
+                            "show delay %d ms   holder '%s'",
+                            static_cast<unsigned long long>(
+                                snap.menu_change_ms == 0 ? 0 : ::GetTickCount64() - snap.menu_change_ms),
+                            snap.menu_roots_cached,
+                            cfg.menu_close_show_delay_ms,
+                            holder[0] != '\0' ? holder : "-");
+                ImGui::Text("teleport %s",
+                            snap.teleport_ms == 0
+                                ? "never this session"
+                                : std::format("{} ms ago", ::GetTickCount64() - snap.teleport_ms).c_str());
+                char narrow[256]{};
+                ::WideCharToMultiByte(CP_UTF8, 0, snap.level_name, -1, narrow, sizeof(narrow) - 1, nullptr,
+                                      nullptr);
+                ImGui::TextWrapped("pawn: %s", narrow);
+            }
+
+            ImGui::Spacing();
+            char reason[192]{};
+            ::WideCharToMultiByte(CP_UTF8, 0, g_hide_reason, -1, reason, sizeof(reason) - 1, nullptr, nullptr);
+            // THE ONE LINE THAT ANSWERS "why is the minimap not there". It is recomputed
+            // from live state every frame - there is no latch anywhere in the show
+            // condition - and every change to it is also logged.
+            if (g_last_mini.visible)
+            {
+                ImGui::TextColored(ImVec4{0.55f, 0.9f, 0.6f, 1.0f}, "minimap: %s", reason);
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f}, "hidden because: %s", reason);
+            }
+            ImGui::TextDisabled("       this state has held for %llu ms",
+                                static_cast<unsigned long long>(
+                                    g_reason_since_ms == 0 ? 0 : ::GetTickCount64() - g_reason_since_ms));
+            ImGui::Text("backbuffer %ux%u, %u buffer(s), composite %dx%d %s   ui scale %.2f",
+                        g_width,
+                        g_height,
+                        g_buffer_count,
+                        g_map.width,
+                        g_map.height,
+                        g_map.ready ? "ready" : "NOT ready",
+                        static_cast<double>(g_ui_scale));
+            ImGui::Text("presents %llu, resizes %llu",
+                        static_cast<unsigned long long>(g_present_count.load()),
+                        static_cast<unsigned long long>(g_resize_count.load()));
+        }
+
+        void draw_panel(mm::Config cfg, const mm::Snapshot& snap, bool have_state)
+        {
+            bool open = true;
+            ImGui::SetNextWindowSize(ImVec2{520.0f * g_ui_scale, 620.0f * g_ui_scale},
+                                     ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowPos(ImVec2{ImGui::GetMainViewport()->Pos.x + 60.0f,
+                                           ImGui::GetMainViewport()->Pos.y + 60.0f},
+                                    ImGuiCond_FirstUseEver);
+            if (!ImGui::Begin("Wuchang Minimap  v" WUCHANG_MINIMAP_VERSION
+                              "###wuchang_minimap_panel",
+                              &open, ImGuiWindowFlags_NoCollapse))
+            {
+                ImGui::End();
+                if (!open)
+                {
+                    mm::g_panel_open = false;
+                }
+                return;
+            }
+
+            const mm::Config before = cfg;
+
+            ImGui::TextColored(ImVec4{0.62f, 0.68f, 0.78f, 1.0f},
+                               "WuchangMinimap v" WUCHANG_MINIMAP_VERSION
+                               "  -  beta: chapters 2-5 maps and the x-ray highlight are not yet verified in-game");
+
+            // The tabs get their own child so the Save / Revert / master-switch row is
+            // always at the bottom of the window and never scrolls away with them.
+            const float row_h = ImGui::GetFrameHeightWithSpacing() * 3.0f;
+            if (ImGui::BeginChild("tabs", ImVec2{0.0f, -row_h}, ImGuiChildFlags_None))
+            {
+                if (ImGui::BeginTabBar("wuchang_tabs"))
+                {
+                    if (ImGui::BeginTabItem("Player"))
+                    {
+                        panel_player(cfg);
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Advanced"))
+                    {
+                        panel_advanced(cfg);
+                        ImGui::EndTabItem();
+                    }
+                    // The Debug tab EXISTS only while debug_readout is on, which is a
+                    // Dev key in a file players do not have. So the panel a player sees
+                    // has two tabs and no developer surface at all.
+                    if (cfg.debug_readout && ImGui::BeginTabItem("Debug"))
+                    {
+                        panel_debug(cfg, snap, have_state);
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
+                }
+            }
+            ImGui::EndChild();
+
+            ImGui::Separator();
             // The button says WHICH FILE it writes: there are two now, and the panel is
             // the only place that says which of them a setting lives in.
             if (ImGui::Button("Save to config_wuchang_minimap.txt"))
@@ -4905,112 +5308,27 @@ namespace overlay
             {
                 mm::g_reload_config = true;
             }
-            ImGui::Spacing();
-            // The key hints, read from the config so they stay truthful after a rebind.
-            ImGui::SeparatorText("Keys");
-            ImGui::TextWrapped("%s", bindings_hint(cfg).c_str());
 
-            if (cfg.debug_readout)
+            // THE MASTER SWITCH. Unticking it does not stop anything from here - it only
+            // writes mod_enabled = 0 into the config file, which the loop thread's 1 Hz
+            // watcher then acts on (modswitch.hpp). That keeps the whole shutdown
+            // sequence on the one thread that is allowed to run it, and it means the file
+            // and the running state can never disagree.
+            if (ImGui::Checkbox("Mod enabled (master switch - turns EVERYTHING off)", &cfg.mod_enabled))
             {
-                ImGui::SeparatorText("Debug");
-                draw_perf_table();
-                if (!have_state)
+                if (!cfg.mod_enabled)
                 {
-                    ImGui::TextColored(ImVec4{1.0f, 0.6f, 0.4f, 1.0f}, "no game-state snapshot yet");
+                    mm::set_config(cfg);
+                    mm::g_save_config = true;
+                    mm::log(L"master switch: turned off from the F2 panel - writing mod_enabled = 0; the "
+                            L"mod stops within a second. Edit the config file to turn it back on.");
                 }
-                else
-                {
-                    const std::uint64_t age = ::GetTickCount64() - snap.stamp_ms;
-                    ImGui::Text("world  X %.1f  Y %.1f  Z %.1f   yaw %.1f deg", snap.x, snap.y, snap.z, snap.yaw);
-                    ImGui::Text("uv     %.5f, %.5f   chapter '%s'",
-                                g_last_mini.u,
-                                g_last_mini.v,
-                                g_last_mini.chapter.empty() ? "-" : g_last_mini.chapter.c_str());
-                    ImGui::Text("gameplay pawn %s   transition %s   state-ok age %llu ms",
-                                snap.pawn_is_gameplay ? "yes" : "NO",
-                                snap.transition ? "YES" : "no",
-                                static_cast<unsigned long long>(
-                                    snap.state_ok_since_ms == 0 ? 0 : ::GetTickCount64() - snap.state_ok_since_ms));
-                    // The height slicer: what it cut, how much it cost, where it is.
-                    ImGui::Text("slice  %dx%d px x %d surface(s) @ %.4f px/uu   %.2f ms (peak %.2f)   "
-                                "%llu update(s), %llu skipped",
-                                g_slice_size,
-                                g_slice_size,
-                                g_slice_surfaces,
-                                g_slice_px_per_uu,
-                                g_slice_ms,
-                                g_slice_ms_peak,
-                                static_cast<unsigned long long>(g_slice_updates),
-                                static_cast<unsigned long long>(g_slice_skipped));
-                    ImGui::Text("       feet Z %.0f (raw %.0f)   tol %.0f  fade %.0f  gradient %.2f   "
-                                "opaque %u / dim %u / faint %u",
-                                static_cast<double>(g_feet_z),
-                                snap.z - static_cast<double>(cfg.player_z_offset),
-                                static_cast<double>(cfg.floor_z_tolerance),
-                                static_cast<double>(cfg.floor_fade_uu),
-                                static_cast<double>(cfg.floor_gradient_strength),
-                                g_slice_opaque,
-                                g_slice_dim,
-                                g_slice_faint);
-                    ImGui::Text("pawn %s   pawn-view %s   menu %s   state age %llu ms",
-                                snap.has_pawn ? "yes" : "no",
-                                snap.is_pawn_view ? "yes" : "no",
-                                snap.menu_open ? "OPEN" : "no",
-                                static_cast<unsigned long long>(age));
-                    ImGui::Text("widgets seen %u, visible in viewport %u   location via %s",
-                                snap.widgets_seen,
-                                snap.widgets_visible_in_viewport,
-                                snap.loc_from_function ? "K2_GetActorLocation" : "RootComponent");
-                    // Menu hide/show latency: how long ago the game thread saw the menu
-                    // state change, and how many roots it re-tests on every pump.
-                    char holder[128]{};
-                    ::WideCharToMultiByte(CP_UTF8, 0, snap.menu_holder, -1, holder, sizeof(holder) - 1, nullptr,
-                                          nullptr);
-                    ImGui::Text("menu state changed %llu ms ago   %u cached in-viewport root(s)   "
-                                "show delay %d ms   holder '%s'",
-                                static_cast<unsigned long long>(
-                                    snap.menu_change_ms == 0 ? 0 : ::GetTickCount64() - snap.menu_change_ms),
-                                snap.menu_roots_cached,
-                                cfg.menu_close_show_delay_ms,
-                                holder[0] != '\0' ? holder : "-");
-                    ImGui::Text("teleport %s",
-                                snap.teleport_ms == 0
-                                    ? "never this session"
-                                    : std::format("{} ms ago",
-                                                  ::GetTickCount64() - snap.teleport_ms)
-                                          .c_str());
-                    char narrow[256]{};
-                    ::WideCharToMultiByte(CP_UTF8, 0, snap.level_name, -1, narrow, sizeof(narrow) - 1, nullptr, nullptr);
-                    ImGui::TextWrapped("pawn: %s", narrow);
-                }
-
-                ImGui::Spacing();
-                char reason[192]{};
-                ::WideCharToMultiByte(CP_UTF8, 0, g_hide_reason, -1, reason, sizeof(reason) - 1, nullptr, nullptr);
-                // THE ONE LINE THAT ANSWERS "why is the minimap not there". It is
-                // recomputed from live state every frame - there is no latch anywhere in
-                // the show condition - and every change to it is also logged.
-                if (g_last_mini.visible)
-                {
-                    ImGui::TextColored(ImVec4{0.55f, 0.9f, 0.6f, 1.0f}, "minimap: %s", reason);
-                }
-                else
-                {
-                    ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f}, "hidden because: %s", reason);
-                }
-                ImGui::TextDisabled("       this state has held for %llu ms",
-                                    static_cast<unsigned long long>(
-                                        g_reason_since_ms == 0 ? 0 : ::GetTickCount64() - g_reason_since_ms));
-                ImGui::Text("backbuffer %ux%u, %u buffer(s), composite %dx%d %s",
-                            g_width,
-                            g_height,
-                            g_buffer_count,
-                            g_map.width,
-                            g_map.height,
-                            g_map.ready ? "ready" : "NOT ready");
-                ImGui::Text("presents %llu, resizes %llu",
-                            static_cast<unsigned long long>(g_present_count.load()),
-                            static_cast<unsigned long long>(g_resize_count.load()));
+            }
+            if (!cfg.mod_enabled)
+            {
+                ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f},
+                                   "The mod is shutting down. Set mod_enabled = 1 in %s to restart it.",
+                                   "config_wuchang_minimap.txt");
             }
 
             ImGui::End();

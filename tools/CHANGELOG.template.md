@@ -38,6 +38,15 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   NPC and Notes columns of the statistics table fill in as you explore.
 - **Bosses count as defeated.** A boss you have killed is marked found and stays marked
   after you leave the arena.
+- **The x-ray highlight is a toggle now.** Press `LALT` (or the pad chord) once to turn it
+  on and again to turn it off, instead of holding the key down. The old behaviour is one
+  radio button away - **Mode: Toggle / Hold** sits next to the key in the Player tab, and
+  the config key is `highlight_mode = toggle | hold`. A toggled-on highlight always turns
+  itself off when the level changes, so it can never be left on with nothing to point at.
+- **The Player tab's sections fold**, the same way the Advanced tab's already did:
+  Presets, Look, Minimap, Placement and scale, Markers, Collection tracker, Full map,
+  X-ray highlight, Compass and Keys are ten headers you can collapse to get to the one you
+  want. They all start open.
 
 ### Changed
 - **The Merchant category is now Notes**, because that is what it always was: all 76 of
@@ -73,6 +82,15 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   dump are both on the F2 Debug tab now; `recon_dump_key` and `navmesh_dump_key` are gone
   (an old `recon_dump_key` line logs one warning and is ignored). The player-facing
   map-to-clipboard key stays a binding.
+- **The performance table's `peak ms` column no longer counts loading screens.** Every
+  number in that table is wall-clock time, so a measurement taken while the game is
+  loading a level is time spent waiting for the game, not time the mod spent - and one
+  such reading used to sit at the top of the column for the rest of the session. Those
+  samples are counted in a new **stalls** column instead (how many, and the worst one);
+  hover a peak to see the raw figure that includes them. The rows are finer, too: the
+  render frame is split into **render NewFrame (win32)** and **render build_ui**, and the
+  map-to-clipboard copy, the config / waypoint writes and the F5 reload each have their
+  own row instead of sharing one with the hotkey polling.
 
 ### Fixed
 - **The stutter three times a second is gone.** The mod's check for "is a game menu open?"
@@ -119,6 +137,17 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   instead of two.
 - Eight lightable reeds in a Chapter 1 boss arena, a boss spawner and a stage light were
   all drawn as bosses. They are not.
+- **Esc closes the F2 panel instead of opening the pause menu behind it.** The key is now
+  taken by the panel while it is open, in every form it can arrive in, so the game never
+  sees it. (While you are rebinding a key, Esc still cancels the rebind and leaves the
+  panel open.) Esc closes the full map as well.
+- **The Steam FPS counter and overlay should survive the mod again.** To find the
+  functions it has to hook, the mod used to create a throwaway Direct3D device and window
+  on every launch and then destroy them - and Steam's overlay re-points itself at whatever
+  it sees created, so it ended up pointing at something that no longer existed. The
+  addresses are written to `wuchang_minimap_hookaddr.txt` next to the config the first
+  time, and every launch after that uses them and creates nothing at all. The file
+  rewrites itself whenever your graphics DLLs change; deleting it is always safe.
 
 ## @@VERSION@@ - @@DATE@@
 

@@ -32,6 +32,9 @@
 //
 
 #include <cstdint>
+#include <vector>
+
+#include "shrines_db.hpp"
 
 namespace shr
 {
@@ -71,4 +74,71 @@ namespace shr
 
     // GAME THREAD ONLY, from markers::drop_caches.
     void drop_caches();
+
+    //==================================================================================
+    // The offline shrine table (markers/shrines.json)
+    //==================================================================================
+
+    // Loop thread, once. Reads markers/shrines.json and publishes it.
+    void load_table();
+
+    // ANY THREAD. The published table, or nullptr before load_table has run. The vector
+    // is immutable once published and deliberately leaked on a reload, exactly like the
+    // marker DB: a render thread may be walking it and there is no safe point to free.
+    const std::vector<shdb::Shrine>* table();
+
+    // ANY THREAD. What load_table() found, for the F2 readout.
+    struct TableInfo
+    {
+        int rows = 0;
+        int shrines = 0;
+        int named = 0;
+        char error[96]{}; // "" = loaded
+    };
+
+    TableInfo table_info();
+
+    //==================================================================================
+    // Fast travel
+    //==================================================================================
+    //
+    // The route is research section 2.2: the game's own
+    // `PlayerModelLibrary_C::PlayerChuanSongFirePoint(FirePointID)` message-router
+    // facade, with `BP_RebornFire_C::ChuanSong(FirePointID)` on a resident shrine actor
+    // as the documented fallback - so loading screens, the pre-travel save, the AI reset
+    // and level streaming all happen exactly as they do from the shrine menu. NOT
+    // `K2_TeleportTo`, which would land the player in unstreamed geometry with a save
+    // that disagrees with where they are (lessons.md).
+    //
+    // It is OFF by default (`fast_travel_enabled`), and even when it is on the call is
+    // only issued after a REFLECTION SELF-CHECK: the UFunction is looked up by name, its
+    // parameter list is read through the reflection system, and it is compared against
+    // what the research predicts (one FString in, at most one value out). On any
+    // mismatch the call is refused and the mismatch is logged. lessons.md is explicit
+    // that a UFunction must never be called with a guessed signature.
+
+    enum class Travel
+    {
+        Idle = 0,
+        Requested,   // the render thread asked; the game thread has not run yet
+        InFlight,    // the call has been issued
+        Done,        // it returned without faulting
+        Refused,     // the self-check said no, or the feature is off
+    };
+
+    struct TravelState
+    {
+        Travel phase = Travel::Idle;
+        char id[shdb::kMaxIdLen]{};
+        char note[160]{}; // the route that answered, or why it refused
+    };
+
+    // ANY THREAD (in practice the render thread, from the shrine list).
+    void request_travel(const char* id);
+
+    // ANY THREAD.
+    TravelState travel_state();
+
+    // ANY THREAD. Clears a finished/refused request so the button is live again.
+    void clear_travel();
 } // namespace shr

@@ -51,6 +51,7 @@
 #include "projection.hpp"
 #include "saveslot.hpp"
 #include "scan_sched.hpp"
+#include "shrines_db.hpp"
 
 namespace
 {
@@ -2922,6 +2923,132 @@ namespace
         }
     }
 
+    //======================================================================================
+    // markers/shrines.json
+    //======================================================================================
+
+    void test_shrines_db(const std::string& markers_dir)
+    {
+        std::printf("shrine table (markers/shrines.json)\n");
+
+        // ---- the schema gate and the malformed cases --------------------------------
+        {
+            std::vector<shdb::Shrine> v;
+            shdb::Report rep{};
+            CHECK(!shdb::parse("{}", v, rep));
+            CHECK(!rep.error.empty());
+            CHECK(!shdb::parse("[]", v, rep));
+            CHECK(!shdb::parse(R"({"schema":"wuchang-minimap-shrines/2","shrines":[]})", v, rep));
+            CHECK(!shdb::parse(R"({"schema":"wuchang-minimap-shrines/1"})", v, rep));
+            CHECK(shdb::parse(R"({"schema":"wuchang-minimap-shrines/1","shrines":[]})", v, rep));
+            CHECK(v.empty());
+            CHECK(rep.error.empty());
+        }
+        {
+            // One good entry, one with no id and one that is not an object: a generated
+            // file that has been hand-edited must cost the bad LINE, not the whole list.
+            const char* json = R"({"schema":"wuchang-minimap-shrines/1","shrines":[
+                {"id":"temple02","name":"Reverent Temple","chapter":1,"shrine":true,
+                 "x":1.0,"y":2.0,"z":3.0,"bx":4.0,"by":5.0,"bz":6.0},
+                {"name":"no id here"},
+                17,
+                {"id":"Task1","chapter":1,"shrine":false,"bx":7.0,"by":8.0,"bz":9.0}]})";
+            std::vector<shdb::Shrine> v;
+            shdb::Report rep{};
+            CHECK(shdb::parse(json, v, rep));
+            CHECK_EQ(v.size(), 2);
+            CHECK_EQ(rep.rows, 2);
+            CHECK_EQ(rep.shrines, 1);
+            CHECK_EQ(rep.named, 1);
+            CHECK_STR(v[0].id, "temple02");
+            CHECK_STR(v[0].name, "Reverent Temple");
+            CHECK_STR(v[0].label(), "Reverent Temple");
+            CHECK(v[0].shrine);
+            CHECK(v[0].has_pos);
+            CHECK(v[0].has_birth);
+            CHECK_EQ(static_cast<int>(v[0].z), 3);
+            CHECK_EQ(static_cast<int>(v[0].bz), 6);
+            // A pseudo-row: no shrine, no actor position, but it does have a destination.
+            CHECK(!v[1].shrine);
+            CHECK(!v[1].has_pos);
+            CHECK(v[1].has_birth);
+            // An id is a poor label but it is never empty.
+            CHECK_STR(v[1].label(), "Task1");
+
+            // ---- the id join, which is case-insensitive on purpose -------------------
+            CHECK_EQ(shdb::find_id(v, "temple02"), 0);
+            CHECK_EQ(shdb::find_id(v, "TEMPLE02"), 0);
+            CHECK_EQ(shdb::find_id(v, "task1"), 1);
+            CHECK_EQ(shdb::find_id(v, "temple0"), -1);
+            CHECK_EQ(shdb::find_id(v, "temple020"), -1);
+            CHECK_EQ(shdb::find_id(v, ""), -1);
+        }
+
+        // ---- the real, shipped file ---------------------------------------------------
+        const std::string path = markers_dir + "/shrines.json";
+        std::string text;
+        if (!read_file(path, text))
+        {
+            std::printf("  (skipped: %s not found)\n", path.c_str());
+            return;
+        }
+        std::vector<shdb::Shrine> v;
+        shdb::Report rep{};
+        CHECK(shdb::parse(text, v, rep));
+        CHECK_STR(rep.error, "");
+        // 88 contiguous rows in DT_FirePoint, 50 of which join to a shrine marker; the
+        // rest are the bossdoor_/Task pseudo-points. If the extractor ever regresses,
+        // these numbers are what says so on the build machine.
+        CHECK_EQ(rep.rows, 88);
+        CHECK_EQ(rep.shrines, 50);
+        CHECK_EQ(rep.named, 88);
+        std::printf("  shipped table: %d row(s), %d shrine(s), %d named\n", rep.rows, rep.shrines,
+                    rep.named);
+
+        int with_birth = 0;
+        int bad = 0;
+        for (const shdb::Shrine& s : v)
+        {
+            with_birth += s.has_birth ? 1 : 0;
+            // Every real shrine must be usable by the UI: a name, a chapter and a place
+            // on the map. Anything else would draw as an unnamed pin at the origin.
+            if (s.shrine && (s.name.empty() || s.chapter < 0 || !s.has_pos))
+            {
+                ++bad;
+            }
+            // The world is a few hundred thousand uu across (maps.json bounds); a
+            // decode that drifted would produce 1e38 or 1e-317, not a plausible number.
+            if (s.has_birth && !(std::fabs(s.bx) < 1.0e7 && std::fabs(s.by) < 1.0e7 &&
+                                 std::fabs(s.bz) < 1.0e7))
+            {
+                ++bad;
+            }
+        }
+        CHECK_EQ(bad, 0);
+        CHECK_EQ(with_birth, 88);
+        // The known first row of the table, as a fixed point on the whole decode chain:
+        // row name -> locres key -> English string.
+        const int ti = shdb::find_id(v, "temple02");
+        CHECK(ti >= 0);
+        if (ti >= 0)
+        {
+            CHECK_STR(v[static_cast<std::size_t>(ti)].name, "Reverent Temple");
+            CHECK_EQ(v[static_cast<std::size_t>(ti)].chapter, 1);
+            CHECK(v[static_cast<std::size_t>(ti)].shrine);
+        }
+        // Ids are unique: the runtime joins the save's unlocked list to this table by id
+        // and a duplicate would light the wrong row.
+        int dupes = 0;
+        for (std::size_t i = 0; i < v.size(); ++i)
+        {
+            if (shdb::find_id(v, v[i].id) != static_cast<int>(i))
+            {
+                ++dupes;
+            }
+        }
+        CHECK_EQ(dupes, 0);
+    }
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -2940,6 +3067,7 @@ int main(int argc, char** argv)
     test_found_file();
     test_saveslot();
     test_clipimg();
+    test_shrines_db(markers_dir);
     test_ids();
     test_intern_levels();
     test_perf();

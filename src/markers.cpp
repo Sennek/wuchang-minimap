@@ -19,6 +19,7 @@
 #include "mem.hpp"
 #include "mmstate.hpp"
 #include "saveslot.hpp"
+#include "recon.hpp"
 #include "shrines.hpp"
 #include "scan_sched.hpp"
 #include "ue_min.hpp"
@@ -1596,6 +1597,7 @@ namespace markers
     void on_unreal_init()
     {
         load_static_db();
+        shr::load_table();
         slotid::on_unreal_init();
         adopt_slot_key();
         load_found_file();
@@ -1632,6 +1634,7 @@ namespace markers
     void reload()
     {
         load_static_db();
+        shr::load_table();
         slotid::rescan_files();
         adopt_slot_key();
         load_found_file();
@@ -1901,6 +1904,11 @@ namespace markers
         // stats page means by "shrines lit" and what the shrine list uses to decide
         // whether travelling to a shrine may even be offered.
         shr::game_thread_pump(now);
+        // ---- HOOK: the one-press recon dump (src/recon.cpp) -------------------------
+        //
+        // One atomic load unless the dump was asked for. It needs the game thread and
+        // the pawn's world, both of which this pump already has.
+        recon::game_thread_pump(world);
         // ---- end of hook ------------------------------------------------------------
 
         if (!cfg.markers_enabled || !cfg.markers_live)

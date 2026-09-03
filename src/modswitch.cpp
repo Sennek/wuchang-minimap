@@ -13,6 +13,7 @@
 #include "markers.hpp"
 #include "mmstate.hpp"
 #include "navmesh_dump.hpp"
+#include "recon.hpp"
 #include "overlay.hpp"
 
 namespace modswitch
@@ -245,6 +246,7 @@ namespace modswitch
         mapdata::on_update();
         gamestate::on_update();
         markers::on_update();
+        recon::on_update();
         watch(now);
     }
 } // namespace modswitch

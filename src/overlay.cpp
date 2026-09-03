@@ -67,6 +67,7 @@
 #include "clipimg.hpp"
 #include "markers.hpp"
 #include "modswitch.hpp"
+#include "recon.hpp"
 #include "shrines.hpp"
 #include "mmstate.hpp"
 #include "projection.hpp"
@@ -2820,6 +2821,226 @@ namespace overlay
         }
 
         //==============================================================================
+        // The shrine list
+        //==============================================================================
+        //
+        // Every shrine of the current chapter with its in-game name, its distance and
+        // whether the save has lit it - and, behind `fast_travel_enabled`, a Travel
+        // action per row.
+        //
+        // Sources, all published snapshots (render thread, no game-thread work):
+        //   shr::table()  markers/shrines.json - the id, the localised name, the chapter,
+        //                 the actor position and the game's own BirthPosition;
+        //   shr::state()  the save's UnlockedFirepoints list, read raw at 1 Hz;
+        //   snap          the pawn position, for the distance.
+        //
+        // Sorted by distance, because "which shrine is near me" is the question a player
+        // asks; the chapter filter follows the marker filter so the list and the map
+        // agree about what exists.
+
+        bool g_shrine_panel = false;
+        char g_shrine_selected[shdb::kMaxIdLen]{};
+
+        void draw_shrine_list(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
+                              int filter_chapter)
+        {
+            const std::vector<shdb::Shrine>* table = shr::table();
+            if (table == nullptr || table->empty())
+            {
+                const shr::TableInfo info = shr::table_info();
+                ImGui::TextDisabled("no shrine table: %s",
+                                    info.error[0] != '\0' ? info.error : "markers\\shrines.json is empty");
+                return;
+            }
+            const shr::State st = shr::state();
+
+            struct Row
+            {
+                const shdb::Shrine* s;
+                double dist;
+                bool unlocked;
+            };
+            std::vector<Row> rows;
+            rows.reserve(table->size());
+            for (const shdb::Shrine& sh : *table)
+            {
+                if (!sh.shrine || !sh.has_pos)
+                {
+                    continue; // a bossdoor_/Task pseudo-row is not a place
+                }
+                if (filter_chapter != chid::kNone && sh.chapter >= 0 && sh.chapter != filter_chapter)
+                {
+                    continue;
+                }
+                double d = -1.0;
+                if (have_state)
+                {
+                    const double dx = sh.x - snap.x;
+                    const double dy = sh.y - snap.y;
+                    const double dz = sh.z - snap.z;
+                    d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                }
+                rows.push_back(Row{&sh, d, st.valid && shr::is_unlocked(sh.id.c_str())});
+            }
+            if (rows.empty())
+            {
+                ImGui::TextDisabled("no shrines in this chapter");
+                return;
+            }
+            std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+                if ((a.dist < 0.0) != (b.dist < 0.0))
+                {
+                    return b.dist < 0.0;
+                }
+                if (a.dist != b.dist)
+                {
+                    return a.dist < b.dist;
+                }
+                return a.s->id < b.s->id;
+            });
+
+            if (!st.valid)
+            {
+                ImGui::TextDisabled("unlocked state: n/a (%s)",
+                                    st.route[0] != '\0' ? st.route : "not read yet");
+            }
+            const shr::TravelState tv = shr::travel_state();
+            if (tv.phase == shr::Travel::Refused)
+            {
+                ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "travel refused: %s", tv.note);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("dismiss"))
+                {
+                    shr::clear_travel();
+                }
+            }
+
+            if (!ImGui::BeginTable("shrines", cfg.fast_travel_enabled ? 5 : 4,
+                                   ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg |
+                                       ImGuiTableFlags_ScrollY,
+                                   ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 14.0f)))
+            {
+                return;
+            }
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("Shrine");
+            ImGui::TableSetupColumn("Ch", ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableSetupColumn("Distance", ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableSetupColumn("Lit", ImGuiTableColumnFlags_WidthFixed);
+            if (cfg.fast_travel_enabled)
+            {
+                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed);
+            }
+            ImGui::TableHeadersRow();
+
+            for (std::size_t i = 0; i < rows.size(); ++i)
+            {
+                const Row& r = rows[i];
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::PushID(static_cast<int>(i));
+                const bool selected = ::strcmp(g_shrine_selected, r.s->id.c_str()) == 0;
+                // One click sets a waypoint on it, a double-click centres the map there -
+                // review item 1. Selectable, so the whole row is the hit target rather
+                // than the eight characters of a name.
+                if (ImGui::Selectable(r.s->label().c_str(), selected,
+                                      ImGuiSelectableFlags_SpanAllColumns |
+                                          ImGuiSelectableFlags_AllowDoubleClick))
+                {
+                    ::strncpy_s(g_shrine_selected, sizeof(g_shrine_selected), r.s->id.c_str(),
+                                _TRUNCATE);
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    {
+                        g_mv.cx = r.s->x;
+                        g_mv.cy = r.s->y;
+                        // The height slice is cut around the view centre, so a jump has
+                        // to invalidate it or the map draws the old storey at the new
+                        // place until the next scheduled cut.
+                        g_map_recut.store(true, std::memory_order_release);
+                        toast("centred on the shrine");
+                    }
+                    else
+                    {
+                        mv::Waypoint wp{};
+                        wp.set = true;
+                        wp.x = r.s->x;
+                        wp.y = r.s->y;
+                        wp.z = r.s->z;
+                        mm::set_waypoint(wp);
+                        mm::g_waypoint_dirty.store(true, std::memory_order_release);
+                        toast("waypoint set on the shrine");
+                    }
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("%s\nid %s\nclick: waypoint    double-click: centre the map",
+                                      r.s->label().c_str(), r.s->id.c_str());
+                }
+                ImGui::TableNextColumn();
+                if (r.s->chapter < 0)
+                {
+                    ImGui::TextDisabled("-");
+                }
+                else if (r.s->chapter == 0)
+                {
+                    ImGui::TextUnformatted("DLC");
+                }
+                else
+                {
+                    ImGui::Text("%d", r.s->chapter);
+                }
+                ImGui::TableNextColumn();
+                if (r.dist < 0.0)
+                {
+                    ImGui::TextDisabled("-");
+                }
+                else if (r.dist >= 100000.0)
+                {
+                    ImGui::Text("%.1f km", r.dist / 100000.0);
+                }
+                else
+                {
+                    ImGui::Text("%.0f m", r.dist / 100.0);
+                }
+                ImGui::TableNextColumn();
+                if (!st.valid)
+                {
+                    ImGui::TextDisabled("n/a");
+                }
+                else if (r.unlocked)
+                {
+                    ImGui::TextColored(ImVec4{0.55f, 0.85f, 0.55f, 1.0f}, "yes");
+                }
+                else
+                {
+                    ImGui::TextDisabled("no");
+                }
+                if (cfg.fast_travel_enabled)
+                {
+                    ImGui::TableNextColumn();
+                    // Only an id the save says is unlocked: travelling to a locked one is
+                    // untested and is exactly the call that can wedge level streaming.
+                    const bool can = r.unlocked && tv.phase != shr::Travel::Requested &&
+                                     tv.phase != shr::Travel::InFlight;
+                    ImGui::BeginDisabled(!can);
+                    if (ImGui::SmallButton("Travel"))
+                    {
+                        shr::request_travel(r.s->id.c_str());
+                        toast("fast travel requested");
+                    }
+                    ImGui::EndDisabled();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+            if (!cfg.fast_travel_enabled)
+            {
+                ImGui::TextDisabled("Fast travel is off. Turn on fast_travel_enabled (Advanced) to add a "
+                                    "Travel button; it is refused unless a reflection self-check passes.");
+            }
+        }
+
+        //==============================================================================
         // The collection statistics page
         //==============================================================================
         //
@@ -4743,6 +4964,7 @@ namespace overlay
             // The Stats panel belongs to the map mode, so it goes with it - otherwise it
             // would be left drawn over the game with nothing swallowing the input.
             g_stats_page = false;
+            g_shrine_panel = false;
             g_shot_canvas_valid = false;
             mm::logf(L"full map closed: {}", why);
         }
@@ -4853,6 +5075,14 @@ namespace overlay
                 g_stats_page = !g_stats_page;
             }
             ImGui::SameLine();
+            if (cfg.shrine_list && ImGui::SmallButton("Shrines"))
+            {
+                g_shrine_panel = !g_shrine_panel;
+            }
+            if (cfg.shrine_list)
+            {
+                ImGui::SameLine();
+            }
             if (ImGui::SmallButton("Recentre"))
             {
                 g_map_recenter.store(true, std::memory_order_relaxed);
@@ -5386,6 +5616,28 @@ namespace overlay
             }
 
             //--------------------------------------------------------------------------
+            // The shrine list (the `Shrines` button in the header)
+            //--------------------------------------------------------------------------
+            if (g_shrine_panel && cfg.shrine_list)
+            {
+                const ImVec2 vp = ImGui::GetMainViewport()->Size;
+                ImGui::SetNextWindowPos(ImVec2(vp.x * 0.5f, vp.y * 0.5f), ImGuiCond_Appearing,
+                                        ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowSize(ImVec2(620.0f * ui_scale, 0.0f), ImGuiCond_Appearing);
+                if (ImGui::Begin("Shrines", &g_shrine_panel,
+                                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+                {
+                    draw_shrine_list(cfg, snap, have_state, markers::stats().filter_chapter);
+                    ImGui::Spacing();
+                    if (ImGui::Button("Close"))
+                    {
+                        g_shrine_panel = false;
+                    }
+                }
+                ImGui::End();
+            }
+
+            //--------------------------------------------------------------------------
             // The collection statistics panel (the `Stats` button in the header)
             //--------------------------------------------------------------------------
             //
@@ -5443,6 +5695,7 @@ namespace overlay
                 add(left, "left-click, F", "toggle found");
                 add(left, "click a legend row", "filter that category");
                 add(left, key_name_ascii(cfg.screenshot_key), "copy the map to the clipboard");
+                add(left, "Shrines", "shrine list (click = waypoint, double-click = centre)");
                 add(left, "Stats", "collection statistics");
                 add(left, "?", "this legend");
                 add(left, key_name_ascii(cfg.map_key) + ", Esc", "close the map");
@@ -6365,6 +6618,37 @@ namespace overlay
             else
             {
                 ImGui::TextDisabled("no previous session recorded");
+            }
+
+            //--------------------------------------------------------------------------
+            // The one-press recon dump
+            //--------------------------------------------------------------------------
+            //
+            // context/saveslot-and-teleport-research.md section 3: the four things that
+            // cannot be recovered from the cooked assets. It calls nothing and changes
+            // nothing - reflection lookups and raw reads only - and writes one file the
+            // user can send back.
+            ImGui::SeparatorText("Recon dump");
+            const recon::Status rc = recon::status();
+            ImGui::BeginDisabled(rc.pending);
+            if (ImGui::Button("Dump the fast-travel / save-slot recon"))
+            {
+                recon::request();
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextDisabled("or press %s", key_name_ascii(cfg.recon_dump_key).c_str());
+            if (rc.pending)
+            {
+                ImGui::TextDisabled("gathering on the next game-thread pump...");
+            }
+            else if (rc.error[0] != '\0')
+            {
+                ImGui::TextColored(ImVec4{0.95f, 0.5f, 0.4f, 1.0f}, "%s", rc.error);
+            }
+            else if (rc.file[0] != '\0')
+            {
+                ImGui::TextWrapped("wrote %d line(s) to %s", rc.lines, rc.file);
             }
 
             draw_perf_table();
@@ -7884,6 +8168,18 @@ namespace overlay
                                     : std::wstring{L"copied to the clipboard"},
                      dib.size());
         }
+
+        // THE RECON HOTKEY (Dev). Read-only, so it is safe to leave bound; it is a Dev
+        // key, so it only exists when the dev config file does.
+        static bool recon_down = false;
+        const bool recon_now = cfg.recon_dump_key != 0 &&
+                               (::GetAsyncKeyState(cfg.recon_dump_key) & 0x8000) != 0;
+        if (recon_now && !recon_down && foreground)
+        {
+            recon::request();
+            post_toast("recon dump requested", 2500);
+        }
+        recon_down = recon_now;
 
         static bool recenter_down = false;
         const bool recenter_now = (::GetAsyncKeyState(cfg.map_recenter_key) & 0x8000) != 0;

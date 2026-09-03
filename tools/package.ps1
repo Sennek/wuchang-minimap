@@ -25,6 +25,7 @@
             maps\maps.json, maps\chapter<1..5>\*.png
             markers\chapter*.json          (the hand-written *.sample.json is excluded)
             markers\items.json             (item display names, when it has been built)
+            markers\shrines.json           (the shrine table: names, chapters, destinations)
             config_wuchang_minimap.txt
             config.ini
             enabled.txt
@@ -156,6 +157,17 @@ try {
     $itemsSrc = Join-Path $repo 'markers\items.json'
     if (Test-Path $itemsSrc) { Copy-Item -LiteralPath $itemsSrc -Destination $markersDst -Force }
 
+    #     shrines.json (schema wuchang-minimap-shrines/1, from
+    #     tools\markers\extract_shrines.py) is REQUIRED from 0.9.4: it is what the full
+    #     map's shrine list shows (the localised names and the chapter) and what fast
+    #     travel targets. Without it the panel says so, which reads as a broken feature -
+    #     so a package that lacks it is a packaging bug, not a degraded build.
+    $shrinesSrc = Join-Path $repo 'markers\shrines.json'
+    if (-not (Test-Path $shrinesSrc)) {
+        throw "markers\shrines.json is missing - build it with tools\markers\extract_shrines.py."
+    }
+    Copy-Item -LiteralPath $shrinesSrc -Destination $markersDst -Force
+
     # 3d. the two shipped config files, and the enabled.txt opt-in UE4SS looks for.
     foreach ($cfg in @('config_wuchang_minimap.txt', 'config.ini')) {
         $src = Join-Path $repo "deploy\ue4ss\Mods\WuchangMinimap\$cfg"
@@ -247,6 +259,20 @@ try {
             }
         }
     }
+    # The shrine table, with the same schema check the runtime applies.
+    $shrinesPkg = Join-Path $markersDst 'shrines.json'
+    if (Require-File $shrinesPkg 'shrine table') {
+        $sh = Get-Content -Raw -LiteralPath $shrinesPkg | ConvertFrom-Json
+        if ($sh.schema -ne 'wuchang-minimap-shrines/1') {
+            $problems.Add("shrines.json schema is '$($sh.schema)'")
+        }
+        $realShrines = @($sh.shrines | Where-Object { $_.shrine }).Count
+        if ($realShrines -lt 40) {
+            $problems.Add("shrines.json holds only $realShrines real shrine(s) - the extractor regressed")
+        }
+        Write-Host ("  shrines        {0} row(s), {1} shrine(s)" -f $sh.count, $realShrines)
+    }
+
     $shippedMarkers = @(Get-ChildItem -LiteralPath $markersDst -Filter '*.json' -File)
     if (@($shippedMarkers | Where-Object { $_.Name -like '*sample*' }).Count -gt 0) {
         $problems.Add('a *.sample.json leaked into the package')

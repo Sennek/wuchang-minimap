@@ -256,7 +256,12 @@ namespace mm
         int markers_scan_chunk = scan::kChunkDefault;        // object slots per pump
         int markers_scan_period_ms = scan::kPeriodDefaultMs; // min ms between pumps
         std::uint32_t markers_categories = mdb::kAllCats & ~mdb::cat_bit(mdb::Cat::Enemy);
-        bool markers_hide_found = false; // hide instead of dimming a found marker
+        // Found markers are HIDDEN by default (0.9.3): the map exists to show what is
+        // still out there, and a screen of dimmed already-collected glyphs is what the
+        // player has to read past to find it. The F2 Player tab offers the inverse of
+        // this as a "Show found markers" checkbox, so the setting reads the way the
+        // question is asked.
+        bool markers_hide_found = true;  // hide instead of dimming a found marker
         float markers_found_alpha = 0.3f;
         float markers_size = 6.5f;         // glyph radius in minimap pixels
         bool markers_clamp_to_edge = false; // keep out-of-range markers on the rim

@@ -58,6 +58,7 @@
 
 #include "compass.hpp"
 #include "gamepad.hpp"
+#include "glyphs.hpp"
 #include "highlight.hpp"
 #include "mapdata.hpp"
 #include "mapview.hpp"
@@ -2222,39 +2223,13 @@ namespace overlay
         // glyph, edge-clamped, so the two views agree on what a waypoint looks like.
         void draw_waypoint_glyph(ImDrawList* dl, ImVec2 p, float r, int alpha);
 
+        // The hue table lives in the PURE header src/glyphs.hpp, next to the shape
+        // table, because "no two categories share a shape and a colour" is a property
+        // of the two together and is asserted offline.
         ImU32 marker_color(mdb::Cat cat, int alpha)
         {
-            switch (cat)
-            {
-            case mdb::Cat::Shrine:
-                return IM_COL32(255, 186, 72, alpha);
-            case mdb::Cat::Chest:
-                return IM_COL32(255, 226, 120, alpha);
-            case mdb::Cat::Pickup:
-                return IM_COL32(120, 220, 255, alpha);
-            case mdb::Cat::Boss:
-                return IM_COL32(255, 86, 86, alpha);
-            case mdb::Cat::Elite:
-                return IM_COL32(255, 140, 80, alpha);
-            case mdb::Cat::Enemy:
-                return IM_COL32(232, 96, 96, alpha);
-            case mdb::Cat::Npc:
-                return IM_COL32(140, 235, 140, alpha);
-            case mdb::Cat::Merchant:
-                return IM_COL32(120, 230, 210, alpha);
-            case mdb::Cat::Door:
-                return IM_COL32(172, 194, 224, alpha);
-            case mdb::Cat::Ladder:
-            case mdb::Cat::Lift:
-                return IM_COL32(206, 184, 142, alpha);
-            case mdb::Cat::FogGate:
-                return IM_COL32(198, 150, 255, alpha);
-            case mdb::Cat::Hidden:
-                return IM_COL32(255, 130, 220, alpha);
-            case mdb::Cat::Other:
-            default:
-                return IM_COL32(196, 196, 196, alpha);
-            }
+            const mdb::Rgb c = gly::marker_rgb(cat, gly::Palette::Default);
+            return IM_COL32(c.r, c.g, c.b, alpha);
         }
 
         // Category colour, or the ITEM QUALITY colour when the caller has quality
@@ -2276,60 +2251,123 @@ namespace overlay
             return IM_COL32(c.r, c.g, c.b, alpha);
         }
 
-        void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge)
+        // ONE glyph. `hollow` is what a FOUND marker is drawn as: dimming alone takes
+        // the colour away first and leaves an unreadable grey blob, while an outline
+        // keeps the shape - which is the half of the identity that survives at 6 px.
+        //
+        // Every glyph gets a dark halo first (the review's `AddCircleFilled(p, r + 1,
+        // 0x000000_78)`), so a light glyph still has an edge against the parchment fill
+        // and a dark one against a lit scene. Its alpha follows the glyph's, so a
+        // faded-out marker does not leave a black dot behind.
+        void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge,
+                               bool hollow = false)
         {
+            const int ca = static_cast<int>((col >> IM_COL32_A_SHIFT) & 0xFFu);
+            dl->AddCircleFilled(p, r + 1.0f, IM_COL32(0, 0, 0, (ca * 120) / 255), 12);
+
+            const float w = hollow ? 1.7f : 1.2f;
+            // A filled shape when the marker is live, the same shape as an outline when
+            // it is found. Both take the SAME geometry, so the two states are the same
+            // glyph and nothing moves when one becomes the other.
+            const auto ngon = [&](float rad, int n) {
+                if (hollow)
+                {
+                    dl->AddNgon(p, rad, col, n, w);
+                }
+                else
+                {
+                    dl->AddNgonFilled(p, rad, col, n);
+                    dl->AddNgon(p, rad, edge, n, w);
+                }
+            };
+            const auto circle = [&](ImVec2 c, float rad, int n) {
+                if (hollow)
+                {
+                    dl->AddCircle(c, rad, col, n, w);
+                }
+                else
+                {
+                    dl->AddCircleFilled(c, rad, col, n);
+                    dl->AddCircle(c, rad, edge, n, w);
+                }
+            };
+            const auto rect = [&](float hw, float hh) {
+                const ImVec2 a{p.x - r * hw, p.y - r * hh};
+                const ImVec2 b{p.x + r * hw, p.y + r * hh};
+                if (hollow)
+                {
+                    dl->AddRect(a, b, col, 1.5f, 0, w);
+                }
+                else
+                {
+                    dl->AddRectFilled(a, b, col, 1.5f);
+                    dl->AddRect(a, b, edge, 1.5f, 0, w);
+                }
+            };
             const auto tri = [&](float scale) {
                 const ImVec2 a{p.x, p.y - r * scale};
                 const ImVec2 b{p.x - r * scale * 0.92f, p.y + r * scale * 0.72f};
                 const ImVec2 c{p.x + r * scale * 0.92f, p.y + r * scale * 0.72f};
-                dl->AddTriangleFilled(a, b, c, col);
-                dl->AddTriangle(a, b, c, edge, 1.2f);
+                if (hollow)
+                {
+                    dl->AddTriangle(a, b, c, col, w);
+                }
+                else
+                {
+                    dl->AddTriangleFilled(a, b, c, col);
+                    dl->AddTriangle(a, b, c, edge, w);
+                }
             };
-            const auto rect = [&](float w, float h) {
-                const ImVec2 a{p.x - r * w, p.y - r * h};
-                const ImVec2 b{p.x + r * w, p.y + r * h};
-                dl->AddRectFilled(a, b, col, 1.5f);
-                dl->AddRect(a, b, edge, 1.5f, 0, 1.2f);
+            // A pip is the dark centre that tells a shrine from a plain diamond and a
+            // merchant's coin from a pickup's dot. On a hollow glyph it is drawn in the
+            // marker's own colour, because there is no fill for it to contrast against.
+            const auto pip = [&](float rad) {
+                dl->AddCircleFilled(p, r * rad, hollow ? col : edge, 8);
             };
 
-            switch (cat)
+            switch (gly::shape_of(cat))
             {
-            case mdb::Cat::Shrine:
-                // A diamond: AddNgon starts at angle 0, so a 4-gon has its vertices on
-                // the axes.
-                dl->AddNgonFilled(p, r * 1.15f, col, 4);
-                dl->AddNgon(p, r * 1.15f, edge, 4, 1.4f);
-                dl->AddCircleFilled(p, r * 0.32f, edge, 8);
+            case gly::Shape::Diamond:
+                // AddNgon starts at angle 0, so a 4-gon has its vertices on the axes.
+                ngon(r * 1.15f, 4);
+                pip(0.32f);
                 break;
-            case mdb::Cat::Chest:
+            case gly::Shape::ChestBox:
                 rect(0.95f, 0.75f);
-                dl->AddLine(ImVec2{p.x - r * 0.95f, p.y}, ImVec2{p.x + r * 0.95f, p.y}, edge, 1.2f);
+                dl->AddLine(ImVec2{p.x - r * 0.95f, p.y}, ImVec2{p.x + r * 0.95f, p.y},
+                            hollow ? col : edge, w);
                 break;
-            case mdb::Cat::Pickup:
-                dl->AddCircleFilled(p, r * 0.72f, col, 10);
-                dl->AddCircle(p, r * 0.72f, edge, 10, 1.2f);
+            case gly::Shape::Dot:
+                circle(p, r * 0.72f, 10);
                 break;
-            case mdb::Cat::Boss:
+            case gly::Shape::Triangle:
                 tri(1.5f);
                 break;
-            case mdb::Cat::Elite:
+            case gly::Shape::TriangleNotched:
+                // The elite's triangle is smaller than the boss's AND wears a bar. The
+                // scale difference alone was a three-pixel difference at markers_size
+                // 6.5, which is what made the two read as one category.
                 tri(1.15f);
+                dl->AddLine(ImVec2{p.x - r * 0.62f, p.y + r * 0.30f},
+                            ImVec2{p.x + r * 0.62f, p.y + r * 0.30f}, hollow ? col : edge, w + 0.3f);
                 break;
-            case mdb::Cat::Enemy:
-                tri(0.85f);
+            case gly::Shape::DotRing:
+                // A small dot with a DETACHED ring: at glyph size the gap is what makes
+                // it read as an enemy rather than as a pickup.
+                dl->AddCircleFilled(p, r * 0.34f, col, 8);
+                dl->AddCircle(p, r * 0.92f, col, 12, w);
                 break;
-            case mdb::Cat::Npc:
-                dl->AddCircleFilled(p, r * 0.7f, col, 12);
-                dl->AddCircle(p, r * 0.95f, col, 12, 1.3f);
+            case gly::Shape::Pentagon:
+                ngon(r * 1.05f, 5);
                 break;
-            case mdb::Cat::Merchant:
-                dl->AddCircleFilled(p, r * 0.8f, col, 12);
-                dl->AddCircleFilled(p, r * 0.3f, edge, 8);
+            case gly::Shape::Coin:
+                circle(p, r * 0.82f, 12);
+                pip(0.30f);
                 break;
-            case mdb::Cat::Door:
+            case gly::Shape::DoorBox:
                 rect(0.55f, 0.95f);
                 break;
-            case mdb::Cat::Ladder:
+            case gly::Shape::Ladder:
                 dl->AddLine(ImVec2{p.x - r * 0.5f, p.y - r}, ImVec2{p.x - r * 0.5f, p.y + r}, col, 1.6f);
                 dl->AddLine(ImVec2{p.x + r * 0.5f, p.y - r}, ImVec2{p.x + r * 0.5f, p.y + r}, col, 1.6f);
                 for (int i = -1; i <= 1; ++i)
@@ -2338,23 +2376,36 @@ namespace overlay
                     dl->AddLine(ImVec2{p.x - r * 0.5f, y}, ImVec2{p.x + r * 0.5f, y}, col, 1.2f);
                 }
                 break;
-            case mdb::Cat::Lift:
+            case gly::Shape::Lift:
                 rect(0.85f, 0.5f);
-                dl->AddTriangleFilled(ImVec2{p.x, p.y - r * 1.35f},
-                                      ImVec2{p.x - r * 0.5f, p.y - r * 0.6f},
-                                      ImVec2{p.x + r * 0.5f, p.y - r * 0.6f},
-                                      col);
+                if (hollow)
+                {
+                    dl->AddTriangle(ImVec2{p.x, p.y - r * 1.35f}, ImVec2{p.x - r * 0.5f, p.y - r * 0.6f},
+                                    ImVec2{p.x + r * 0.5f, p.y - r * 0.6f}, col, w);
+                }
+                else
+                {
+                    dl->AddTriangleFilled(ImVec2{p.x, p.y - r * 1.35f},
+                                          ImVec2{p.x - r * 0.5f, p.y - r * 0.6f},
+                                          ImVec2{p.x + r * 0.5f, p.y - r * 0.6f}, col);
+                }
                 break;
-            case mdb::Cat::FogGate:
+            case gly::Shape::RingBar:
                 dl->AddCircle(p, r, col, 14, 2.0f);
                 dl->AddLine(ImVec2{p.x - r * 0.7f, p.y}, ImVec2{p.x + r * 0.7f, p.y}, col, 1.4f);
                 break;
-            case mdb::Cat::Hidden:
-                dl->AddNgon(p, r * 1.1f, col, 4, 1.8f);
+            case gly::Shape::Cross:
+                // "X marks the spot" - and, unlike the unfilled 4-gon it replaces, it is
+                // not a shrine with the fill switched off.
+                dl->AddLine(ImVec2{p.x - r * 0.85f, p.y - r * 0.85f},
+                            ImVec2{p.x + r * 0.85f, p.y + r * 0.85f}, col, 2.1f);
+                dl->AddLine(ImVec2{p.x - r * 0.85f, p.y + r * 0.85f},
+                            ImVec2{p.x + r * 0.85f, p.y - r * 0.85f}, col, 2.1f);
                 break;
-            case mdb::Cat::Other:
+            case gly::Shape::SmallSquare:
+            case gly::Shape::Count:
             default:
-                dl->AddCircleFilled(p, r * 0.5f, col, 8);
+                rect(0.55f, 0.55f);
                 break;
             }
         }
@@ -2575,7 +2626,8 @@ namespace overlay
                                                  cfg.markers_rarity_tint, cfg.xray_rarity_colors);
                 const ImU32 edge = IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f));
                 const ImVec2 p{g.center.x + cand.dx, g.center.y + cand.dy};
-                draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, cand.clamped ? r * 0.72f : r, col, edge);
+                draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, cand.clamped ? r * 0.72f : r, col, edge,
+                                  cand.found);
                 ++g_marker_draw.drawn;
                 g_marker_draw.clamped += cand.clamped ? 1 : 0;
             }
@@ -3059,7 +3111,7 @@ namespace overlay
                 if (pr.on_screen && !pr.behind)
                 {
                     const ImVec2 p{vp->Pos.x + static_cast<float>(pr.sx), vp->Pos.y + static_cast<float>(pr.sy)};
-                    draw_marker_glyph(dl, cat, p, found ? r * 0.75f : r, col, edge);
+                    draw_marker_glyph(dl, cat, p, found ? r * 0.75f : r, col, edge, found);
                     if (cfg.highlight_labels)
                     {
                         const char* name = m.label[0] != '\0' ? m.label : mdb::cat_label(cat);
@@ -3272,7 +3324,7 @@ namespace overlay
                                                      cfg.markers_rarity_tint, cfg.xray_rarity_colors);
                     const ImVec2 at{static_cast<float>(x), y1 - height * 0.30f};
                     draw_marker_glyph(dl, static_cast<mdb::Cat>(p.cat), at, height * 0.22f, col,
-                                      IM_COL32(10, 12, 16, a));
+                                      IM_COL32(10, 12, 16, a), p.found);
                     ++g_compass_debug.pips;
                 }
             }
@@ -4062,7 +4114,7 @@ namespace overlay
                     draw_marker_glyph(dl, cat, ImVec2{sx, sy}, mr,
                                       marker_color_q(cat, m.rarity, alpha, cfg.markers_rarity_tint,
                                                      cfg.xray_rarity_colors),
-                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)));
+                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)), found);
                     ++g_map_markers_drawn;
 
                     const float mdx = sx - io.MousePos.x;
@@ -4583,7 +4635,16 @@ namespace overlay
             ImGui::SeparatorText("Markers");
             ImGui::Checkbox("Show markers", &cfg.markers_enabled);
             ImGui::SameLine();
-            ImGui::Checkbox("Hide found", &cfg.markers_hide_found);
+            // The INVERSE of markers_hide_found. The config key is phrased as "hide",
+            // the question a player asks is "show" - and a checkbox whose label is the
+            // opposite of what ticking it does is a bug report waiting to happen.
+            bool show_found = !cfg.markers_hide_found;
+            if (ImGui::Checkbox("Show found markers", &show_found))
+            {
+                cfg.markers_hide_found = !show_found;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(found ones are drawn hollow)");
             ImGui::SameLine();
             ImGui::Checkbox("Keep out-of-range markers on the rim", &cfg.markers_clamp_to_edge);
             ImGui::SliderFloat("Marker size (px)", &cfg.markers_size, 2.0f, 16.0f, "%.1f");

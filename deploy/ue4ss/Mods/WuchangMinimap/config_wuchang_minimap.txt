@@ -117,8 +117,10 @@ markers_enabled = 1
 ; because the sweep only refreshes them once a second, so they lag while they move.
 markers_categories = shrine,chest,pickup,boss,elite,npc,merchant,door,ladder,lift,fog_gate,hidden,other
 
-; Found (collected / opened) markers: 0 = draw them dimmed, 1 = hide them entirely.
-markers_hide_found = 0
+; Found (collected / opened) markers: 0 = draw them (dimmed, and as an OUTLINE of the
+; same glyph), 1 = hide them entirely. 1 is the default: the map is there to show what
+; is still out there. The F2 Player tab has this as a "Show found markers" checkbox.
+markers_hide_found = 1
 
 ; Glyph radius in minimap pixels.
 markers_size = 6.5

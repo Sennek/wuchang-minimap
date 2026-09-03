@@ -40,6 +40,7 @@
 #include "config_keys.hpp"
 #include "config_rewrite.hpp"
 #include "compass.hpp"
+#include "glyphs.hpp"
 #include "mapmanifest.hpp"
 #include "mapview.hpp"
 #include "markers_db.hpp"
@@ -367,6 +368,69 @@ namespace
             std::printf("  %s: %zu marker(s), chapter \"%s\"\n", name, other_db.size(),
                         other_rep.chapter_label.c_str());
         }
+    }
+
+    //==================================================================================
+    // Glyph shapes and marker palettes (src/glyphs.hpp)
+    //==================================================================================
+    //
+    // The v0.9.1 review's finding was that boss / elite / enemy were the same triangle
+    // at three scales and that hidden was a shrine with the fill switched off. The fix
+    // is a table, and the property that makes the table right - no two categories share
+    // a shape AND a colour - is exactly the kind of thing a build machine can prove
+    // while the game is closed.
+    void test_glyphs()
+    {
+        section("glyph shapes and marker palettes");
+
+        // Every category has a shape, and in this mod every category has its OWN shape:
+        // shape is the half of a marker's identity that survives being dimmed, drawn at
+        // 6 px, or recoloured by a colour-blind palette.
+        int seen[gly::kShapeCount] = {};
+        for (int i = 0; i < mdb::kCatCount; ++i)
+        {
+            const gly::Shape s = gly::shape_of(static_cast<mdb::Cat>(i));
+            CHECK(static_cast<int>(s) >= 0 && static_cast<int>(s) < gly::kShapeCount);
+            CHECK(gly::shape_name(s)[0] != '\0');
+            ++seen[static_cast<int>(s)];
+        }
+        for (int i = 0; i < gly::kShapeCount; ++i)
+        {
+            CHECK(seen[i] == 1); // every shape used exactly once
+        }
+
+        // An out-of-range category byte (a corrupt DrawMarker, a future category from a
+        // newer marker file) must never index off the end of the table.
+        CHECK(gly::shape_of(static_cast<mdb::Cat>(mdb::kCatCount)) == gly::Shape::SmallSquare);
+        CHECK(gly::shape_of(static_cast<mdb::Cat>(200)) == gly::Shape::SmallSquare);
+
+        const gly::Palette palettes[] = {gly::Palette::Default};
+        for (const gly::Palette pal : palettes)
+        {
+            // THE PROPERTY. Two categories may share a hue (the ladder and the lift do)
+            // as long as their shapes differ, and may share a shape as long as their
+            // hues differ - but never both.
+            CHECK(gly::palette_is_separable(pal));
+
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                const mdb::Rgb c = gly::marker_rgb(static_cast<mdb::Cat>(i), pal);
+                // Nothing may be drawn in near-black: the minimap's backdrop is
+                // (6, 9, 13) and the full map's canvas is darker still.
+                CHECK(static_cast<int>(c.r) + static_cast<int>(c.g) + static_cast<int>(c.b) > 150);
+            }
+            CHECK(gly::marker_rgb(static_cast<mdb::Cat>(200), pal) ==
+                  gly::marker_rgb(mdb::Cat::Other, pal));
+        }
+
+        // The two categories that deliberately share a hue, and the two that used to be
+        // indistinguishable and no longer are.
+        CHECK(gly::marker_rgb(mdb::Cat::Ladder, gly::Palette::Default) ==
+              gly::marker_rgb(mdb::Cat::Lift, gly::Palette::Default));
+        CHECK(gly::shape_of(mdb::Cat::Ladder) != gly::shape_of(mdb::Cat::Lift));
+        CHECK(gly::shape_of(mdb::Cat::Boss) != gly::shape_of(mdb::Cat::Elite));
+        CHECK(gly::shape_of(mdb::Cat::Elite) != gly::shape_of(mdb::Cat::Enemy));
+        CHECK(gly::shape_of(mdb::Cat::Hidden) != gly::shape_of(mdb::Cat::Shrine));
     }
 
     void test_categories()
@@ -2368,6 +2432,7 @@ int main(int argc, char** argv)
     test_sample_file(markers_dir);
     test_real_db(markers_dir);
     test_categories();
+    test_glyphs();
     test_found_file();
     test_ids();
     test_intern_levels();

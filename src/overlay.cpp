@@ -6274,7 +6274,7 @@ namespace overlay
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("auto = one file per save slot (recommended)\n"
-                                  "shared = one file for every save, as before 0.9.4\n"
+                                  "shared = one file for every save\n"
                                   "anything else = wuchang_minimap_found_<name>.txt\n"
                                   "Takes effect on Save or F5.");
             }
@@ -6940,7 +6940,7 @@ namespace overlay
 
             ImGui::TextColored(ImVec4{0.62f, 0.68f, 0.78f, 1.0f},
                                "WuchangMinimap v" WUCHANG_MINIMAP_VERSION
-                               "  -  beta: chapters 2-5 maps and the x-ray highlight are not yet verified in-game");
+                               "  -  beta");
 
             // The tabs get their own child so the Save / Revert / master-switch row is
             // always at the bottom of the window and never scrolls away with them.

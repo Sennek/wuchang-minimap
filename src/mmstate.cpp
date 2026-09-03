@@ -1597,15 +1597,15 @@ namespace mm
                 if (cfgkeys::is_removed(key))
                 {
                     warn_once(key,
-                              std::format(L"config: `{}` was removed in 0.9.2 (it is a hard-coded sanity "
-                                          L"cap now) - the line is ignored and can be deleted",
+                              std::format(L"config: `{}` is not a setting (it is a hard-coded sanity "
+                                          L"cap) - the line is ignored and can be deleted",
                                           widen_ascii(key)));
                     continue;
                 }
                 if (const char* to = cfgkeys::renamed_to(key); to != nullptr)
                 {
                     warn_once(key,
-                              std::format(L"config: `{}` was renamed to `{}` in 0.9.2 - the old name still "
+                              std::format(L"config: `{}` is now called `{}` - the old name still "
                                           L"works, but please rename it",
                                           widen_ascii(key),
                                           widen_ascii(to)));

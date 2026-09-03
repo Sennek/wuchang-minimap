@@ -14,7 +14,9 @@
 #include <unordered_set>
 #include <vector>
 
+#include "atomicfile.hpp"
 #include "highlight.hpp"
+#include "marker_dedupe.hpp"
 #include "mapdata.hpp"
 #include "mem.hpp"
 #include "mmstate.hpp"
@@ -185,43 +187,45 @@ namespace markers
         // Small helpers
         //==============================================================================
 
-        bool read_whole_file(const std::wstring& path, std::string& out)
+        constexpr unsigned long long kReadCapBytes = 32ull << 20;
+
+        // The marker manifests. NOTHING IS DROPPED SILENTLY: a file that exists and
+        // cannot be read, and a file over the cap, each get a line at the normal log
+        // level, because the symptom otherwise is "some of my markers are missing" with
+        // an empty log.
+        mmfile::ReadInfo read_whole_file_ex(const std::wstring& path, std::string& out)
         {
-            const HANDLE h = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                           FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h == INVALID_HANDLE_VALUE)
-            {
-                return false;
-            }
-            LARGE_INTEGER size{};
-            if (::GetFileSizeEx(h, &size) == 0 || size.QuadPart < 0 || size.QuadPart > (32 << 20))
-            {
-                ::CloseHandle(h);
-                return false;
-            }
-            out.resize(static_cast<std::size_t>(size.QuadPart));
-            DWORD read = 0;
-            const bool ok = out.empty() ||
-                            (::ReadFile(h, out.data(), static_cast<DWORD>(out.size()), &read, nullptr) != 0 &&
-                             read == out.size());
-            ::CloseHandle(h);
-            return ok;
+            return mmfile::read_whole_file(path, out, kReadCapBytes);
         }
 
-        bool write_whole_file(const std::wstring& path, const std::string& data)
+        bool read_whole_file(const std::wstring& path, std::string& out)
         {
-            const HANDLE h = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                           FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h == INVALID_HANDLE_VALUE)
+            const mmfile::ReadInfo info = read_whole_file_ex(path, out);
+            if (info.status == mmfile::ReadStatus::Ok)
             {
-                return false;
+                return true;
             }
-            DWORD written = 0;
-            const bool ok = data.empty() ||
-                            (::WriteFile(h, data.data(), static_cast<DWORD>(data.size()), &written, nullptr) != 0 &&
-                             written == data.size());
-            ::CloseHandle(h);
-            return ok;
+            if (info.too_big)
+            {
+                mm::logf(L"markers: {} is {} byte(s), over the 32 MB cap - the file was SKIPPED",
+                         path,
+                         info.size);
+            }
+            else if (info.status == mmfile::ReadStatus::Failed)
+            {
+                mm::logf(L"markers: FAILED to read {} (error {}) - the file exists but could not be read, "
+                         L"so it was SKIPPED (something else may have it open)",
+                         path,
+                         info.error);
+            }
+            return false;
+        }
+
+        // ATOMIC, with one generation of backup for the found tracker: see
+        // atomicfile.hpp. A crash mid-write used to truncate the player's collection.
+        bool write_whole_file(const std::wstring& path, const std::string& data, bool keep_backup, unsigned& err)
+        {
+            return mmfile::write_whole_file_atomic(path, data, keep_backup, &err);
         }
 
         std::wstring widen(std::string_view narrow)
@@ -306,10 +310,15 @@ namespace markers
         // The static database, published to the game thread
         //==============================================================================
         //
-        // Immutable once published. A reload builds a fresh one and swaps the pointer;
-        // the old one is deliberately leaked (bounded by the number of F5 presses)
-        // because the game thread may be walking it and there is no safe point to free
-        // it without a mutex. Same pattern mapdata uses for its chapter list.
+        // Immutable once published. A reload builds a fresh one and swaps the pointer.
+        // The old one used to be leaked outright - several MB per F5 - because the game
+        // thread may be walking it and there is no mutex to be had here (std::mutex is
+        // unusable in this process, lessons.md). It is now RETIRED instead: the loop
+        // thread parks it with the publish round it was replaced in and frees it once
+        // the game thread has completed several more rounds AND a couple of seconds
+        // have passed. publish_round() re-reads `g_db` at the top of every round and
+        // rebuilds its index the moment the pointer differs, so a reader that has
+        // finished three rounds since the swap cannot still hold the old pointer.
 
         struct StaticDb
         {
@@ -328,6 +337,17 @@ namespace markers
         };
 
         std::atomic<const StaticDb*> g_db{nullptr};
+
+        // Databases replaced by a reload, waiting to be freed. Loop thread only.
+        struct RetiredDb
+        {
+            const StaticDb* db = nullptr;
+            std::uint64_t round = 0; // the publish round current when it was replaced
+            std::uint64_t ms = 0;    // and when
+        };
+        std::vector<RetiredDb> g_retired;
+        constexpr std::uint64_t kRetireRounds = 3;
+        constexpr std::uint64_t kRetireMs = 3000;
 
         //==============================================================================
         // The found tracker
@@ -372,6 +392,36 @@ namespace markers
         // line per half-minute says everything the fifty-odd suppressed ones would have.
         std::uint32_t g_marks_since_log = 0;
         std::uint64_t g_found_dirty_ms = 0;
+        // The found file EXISTS and could not be read. Then the mod does not know what
+        // is in it, so it must not write over it - an anti-virus or a sync client
+        // holding it open for a second used to end with the real collection replaced by
+        // whatever this session had auto-marked. Cleared by a retry that succeeds.
+        bool g_found_unreadable = false;
+        std::uint64_t g_found_retry_ms = 0;
+        // A failed save keeps the dirty flag and retries with a doubling backoff on top
+        // of the ordinary debounce (0 = no failure outstanding).
+        std::uint64_t g_found_backoff_ms = 0;
+        std::uint32_t g_found_fail_streak = 0;
+
+        //==============================================================================
+        // The shutdown snapshot (POD, staged ahead of time)
+        //==============================================================================
+        //
+        // ALT+F4 inside the save debounce used to lose the marks. The flush has to
+        // happen at DLL_PROCESS_DETACH, where the process may be dying abnormally and
+        // the heap may be the thing that is broken (lessons.md) - so nothing there may
+        // allocate, log or take a lock. The loop thread therefore keeps the exact bytes
+        // and the exact path of the pending write in plain static buffers, and the
+        // detach path is a CreateFileW / WriteFile / MoveFileExW over them and nothing
+        // else.
+        constexpr std::size_t kStageTextMax = 256 * 1024;
+        constexpr std::size_t kStagePathMax = 1024;
+        char g_stage_text[kStageTextMax];
+        std::size_t g_stage_len = 0;
+        wchar_t g_stage_path[kStagePathMax];
+        std::atomic<bool> g_stage_valid{false};
+        bool g_stage_dirty = false; // loop thread: the staged bytes are out of date
+        std::atomic<bool> g_flushed_at_exit{false};
 
         //==============================================================================
         // Stats
@@ -420,9 +470,38 @@ namespace markers
 
         // UObject* -> its stable id. GetFullName() allocates and parses, and the sweep
         // sees the same few hundred actors every second, so this is worth caching.
-        // Cleared on every world change (a recycled allocation could otherwise hand a
-        // new actor the dead one's id).
-        std::unordered_map<const void*, std::string> g_id_cache;
+        //
+        // THE KEY IS NOT ENOUGH ON ITS OWN. A collected pickup is flagged and parked,
+        // not destroyed, and it lingers until a GC - so its allocation can be handed to
+        // a brand-new actor of the same class, at the same address, well inside one
+        // world. Keyed on the raw pointer alone the new actor then inherited the dead
+        // one's id and the next auto-mark marked the WRONG marker as collected, which
+        // is persisted and therefore permanent. Clearing on a world change (the old
+        // behaviour) does not cover it: the reuse happens mid-level.
+        //
+        // So every hit re-validates the identity, cheaply, in two independent ways:
+        //   * the object's own NAME, which carries UE's process-unique numeric suffix
+        //     (`BP_PickupActor_C_2147479402`) - one GetName() per hit, which is still
+        //     far cheaper than the GetFullName() + level parse + id build it saves; and
+        //   * the GUObjectArray slot the object sat in when the id was taken
+        //     (index + serial + class + destruction flags, via uer::alive) - read
+        //     through the object array, which is safe even for a freed object.
+        // An impostor would have to match the address, the name and the slot.
+        struct IdEntry
+        {
+            std::string id;
+            std::string name; // narrow_ascii(obj->GetName()) at capture time
+            uer::ObjRef ref;  // index + serial + class, for uer::alive()
+        };
+        std::unordered_map<const void*, IdEntry> g_id_cache;
+        // How many cached ids were thrown away because the identity no longer matched.
+        // A non-zero count here is the slot-reuse case actually happening.
+        std::uint32_t g_id_cache_stale = 0;
+        // The answer for an actor that cannot be re-validated, and therefore cannot be
+        // cached. Game thread only, like every other piece of state in this block - and
+        // deliberately NOT `static thread_local`, which would run the CRT's TLS
+        // initialiser on the game thread (lessons.md).
+        std::string g_id_uncached;
 
         struct LiveEntry
         {
@@ -1521,19 +1600,42 @@ namespace markers
 
         const std::string& id_for(UObject* obj)
         {
+            const std::string name = narrow_ascii(obj->GetName());
             const auto it = g_id_cache.find(obj);
             if (it != g_id_cache.end())
             {
-                return it->second;
+                if (it->second.name == name && uer::alive(it->second.ref))
+                {
+                    return it->second.id;
+                }
+                // Same address, different object: the allocation was recycled. Drop the
+                // entry and derive the id again from what is there NOW.
+                ++g_id_cache_stale;
+                MM_LOGV(L"markers: the id cache entry for a recycled actor slot was dropped "
+                        L"('{}' is now '{}'; {} so far this session)",
+                        widen(it->second.name),
+                        widen(name),
+                        g_id_cache_stale);
+                g_id_cache.erase(it);
             }
             const std::string full = narrow_ascii(obj->GetFullName());
             const std::string level = mdb::level_from_full_name(full);
-            std::string id = mdb::stable_id(level, narrow_ascii(obj->GetName()));
+            std::string id = mdb::stable_id(level, name);
+            uer::ObjRef ref{};
+            if (!uer::capture(obj, ref))
+            {
+                // Not capturable (a CDO, an archetype, or already being destroyed), so
+                // it cannot be re-validated later either. Answer, but do not cache: a
+                // wrong id must be impossible, and a handful of uncached actors per
+                // round is only a cost.
+                g_id_uncached = std::move(id);
+                return g_id_uncached;
+            }
             if (g_id_cache.size() > g_id_cache_max)
             {
                 g_id_cache.clear();
             }
-            return g_id_cache.emplace(obj, std::move(id)).first->second;
+            return g_id_cache.emplace(obj, IdEntry{std::move(id), name, ref}).first->second.id;
         }
 
         void note_found(const std::string& id)
@@ -2647,7 +2749,8 @@ namespace markers
             {
                 return;
             }
-            if (write_whole_file(dst, text))
+            unsigned err = 0;
+            if (write_whole_file(dst, text, false, err))
             {
                 mm::logf(L"markers: first sight of save slot '{}' - copied the shared found tracker "
                          L"({} bytes) into {}",
@@ -2655,8 +2758,7 @@ namespace markers
             }
             else
             {
-                mm::logf(L"markers: could not seed {} from the shared found tracker (error {})", dst,
-                         static_cast<unsigned>(::GetLastError()));
+                mm::logf(L"markers: could not seed {} from the shared found tracker (error {})", dst, err);
             }
         }
 
@@ -2810,6 +2912,11 @@ namespace markers
             mm::logf(L"markers: {} -> {} item name(s) for runtime drops", path, g_item_names.size());
         }
 
+        // How many *.json the markers folder is read from. Six chapters plus items.json
+        // today; the cap exists so a folder somebody dumped a thousand files into cannot
+        // stall the load, and hitting it is logged rather than silently truncating.
+        constexpr std::size_t kMaxManifestFiles = 64;
+
         void load_static_db()
         {
             const std::wstring dir = markers_dir();
@@ -2834,14 +2941,37 @@ namespace markers
                         continue;
                     }
                     files_found.push_back(name);
-                } while (::FindNextFileW(h, &find) != 0 && files_found.size() < 64);
+                } while (::FindNextFileW(h, &find) != 0 && files_found.size() < kMaxManifestFiles);
                 ::FindClose(h);
+            }
+            // NOT SILENT. A cap that drops a chapter file has to say so, or the symptom
+            // is "half my markers are missing" with an empty log (review C.7).
+            if (files_found.size() >= kMaxManifestFiles)
+            {
+                mm::logf(L"markers: there are more than {} *.json files in {} - only the first {} "
+                         L"(sorted by name) were read; the rest were IGNORED",
+                         kMaxManifestFiles,
+                         dir,
+                         kMaxManifestFiles);
             }
             // Deterministic order, so the "first duplicate id wins" rule is stable
             // across runs.
             std::sort(files_found.begin(), files_found.end());
 
             auto db = std::make_unique<StaticDb>();
+            // (one-past-last marker index, file name) in load order. Only used to name
+            // the file in a duplicate-id line, so a range list beats a name per marker.
+            std::vector<std::pair<std::size_t, std::wstring>> file_ranges;
+            const auto file_of = [&file_ranges](std::size_t index) -> std::wstring {
+                for (const auto& [end, name] : file_ranges)
+                {
+                    if (index < end)
+                    {
+                        return name;
+                    }
+                }
+                return L"?";
+            };
             int files = 0;
             bool warned_legacy_cat = false; // one line per load, not one per file
             for (const std::wstring& name : files_found)
@@ -2878,6 +3008,7 @@ namespace markers
                     continue;
                 }
                 ++files;
+                file_ranges.emplace_back(db->markers.size(), name);
                 mm::logf(L"markers: {} -> {} marker(s) (chapter {}, schema {}{}{})",
                          path,
                          report.added,
@@ -2900,17 +3031,31 @@ namespace markers
                 }
             }
 
-            int duplicates = 0;
-            for (int i = 0; i < static_cast<int>(db->markers.size()); ++i)
-            {
-                if (!db->by_id.emplace(db->markers[static_cast<std::size_t>(i)].id, i).second)
-                {
-                    ++duplicates;
-                }
-            }
+            // DEDUPE, at load - see marker_dedupe.hpp for why a duplicate id was a
+            // marker that could never be marked found. The first copy wins and every
+            // dropped copy is named with the file it came from.
+            std::vector<mdb::DupDrop> drops;
+            const int duplicates = mdb::dedupe_by_id(db->markers, db->by_id, drops);
             if (duplicates != 0)
             {
-                mm::logf(L"markers: {} duplicate id(s) in the database - the first one wins", duplicates);
+                int logged = 0;
+                for (const mdb::DupDrop& drop : drops)
+                {
+                    if (logged >= 8)
+                    {
+                        break;
+                    }
+                    ++logged;
+                    mm::logf(L"markers: duplicate id '{}' - the copy in {} was DROPPED, the one in {} is "
+                             L"kept",
+                             widen(drop.id),
+                             file_of(drop.dropped),
+                             file_of(drop.kept));
+                }
+                mm::logf(L"markers: {} duplicate id(s) dropped at load ({} named above; only the first "
+                         L"copy of an id is kept, so every marker can be marked found)",
+                         duplicates,
+                         logged);
             }
 
             // Intern the level names. The absence rule asks "is this marker's level
@@ -2930,17 +3075,102 @@ namespace markers
             {
                 mm::logf(L"markers: static database ready - {} marker(s) from {} file(s)", db->markers.size(), files);
             }
-            g_db.store(db.release(), std::memory_order_release); // deliberately leaked on reload
+            const StaticDb* const previous = g_db.exchange(db.release(), std::memory_order_acq_rel);
+            if (previous != nullptr)
+            {
+                // Freed by retire_databases() a few rounds from now, not here: the game
+                // thread may be inside publish_round() with this very pointer.
+                g_retired.push_back(
+                    RetiredDb{previous, g_rounds.load(std::memory_order_relaxed), ::GetTickCount64()});
+            }
             load_item_names(dir);
+        }
+
+        std::string serialize_found()
+        {
+            std::vector<std::string> ids;
+            ids.reserve(g_found_master.size());
+            for (const std::string& id : g_found_master)
+            {
+                ids.push_back(id);
+            }
+            return mdb::found_serialize(std::move(ids));
+        }
+
+        // Park the pending write where the DLL_PROCESS_DETACH path can write it without
+        // allocating. Loop thread only; `g_stage_valid` is the publish.
+        void stage_found_snapshot()
+        {
+            const std::string text = serialize_found();
+            const std::wstring path = found_path();
+            if (text.size() >= kStageTextMax || path.size() >= kStagePathMax)
+            {
+                g_stage_valid.store(false, std::memory_order_release);
+                return;
+            }
+            g_stage_valid.store(false, std::memory_order_release);
+            std::memcpy(g_stage_text, text.data(), text.size());
+            g_stage_len = text.size();
+            std::memcpy(g_stage_path, path.c_str(), (path.size() + 1) * sizeof(wchar_t));
+            g_stage_valid.store(true, std::memory_order_release);
+        }
+
+        // Loop thread, from on_update. Frees the databases a reload replaced, once no
+        // reader can still be holding one. `recompute_stats()` reads g_db from THIS
+        // thread, so nothing here can be racing itself.
+        void retire_databases(std::uint64_t now)
+        {
+            if (g_retired.empty())
+            {
+                return;
+            }
+            const std::uint64_t round = g_rounds.load(std::memory_order_relaxed);
+            std::size_t out = 0;
+            for (std::size_t i = 0; i < g_retired.size(); ++i)
+            {
+                const RetiredDb& r = g_retired[i];
+                const bool rounds_done = round >= r.round + kRetireRounds;
+                const bool time_done = now - r.ms >= kRetireMs;
+                if (rounds_done && time_done)
+                {
+                    MM_LOGV(L"markers: freed a retired marker database ({} marker(s), replaced {} ms and "
+                            L"{} round(s) ago)",
+                            r.db->markers.size(),
+                            now - r.ms,
+                            round - r.round);
+                    delete r.db;
+                    continue;
+                }
+                g_retired[out++] = r;
+            }
+            g_retired.resize(out);
         }
 
         void load_found_file()
         {
-            g_found_master.clear();
             std::string text;
             const std::wstring path = found_path();
+            const mmfile::ReadInfo info = read_whole_file_ex(path, text);
+            if (info.status == mmfile::ReadStatus::Failed || info.too_big)
+            {
+                // NOT "it does not exist yet". The set in memory is left exactly as it
+                // was and every write is refused until a retry can read the file, so a
+                // transient lock cannot cost the player their collection.
+                g_found_unreadable = true;
+                g_found_retry_ms = ::GetTickCount64();
+                mm::logf(L"markers: the found tracker {} EXISTS but could not be read ({}) - your "
+                         L"collection progress is NOT lost and nothing will be written over that file "
+                         L"until it can be read again (something else may have it open: anti-virus, "
+                         L"a cloud sync client, a text editor). Retried every 10 s.",
+                         path,
+                         info.too_big ? std::format(L"it is {} byte(s), over the 32 MB cap", info.size)
+                                      : std::format(L"error {}", info.error));
+                return;
+            }
+            g_found_unreadable = false;
+            g_found_master.clear();
             std::vector<std::string> ids;
-            if (read_whole_file(path, text))
+            if (info.status == mmfile::ReadStatus::Ok)
             {
                 mdb::found_parse(text, ids);
                 mm::logf(L"markers: found tracker {} -> {} id(s)", path, ids.size());
@@ -2957,19 +3187,66 @@ namespace markers
             }
             publish_inbox(ids, true);
             g_found_dirty = false;
+            g_found_backoff_ms = 0;
+            g_found_fail_streak = 0;
+            g_stage_dirty = true;
+        }
+
+        // The retry for the case above. A read that works now is UNIONED with whatever
+        // was marked while the file was unreadable, so nothing found in between is lost.
+        void retry_found_load()
+        {
+            std::string text;
+            const std::wstring path = found_path();
+            const mmfile::ReadInfo info = read_whole_file_ex(path, text);
+            if (info.status == mmfile::ReadStatus::Failed || info.too_big)
+            {
+                return; // still locked; keep refusing to write
+            }
+            g_found_unreadable = false;
+            std::vector<std::string> ids;
+            if (info.status == mmfile::ReadStatus::Ok)
+            {
+                mdb::found_parse(text, ids);
+            }
+            int added = 0;
+            for (const std::string& id : ids)
+            {
+                added += g_found_master.insert(id).second ? 1 : 0;
+            }
+            std::vector<std::string> all;
+            all.reserve(g_found_master.size());
+            for (const std::string& id : g_found_master)
+            {
+                all.push_back(id);
+            }
+            publish_inbox(all, true);
+            recompute_stats();
+            mm::logf(L"markers: the found tracker {} can be read again - {} id(s) from the file, {} kept "
+                     L"from this session, {} total; saving is enabled again",
+                     path,
+                     ids.size(),
+                     static_cast<int>(g_found_master.size()) - added,
+                     g_found_master.size());
+            g_found_dirty = true; // the union may differ from the file
+            g_found_dirty_ms = ::GetTickCount64();
+            g_found_backoff_ms = 0;
+            g_found_fail_streak = 0;
+            g_stage_dirty = true;
         }
 
         void save_found_file()
         {
-            std::vector<std::string> ids;
-            ids.reserve(g_found_master.size());
-            for (const std::string& id : g_found_master)
-            {
-                ids.push_back(id);
-            }
-            const std::string text = mdb::found_serialize(std::move(ids));
             const std::wstring path = found_path();
-            if (write_whole_file(path, text))
+            if (g_found_unreadable)
+            {
+                // Nothing to log here - load_found_file said it loudly once and the
+                // retry says it when it clears. The dirty flag stays set.
+                return;
+            }
+            const std::string text = serialize_found();
+            unsigned err = 0;
+            if (write_whole_file(path, text, true, err))
             {
                 // ONE LINE PER 30 s, NOT PER SAVE. The write is debounced already, but a
                 // player looting a room still triggers one every few seconds (52 lines in
@@ -2996,12 +3273,41 @@ namespace markers
                 {
                     ++coalesced;
                 }
+                g_found_dirty = false;
+                g_found_backoff_ms = 0;
+                g_found_fail_streak = 0;
+                g_stage_valid.store(false, std::memory_order_release); // the file now holds it
+                g_stage_dirty = false;
             }
             else
             {
-                mm::logf(L"markers: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
+                // THE MARKS STAY DIRTY. The write used to be reported and then
+                // forgotten, so one failed save (a full disk, a locked file) threw away
+                // every find made since the last successful one. Retry with a doubling
+                // backoff on top of the ordinary debounce, and say so - once per
+                // failure for the first three, then every eighth - because a player
+                // whose collection is not being saved needs to know.
+                ++g_found_fail_streak;
+                g_found_backoff_ms = g_found_backoff_ms == 0 ? 1000 : g_found_backoff_ms * 2;
+                if (g_found_backoff_ms > 60000)
+                {
+                    g_found_backoff_ms = 60000;
+                }
+                g_found_dirty_ms = ::GetTickCount64();
+                g_stage_dirty = true; // the staged copy is what the shutdown flush will write
+                if (g_found_fail_streak <= 3 || (g_found_fail_streak % 8) == 0)
+                {
+                    mm::logf(L"markers: FAILED to write the found tracker {} (error {}, attempt {}) - the "
+                             L"{} mark(s) are still held in memory and the write is retried in {} ms; "
+                             L"{}.tmp may hold the data",
+                             path,
+                             err,
+                             g_found_fail_streak,
+                             g_found_master.size(),
+                             g_found_backoff_ms,
+                             path);
+                }
             }
-            g_found_dirty = false;
         }
     } // namespace
 
@@ -3078,6 +3384,72 @@ namespace markers
         recompute_stats();
     }
 
+    // The DEBOUNCED write, forced. Called from modswitch::finish_disable (the master
+    // switch turning the mod off) - an ordinary loop-thread save, so it may allocate
+    // and log like any other.
+    void flush_found_tracker()
+    {
+        if (g_found_dirty && !g_found_unreadable && mm::cfg_cached().found_tracker)
+        {
+            mm::log(L"markers: flushing the found tracker before standing down");
+            save_found_file();
+        }
+    }
+
+    // DLL_PROCESS_DETACH. The process may be dying abnormally with a corrupted heap
+    // (lessons.md), and DllMain runs under the loader lock, so this allocates nothing,
+    // takes no lock and logs nothing: it writes the bytes the loop thread staged, to
+    // the path the loop thread staged, through the same temp-file-plus-rename the
+    // ordinary save uses. Idempotent.
+    void flush_found_tracker_at_exit()
+    {
+        if (g_flushed_at_exit.exchange(true, std::memory_order_acq_rel))
+        {
+            return;
+        }
+        if (!g_stage_valid.load(std::memory_order_acquire))
+        {
+            return;
+        }
+        wchar_t tmp[kStagePathMax + 8];
+        std::size_t n = 0;
+        while (n + 1 < kStagePathMax && g_stage_path[n] != 0)
+        {
+            tmp[n] = g_stage_path[n];
+            ++n;
+        }
+        if (n == 0)
+        {
+            return;
+        }
+        tmp[n++] = L'.';
+        tmp[n++] = L't';
+        tmp[n++] = L'm';
+        tmp[n++] = L'p';
+        tmp[n] = 0;
+
+        const HANDLE h = ::CreateFileW(tmp, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                       nullptr);
+        if (h == INVALID_HANDLE_VALUE)
+        {
+            return;
+        }
+        DWORD written = 0;
+        const bool ok = g_stage_len == 0 ||
+                        (::WriteFile(h, g_stage_text, static_cast<DWORD>(g_stage_len), &written, nullptr) != 0 &&
+                         written == static_cast<DWORD>(g_stage_len));
+        if (ok)
+        {
+            ::FlushFileBuffers(h);
+        }
+        ::CloseHandle(h);
+        if (!ok)
+        {
+            return;
+        }
+        ::MoveFileExW(tmp, g_stage_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+    }
+
     void on_update()
     {
         const std::uint64_t now = ::GetTickCount64();
@@ -3124,6 +3496,7 @@ namespace markers
             {
                 g_found_dirty = true;
                 g_found_dirty_ms = now;
+                g_stage_dirty = true;
                 // VERBOSE, and COUNTED. Auto-marks arrive in ones and twos as the
                 // player walks (55 lines in run 5) and every one of them is followed
                 // within a second by the save line below, which is the thing that
@@ -3166,6 +3539,7 @@ namespace markers
             {
                 g_found_dirty = true;
                 g_found_dirty_ms = now;
+                g_stage_dirty = true;
                 std::vector<std::string> all;
                 all.reserve(g_found_master.size());
                 for (const std::string& id : g_found_master)
@@ -3180,9 +3554,32 @@ namespace markers
             }
         }
 
+        retire_databases(now);
+
         const mm::Config& cfg = mm::cfg_cached();
+
+        // The found file exists and could not be read: nothing is written over it, and
+        // the read is retried until it works (see load_found_file / retry_found_load).
+        if (g_found_unreadable && now - g_found_retry_ms >= 10000)
+        {
+            g_found_retry_ms = now;
+            retry_found_load();
+        }
+
+        // Keep the shutdown snapshot in step with the pending write. One serialisation
+        // per burst of marks, on the loop thread, so DLL_PROCESS_DETACH only has to
+        // copy bytes to a file.
+        if (g_found_dirty && g_stage_dirty && cfg.found_tracker && !g_found_unreadable)
+        {
+            stage_found_snapshot();
+            g_stage_dirty = false;
+        }
+
+        // A failed write adds its backoff to the ordinary debounce rather than dropping
+        // the marks (they stay dirty until a write succeeds).
         if (g_found_dirty && cfg.found_tracker &&
-            now - g_found_dirty_ms >= static_cast<std::uint64_t>(cfg.found_save_debounce_ms))
+            now - g_found_dirty_ms >=
+                static_cast<std::uint64_t>(cfg.found_save_debounce_ms) + g_found_backoff_ms)
         {
             save_found_file();
         }

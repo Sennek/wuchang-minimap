@@ -175,6 +175,17 @@ namespace markers
     // Loop thread. F5 / "Reload settings + maps": re-read both files from disk.
     void reload();
 
+    // Loop thread. Write the found tracker NOW if a debounced write is pending - the
+    // master switch turning the mod off would otherwise lose up to
+    // `found_save_debounce_ms` of marks.
+    void flush_found_tracker();
+
+    // DLL_PROCESS_DETACH, i.e. ALT+F4 and every other "the player closed the game"
+    // route. POD-only by contract: it writes bytes the loop thread staged ahead of
+    // time, allocates nothing, takes no lock and logs nothing, because DllMain runs
+    // under the loader lock and the process may be dying with a broken heap. Idempotent.
+    void flush_found_tracker_at_exit();
+
     // GAME THREAD ONLY, from gamestate's ProcessEvent pump, and only while a validated
     // gameplay pawn exists outside the transition cooldown. `world` is the pawn's
     // UWorld* - a change means every cached pointer is dead.

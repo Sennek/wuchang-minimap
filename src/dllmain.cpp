@@ -20,6 +20,7 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 
 #include "breadcrumb.hpp"
+#include "markers.hpp"
 #include "modswitch.hpp"
 #include "overlay.hpp"
 #include "version.hpp"
@@ -92,13 +93,20 @@ class WuchangMinimap : public CppUserModBase
 // this module is told about, and the WndProc hook (overlay.cpp) covers the window
 // messages that arrive before it. Both call the same idempotent `crumb::mark_closing()`.
 //
-// Nothing else may happen here: DllMain runs under the loader lock, so this is two
-// flat Win32 calls and no allocation, no engine access and no thread synchronisation.
+// Nothing else may happen here: DllMain runs under the loader lock, so this is a
+// handful of flat Win32 calls and no allocation, no engine access and no thread
+// synchronisation.
 BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_DETACH)
     {
         crumb::mark_closing();
+        // The found tracker's debounced write, forced. Same rules as the breadcrumb:
+        // the bytes and the path were staged by the loop thread, so this is a
+        // CreateFileW / WriteFile / MoveFileExW and nothing else - no allocation, no
+        // lock, no logging. Without it an ALT+F4 inside the save debounce threw away
+        // every mark made in the last couple of seconds.
+        markers::flush_found_tracker_at_exit();
     }
     return TRUE;
 }

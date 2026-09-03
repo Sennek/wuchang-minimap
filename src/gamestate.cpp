@@ -1895,102 +1895,46 @@ namespace gamestate
             g_report_pending.store(true, std::memory_order_relaxed);
         }
 
-        void pump()
+        //==============================================================================
+        // The pump, one named step per stage. Same order, same early returns, same
+        // g_pump_stage labels - the stall watchdog reports the step it froze in.
+        //==============================================================================
+
+        void pump_fast_slice(std::uint64_t now, int& depth)
         {
-            // THE MASTER SWITCH, first statement (modswitch.hpp). UE4SS exports a
-            // Register for the ProcessEvent pre-callback and no Unregister, so a
-            // disabled mod cannot take this callback out of the engine's path - what it
-            // can do is make it cost one relaxed atomic load and nothing else: no
-            // config copy (that is a spinlock), no allocation, no reflection, no read
-            // of any engine memory.
-            if (!mm::mod_active())
+            // BETWEEN position pumps: run the marker scan slice and nothing else.
+            //
+            // The marker sweep walks GUObjectArray a slice at a time and needs many
+            // small slices per second to keep a full pass inside ~1 s. Gating it on
+            // this 10 Hz pump was what forced the old design to do a whole
+            // FindAllOf (28 ms, 2-3 dropped frames) per pump. It is self-throttled
+            // on QueryPerformanceCounter, so calling it from every ProcessEvent
+            // costs one QPC read and a compare when it is not its turn.
+            //
+            // It runs on the LAST validated state: same re-entrancy guard, same
+            // transition cooldown, and only while a gameplay pawn was standing as
+            // of the most recent position pump (at most 100 ms ago).
+            if (g_state_ok_since != 0 && now >= g_cooldown_until)
             {
-                return;
+                const DepthGuard slice_guard{depth};
+                const StageMark mark{"fast slice: markers"};
+                markers::game_thread_pump(now, g_world);
+                // The menu-discovery walk rides here for the same reason: it is a
+                // sliced GUObjectArray pass that needs many small slices per second,
+                // and it is self-throttled on QPC. Raw reads only - the ProcessEvent
+                // half of it is the commit, on the validated 10 Hz pump below.
+                const StageMark wmark{"fast slice: widgets"};
+                widget_scan_pump(now, mm::qpc_us());
             }
+            // The stage is a breadcrumb for the stall watchdog, so it must not be left
+            // naming work that has already finished - a freeze between pumps used to
+            // be reported as a hang in the widget slice.
+            g_pump_stage.store("between pumps", std::memory_order_relaxed);
+        }
 
-            // ProcessEvent fires thousands of times a second, and every ProcessEvent WE
-            // issue fires it again - so the re-entrancy guard comes first, before any
-            // work at all. thread_local, because the guard has to be per-thread: the
-            // engine calls ProcessEvent from more than one thread.
-            static thread_local int depth = 0;
-            if (depth != 0)
-            {
-                return;
-            }
-
-            // ...and then the THREAD guard (A.1). Everything below this line touches
-            // game-thread-only state.
-            const unsigned long tid = ::GetCurrentThreadId();
-            unsigned long owner = g_pump_thread.load(std::memory_order_relaxed);
-            if (owner == 0)
-            {
-                g_pump_thread.store(tid, std::memory_order_relaxed);
-                owner = tid;
-            }
-            if (owner != tid)
-            {
-                // Once, at verbose: it is a permanent property of the process, not an
-                // event, and it must not be able to flood the log from a worker thread.
-                if (!g_wrong_thread_logged.exchange(true, std::memory_order_relaxed))
-                {
-                    MM_LOGV(L"ProcessEvent reached the reader on thread {} as well; the reader "
-                            L"belongs to thread {} and every other thread returns immediately "
-                            L"(its state is not synchronised)",
-                            tid,
-                            owner);
-                }
-                return;
-            }
-
-            const std::uint64_t now = ::GetTickCount64();
-            // Twice a second at most; every other call is a compare (see refresh_tunables).
-            refresh_tunables(now);
-            if (now - g_last_position < g_tune.position_ms)
-            {
-                // BETWEEN position pumps: run the marker scan slice and nothing else.
-                //
-                // The marker sweep walks GUObjectArray a slice at a time and needs many
-                // small slices per second to keep a full pass inside ~1 s. Gating it on
-                // this 10 Hz pump was what forced the old design to do a whole
-                // FindAllOf (28 ms, 2-3 dropped frames) per pump. It is self-throttled
-                // on QueryPerformanceCounter, so calling it from every ProcessEvent
-                // costs one QPC read and a compare when it is not its turn.
-                //
-                // It runs on the LAST validated state: same re-entrancy guard, same
-                // transition cooldown, and only while a gameplay pawn was standing as
-                // of the most recent position pump (at most 100 ms ago).
-                if (g_state_ok_since != 0 && now >= g_cooldown_until)
-                {
-                    const DepthGuard slice_guard{depth};
-                    const StageMark mark{"fast slice: markers"};
-                    markers::game_thread_pump(now, g_world);
-                    // The menu-discovery walk rides here for the same reason: it is a
-                    // sliced GUObjectArray pass that needs many small slices per second,
-                    // and it is self-throttled on QPC. Raw reads only - the ProcessEvent
-                    // half of it is the commit, on the validated 10 Hz pump below.
-                    const StageMark wmark{"fast slice: widgets"};
-                    widget_scan_pump(now, mm::qpc_us());
-                }
-                // The stage is a breadcrumb for the stall watchdog, so it must not be left
-                // naming work that has already finished - a freeze between pumps used to
-                // be reported as a hang in the widget slice.
-                g_pump_stage.store("between pumps", std::memory_order_relaxed);
-                return;
-            }
-            g_last_position = now;
-
-            const DepthGuard guard{depth};
-            g_pump_calls.fetch_add(1, std::memory_order_relaxed);
-
-            // ---- 0. a transition is in progress: do nothing at all ------------------
-            if (now < g_cooldown_until)
-            {
-                g_state_ok_since = 0;
-                publish_hidden(now, true);
-                return;
-            }
-
-            // ---- 1. the controller ---------------------------------------------------
+        // ---- 1. the controller ---------------------------------------------------
+        void pump_controller(std::uint64_t now)
+        {
             g_pump_stage.store("controller", std::memory_order_relaxed);
             if (!uer::alive(g_controller))
             {
@@ -2001,14 +1945,17 @@ namespace gamestate
                     resolve_controller();
                 }
             }
+        }
 
-            // ---- 2. validate the pawn EVERY pump ------------------------------------
-            //
-            // Three independent tests, cheapest first:
-            //   a) GUObjectArray liveness (index -> FUObjectItem -> flags + back
-            //      pointer), which is safe to read even after the object was freed;
-            //   b) the controller's own Pawn pointer still names the same object;
-            //   c) the pawn's UWorld* is still the world we captured it in.
+        // ---- 2. validate the pawn EVERY pump ------------------------------------
+        //
+        // Three independent tests, cheapest first:
+        //   a) GUObjectArray liveness (index -> FUObjectItem -> flags + back
+        //      pointer), which is safe to read even after the object was freed;
+        //   b) the controller's own Pawn pointer still names the same object;
+        //   c) the pawn's UWorld* is still the world we captured it in.
+        bool pump_validate_pawn(std::uint64_t now)
+        {
             g_pump_stage.store("pawn validate", std::memory_order_relaxed);
             bool pawn_ok = g_pawn_is_gameplay && uer::alive(g_pawn);
             if (pawn_ok)
@@ -2043,19 +1990,18 @@ namespace gamestate
             {
                 drop_pawn(now, L"the cached pawn is no longer a live object");
             }
-            if (now < g_cooldown_until)
-            {
-                g_state_ok_since = 0;
-                publish_hidden(now, true);
-                return;
-            }
 
-            // ---- 3. (re-)acquire a gameplay pawn ------------------------------------
-            //
-            // NEVER gated on the controller, on the menu state or on the widget sweep.
-            // The pawn is the thing everything else hangs off, so its 2 Hz budget is its
-            // own (see the comment on g_last_resolve_pawn) and the controller is only a
-            // fallback route for finding it.
+            return pawn_ok;
+        }
+
+        // ---- 3. (re-)acquire a gameplay pawn ------------------------------------
+        //
+        // NEVER gated on the controller, on the menu state or on the widget sweep.
+        // The pawn is the thing everything else hangs off, so its 2 Hz budget is its
+        // own (see the comment on g_last_resolve_pawn) and the controller is only a
+        // fallback route for finding it.
+        bool pump_resolve_pawn(std::uint64_t now, bool pawn_ok)
+        {
             if (!pawn_ok && now - g_last_resolve_pawn >= g_tune.resolve_ms)
             {
                 g_last_resolve_pawn = now;
@@ -2119,7 +2065,7 @@ namespace gamestate
                 }
                 g_state_ok_since = 0;
                 publish_hidden(now, false);
-                return;
+                return false;
             }
             g_no_pawn_since = 0;
             // A pawn is standing again, so the next stall gets its own diagnosis rather
@@ -2129,18 +2075,23 @@ namespace gamestate
             rare_reset(g_rare_ctrl_drop);
             rare_reset(g_rare_stuck);
 
-            // ---- 4. from here on the pawn is validated: UFunctions are allowed -------
-            //
-            // THE MENU TEST HAS TWO HALVES AND BOTH RUN ON EVERY PUMP.
-            //   a) the WATCHLIST re-test: `IsInViewport()` over every root ever confirmed
-            //      this session, which is the complete authoritative answer for everything
-            //      already known and rebuilds `g_menu_roots` from scratch;
-            //   b) the COMMIT of whatever the sliced discovery walk has newly seen as
-            //      byte-`Visible`, which can only ADD a root - and adds it to the
-            //      watchlist at the same time, so (a) owns it from the next pump on.
-            // Both are live `IsInViewport()` calls made in THIS pump, so OR-ing them is
-            // not the cached-over-fresh latch lessons.md condemns; there is no cached
-            // answer left anywhere in this path (scan::menu_open_from).
+            return true;
+        }
+
+        // ---- 4. from here on the pawn is validated: UFunctions are allowed -------
+        //
+        // THE MENU TEST HAS TWO HALVES AND BOTH RUN ON EVERY PUMP.
+        //   a) the WATCHLIST re-test: `IsInViewport()` over every root ever confirmed
+        //      this session, which is the complete authoritative answer for everything
+        //      already known and rebuilds `g_menu_roots` from scratch;
+        //   b) the COMMIT of whatever the sliced discovery walk has newly seen as
+        //      byte-`Visible`, which can only ADD a root - and adds it to the
+        //      watchlist at the same time, so (a) owns it from the next pump on.
+        // Both are live `IsInViewport()` calls made in THIS pump, so OR-ing them is
+        // not the cached-over-fresh latch lessons.md condemns; there is no cached
+        // answer left anywhere in this path (scan::menu_open_from).
+        void pump_widgets(std::uint64_t now)
+        {
             std::uint32_t roots_visible = 0;
             std::wstring holder;
             bool watch_menu = false;
@@ -2227,9 +2178,12 @@ namespace gamestate
                                              : L"the discovery walk just confirmed a new in-viewport "
                                                L"Visible root")
                                : L"no root is in the viewport and Visible");
+        }
 
-            // Which chapter's map asset should be resident. Slow (1 Hz) and cheap, and
-            // it runs on the same validated state the rest of the pump uses.
+        // Which chapter's map asset should be resident. Slow (1 Hz) and cheap, and
+        // it runs on the same validated state the rest of the pump uses.
+        void pump_chapter(std::uint64_t now)
+        {
             if (now - g_last_chapter >= g_tune.chapter_ms)
             {
                 g_last_chapter = now;
@@ -2240,7 +2194,12 @@ namespace gamestate
                 const mm::PerfScope scope(g_pf_chapter);
                 refresh_chapter(now);
             }
+        }
 
+        // The snapshot: position, teleport detection, the view target, the grace timer.
+        // Returns false when it published a hidden snapshot instead and the pump is done.
+        bool pump_publish(std::uint64_t now)
+        {
             mm::Snapshot snap{};
             snap.stamp_ms = now;
             snap.menu_open = g_menu_open;
@@ -2318,7 +2277,7 @@ namespace gamestate
                             g_state_ok_since = 0;
                             g_have_last_pos = false;
                             publish_hidden(now, true);
-                            return;
+                            return false;
                         }
                     }
                 }
@@ -2367,6 +2326,99 @@ namespace gamestate
             mm::publish(snap);
             g_publishes.fetch_add(1, std::memory_order_relaxed);
             g_report_pending.store(true, std::memory_order_relaxed);
+
+            return true;
+        }
+
+        void pump()
+        {
+            // THE MASTER SWITCH, first statement (modswitch.hpp). UE4SS exports a
+            // Register for the ProcessEvent pre-callback and no Unregister, so a
+            // disabled mod cannot take this callback out of the engine's path - what it
+            // can do is make it cost one relaxed atomic load and nothing else: no
+            // config copy (that is a spinlock), no allocation, no reflection, no read
+            // of any engine memory.
+            if (!mm::mod_active())
+            {
+                return;
+            }
+
+            // ProcessEvent fires thousands of times a second, and every ProcessEvent WE
+            // issue fires it again - so the re-entrancy guard comes first, before any
+            // work at all. thread_local, because the guard has to be per-thread: the
+            // engine calls ProcessEvent from more than one thread.
+            static thread_local int depth = 0;
+            if (depth != 0)
+            {
+                return;
+            }
+
+            // ...and then the THREAD guard (A.1). Everything below this line touches
+            // game-thread-only state.
+            const unsigned long tid = ::GetCurrentThreadId();
+            unsigned long owner = g_pump_thread.load(std::memory_order_relaxed);
+            if (owner == 0)
+            {
+                g_pump_thread.store(tid, std::memory_order_relaxed);
+                owner = tid;
+            }
+            if (owner != tid)
+            {
+                // Once, at verbose: it is a permanent property of the process, not an
+                // event, and it must not be able to flood the log from a worker thread.
+                if (!g_wrong_thread_logged.exchange(true, std::memory_order_relaxed))
+                {
+                    MM_LOGV(L"ProcessEvent reached the reader on thread {} as well; the reader "
+                            L"belongs to thread {} and every other thread returns immediately "
+                            L"(its state is not synchronised)",
+                            tid,
+                            owner);
+                }
+                return;
+            }
+
+            const std::uint64_t now = ::GetTickCount64();
+            // Twice a second at most; every other call is a compare (see refresh_tunables).
+            refresh_tunables(now);
+            if (now - g_last_position < g_tune.position_ms)
+            {
+                pump_fast_slice(now, depth);
+                return;
+            }
+            g_last_position = now;
+
+            const DepthGuard guard{depth};
+            g_pump_calls.fetch_add(1, std::memory_order_relaxed);
+
+            // ---- 0. a transition is in progress: do nothing at all ------------------
+            if (now < g_cooldown_until)
+            {
+                g_state_ok_since = 0;
+                publish_hidden(now, true);
+                return;
+            }
+
+            pump_controller(now);
+
+            const bool pawn_ok = pump_validate_pawn(now);
+            if (now < g_cooldown_until)
+            {
+                g_state_ok_since = 0;
+                publish_hidden(now, true);
+                return;
+            }
+
+            if (!pump_resolve_pawn(now, pawn_ok))
+            {
+                return;
+            }
+
+            pump_widgets(now);
+            pump_chapter(now);
+            if (!pump_publish(now))
+            {
+                return;
+            }
 
             // The marker sweep runs LAST, on the same validated state and inside the
             // same re-entrancy guard: one slice of the chunked GUObjectArray walk.

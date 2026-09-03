@@ -10984,13 +10984,15 @@ namespace overlay
         {
             const bool map_open_now = mm::g_map_open.load(std::memory_order_relaxed);
             swallow_set_clear();
+            // Sampled once, not once per binding: this block runs 60 times a second and
+            // every GetAsyncKeyState is a syscall-ish read.
+            const bool alt_now = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
             const auto arm = [&](int binding, bool live) {
                 const int vk = mm::key_vk(binding);
                 if (!live || vk == 0 || !mod_held(mm::key_mod(binding)))
                 {
                     return;
                 }
-                const bool alt_now = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
                 if (alt_now && (vk == VK_F4 || vk == VK_RETURN || vk == VK_TAB))
                 {
                     return;

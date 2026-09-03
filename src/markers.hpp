@@ -89,6 +89,15 @@ namespace markers
         // "0 levels" means the rule can never fire, which is the failure worth seeing.
         int absence_marks = 0;
         int levels_loaded = 0;
+        // The three runtime found-rules added on 2026-09-03, plus the one number that
+        // says whether the health read behind two of them works at all. Same purpose as
+        // absence_marks above: "0 met / 0 dead dropped with health unknown climbing"
+        // means the property name is wrong, which is the failure worth seeing.
+        int shrine_lit_marks = 0; // shrine markers marked from UnlockedFirepoints
+        int met_marks = 0;        // NPC / merchant markers marked as met
+        int boss_defeated = 0;    // boss markers marked as defeated
+        int dead_dropped = 0;     // live enemies dropped because their health read 0
+        int health_unknown = 0;   // characters whose Health.Current could not be read
         // The chapter the published buffer and the per-chapter counters below are
         // filtered to, or chid::kNone when nothing is filtered (detection has not
         // answered yet, or markers_filter_chapter = 0).

@@ -5,6 +5,78 @@
  "generated_by": "tools/markers/extract_markers.py",
  "markers": [
   {
+   "id": "Chapter3_NiaoRenJL_NiaoRenSL_AI/BP_NRSL01_AI_C_2",
+   "cat": "boss",
+   "cls": "BP_NRSL01_AI_C",
+   "name": "Bo Sorcerer",
+   "obj": "BP_NRSL01_AI_C_2",
+   "x": 82819.77,
+   "y": 11173.06,
+   "z": -7277.29,
+   "cell": "B3EX0_L0_X8_Y1",
+   "level": "Chapter3_NiaoRenJL_NiaoRenSL_AI"
+  },
+  {
+   "id": "Chapter3_NiaoRenJL_ZhaoY_AI/BP_ZY_AI_C_1",
+   "cat": "boss",
+   "cls": "BP_ZY_AI_C",
+   "name": "Eternal Glory - Zhao Yun's Spirit",
+   "obj": "BP_ZY_AI_C_1",
+   "x": 115913.45,
+   "y": 5055.19,
+   "z": -5951.23,
+   "cell": "B3EX0_L0_X11_Y0",
+   "level": "Chapter3_NiaoRenJL_ZhaoY_AI"
+  },
+  {
+   "id": "Chapter3_WuChangJZ_BaiKeL_AI/BP_BKL_AI_C_0",
+   "cat": "boss",
+   "cls": "BP_BKL_AI_C",
+   "name": "Monstrous Toddler - Bai Kru",
+   "obj": "BP_BKL_AI_C_0",
+   "x": 15589.52,
+   "y": 55638.48,
+   "z": -5007.49,
+   "cell": "B3EX0_L0_X1_Y5",
+   "level": "Chapter3_WuChangJZ_BaiKeL_AI"
+  },
+  {
+   "id": "Chapter3_ZhenWuG_LiuWenXiu_AI/BP_E_LWX_AI_C_2",
+   "cat": "boss",
+   "cls": "BP_E_LWX_AI_C",
+   "name": "South General - Liu Wenxiu",
+   "obj": "BP_E_LWX_AI_C_2",
+   "x": 64532.94,
+   "y": 14570.84,
+   "z": -2536.24,
+   "cell": "B3EX0_L0_X6_Y1",
+   "level": "Chapter3_ZhenWuG_LiuWenXiu_AI"
+  },
+  {
+   "id": "Chapter3_ZhenWuG_ZhangXianZ_AI/DT_Anim_MJJJ_StepA_C_0",
+   "cat": "boss",
+   "cls": "BP_Anim_ZXZ_StepA_C",
+   "name": "Sovereign - Zhang Xianzhong",
+   "obj": "DT_Anim_MJJJ_StepA_C_0",
+   "x": 54983.32,
+   "y": 32063.58,
+   "z": 1586.44,
+   "cell": "B3EX0_L0_X5_Y3",
+   "level": "Chapter3_ZhenWuG_ZhangXianZ_AI"
+  },
+  {
+   "id": "Chapter3_ZhenWuG_ZhangXianZ_AI/DT_Anim_MJJJ_StepB_C_0",
+   "cat": "boss",
+   "cls": "BP_Anim_ZXZ_StepB_C",
+   "name": "Sovereign - Zhang Xianzhong's Obsession",
+   "obj": "DT_Anim_MJJJ_StepB_C_0",
+   "x": 54835.83,
+   "y": 31447.1,
+   "z": 1600.29,
+   "cell": "B3EX0_L0_X5_Y3",
+   "level": "Chapter3_ZhenWuG_ZhangXianZ_AI"
+  },
+  {
    "id": "Chapter3_DaXiJYD_logic/BP_ItemRedBox_C_1",
    "cat": "chest",
    "cls": "BP_ItemRedBox_C",
@@ -1977,30 +2049,6 @@
    "level": "Chapter3_NiaoRenJL01_AI"
   },
   {
-   "id": "Chapter3_NiaoRenJL_NiaoRenSL_AI/BP_NRSL01_AI_C_2",
-   "cat": "enemy",
-   "cls": "BP_NRSL01_AI_C",
-   "name": "Enemy",
-   "obj": "BP_NRSL01_AI_C_2",
-   "x": 82819.77,
-   "y": 11173.06,
-   "z": -7277.29,
-   "cell": "B3EX0_L0_X8_Y1",
-   "level": "Chapter3_NiaoRenJL_NiaoRenSL_AI"
-  },
-  {
-   "id": "Chapter3_NiaoRenJL_ZhaoY_AI/BP_ZY_AI_C_1",
-   "cat": "enemy",
-   "cls": "BP_ZY_AI_C",
-   "name": "Enemy",
-   "obj": "BP_ZY_AI_C_1",
-   "x": 115913.45,
-   "y": 5055.19,
-   "z": -5951.23,
-   "cell": "B3EX0_L0_X11_Y0",
-   "level": "Chapter3_NiaoRenJL_ZhaoY_AI"
-  },
-  {
    "id": "Chapter3_P2P3_AI/BP_DSPT_AI_C_1",
    "cat": "enemy",
    "cls": "BP_DSPT_AI_C",
@@ -2311,18 +2359,6 @@
    "z": -1172.7,
    "cell": "B3EX0_L0_X3_Y2",
    "level": "Chapter3_P3P4_AI"
-  },
-  {
-   "id": "Chapter3_WuChangJZ_BaiKeL_AI/BP_BKL_AI_C_0",
-   "cat": "enemy",
-   "cls": "BP_BKL_AI_C",
-   "name": "Enemy",
-   "obj": "BP_BKL_AI_C_0",
-   "x": 15589.52,
-   "y": 55638.48,
-   "z": -5007.49,
-   "cell": "B3EX0_L0_X1_Y5",
-   "level": "Chapter3_WuChangJZ_BaiKeL_AI"
   },
   {
    "id": "Chapter3_ZhenWuG01_AI/BP_DSPT_AI_2_C_1",
@@ -3835,42 +3871,6 @@
    "z": -2669.41,
    "cell": "B3EX0_L0_X6_Y2",
    "level": "Chapter3_ZhenWuG01_AI"
-  },
-  {
-   "id": "Chapter3_ZhenWuG_LiuWenXiu_AI/BP_E_LWX_AI_C_2",
-   "cat": "enemy",
-   "cls": "BP_E_LWX_AI_C",
-   "name": "Enemy",
-   "obj": "BP_E_LWX_AI_C_2",
-   "x": 64532.94,
-   "y": 14570.84,
-   "z": -2536.24,
-   "cell": "B3EX0_L0_X6_Y1",
-   "level": "Chapter3_ZhenWuG_LiuWenXiu_AI"
-  },
-  {
-   "id": "Chapter3_ZhenWuG_ZhangXianZ_AI/DT_Anim_MJJJ_StepA_C_0",
-   "cat": "enemy",
-   "cls": "BP_Anim_ZXZ_StepA_C",
-   "name": "Enemy",
-   "obj": "DT_Anim_MJJJ_StepA_C_0",
-   "x": 54983.32,
-   "y": 32063.58,
-   "z": 1586.44,
-   "cell": "B3EX0_L0_X5_Y3",
-   "level": "Chapter3_ZhenWuG_ZhangXianZ_AI"
-  },
-  {
-   "id": "Chapter3_ZhenWuG_ZhangXianZ_AI/DT_Anim_MJJJ_StepB_C_0",
-   "cat": "enemy",
-   "cls": "BP_Anim_ZXZ_StepB_C",
-   "name": "Enemy",
-   "obj": "DT_Anim_MJJJ_StepB_C_0",
-   "x": 54835.83,
-   "y": 31447.1,
-   "z": 1600.29,
-   "cell": "B3EX0_L0_X5_Y3",
-   "level": "Chapter3_ZhenWuG_ZhangXianZ_AI"
   },
   {
    "id": "Chapter3_NiaoRenJL_logic/BP_Wumen_C_1",

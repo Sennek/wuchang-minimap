@@ -1,0 +1,251 @@
+{
+ "base": "BP_PlacedBossAI_C",
+ "bosses": {
+  "AI_YHJS_BP_C": {
+   "ai_id": "39610",
+   "name": "Feathered Priest - Lu Bingzhang",
+   "via": "id"
+  },
+  "BP_Anim_ZXZ_StepA_C": {
+   "ai_id": "50500",
+   "name": "Sovereign - Zhang Xianzhong",
+   "via": "override:boss_name_50600_1"
+  },
+  "BP_Anim_ZXZ_StepB_C": {
+   "ai_id": "50600",
+   "name": "Sovereign - Zhang Xianzhong's Obsession",
+   "via": "id"
+  },
+  "BP_BKL_AI_C": {
+   "ai_id": "50300",
+   "name": "Monstrous Toddler - Bai Kru",
+   "via": "id"
+  },
+  "BP_BKL_AI_Special_C": {
+   "ai_id": "50301",
+   "name": "Monstrous Toddler - Bai Kru",
+   "via": "neighbour:50300"
+  },
+  "BP_CZ_AI_2_C": {
+   "ai_id": "50900",
+   "name": "The Reborn",
+   "via": "id"
+  },
+  "BP_CZ_AI_3_C": {
+   "ai_id": null,
+   "name": "Dragon Emperor - Zhu Youjian's Obsession",
+   "via": "sibling:BP_CZ_AI_C"
+  },
+  "BP_CZ_AI_C": {
+   "ai_id": "50800",
+   "name": "Dragon Emperor - Zhu Youjian's Obsession",
+   "via": "id"
+  },
+  "BP_DaYouYan_AI_C": {
+   "ai_id": "39510",
+   "name": "Blightweaver - Great Centipede",
+   "via": "id"
+  },
+  "BP_Dashuguai_AI_C": {
+   "ai_id": "39410",
+   "name": "Reborn Treant - Soulwood",
+   "via": "id"
+  },
+  "BP_E_LWX_AI_C": {
+   "ai_id": "37600",
+   "name": "South General - Liu Wenxiu",
+   "via": "id"
+  },
+  "BP_Honglan_BossAI_C": {
+   "ai_id": "39810",
+   "name": "Commander - Honglan",
+   "via": "id"
+  },
+  "BP_MJJJ_AI_New_C": {
+   "ai_id": "39010",
+   "name": "Ming General - Liu Cheng'en",
+   "via": "id"
+  },
+  "BP_NRSL01_AI_C": {
+   "ai_id": "50400",
+   "name": "Bo Sorcerer",
+   "via": "id"
+  },
+  "BP_NRSL_AI_C": {
+   "ai_id": null,
+   "name": "NRSL C",
+   "via": "class-name"
+  },
+  "BP_XBFR_AI_C": {
+   "ai_id": "39210",
+   "name": "Mistress of the Night - Huang Yan",
+   "via": "id"
+  },
+  "BP_XMWC_AI_New_C": {
+   "ai_id": "51200",
+   "name": "Demon of Obsession",
+   "via": "id"
+  },
+  "BP_XMWC_LS_AI_C": {
+   "ai_id": "51201",
+   "name": "Demon of Obsession",
+   "via": "neighbour:51200"
+  },
+  "BP_XYZ_AI_C": {
+   "ai_id": "51100",
+   "name": "Feathery Ambition - Xuanyangzi",
+   "via": "id"
+  },
+  "BP_XYZ_AI_S_C": {
+   "ai_id": null,
+   "name": "Feathery Ambition - Xuanyangzi",
+   "via": "sibling:BP_XYZ_AI_C"
+  },
+  "BP_YHGN_AI_Special_C": {
+   "ai_id": "31704",
+   "name": "Tang Palace Maid",
+   "via": "neighbour:31703"
+  },
+  "BP_YHGN_AI_Special_CJD_C": {
+   "ai_id": "41706",
+   "name": "YHGN Special CJD",
+   "via": "class-name"
+  },
+  "BP_YHHL_BossAI_C": {
+   "ai_id": "51000",
+   "name": "Vermilion Feathers - Honglan",
+   "via": "id"
+  },
+  "BP_YuHuaXNAI_C": {
+   "ai_id": "39110",
+   "name": "Perfect Bride - Fang Ling",
+   "via": "id"
+  },
+  "BP_ZY_AI_C": {
+   "ai_id": "50200",
+   "name": "Eternal Glory - Zhao Yun's Spirit",
+   "via": "id"
+  },
+  "BP_toutuo_AI_C": {
+   "ai_id": "39710",
+   "name": "Master Raider - Man-eating Dhutanga",
+   "via": "id"
+  },
+  "B_ANQ_C": {
+   "ai_id": "39310",
+   "name": "General of the North - Ai Nengqi",
+   "via": "id"
+  },
+  "B_NW_C": {
+   "ai_id": "50700",
+   "name": "Bo Magus",
+   "via": "id"
+  },
+  "B_XBXN02_C": {
+   "ai_id": "50000",
+   "name": "Chimera - Fang Ling",
+   "via": "id"
+  },
+  "Boss_Luhongliu_FirstStage_01_C": {
+   "ai_id": "39910",
+   "name": "Gluttonous Monstrosity - Lu Hongliu",
+   "via": "id"
+  },
+  "Boss_Luhongliu_FirstStage_01_special_C": {
+   "ai_id": "39911",
+   "name": "Gluttonous Monstrosity - Lu Hongliu",
+   "via": "neighbour:39910"
+  },
+  "Boss_Luhongliu_SecondStage_C": {
+   "ai_id": null,
+   "name": "Gluttonous Monstrosity - Lu Hongliu",
+   "via": "sibling:Boss_Luhongliu_FirstStage_01_C"
+  }
+ },
+ "count": 32,
+ "named": 30,
+ "placed_in": {
+  "AI_YHJS_BP_C": [
+   "Chapter1_Shuwang_Boss_AI"
+  ],
+  "BP_Anim_ZXZ_StepA_C": [
+   "Chapter3_ZhenWuG_ZhangXianZ_AI"
+  ],
+  "BP_Anim_ZXZ_StepB_C": [
+   "Chapter3_ZhenWuG_ZhangXianZ_AI"
+  ],
+  "BP_BKL_AI_C": [
+   "Chapter3_WuChangJZ_BaiKeL_AI"
+  ],
+  "BP_BKL_AI_Special_C": [
+   "Chapter1_special_LHL_AI"
+  ],
+  "BP_CZ_AI_2_C": [
+   "Chapter4_RanDengD_CZ_AI"
+  ],
+  "BP_CZ_AI_C": [
+   "Chapter4_RanDengD_CZ_AI"
+  ],
+  "BP_DaYouYan_AI_C": [
+   "Chapter1_DGong_Boss_AI"
+  ],
+  "BP_Dashuguai_AI_C": [
+   "Chapter1_Wanrenk_BOSS_AI"
+  ],
+  "BP_E_LWX_AI_C": [
+   "Chapter3_ZhenWuG_LiuWenXiu_AI"
+  ],
+  "BP_Honglan_BossAI_C": [
+   "Chapter1_TangW_BOSS_AI",
+   "ChapterDLC_BOSS_ZhuoJinEL_AI"
+  ],
+  "BP_MJJJ_AI_New_C": [
+   "Chapter2_YunDingCW_JianJun_AI"
+  ],
+  "BP_NRSL01_AI_C": [
+   "Chapter3_NiaoRenJL_NiaoRenSL_AI"
+  ],
+  "BP_XBFR_AI_C": [
+   "Chapter2_YunDingCN_XBFR_AI"
+  ],
+  "BP_XMWC_AI_New_C": [
+   "Chapter4_FoYuanZ_XM_AI"
+  ],
+  "BP_XMWC_LS_AI_C": [
+   "Chapter5_HaiBbaiHJS_LSXM_AI"
+  ],
+  "BP_XYZ_AI_S_C": [
+   "Chapter5_ZhenLiZM_YHXYZ_AI"
+  ],
+  "BP_YHGN_AI_Special_C": [
+   "Chapter1_Hanguang_GongNv_AI",
+   "Chapter1_TangW_AI"
+  ],
+  "BP_YHHL_BossAI_C": [
+   "Chapter4_HuiLiuT_YHHL_AI"
+  ],
+  "BP_YuHuaXNAI_C": [
+   "Chapter2_ShuJing_YHXN_AI"
+  ],
+  "BP_ZY_AI_C": [
+   "Chapter3_NiaoRenJL_ZhaoY_AI"
+  ],
+  "BP_toutuo_AI_C": [
+   "Chapter1_Hanguang_Boss_AI"
+  ],
+  "B_ANQ_C": [
+   "Chapter2_YunDingCW_ANQ_AI"
+  ],
+  "B_NW_C": [
+   "Chapter4_DiGong_NW_AI"
+  ],
+  "B_XBXN02_C": [
+   "Chapter2_ShuJing_YHXN_AI"
+  ],
+  "Boss_Luhongliu_FirstStage_01_C": [
+   "Chapter1_FoYuanZ_BOSS_AI"
+  ]
+ },
+ "schema": "wuchang-minimap-bosses/1",
+ "source": "cooked .uasset export maps (class graph) + DT_AiTable + MMGame.locres, offline pak extraction"
+}

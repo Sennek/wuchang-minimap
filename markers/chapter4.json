@@ -5,28 +5,64 @@
  "generated_by": "tools/markers/extract_markers.py",
  "markers": [
   {
-   "id": "Chapter4_CPTLight/BossLightingEffectActor_C_1",
+   "id": "Chapter4_DiGong_NW_AI/B_NW_C_0",
    "cat": "boss",
-   "cls": "BossLightingEffectActor_C",
-   "name": "Boss",
-   "obj": "BossLightingEffectActor_C_1",
-   "x": 33460.0,
-   "y": 25390.0,
-   "z": 3180.0,
-   "cell": "B4EX0_L0_X3_Y2",
-   "level": "Chapter4_CPTLight"
+   "cls": "B_NW_C",
+   "name": "Bo Magus",
+   "obj": "B_NW_C_0",
+   "x": 15172.13,
+   "y": -13125.3,
+   "z": -8094.91,
+   "cell": "B4EX0_L0_X1_Y-2",
+   "level": "Chapter4_DiGong_NW_AI"
+  },
+  {
+   "id": "Chapter4_FoYuanZ_XM_AI/BP_XMWC_AI_New_C_0",
+   "cat": "boss",
+   "cls": "BP_XMWC_AI_New_C",
+   "name": "Demon of Obsession",
+   "obj": "BP_XMWC_AI_New_C_0",
+   "x": 18340.17,
+   "y": 11346.1,
+   "z": 4183.01,
+   "cell": "B4EX0_L0_X1_Y1",
+   "level": "Chapter4_FoYuanZ_XM_AI"
   },
   {
    "id": "Chapter4_HuiLiuT_YHHL_AI/BP_YHHL_BossAI_C_1",
    "cat": "boss",
    "cls": "BP_YHHL_BossAI_C",
-   "name": "Boss",
+   "name": "Vermilion Feathers - Honglan",
    "obj": "BP_YHHL_BossAI_C_1",
    "x": -11261.58,
    "y": -30235.52,
    "z": -6261.02,
    "cell": "B4EX0_L0_X-2_Y-3",
    "level": "Chapter4_HuiLiuT_YHHL_AI"
+  },
+  {
+   "id": "Chapter4_RanDengD_CZ_AI/BP_CZ_AI_2_C_1",
+   "cat": "boss",
+   "cls": "BP_CZ_AI_2_C",
+   "name": "The Reborn",
+   "obj": "BP_CZ_AI_2_C_1",
+   "x": 57496.3,
+   "y": -43586.56,
+   "z": 2634.37,
+   "cell": "B4EX0_L0_X5_Y-5",
+   "level": "Chapter4_RanDengD_CZ_AI"
+  },
+  {
+   "id": "Chapter4_RanDengD_CZ_AI/BP_CZ_AI_C_1",
+   "cat": "boss",
+   "cls": "BP_CZ_AI_C",
+   "name": "Dragon Emperor - Zhu Youjian's Obsession",
+   "obj": "BP_CZ_AI_C_1",
+   "x": 55562.53,
+   "y": -40859.62,
+   "z": 3883.0,
+   "cell": "B4EX0_L0_X5_Y-4",
+   "level": "Chapter4_RanDengD_CZ_AI"
   },
   {
    "id": "Chapter4_DanQingY_logic/BP_treasurebox_C_1",
@@ -568,18 +604,6 @@
    "level": "Chapter4_DiGong_AI"
   },
   {
-   "id": "Chapter4_DiGong_NW_AI/B_NW_C_0",
-   "cat": "enemy",
-   "cls": "B_NW_C",
-   "name": "Enemy",
-   "obj": "B_NW_C_0",
-   "x": 15172.13,
-   "y": -13125.3,
-   "z": -8094.91,
-   "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_NW_AI"
-  },
-  {
    "id": "Chapter4_FoYuanZ_AI/BP_M_ZSG_C_0",
    "cat": "enemy",
    "cls": "BP_M_ZSG_C",
@@ -806,18 +830,6 @@
    "z": 3517.83,
    "cell": "B4EX0_L0_X2_Y1",
    "level": "Chapter4_FoYuanZ_AI"
-  },
-  {
-   "id": "Chapter4_FoYuanZ_XM_AI/BP_XMWC_AI_New_C_0",
-   "cat": "enemy",
-   "cls": "BP_XMWC_AI_New_C",
-   "name": "Enemy",
-   "obj": "BP_XMWC_AI_New_C_0",
-   "x": 18340.17,
-   "y": 11346.1,
-   "z": 4183.01,
-   "cell": "B4EX0_L0_X1_Y1",
-   "level": "Chapter4_FoYuanZ_XM_AI"
   },
   {
    "id": "Chapter4_HuiLiuT_AI/BP_M_NB_AI_C_0",
@@ -1502,30 +1514,6 @@
    "z": 4348.38,
    "cell": "B4EX0_L0_X4_Y-3",
    "level": "Chapter4_RanDengD_AI"
-  },
-  {
-   "id": "Chapter4_RanDengD_CZ_AI/BP_CZ_AI_2_C_1",
-   "cat": "enemy",
-   "cls": "BP_CZ_AI_2_C",
-   "name": "Enemy",
-   "obj": "BP_CZ_AI_2_C_1",
-   "x": 57496.3,
-   "y": -43586.56,
-   "z": 2634.37,
-   "cell": "B4EX0_L0_X5_Y-5",
-   "level": "Chapter4_RanDengD_CZ_AI"
-  },
-  {
-   "id": "Chapter4_RanDengD_CZ_AI/BP_CZ_AI_C_1",
-   "cat": "enemy",
-   "cls": "BP_CZ_AI_C",
-   "name": "Enemy",
-   "obj": "BP_CZ_AI_C_1",
-   "x": 55562.53,
-   "y": -40859.62,
-   "z": 3883.0,
-   "cell": "B4EX0_L0_X5_Y-4",
-   "level": "Chapter4_RanDengD_CZ_AI"
   },
   {
    "id": "Chapter4_ShuWangC_AI/AI_Monster_YHBH_Special_C_1",

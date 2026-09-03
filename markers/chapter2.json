@@ -5,6 +5,66 @@
  "generated_by": "tools/markers/extract_markers.py",
  "markers": [
   {
+   "id": "Chapter2_ShuJing_YHXN_AI/BP_YuHuaXNAI_C_1",
+   "cat": "boss",
+   "cls": "BP_YuHuaXNAI_C",
+   "name": "Perfect Bride - Fang Ling",
+   "obj": "BP_YuHuaXNAI_C_1",
+   "x": 65451.55,
+   "y": -37311.22,
+   "z": 3014.45,
+   "cell": "B2EX0_L0_X6_Y-4",
+   "level": "Chapter2_ShuJing_YHXN_AI"
+  },
+  {
+   "id": "Chapter2_ShuJing_YHXN_AI/B_XBXN02_C_1",
+   "cat": "boss",
+   "cls": "B_XBXN02_C",
+   "name": "Chimera - Fang Ling",
+   "obj": "B_XBXN02_C_1",
+   "x": 71031.75,
+   "y": -40552.1,
+   "z": 3000.11,
+   "cell": "B2EX0_L0_X6_Y-4",
+   "level": "Chapter2_ShuJing_YHXN_AI"
+  },
+  {
+   "id": "Chapter2_YunDingCN_XBFR_AI/BP_XBFR_AI_C_1",
+   "cat": "boss",
+   "cls": "BP_XBFR_AI_C",
+   "name": "Mistress of the Night - Huang Yan",
+   "obj": "BP_XBFR_AI_C_1",
+   "x": 64103.7,
+   "y": -43010.62,
+   "z": 18009.79,
+   "cell": "B2EX0_L0_X6_Y-5",
+   "level": "Chapter2_YunDingCN_XBFR_AI"
+  },
+  {
+   "id": "Chapter2_YunDingCW_ANQ_AI/B_ANQ_C_2",
+   "cat": "boss",
+   "cls": "B_ANQ_C",
+   "name": "General of the North - Ai Nengqi",
+   "obj": "B_ANQ_C_2",
+   "x": 8280.8,
+   "y": -63519.72,
+   "z": 10542.06,
+   "cell": "B2EX0_L0_X0_Y-7",
+   "level": "Chapter2_YunDingCW_ANQ_AI"
+  },
+  {
+   "id": "Chapter2_YunDingCW_JianJun_AI/BP_MJJJ_AI_New_C_0",
+   "cat": "boss",
+   "cls": "BP_MJJJ_AI_New_C",
+   "name": "Ming General - Liu Cheng'en",
+   "obj": "BP_MJJJ_AI_New_C_0",
+   "x": 41795.09,
+   "y": -57205.53,
+   "z": 11603.92,
+   "cell": "B2EX0_L0_X4_Y-6",
+   "level": "Chapter2_YunDingCW_JianJun_AI"
+  },
+  {
    "id": "Chapter2_DaXiJYD_logic/BP_ItemRedBox_C_0",
    "cat": "chest",
    "cls": "BP_ItemRedBox_C",
@@ -2460,30 +2520,6 @@
    "level": "Chapter2_ShuJing01_AI"
   },
   {
-   "id": "Chapter2_ShuJing_YHXN_AI/BP_YuHuaXNAI_C_1",
-   "cat": "enemy",
-   "cls": "BP_YuHuaXNAI_C",
-   "name": "Enemy",
-   "obj": "BP_YuHuaXNAI_C_1",
-   "x": 65451.55,
-   "y": -37311.22,
-   "z": 3014.45,
-   "cell": "B2EX0_L0_X6_Y-4",
-   "level": "Chapter2_ShuJing_YHXN_AI"
-  },
-  {
-   "id": "Chapter2_ShuJing_YHXN_AI/B_XBXN02_C_1",
-   "cat": "enemy",
-   "cls": "B_XBXN02_C",
-   "name": "Enemy",
-   "obj": "B_XBXN02_C_1",
-   "x": 71031.75,
-   "y": -40552.1,
-   "z": 3000.11,
-   "cell": "B2EX0_L0_X6_Y-4",
-   "level": "Chapter2_ShuJing_YHXN_AI"
-  },
-  {
    "id": "Chapter2_WangShanC01_AI/BP_DXJSB_AI_C_0",
    "cat": "enemy",
    "cls": "BP_DXJSB_AI_C",
@@ -3934,18 +3970,6 @@
    "z": 11655.04,
    "cell": "B2EX0_L0_X5_Y-7",
    "level": "Chapter2_YunDingCN01_AI"
-  },
-  {
-   "id": "Chapter2_YunDingCN_XBFR_AI/BP_XBFR_AI_C_1",
-   "cat": "enemy",
-   "cls": "BP_XBFR_AI_C",
-   "name": "Enemy",
-   "obj": "BP_XBFR_AI_C_1",
-   "x": 64103.7,
-   "y": -43010.62,
-   "z": 18009.79,
-   "cell": "B2EX0_L0_X6_Y-5",
-   "level": "Chapter2_YunDingCN_XBFR_AI"
   },
   {
    "id": "Chapter2_YunDingCW01_AI/BP_DXJSB_AI_C_0",
@@ -5506,30 +5530,6 @@
    "z": 10647.73,
    "cell": "B2EX0_L0_X2_Y-5",
    "level": "Chapter2_YunDingCW01_AI"
-  },
-  {
-   "id": "Chapter2_YunDingCW_ANQ_AI/B_ANQ_C_2",
-   "cat": "enemy",
-   "cls": "B_ANQ_C",
-   "name": "Enemy",
-   "obj": "B_ANQ_C_2",
-   "x": 8280.8,
-   "y": -63519.72,
-   "z": 10542.06,
-   "cell": "B2EX0_L0_X0_Y-7",
-   "level": "Chapter2_YunDingCW_ANQ_AI"
-  },
-  {
-   "id": "Chapter2_YunDingCW_JianJun_AI/BP_MJJJ_AI_New_C_0",
-   "cat": "enemy",
-   "cls": "BP_MJJJ_AI_New_C",
-   "name": "Enemy",
-   "obj": "BP_MJJJ_AI_New_C_0",
-   "x": 41795.09,
-   "y": -57205.53,
-   "z": 11603.92,
-   "cell": "B2EX0_L0_X4_Y-6",
-   "level": "Chapter2_YunDingCW_JianJun_AI"
   },
   {
    "id": "Chapter2_YunDingCW_JianJun_AI/BP_PlaySceneSound_C_0",

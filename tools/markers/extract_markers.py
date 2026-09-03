@@ -520,8 +520,27 @@ def cell_of(x: float, y: float, chapter: str) -> str:
 # driver
 # ---------------------------------------------------------------------------
 
-def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None):
+def boss_names() -> dict[str, str]:
+    """class -> display name from markers/bosses.json, or {} if it is absent.
+
+    A toolchain artifact, exactly like items.json: the names are baked into
+    chapter*.json, so the runtime never reads this file and packaging does not
+    ship it. Missing it degrades boss labels to "Boss", nothing else.
+    """
+    p = os.path.join(_HERE, "..", "..", "markers", "bosses.json")
+    if not os.path.exists(p):
+        print(f"  ! {p} not found - run build_bosses.py; bosses stay unnamed",
+              file=sys.stderr)
+        return {}
+    with open(p, encoding="utf-8") as f:
+        doc = json.load(f)
+    return {c: b["name"] for c, b in doc.get("bosses", {}).items() if b.get("name")}
+
+
+def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None,
+            bosses: "dict[str, str] | None" = None):
     items = items if items is not None else itemdb.ItemDB.load()
+    bosses = bosses if bosses is not None else boss_names()
     keys = chapter_packages(ms, chapter)
     t0 = time.time()
     pkgs = {}
@@ -583,6 +602,17 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
             mark = collect_mark(lvl.pkg, actor) if cat == "chest" else None
             if cat == "chest":
                 stats["chest-mark" if mark else "chest-no-mark"] += 1
+            # Bosses get the game's own English name from markers/bosses.json
+            # (`build_bosses.py`: boss class -> DT_AiTable AI id ->
+            # `boss_name_<id>` in MMGame.locres), so a boss marker reads
+            # "Reborn Treant - Soulwood" rather than "Boss".
+            if cat == "boss":
+                bname = bosses.get(actor.class_name)
+                if bname:
+                    name = bname
+                    stats["boss-named"] += 1
+                else:
+                    stats["boss-unnamed:" + actor.class_name] += 1
             ids = item_ids(lvl.pkg, actor, items) if cat == "pickup" else []
             rarity = 0
             if cat == "pickup":
@@ -717,6 +747,7 @@ def main(argv=None):
         return 0
 
     items = itemdb.ItemDB.load(a.items)
+    bosses = boss_names()
     if not len(items):
         print(f"  ! no item database at {a.items} -- pickups keep the generic label "
               f"(run build_items.py first)", file=sys.stderr)
@@ -724,7 +755,7 @@ def main(argv=None):
     chapters = ["1", "2", "3", "4", "5", "DLC"] if a.all_chapters else [a.chapter]
     os.makedirs(a.out, exist_ok=True)
     for ch in chapters:
-        markers, stats, _schema, _pkgs = extract(ms, ch, items=items)
+        markers, stats, _schema, _pkgs = extract(ms, ch, items=items, bosses=bosses)
         if not markers:
             print(f"  chapter {ch}: nothing extracted, skipped")
             continue

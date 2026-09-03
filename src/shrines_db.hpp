@@ -177,4 +177,17 @@ namespace shdb
         }
         return -1;
     }
+
+    // Is this id a real shrine rather than a `bossdoor_*` / `Task*` pseudo-point?
+    // An id the table does not know at all counts as NOT a shrine, so a new patch
+    // adding a pseudo-point cannot silently be reported as a lit shrine.
+    inline bool is_shrine_id(const std::vector<Shrine>* list, std::string_view id)
+    {
+        if (list == nullptr)
+        {
+            return false;
+        }
+        const int i = find_id(*list, id);
+        return i >= 0 && (*list)[static_cast<std::size_t>(i)].shrine;
+    }
 } // namespace shdb

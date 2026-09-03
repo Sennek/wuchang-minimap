@@ -5266,7 +5266,7 @@ namespace overlay
             const ImVec2 avail = ImGui::GetContentRegionAvail();
             // Sized from the text, so it is right at every ui_scale.
             const float legend_w =
-                ImGui::CalcTextSize("      fog_gate   9999/9999").x + ImGui::GetStyle().FramePadding.x * 4.0f;
+                ImGui::CalcTextSize("      Fog gates   9999/9999").x + ImGui::GetStyle().FramePadding.x * 4.0f;
             const ImVec2 csize{(std::max)(64.0f, avail.x - legend_w - ImGui::GetStyle().ItemSpacing.x),
                                (std::max)(64.0f, avail.y - footer_h)};
             const ImVec2 cpos = ImGui::GetCursorScreenPos();

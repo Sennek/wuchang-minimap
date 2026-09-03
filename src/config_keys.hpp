@@ -172,6 +172,7 @@ namespace cfgkeys
         {"map_slice_hz", Tier::Advanced},
         {"map_gamepad_deadzone", Tier::Advanced},
         {"highlight_show_found", Tier::Advanced},
+        {"highlight_labels_max", Tier::Advanced},
         {"highlight_max_draw", Tier::Advanced},
         {"highlight_alpha_near", Tier::Advanced},
         {"highlight_alpha_far", Tier::Advanced},

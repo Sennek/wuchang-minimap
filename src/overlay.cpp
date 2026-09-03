@@ -60,6 +60,7 @@
 #include "gamepad.hpp"
 #include "glyphs.hpp"
 #include "highlight.hpp"
+#include "label_layout.hpp"
 #include "mapdata.hpp"
 #include "mapview.hpp"
 #include "markers.hpp"
@@ -3023,6 +3024,7 @@ namespace overlay
             int drawn = 0;
             int on_screen = 0;
             int edge = 0;
+            int labels = 0; // how many actually got a label after the overlap pass
             std::uint64_t cam_age_ms = 0;
         };
 
@@ -3162,9 +3164,29 @@ namespace overlay
             const float r = cfg.highlight_size;
             const float pad = r * 2.4f;
 
-            for (std::size_t ci = cands.size(); ci-- > 0;)
+            // ONE projection pass, nearest first. Everything after it works off this
+            // list: the glyphs are drawn from it backwards (far to near, so the nearest
+            // ends up on top) and the labels are chosen from it forwards (nearest first,
+            // so the cap keeps the ones the player is walking towards).
+            struct Shown
             {
-                const Cand& cand = cands[ci];
+                float sx = 0.0f; // screen position, viewport-relative already applied
+                float sy = 0.0f;
+                float nx = 0.0f; // edge direction, when this one is off screen / behind
+                float ny = 0.0f;
+                double dist = 0.0; // uu from the player
+                int alpha = 0;
+                ImU32 col = 0;
+                std::uint8_t cat = 0;
+                bool on_screen = false;
+                bool found = false;
+                const markers::DrawMarker* m = nullptr;
+            };
+            static std::vector<Shown> shown; // render thread only, reused every frame
+            shown.clear();
+
+            for (const Cand& cand : cands)
+            {
                 const double cand_dist = std::sqrt(static_cast<double>(cand.d2));
                 const markers::DrawMarker& m = *cand.m;
                 const proj::Result pr = proj::project(cam, m.x, m.y, m.z, screen_w, screen_h);
@@ -3187,36 +3209,32 @@ namespace overlay
                     continue;
                 }
                 const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
+                Shown sh{};
+                sh.dist = cand_dist;
+                sh.alpha = alpha;
                 // THE POINT OF THE FEATURE: while the key is held, quality wins over
                 // category, so a weapon and a key item stand out from the consumables.
-                const ImU32 col = marker_color_q(cat, m.rarity, alpha, cfg.xray_rarity_colors_enabled,
-                                                 cfg.xray_rarity_colors);
-                const ImU32 edge = IM_COL32(10, 12, 16, static_cast<int>(alpha * 0.9f));
-                const bool found = (m.flags & markers::kFlagFound) != 0;
+                sh.col = marker_color_q(cat, m.rarity, alpha, cfg.xray_rarity_colors_enabled,
+                                        cfg.xray_rarity_colors);
+                sh.cat = m.cat;
+                sh.found = (m.flags & markers::kFlagFound) != 0;
+                sh.m = &m;
 
                 if (pr.on_screen && !pr.behind)
                 {
-                    const ImVec2 p{vp->Pos.x + static_cast<float>(pr.sx), vp->Pos.y + static_cast<float>(pr.sy)};
-                    draw_marker_glyph(dl, cat, p, found ? r * 0.75f : r, col, edge, found);
-                    if (cfg.highlight_labels)
-                    {
-                        const char* name = m.label[0] != '\0' ? m.label : mdb::cat_label(cat);
-                        const double metres = cand_dist / 100.0;
-                        const std::string text = std::format("{}  {:.0f} m{}", name, metres, found ? "  (found)" : "");
-                        draw_label(dl, ImVec2{p.x, p.y + r + 3.0f}, text, col, alpha);
-                    }
-                    ++g_hl_debug.on_screen;
-                    ++g_hl_debug.drawn;
+                    sh.on_screen = true;
+                    sh.sx = vp->Pos.x + static_cast<float>(pr.sx);
+                    sh.sy = vp->Pos.y + static_cast<float>(pr.sy);
+                    shown.push_back(sh);
                     continue;
                 }
-
                 if (!cfg.highlight_edge_arrows)
                 {
                     continue;
                 }
-                // Off screen (or behind): put an arrow on the rim pointing the way to
-                // turn. proj::project() already handed us a direction rather than a
-                // mirrored position, so this is just a projection onto the border box.
+                // Off screen (or behind): an arrow on the rim pointing the way to turn.
+                // proj::project() already handed us a direction rather than a mirrored
+                // position, so this is just a projection onto the border box.
                 double nx = pr.ndc_x;
                 double ny = pr.ndc_y;
                 const double mag = (std::max)(std::fabs(nx), std::fabs(ny));
@@ -3228,16 +3246,100 @@ namespace overlay
                 ny /= mag;
                 float sx = static_cast<float>((nx * 0.5 + 0.5) * screen_w);
                 float sy = static_cast<float>((0.5 - ny * 0.5) * screen_h);
-                sx = (std::max)(pad, (std::min)(static_cast<float>(screen_w) - pad, sx));
-                sy = (std::max)(pad, (std::min)(static_cast<float>(screen_h) - pad, sy));
-                const ImVec2 p{vp->Pos.x + sx, vp->Pos.y + sy};
-                const int dim = static_cast<int>(alpha * 0.8f);
-                add_edge_arrow(dl, p, static_cast<float>(nx), static_cast<float>(-ny), r * 1.15f,
-                               marker_color_q(cat, m.rarity, dim, cfg.xray_rarity_colors_enabled,
-                                              cfg.xray_rarity_colors),
-                               IM_COL32(10, 12, 16, dim));
-                ++g_hl_debug.edge;
+                sh.sx = vp->Pos.x + (std::max)(pad, (std::min)(static_cast<float>(screen_w) - pad, sx));
+                sh.sy = vp->Pos.y + (std::max)(pad, (std::min)(static_cast<float>(screen_h) - pad, sy));
+                sh.nx = static_cast<float>(nx);
+                sh.ny = static_cast<float>(-ny);
+                shown.push_back(sh);
+            }
+
+            // Glyphs and arrows, far to near.
+            for (std::size_t ci = shown.size(); ci-- > 0;)
+            {
+                const Shown& sh = shown[ci];
+                const mdb::Cat cat = static_cast<mdb::Cat>(sh.cat);
+                const ImU32 edge = IM_COL32(10, 12, 16, static_cast<int>(sh.alpha * 0.9f));
+                if (sh.on_screen)
+                {
+                    draw_marker_glyph(dl, cat, ImVec2{sh.sx, sh.sy}, sh.found ? r * 0.75f : r, sh.col, edge,
+                                      sh.found);
+                    ++g_hl_debug.on_screen;
+                }
+                else
+                {
+                    const int dim = static_cast<int>(sh.alpha * 0.8f);
+                    add_edge_arrow(dl, ImVec2{sh.sx, sh.sy}, sh.nx, sh.ny, r * 1.15f,
+                                   marker_color_q(cat, sh.m->rarity, dim, cfg.xray_rarity_colors_enabled,
+                                                  cfg.xray_rarity_colors),
+                                   IM_COL32(10, 12, 16, dim));
+                    ++g_hl_debug.edge;
+                }
                 ++g_hl_debug.drawn;
+            }
+
+            //--------------------------------------------------------------------------
+            // LABELS (review-0.9.1 item 6)
+            //--------------------------------------------------------------------------
+            //
+            // Eight pickups in one room used to produce eight name+distance boxes on the
+            // same few pixels. Now: at most `highlight_labels_max` of them get a label
+            // at all - chosen NEAREST FIRST, and never two for glyphs within `r * 2` of
+            // each other, because two markers a few pixels apart are one thing to the
+            // player - and the survivors are laid out top to bottom by the pure
+            // lbl::Layout, which pushes each box down until it clears the ones already
+            // placed. A box that had to move gets a leader line back to its glyph.
+            if (cfg.highlight_labels && !shown.empty())
+            {
+                static std::vector<std::size_t> labelled; // render thread only
+                labelled.clear();
+                lbl::Layout layout{};
+                const std::size_t label_cap = static_cast<std::size_t>(
+                    (std::max)(0, (std::min)(cfg.highlight_labels_max, lbl::Layout::kMaxRects)));
+                for (std::size_t i = 0; i < shown.size() && labelled.size() < label_cap; ++i)
+                {
+                    const Shown& sh = shown[i];
+                    if (!sh.on_screen)
+                    {
+                        continue; // an edge arrow has no room for a name
+                    }
+                    if (layout.near_labelled(sh.sx, sh.sy, r * 2.0f))
+                    {
+                        continue;
+                    }
+                    layout.note_glyph(sh.sx, sh.sy);
+                    labelled.push_back(i);
+                }
+                // Top to bottom, which is what makes pushing DOWN terminate and keeps
+                // the arrangement stable from frame to frame.
+                std::sort(labelled.begin(), labelled.end(), [](std::size_t a, std::size_t b) {
+                    return shown[a].sy < shown[b].sy;
+                });
+                const float line_h = ImGui::GetTextLineHeight() + 2.0f;
+                const float max_push = line_h * 8.0f;
+                for (const std::size_t i : labelled)
+                {
+                    const Shown& sh = shown[i];
+                    const mdb::Cat cat = static_cast<mdb::Cat>(sh.cat);
+                    const char* name = sh.m->label[0] != '\0' ? sh.m->label : mdb::cat_label(cat);
+                    const std::string text =
+                        std::format("{}  {:.0f} m{}", name, sh.dist / 100.0, sh.found ? "  (found)" : "");
+                    const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
+                    const float want_y = sh.sy + r + 3.0f;
+                    float at_y = want_y;
+                    if (!layout.place(sh.sx - ts.x * 0.5f - 4.0f, want_y, ts.x + 8.0f, ts.y + 2.0f, max_push,
+                                      at_y))
+                    {
+                        continue; // no room: the glyph speaks for itself
+                    }
+                    if (at_y - want_y > 2.0f)
+                    {
+                        // The leader line, so a displaced label still belongs to a glyph.
+                        dl->AddLine(ImVec2{sh.sx, sh.sy + r}, ImVec2{sh.sx, at_y},
+                                    IM_COL32(200, 206, 214, static_cast<int>(sh.alpha * 0.55f)), 1.0f);
+                    }
+                    draw_label(dl, ImVec2{sh.sx, at_y}, text, sh.col, sh.alpha);
+                    ++g_hl_debug.labels;
+                }
             }
         }
 
@@ -5349,6 +5451,9 @@ namespace overlay
                 ImGui::SameLine();
                 ImGui::Checkbox("Edge arrows (off screen / behind)", &cfg.highlight_edge_arrows);
                 ImGui::SliderInt("Max drawn (nearest first)", &cfg.highlight_max_draw, 1, 400);
+                ImGui::SliderInt("Max labelled (nearest first)", &cfg.highlight_labels_max, 0, 40);
+                ImGui::SameLine();
+                ImGui::TextDisabled("names only; the glyph cap is separate");
                 ImGui::SliderFloat("Alpha at the camera", &cfg.highlight_alpha_near, 0.1f, 1.0f, "%.2f");
                 ImGui::SliderFloat("Alpha at the radius", &cfg.highlight_alpha_far, 0.0f, 1.0f, "%.2f");
                 ImGui::SliderInt("Camera read rate (Hz)", &cfg.highlight_camera_hz, 5, 240);

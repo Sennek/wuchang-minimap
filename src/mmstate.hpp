@@ -383,6 +383,12 @@ namespace mm
         float highlight_alpha_far = 0.25f; // at highlight_radius
         float highlight_size = 7.0f;       // glyph radius, screen px
         bool highlight_labels = true;      // name + distance next to the glyph
+        // How many of the drawn glyphs may carry a NAME, as opposed to how many glyphs
+        // are drawn at all (highlight_max_draw, 60). The two are separate because sixty
+        // names do not fit on a screen and never did: the labels are chosen nearest
+        // first, never two for glyphs within highlight_size x 2 of each other, and laid
+        // out top to bottom by src/label_layout.hpp so no two boxes overlap.
+        int highlight_labels_max = 12;
         bool highlight_edge_arrows = true; // off-screen / behind: an arrow on the rim
         // ITEM QUALITY COLOURS. While the x-ray key is held, a marker whose static DB
         // entry carries a rarity tier above 0 is drawn - glyph, label and edge arrow -

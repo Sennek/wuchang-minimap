@@ -42,6 +42,7 @@
 #include "config_rewrite.hpp"
 #include "compass.hpp"
 #include "glyphs.hpp"
+#include "label_layout.hpp"
 #include "mapmanifest.hpp"
 #include "mapview.hpp"
 #include "markers_db.hpp"
@@ -430,6 +431,134 @@ namespace
             const double zz = mv::fit_zoom(45000.0, 30000.0, 1700.0, 900.0);
             CHECK(zz > 4.0 && zz < 240.0);
             CHECK(mv::clamp_zoom(zz, 4.0, 240.0) == zz);
+        }
+    }
+
+    //==================================================================================
+    // X-ray label layout (src/label_layout.hpp)
+    //==================================================================================
+    //
+    // The property that matters is simply: NO TWO PLACED LABELS OVERLAP. Everything
+    // else (the cap, the push limit, the proximity rule) exists so that the caller can
+    // fall back to a bare glyph instead of drawing a pile.
+    void test_label_layout()
+    {
+        section("x-ray label layout");
+
+        // Two rectangles that merely touch are not a clash: pushing a whole column one
+        // pixel further down for that would be pure churn.
+        const lbl::Rect a{0.0f, 0.0f, 10.0f, 10.0f};
+        const lbl::Rect touching{10.0f, 0.0f, 20.0f, 10.0f};
+        const lbl::Rect over{9.0f, 9.0f, 20.0f, 20.0f};
+        CHECK(!a.intersects(touching));
+        CHECK(a.intersects(over));
+        CHECK(over.intersects(a)); // symmetric
+
+        lbl::Layout l{};
+        float y = 0.0f;
+
+        // The first label lands exactly where it was asked to.
+        CHECK(l.place(100.0f, 200.0f, 80.0f, 14.0f, 200.0f, y));
+        CHECK(y == 200.0f);
+        CHECK_EQ(l.rect_count, 1);
+
+        // A second label at the same anchor is pushed BELOW the first, not on top of it.
+        CHECK(l.place(100.0f, 200.0f, 80.0f, 14.0f, 200.0f, y));
+        CHECK(y > 214.0f);
+        const float second = y;
+        // ...and a third below the second, i.e. the column keeps growing downwards.
+        CHECK(l.place(100.0f, 200.0f, 80.0f, 14.0f, 200.0f, y));
+        CHECK(y > second);
+
+        // A label whose x does not overlap is NOT pushed: the test is a rectangle
+        // intersection, not "is there anything at this height".
+        CHECK(l.place(400.0f, 200.0f, 80.0f, 14.0f, 200.0f, y));
+        CHECK(y == 200.0f);
+
+        // THE PROPERTY: over a nasty pile of anchors, nothing placed overlaps anything
+        // else placed.
+        {
+            lbl::Layout p{};
+            int placed = 0;
+            for (int i = 0; i < 30; ++i)
+            {
+                float at = 0.0f;
+                // Every anchor within a few pixels of the same spot - the room-full-of-
+                // pickups case that motivated the whole thing.
+                const float ax = 500.0f + static_cast<float>(i % 3);
+                const float ay = 300.0f + static_cast<float>(i % 5);
+                if (p.place(ax, ay, 120.0f, 15.0f, 400.0f, at))
+                {
+                    ++placed;
+                }
+            }
+            CHECK(placed > 0);
+            CHECK_EQ(p.rect_count, placed);
+            for (int i = 0; i < p.rect_count; ++i)
+            {
+                for (int j = i + 1; j < p.rect_count; ++j)
+                {
+                    CHECK(!p.rects[i].intersects(p.rects[j]));
+                }
+            }
+        }
+
+        // The push limit: a label that would have to travel further than max_push is
+        // refused outright, and refusing records nothing (so the next one is not
+        // blocked by a rectangle that was never drawn).
+        {
+            lbl::Layout p{};
+            float at = 0.0f;
+            CHECK(p.place(0.0f, 0.0f, 50.0f, 20.0f, 0.0f, at));
+            const int before = p.rect_count;
+            CHECK(!p.place(0.0f, 0.0f, 50.0f, 20.0f, 5.0f, at)); // needs 21 px, allowed 5
+            CHECK_EQ(p.rect_count, before);
+            CHECK(p.place(0.0f, 0.0f, 50.0f, 20.0f, 50.0f, at)); // allowed 50 - fits
+        }
+
+        // The cap. Once kMaxRects labels are placed the answer is "no", for ever - which
+        // is what makes the caller draw the glyph alone in a room with sixty items.
+        {
+            lbl::Layout p{};
+            float at = 0.0f;
+            for (int i = 0; i < lbl::Layout::kMaxRects; ++i)
+            {
+                CHECK(p.place(0.0f, static_cast<float>(i) * 20.0f, 40.0f, 15.0f, 10.0f, at));
+            }
+            CHECK(p.full());
+            CHECK(!p.place(2000.0f, 2000.0f, 40.0f, 15.0f, 100.0f, at));
+        }
+
+        // Degenerate sizes are refused rather than recorded as zero-area rectangles
+        // that nothing would ever intersect.
+        {
+            lbl::Layout p{};
+            float at = 0.0f;
+            CHECK(!p.place(0.0f, 0.0f, 0.0f, 15.0f, 50.0f, at));
+            CHECK(!p.place(0.0f, 0.0f, 40.0f, 0.0f, 50.0f, at));
+            CHECK_EQ(p.rect_count, 0);
+        }
+
+        // ---- the proximity rule -------------------------------------------------------
+        //
+        // "Never a label for a glyph within r * 2 of one that already has one." An empty
+        // layout says no to everything, which is what lets the caller call it first.
+        {
+            lbl::Layout p{};
+            CHECK(!p.near_labelled(100.0f, 100.0f, 20.0f));
+            p.note_glyph(100.0f, 100.0f);
+            CHECK(p.near_labelled(105.0f, 100.0f, 20.0f));
+            CHECK(p.near_labelled(100.0f, 119.0f, 20.0f));
+            CHECK(!p.near_labelled(130.0f, 100.0f, 20.0f));
+            CHECK(!p.near_labelled(100.0f, 100.0f, 0.0f)); // a zero radius disables it
+            CHECK_EQ(p.glyph_count, 1);
+            // reset() really does clear both lists - it runs once per frame.
+            float at = 0.0f;
+            CHECK(p.place(0.0f, 0.0f, 10.0f, 10.0f, 10.0f, at));
+            p.reset();
+            CHECK_EQ(p.rect_count, 0);
+            CHECK_EQ(p.glyph_count, 0);
+            CHECK(!p.near_labelled(100.0f, 100.0f, 20.0f));
         }
     }
 
@@ -2627,6 +2756,7 @@ int main(int argc, char** argv)
     test_categories();
     test_glyphs();
     test_fit_zoom();
+    test_label_layout();
     test_zoom_presets();
     test_found_file();
     test_ids();

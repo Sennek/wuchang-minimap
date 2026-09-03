@@ -957,6 +957,10 @@ namespace mm
             {
                 cfg.highlight_show_found = parse_bool(value, cfg.highlight_show_found);
             }
+            else if (key == "highlight_labels_max")
+            {
+                cfg.highlight_labels_max = parse_int(value, cfg.highlight_labels_max);
+            }
             else if (key == "highlight_max_draw")
             {
                 cfg.highlight_max_draw = parse_int(value, cfg.highlight_max_draw);
@@ -1665,6 +1669,9 @@ namespace mm
             cfg.found_save_debounce_ms = (std::max)(200, (std::min)(60000, cfg.found_save_debounce_ms));
             cfg.markers_absence_rounds = (std::max)(1, (std::min)(30, cfg.markers_absence_rounds));
             cfg.markers_absence_categories &= mdb::kAllCats;
+            // 40 is lbl::Layout::kMaxRects - past that the overlap pass has nowhere to
+            // put a box and the caller draws the glyph alone anyway.
+            cfg.highlight_labels_max = (std::max)(0, (std::min)(40, cfg.highlight_labels_max));
             // The full map. Same hand-edit discipline as everything above: without a clamp
             // a typo could ask for a 1 uu/px view of a 500 m chapter, a zero-size slice
             // texture, or a zoom factor of 1.0 (which never changes the zoom at all).
@@ -1940,6 +1947,7 @@ namespace mm
         add("map_gamepad_deadzone", f2(cfg.map_gamepad_deadzone));
         add("highlight_show_found", b(cfg.highlight_show_found));
         add("highlight_max_draw", std::to_string(cfg.highlight_max_draw));
+        add("highlight_labels_max", std::to_string(cfg.highlight_labels_max));
         add("highlight_alpha_near", f2(cfg.highlight_alpha_near));
         add("highlight_alpha_far", f2(cfg.highlight_alpha_far));
         add("highlight_edge_arrows", b(cfg.highlight_edge_arrows));

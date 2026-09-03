@@ -461,8 +461,15 @@ map_gamepad_deadzone = 0.22
 ; 1 = also highlight things already collected / opened (dimmed).
 highlight_show_found = 0
 
-; Hard cap per frame, nearest first.
+; Hard cap on GLYPHS per frame, nearest first.
 highlight_max_draw = 60
+
+; Hard cap on LABELS (name + distance), which is a much smaller number: sixty names
+; do not fit on a screen. The labels go to the nearest markers, never two for glyphs
+; within highlight_size x 2 of each other, and are laid out top to bottom so no two
+; boxes overlap - a box that had to be pushed down gets a leader line to its glyph.
+; 0 turns names off as surely as highlight_labels = 0 does; 40 is the ceiling.
+highlight_labels_max = 12
 
 ; Alpha at the camera and at the radius; the fade between them is linear.
 highlight_alpha_near = 1.00

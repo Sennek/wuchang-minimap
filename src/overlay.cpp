@@ -2207,11 +2207,77 @@ namespace overlay
             int drawn = 0;
             int clamped = 0;
             int filtered = 0;
-            std::string nearest;
+            // A fixed buffer, not a std::string: this used to be assigned on the render
+            // thread every single frame, which is a heap allocation per frame for a
+            // 54-character id. DrawMarker::id is a fixed char array too, so this is one
+            // memcpy of at most 64 bytes.
+            char nearest[64]{};
             float nearest_uu = 0.0f;
         };
 
         MarkerDrawStats g_marker_draw{};
+
+        //==============================================================================
+        // ONE marker pass per frame
+        //==============================================================================
+        //
+        // The minimap, the compass pips and the x-ray highlight each used to walk the
+        // whole published marker buffer (700-3 600 entries) with its own loop and its own
+        // sqrt. They ask different questions of the same rows, so the walk happens ONCE,
+        // here, and each of them filters the result with its own rule.
+        //
+        // Distances are kept SQUARED: every consumer only needs them to compare and to
+        // sort, and the two that want metres take the square root of the handful they
+        // actually draw.
+
+        struct FrameCand
+        {
+            const markers::DrawMarker* m = nullptr;
+            float d2_xy = 0.0f; // squared horizontal distance from the player, uu^2
+            float d2_3d = 0.0f; // squared 3D distance from the player
+            std::uint8_t cat = 0;
+            std::uint8_t rarity = 0;
+            bool found = false;
+        };
+
+        std::vector<FrameCand> g_frame_cands; // render thread only, reused every frame
+        int g_frame_marker_total = 0;         // rows in the published buffer
+        int g_frame_bad_cat = 0;              // rows whose category byte is out of range
+
+        void build_frame_candidates(const mm::Snapshot& snap)
+        {
+            g_frame_cands.clear();
+            g_frame_marker_total = 0;
+            g_frame_bad_cat = 0;
+
+            const markers::View v = markers::view();
+            g_frame_marker_total = static_cast<int>(v.count);
+            if (v.data == nullptr || v.count == 0)
+            {
+                return;
+            }
+            g_frame_cands.reserve(v.count);
+            for (std::size_t i = 0; i < v.count; ++i)
+            {
+                const markers::DrawMarker& m = v.data[i];
+                if (static_cast<int>(m.cat) >= mdb::kCatCount)
+                {
+                    ++g_frame_bad_cat;
+                    continue;
+                }
+                const double dx = m.x - snap.x;
+                const double dy = m.y - snap.y;
+                const double dz = m.z - snap.z;
+                FrameCand c{};
+                c.m = &m;
+                c.d2_xy = static_cast<float>(dx * dx + dy * dy);
+                c.d2_3d = static_cast<float>(dx * dx + dy * dy + dz * dz);
+                c.cat = m.cat;
+                c.rarity = m.rarity;
+                c.found = (m.flags & markers::kFlagFound) != 0;
+                g_frame_cands.push_back(c);
+            }
+        }
 
         void draw_markers(const mm::Config& cfg, const MiniGeom& g, bool round, float x0, float y0, float side,
                           ImDrawList* dl)
@@ -2221,9 +2287,9 @@ namespace overlay
             {
                 return;
             }
-            const markers::View v = markers::view();
-            g_marker_draw.total = static_cast<int>(v.count);
-            if (v.data == nullptr || v.count == 0)
+            g_marker_draw.total = g_frame_marker_total;
+            g_marker_draw.filtered = g_frame_bad_cat;
+            if (g_frame_cands.empty())
             {
                 return;
             }
@@ -2250,22 +2316,25 @@ namespace overlay
             static std::vector<Cand> cands;
             cands.clear();
 
-            for (std::size_t i = 0; i < v.count; ++i)
+            for (const FrameCand& fc : g_frame_cands)
             {
-                const markers::DrawMarker& m = v.data[i];
-                const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
-                if (static_cast<int>(m.cat) >= mdb::kCatCount || !mdb::cat_enabled(cfg.markers_categories, cat))
+                const markers::DrawMarker& m = *fc.m;
+                const mdb::Cat cat = static_cast<mdb::Cat>(fc.cat);
+                if (!mdb::cat_enabled(cfg.markers_categories, cat))
                 {
                     ++g_marker_draw.filtered;
                     continue;
                 }
-                const bool found = (m.flags & markers::kFlagFound) != 0;
+                const bool found = fc.found;
                 if (found && cfg.markers_hide_found)
                 {
                     ++g_marker_draw.filtered;
                     continue;
                 }
 
+                // The minimap is centred on the position the RENDER side works from,
+                // so the on-screen offset is still computed here; the distance used for
+                // the cap and the sort comes from the shared pass.
                 const double wdx = m.x - g.px;
                 const double wdy = m.y - g.py;
                 double dx = (-s * wdx + c * wdy) / z;
@@ -2301,17 +2370,20 @@ namespace overlay
                 Cand cand{};
                 cand.dx = static_cast<float>(dx);
                 cand.dy = static_cast<float>(dy);
-                cand.d2 = static_cast<float>(wdx * wdx + wdy * wdy);
-                cand.cat = m.cat;
-                cand.rarity = m.rarity;
+                cand.d2 = fc.d2_xy;
+                cand.cat = fc.cat;
+                cand.rarity = fc.rarity;
                 cand.found = found;
                 cand.clamped = clamped;
                 cand.id = m.id;
                 cands.push_back(cand);
             }
 
-            // Nearest first, so the cap drops the far ones and the near ones draw last
-            // (on top).
+            // ONE sort, nearest first: the cap drops the far ones and the draw loop then
+            // walks the array BACKWARDS, so the near ones are painted last (on top).
+            // partial_sort already leaves [0, cap) sorted ascending, so after the resize
+            // the whole array is sorted - the second full sort this used to do was pure
+            // waste on up to 400 candidates every single frame.
             const std::size_t cap = cfg.markers_max_draw > 0
                                         ? static_cast<std::size_t>(cfg.markers_max_draw)
                                         : cands.size();
@@ -2321,11 +2393,15 @@ namespace overlay
                                   [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
                 cands.resize(cap);
             }
-            std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d2 > b.d2; });
+            else
+            {
+                std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+            }
 
             const float op = cfg.opacity;
-            for (const Cand& cand : cands)
+            for (std::size_t ci = cands.size(); ci-- > 0;)
             {
+                const Cand& cand = cands[ci];
                 const float a = op * (cand.found ? cfg.markers_found_alpha : 1.0f);
                 if (a <= 0.01f)
                 {
@@ -2342,9 +2418,12 @@ namespace overlay
             }
             if (!cands.empty())
             {
-                // cands is sorted far -> near, so the last one is the nearest.
-                const Cand& near_one = cands.back();
-                g_marker_draw.nearest = near_one.id != nullptr ? near_one.id : "";
+                // cands is sorted near -> far, so the FIRST one is the nearest.
+                const Cand& near_one = cands.front();
+                if (near_one.id != nullptr)
+                {
+                    ::strncpy_s(g_marker_draw.nearest, sizeof(g_marker_draw.nearest), near_one.id, _TRUNCATE);
+                }
                 g_marker_draw.nearest_uu = std::sqrt(near_one.d2);
             }
             (void)x0;
@@ -2725,61 +2804,64 @@ namespace overlay
                 return;
             }
 
-            const markers::View v = markers::view();
-            if (v.data == nullptr || v.count == 0)
+            if (g_frame_cands.empty())
             {
                 return;
             }
 
             struct Cand
             {
-                double dist = 0.0; // from the player, uu
+                float d2 = 0.0f; // squared 3D distance from the player
                 const markers::DrawMarker* m = nullptr;
             };
             static std::vector<Cand> cands; // render thread only, reused every frame
             cands.clear();
 
+            // The one per-frame marker pass has already walked the buffer and computed
+            // the distances; this only filters. The square root is taken for the handful
+            // that are actually drawn, where metres are needed.
             const double radius = static_cast<double>(cfg.highlight_radius);
-            for (std::size_t i = 0; i < v.count; ++i)
+            const float radius2 = static_cast<float>(radius * radius);
+            for (const FrameCand& fc : g_frame_cands)
             {
-                const markers::DrawMarker& m = v.data[i];
-                if (static_cast<int>(m.cat) >= mdb::kCatCount ||
-                    !mdb::cat_enabled(cfg.highlight_categories, static_cast<mdb::Cat>(m.cat)))
+                if (!mdb::cat_enabled(cfg.highlight_categories, static_cast<mdb::Cat>(fc.cat)))
                 {
                     continue;
                 }
-                if (!cfg.highlight_show_found && (m.flags & markers::kFlagFound) != 0)
+                if (!cfg.highlight_show_found && fc.found)
                 {
                     continue; // the point of the feature is what is still UNcollected
                 }
-                const double dx = m.x - snap.x;
-                const double dy = m.y - snap.y;
-                const double dz = m.z - snap.z;
-                const double d = std::sqrt(dx * dx + dy * dy + dz * dz);
-                if (d > radius)
+                if (fc.d2_3d > radius2)
                 {
                     continue;
                 }
-                cands.push_back(Cand{d, &m});
+                cands.push_back(Cand{fc.d2_3d, fc.m});
             }
             g_hl_debug.considered = static_cast<int>(cands.size());
 
+            // One sort (nearest first); the draw loop then runs BACKWARDS so the nearest
+            // label ends up on top of the pile.
             const std::size_t cap = static_cast<std::size_t>((std::max)(1, cfg.highlight_max_draw));
             if (cands.size() > cap)
             {
                 std::partial_sort(cands.begin(), cands.begin() + static_cast<std::ptrdiff_t>(cap), cands.end(),
-                                  [](const Cand& a, const Cand& b) { return a.dist < b.dist; });
+                                  [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
                 cands.resize(cap);
             }
-            // Far to near, so the nearest label ends up on top of the pile.
-            std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.dist > b.dist; });
+            else
+            {
+                std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+            }
 
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             const float r = cfg.highlight_size;
             const float pad = r * 2.4f;
 
-            for (const Cand& cand : cands)
+            for (std::size_t ci = cands.size(); ci-- > 0;)
             {
+                const Cand& cand = cands[ci];
+                const double cand_dist = std::sqrt(static_cast<double>(cand.d2));
                 const markers::DrawMarker& m = *cand.m;
                 const proj::Result pr = proj::project(cam, m.x, m.y, m.z, screen_w, screen_h);
                 if (!pr.valid)
@@ -2790,7 +2872,7 @@ namespace overlay
                 // Fade with distance: fully lit at the camera, highlight_alpha_far at the
                 // radius. Linear - a squared falloff makes everything past half the radius
                 // look identical.
-                const double t = radius > 1.0 ? (cand.dist / radius) : 0.0;
+                const double t = radius > 1.0 ? (cand_dist / radius) : 0.0;
                 const double a = static_cast<double>(cfg.highlight_alpha_near) +
                                  (static_cast<double>(cfg.highlight_alpha_far) -
                                   static_cast<double>(cfg.highlight_alpha_near)) *
@@ -2815,7 +2897,7 @@ namespace overlay
                     if (cfg.highlight_labels)
                     {
                         const char* name = m.label[0] != '\0' ? m.label : mdb::cat_label(cat);
-                        const double metres = cand.dist / 100.0;
+                        const double metres = cand_dist / 100.0;
                         const std::string text = std::format("{}  {:.0f} m{}", name, metres, found ? "  (found)" : "");
                         draw_label(dl, ImVec2{p.x, p.y + r + 3.0f}, text, col, alpha);
                     }
@@ -2957,12 +3039,11 @@ namespace overlay
             // Marker pips. Nearest first so the cap keeps what matters, and only inside
             // the strip's span - an off-strip pip clamped to the edge would pile up into
             // a solid block at both ends.
-            const markers::View v = markers::view();
-            if (v.data != nullptr && v.count != 0)
+            if (!g_frame_cands.empty())
             {
                 struct Pip
                 {
-                    double dist = 0.0;
+                    float d2 = 0.0f; // squared: only ever compared and sorted on
                     double bearing = 0.0;
                     std::uint8_t cat = 0;
                     std::uint8_t rarity = 0;
@@ -2970,40 +3051,45 @@ namespace overlay
                 };
                 static std::vector<Pip> pips; // render thread only
                 pips.clear();
+                // The one per-frame marker pass (build_frame_candidates) has already
+                // walked the buffer and computed the distances; this only filters.
                 const double max_d = static_cast<double>(cfg.compass_marker_distance);
-                for (std::size_t i = 0; i < v.count; ++i)
+                const float max_d2 = static_cast<float>(max_d * max_d);
+                for (const FrameCand& fc : g_frame_cands)
                 {
-                    const markers::DrawMarker& m = v.data[i];
-                    if (static_cast<int>(m.cat) >= mdb::kCatCount ||
-                        !mdb::cat_enabled(cfg.compass_categories, static_cast<mdb::Cat>(m.cat)))
+                    if (!mdb::cat_enabled(cfg.compass_categories, static_cast<mdb::Cat>(fc.cat)))
                     {
                         continue;
                     }
-                    const double dx = m.x - snap.x;
-                    const double dy = m.y - snap.y;
-                    const double d = std::sqrt(dx * dx + dy * dy);
-                    if (d > max_d)
+                    if (fc.d2_xy > max_d2)
                     {
                         continue;
                     }
+                    const markers::DrawMarker& m = *fc.m;
                     Pip p{};
-                    p.dist = d;
+                    p.d2 = fc.d2_xy;
                     p.bearing = cmp::bearing_deg(snap.x, snap.y, m.x, m.y);
-                    p.cat = m.cat;
-                    p.rarity = m.rarity;
-                    p.found = (m.flags & markers::kFlagFound) != 0;
+                    p.cat = fc.cat;
+                    p.rarity = fc.rarity;
+                    p.found = fc.found;
                     pips.push_back(p);
                 }
+                // One sort (nearest first), then drawn back to front so the nearest pip
+                // ends up on top - the same trick as draw_markers.
                 const std::size_t kMaxPips = static_cast<std::size_t>(cfg.compass_max_pips);
                 if (pips.size() > kMaxPips)
                 {
                     std::partial_sort(pips.begin(), pips.begin() + kMaxPips, pips.end(),
-                                      [](const Pip& a, const Pip& b) { return a.dist < b.dist; });
+                                      [](const Pip& a, const Pip& b) { return a.d2 < b.d2; });
                     pips.resize(kMaxPips);
                 }
-                std::sort(pips.begin(), pips.end(), [](const Pip& a, const Pip& b) { return a.dist > b.dist; });
-                for (const Pip& p : pips)
+                else
                 {
+                    std::sort(pips.begin(), pips.end(), [](const Pip& a, const Pip& b) { return a.d2 < b.d2; });
+                }
+                for (std::size_t pi = pips.size(); pi-- > 0;)
+                {
+                    const Pip& p = pips[pi];
                     double x = 0.0;
                     double rel = 0.0;
                     if (!cmp::strip_x(strip, p.bearing, x, rel))
@@ -4241,9 +4327,9 @@ namespace overlay
                             g_marker_draw.total,
                             g_marker_draw.clamped,
                             g_marker_draw.filtered);
-                if (!g_marker_draw.nearest.empty())
+                if (g_marker_draw.nearest[0] != 0)
                 {
-                    ImGui::Text("nearest: %s (%.0f uu)", g_marker_draw.nearest.c_str(), g_marker_draw.nearest_uu);
+                    ImGui::Text("nearest: %s (%.0f uu)", g_marker_draw.nearest, g_marker_draw.nearest_uu);
                 }
             }
 
@@ -4634,6 +4720,21 @@ namespace overlay
             // frame the map or the panel closes is the frame the game gets the cursor
             // back.
             ImGui::GetIO().MouseDrawCursor = map_open || mm::g_panel_open.load(std::memory_order_relaxed);
+
+            // THE ONE MARKER PASS. The minimap, the full map, the compass pips and the
+            // x-ray highlight all read the same published buffer; walking it once here
+            // and letting each of them filter the result replaces three (four with the
+            // map open) full scans plus their square roots.
+            if (have)
+            {
+                build_frame_candidates(snap);
+            }
+            else
+            {
+                g_frame_cands.clear();
+                g_frame_marker_total = 0;
+                g_frame_bad_cat = 0;
+            }
 
             if (mm::g_panel_open.load(std::memory_order_relaxed))
             {
@@ -5458,13 +5559,34 @@ namespace overlay
             }
         }
 
-        const HWND fg = ::GetForegroundWindow();
-        DWORD pid = 0;
-        if (fg != nullptr)
+        // THE HOTKEY BLOCK, gated to ~60 Hz. UE4SS spins this loop far faster than
+        // that, and every iteration used to cost a GetForegroundWindow +
+        // GetWindowThreadProcessId pair plus five GetAsyncKeyState calls. A key press
+        // lasts tens of milliseconds, so nothing is missed - and the pad poll and the
+        // hold key ride along with it, which is exactly the cadence they want.
+        static std::uint64_t last_input_ms = 0;
+        if (now - last_input_ms < 16)
         {
-            ::GetWindowThreadProcessId(fg, &pid);
+            return;
         }
-        const bool foreground = (pid == ::GetCurrentProcessId());
+        last_input_ms = now;
+
+        // The foreground answer changes only when the player alt-tabs, so it is worth
+        // 250 ms of cache: two user32 round-trips saved per sample.
+        static std::uint64_t fg_checked_ms = 0;
+        static bool fg_cached = false;
+        if (fg_checked_ms == 0 || now - fg_checked_ms >= 250)
+        {
+            fg_checked_ms = now;
+            const HWND fg = ::GetForegroundWindow();
+            DWORD pid = 0;
+            if (fg != nullptr)
+            {
+                ::GetWindowThreadProcessId(fg, &pid);
+            }
+            fg_cached = (pid == ::GetCurrentProcessId());
+        }
+        const bool foreground = fg_cached;
 
         const bool panel_now = (::GetAsyncKeyState(cfg.panel_key) & 0x8000) != 0;
         if (panel_now && !panel_down && foreground && now - last_key > 250)

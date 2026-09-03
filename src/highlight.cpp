@@ -101,7 +101,7 @@ namespace hl
         uer::ObjRef g_pcm{};
         const void* g_world = nullptr;
         std::uint64_t g_last_resolve = 0;
-        std::uint64_t g_last_read = 0;
+        std::uint64_t g_last_read = 0; // QPC MICROseconds, not tick count
         int g_cache_offset = -1; // CameraCachePrivate inside APlayerCameraManager
         int g_cache_size = 0;
         int g_pov_offset = -1; // POV inside CameraCachePrivate
@@ -465,7 +465,7 @@ namespace hl
         g_have_manager.store(false, std::memory_order_relaxed);
     }
 
-    void game_thread_pump(std::uint64_t now, const void* world, const mm::Config& cfg)
+    void game_thread_pump(std::uint64_t now, std::uint64_t now_us, const void* world, const mm::Config& cfg)
     {
         const bool want_held = g_held.load(std::memory_order_relaxed) && cfg.highlight_enabled;
         const bool want_compass = g_compass.load(std::memory_order_relaxed) && cfg.compass_enabled;
@@ -518,11 +518,14 @@ namespace hl
         {
             period = g_getter_ms;
         }
-        if (now - g_last_read < period)
+        // Paced in MICROseconds: GetTickCount64's 15.6 ms granularity made every
+        // highlight_camera_hz above ~64 identical and jittered the rest by a frame.
+        const std::uint64_t period_us = period * 1000;
+        if (now_us - g_last_read < period_us)
         {
             return;
         }
-        g_last_read = now;
+        g_last_read = now_us;
 
         read_camera(now);
     }

@@ -95,7 +95,11 @@ namespace hl
     bool held();
 
     // GAME THREAD ONLY, from the existing pump chain.
-    void game_thread_pump(std::uint64_t now, const void* world, const mm::Config& cfg);
+    // `now` is GetTickCount64 (used for the pose stamp and the resolve throttle);
+    // `now_us` is QueryPerformanceCounter microseconds and is what paces the camera
+    // read. The tick count only moves in ~15.6 ms steps, so pacing on it made
+    // highlight_camera_hz above ~64 do nothing and jittered the cadence by a frame.
+    void game_thread_pump(std::uint64_t now, std::uint64_t now_us, const void* world, const mm::Config& cfg);
 
     // GAME THREAD ONLY. Drops the camera manager and every cached offset - called
     // whenever the pawn / world goes, because the manager belonged to that world.

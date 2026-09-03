@@ -1751,7 +1751,7 @@ namespace markers
         // driven from here rather than from a second call site of its own. It returns
         // immediately (one atomic load) unless the highlight key is held or the compass
         // is on, and it never touches anything this module owns.
-        hl::game_thread_pump(now, world, cfg);
+        hl::game_thread_pump(now, now_us, world, cfg);
         // ---- end of hook ------------------------------------------------------------
 
         if (!cfg.markers_enabled || !cfg.markers_live)

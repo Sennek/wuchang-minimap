@@ -136,6 +136,11 @@ namespace gamestate
         // scan_sched.hpp, tested offline).
         scan::SweepSched g_sweep{};
 
+        // The level set last handed to markers::set_loaded_levels(). Cleared whenever
+        // the marker module's caches are dropped, so the next enumeration always
+        // republishes into an empty g_levels.
+        std::vector<std::string> g_last_levels;
+
         // The root that is currently holding "a menu is open" true, for the F2 debug
         // block and the log. Empty when no root is visible.
         std::wstring g_menu_holder;
@@ -277,6 +282,7 @@ namespace gamestate
             // The marker sweep caches class layouts, class classifications, per-object
             // ids and live actors - all of it keyed to the world that just went.
             markers::drop_caches();
+            g_last_levels.clear();
             if (had_pawn)
             {
                 g_cooldown_until = now + g_tune.cooldown_ms;
@@ -933,7 +939,19 @@ namespace gamestate
             // Publish the loaded-level set even when the chapter vote came out
             // undecided: the two answers are independent, and the absence rule must not
             // go blind just because a level name did not name a chapter.
-            markers::set_loaded_levels(levels);
+            //
+            // ...but only when it actually CHANGED. The streamed set is stable for
+            // minutes at a time, and set_loaded_levels rebuilds an
+            // unordered_map<string,uint64> of ~50 entries from it. The enumeration order
+            // is the world's own level order, which is stable while the set is, so an
+            // element-wise compare is both exact enough and cheaper than the rebuild it
+            // avoids. A false "changed" costs one rebuild; a false "unchanged" is
+            // impossible, because any added, removed or renamed level shows up here.
+            if (levels != g_last_levels)
+            {
+                g_last_levels = levels;
+                markers::set_loaded_levels(levels);
+            }
 
             g_chapter_levels = counted;
             const int detected = vote.best();

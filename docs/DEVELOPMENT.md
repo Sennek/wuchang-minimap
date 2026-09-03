@@ -1102,6 +1102,7 @@ The full map block:
 | key | default | meaning |
 |---|---|---|
 | `map_key` | `M` | open / close the full map |
+| `map_pad_open_chord` | `BACK+Y` | the same, as an XInput button chord, for a controller-only player (review B.1: nothing else could open the map without a keyboard) |
 | `map_recenter_key` | `R` | recentre it on the player and clear the floor offset |
 | `map_zoom` | 30 | zoom the map opens at, in world uu per **screen** pixel (same unit as `minimap_zoom`) |
 | `map_zoom_min` / `map_zoom_max` | 4 / 240 | zoom limits (min = most zoomed in) |

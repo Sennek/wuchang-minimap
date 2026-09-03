@@ -312,16 +312,58 @@ namespace mm
         // ignores modifiers and has already caused one GPU crash), F10 the game console,
         // F11 the engine fullscreen bind and F12 the Steam screenshot key. See
         // lessons.md.
-        int vk_from_name(const std::string& name, int fallback, const char* key_label)
+        // ONE modifier prefix, stripped before the key itself is parsed: `ctrl+m`,
+        // `shift+F1`, `alt+n`. Returns the modifier and advances `name` past the `+`.
+        // Two prefixes (`ctrl+shift+m`) are refused by the key parser afterwards,
+        // because what is left is not a key name - which is the diagnostic we want.
+        int take_key_modifier(std::string& name)
         {
+            const std::size_t plus = name.find('+');
+            if (plus == std::string::npos || plus == 0 || plus + 1 >= name.size())
+            {
+                return kKeyModNone;
+            }
+            const std::string up = upper(name.substr(0, plus));
+            int mod = kKeyModNone;
+            if (up == "CTRL" || up == "CONTROL")
+            {
+                mod = kKeyModCtrl;
+            }
+            else if (up == "SHIFT")
+            {
+                mod = kKeyModShift;
+            }
+            else if (up == "ALT")
+            {
+                mod = kKeyModAlt;
+            }
+            else
+            {
+                return kKeyModNone;
+            }
+            name = name.substr(plus + 1);
+            // Leading blanks after the `+` ("ctrl + m"), trimmed so the key parser sees
+            // a bare name.
+            while (!name.empty() && (name.front() == ' ' || name.front() == '\t'))
+            {
+                name.erase(name.begin());
+            }
+            return mod;
+        }
+
+        int vk_from_name(const std::string& raw_name, int fallback, const char* key_label)
+        {
+            std::string name = raw_name;
+            const int mod = take_key_modifier(name);
             const std::wstring label(key_label, key_label + std::strlen(key_label));
-            const std::wstring shown(name.begin(), name.end());
+            const std::wstring shown(raw_name.begin(), raw_name.end());
 
             const auto reject = [&](const wchar_t* why) {
                 logf(L"config: {} = '{}' rejected ({}) - keeping the default. Allowed: F1..F5, F7, F8, "
                      L"a single letter or digit, TAB, SPACE, ENTER, BACKSPACE, the arrows, the "
                      L"navigation block, NUM0..NUM9 and the numpad operators, MOUSE3..MOUSE5, or "
-                     L"L/R ALT / SHIFT / CTRL. `none` leaves the action unbound.",
+                     L"L/R ALT / SHIFT / CTRL, optionally with ONE `ctrl+` / `shift+` / `alt+` "
+                     L"prefix. `none` leaves the action unbound.",
                      label,
                      shown,
                      std::wstring{why});
@@ -343,7 +385,7 @@ namespace mm
                 {
                     if (up == k.name)
                     {
-                        return k.vk;
+                        return key_make(k.vk, mod);
                     }
                 }
             }
@@ -365,7 +407,7 @@ namespace mm
                     return reject(L"F6 is the RenoDX DLSS5 toggle, F9/F11 engine binds, F10 the game "
                                   L"console and F12 the Steam screenshot key");
                 }
-                return VK_F1 + (n - 1);
+                return key_make(VK_F1 + (n - 1), mod);
             }
 
             if (name.size() == 1)
@@ -373,11 +415,11 @@ namespace mm
                 const char c = name[0];
                 if (c >= 'a' && c <= 'z')
                 {
-                    return static_cast<int>(c - 'a' + 'A');
+                    return key_make(static_cast<int>(c - 'a' + 'A'), mod);
                 }
                 if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
                 {
-                    return static_cast<int>(c);
+                    return key_make(static_cast<int>(c), mod);
                 }
                 return reject(L"not a letter or a digit");
             }
@@ -385,7 +427,27 @@ namespace mm
             return reject(L"not a recognised key name");
         }
 
-        std::string vk_name(int vk)
+        // The key half on its own ("F2", "M", "TAB"); vk_name() adds the modifier.
+        std::string vk_name_plain(int vk);
+
+        // The inverse of vk_from_name, modifier prefix included, so a binding written
+        // out by Save is one the loader reads back unchanged.
+        std::string vk_name(int binding)
+        {
+            const int vk = key_vk(binding);
+            if (vk == 0)
+            {
+                return "none";
+            }
+            const int mod = key_mod(binding);
+            const char* prefix = mod == kKeyModCtrl    ? "ctrl+"
+                                 : mod == kKeyModShift ? "shift+"
+                                 : mod == kKeyModAlt   ? "alt+"
+                                                       : "";
+            return std::string{prefix} + vk_name_plain(vk);
+        }
+
+        std::string vk_name_plain(int vk)
         {
             if (vk == 0)
             {
@@ -954,6 +1016,32 @@ namespace mm
             else if (key == "fast_travel_enabled")
             {
                 cfg.fast_travel_enabled = parse_bool(value, cfg.fast_travel_enabled);
+            }
+            else if (key == "map_pad_open_chord")
+            {
+                // The same spelling as highlight_pad_chord, minus the triggers: this is
+                // a chord of BUTTONS, and an analogue trigger is not one. LT / RT in the
+                // value are parsed and then dropped, with the parser's own warning
+                // naming the button set.
+                bool ignored_lt = false;
+                bool ignored_rt = false;
+                parse_pad_chord(value, cfg.map_pad_open_chord, ignored_lt, ignored_rt);
+                if (ignored_lt || ignored_rt)
+                {
+                    log(L"config: map_pad_open_chord - the triggers are not buttons; LT / RT ignored");
+                }
+            }
+            else if (key == "ui_font")
+            {
+                // Free text: an absolute path to a .ttf / .otf. `none` (or an empty
+                // value) means the built-in bitmap font. Not validated here - the render
+                // thread is the only place that can try to open it, and it logs what it
+                // did.
+                ::strncpy_s(cfg.ui_font, sizeof(cfg.ui_font), trim(value).c_str(), _TRUNCATE);
+            }
+            else if (key == "zoom_dpi_scaled")
+            {
+                cfg.zoom_dpi_scaled = parse_bool(value, cfg.zoom_dpi_scaled);
             }
             else if (key == "saveslot_uuid_call")
             {
@@ -1734,6 +1822,19 @@ namespace mm
 
     namespace
     {
+        // Written by load_config_file() and save_config_file() (loop thread), read by
+        // the F2 panel (render thread). One atomic, so the label costs nothing per frame
+        // and the panel never stat()s a file inside Present.
+        std::atomic<bool> g_dev_config_active{false};
+    } // namespace
+
+    bool dev_config_active()
+    {
+        return g_dev_config_active.load(std::memory_order_relaxed);
+    }
+
+    namespace
+    {
         // One warning per key per process. A removed key or the old `enabled` spelling
         // is a fact about the user's file, not an event - repeating it on every F5 and
         // on every 1 Hz mtime reload would bury everything else in the log.
@@ -2039,6 +2140,10 @@ namespace mm
         set_config(cfg);
         if (have_dev)
         {
+            g_dev_config_active.store(true, std::memory_order_relaxed);
+        }
+        if (have_dev)
+        {
             logf(L"config: loaded {} setting(s) from {} + {} dev setting(s) from {}", lines, path, dev_lines,
                  dev_config_path());
         }
@@ -2150,6 +2255,16 @@ namespace mm
         add("compass_opacity", f2(cfg.compass_opacity));
         add("compass_categories", mdb::format_category_mask(cfg.compass_categories));
         add("compass_pip_labels", b(cfg.compass_pip_labels));
+        add("map_pad_open_chord", [&cfg] {
+            const std::wstring chord = pad_chord_name(cfg.map_pad_open_chord, false, false);
+            std::string narrow;
+            narrow.reserve(chord.size());
+            for (const wchar_t c : chord)
+            {
+                narrow.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
+            }
+            return narrow;
+        }());
         add("panel_key", vk(cfg.panel_key));
         add("map_key", vk(cfg.map_key));
         add("map_recenter_key", vk(cfg.map_recenter_key));
@@ -2218,6 +2333,8 @@ namespace mm
         add("log_level", log_level_name(cfg.log_level));
         add("crash_breadcrumb", b(cfg.crash_breadcrumb));
         add("fast_travel_enabled", b(cfg.fast_travel_enabled));
+        add("ui_font", std::string{cfg.ui_font});
+        add("zoom_dpi_scaled", b(cfg.zoom_dpi_scaled));
 
         // ---- Dev --------------------------------------------------------------------
         add("debug_readout", b(cfg.debug_readout));
@@ -2360,6 +2477,9 @@ namespace mm
         // player file: the filter above cannot see them.
         std::string dev_existing;
         const bool have_dev = read_whole_file(dev_config_path(), dev_existing);
+        // What the F2 Save button's label promises. Set BEFORE the write, so the label
+        // is right from the first Save that creates the file.
+        g_dev_config_active.store(have_dev || dev_values_differ(kv), std::memory_order_relaxed);
         if (have_dev || dev_values_differ(kv))
         {
             const std::vector<cfgrw::Pair> mine = cfgrw::filter(

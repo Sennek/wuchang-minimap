@@ -11,13 +11,12 @@
 ; NUMDOT, MOUSE3 / MOUSE4 / MOUSE5, or one of LALT / RALT / ALT / LSHIFT / RSHIFT /
 ; SHIFT / LCTRL / RCTRL / CTRL. `none` leaves an action unbound.
 ; The F2 panel's Bindings tab rebinds all of them by pressing the new key.
-; F6 and F9..F12 are REJECTED and fall back to the default. They are spoken for by
-; software that commonly runs alongside the game and that grabs the key globally,
-; without looking at modifiers, so binding one here would fire two things at once:
-;   F6  post-processing injectors (ReShade / RenoDX) use it as their default toggle
-;   F9  / F11  engine screenshot and fullscreen-toggle binds
-;   F10 opens the game console (UE4SS's ConsoleEnablerMod)
-;   F12 the Steam overlay's screenshot key
+; F6 and F9..F12 are REJECTED and fall back to the default, because on this machine
+;   F6  toggles RenoDX / DLSS 5 Neural Rendering (it ignores modifiers, and pressing
+;       it in-world hung the GPU on 2026-09-02)
+;   F9  / F11 are engine screenshot / fullscreen binds
+;   F10 opens the game console (UE4SS ConsoleEnablerMod)
+;   F12 is the Steam screenshot key
 ; Shipped defaults: F2 settings panel, M full map, R recentre the map, F5 reload,
 ; and LALT for the x-ray highlight (a press-on / press-off toggle - see
 ; highlight_mode).
@@ -302,7 +301,17 @@ shrine_list = 1
 ; ---------------------------------------------------------------------------------
 ; HOTKEYS
 ; ---------------------------------------------------------------------------------
+; Opening the full map with a CONTROLLER: press these pad buttons together. Same
+; spelling as highlight_pad_chord (BACK, START, A, B, X, Y, LB, RB, LS, RS, UP, DOWN,
+; LEFT, RIGHT, joined with +), and `none` disables it. Needs map_gamepad = 1. The
+; triggers are analogue and are not accepted here.
+map_pad_open_chord = BACK+Y
+
 ; Settings panel, full map, recentre the full map, and config + map + marker reload.
+; ONE MODIFIER may be put in front of any of these - `ctrl+`, `shift+` or `alt+`, as
+; in `map_key = ctrl+m` - which is the answer when a bare letter clashes with one of
+; the game's own binds. A key bound here is swallowed while the mod is using it, so
+; the game does not also see it.
 panel_key = F2
 map_key = M
 map_recenter_key = R
@@ -601,3 +610,21 @@ crash_breadcrumb = 1
 ; are not, it refuses and says why in the log. Turn this on only if you are happy to
 ; test it; a bad fast travel can leave the game streaming the wrong level.
 fast_travel_enabled = 0
+
+; ---------------------------------------------------------------------------------
+; TEXT AND DPI
+; ---------------------------------------------------------------------------------
+; The font the whole overlay draws with, as a full path to a .ttf or .otf. Segoe UI
+; ships with Windows and is what the OS itself uses. It is rasterised at 13 pixels
+; times ui_scale, so the text is as sharp at 4K as at 1080p; the built-in bitmap font
+; could only be magnified. `none`, an empty value or a file that cannot be read falls
+; back to that built-in font and says so in the log.
+ui_font = C:\Windows\Fonts\segoeui.ttf
+
+; Scale the two ZOOM keys with ui_scale as well (minimap_zoom and map_zoom).
+;   1  one config file shows the SAME AREA OF THE WORLD at every resolution: at 4K the
+;      minimap disc is twice as many pixels across and each of those pixels covers half
+;      as much ground, so you get the picture you tuned at 1080p at twice the detail.
+;   0  uu/px is literal, so a bigger screen shows more of the world at the same
+;      setting. This is what 1.0.0 did - set it to 0 to get that back.
+zoom_dpi_scaled = 1

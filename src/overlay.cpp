@@ -134,10 +134,165 @@ namespace overlay
             return std::round(s * 100.0f) / 100.0f;
         }
 
+        //==============================================================================
+        // THE FONT (review B.11)
+        //==============================================================================
+        //
+        // ImGui's built-in font is ProggyClean, a 13-pixel BITMAP. At 1080p that is the
+        // size it was drawn for; at 2160p `style.FontScaleMain = 2` magnifies the bitmap,
+        // which is the one part of the HUD a resolution-independent design cannot fake -
+        // every number in the panel and every marker label came out soft and blocky.
+        //
+        // So a real TTF is loaded and rasterised at 13 px, and ImGui 1.92's dynamic atlas
+        // re-rasterises it at 13 * ui_scale when the scale changes (the backend declares
+        // ImGuiBackendFlags_RendererHasTextures, so there is no atlas of ours to rebuild
+        // and no texture of ours to release - which is also why this is the only place
+        // that has to react to a scale change at all).
+        //
+        // RENDER THREAD ONLY, and at the top of the frame: io.Fonts is read by
+        // ImGui::NewFrame and by every draw-list text call, so it may only be swapped
+        // here - the same rule the F5 texture drop obeys.
+        char g_font_loaded[192]{};   // the path the atlas currently holds
+        bool g_font_checked = false; // false = the config's path has not been tried yet
+
+        bool font_path_is_none(const char* path)
+        {
+            if (path == nullptr || path[0] == 0)
+            {
+                return true;
+            }
+            return ::_stricmp(path, "none") == 0 || ::_stricmp(path, "off") == 0;
+        }
+
+        void ensure_ui_font(const mm::Config& cfg)
+        {
+            if (g_font_checked && ::strcmp(g_font_loaded, cfg.ui_font) == 0)
+            {
+                return; // steady state: one strcmp of a short string per frame
+            }
+            g_font_checked = true;
+            ::strncpy_s(g_font_loaded, sizeof(g_font_loaded), cfg.ui_font, _TRUNCATE);
+
+            ImGuiIO& io = ImGui::GetIO();
+            io.Fonts->Clear();
+            if (font_path_is_none(cfg.ui_font))
+            {
+                io.Fonts->AddFontDefault();
+                mm::log(L"ui font: the built-in bitmap font (ui_font = none)");
+                return;
+            }
+            // 13 px is the BASE size; style.FontScaleMain multiplies it, so this number
+            // stays 13 at every resolution and the scaling lives in one place.
+            const ImFont* f = io.Fonts->AddFontFromFileTTF(cfg.ui_font, 13.0f);
+            const std::wstring shown(cfg.ui_font, cfg.ui_font + ::strlen(cfg.ui_font));
+            if (f == nullptr)
+            {
+                // A wrong path is one log line and a working mod, never a mod with no
+                // text in it.
+                io.Fonts->Clear();
+                io.Fonts->AddFontDefault();
+                mm::logf(L"ui font: could not read '{}' - using the built-in bitmap font", shown);
+                return;
+            }
+            mm::logf(L"ui font: {} at 13 px (x ui scale {:.2f})", shown, static_cast<double>(g_ui_scale));
+        }
+
+        //==============================================================================
+        // KEYBOARD AND GAMEPAD NAVIGATION (review B.8)
+        //==============================================================================
+        //
+        // Called once from the D3D12 init, straight after CreateContext. The F2 panel was
+        // mouse-only: a player on a controller could open it and then not move inside it.
+        //
+        // NavEnableGamepad makes ImGui read io's gamepad buttons. It does NOT make
+        // anything poll XInput here: the backend's own XInput code is compiled out (see
+        // xmake.lua) because that runs inside Present, and feed_pad_nav() below hands
+        // ImGui the state the loop thread has already sampled.
+        //
+        // NavEnableSetMousePos is deliberately NOT set - it would warp the OS cursor to
+        // the focused widget, and the game owns that cursor.
+        void ui_init_io(ImGuiIO& io)
+        {
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+        }
+
+        // RENDER THREAD. The pad state comes from gamepad.cpp on the loop thread; this
+        // only translates it into io events.
+        //
+        // ONLY WHILE THE PANEL IS OPEN. The full map reads the pad directly (it is a
+        // canvas, not a widget tree, and it has its own bindings for the sticks and the
+        // triggers), and during play the pad belongs to the game - a stick push must
+        // never move a focus rectangle nobody can see.
+        void feed_pad_nav(const mm::Config& cfg)
+        {
+            static bool fed_last_frame = false;
+            static const ImGuiKey kAllPadKeys[] = {
+                ImGuiKey_GamepadFaceDown,   ImGuiKey_GamepadFaceRight,  ImGuiKey_GamepadFaceLeft,
+                ImGuiKey_GamepadFaceUp,     ImGuiKey_GamepadDpadUp,     ImGuiKey_GamepadDpadDown,
+                ImGuiKey_GamepadDpadLeft,   ImGuiKey_GamepadDpadRight,  ImGuiKey_GamepadL1,
+                ImGuiKey_GamepadR1,         ImGuiKey_GamepadStart,      ImGuiKey_GamepadBack,
+                ImGuiKey_GamepadLStickUp,   ImGuiKey_GamepadLStickDown, ImGuiKey_GamepadLStickLeft,
+                ImGuiKey_GamepadLStickRight};
+
+            const pad::State gp = pad::state();
+            const bool want = cfg.map_gamepad && gp.connected &&
+                              mm::g_panel_open.load(std::memory_order_relaxed);
+            if (!want)
+            {
+                if (fed_last_frame)
+                {
+                    // Release everything ONCE. Without this ImGui keeps whatever was
+                    // last held for ever, and nav stays stuck in a direction - the same
+                    // "nothing latched" rule the rest of the input obeys.
+                    ImGuiIO& io = ImGui::GetIO();
+                    for (const ImGuiKey k : kAllPadKeys)
+                    {
+                        io.AddKeyEvent(k, false);
+                    }
+                    fed_last_frame = false;
+                }
+                return;
+            }
+            fed_last_frame = true;
+            ImGuiIO& io = ImGui::GetIO();
+            const auto btn = [&io, &gp](ImGuiKey key, std::uint16_t bit) {
+                io.AddKeyEvent(key, (gp.held & bit) != 0);
+            };
+            // A activates, B cancels: the Xbox layout, which is what ImGui's own nav
+            // key names mean.
+            btn(ImGuiKey_GamepadFaceDown, pad::kA);
+            btn(ImGuiKey_GamepadFaceRight, pad::kB);
+            btn(ImGuiKey_GamepadFaceLeft, pad::kX);
+            btn(ImGuiKey_GamepadFaceUp, pad::kY);
+            btn(ImGuiKey_GamepadDpadUp, pad::kDpadUp);
+            btn(ImGuiKey_GamepadDpadDown, pad::kDpadDown);
+            btn(ImGuiKey_GamepadDpadLeft, pad::kDpadLeft);
+            btn(ImGuiKey_GamepadDpadRight, pad::kDpadRight);
+            btn(ImGuiKey_GamepadL1, pad::kLeftShoulder);
+            btn(ImGuiKey_GamepadR1, pad::kRightShoulder);
+            btn(ImGuiKey_GamepadStart, pad::kStart);
+            btn(ImGuiKey_GamepadBack, pad::kBack);
+            // The left stick moves the focus. ImGui wants an analogue value for a
+            // directional nav key (0 = not pressed, 1 = fully pushed); the deadzone has
+            // already been applied and the range rescaled by gamepad.cpp.
+            const auto axis = [&io](ImGuiKey key, float v) {
+                const float a = v > 0.0f ? (v > 1.0f ? 1.0f : v) : 0.0f;
+                io.AddKeyAnalogEvent(key, a > 0.1f, a);
+            };
+            axis(ImGuiKey_GamepadLStickRight, gp.lx);
+            axis(ImGuiKey_GamepadLStickLeft, -gp.lx);
+            axis(ImGuiKey_GamepadLStickUp, gp.ly);
+            axis(ImGuiKey_GamepadLStickDown, -gp.ly);
+        }
+
         // Render thread. Rebuilds the ImGui style FROM SCRATCH at the new scale - never
         // ScaleAllSizes on the already-scaled style, which would compound every time.
         void apply_ui_scale(float scale)
         {
+            // The font rides along here because this is the one function that runs on
+            // the render thread at the top of every frame, before a draw list exists.
+            ensure_ui_font(mm::cfg_cached());
             if (scale == g_ui_scale_applied)
             {
                 return;
@@ -172,6 +327,32 @@ namespace overlay
             out.offset_y *= s;
             out.minimap_min_px *= s;
             out.minimap_arrow_min_px *= s;
+            // THE TWO ZOOM KEYS (review B.12). `zoom_uu_per_px` and `map_zoom` are world
+            // units per SCREEN PIXEL, and the disc's SIZE is a fraction of the screen -
+            // so leaving them alone means a 4K minimap, twice as many pixels across,
+            // shows twice the world radius at the same setting. That is a different view,
+            // not a bigger one, and it is not what "a config tuned at 1080p is correct at
+            // 4K" promises anywhere else in this function.
+            //
+            // Coverage is pixels x uu-per-pixel, and the pixels went up by `s`, so the
+            // uu per pixel has to come DOWN by `s` to keep the coverage identical: the
+            // 4K disc is twice as wide and each of its pixels covers half as much ground,
+            // which is the same picture at twice the detail. `zoom_dpi_scaled = 0`
+            // restores 1.0.0's literal behaviour for anyone who preferred it.
+            //
+            // The zoom LADDER (minimap_zoom_presets) is deliberately not touched here: it
+            // is the set of values the zoom key writes back into zoom_uu_per_px, i.e. a
+            // config value, and scaling it would feed a scaled number into the config
+            // file the next time the key was pressed.
+            //
+            // Only the MINIMAP's key is scaled here. The full map is handed the
+            // unscaled config on purpose (its filter chips write back into it, and a
+            // scaled number must never reach the config file), so it applies the same
+            // factor at the point of use - see `zscale` in draw_full_map.
+            if (cfg.zoom_dpi_scaled && s > 0.0f)
+            {
+                out.zoom_uu_per_px /= s;
+            }
             return out;
         }
 
@@ -1343,6 +1524,75 @@ namespace overlay
         }
 
         //==============================================================================
+        // [fix-ui] HOTKEY SWALLOW (review B.13)
+        //==============================================================================
+        //
+        // A key bound to a mod action used to reach the game as well: the loop thread
+        // samples it with GetAsyncKeyState and the WndProc hook let the message through,
+        // so `M` opened the full map AND did whatever `M` does in the game. The async
+        // key state is kernel-side and cannot be denied to a game that polls it
+        // (lessons.md) - but the WINDOW MESSAGE can be, and that is how UE reads its
+        // keyboard here.
+        //
+        // The decision has to cost one atomic read, because it runs on the window thread
+        // for every key message. So the LOOP thread - the only place that knows which
+        // bindings exist, which of them are live at this instant and whether their
+        // modifier is held - publishes a 256-bit set of virtual keys, and this tests a
+        // bit. publish_swallow_set(), in the hotkey block, is the other half.
+        //
+        // NOT filtered: a raw-input (WM_INPUT) keyboard packet. The panel's Esc path is
+        // the precedent for how that would be done, and it costs a RID_INPUT read on
+        // every packet; if a game turns out to read gameplay keys that way, the
+        // GetRegisteredRawInputDevices line already in the log says so.
+        std::atomic<std::uint32_t> g_swallow_bits[8]{};
+        // WHEN THE SET WAS LAST PUBLISHED. The loop thread refreshes it on every 60 Hz
+        // pass, so a stale set means the loop thread has stopped sampling (the mod was
+        // disabled for the session, the process is shutting down) - and a mod that has
+        // stopped running must not still be eating the player's keys. Nothing here is
+        // latched, which is the same rule the show/hide conditions obey (lessons.md).
+        std::atomic<std::uint64_t> g_swallow_stamp{0};
+        constexpr std::uint64_t kSwallowStaleMs = 250;
+
+        void swallow_set_clear()
+        {
+            for (std::atomic<std::uint32_t>& w : g_swallow_bits)
+            {
+                w.store(0, std::memory_order_relaxed);
+            }
+        }
+
+        void swallow_set_add(int vk)
+        {
+            if (vk > 0 && vk < 256)
+            {
+                g_swallow_bits[vk >> 5].fetch_or(1u << (static_cast<unsigned>(vk) & 31u),
+                                                 std::memory_order_relaxed);
+            }
+        }
+
+        // Key DOWN / UP only. WM_CHAR carries a character rather than a virtual key, so
+        // testing it against a VK would be a coincidence, and nothing here reads text.
+        bool is_hotkey_message(UINT msg)
+        {
+            return msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP;
+        }
+
+        bool hotkey_swallow(WPARAM wparam)
+        {
+            const unsigned vk = static_cast<unsigned>(wparam);
+            if (vk == 0 || vk >= 256)
+            {
+                return false;
+            }
+            const std::uint64_t stamp = g_swallow_stamp.load(std::memory_order_relaxed);
+            if (stamp == 0 || ::GetTickCount64() - stamp > kSwallowStaleMs)
+            {
+                return false;
+            }
+            return (g_swallow_bits[vk >> 5].load(std::memory_order_relaxed) & (1u << (vk & 31u))) != 0;
+        }
+
+        //==============================================================================
         // WndProc hook
         //==============================================================================
 
@@ -1700,6 +1950,11 @@ namespace overlay
                         return 1;
                     }
                 }
+                // [fix-ui] hotkey swallow - one atomic read; see g_swallow_bits above.
+                if (is_hotkey_message(msg) && hotkey_swallow(wparam))
+                {
+                    return 1;
+                }
             }
             const WNDPROC prev = g_prev_wndproc.load(std::memory_order_acquire);
             if (prev == nullptr)
@@ -2035,6 +2290,77 @@ namespace overlay
             double px = 0.0;
             double py = 0.0;
         };
+
+        //==============================================================================
+        // WORLD -> MINIMAP OFFSET, and the edge clamp (review B.22)
+        //==============================================================================
+        //
+        // Three copies of this arithmetic lived inside draw_minimap: one in draw_markers,
+        // one in the found-ring projector and one in the waypoint block - the same
+        // rotate-and-divide, then the same round-or-square limit test, then the same
+        // scale-onto-the-rim. Three copies of a coordinate transform is three chances for
+        // the waypoint to sit a pixel off the marker it was set on.
+        //
+        // The three callers differ only in what they want done when the point falls
+        // OUTSIDE the disc, so that is the parameter: `clamp_to_edge` false means "tell
+        // me it is out" (the rings, and markers with markers_clamp_to_edge off) and true
+        // means "put it on the rim and tell me you did" (the waypoint, which is never
+        // culled).
+        struct MiniOffset
+        {
+            double dx = 0.0;
+            double dy = 0.0;
+            bool visible = false; // may be drawn at (dx, dy)
+            bool clamped = false; // ...but it was pushed onto the rim to get there
+        };
+
+        MiniOffset mini_offset(const MiniGeom& g, double wx, double wy, bool round, float limit,
+                               bool clamp_to_edge)
+        {
+            const double wdx = wx - g.px;
+            const double wdy = wy - g.py;
+            const double zz = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
+            MiniOffset out{};
+            // Screen up is the player's forward (rotate mode) or world +X (north-up);
+            // see uv_at() below for the derivation of these two rows.
+            out.dx = (-g.sin_yaw * wdx + g.cos_yaw * wdy) / zz;
+            out.dy = (-g.cos_yaw * wdx - g.sin_yaw * wdy) / zz;
+            const double lim = static_cast<double>(limit);
+            if (round)
+            {
+                const double d2 = out.dx * out.dx + out.dy * out.dy;
+                if (d2 <= lim * lim)
+                {
+                    out.visible = true;
+                    return out;
+                }
+                const double d = std::sqrt(d2);
+                if (!clamp_to_edge || d <= 0.0001)
+                {
+                    return out;
+                }
+                out.dx = out.dx * lim / d;
+                out.dy = out.dy * lim / d;
+            }
+            else
+            {
+                if (std::abs(out.dx) <= lim && std::abs(out.dy) <= lim)
+                {
+                    out.visible = true;
+                    return out;
+                }
+                if (!clamp_to_edge)
+                {
+                    return out;
+                }
+                const double sc = lim / (std::max)(std::abs(out.dx), std::abs(out.dy));
+                out.dx *= sc;
+                out.dy *= sc;
+            }
+            out.visible = true;
+            out.clamped = true;
+            return out;
+        }
 
         // Screen offset (dx, dy) in minimap pixels -> texture uv.
         //
@@ -2896,22 +3222,14 @@ namespace overlay
             draw_srv(dl, t.srv_gpu, uv, g, col, round, x0, y0, side);
         }
 
-        // mm::key_name is wide (the log is wide); ImGui is UTF-8. Key names are pure
-        // ASCII, so this is a cast per character - but it has to be an EXPLICIT one:
+        // The mod's own wide strings (the log is wide) rendered for ImGui, which is
+        // UTF-8. Key names, chord names and stage names are pure ASCII, so this is a
+        // cast per character - but it has to be an EXPLICIT one:
         // std::string(w.begin(), w.end()) compiles and warns (C4244), and this mod
         // ships warning-free.
-        std::string key_name_ascii(int vk)
-        {
-            const std::wstring wide = mm::key_name(vk);
-            std::string out;
-            out.reserve(wide.size());
-            for (const wchar_t c : wide)
-            {
-                out.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
-            }
-            return out;
-        }
-
+        //
+        // ONE converter. key_name_ascii() used to be a byte-for-byte copy of this with
+        // `mm::key_name(vk)` inlined into it (review B.22).
         std::string wide_to_ascii(const std::wstring& wide)
         {
             std::string out;
@@ -2921,6 +3239,12 @@ namespace overlay
                 out.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
             }
             return out;
+        }
+
+        // A binding's display name, modifier prefix included ("F2", "CTRL+M").
+        std::string key_name_ascii(int binding)
+        {
+            return wide_to_ascii(mm::key_name(binding));
         }
 
         // THE KEY HINTS. Built from the CONFIG, never from the defaults, so a rebound key
@@ -2989,6 +3313,14 @@ namespace overlay
         // applied in on_update(). Accumulated, so a fast flick of the wheel is not lost.
         std::atomic<int> g_zoom_steps{0};
 
+        // "THE HUD HAS BEEN ON SCREEN AT LEAST ONCE", published by the render thread the
+        // first frame hud_gate() answers "yes" - i.e. the first frame with a validated
+        // gameplay pawn, which is the first frame a player could see anything of ours.
+        // The first-run tip waits for it (review B.2): it used to fire on the first pass
+        // of on_update, over the splash screen, and write its once-per-install sentinel
+        // there. Set once and never cleared - it is a "has happened", not a state.
+        std::atomic<bool> g_hud_gate_ever_open{false};
+
         gly::Palette g_palette = gly::Palette::Default;
         mdb::Rgb g_plate = gly::theme_colors(gly::Theme::Neutral).plate;
 
@@ -3046,8 +3378,18 @@ namespace overlay
                                bool hollow = false)
         {
             const int ca = static_cast<int>((col >> IM_COL32_A_SHIFT) & 0xFFu);
-            dl->AddCircleFilled(p, r + 1.0f, IM_COL32(0, 0, 0, (ca * 120) / 255), 12);
+            // THE HALO COVERS THE SHAPE (review B.17). It used to be a fixed r + 1
+            // circle, which the chest's box CORNERS stuck out of - so the one glyph most
+            // often drawn over a bright floor lost its edge exactly where its outline
+            // turns. gly::shape_extent() is how far this shape actually reaches; 16
+            // segments rather than 12, because a bigger circle shows its facets.
+            const gly::Shape shape = gly::shape_of(cat);
+            dl->AddCircleFilled(p, r * gly::shape_extent(shape) + 1.0f,
+                                IM_COL32(0, 0, 0, (ca * 120) / 255), 16);
 
+            // Below ~7 px the fine detail inside a glyph is a smudge rather than a
+            // silhouette, so the three complex shapes have a simplified form.
+            const bool simple = r < gly::kSimpleGlyphRadius;
             const float w = hollow ? 1.7f : 1.2f;
             // A filled shape when the marker is live, the same shape as an outline when
             // it is found. Both take the SAME geometry, so the two states are the same
@@ -3108,7 +3450,7 @@ namespace overlay
                 dl->AddCircleFilled(p, r * rad, hollow ? col : edge, 8);
             };
 
-            switch (gly::shape_of(cat))
+            switch (shape)
             {
             case gly::Shape::Diamond:
                 // AddNgon starts at angle 0, so a 4-gon has its vertices on the axes.
@@ -3175,11 +3517,16 @@ namespace overlay
                             ink, w);
                 dl->AddLine(ImVec2{p.x + hw - fold, p.y - hh + fold}, ImVec2{p.x + hw, p.y - hh + fold},
                             ink, w);
-                // Two rules of "writing", inset from the edges.
-                for (int i = 0; i < 2; ++i)
+                // Two rules of "writing", inset from the edges - dropped in the
+                // simplified form, where they are 2 px apart inside a 5 px page and
+                // fill it in. The folded corner is the identity and it survives.
+                if (!simple)
                 {
-                    const float y = p.y + r * (i == 0 ? 0.10f : 0.45f);
-                    dl->AddLine(ImVec2{p.x - hw * 0.6f, y}, ImVec2{p.x + hw * 0.6f, y}, ink, w * 0.8f);
+                    for (int i = 0; i < 2; ++i)
+                    {
+                        const float y = p.y + r * (i == 0 ? 0.10f : 0.45f);
+                        dl->AddLine(ImVec2{p.x - hw * 0.6f, y}, ImVec2{p.x + hw * 0.6f, y}, ink, w * 0.8f);
+                    }
                 }
                 break;
             }
@@ -3189,26 +3536,46 @@ namespace overlay
             case gly::Shape::Ladder:
                 dl->AddLine(ImVec2{p.x - r * 0.5f, p.y - r}, ImVec2{p.x - r * 0.5f, p.y + r}, col, 1.6f);
                 dl->AddLine(ImVec2{p.x + r * 0.5f, p.y - r}, ImVec2{p.x + r * 0.5f, p.y + r}, col, 1.6f);
-                for (int i = -1; i <= 1; ++i)
+                // SIMPLIFIED: one rung, not three. At r = 6.5 the three rungs are ~3.5
+                // px apart and the 1.2 px lines merge into a filled box - which is the
+                // chest's silhouette. One rung keeps the H that says "ladder".
+                if (simple)
                 {
-                    const float y = p.y + static_cast<float>(i) * r * 0.55f;
-                    dl->AddLine(ImVec2{p.x - r * 0.5f, y}, ImVec2{p.x + r * 0.5f, y}, col, 1.2f);
-                }
-                break;
-            case gly::Shape::Lift:
-                rect(0.85f, 0.5f);
-                if (hollow)
-                {
-                    dl->AddTriangle(ImVec2{p.x, p.y - r * 1.35f}, ImVec2{p.x - r * 0.5f, p.y - r * 0.6f},
-                                    ImVec2{p.x + r * 0.5f, p.y - r * 0.6f}, col, w);
+                    dl->AddLine(ImVec2{p.x - r * 0.5f, p.y}, ImVec2{p.x + r * 0.5f, p.y}, col, 1.2f);
                 }
                 else
                 {
-                    dl->AddTriangleFilled(ImVec2{p.x, p.y - r * 1.35f},
-                                          ImVec2{p.x - r * 0.5f, p.y - r * 0.6f},
-                                          ImVec2{p.x + r * 0.5f, p.y - r * 0.6f}, col);
+                    for (int i = -1; i <= 1; ++i)
+                    {
+                        const float y = p.y + static_cast<float>(i) * r * 0.55f;
+                        dl->AddLine(ImVec2{p.x - r * 0.5f, y}, ImVec2{p.x + r * 0.5f, y}, col, 1.2f);
+                    }
                 }
                 break;
+            case gly::Shape::Lift:
+            {
+                // SIMPLIFIED: a flatter platform and a taller, narrower arrow, drawn
+                // FILLED even when the marker is found. The two shapes are 1 px apart at
+                // r = 6.5, and an outlined arrow over an outlined box at that size is a
+                // grey blob; the arrow is the whole difference from the chest's box, so
+                // it is the part that must stay solid.
+                const float box_hh = simple ? 0.36f : 0.5f;
+                rect(0.85f, box_hh);
+                const float tip = p.y - r * (simple ? 1.2f : 1.35f);
+                const float base = p.y - r * (simple ? 0.5f : 0.6f);
+                const float half_w = r * (simple ? 0.42f : 0.5f);
+                if (hollow && !simple)
+                {
+                    dl->AddTriangle(ImVec2{p.x, tip}, ImVec2{p.x - half_w, base},
+                                    ImVec2{p.x + half_w, base}, col, w);
+                }
+                else
+                {
+                    dl->AddTriangleFilled(ImVec2{p.x, tip}, ImVec2{p.x - half_w, base},
+                                          ImVec2{p.x + half_w, base}, col);
+                }
+                break;
+            }
             case gly::Shape::RingBar:
                 dl->AddCircle(p, r, col, 14, 2.0f);
                 dl->AddLine(ImVec2{p.x - r * 0.7f, p.y}, ImVec2{p.x + r * 0.7f, p.y}, col, 1.4f);
@@ -3235,6 +3602,7 @@ namespace overlay
             int drawn = 0;
             int clamped = 0;
             int filtered = 0;
+            int merged = 0; // rolled into another glyph's count badge (review B.16)
             // A fixed buffer, not a std::string: this used to be assigned on the render
             // thread every single frame, which is a heap allocation per frame for a
             // 54-character id. DrawMarker::id is a fixed char array too, so this is one
@@ -3384,29 +3752,38 @@ namespace overlay
         std::vector<std::uint8_t> g_shot_dib;
         std::atomic<bool> g_shot_dib_ready{false};
 
-        // loop -> render: what to say in the toast. The loop thread owns the clipboard
-        // call, but toasts are drawn by the render thread, so the text comes back the
-        // same way everything else does - a buffer plus a flag.
-        // The loop thread posts toast text here; the render thread picks it up in
-        // build_ui. Used by the clipboard result AND by the first-run tip, because a
-        // toast may only be raised where toasts are drawn.
-        char g_shot_toast[160]{};
-        unsigned g_shot_toast_ms = 2500;
-        std::atomic<bool> g_shot_toast_ready{false};
         // loop -> render: the handover is complete, so the next request may be recorded.
         // Without it a failed clipboard write would leave the state machine parked in
         // Waiting for ever and the key would silently stop working.
         std::atomic<bool> g_shot_stage_done{false};
 
+        //==============================================================================
+        // THE TOAST MAILBOX (review B.22)
+        //==============================================================================
+        //
+        // One slot, one lock, and it is ITS OWN. post_toast() used to take the
+        // SCREENSHOT's spinlock and write into a buffer that lived among the screenshot
+        // state, so an unrelated notice ("first run: these are your keys", "minimap zoom
+        // 26 uu/px") contended with a full-resolution DIB hand-off and read as part of
+        // the clipboard machinery. They share nothing but a direction: loop -> render.
+        //
+        // A toast may only be RAISED where toasts are drawn (the render thread owns
+        // g_toast), so this is how the loop thread asks. Newest wins: a toast is a
+        // notice, and a queue of stale notices is worse than the latest one.
+        Spinlock g_toast_lock;
+        char g_toast_pending[160]{};
+        unsigned g_toast_pending_ms = 2500;
+        std::atomic<bool> g_toast_pending_ready{false};
+
         // ANY THREAD. Queues a toast for the render thread to draw.
         void post_toast(const char* text, unsigned ms)
         {
             {
-                SpinGuard guard(g_shot_lock);
-                ::strncpy_s(g_shot_toast, sizeof(g_shot_toast), text, _TRUNCATE);
-                g_shot_toast_ms = ms;
+                SpinGuard guard(g_toast_lock);
+                ::strncpy_s(g_toast_pending, sizeof(g_toast_pending), text, _TRUNCATE);
+                g_toast_pending_ms = ms;
             }
-            g_shot_toast_ready.store(true, std::memory_order_release);
+            g_toast_pending_ready.store(true, std::memory_order_release);
         }
 
         void shot_fail(const char* why)
@@ -3636,7 +4013,12 @@ namespace overlay
                 double dist;
                 bool unlocked;
             };
-            std::vector<Row> rows;
+            // REUSED FRAME TO FRAME (review B.18): the shrine window is open while the
+            // player reads it, so this vector was allocated and freed on the render
+            // thread at frame rate. Render thread only, like every other static in this
+            // file. (`Shrine::label()` returns a reference and allocates nothing.)
+            static std::vector<Row> rows;
+            rows.clear();
             rows.reserve(table->size());
             for (const shdb::Shrine& sh : *table)
             {
@@ -4076,6 +4458,11 @@ namespace overlay
             const std::uint64_t left = g_toast_until - now;
             const float a = left >= 300 ? 1.0f : static_cast<float>(left) / 300.0f;
             const ImGuiViewport* vp = ImGui::GetMainViewport();
+            // The one thing that KEEPS the foreground list (review B.20 moved the HUD
+            // off it): a toast is a two-second notice about something the player just
+            // did, and it has to be readable over the panel and over the full map -
+            // "map copied to clipboard" is raised by a key that only works while the map
+            // is open.
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             const ImVec2 ts = ImGui::CalcTextSize(g_toast);
             const float pad = ImGui::GetTextLineHeight() * 0.5f;
@@ -4245,6 +4632,133 @@ namespace overlay
             update_found_watch(markers::rounds(), ::GetTickCount64());
         }
 
+        //==============================================================================
+        // DECLUTTER: MERGING COINCIDENT GLYPHS (review B.16)
+        //==============================================================================
+        //
+        // Six chests in one room are six glyphs inside one glyph's width: a smear that
+        // says "chests" less clearly than a single chest with a 6 next to it. The compass
+        // has deduped its pips since 0.9.2; the minimap and the full map never did - they
+        // only ever culled by distance and by a hard count.
+        //
+        // WHAT MERGES. Same CATEGORY only, and same found state. Merging across
+        // categories would be a lie - one glyph cannot mean "a chest and an NPC" - and
+        // the shape is the half of a marker's identity that survives at 6 px, so it is
+        // the half that must not be invented. The nearest member of a cluster is the one
+        // drawn, because it is the one the player is walking to.
+        //
+        // HOW. A uniform grid keyed on (cell, category): anything landing in the same
+        // cell as an already-kept glyph of the same category joins it. Cell size is the
+        // merge distance, so two glyphs that straddle a cell boundary can stay separate -
+        // the same property the compass's 3-pixel columns have, and the same reason: an
+        // O(n) grid instead of an O(n x kept) sweep on the render thread, for a
+        // difference nobody can see once one of the two is a count badge anyway.
+        //
+        // Render thread only. Every buffer is static and reused, so a full map with four
+        // thousand markers allocates nothing per frame (review B.18's rule).
+        class MergeGrid
+        {
+        public:
+            // `cell` is the merge distance in pixels; the grid covers [x0, x0 + w] x
+            // [y0, y0 + h] and is clamped to kMaxCells cells on a side (a coarser cell
+            // merges slightly more aggressively, which is the safe direction).
+            void reset(float x0, float y0, float w, float h, float cell)
+            {
+                constexpr int kMaxSide = 128;
+                m_x0 = x0;
+                m_y0 = y0;
+                m_cell = (std::max)(1.0f, cell);
+                m_cols = (std::min)(kMaxSide, (std::max)(1, static_cast<int>(w / m_cell) + 2));
+                m_rows = (std::min)(kMaxSide, (std::max)(1, static_cast<int>(h / m_cell) + 2));
+                // Re-derive the cell size from the clamp, so a huge canvas still covers
+                // itself rather than merging everything into the top-left corner.
+                m_cell = (std::max)(m_cell, (std::max)(w / static_cast<float>(m_cols),
+                                                       h / static_cast<float>(m_rows)));
+                m_head.assign(static_cast<std::size_t>(m_cols) * static_cast<std::size_t>(m_rows), -1);
+                m_next.clear();
+                m_cat.clear();
+                m_slot.clear();
+            }
+
+            // The kept glyph this one should join, or -1 to keep it as a new one.
+            int find(float x, float y, int cat) const
+            {
+                const int c = cell_of(x, y);
+                if (c < 0)
+                {
+                    return -1;
+                }
+                for (int e = m_head[static_cast<std::size_t>(c)]; e >= 0; e = m_next[static_cast<std::size_t>(e)])
+                {
+                    if (m_cat[static_cast<std::size_t>(e)] == cat)
+                    {
+                        return m_slot[static_cast<std::size_t>(e)];
+                    }
+                }
+                return -1;
+            }
+
+            void add(float x, float y, int cat, int slot)
+            {
+                const int c = cell_of(x, y);
+                if (c < 0)
+                {
+                    return;
+                }
+                m_next.push_back(m_head[static_cast<std::size_t>(c)]);
+                m_cat.push_back(cat);
+                m_slot.push_back(slot);
+                m_head[static_cast<std::size_t>(c)] = static_cast<int>(m_next.size()) - 1;
+            }
+
+        private:
+            int cell_of(float x, float y) const
+            {
+                const int cx = static_cast<int>((x - m_x0) / m_cell);
+                const int cy = static_cast<int>((y - m_y0) / m_cell);
+                if (cx < 0 || cy < 0 || cx >= m_cols || cy >= m_rows)
+                {
+                    return -1;
+                }
+                return cy * m_cols + cx;
+            }
+
+            float m_x0 = 0.0f;
+            float m_y0 = 0.0f;
+            float m_cell = 1.0f;
+            int m_cols = 1;
+            int m_rows = 1;
+            std::vector<int> m_head;
+            std::vector<int> m_next;
+            std::vector<int> m_cat;
+            std::vector<int> m_slot;
+        };
+
+        // The little "and N more like this one" badge. Drawn up and to the right of the
+        // glyph, on the plate colour so it reads over both the walkable fill and the
+        // dark backdrop, and never for a cluster of one.
+        void draw_count_badge(ImDrawList* dl, ImVec2 at, float r, int count, int alpha)
+        {
+            if (count < 2)
+            {
+                return;
+            }
+            char text[8]{};
+            if (count > 99)
+            {
+                (void)std::snprintf(text, sizeof(text), "99+");
+            }
+            else
+            {
+                (void)std::snprintf(text, sizeof(text), "%d", count);
+            }
+            const ImVec2 ts = ImGui::CalcTextSize(text);
+            const ImVec2 tp{at.x + r * 0.65f, at.y - r * 0.65f - ts.y * 0.5f};
+            dl->AddRectFilled(ImVec2{tp.x - 2.0f, tp.y}, ImVec2{tp.x + ts.x + 2.0f, tp.y + ts.y},
+                              plate_color(static_cast<int>(alpha * 0.82f)), 2.0f);
+            dl->AddText(tp, IM_COL32(238, 242, 248, alpha), text);
+        }
+
         void draw_markers(const mm::Config& cfg, const MiniGeom& g, bool round, float x0, float y0, float side,
                           ImDrawList* dl)
         {
@@ -4260,9 +4774,6 @@ namespace overlay
                 return;
             }
 
-            const double c = g.cos_yaw;
-            const double s = g.sin_yaw;
-            const double z = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
             const float r = cfg.markers_size;
             const float limit = (std::max)(4.0f, g.half - r - 2.0f);
 
@@ -4275,6 +4786,7 @@ namespace overlay
                 std::uint8_t rarity = 0;
                 bool found = false;
                 bool clamped = false;
+                int count = 1; // how many markers this glyph stands for (review B.16)
                 const char* id = nullptr;
             };
             // Render thread only, and reused frame to frame so a full minimap never
@@ -4301,46 +4813,21 @@ namespace overlay
                 // The minimap is centred on the position the RENDER side works from,
                 // so the on-screen offset is still computed here; the distance used for
                 // the cap and the sort comes from the shared pass.
-                const double wdx = m.x - g.px;
-                const double wdy = m.y - g.py;
-                double dx = (-s * wdx + c * wdy) / z;
-                double dy = (-c * wdx - s * wdy) / z;
-
-                bool clamped = false;
-                if (round)
+                const MiniOffset off =
+                    mini_offset(g, m.x, m.y, round, limit, cfg.markers_clamp_to_edge);
+                if (!off.visible)
                 {
-                    const double d = std::sqrt(dx * dx + dy * dy);
-                    if (d > limit)
-                    {
-                        if (!cfg.markers_clamp_to_edge || d <= 0.0001)
-                        {
-                            continue;
-                        }
-                        dx = dx * limit / d;
-                        dy = dy * limit / d;
-                        clamped = true;
-                    }
-                }
-                else if (std::abs(dx) > limit || std::abs(dy) > limit)
-                {
-                    if (!cfg.markers_clamp_to_edge)
-                    {
-                        continue;
-                    }
-                    const double scale = limit / (std::max)(std::abs(dx), std::abs(dy));
-                    dx *= scale;
-                    dy *= scale;
-                    clamped = true;
+                    continue;
                 }
 
                 Cand cand{};
-                cand.dx = static_cast<float>(dx);
-                cand.dy = static_cast<float>(dy);
+                cand.dx = static_cast<float>(off.dx);
+                cand.dy = static_cast<float>(off.dy);
                 cand.d2 = fc.d2_xy;
                 cand.cat = fc.cat;
                 cand.rarity = fc.rarity;
                 cand.found = found;
-                cand.clamped = clamped;
+                cand.clamped = off.clamped;
                 cand.id = m.id;
                 cands.push_back(cand);
             }
@@ -4364,6 +4851,39 @@ namespace overlay
                 std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
             }
 
+            // ---- declutter -----------------------------------------------------------
+            //
+            // After the sort, so the glyph kept for a cluster is its NEAREST member, and
+            // after the cap, so merging cannot resurrect a marker the cap dropped. A
+            // clamped glyph is left out of it: everything on the rim is at the rim by
+            // definition and merging those would collapse a whole direction into one
+            // number.
+            {
+                static MergeGrid grid;
+                const float merge_r = (std::max)(3.0f, r);
+                grid.reset(g.center.x - g.half, g.center.y - g.half, side, side, merge_r);
+                std::size_t kept = 0;
+                for (std::size_t i = 0; i < cands.size(); ++i)
+                {
+                    const Cand& c = cands[i];
+                    const float sx = g.center.x + c.dx;
+                    const float sy = g.center.y + c.dy;
+                    const int key = c.clamped ? -1 : grid.find(sx, sy, static_cast<int>(c.cat));
+                    if (key >= 0 && cands[static_cast<std::size_t>(key)].found == c.found)
+                    {
+                        ++cands[static_cast<std::size_t>(key)].count;
+                        continue;
+                    }
+                    if (!c.clamped)
+                    {
+                        grid.add(sx, sy, static_cast<int>(c.cat), static_cast<int>(kept));
+                    }
+                    cands[kept++] = c;
+                }
+                g_marker_draw.merged = static_cast<int>(cands.size() - kept);
+                cands.resize(kept);
+            }
+
             const float op = cfg.opacity;
             for (std::size_t ci = cands.size(); ci-- > 0;)
             {
@@ -4380,6 +4900,7 @@ namespace overlay
                 const ImVec2 p{g.center.x + cand.dx, g.center.y + cand.dy};
                 draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, cand.clamped ? r * 0.72f : r, col, edge,
                                   cand.found);
+                draw_count_badge(dl, p, r, cand.count, alpha);
                 ++g_marker_draw.drawn;
                 g_marker_draw.clamped += cand.clamped ? 1 : 0;
             }
@@ -4544,7 +5065,15 @@ namespace overlay
             const ImU32 tint_slice = IM_COL32(255, 255, 255, alpha(1.0f));
             const ImU32 tint_composite = IM_COL32(255, 255, 255, alpha(cfg.minimap_composite_alpha));
 
-            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            // THE HUD DRAWS UNDER OUR OWN WINDOWS (review B.20). ImGui renders the
+            // background draw list first, then every window, then the foreground list -
+            // so a HUD on the FOREGROUND list painted over the centred F2 panel
+            // whatever order the calls were made in. The background list is still over
+            // the game (everything ImGui draws is), it is just under the panel, the full
+            // map and the tooltips. Suppressing the HUD while the panel is open was the
+            // other option and it is worse: the panel is where the minimap's own sliders
+            // live, and you cannot tune a picture you cannot see.
+            ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
             if (cfg.round)
             {
@@ -4596,25 +5125,16 @@ namespace overlay
             // (or behind the player) still registers on the minimap.
             draw_found_rings(dl, now, (std::max)(4.0f, cfg.markers_size * 1.4f),
                              [&](double wx, double wy, float& sx, float& sy) {
-                                 const double wdx = wx - g.px;
-                                 const double wdy = wy - g.py;
-                                 const double zz = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
-                                 const double dx = (-g.sin_yaw * wdx + g.cos_yaw * wdy) / zz;
-                                 const double dy = (-g.cos_yaw * wdx - g.sin_yaw * wdy) / zz;
-                                 const double lim = static_cast<double>(g.half) - 2.0;
-                                 if (cfg.round)
-                                 {
-                                     if (dx * dx + dy * dy > lim * lim)
-                                     {
-                                         return false;
-                                     }
-                                 }
-                                 else if (std::abs(dx) > lim || std::abs(dy) > lim)
+                                 // A ring is never clamped: it says "that was collected
+                                 // THERE", and a ring on the rim would be a lie.
+                                 const MiniOffset off =
+                                     mini_offset(g, wx, wy, cfg.round, g.half - 2.0f, false);
+                                 if (!off.visible)
                                  {
                                      return false;
                                  }
-                                 sx = g.center.x + static_cast<float>(dx);
-                                 sy = g.center.y + static_cast<float>(dy);
+                                 sx = g.center.x + static_cast<float>(off.dx);
+                                 sy = g.center.y + static_cast<float>(off.dy);
                                  return true;
                              });
 
@@ -4666,41 +5186,31 @@ namespace overlay
                 const mv::Waypoint wp = mm::waypoint();
                 if (wp.set)
                 {
-                    const double wdx = wp.x - g.px;
-                    const double wdy = wp.y - g.py;
-                    const double zz = g.zoom > 0.0001f ? static_cast<double>(g.zoom) : 1.0;
-                    double dx = (-g.sin_yaw * wdx + g.cos_yaw * wdy) / zz;
-                    double dy = (-g.cos_yaw * wdx - g.sin_yaw * wdy) / zz;
                     const float wr = (std::max)(5.0f, cfg.markers_size * cfg.waypoint_size_scale);
                     const float lim = (std::max)(4.0f, g.half - wr - 3.0f);
-                    bool clamped = false;
-                    if (cfg.round)
-                    {
-                        const double d = std::sqrt(dx * dx + dy * dy);
-                        if (d > lim && d > 0.0001)
-                        {
-                            dx = dx * lim / d;
-                            dy = dy * lim / d;
-                            clamped = true;
-                        }
-                    }
-                    else if (std::abs(dx) > lim || std::abs(dy) > lim)
-                    {
-                        const double sc = lim / (std::max)(std::abs(dx), std::abs(dy));
-                        dx *= sc;
-                        dy *= sc;
-                        clamped = true;
-                    }
-                    const ImVec2 wp_pos{g.center.x + static_cast<float>(dx), g.center.y + static_cast<float>(dy)};
-                    draw_waypoint_glyph(dl, wp_pos, clamped ? wr * 0.85f : wr, alpha(1.0f));
+                    // ALWAYS clamped: the whole point of setting a waypoint is to be
+                    // told which way to walk while it is off the map.
+                    const MiniOffset off = mini_offset(g, wp.x, wp.y, cfg.round, lim, true);
+                    const ImVec2 wp_pos{g.center.x + static_cast<float>(off.dx),
+                                        g.center.y + static_cast<float>(off.dy)};
+                    draw_waypoint_glyph(dl, wp_pos, off.clamped ? wr * 0.85f : wr, alpha(1.0f));
+                    const double wdx = wp.x - g.px;
+                    const double wdy = wp.y - g.py;
                     const double dist_m = std::sqrt(wdx * wdx + wdy * wdy) / 100.0;
-                    const std::string label =
-                        dist_m >= 1000.0 ? std::format("{:.1f} km", dist_m / 1000.0) : std::format("{:.0f} m", dist_m);
-                    const ImVec2 ts = ImGui::CalcTextSize(label.c_str());
+                    char label[32]{};
+                    if (dist_m >= 1000.0)
+                    {
+                        (void)std::snprintf(label, sizeof(label), "%.1f km", dist_m / 1000.0);
+                    }
+                    else
+                    {
+                        (void)std::snprintf(label, sizeof(label), "%.0f m", dist_m);
+                    }
+                    const ImVec2 ts = ImGui::CalcTextSize(label);
                     const ImVec2 tp{wp_pos.x - ts.x * 0.5f, wp_pos.y + wr * 1.6f};
                     dl->AddRectFilled(ImVec2{tp.x - 3.0f, tp.y - 1.0f}, ImVec2{tp.x + ts.x + 3.0f, tp.y + ts.y + 1.0f},
                                       plate_color(alpha(0.7f)), 3.0f);
-                    dl->AddText(tp, IM_COL32(255, 190, 235, alpha(1.0f)), label.c_str());
+                    dl->AddText(tp, IM_COL32(255, 190, 235, alpha(1.0f)), label);
                 }
             }
 
@@ -4805,17 +5315,19 @@ namespace overlay
             dl->AddTriangle(tip, a, b, edge, 1.2f);
         }
 
-        void draw_label(ImDrawList* dl, ImVec2 at, const std::string& text, ImU32 col, int alpha)
+        // `const char*`, not std::string (review B.18): every caller of this is inside
+        // Present, and the x-ray builds up to twelve of these a frame.
+        void draw_label(ImDrawList* dl, ImVec2 at, const char* text, ImU32 col, int alpha)
         {
-            if (text.empty())
+            if (text == nullptr || text[0] == '\0')
             {
                 return;
             }
-            const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
+            const ImVec2 ts = ImGui::CalcTextSize(text);
             const ImVec2 tp{at.x - ts.x * 0.5f, at.y};
             dl->AddRectFilled(ImVec2{tp.x - 4.0f, tp.y - 1.0f}, ImVec2{tp.x + ts.x + 4.0f, tp.y + ts.y + 1.0f},
                               plate_color(static_cast<int>(alpha * 0.62f)), 3.0f);
-            dl->AddText(tp, col, text.c_str());
+            dl->AddText(tp, col, text);
         }
 
         void draw_highlight(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
@@ -4927,7 +5439,15 @@ namespace overlay
                 std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
             }
 
-            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            // THE HUD DRAWS UNDER OUR OWN WINDOWS (review B.20). ImGui renders the
+            // background draw list first, then every window, then the foreground list -
+            // so a HUD on the FOREGROUND list painted over the centred F2 panel
+            // whatever order the calls were made in. The background list is still over
+            // the game (everything ImGui draws is), it is just under the panel, the full
+            // map and the tooltips. Suppressing the HUD while the panel is open was the
+            // other option and it is worse: the panel is where the minimap's own sliders
+            // live, and you cannot tune a picture you cannot see.
+            ImDrawList* dl = ImGui::GetBackgroundDrawList();
             const float r = cfg.highlight_size;
             const float pad = r * 2.4f;
 
@@ -5094,9 +5614,13 @@ namespace overlay
                     // one (an enemy's dropped loot used to read `BP_PickupActor_C 1 m`)
                     // and falls back to the category's plain singular word.
                     const char* name = mdb::display_label(cat, sh.m->label);
-                    const std::string text =
-                        std::format("{}  {:.0f} m{}", name, sh.dist / 100.0, sh.found ? "  (found)" : "");
-                    const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
+                    // A STACK BUFFER, not std::format (review B.18): this ran up to
+                    // twelve times per frame on the render thread, i.e. twelve heap
+                    // allocations inside Present for a string nobody keeps.
+                    char text[128]{};
+                    (void)std::snprintf(text, sizeof(text), "%s  %.0f m%s", name, sh.dist / 100.0,
+                                        sh.found ? "  (found)" : "");
+                    const ImVec2 ts = ImGui::CalcTextSize(text);
                     const float want_y = sh.sy + r + 3.0f;
                     float at_y = want_y;
                     if (!layout.place(sh.sx - ts.x * 0.5f - 4.0f, want_y, ts.x + 8.0f, ts.y + 2.0f, max_push,
@@ -5226,7 +5750,15 @@ namespace overlay
             const float op = cfg.compass_opacity;
             const auto alpha = [op](float a) { return static_cast<int>((std::min)(1.0f, op * a) * 255.0f + 0.5f); };
 
-            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            // THE HUD DRAWS UNDER OUR OWN WINDOWS (review B.20). ImGui renders the
+            // background draw list first, then every window, then the foreground list -
+            // so a HUD on the FOREGROUND list painted over the centred F2 panel
+            // whatever order the calls were made in. The background list is still over
+            // the game (everything ImGui draws is), it is just under the panel, the full
+            // map and the tooltips. Suppressing the HUD while the panel is open was the
+            // other option and it is worse: the panel is where the minimap's own sliders
+            // live, and you cannot tune a picture you cannot see.
+            ImDrawList* dl = ImGui::GetBackgroundDrawList();
             // THE PLATE. `compass_plate = 0` leaves ticks and letters only, which is what
             // the strip needs to sit lightly over the game's own top-centre HUD; with no
             // plate every glyph gets a one-pixel shadow instead, or a bright scene
@@ -5476,8 +6008,15 @@ namespace overlay
                 const double dxw = wp.x - snap.x;
                 const double dyw = wp.y - snap.y;
                 const double metres = std::sqrt(dxw * dxw + dyw * dyw) / 100.0;
-                const std::string text =
-                    metres >= 1000.0 ? std::format("{:.1f} km", metres / 1000.0) : std::format("{:.0f} m", metres);
+                char text[32]{};
+                if (metres >= 1000.0)
+                {
+                    (void)std::snprintf(text, sizeof(text), "%.1f km", metres / 1000.0);
+                }
+                else
+                {
+                    (void)std::snprintf(text, sizeof(text), "%.0f m", metres);
+                }
                 draw_label(dl, ImVec2{wx, y1 + 9.0f}, text, IM_COL32(255, 190, 235, alpha(1.0f)), alpha(1.0f));
                 ++g_compass_debug.pips;
             }
@@ -5935,13 +6474,22 @@ namespace overlay
             // First frame after opening: centre on the player, reset the zoom and the
             // floor offset, and drop any gamepad edges from while it was closed.
             //--------------------------------------------------------------------------
+            // DPI AND THE MAP'S ZOOM (review B.12). This view gets the UNSCALED config -
+            // the legend's filter chips write back into it - so the ui-scale factor the
+            // minimap's zoom key gets through ui_scaled() is applied here at the point of
+            // use instead. Same promise: one config file shows the same area of the world
+            // at 1080p and at 2160p.
+            // 1/ui_scale, not ui_scale: the canvas is `ui_scale` times as many pixels
+            // across, so uu-per-pixel has to come down by the same factor for the view to
+            // cover the same ground. See the derivation in ui_scaled().
+            const float zscale = (cfg.zoom_dpi_scaled && ui_scale > 0.0f) ? 1.0f / ui_scale : 1.0f;
             if (!g_mv_init)
             {
                 g_mv.cx = snap.x;
                 g_mv.cy = snap.y;
-                g_mv.uu_per_px = mv::clamp_zoom(static_cast<double>(cfg.map_zoom),
-                                                static_cast<double>(cfg.map_zoom_min),
-                                                static_cast<double>(cfg.map_zoom_max));
+                g_mv.uu_per_px = mv::clamp_zoom(static_cast<double>(cfg.map_zoom * zscale),
+                                                static_cast<double>(cfg.map_zoom_min * zscale),
+                                                static_cast<double>(cfg.map_zoom_max * zscale));
                 g_map_floor_off = 0.0f;
                 g_map_recut.store(true, std::memory_order_release);
                 g_mv_init = true;
@@ -6065,12 +6613,36 @@ namespace overlay
                     // The leading spaces are the glyph's gutter: the glyph is drawn over
                     // the row afterwards, so a Selectable still owns the whole width and
                     // the hit area is the row, not the text.
-                    const std::string text =
-                        cs.total > 0 ? std::format("      {}   {}/{}", mdb::cat_label(cat), cs.found, cs.total)
-                                     : std::format("      {}", mdb::cat_label(cat));
+                    //
+                    // CACHED (review B.18). These fourteen strings were fourteen
+                    // std::format calls - fourteen heap allocations - on the render
+                    // thread on every frame the map was open, for text that changes when
+                    // a marker is found (about once a minute) or the chapter changes.
+                    // The cache is keyed on exactly what the text is made of.
+                    static char row_text[mdb::kCatCount][64]{};
+                    static int row_found[mdb::kCatCount]{};
+                    static int row_total[mdb::kCatCount]{};
+                    static bool row_valid[mdb::kCatCount]{};
+                    if (!row_valid[i] || row_found[i] != cs.found || row_total[i] != cs.total)
+                    {
+                        row_valid[i] = true;
+                        row_found[i] = cs.found;
+                        row_total[i] = cs.total;
+                        if (cs.total > 0)
+                        {
+                            (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s   %d/%d",
+                                                mdb::cat_label(cat), cs.found, cs.total);
+                        }
+                        else
+                        {
+                            (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s",
+                                                mdb::cat_label(cat));
+                        }
+                    }
+                    const char* const text = row_text[i];
                     ImGui::PushStyleColor(ImGuiCol_Text,
                                           on ? marker_color(cat, 255) : IM_COL32(150, 150, 150, 170));
-                    if (ImGui::Selectable(text.c_str(), on))
+                    if (ImGui::Selectable(text, on))
                     {
                         cfg.markers_categories ^= mdb::cat_bit(cat);
                     }
@@ -6103,8 +6675,8 @@ namespace overlay
             }
             ImGui::EndChild();
 
-            const double zmin = static_cast<double>(cfg.map_zoom_min);
-            const double zmax = static_cast<double>(cfg.map_zoom_max);
+            const double zmin = static_cast<double>(cfg.map_zoom_min * zscale);
+            const double zmax = static_cast<double>(cfg.map_zoom_max * zscale);
             g_mv.uu_per_px = mv::clamp_zoom(g_mv.uu_per_px, zmin, zmax);
 
             //--------------------------------------------------------------------------
@@ -6198,9 +6770,21 @@ namespace overlay
             {
                 want_fit = true;
             }
-            // `?` (and pad Back, below) toggles the controls legend. One long
+            // F1 / H (and pad Back, below) toggle the controls legend. One long
             // TextDisabled sentence in the footer was unreadable and could not grow.
-            if (ImGui::IsKeyPressed(ImGuiKey_Slash, false))
+            //
+            // NOT `?`: the footer and the legend both advertised `?` while the code
+            // tested ImGuiKey_Slash, i.e. the UNSHIFTED key - so on a keyboard where `?`
+            // needs Shift (every US/UK layout) the advertised gesture opened nothing and
+            // an undocumented one did. `?` is a CHARACTER, not a key, and ImGui's key
+            // enum has no portable name for it, so the honest fix is to bind keys that
+            // can be named: F1 (the universal help key) and H. Both are safe bare keys
+            // here - the full map is a MODE and swallows the whole keyboard for as long
+            // as it is open (lessons.md) - and F1 is not in the F6/F9/F10/F11/F12
+            // minefield this machine's other injected DLLs own. `/` stays wired as an
+            // unadvertised third route so nobody's muscle memory breaks.
+            if (ImGui::IsKeyPressed(ImGuiKey_F1, false) || ImGui::IsKeyPressed(ImGuiKey_H, false) ||
+                ImGui::IsKeyPressed(ImGuiKey_Slash, false))
             {
                 g_map_help = !g_map_help;
             }
@@ -6350,9 +6934,37 @@ namespace overlay
 
             if (cfg.markers_enabled && mv_all.data != nullptr)
             {
-                const int cap = cfg.map_markers_max_draw > 0 ? cfg.map_markers_max_draw
-                                                            : static_cast<int>(mv_all.count);
-                for (std::size_t i = 0; i < mv_all.count && g_map_markers_drawn < cap; ++i)
+                //----------------------------------------------------------------------
+                // TWO PASSES, NOT ONE (review B.16)
+                //----------------------------------------------------------------------
+                //
+                // 1.0.0 walked the published buffer in DB ORDER and stopped at
+                // map_markers_max_draw. Two consequences: with more markers than the cap
+                // the ones dropped were whichever the database happened to list last -
+                // so zooming out lost markers at random rather than the far ones - and
+                // nothing merged, so a room with six chests in it was a smear.
+                //
+                // So: collect what is on screen, order it by distance from the VIEW
+                // CENTRE (which is what the player is looking at, and is also what the
+                // Fit button and the recentre key aim), cap that, merge coincident glyphs
+                // of the same category, and only then draw. All three buffers are static
+                // and reused - this runs inside Present (review B.18).
+                struct MapCand
+                {
+                    float sx = 0.0f;
+                    float sy = 0.0f;
+                    float cd2 = 0.0f; // squared distance from the canvas centre
+                    const markers::DrawMarker* m = nullptr;
+                    bool found = false;
+                    int count = 1;
+                };
+                static std::vector<MapCand> cands;
+                cands.clear();
+                if (cands.capacity() < mv_all.count)
+                {
+                    cands.reserve(mv_all.count);
+                }
+                for (std::size_t i = 0; i < mv_all.count; ++i)
                 {
                     const markers::DrawMarker& m = mv_all.data[i];
                     const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
@@ -6373,32 +6985,87 @@ namespace overlay
                     {
                         continue;
                     }
-                    const int alpha = static_cast<int>((found ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
-                    draw_marker_glyph(dl, cat, ImVec2{sx, sy}, mr,
+                    MapCand c{};
+                    c.sx = sx;
+                    c.sy = sy;
+                    const float cdx = sx - canvas.cx();
+                    const float cdy = sy - canvas.cy();
+                    c.cd2 = cdx * cdx + cdy * cdy;
+                    c.m = &m;
+                    c.found = found;
+                    cands.push_back(c);
+                }
+
+                // NEAREST THE CENTRE FIRST. partial_sort leaves [0, cap) sorted, which
+                // is all the draw order needs.
+                const std::size_t cap = cfg.map_markers_max_draw > 0
+                                            ? static_cast<std::size_t>(cfg.map_markers_max_draw)
+                                            : cands.size();
+                const auto nearer = [](const MapCand& a, const MapCand& b) { return a.cd2 < b.cd2; };
+                if (cands.size() > cap)
+                {
+                    std::partial_sort(cands.begin(), cands.begin() + static_cast<std::ptrdiff_t>(cap),
+                                      cands.end(), nearer);
+                    cands.resize(cap);
+                }
+                else
+                {
+                    std::sort(cands.begin(), cands.end(), nearer);
+                }
+
+                // MERGE, same category and same found state only - see MergeGrid.
+                {
+                    static MergeGrid grid;
+                    grid.reset(canvas.x0 - mr, canvas.y0 - mr, canvas.w() + mr * 2.0f,
+                               canvas.h() + mr * 2.0f, (std::max)(3.0f, mr));
+                    std::size_t kept = 0;
+                    for (std::size_t i = 0; i < cands.size(); ++i)
+                    {
+                        const MapCand& c = cands[i];
+                        const int key = grid.find(c.sx, c.sy, static_cast<int>(c.m->cat));
+                        if (key >= 0 && cands[static_cast<std::size_t>(key)].found == c.found)
+                        {
+                            ++cands[static_cast<std::size_t>(key)].count;
+                            continue;
+                        }
+                        grid.add(c.sx, c.sy, static_cast<int>(c.m->cat), static_cast<int>(kept));
+                        cands[kept++] = c;
+                    }
+                    cands.resize(kept);
+                }
+
+                // DRAWN FAR TO NEAR, so the marker nearest what the player is looking at
+                // ends up on top - the same trick the minimap uses.
+                for (std::size_t ci = cands.size(); ci-- > 0;)
+                {
+                    const MapCand& c = cands[ci];
+                    const markers::DrawMarker& m = *c.m;
+                    const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
+                    const int alpha =
+                        static_cast<int>((c.found ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
+                    draw_marker_glyph(dl, cat, ImVec2{c.sx, c.sy}, mr,
                                       marker_color_q(cat, m.rarity, alpha, cfg.markers_rarity_tint,
                                                      cfg.xray_rarity_colors),
-                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)), found);
+                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)), c.found);
+                    draw_count_badge(dl, ImVec2{c.sx, c.sy}, mr, c.count, alpha);
                     ++g_map_markers_drawn;
 
-                    const float mdx = sx - io.MousePos.x;
-                    const float mdy = sy - io.MousePos.y;
+                    const float mdx = c.sx - io.MousePos.x;
+                    const float mdy = c.sy - io.MousePos.y;
                     const float d2 = mdx * mdx + mdy * mdy;
                     if (canvas_hovered && d2 <= pick_r * pick_r && (hover == nullptr || d2 < hover_d2))
                     {
                         hover = &m;
                         hover_d2 = d2;
                     }
-                    // The keyboard / gamepad "toggle found" acts on the marker
-                    // nearest the CENTRE of the view - but only within the same radius
-                    // a mouse would have to be in, so it can never reach a marker on
-                    // the far side of the screen.
-                    const float cdx = sx - canvas.cx();
-                    const float cdy = sy - canvas.cy();
-                    const float cd2 = cdx * cdx + cdy * cdy;
-                    if (cd2 <= kCentrePickR * kCentrePickR && (centre_marker == nullptr || cd2 < centre_d2))
+                    // The keyboard / gamepad "toggle found" acts on the marker nearest
+                    // the CENTRE of the view - but only within the same radius a mouse
+                    // would have to be in, so it can never reach a marker on the far
+                    // side of the screen.
+                    if (c.cd2 <= kCentrePickR * kCentrePickR && (centre_marker == nullptr || c.cd2 < centre_d2))
                     {
                         centre_marker = &m;
-                        centre_d2 = cd2;
+                        centre_d2 = c.cd2;
                     }
                 }
             }
@@ -6593,11 +7260,48 @@ namespace overlay
                     std::string control;
                     std::string action;
                 };
-                std::vector<Row> left;
-                std::vector<Row> right;
+                // BUILT ONCE, NOT PER FRAME (review B.18). This is ~28 strings in two
+                // vectors, i.e. ~30 heap allocations on the render thread inside Present,
+                // for text whose content only changes when a binding changes or a pad is
+                // plugged in. The vectors are static (so their capacity survives too) and
+                // the signature below is exactly what the text is made of.
+                struct HelpKey
+                {
+                    int panel = 0;
+                    int map = 0;
+                    int recenter = 0;
+                    int zoom = 0;
+                    int reload = 0;
+                    int shot = 0;
+                    int highlight = 0;
+                    bool hl_on = false;
+                    bool hl_hold = false;
+                    bool pad = false;
+                    // Defaulted, not memcmp: padding bytes in an aggregate are
+                    // unspecified, and a spurious "changed" here would silently put the
+                    // per-frame allocations back (the same trap as review B.19).
+                    bool operator==(const HelpKey&) const = default;
+                };
+                const HelpKey want{cfg.panel_key,     cfg.map_key,
+                                   cfg.map_recenter_key, cfg.zoom_key,
+                                   cfg.reload_key,    cfg.screenshot_key,
+                                   cfg.highlight_key, cfg.highlight_enabled,
+                                   cfg.highlight_mode == mm::HighlightMode::Hold,
+                                   cfg.map_gamepad && gp.connected};
+                static std::vector<Row> left;
+                static std::vector<Row> right;
+                static HelpKey have{};
+                static bool built = false;
+                const bool rebuild = !built || !(want == have);
                 const auto add = [](std::vector<Row>& into, std::string c, std::string a) {
                     into.push_back(Row{std::move(c), std::move(a)});
                 };
+                if (rebuild)
+                {
+                built = true;
+                have = want;
+                left.clear();
+                right.clear();
                 add(left, "mouse / keyboard", "");
                 add(left, "drag, WASD, arrows", "pan");
                 add(left, "wheel, + / -", "zoom");
@@ -6610,7 +7314,7 @@ namespace overlay
                 add(left, key_name_ascii(cfg.screenshot_key), "copy the map to the clipboard");
                 add(left, "Shrines", "shrine list (click = waypoint, double-click = centre)");
                 add(left, "Stats", "collection statistics");
-                add(left, "?", "this legend");
+                add(left, "F1 or H", "this legend");
                 add(left, key_name_ascii(cfg.map_key) + ", Esc", "close the map");
                 if (cfg.map_gamepad && gp.connected)
                 {
@@ -6636,6 +7340,12 @@ namespace overlay
                             key_name_ascii(cfg.highlight_key),
                         "x-ray nearby markers");
                 }
+                if (cfg.map_gamepad && cfg.map_pad_open_chord != 0)
+                {
+                    add(right, wide_to_ascii(mm::pad_chord_name(cfg.map_pad_open_chord, false, false)),
+                        "open / close the map (pad)");
+                }
+                } // rebuild
 
                 const float line = ImGui::GetTextLineHeightWithSpacing();
                 const float pad_px = ImGui::GetTextLineHeight();
@@ -6697,7 +7407,7 @@ namespace overlay
             }
             else
             {
-                ImGui::TextDisabled("? (or pad Back) shows the controls   %s or Esc closes the map",
+                ImGui::TextDisabled("F1 or H (or pad Back) shows the controls   %s or Esc closes the map",
                                     key_name_ascii(cfg.map_key).c_str());
             }
             ImGui::TextDisabled("%d of %d marker(s)   cut %dx%d @ %.2f ms%s", g_map_markers_drawn,
@@ -6706,7 +7416,10 @@ namespace overlay
 
             ImGui::End();
 
-            if (std::memcmp(&before, &cfg, sizeof(mm::Config)) != 0)
+            // Field by field (review B.19), not memcmp: a Config is a value, and
+            // `mm::operator==` is generated from the struct with a byte-flip drift
+            // guard behind it in markers_test.
+            if (before != cfg)
             {
                 mm::set_config(cfg);
             }
@@ -7392,61 +8105,340 @@ namespace overlay
             ImGui::TextDisabled("rebind them on the Bindings tab");
         }
 
+        //==============================================================================
+        // THE PANEL'S OWN STATE FILE (review B.14)
+        //==============================================================================
+        //
+        // Which Player-tab sections are folded up, remembered between sessions.
+        //
+        // NOT imgui.ini: io.IniFilename is nullptr and stays that way. ImGui's ini is a
+        // whole window-layout store - positions, sizes, docking, every window the mod
+        // has ever opened - and turning it on would mean the panel's own "come back
+        // centred" behaviour stops working, plus a file whose format is ImGui's business
+        // and which nobody can hand-edit meaningfully in a bug report.
+        //
+        // So: one line, one number, in wuchang_minimap_panel.txt beside the config. Also
+        // not a config key, because it is not a setting - it is where the player left a
+        // window, and it must not appear in the file a Save writes or in the drift test
+        // that guards that file.
+        //
+        // THREADS. The render thread owns the bits (it is the one drawing the headers)
+        // and raises a flag; the LOOP thread does the file I/O, in the same block as
+        // every other write this mod does. One atomic each way, no lock.
+        constexpr std::uint32_t kPanelSectionsDefault = 0xFFFFFFFFu; // all open, as 1.0.0 shipped
+        std::atomic<std::uint32_t> g_panel_sections{kPanelSectionsDefault};
+        std::atomic<bool> g_panel_state_dirty{false};
+        std::atomic<bool> g_panel_state_loaded{false};
+
+        std::wstring panel_state_path()
+        {
+            return mm::mod_dir() + L"\\wuchang_minimap_panel.txt";
+        }
+
+        // LOOP THREAD. Plain CreateFileW/ReadFile and a hand-rolled hex parse: no
+        // iostreams anywhere in this mod (lessons.md), and this runs before the render
+        // thread has drawn a panel.
+        void panel_state_load()
+        {
+            if (g_panel_state_loaded.exchange(true))
+            {
+                return;
+            }
+            const HANDLE h = ::CreateFileW(panel_state_path().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return; // no file yet: every section open, which is what 1.0.0 did
+            }
+            char buf[256]{};
+            DWORD read = 0;
+            const bool ok = ::ReadFile(h, buf, sizeof(buf) - 1, &read, nullptr) != 0;
+            ::CloseHandle(h);
+            if (!ok || read == 0)
+            {
+                return;
+            }
+            const char* p = ::strstr(buf, "sections");
+            if (p == nullptr)
+            {
+                return;
+            }
+            p = ::strchr(p, '=');
+            if (p == nullptr)
+            {
+                return;
+            }
+            ++p;
+            while (*p == ' ' || *p == '\t')
+            {
+                ++p;
+            }
+            int base = 10;
+            if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
+            {
+                base = 16;
+                p += 2;
+            }
+            std::uint32_t v = 0;
+            bool any = false;
+            for (; *p != '\0'; ++p)
+            {
+                int d = -1;
+                if (*p >= '0' && *p <= '9')
+                {
+                    d = *p - '0';
+                }
+                else if (base == 16 && *p >= 'a' && *p <= 'f')
+                {
+                    d = *p - 'a' + 10;
+                }
+                else if (base == 16 && *p >= 'A' && *p <= 'F')
+                {
+                    d = *p - 'A' + 10;
+                }
+                if (d < 0)
+                {
+                    break;
+                }
+                v = v * static_cast<std::uint32_t>(base) + static_cast<std::uint32_t>(d);
+                any = true;
+            }
+            if (any)
+            {
+                g_panel_sections.store(v, std::memory_order_relaxed);
+                MM_LOGV(L"panel state: sections 0x{:X}", v);
+            }
+        }
+
+        // LOOP THREAD, and only when the render thread says something changed.
+        void panel_state_save()
+        {
+            char text[256]{};
+            const int n = std::snprintf(text, sizeof(text),
+                                        "; WuchangMinimap - where you left the F2 panel. Not a setting:\r\n"
+                                        "; delete this file to get every section back open.\r\n"
+                                        "sections = 0x%X\r\n",
+                                        g_panel_sections.load(std::memory_order_relaxed));
+            if (n <= 0)
+            {
+                return;
+            }
+            const HANDLE h = ::CreateFileW(panel_state_path().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                           FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return;
+            }
+            DWORD written = 0;
+            ::WriteFile(h, text, static_cast<DWORD>(n), &written, nullptr);
+            ::CloseHandle(h);
+        }
+
+        //==============================================================================
+        // THE PLAYER TAB (review B.14)
+        //==============================================================================
+        //
+        // Ten sections, all of them DefaultOpen in 1.0.0, in a window with no ini file -
+        // so folding one up lasted until the panel was closed, and finding one setting
+        // meant scrolling past nine sections you were not looking for.
+        //
+        // Three things fix that, and they are listed here rather than spread through the
+        // section functions:
+        //   * the fold state is remembered, in the panel's own state file (see
+        //     panel_state_load / panel_state_save - never imgui.ini);
+        //   * a filter box hides the sections that have nothing to do with what was
+        //     typed. Matching is per SECTION, against its title AND the words its
+        //     settings are named with (`kSections` below), not per widget: filtering
+        //     individual widgets would mean wrapping every one of the ~120 calls inside
+        //     the section functions in a test, and a table of a section's own vocabulary
+        //     is one thing to keep true instead of 120;
+        //   * "Reset to the shipped defaults" is a real reset - Config{} - which is what
+        //     Revert never was: Revert re-reads the FILE, so it cannot undo a bad value
+        //     that was saved.
+        struct PanelSection
+        {
+            const char* title;
+            // The words a player would type looking for something in here. The section's
+            // own setting names, in lower case; matched as substrings both ways.
+            const char* words;
+            void (*draw)(mm::Config&, float);
+        };
+
+        // Thin adapters, so every section has the same signature and the table stays a
+        // table. (`wrap` is the content width the category-chip rows need.)
+        void sec_presets(mm::Config& cfg, float) { player_presets(cfg); }
+        void sec_look(mm::Config& cfg, float) { player_look(cfg); }
+        void sec_minimap(mm::Config& cfg, float) { player_minimap(cfg); }
+        void sec_placement(mm::Config& cfg, float) { player_placement(cfg); }
+        void sec_markers(mm::Config& cfg, float wrap) { player_markers(cfg, wrap); }
+        void sec_tracker(mm::Config& cfg, float) { player_tracker(cfg); }
+        void sec_fullmap(mm::Config& cfg, float) { player_fullmap(cfg); }
+        void sec_xray(mm::Config& cfg, float wrap) { player_xray(cfg, wrap); }
+        void sec_compass(mm::Config& cfg, float wrap) { player_compass(cfg, wrap); }
+        void sec_keys(mm::Config& cfg, float) { player_keys(cfg); }
+
+        constexpr PanelSection kSections[] = {
+            {"Presets", "preset hud layout corner placement", &sec_presets},
+            {"Look", "theme palette colour color opacity ink neutral colourblind font scale", &sec_look},
+            {"Minimap", "minimap shape round square zoom size rotate north floors adjacent", &sec_minimap},
+            {"Placement and scale", "anchor offset position ui scale dpi corner", &sec_placement},
+            {"Markers", "markers categories glyph size found hide clamp edge rarity quality", &sec_markers},
+            {"Collection tracker", "collection tracker found profile save slot absence", &sec_tracker},
+            {"Full map", "full map zoom gamepad waypoint shrine list travel", &sec_fullmap},
+            {"X-ray highlight", "x-ray xray highlight through walls hold toggle radius labels", &sec_xray},
+            {"Compass", "compass strip heading pips width degrees plate", &sec_compass},
+            {"Keys", "keys hotkeys bindings rebind", &sec_keys},
+        };
+        constexpr int kSectionCount = static_cast<int>(std::size(kSections));
+        static_assert(kSectionCount <= 32, "one bit per section in g_panel_sections");
+
+        // Case-insensitive substring, both ways round: typing "colour" finds "Look"
+        // through its words, and typing "compa" finds "Compass" through its title.
+        bool section_matches(const PanelSection& s, const char* needle)
+        {
+            if (needle == nullptr || needle[0] == '\0')
+            {
+                return true;
+            }
+            char low[64]{};
+            std::size_t n = 0;
+            for (const char* p = needle; *p != '\0' && n + 1 < sizeof(low); ++p)
+            {
+                low[n++] = (*p >= 'A' && *p <= 'Z') ? static_cast<char>(*p - 'A' + 'a') : *p;
+            }
+            if (n == 0)
+            {
+                return true;
+            }
+            // Both haystacks are ASCII literals; _stristr does not exist, so lower the
+            // needle once (above) and walk the haystacks with a case-insensitive compare.
+            const auto contains = [&low, n](const char* hay) {
+                for (const char* h = hay; *h != '\0'; ++h)
+                {
+                    if (::_strnicmp(h, low, n) == 0)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            return contains(s.title) || contains(s.words);
+        }
+
         void panel_player(mm::Config& cfg)
         {
             const float wrap = ImGui::GetContentRegionAvail().x;
-            constexpr ImGuiTreeNodeFlags kOpen = ImGuiTreeNodeFlags_DefaultOpen;
 
-            if (ImGui::CollapsingHeader("Presets", kOpen))
+            // ---- the filter ----------------------------------------------------------
+            static char filter[64]{};
+            ImGui::SetNextItemWidth(220.0f * g_ui_scale);
+            ImGui::InputTextWithHint("##filter", "filter settings...", filter, sizeof(filter));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("clear"))
             {
-                player_presets(cfg);
+                filter[0] = '\0';
+            }
+            const bool filtering = filter[0] != '\0';
+            ImGui::SameLine();
+            if (filtering)
+            {
+                ImGui::TextDisabled("matching sections only");
+            }
+            else
+            {
+                ImGui::TextDisabled("type a setting's name");
             }
 
-            if (ImGui::CollapsingHeader("Look", kOpen))
+            // ---- the sections --------------------------------------------------------
+            std::uint32_t bits = g_panel_sections.load(std::memory_order_relaxed);
+            const std::uint32_t before_bits = bits;
+            int shown = 0;
+            for (int i = 0; i < kSectionCount; ++i)
             {
-                player_look(cfg);
+                const PanelSection& sec = kSections[i];
+                if (!section_matches(sec, filter))
+                {
+                    continue;
+                }
+                ++shown;
+                const std::uint32_t bit = 1u << i;
+                // While filtering, everything that matched is forced OPEN - the answer to
+                // "where is that setting" must not be a folded header. The stored bit is
+                // deliberately not touched by that (`Always` sets the state without
+                // asking the header), so clearing the filter restores the fold exactly.
+                if (filtering)
+                {
+                    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+                }
+                else
+                {
+                    ImGui::SetNextItemOpen((bits & bit) != 0, ImGuiCond_Always);
+                }
+                if (ImGui::CollapsingHeader(sec.title))
+                {
+                    if (!filtering)
+                    {
+                        bits |= bit;
+                    }
+                    sec.draw(cfg, wrap);
+                }
+                else if (!filtering)
+                {
+                    bits &= ~bit;
+                }
+            }
+            if (shown == 0)
+            {
+                ImGui::TextDisabled("nothing matches '%s'", filter);
+            }
+            if (bits != before_bits)
+            {
+                g_panel_sections.store(bits, std::memory_order_relaxed);
+                g_panel_state_dirty.store(true, std::memory_order_release);
             }
 
-            if (ImGui::CollapsingHeader("Minimap", kOpen))
+            // ---- reset ---------------------------------------------------------------
+            ImGui::Spacing();
+            ImGui::Separator();
+            // TWO CLICKS. This throws away every tuned value in the struct, and a stray
+            // click on a settings panel should not be able to do that. It is armed until
+            // the panel is closed or the button is pressed.
+            static bool confirm_reset = false;
+            if (!confirm_reset)
             {
-                player_minimap(cfg);
+                if (ImGui::Button("Reset to the shipped defaults"))
+                {
+                    confirm_reset = true;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Every setting back to what the mod ships with.\n"
+                                      "Revert only re-reads the file, so it cannot undo a saved value.");
+                }
             }
-
-            if (ImGui::CollapsingHeader("Placement and scale", kOpen))
+            else
             {
-                player_placement(cfg);
+                ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "Reset every setting?");
+                ImGui::SameLine();
+                if (ImGui::Button("Yes, reset"))
+                {
+                    confirm_reset = false;
+                    const bool was_on = cfg.mod_enabled;
+                    cfg = mm::Config{};
+                    // The master switch is not a preference, it is whether the mod is
+                    // running - and it has its own checkbox and its own log line.
+                    cfg.mod_enabled = was_on;
+                    mm::log(L"config: reset to the shipped defaults from the F2 panel (not saved yet)");
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel"))
+                {
+                    confirm_reset = false;
+                }
             }
-
-            if (ImGui::CollapsingHeader("Markers", kOpen))
-            {
-                player_markers(cfg, wrap);
-            }
-
-            if (ImGui::CollapsingHeader("Collection tracker", kOpen))
-            {
-                player_tracker(cfg);
-            }
-
-            if (ImGui::CollapsingHeader("Full map", kOpen))
-            {
-                player_fullmap(cfg);
-            }
-
-            if (ImGui::CollapsingHeader("X-ray highlight", kOpen))
-            {
-                player_xray(cfg, wrap);
-            }
-
-            if (ImGui::CollapsingHeader("Compass", kOpen))
-            {
-                player_compass(cfg, wrap);
-            }
-
-            if (ImGui::CollapsingHeader("Keys", kOpen))
-            {
-                player_keys(cfg);
-            }
+            ImGui::TextDisabled("Nothing is written until Save.");
         }
+
 
         void panel_advanced(mm::Config& cfg)
         {
@@ -7721,6 +8713,107 @@ namespace overlay
         // struct and publishes it), and is written to the file by Save like anything
         // else.
 
+        //==============================================================================
+        // MODIFIERS, AND THE KEYS THE GAME ITSELF WANTS (review B.13)
+        //==============================================================================
+
+        bool is_modifier_vk(int vk)
+        {
+            switch (vk)
+            {
+            case VK_SHIFT:
+            case VK_CONTROL:
+            case VK_MENU:
+            case VK_LSHIFT:
+            case VK_RSHIFT:
+            case VK_LCONTROL:
+            case VK_RCONTROL:
+            case VK_LMENU:
+            case VK_RMENU:
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        // Which modifier is physically down, if any. One, not a set: a binding carries
+        // one (mm::key_mod), and Ctrl wins over Shift wins over Alt so the answer is
+        // deterministic when a player is leaning on two of them.
+        int held_modifier()
+        {
+            if ((::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
+            {
+                return mm::kKeyModCtrl;
+            }
+            if ((::GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
+            {
+                return mm::kKeyModShift;
+            }
+            if ((::GetAsyncKeyState(VK_MENU) & 0x8000) != 0)
+            {
+                return mm::kKeyModAlt;
+            }
+            return mm::kKeyModNone;
+        }
+
+        // THE KEYS SOMETHING ELSE ALREADY OWNS.
+        //
+        // This list is ADVISORY and it is not read from the game - there is no API for
+        // that, and the mod must not pretend otherwise. Two sources, both written down
+        // so the next person can judge them:
+        //
+        //   * the movement / interaction set this genre binds by default (WASD, Space,
+        //     Shift, Ctrl, E, F, Q, R, Tab, Esc, 1..5) - a bare letter bound to a mod
+        //     action while the HUD is a pure overlay both fires the mod AND does its
+        //     game thing, which is what the hotkey swallow now prevents; that makes the
+        //     GAME action the casualty instead, so the player has to be told;
+        //   * the keys this machine's other injected DLLs own, from lessons.md: F6 is
+        //     RenoDX's DLSS 5 toggle (it ignores modifiers and has already caused one
+        //     GPU crash), F10 is the UE4SS console, F9 / F11 are engine binds and F12 is
+        //     the Steam screenshot key. Those four are refused by the config parser
+        //     outright, so they can only be reached from this tab.
+        //
+        // A binding WITH a modifier is not flagged: `ctrl+e` is exactly the escape hatch
+        // this table exists to point at.
+        struct GameBind
+        {
+            int vk;
+            const char* what;
+        };
+
+        constexpr GameBind kGameBinds[] = {
+            {'W', "move forward"},   {'A', "move left"},      {'S', "move back"},
+            {'D', "move right"},     {VK_SPACE, "dodge"},     {VK_SHIFT, "sprint"},
+            {VK_LSHIFT, "sprint"},   {VK_CONTROL, "crouch"},  {VK_LCONTROL, "crouch"},
+            {'E', "interact"},       {'F', "an action bind"}, {'Q', "an action bind"},
+            {'R', "an action bind"}, {VK_TAB, "inventory"},   {VK_ESCAPE, "the pause menu"},
+            {'1', "an item slot"},   {'2', "an item slot"},   {'3', "an item slot"},
+            {'4', "an item slot"},   {'5', "an item slot"},
+            {VK_F6, "RenoDX / DLSS 5 (it ignores modifiers)"},
+            {VK_F9, "an engine screenshot bind"},
+            {VK_F10, "the UE4SS console"},
+            {VK_F11, "the engine fullscreen bind"},
+            {VK_F12, "the Steam screenshot key"},
+        };
+
+        // nullptr = nothing known wants this binding.
+        const char* game_bind_clash(int binding)
+        {
+            if (mm::key_mod(binding) != mm::kKeyModNone)
+            {
+                return nullptr; // a modifier is the way OUT of a clash
+            }
+            const int vk = mm::key_vk(binding);
+            for (const GameBind& g : kGameBinds)
+            {
+                if (g.vk == vk)
+                {
+                    return g.what;
+                }
+            }
+            return nullptr;
+        }
+
         struct KeyBind
         {
             const char* label;
@@ -7754,38 +8847,69 @@ namespace overlay
             static const mm::Config kDefaults{};
 
             // ---- the capture, before anything is drawn --------------------------------
+            //
+            // A CAPTURE CAN NOW TAKE A MODIFIER (review B.13). Two shapes, and both have
+            // to work: `ctrl+m` (hold Ctrl, press M) and a bare modifier (`LALT`, which
+            // is the x-ray highlight's shipped default). So a non-modifier key wins
+            // immediately and carries whatever modifier is held with it, while a
+            // modifier pressed ON ITS OWN is only taken once everything is released -
+            // which is also the only way to tell "I am reaching for Ctrl+M" from "I want
+            // Ctrl".
             if (g_capture_row >= 0 && g_capture_row < kKeyBindCount)
             {
                 bool any_down = false;
-                int pressed = 0;
+                int pressed = 0;      // a real key: bind it now, with the held modifier
+                int mod_only = 0;     // a modifier on its own: bind it on release
                 for (const int vk : mm::bindable_vks())
                 {
-                    if ((::GetAsyncKeyState(vk) & 0x8000) != 0)
+                    if ((::GetAsyncKeyState(vk) & 0x8000) == 0)
                     {
-                        any_down = true;
-                        if (pressed == 0)
+                        continue;
+                    }
+                    any_down = true;
+                    if (is_modifier_vk(vk))
+                    {
+                        if (mod_only == 0)
                         {
-                            pressed = vk;
+                            mod_only = vk;
                         }
                     }
+                    else if (pressed == 0)
+                    {
+                        pressed = vk;
+                    }
                 }
+                static int pending_mod_only = 0;
                 if ((::GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0)
                 {
+                    pending_mod_only = 0;
                     arm_capture(-1);
                 }
                 else if (g_capture_wait_release)
                 {
                     g_capture_wait_release = any_down;
                 }
-                else if (pressed != 0)
+                else
                 {
-                    cfg.*kKeyBinds[g_capture_row].member = pressed;
-                    mm::logf(L"binding: {} = {}",
-                             std::wstring(kKeyBinds[g_capture_row].key,
-                                          kKeyBinds[g_capture_row].key +
-                                              std::strlen(kKeyBinds[g_capture_row].key)),
-                             mm::key_name(pressed));
-                    arm_capture(-1);
+                    if (pressed == 0 && mod_only != 0)
+                    {
+                        pending_mod_only = mod_only;
+                    }
+                    const int take = pressed != 0 ? mm::key_make(pressed, held_modifier())
+                                     : (!any_down && pending_mod_only != 0)
+                                         ? mm::key_make(pending_mod_only, mm::kKeyModNone)
+                                         : 0;
+                    if (take != 0)
+                    {
+                        pending_mod_only = 0;
+                        cfg.*kKeyBinds[g_capture_row].member = take;
+                        mm::logf(L"binding: {} = {}",
+                                 std::wstring(kKeyBinds[g_capture_row].key,
+                                              kKeyBinds[g_capture_row].key +
+                                                  std::strlen(kKeyBinds[g_capture_row].key)),
+                                 mm::key_name(take));
+                        arm_capture(-1);
+                    }
                 }
             }
             else if (g_capture_row >= 0)
@@ -7793,7 +8917,9 @@ namespace overlay
                 arm_capture(-1);
             }
 
-            ImGui::TextDisabled("Click a key to rebind it, then press the new key. Esc cancels.");
+            ImGui::TextDisabled("Click a key to rebind it, then press the new key - hold Ctrl, Shift or "
+                                "Alt with it for a modified binding. Esc cancels.");
+            ImGui::TextDisabled("A key bound here is taken away from the game while the mod is using it.");
 
             if (ImGui::BeginTable("bindings", 4,
                                   ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
@@ -7817,6 +8943,23 @@ namespace overlay
                             clash = kKeyBinds[j].label;
                         }
                     }
+                    // AND THE UNMODIFIED TWIN. `ctrl+m` and `m` are different bindings
+                    // but the same key press: a no-modifier binding deliberately does
+                    // not require the modifiers to be up (see mm::key_mod), so pressing
+                    // Ctrl+M fires both. That is a choice, not a bug - it is what keeps
+                    // every hotkey alive while the x-ray's Alt is held - so it is named
+                    // rather than prevented.
+                    const char* twin = nullptr;
+                    for (int j = 0; j < kKeyBindCount && twin == nullptr; ++j)
+                    {
+                        const int other = cfg.*kKeyBinds[j].member;
+                        if (j != i && vk != 0 && mm::key_vk(other) == mm::key_vk(vk) &&
+                            mm::key_mod(other) != mm::key_mod(vk))
+                        {
+                            twin = kKeyBinds[j].label;
+                        }
+                    }
+                    const char* game = game_bind_clash(vk);
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -7846,6 +8989,20 @@ namespace overlay
                     if (clash != nullptr)
                     {
                         ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "also %s", clash);
+                    }
+                    else if (game != nullptr)
+                    {
+                        ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "the game may use it for %s",
+                                           game);
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::SetTooltip("While the mod is using this key the game does not get it.\n"
+                                              "Add Ctrl, Shift or Alt to give it back.");
+                        }
+                    }
+                    else if (twin != nullptr)
+                    {
+                        ImGui::TextColored(ImVec4{0.80f, 0.80f, 0.55f, 1.0f}, "same key as %s", twin);
                     }
                     ImGui::PopID();
                 }
@@ -8033,11 +9190,12 @@ namespace overlay
                         st.publish_ms,
                         st.publish_ms_avg,
                         st.publish_ms_peak);
-            ImGui::Text("drawn %d of %d (%d clamped, %d filtered)",
+            ImGui::Text("drawn %d of %d (%d clamped, %d filtered, %d merged)",
                         g_marker_draw.drawn,
                         g_marker_draw.total,
                         g_marker_draw.clamped,
-                        g_marker_draw.filtered);
+                        g_marker_draw.filtered,
+                        g_marker_draw.merged);
             if (g_marker_draw.nearest[0] != 0)
             {
                 ImGui::Text("nearest: %s (%.0f uu)", g_marker_draw.nearest, g_marker_draw.nearest_uu);
@@ -8051,8 +9209,17 @@ namespace overlay
             char padmod[64]{};
             ::WideCharToMultiByte(CP_UTF8, 0, pad::module_name(), -1, padmod, sizeof(padmod) - 1, nullptr,
                                   nullptr);
+            // TRUTHFUL, whatever the answer is (review B.1). This line read `none` for
+            // ever in 1.0.0 - not because no pad was plugged in, but because XInput was
+            // only polled while the full map was open, and the map could only be opened
+            // from the keyboard. So it now also says whether anything is ASKING: with
+            // map_gamepad off nothing polls, and "none" then means "not looked at".
             ImGui::Text("pad: %s (%s)   sticks %.2f,%.2f / %.2f,%.2f   triggers %.2f/%.2f",
-                        gp.connected ? "connected" : "none",
+                        gp.connected ? "connected"
+                                     : (cfg.map_gamepad ||
+                                        (cfg.highlight_enabled && cfg.highlight_gamepad))
+                                           ? "none found (polling)"
+                                           : "not polled (map_gamepad = 0)",
                         padmod,
                         static_cast<double>(gp.lx),
                         static_cast<double>(gp.ly),
@@ -8265,9 +9432,11 @@ namespace overlay
 
             const mm::Config before = cfg;
 
+            // The version and nothing else. "beta" was a note to ourselves and 1.0.0 is
+            // not one (lessons.md: a user-visible "not yet verified" line is a note to
+            // OURSELVES); version.hpp is the single source of truth for the string.
             ImGui::TextColored(ImVec4{0.62f, 0.68f, 0.78f, 1.0f},
-                               "WuchangMinimap v" WUCHANG_MINIMAP_VERSION
-                               "  -  beta");
+                               "WuchangMinimap v" WUCHANG_MINIMAP_VERSION);
 
             // The tabs get their own child so the Save / Revert / master-switch row is
             // always at the bottom of the window and never scrolls away with them.
@@ -8306,14 +9475,22 @@ namespace overlay
 
             ImGui::Separator();
             // The button says WHICH FILE it writes: there are two now, and the panel is
-            // the only place that says which of them a setting lives in.
-            if (ImGui::Button("Save to config_wuchang_minimap.txt"))
+            // the only place that says which of them a setting lives in. And it has to
+            // say BOTH when both are written - a Save with a dev file present (or with a
+            // Dev dial moved off its default, which is what the Debug tab does) rewrites
+            // config_wuchang_minimap_dev.txt as well, and a button that named one file
+            // while writing two is exactly the kind of thing a bug report starts with.
+            const bool dev_too = mm::dev_config_active();
+            if (ImGui::Button(dev_too ? "Save to config_wuchang_minimap.txt + _dev.txt"
+                                      : "Save to config_wuchang_minimap.txt"))
             {
                 mm::g_save_config = true;
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Write the current settings back to the config file.");
+                ImGui::SetTooltip(dev_too ? "Write the current settings back to config_wuchang_minimap.txt "
+                                            "and the developer dials to config_wuchang_minimap_dev.txt."
+                                          : "Write the current settings back to the config file.");
             }
             ImGui::SameLine();
             if (ImGui::Button("Revert"))
@@ -8368,7 +9545,10 @@ namespace overlay
 
             ImGui::End();
 
-            if (std::memcmp(&before, &cfg, sizeof(mm::Config)) != 0)
+            // Field by field (review B.19), not memcmp: a Config is a value, and
+            // `mm::operator==` is generated from the struct with a byte-flip drift
+            // guard behind it in markers_test.
+            if (before != cfg)
             {
                 mm::set_config(cfg);
             }
@@ -8409,6 +9589,12 @@ namespace overlay
             // config copy, which is why `cfg` is a mutable copy: nothing downstream has
             // to know the fade exists, and no scaled value can reach the config file.
             const bool gate_open = have && hud_gate(cfg, snap, have, frame_now) == nullptr;
+            if (gate_open && !g_hud_gate_ever_open.load(std::memory_order_relaxed))
+            {
+                // The first frame anything of ours could be seen. The first-run tip on
+                // the loop thread is waiting for exactly this (review B.2).
+                g_hud_gate_ever_open.store(true, std::memory_order_release);
+            }
             const float fade = hud_fade_step(gate_open && cfg.overlay_enabled, frame_now);
             cfg.opacity *= fade;
             cfg.compass_opacity *= fade;
@@ -8420,6 +9606,10 @@ namespace overlay
             // frame the map or the panel closes is the frame the game gets the cursor
             // back.
             ImGui::GetIO().MouseDrawCursor = map_open || mm::g_panel_open.load(std::memory_order_relaxed);
+
+            // The pad, into ImGui's own nav (review B.8). Only while the panel is open,
+            // and from the state the loop thread sampled - never a poll from here.
+            feed_pad_nav(raw);
 
             // THE ONE MARKER PASS. The minimap, the full map, the compass pips and the
             // x-ray highlight all read the same published buffer; walking it once here
@@ -8492,14 +9682,14 @@ namespace overlay
 
             // The clipboard result comes back from the loop thread as text plus a flag;
             // turn it into a toast here, where toasts live.
-            if (g_shot_toast_ready.exchange(false, std::memory_order_acquire))
+            if (g_toast_pending_ready.exchange(false, std::memory_order_acquire))
             {
                 char text[160]{};
                 unsigned ms = 2500;
                 {
-                    SpinGuard guard(g_shot_lock);
-                    ::strncpy_s(text, sizeof(text), g_shot_toast, _TRUNCATE);
-                    ms = g_shot_toast_ms;
+                    SpinGuard guard(g_toast_lock);
+                    ::strncpy_s(text, sizeof(text), g_toast_pending, _TRUNCATE);
+                    ms = g_toast_pending_ms;
                 }
                 toast_for(text, ms);
             }
@@ -8598,6 +9788,8 @@ namespace overlay
             // We draw our own software cursor for the panel; never let ImGui fight the
             // game over the OS cursor shape.
             io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            // [fix-ui] keyboard + gamepad navigation for the F2 panel (review B.8).
+            ui_init_io(io);
             ImGui::StyleColorsDark();
             ImGui::GetStyle().WindowRounding = 4.0f;
 
@@ -10088,12 +11280,42 @@ namespace overlay
         mm::modlog_flush();
     }
 
+    //==================================================================================
+    // ONE DEBOUNCE PER BINDING
+    //==================================================================================
+    //
+    // Until 1.0.1 the four toggles shared a single `last_key` timestamp, so a press of
+    // the map key within 250 ms of the panel key was DROPPED - two unrelated actions
+    // debouncing each other. The debounce exists to swallow a contact bounce and a key
+    // repeat of the SAME key, which is a property of one binding, so it lives with the
+    // binding: `Edge` is the level plus the last accepted time of exactly one hotkey.
+    constexpr std::uint64_t kEdgeDebounceMs = 250;
+
+    struct Edge
+    {
+        bool down = false;
+        std::uint64_t last_ms = 0;
+    };
+
+    // True exactly once on the rising edge of `now_down`, and never twice inside
+    // kEdgeDebounceMs. The level is recorded whatever the answer, so a key held down
+    // through a gate closing cannot fire when the gate opens again.
+    bool edge_fired(Edge& e, bool now_down, std::uint64_t now)
+    {
+        const bool fire = now_down && !e.down && (e.last_ms == 0 || now - e.last_ms > kEdgeDebounceMs);
+        if (fire)
+        {
+            e.last_ms = now;
+        }
+        e.down = now_down;
+        return fire;
+    }
+
     void on_update()
     {
         // UE4SS EVENT-LOOP THREAD. No D3D12, no UObjects.
-        static bool panel_down = false;
-        static bool reload_down = false;
-        static std::uint64_t last_key = 0;
+        static Edge panel_edge{};
+        static Edge reload_edge{};
         static bool logged_first_present = false;
 
         const mm::Config& cfg = mm::cfg_cached();
@@ -10191,50 +11413,136 @@ namespace overlay
             }
         }
 
-        const bool panel_now = (::GetAsyncKeyState(cfg.panel_key) & 0x8000) != 0;
-        if (panel_now && !panel_down && foreground && now - last_key > 250)
+        // THE BINDINGS, sampled as a LEVEL with their modifier (review B.13). A binding
+        // carries its virtual key in the low byte and one modifier in bits 8..9
+        // (mm::key_vk / mm::key_mod), so `map_key = ctrl+m` is one int and one sample.
+        //
+        // A binding with NO modifier does not require the modifiers to be up: the x-ray
+        // hold key is Alt by default, and demanding a clean Alt would have made every
+        // other hotkey dead for as long as the x-ray is held. The Bindings tab names
+        // that overlap rather than the code inventing a rule about it.
+        const auto mod_held = [](int mod) {
+            switch (mod)
+            {
+            case mm::kKeyModCtrl:
+                return (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            case mm::kKeyModShift:
+                return (::GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+            case mm::kKeyModAlt:
+                return (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            default:
+                return true;
+            }
+        };
+        const auto key_down = [&mod_held](int binding) {
+            const int vk = mm::key_vk(binding);
+            if (vk == 0)
+            {
+                return false; // `none` - deliberately unbound
+            }
+            return (::GetAsyncKeyState(vk) & 0x8000) != 0 && mod_held(mm::key_mod(binding));
+        };
+
+        // WHAT THE WINDOW THREAD MAY SWALLOW, recomputed on every 60 Hz pass (review
+        // B.13). A key is in the set only while the action it is bound to can actually
+        // fire, so `C` is the game's again the moment the full map closes, and the
+        // modifier has to be held for a modified binding - `ctrl+m` never costs the game
+        // a bare `m`.
+        //
+        // Three keys are NEVER swallowed however they are bound: Alt+F4, Alt+Enter and
+        // Alt+Tab are the player's way out of a game that is misbehaving, and a mod that
+        // eats them is a mod nobody can quit. (Review B.4 is the same bug in the map's
+        // blanket swallow.)
         {
-            last_key = now;
+            const bool map_open_now = mm::g_map_open.load(std::memory_order_relaxed);
+            swallow_set_clear();
+            // Sampled once, not once per binding: this block runs 60 times a second and
+            // every GetAsyncKeyState is a syscall-ish read.
+            const bool alt_now = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            const auto arm = [&](int binding, bool live) {
+                const int vk = mm::key_vk(binding);
+                if (!live || vk == 0 || !mod_held(mm::key_mod(binding)))
+                {
+                    return;
+                }
+                if (alt_now && (vk == VK_F4 || vk == VK_RETURN || vk == VK_TAB))
+                {
+                    return;
+                }
+                swallow_set_add(vk);
+            };
+            g_swallow_stamp.store(now, std::memory_order_relaxed);
+            if (mm::mod_active() && foreground)
+            {
+                arm(cfg.panel_key, true);
+                arm(cfg.reload_key, true);
+                arm(cfg.map_key, true);
+                arm(cfg.zoom_key, !map_open_now);
+                arm(cfg.screenshot_key, map_open_now);
+                arm(cfg.map_recenter_key, map_open_now);
+                arm(cfg.highlight_key, cfg.highlight_enabled);
+            }
+        }
+
+        if (edge_fired(panel_edge, key_down(cfg.panel_key), now) && foreground)
+        {
             const bool open = !mm::g_panel_open.load();
             mm::g_panel_open = open;
             MM_LOGV(L"settings panel {}", open ? L"opened" : L"closed");
         }
-        panel_down = panel_now;
 
-        const bool reload_now = (::GetAsyncKeyState(cfg.reload_key) & 0x8000) != 0;
-        if (reload_now && !reload_down && foreground && now - last_key > 250)
+        if (edge_fired(reload_edge, key_down(cfg.reload_key), now) && foreground)
         {
-            last_key = now;
             mm::g_reload_config = true;
         }
-        reload_down = reload_now;
 
         // The full map. GetAsyncKeyState rather than a WndProc test on purpose: while
         // the map is open the WndProc hook swallows every key, so the message-based
         // route could not close it again.
-        static bool map_down = false;
-        const bool map_now = (::GetAsyncKeyState(cfg.map_key) & 0x8000) != 0;
-        if (map_now && !map_down && foreground && now - last_key > 250)
+        static Edge map_edge{};
+        if (edge_fired(map_edge, key_down(cfg.map_key), now) && foreground)
         {
-            last_key = now;
             const bool open = !mm::g_map_open.load();
             mm::g_map_open = open;
             MM_LOGV(L"full map {}", open ? L"opened" : L"closed");
         }
-        map_down = map_now;
+
+        // THE FULL MAP ON A GAMEPAD (review B.1). Every pad control inside the map was
+        // unreachable for a controller-only player, because nothing opened the map: the
+        // key is a keyboard key and `want_pad` only polled XInput once the map was
+        // already open. The chord is a press of ALL its buttons at once, taken from the
+        // held mask rather than from the edge accumulator, so the order they go down in
+        // does not matter; `map_pad_open_chord = none` disables it.
+        static bool pad_chord_down = false;
+        if (cfg.map_gamepad && cfg.map_pad_open_chord != 0)
+        {
+            const pad::State gp_open = pad::state();
+            const bool chord_now = gp_open.connected &&
+                                   (gp_open.held & cfg.map_pad_open_chord) == cfg.map_pad_open_chord;
+            if (chord_now && !pad_chord_down)
+            {
+                const bool open = !mm::g_map_open.load();
+                mm::g_map_open = open;
+                mm::logf(L"full map {} (pad {})", open ? L"opened" : L"closed",
+                         mm::pad_chord_name(cfg.map_pad_open_chord, false, false));
+            }
+            pad_chord_down = chord_now;
+        }
+        else
+        {
+            pad_chord_down = false;
+        }
 
         // THE MINIMAP ZOOM LADDER. `zoom_key` is a press, the wheel gesture arrives as
         // accumulated steps from the render thread, and both are applied here - the loop
         // thread is the only one allowed to publish a config. Skipped while the full map
         // is open: it swallows the keyboard and owns its own zoom.
-        static bool zoom_down = false;
-        const bool zoom_now = (::GetAsyncKeyState(cfg.zoom_key) & 0x8000) != 0;
-        if (zoom_now && !zoom_down && foreground && !mm::g_map_open.load() && now - last_key > 250)
+        static Edge zoom_edge{};
+        if (edge_fired(zoom_edge, key_down(cfg.zoom_key), now) && foreground &&
+            !mm::g_map_open.load())
         {
-            last_key = now;
             g_zoom_steps.fetch_add(1, std::memory_order_relaxed);
         }
-        zoom_down = zoom_now;
         if (const int steps = g_zoom_steps.exchange(0, std::memory_order_relaxed); steps != 0)
         {
             mm::Config edit = mm::config();
@@ -10248,11 +11556,31 @@ namespace overlay
             if (edit.zoom_uu_per_px != cfg.zoom_uu_per_px)
             {
                 mm::set_config(edit);
+                // ON SCREEN, not only in the log (review B.9). The zoom key was the one
+                // in-play gesture whose only feedback was a log line: the picture does
+                // change, but at 13 -> 26 uu/px on a small disc that is not obviously
+                // "I changed a setting" rather than "the map moved". One second is long
+                // enough to read and short enough not to sit over the game.
+                const int rung =
+                    mv::zoom_preset_index(edit.minimap_zoom_presets, n, edit.zoom_uu_per_px);
+                char note[64]{};
+                if (rung >= 0)
+                {
+                    (void)std::snprintf(note, sizeof(note), "minimap zoom  %.0f uu/px  (%d of %d)",
+                                        static_cast<double>(edit.zoom_uu_per_px), rung + 1, n);
+                }
+                else
+                {
+                    (void)std::snprintf(note, sizeof(note), "minimap zoom  %.0f uu/px",
+                                        static_cast<double>(edit.zoom_uu_per_px));
+                }
+                post_toast(note, 1000);
                 mm::logf(L"minimap zoom: {:.0f} uu/px (cycled with {} over {} preset(s))",
                          edit.zoom_uu_per_px, mm::key_name(edit.zoom_key), n);
             }
             else if (n <= 0)
             {
+                post_toast("minimap_zoom_presets is empty - nothing to cycle", 1500);
                 mm::log(L"minimap zoom: minimap_zoom_presets is empty - nothing to cycle through");
             }
         }
@@ -10261,8 +11589,15 @@ namespace overlay
         // are actually bound, because "the mod does nothing" is almost always "I did not
         // know which key opens it". The sentinel is a file next to the config, so
         // reinstalling into a clean folder shows it again and a config reload does not.
+        //
+        // IT WAITS FOR THE HUD (review B.2). It used to fire on the first pass of this
+        // function - at process start, over the splash screen and the main menu, where
+        // nothing of ours draws - and it wrote the sentinel there too, so the one tip a
+        // player ever gets was spent on a screen that never showed it. The gate is the
+        // render thread's own "the HUD may be on screen" answer, published the first
+        // time it opens, i.e. the first frame with a validated gameplay pawn.
         static bool first_run_checked = false;
-        if (!first_run_checked && cfg.first_run_toast)
+        if (!first_run_checked && cfg.first_run_toast && g_hud_gate_ever_open.load(std::memory_order_acquire))
         {
             first_run_checked = true;
             const std::wstring sentinel = mm::mod_dir() + L"\\wuchang_minimap_firstrun.txt";
@@ -10292,13 +11627,12 @@ namespace overlay
         // MAP -> CLIPBOARD. Only while the full map is open, which is also what makes a
         // plain letter safe as the default: the map mode swallows every keyboard message
         // (lessons.md), so `C` cannot reach the game while this can fire.
-        static bool shot_down = false;
-        const bool shot_now = (::GetAsyncKeyState(cfg.screenshot_key) & 0x8000) != 0;
-        if (shot_now && !shot_down && foreground && mm::g_map_open.load())
+        static Edge shot_edge{};
+        if (edge_fired(shot_edge, key_down(cfg.screenshot_key), now) && foreground &&
+            mm::g_map_open.load())
         {
             g_shot_request.store(true, std::memory_order_release);
         }
-        shot_down = shot_now;
 
         // The finished bitmap, handed over by the render thread. The clipboard API opens
         // a window-station-wide lock and can block; it belongs here and nowhere near
@@ -10361,18 +11695,30 @@ namespace overlay
                      dib.size());
         }
 
-        static bool recenter_down = false;
-        const bool recenter_now = (::GetAsyncKeyState(cfg.map_recenter_key) & 0x8000) != 0;
-        if (recenter_now && !recenter_down && foreground && mm::g_map_open.load())
+        static Edge recenter_edge{};
+        if (edge_fired(recenter_edge, key_down(cfg.map_recenter_key), now) && foreground &&
+            mm::g_map_open.load())
         {
             g_map_recenter.store(true, std::memory_order_relaxed);
         }
-        recenter_down = recenter_now;
 
         // XInput, on THIS thread - the same place the keyboard is sampled, and never on
-        // the game thread (lessons.md). Polling a disconnected pad is expensive, so it
-        // only runs while something wants it: the full map, or the highlight's chord.
-        const bool want_pad = (cfg.map_gamepad && mm::g_map_open.load()) ||
+        // the game thread (lessons.md).
+        //
+        // WHY THIS IS NOT GATED ON THE MAP BEING OPEN ANY MORE (review B.1). It was
+        // `map_gamepad && map_open`, and that is a deadlock in the shape of a condition:
+        // the only thing that could open the map was a keyboard key, so a controller-only
+        // player could never reach any of the pad controls inside it, and the Debug tab's
+        // "gamepad connected" line said `false` for ever because nothing had ever asked.
+        //
+        // The cost that gate existed to avoid is polling an EMPTY slot, and gamepad.cpp
+        // already handles that itself: with no pad found it probes the four slots once a
+        // second and returns, and once a slot answers it follows that one at whatever
+        // rate it is called (a connected-slot XInputGetState is a handful of
+        // microseconds). So "poll whenever the feature is switched on" is a ~1 Hz probe
+        // when nothing is plugged in and full rate as soon as something is - which is
+        // exactly what the map, the open chord and the x-ray chord all need.
+        const bool want_pad = cfg.map_gamepad ||
                               (cfg.highlight_enabled && cfg.highlight_gamepad &&
                                (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt));
         // Its own row: `XInputGetState` on an empty slot costs about a millisecond, and
@@ -10401,7 +11747,7 @@ namespace overlay
         //
         // Either way the DEMAND handed to hl needs the window in the foreground, or
         // alt-tabbing would leave the game thread reading the camera for nothing.
-        bool down = cfg.highlight_enabled && (::GetAsyncKeyState(cfg.highlight_key) & 0x8000) != 0;
+        bool down = cfg.highlight_enabled && key_down(cfg.highlight_key);
         if (!down && cfg.highlight_enabled && cfg.highlight_gamepad)
         {
             const pad::State gp = pad::state();
@@ -10460,6 +11806,14 @@ namespace overlay
                 const mm::PerfScope save_scope(g_pf_save);
                 mm::save_waypoint_file();
             }
+        }
+
+        panel_state_load();
+        if (g_panel_state_dirty.exchange(false, std::memory_order_acquire))
+        {
+            // Tiny (one line), and on the same thread as every other write this mod
+            // does. It shares the file-write perf row above by design.
+            panel_state_save();
         }
 
         if (mm::g_reload_config.exchange(false))

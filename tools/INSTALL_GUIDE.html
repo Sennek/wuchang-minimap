@@ -118,17 +118,24 @@ data.</p>
 <table>
   <tr><th style="width:180px">Key</th><th>Action</th></tr>
   <tr><td><kbd>F2</kbd></td><td>Settings panel &mdash; every setting, in Player / Advanced / Bindings tabs</td></tr>
-  <tr><td><kbd>M</kbd></td><td>Full map. Drag or <kbd>WASD</kbd> to pan, wheel to zoom, <kbd>Q</kbd>/<kbd>E</kbd> for the floor, <kbd>Home</kbd> to fit, right-click for a waypoint, <kbd>C</kbd> to copy it to the clipboard, <kbd>?</kbd> for the rest, <kbd>Esc</kbd> to close</td></tr>
+  <tr><td><kbd>M</kbd></td><td>Full map. Drag or <kbd>WASD</kbd> to pan, wheel to zoom, <kbd>Q</kbd>/<kbd>E</kbd> for the floor, <kbd>Home</kbd> to fit, right-click for a waypoint, <kbd>C</kbd> to copy it to the clipboard, <kbd>F1</kbd> or <kbd>H</kbd> for the rest, <kbd>Esc</kbd> to close</td></tr>
   <tr><td><kbd>LALT</kbd></td><td>X-ray highlight: nearby markers drawn through walls with names and distances. A <strong>toggle</strong> &mdash; press again to turn it off</td></tr>
-  <tr><td><kbd>LB</kbd>+<kbd>RB</kbd></td><td>The same, on a controller (the full map takes a gamepad too)</td></tr>
+  <tr><td><kbd>LB</kbd>+<kbd>RB</kbd></td><td>The same, on a controller</td></tr>
+  <tr><td><kbd>Back</kbd>+<kbd>Y</kbd></td><td>Open / close the full map on a controller. The map itself takes a gamepad throughout: left stick pans, the triggers zoom, <kbd>LB</kbd>/<kbd>RB</kbd> change floor, <kbd>A</kbd> sets a waypoint, <kbd>B</kbd> closes it</td></tr>
   <tr><td><kbd>N</kbd></td><td>Cycle the minimap zoom</td></tr>
   <tr><td><kbd>R</kbd></td><td>Recentre the full map on the player</td></tr>
   <tr><td><kbd>F5</kbd></td><td>Reload the config, the map assets and the marker database</td></tr>
 </table>
 
 <p><strong>Everything is rebindable</strong> in the <kbd>F2</kbd> panel's <em>Bindings</em> tab: click
-a row and press the new key. <kbd>F6</kbd> and <kbd>F9</kbd>&ndash;<kbd>F12</kbd> are refused &mdash;
-they belong to RenoDX/DLSS, the engine, the game console and Steam.</p>
+a row and press the new key &mdash; hold <kbd>Ctrl</kbd>, <kbd>Shift</kbd> or <kbd>Alt</kbd> with it to
+bind a combination such as <kbd>Ctrl</kbd>+<kbd>M</kbd>. <kbd>F6</kbd> and
+<kbd>F9</kbd>&ndash;<kbd>F12</kbd> are refused &mdash; they belong to RenoDX/DLSS, the engine, the game
+console and Steam. The tab warns when a key is one the game itself is likely to want.</p>
+
+<p>A key bound to the mod is <strong>taken away from the game</strong> while the mod is using it, so a
+hotkey no longer does two things at once. If you would rather the game kept a key, put a modifier in
+front of the mod's binding.</p>
 
 <p>Settings live in <code>ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt</code>, which documents
 every key inline; the <kbd>F2</kbd> panel edits the same file, and <kbd>F5</kbd> reloads it without

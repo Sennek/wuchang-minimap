@@ -145,6 +145,12 @@ namespace mv
     // step_zoom_preset(..., +1): what `zoom_key` does.
     float next_zoom_preset(const float* presets, int count, float current);
 
+    // WHICH RUNG the current zoom is standing on, 0-based, or -1 when it is on none of
+    // them (a hand-edited `minimap_zoom` between two presets). The on-screen "2 of 3"
+    // caption the zoom key raises reads this; the same 0.1 % margin as
+    // step_zoom_preset, so the rung the ladder just moved TO is the one reported.
+    int zoom_preset_index(const float* presets, int count, float current);
+
     //==================================================================================
     // The waypoint - wuchang_minimap_waypoint.txt
     //==================================================================================

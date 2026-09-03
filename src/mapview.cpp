@@ -239,6 +239,24 @@ namespace mv
         return step_zoom_preset(presets, count, current, 1);
     }
 
+    int zoom_preset_index(const float* presets, int count, float current)
+    {
+        if (presets == nullptr || count <= 0)
+        {
+            return -1;
+        }
+        for (int i = 0; i < count; ++i)
+        {
+            const float lo = presets[i] * 0.999f;
+            const float hi = presets[i] * 1.001f;
+            if (current >= lo && current <= hi)
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     std::string waypoint_serialize(const Waypoint& wp)
     {
         std::string out;

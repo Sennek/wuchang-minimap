@@ -116,6 +116,51 @@ namespace gly
     static_assert(sizeof(kShapes) / sizeof(kShapes[0]) == static_cast<std::size_t>(mdb::kCatCount),
                   "every category needs exactly one glyph shape");
 
+    // HOW FAR A SHAPE REACHES from its centre, as a multiple of the glyph radius `r`.
+    //
+    // It exists for the dark halo every glyph is drawn on top of. That halo was a fixed
+    // circle of r + 1 with twelve segments, and several shapes stick out of it: the
+    // chest is a box whose corners are at 1.21 r (review B.17 - the halo did not cover
+    // them, so a light chest on a light floor lost its edge exactly at the corners), the
+    // boss triangle's apex is at 1.5 r and the lift's arrow at 1.35 r.
+    //
+    // The number is CAPPED at 1.25 on purpose: a halo drawn to the boss triangle's full
+    // 1.5 r is a black disc half again as wide as the glyph, which reads as a blob at
+    // markers_size 6.5. So the box corners are covered, and the two spikes are allowed
+    // to poke out of theirs - a spike has an edge on both sides and is legible anyway.
+    inline constexpr float shape_extent(Shape s)
+    {
+        switch (s)
+        {
+        case Shape::ChestBox:      // half-extents 0.95 x 0.75 -> corner at 1.21
+        case Shape::NotePage:      // 0.62 x 0.88             -> 1.08
+        case Shape::DoorBox:       // 0.55 x 0.95             -> 1.10
+        case Shape::Lift:          // box 0.85 x 0.5, arrow to 1.35
+        case Shape::Cross:         // arms to 0.85 x 0.85     -> 1.20
+        case Shape::Diamond:       // vertices on the axes at 1.15
+        case Shape::Triangle:      // apex at 1.5 (capped)
+        case Shape::TriangleNotched:
+        case Shape::Ladder:        // rails to 0.5 x 1.0      -> 1.12
+            return 1.25f;
+        case Shape::RingBar:       // ring at exactly r
+        case Shape::Pentagon:      // 1.05
+        case Shape::DotRing:       // detached ring at 0.92
+        case Shape::Dot:
+        case Shape::SmallSquare:
+        case Shape::Count:
+        default:
+            return 1.1f;
+        }
+    }
+
+    // BELOW THIS RADIUS a glyph is drawn in its simplified form (review B.17): the
+    // ladder loses two of its three rungs, the note its two rules of writing and the
+    // lift the outline inside its box. Those details are 1-2 pixels apart at
+    // markers_size 6.5 and turn into a smudge that makes the silhouette HARDER to read,
+    // not easier - and the minimap draws at exactly that size while the full map draws
+    // at 8 and the x-ray at 7.
+    constexpr float kSimpleGlyphRadius = 7.0f;
+
     constexpr Shape shape_of(mdb::Cat cat)
     {
         const int i = static_cast<int>(cat);
@@ -199,17 +244,28 @@ namespace gly
     //   orange 230 159 0 | sky blue 86 180 233 | bluish green 0 158 115 |
     //   yellow 240 228 66 | blue 0 114 178 | vermillion 213 94 0 |
     //   reddish purple 204 121 167
-    // Assigned so that the categories a player hunts for at the same time (chest vs
-    // pickup, boss vs elite vs enemy) never share a hue; the pairs that do share one
-    // (elite/fog gate, enemy/boss are deliberately NOT paired) are things that never
-    // compete for attention, and their shapes differ anyway.
+    // Assigned so that the categories a player hunts for at the same time never share a
+    // hue. WHICH THOSE ARE is written down as data below (kCompeting) and asserted, not
+    // asserted in a comment: 1.0.0's comment claimed "enemy/boss are deliberately NOT
+    // paired" while the table gave both the same vermillion, which is exactly the pair a
+    // player is reading the map for when a boss arena is full of adds. Enemy is a
+    // neutral grey now - it is the one category that is filtered OUT by default, so
+    // taking a hue away from it costs nothing and gives boss its own.
+    //
+    // The hues that still repeat are pickup/door (sky blue), elite/fog gate (reddish
+    // purple) and ladder/lift/hidden (near-white). Fourteen categories cannot have
+    // fourteen safe hues; in each of those the pair is a thing you hunt for beside a
+    // piece of furniture or a doorway, they are never the two things being told apart,
+    // and their shapes differ - a filled dot vs a tall door, a barred ring vs a
+    // triangle, rails-and-rungs vs a box under an arrow vs a bold X.
     inline constexpr mdb::Rgb kPaletteColorblind[] = {
         mdb::Rgb{230, 159, 0},   // Shrine   - orange
         mdb::Rgb{240, 228, 66},  // Chest    - yellow
         mdb::Rgb{86, 180, 233},  // Pickup   - sky blue
         mdb::Rgb{213, 94, 0},    // Boss     - vermillion
         mdb::Rgb{204, 121, 167}, // Elite    - reddish purple
-        mdb::Rgb{213, 94, 0},    // Enemy    - vermillion (dot-in-ring vs the boss triangle)
+        mdb::Rgb{150, 150, 150}, // Enemy    - neutral grey: the boss keeps vermillion to
+                                 //            itself, and enemies are off by default
         mdb::Rgb{0, 158, 115},   // Npc      - bluish green
         mdb::Rgb{0, 114, 178},   // Note     - blue, the one Okabe-Ito hue nothing else
                                  //            uses (the ladder/lift near-white would
@@ -218,7 +274,12 @@ namespace gly
         mdb::Rgb{235, 235, 235}, // Ladder   - near-white
         mdb::Rgb{235, 235, 235}, // Lift     - near-white
         mdb::Rgb{204, 121, 167}, // FogGate  - reddish purple (barred ring vs the elite triangle)
-        mdb::Rgb{240, 228, 66},  // Hidden   - yellow (cross vs the chest box)
+        mdb::Rgb{235, 235, 235}, // Hidden   - near-white: a hidden item is LOOT and has
+                                 //            to differ from the chest's yellow and the
+                                 //            pickup's sky blue (kCompeting asserts it);
+                                 //            the near-white it now shares with the
+                                 //            ladder and the lift is furniture, which is
+                                 //            never the thing being told apart from it
         mdb::Rgb{190, 190, 190}, // Other    - grey
     };
 
@@ -338,6 +399,50 @@ namespace gly
             c.floor_base = mdb::Rgb{222, 210, 186};
         }
         return c;
+    }
+
+    //==================================================================================
+    // The pairs that must never share a hue
+    //==================================================================================
+    //
+    // "Every pair differs by hue or by shape" is satisfied by construction here - all
+    // fourteen shapes are distinct - so on its own it proves very little. The property
+    // that actually matters at the 13-pixel size these are drawn at is about the
+    // categories a player is comparing IN THE SAME GLANCE: three kinds of hostile, and
+    // the three kinds of loot. Inside such a group the hue has to carry the difference,
+    // because at that size a triangle and a smaller barred triangle do not.
+    //
+    // Written as data so palette_competing_hues_ok() can be asserted per palette, which
+    // is what turns "the comment says they are not paired" into a test.
+    struct CatPair
+    {
+        mdb::Cat a;
+        mdb::Cat b;
+    };
+
+    inline constexpr CatPair kCompeting[] = {
+        // Hostiles: which of the three shapes in a fight is the one worth walking to.
+        {mdb::Cat::Boss, mdb::Cat::Elite},
+        {mdb::Cat::Boss, mdb::Cat::Enemy},
+        {mdb::Cat::Elite, mdb::Cat::Enemy},
+        // Loot: what is still out there in this room.
+        {mdb::Cat::Chest, mdb::Cat::Pickup},
+        {mdb::Cat::Chest, mdb::Cat::Hidden},
+        {mdb::Cat::Pickup, mdb::Cat::Hidden},
+        // A shrine is the map's landmark and must not read as a chest.
+        {mdb::Cat::Shrine, mdb::Cat::Chest},
+    };
+
+    inline bool palette_competing_hues_ok(Palette pal)
+    {
+        for (const CatPair& p : kCompeting)
+        {
+            if (marker_rgb(p.a, pal) == marker_rgb(p.b, pal))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     // "no two categories share a shape AND a colour" - the property the whole header

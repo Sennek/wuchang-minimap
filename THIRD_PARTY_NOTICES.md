@@ -14,10 +14,16 @@ their attribution requirements; it ships at the root of every release zip.
 | Game map / marker data | n/a | see "Game data" | yes, as mod assets |
 
 Version provenance: Dear ImGui from `IMGUI_VERSION` in `third_party/imgui/imgui.h`;
-{fmt} from `FMT_VERSION` (110200) in `third_party/fmt/include/fmt/base.h`; MinHook's
-sources carry no version macro - the vendored tree is Tsuda Kageyu's last release
-(1.3.3, copyright range 2009-2017). The UE4SS build is the one the import library in
-`sdk/lib/UE4SS.lib` was synthesised from (`sdk/UE4SS.def`).
+{fmt} from `FMT_VERSION` (110200) in `third_party/fmt/include/fmt/base.h`. MinHook's
+sources carry no version macro, so 1.3.3 is established from the copyright range
+(2009-2017), the absence of any ARM64 support (added upstream only after 1.3.3) and an
+exported API identical to that release; 1.3.3 is also the newest tagged MinHook release.
+The UE4SS build is the one the import library in `sdk/lib/UE4SS.lib` was synthesised
+from (`sdk/UE4SS.def`).
+
+None of the three vendored libraries has been modified. The full provenance record -
+upstream URLs, tags, which files were copied and how to re-verify a tree against
+upstream - is in `third_party/VENDORING.md` in the repository.
 
 The mod's JSON reader (`src/json.hpp`) is **not** third-party: it is a small
 hand-written recursive-descent parser belonging to this project, not nlohmann/json or

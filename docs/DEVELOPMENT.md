@@ -247,10 +247,13 @@ deploy/ue4ss/Mods/WuchangMinimap/
 
 ### Vendored versions
 
+Upstream URLs, tags, exactly which files were copied, and how to re-verify a tree
+against upstream: **`third_party/VENDORING.md`**. None of the three is modified.
+
 | Library | Version | Why that one |
 |---|---|---|
 | Dear ImGui | **v1.92.9b** (latest release) | Our own ImGui context, rendered through our own DX12 Present hook - independent of the v1.92.1 that UE4SS links internally. |
-| MinHook | **v1.3.4** (latest release) | |
+| MinHook | **v1.3.3** (the newest tagged release) | Statically linked, so `MH_ALL_HOOKS` can never touch UE4SS's own hooks. |
 | fmt | **11.2.0** | Not a choice: `DynamicOutput/Output.hpp` includes `<fmt/core.h>`, and UE4SS itself pins `fmt 11.2.0`. |
 
 ---

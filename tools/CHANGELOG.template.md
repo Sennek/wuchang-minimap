@@ -2,6 +2,51 @@
 
 All notable changes to this mod. Versions follow `MAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+A pass over the first round of in-game feedback: the x-ray sees more, the panel says
+less, the numbers fit on the screen, and every hotkey can be rebound in the panel.
+
+### Added
+- **A Bindings tab in the F2 panel.** Every hotkey - settings panel, full map, recentre,
+  minimap zoom, reload, map-to-clipboard and the x-ray hold key - is rebound by clicking
+  it and pressing the new key (Esc cancels), with a reset per row, a **Reset every
+  binding** button and a warning when two actions end up on the same key. The gamepad
+  chord is edited there too. Changes take effect at once and are written by **Save**.
+- **More keys are bindable**: ENTER, BACKSPACE, the arrows, INSERT / DELETE / HOME / END /
+  PAGEUP / PAGEDOWN, NUM0..NUM9 and the numpad operators, MOUSE3 / MOUSE4 / MOUSE5, and
+  `none` to leave an action unbound. F6, F9, F10 and F12 stay refused.
+- **The compass tells you how far and whether it is up or down.** Every bearing pip now
+  carries the distance in metres just outside the strip, nearest first, and a marker more
+  than `compass_pip_height_uu` (300 uu = 3 m) off your own height gets an up or down arrow
+  beside its glyph. New keys `compass_pip_labels` (Player) and `compass_pip_height_uu`
+  (Advanced).
+- **Three clearly separated category filters** in the Player tab, one per feature: **Map &
+  minimap**, **Compass** and **X-ray highlight**, all three the same widget with `all` /
+  `none` buttons, and every chip now carrying its category's glyph as well as its colour.
+
+### Changed
+- **The x-ray highlight ships with shrines, bosses, NPCs and merchants on** as well as
+  chests and pickups, so holding the key near a shrine or a merchant shows something. If
+  your config already spells `highlight_categories` out, that line still wins - change it
+  in the panel.
+- **The F2 panel opens in the middle of the screen** and takes the whole mouse while it is
+  open, raw mouse input included, so moving the mouse over the panel no longer turns the
+  game camera. You can still drag the window anywhere; the keyboard still reaches the game
+  except while a text field or a key capture wants it.
+- **The collection statistics show only what you collect** - Shrines, Chests, Pickups,
+  Bosses, NPCs, Merchants - in both tables. The per-chapter matrix no longer scrolls
+  sideways at 1080p, every one of the six columns is always present (empty cells read
+  `-`), and the Enemies / Doors / Ladders / Lifts / Fog gates / Hidden / Other / all
+  columns are gone.
+- **The option help text says what the option does and stops there.** The "this does not
+  touch X" sentences, the pixel-count explanations and the implementation notes are out of
+  the panel, and no user-visible text mentions which version something changed in.
+- **The manual dumps are buttons, not hotkeys.** The recon dump and the runtime navmesh
+  dump are both on the F2 Debug tab now; `recon_dump_key` and `navmesh_dump_key` are gone
+  (an old `recon_dump_key` line logs one warning and is ignored). The player-facing
+  map-to-clipboard key stays a binding.
+
 ## @@VERSION@@ - @@DATE@@
 
 An extras release: one collection file per save, a statistics page, the map on your

@@ -58,17 +58,42 @@ went black on floor 0 while its neighbours were fine):
     (split at the widest empty Z gaps, `--floor-gap`). Cruder, but immune to ramps
     merging two storeys into one sheet.
 
-Flat planes
------------
-Chapter 1 contains 388 polygons that are a single flat quad filling an entire 1 280-uu
-tile (1 638 400 uu2) -- 273 of them at exactly Z = 36 351 spanning X 0..44 800 /
-Y -20 480..24 320, plus smaller sets at Z = 1 966.4, -505.5, ... They carry the same
-`area = 63` (RC_WALKABLE_AREA) and `flags = 1` as everything else, so they cannot be
-filtered by area type; they are filtered geometrically with
-`--flat-planes drop|keep|only` (**default `drop`** -- kept in, the Z = 36 351 plane paints
-a solid pale block over ~14 % of the map and hides the real geometry under it;
-`--flat-plane-area` sets the threshold).
-`--exclude-area N` is available for the 263 polygons that do carry area 1/2/3.
+Flat planes: out of bounds vs a real floor
+------------------------------------------
+Chapter 1 contains 347 polygons that are a single flat quad filling an entire 1 280-uu
+tile (1 638 400 uu2). They carry the same `area = 63` (RC_WALKABLE_AREA) and `flags = 1`
+as everything else, so they cannot be filtered by area type - but they are NOT all
+scenery either. Dropping them all (what this script used to do) deleted the drained-lake
+Commander Honglan boss arena and the Tang-palace shrine terrace along with the sky
+plane, and the user saw those as black tile-aligned squares on the minimap.
+
+So the quads are clustered by Z into *sheets* and a sheet is dropped only when it looks
+out of bounds (see `classify_flat_planes`):
+
+  * `--flat-plane-sheet-min` (48) coplanar quads or more - a perfectly flat surface
+    spanning 60+ tiles is 500 m of dead level ground and no hand-built area is that, or
+  * no *non-flat* navmesh within `--flat-plane-isolation` (5 000 uu) of the sheet's Z
+    under its own tile footprint - the Z = 36 351 and Z = 38 871 sheets every chapter
+    ships are 24 000-36 000 uu away from any real geometry.
+
+Measured, chapters 1-5: every kept sheet has non-flat navmesh within 7 uu of its Z and
+holds at most 25 quads; every dropped one is either 66..400 quads or 24 650+ uu away.
+`--flat-planes drop|keep|only` still switches the filter off entirely, and
+`--flat-plane-area` sets what counts as a candidate.
+`--exclude-area N` is available for the few polygons that do carry area 1/2/3.
+
+Unreachable islands (`--drop-islands`)
+--------------------------------------
+Recast leaves thousands of sub-square-metre scraps of navmesh under scenery, and they
+read as speckle on the minimap. `connected_components` recovers polygon adjacency
+geometrically (Detour's cross-tile links are in the part of the tile record the offline
+decoder does not parse) and `filter_islands` drops the components no player can stand
+on: a component is kept when a marker from `markers/chapter<N>.json` is within
+`--island-seed-radius` of it, else when its area clears `--island-min-area`.
+`--island-require-seed` is the strict "reachable from a shrine/marker only" mode; it
+drops ~56 % of Chapter 1's walkable area (off-mesh links - ladders, lifts, drops -
+are not in the data, so most of the map is not graph-connected to a shrine) and it eats
+the Honglan arena, which is reachable only by dropping into it. Do not ship it.
 
 Usage
 -----
@@ -115,6 +140,30 @@ DEFAULT_FLOOR_GAP = 500.0  # uu; a Z gap larger than this starts a new floor
 DEFAULT_FLOOR_GRID = 640.0  # uu; XY grid the floor clustering runs on
 DEFAULT_PX_PER_UU = 0.02  # 1 px = 50 uu = 0.5 m
 DEFAULT_FLAT_PLANE_AREA = 1.0e6  # uu2; a flat poly bigger than this is a "plane"
+# A big flat quad is only OUT OF BOUNDS when it is part of a whole *sheet* of them at
+# one Z, or when no ordinary navmesh exists anywhere near that Z under its footprint.
+# See context/navmesh-arenas-and-islands.md: dropping every big flat quad deleted real
+# floors (the Honglan boss arena, the Tang-palace shrine terrace) along with the sky sheet.
+# 48 is measured, not guessed: across chapters 1-5 the coplanar-quad sheets come in two
+# populations with nothing between them - real man-made floors and water bodies at 1..25
+# quads (the Honglan arena floor is 4, a courtyard 16, a palace lake 21) and whole-region
+# sheets at 66..400 (Chapter 1's sky plane 232, Chapter 4's pair 400 and 377). A perfectly
+# flat surface spanning 60+ navmesh tiles is 500 m of dead level ground, which no hand-built
+# area is; a 4-tile one is a drained lake.
+DEFAULT_PLANE_SHEET_MIN = 48  # coplanar big flat quads that make it an out-of-bounds sheet
+DEFAULT_PLANE_ISOLATION = 5000.0  # uu; nearest ordinary navmesh further than this -> drop
+DEFAULT_PLANE_Z_TOL = 20.0  # uu; planes within this Z of each other are one sheet
+# island filter (see §"unreachable islands")
+DEFAULT_ISLAND_GRID = 64.0  # uu; XY grid the connectivity union-find runs on
+DEFAULT_ISLAND_Z_TOL = 150.0  # uu; two polys in one grid cell join if their Z ranges are this close
+DEFAULT_ISLAND_MIN_AREA = 40000.0  # uu2 (4 m2); a seedless component smaller than this is noise
+DEFAULT_ISLAND_SEED_RADIUS = 300.0  # uu (3 m); a marker this close to a component keeps it
+DEFAULT_ISLAND_SEED_Z = 600.0  # uu; ... and within this much Z of it
+# marker categories that are evidence "a player can get here" (ladder / lift / door
+# reach places the navmesh graph cannot, because off-mesh links are not in our data)
+ISLAND_SEED_CATEGORIES = (
+    "shrine", "chest", "pickup", "npc", "merchant", "boss", "ladder", "lift", "door", "fog_gate",
+)
 MAX_IMAGE_PX = 16000  # guard against a --px-per-uu typo eating all the RAM
 
 COL_BG = (16, 18, 22)
@@ -335,18 +384,372 @@ def polygons_of(dump: Dump) -> list[dict]:
     return out
 
 
-def classify_flat_planes(polys: list[dict], min_area: float) -> dict:
-    """Mark poly['plane'] for near-horizontal polygons above `min_area` uu^2."""
+def classify_flat_planes(
+    polys: list[dict],
+    min_area: float,
+    sheet_min: int = DEFAULT_PLANE_SHEET_MIN,
+    isolation: float = DEFAULT_PLANE_ISOLATION,
+    z_tol: float = DEFAULT_PLANE_Z_TOL,
+) -> dict:
+    """Mark poly['plane'] for the near-horizontal quads that are OUT OF BOUNDS.
+
+    A "plane candidate" is a near-horizontal polygon of at least `min_area` uu^2 -
+    Wuchang's cooked navmesh is full of them and they are *ordinary walkable polygons*
+    with no flag to tell them apart (`flags` is 1 and `area` is 63 on all of them).
+    Candidates are clustered by Z (`z_tol`) into sheets, and a sheet is only dropped
+    when it looks like the game's out-of-bounds / kill plane rather than a floor:
+
+      * `>= sheet_min` quads share the sheet's Z (the Chapter-1 sky sheet is 232), or
+      * no *ordinary* (non-candidate) navmesh exists within `isolation` uu of the
+        sheet's Z anywhere under its 1280-uu tile footprint.
+
+    Everything else is a real floor and is kept. `min_area` alone used to decide this,
+    which deleted the drained-lake boss arena (4 quads at Z 71 under the Honglan boss)
+    and the Tang-palace shrine terrace (4 quads at Z 1671) - both of them rendered
+    in-game as a black tile-aligned square.
+    """
     by_z: dict[float, int] = {}
-    n = 0
+    cand: list[dict] = []
     for p in polys:
-        p["plane"] = p["zspread"] < 1.0 and p["xyarea"] >= min_area
-        if p["plane"]:
-            n += 1
+        p["plane_candidate"] = p["zspread"] < 1.0 and p["xyarea"] >= min_area
+        p["plane"] = False
+        if p["plane_candidate"]:
+            cand.append(p)
             z = round(p["cz"], 1)
             by_z[z] = by_z.get(z, 0) + 1
+
+    # Ordinary navmesh, bucketed by tile key, so the isolation test is local. "Ordinary"
+    # means *not flat*: the out-of-bounds sheets are surrounded by small flat quads at
+    # their own Z, so keying the test on "not a big flat quad" makes it always answer 0.
+    ordinary: dict[tuple, list[float]] = {}
+    for p in polys:
+        if p["zspread"] < 1.0:
+            continue
+        for key in _tile_keys(p):
+            ordinary.setdefault(key, []).append(p["cz"])
+
+    sheets: list[dict] = []
+    for members in _cluster_by(cand, lambda p: p["cz"], z_tol):
+        zmid = sum(p["cz"] for p in members) / len(members)
+        near = min(
+            (abs(cz - zmid) for p in members for key in _tile_keys(p) for cz in ordinary.get(key, ())),
+            default=float("inf"),
+        )
+        drop = len(members) >= sheet_min or near > isolation
+        for p in members:
+            p["plane"] = drop
+        sheets.append(
+            {
+                "z": round(zmid, 1),
+                "polys": len(members),
+                "nearest_ordinary_dz": None if near == float("inf") else round(near, 1),
+                "dropped": drop,
+                "reason": ("sheet" if len(members) >= sheet_min else "isolated") if drop else "",
+            }
+        )
+
+    sheets.sort(key=lambda s: -s["polys"])
     top = sorted(by_z.items(), key=lambda kv: -kv[1])[:8]
-    return {"count": n, "min_area_uu2": min_area, "top_z": [{"z": z, "polys": c} for z, c in top]}
+    return {
+        "count": sum(1 for p in polys if p["plane"]),
+        "candidates": len(cand),
+        "min_area_uu2": min_area,
+        "sheet_min": sheet_min,
+        "isolation_uu": isolation,
+        "sheets": sheets,
+        "dropped_sheets": [s for s in sheets if s["dropped"]],
+        "top_z": [{"z": z, "polys": c} for z, c in top],
+    }
+
+
+def _tile_keys(p: dict) -> list[tuple[int, int]]:
+    xs = [q[0] for q in p["pts"]]
+    ys = [q[1] for q in p["pts"]]
+    return [
+        (tx, ty)
+        for tx in range(int(math.floor(min(xs) / TILE_UU)), int(math.floor(max(xs) / TILE_UU)) + 1)
+        for ty in range(int(math.floor(min(ys) / TILE_UU)), int(math.floor(max(ys) / TILE_UU)) + 1)
+    ]
+
+
+def _cluster_by(items, key, tol: float) -> list[list]:
+    """Group items into runs whose `key` never jumps by more than `tol`.
+
+    Clusters the *items themselves*, never rounded copies of their keys - rounding the
+    key and then re-selecting members by range silently loses the members that round
+    the wrong way (it cost 14 of Chapter 1's 33 flat-plane sheets on the first try).
+    """
+    out: list[list] = []
+    last = None
+    for it in sorted(items, key=key):
+        v = key(it)
+        if out and last is not None and v - last <= tol:
+            out[-1].append(it)
+        else:
+            out.append([it])
+        last = v
+    return out
+
+
+# ---------------------------------------------------------------------------------
+# connected components ("islands")
+# ---------------------------------------------------------------------------------
+
+
+class _DSU:
+    __slots__ = ("p",)
+
+    def __init__(self, n: int):
+        self.p = list(range(n))
+
+    def find(self, a: int) -> int:
+        p = self.p
+        while p[a] != a:
+            p[a] = p[p[a]]
+            a = p[a]
+        return a
+
+    def union(self, a: int, b: int) -> None:
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            self.p[rb] = ra
+
+
+def connected_components(
+    polys: list[dict], grid: float = DEFAULT_ISLAND_GRID, z_tol: float = DEFAULT_ISLAND_Z_TOL
+) -> list[dict]:
+    """Union-find over the polygons; writes poly['comp'] and returns the components.
+
+    Detour's own cross-tile links live in the part of the serialized tile record the
+    offline decoder does not parse (`navmesh-offline.md` §10), so adjacency is
+    recovered geometrically instead: every polygon is rasterised onto an XY grid of
+    `grid` uu - cell centres inside it plus a walk along its edges, so two polygons
+    that merely share an edge still land in a common cell - and two polygons sharing a
+    cell are joined when their Z ranges are within `z_tol`. That keeps two storeys of
+    the same building apart while letting a ramp connect them.
+    """
+    n = len(polys)
+    dsu = _DSU(n)
+    buckets: dict[tuple[int, int], list[int]] = {}
+    for i, p in enumerate(polys):
+        pts = p["pts"]
+        zs = [q[2] for q in pts]
+        p["_zlo"], p["_zhi"] = min(zs), max(zs)
+        cells = set()
+        # 1. cell centres inside the polygon
+        xs = [q[0] for q in pts]
+        ys = [q[1] for q in pts]
+        gx0, gx1 = int(math.floor(min(xs) / grid)), int(math.floor(max(xs) / grid))
+        gy0, gy1 = int(math.floor(min(ys) / grid)), int(math.floor(max(ys) / grid))
+        if (gx1 - gx0 + 1) * (gy1 - gy0 + 1) <= 4096:
+            for gx in range(gx0, gx1 + 1):
+                cx = (gx + 0.5) * grid
+                for gy in range(gy0, gy1 + 1):
+                    if _point_in_poly(pts, cx, (gy + 0.5) * grid):
+                        cells.add((gx, gy))
+        # 2. walk the boundary so edge-sharing neighbours meet in a cell
+        m = len(pts)
+        for k in range(m):
+            x0, y0 = pts[k][0], pts[k][1]
+            x1, y1 = pts[(k + 1) % m][0], pts[(k + 1) % m][1]
+            steps = max(1, int(math.hypot(x1 - x0, y1 - y0) / (grid * 0.5)) + 1)
+            for s in range(steps + 1):
+                t = s / steps
+                cells.add((int(math.floor((x0 + (x1 - x0) * t) / grid)), int(math.floor((y0 + (y1 - y0) * t) / grid))))
+        for c in cells:
+            buckets.setdefault(c, []).append(i)
+
+    for members in buckets.values():
+        if len(members) < 2:
+            continue
+        members.sort(key=lambda i: polys[i]["_zlo"])
+        for a, b in zip(members, members[1:]):
+            pa, pb = polys[a], polys[b]
+            # Z ranges overlap, or the gap between them is within tolerance. Sorting by
+            # the low edge makes this a chain: a ramp's tall Z range bridges the storeys
+            # it actually joins, and a 200-uu-clear gallery above a floor stays separate.
+            if pb["_zlo"] - pa["_zhi"] <= z_tol:
+                dsu.union(a, b)
+
+    comps: dict[int, dict] = {}
+    for i, p in enumerate(polys):
+        r = dsu.find(i)
+        c = comps.get(r)
+        if c is None:
+            c = comps[r] = {"root": r, "polys": 0, "area": 0.0, "members": [],
+                            "min_x": 1e18, "min_y": 1e18, "max_x": -1e18, "max_y": -1e18,
+                            "min_z": 1e18, "max_z": -1e18}
+        c["polys"] += 1
+        c["area"] += p["xyarea"]
+        c["members"].append(i)
+        for q in p["pts"]:
+            c["min_x"] = min(c["min_x"], q[0]); c["max_x"] = max(c["max_x"], q[0])
+            c["min_y"] = min(c["min_y"], q[1]); c["max_y"] = max(c["max_y"], q[1])
+            c["min_z"] = min(c["min_z"], q[2]); c["max_z"] = max(c["max_z"], q[2])
+    out = sorted(comps.values(), key=lambda c: -c["area"])
+    for n_, c in enumerate(out):
+        for i in c["members"]:
+            polys[i]["comp"] = n_
+        c["id"] = n_
+    return out
+
+
+def _point_in_poly(pts: list[list[float]], x: float, y: float) -> bool:
+    inside = False
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i][0], pts[i][1]
+        x2, y2 = pts[(i + 1) % n][0], pts[(i + 1) % n][1]
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) / (y2 - y1) * (x2 - x1):
+            inside = not inside
+    return inside
+
+
+def load_marker_seeds(paths: Iterable[Path], categories: Iterable[str] = ISLAND_SEED_CATEGORIES) -> list[dict]:
+    """Marker positions that prove a component is reachable (`markers/chapter*.json`)."""
+    cats = set(categories)
+    seeds: list[dict] = []
+    for path in paths:
+        try:
+            doc = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception as exc:  # pragma: no cover
+            print(f"  ! cannot read markers {path}: {exc}", file=sys.stderr)
+            continue
+        for m in doc.get("markers", []):
+            if m.get("cat") in cats and all(k in m for k in ("x", "y", "z")):
+                seeds.append({"x": m["x"], "y": m["y"], "z": m["z"], "cat": m["cat"], "id": m.get("id", "")})
+    return seeds
+
+
+def filter_islands(
+    polys: list[dict],
+    seeds: list[dict],
+    grid: float = DEFAULT_ISLAND_GRID,
+    z_tol: float = DEFAULT_ISLAND_Z_TOL,
+    min_area: float = DEFAULT_ISLAND_MIN_AREA,
+    seed_radius: float = DEFAULT_ISLAND_SEED_RADIUS,
+    seed_z: float = DEFAULT_ISLAND_SEED_Z,
+    require_seed: bool = False,
+) -> tuple[list[dict], dict]:
+    """Drop the navmesh components no player can stand on.
+
+    A component is KEPT when a seed marker (cat shrine / chest / pickup / npc /
+    merchant / boss / ladder / lift / door) is within `seed_radius` uu horizontally
+    and `seed_z` uu vertically of one of its polygons - that is direct evidence the
+    place is reachable, including the small platforms only a ladder or a lift gets to.
+    Without a seed it survives on size alone (`min_area`), unless `require_seed`.
+    """
+    comps = connected_components(polys, grid=grid, z_tol=z_tol)
+    if not comps:
+        return polys, {"components": 0}
+
+    # seed lookup: grid-hash the seeds, then test them against each polygon's bbox
+    shash: dict[tuple[int, int], list[dict]] = {}
+    cell = max(seed_radius, 1.0)
+    for s in seeds:
+        shash.setdefault((int(s["x"] // cell), int(s["y"] // cell)), []).append(s)
+    for c in comps:
+        c["seeds"] = []
+    for p in polys:
+        c = comps[p["comp"]]
+        xs = [q[0] for q in p["pts"]]
+        ys = [q[1] for q in p["pts"]]
+        x0, x1 = min(xs) - seed_radius, max(xs) + seed_radius
+        y0, y1 = min(ys) - seed_radius, max(ys) + seed_radius
+        for gx in range(int(x0 // cell), int(x1 // cell) + 1):
+            for gy in range(int(y0 // cell), int(y1 // cell) + 1):
+                for s in shash.get((gx, gy), ()):
+                    if x0 <= s["x"] <= x1 and y0 <= s["y"] <= y1 and p["_zlo"] - seed_z <= s["z"] <= p["_zhi"] + seed_z:
+                        if len(c["seeds"]) < 8 and s["cat"] not in [q["cat"] for q in c["seeds"]]:
+                            c["seeds"].append(s)
+                        c["seeded"] = True
+
+    kept_comps, dropped = [], []
+    for i, c in enumerate(comps):
+        c["seeded"] = bool(c.get("seeded"))
+        if i == 0:
+            c["keep"], c["why"] = True, "largest"
+        elif c["seeded"]:
+            c["keep"], c["why"] = True, "seed:" + ",".join(sorted({s["cat"] for s in c["seeds"]}))
+        elif require_seed:
+            c["keep"], c["why"] = False, "no seed"
+        elif c["area"] >= min_area:
+            c["keep"], c["why"] = True, "area"
+        else:
+            c["keep"], c["why"] = False, f"area {c['area']:.0f} < {min_area:.0f}"
+        (kept_comps if c["keep"] else dropped).append(c)
+
+    keep_ids = {c["id"] for c in kept_comps}
+    out = [p for p in polys if p["comp"] in keep_ids]
+    stats = {
+        "components": len(comps),
+        "kept": len(kept_comps),
+        "dropped": len(dropped),
+        "polys_before": len(polys),
+        "polys_after": len(out),
+        "polys_dropped": len(polys) - len(out),
+        "area_before": sum(c["area"] for c in comps),
+        "area_dropped": sum(c["area"] for c in dropped),
+        "seeds": len(seeds),
+        "seeded_components": sum(1 for c in comps if c["seeded"]),
+        "grid_uu": grid,
+        "z_tol_uu": z_tol,
+        "min_area_uu2": min_area,
+        "seed_radius_uu": seed_radius,
+        "require_seed": require_seed,
+        "biggest_dropped": [
+            {"id": c["id"], "polys": c["polys"], "area": round(c["area"]),
+             "x": round((c["min_x"] + c["max_x"]) / 2), "y": round((c["min_y"] + c["max_y"]) / 2),
+             "z": round((c["min_z"] + c["max_z"]) / 2)}
+            for c in sorted(dropped, key=lambda c: -c["area"])[:12]
+        ],
+    }
+    return out, stats
+
+
+def describe_islands(tag: str, st: dict) -> str:
+    """One-line summary of a filter_islands() run, for both tools' logs."""
+    if not st.get("components"):
+        return f"[{tag}] island filter: no components"
+    return (
+        f"[{tag}] islands: {st['components']} components, kept {st['kept']}, dropped {st['dropped']}"
+        f" ({st['seeded_components']} seeded by {st['seeds']} markers); polygons"
+        f" {st['polys_before']} -> {st['polys_after']}"
+        f" (-{st['polys_dropped']}, -{100.0 * st['polys_dropped'] / max(1, st['polys_before']):.1f}%),"
+        f" walkable area -{100.0 * st['area_dropped'] / max(1.0, st['area_before']):.2f}%"
+        f"  [grid {st['grid_uu']:g} uu, z-tol {st['z_tol_uu']:g} uu,"
+        f" min area {st['min_area_uu2']:.0f} uu2, seed r {st['seed_radius_uu']:.0f} uu"
+        + (", require-seed" if st["require_seed"] else "") + "]"
+    )
+
+
+def add_island_args(ap: argparse.ArgumentParser, default_on: bool = False) -> None:
+    """The island-filter and marker-seed flags, shared by render.py and build_map.py."""
+    if default_on:
+        ap.add_argument("--keep-islands", dest="drop_islands", action="store_false", default=True,
+                        help="do NOT drop unreachable/tiny navmesh components")
+    else:
+        ap.add_argument("--drop-islands", action="store_true",
+                        help="drop unreachable/tiny navmesh components (connected-component pass)")
+    ap.add_argument("--markers", action="append", default=[],
+                    help="markers JSON whose positions seed 'reachable' (repeatable, globs ok)")
+    ap.add_argument("--island-grid", type=float, default=DEFAULT_ISLAND_GRID,
+                    help=f"XY grid for the connectivity pass, uu (default {DEFAULT_ISLAND_GRID:g})")
+    ap.add_argument("--island-z-tol", type=float, default=DEFAULT_ISLAND_Z_TOL,
+                    help=f"Z tolerance that joins two polygons, uu (default {DEFAULT_ISLAND_Z_TOL:g})")
+    ap.add_argument("--island-min-area", type=float, default=DEFAULT_ISLAND_MIN_AREA,
+                    help=f"seedless component smaller than this is dropped, uu2 (default {DEFAULT_ISLAND_MIN_AREA:.0f})")
+    ap.add_argument("--island-seed-radius", type=float, default=DEFAULT_ISLAND_SEED_RADIUS,
+                    help=f"a marker this close keeps a component, uu (default {DEFAULT_ISLAND_SEED_RADIUS:g})")
+    ap.add_argument("--island-require-seed", action="store_true",
+                    help="keep ONLY components with a marker seed (strict reachability; drops ~56%% of Chapter 1)")
+
+
+def add_plane_args(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument("--flat-plane-sheet-min", type=int, default=DEFAULT_PLANE_SHEET_MIN,
+                    help=f"coplanar big flat quads that make an out-of-bounds sheet (default {DEFAULT_PLANE_SHEET_MIN})")
+    ap.add_argument("--flat-plane-isolation", type=float, default=DEFAULT_PLANE_ISOLATION,
+                    help=f"drop a flat sheet with no ordinary navmesh within this Z, uu (default {DEFAULT_PLANE_ISOLATION:g})")
 
 
 def compute_bounds(polys: list[dict], px_per_uu: float, margin_uu: float = 128.0) -> Bounds:
@@ -746,10 +1149,16 @@ def render_agent(agent: str, files: list[Path], args: argparse.Namespace, out_di
         f"{dump.replaced} replaced by a richer copy"
     )
 
-    planes = classify_flat_planes(polys, args.flat_plane_area)
-    if planes["count"]:
-        top = ", ".join(f"Z={d['z']:.1f} x{d['polys']}" for d in planes["top_z"][:4])
-        print(f"[{agent}] flat planes >= {args.flat_plane_area:g} uu2: {planes['count']} ({top})")
+    planes = classify_flat_planes(
+        polys, args.flat_plane_area,
+        sheet_min=getattr(args, "flat_plane_sheet_min", DEFAULT_PLANE_SHEET_MIN),
+        isolation=getattr(args, "flat_plane_isolation", DEFAULT_PLANE_ISOLATION),
+    )
+    if planes["candidates"]:
+        dropped = ", ".join(f"Z={s['z']:.1f} x{s['polys']} ({s['reason']})" for s in planes["dropped_sheets"][:4])
+        print(f"[{agent}] flat quads >= {args.flat_plane_area:g} uu2: {planes['candidates']} in "
+              f"{len(planes['sheets'])} sheet(s); out of bounds: {planes['count']} "
+              f"[{dropped or 'none'}] - the rest are real floors and are kept")
 
     dropped_area = dropped_plane = 0
     if args.exclude_area:
@@ -768,6 +1177,15 @@ def render_agent(agent: str, files: list[Path], args: argparse.Namespace, out_di
     if not polys:
         print(f"[{agent}] every polygon was filtered out", file=sys.stderr)
         return None
+
+    if getattr(args, "drop_islands", False):
+        seeds = load_marker_seeds([Path(p) for pat in args.markers for p in sorted(glob.glob(pat))])
+        polys, isl = filter_islands(
+            polys, seeds,
+            grid=args.island_grid, z_tol=args.island_z_tol, min_area=args.island_min_area,
+            seed_radius=args.island_seed_radius, require_seed=args.island_require_seed,
+        )
+        print(describe_islands(agent, isl))
 
     if args.crop:
         x0, y0, x1, y1 = args.crop
@@ -881,7 +1299,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--flat-planes", choices=("keep", "drop", "only"), default="drop",
                     help="what to do with big flat single-quad planes (water / landscape)")
     ap.add_argument("--flat-plane-area", type=float, default=DEFAULT_FLAT_PLANE_AREA,
-                    help="XY area (uu2) above which a flat polygon counts as a plane")
+                    help="XY area (uu2) above which a flat polygon counts as a plane candidate")
+    add_plane_args(ap)
+    add_island_args(ap, default_on=False)
     ap.add_argument("--no-edges", action="store_true", help="do not draw polygon edges")
     ap.add_argument("--debug", action="store_true", help="draw tile borders as well")
     ap.add_argument("--probe-overlay", nargs="*", default=[], help="navprobe CSV(s) to overlay on the render")

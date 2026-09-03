@@ -83,6 +83,19 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   want. They all start open.
 
 ### Changed
+- **The mod's log is quiet by default, and it opens with everything a bug report needs.**
+  A 41-minute session used to write 2600 lines, half of them one status line repeated
+  every two seconds - which is exactly the shape that buries the ten lines that matter.
+  The same session now writes a few hundred: what loaded, which chapter and save slot you
+  are in, every warning, every first-time diagnostic, and a health summary once a minute.
+  Every session also starts with six lines naming the mod version, the game's build,
+  UE4SS's build, your Windows build, and the full path of the log, the config and the
+  crash breadcrumb, ending with the three files to attach if you report a problem. If you
+  are asked to reproduce something with more detail, set `log_level = verbose` (the old
+  running commentary) or `trace` (everything) - there is a **Log detail** dropdown under
+  Diagnostics on the Advanced tab, and it takes effect as soon as you press Save. The log
+  file also stops itself at 20 MB per session, so a stuck diagnostic can never fill a
+  disk.
 - **The Merchant category is now Notes**, because that is what it always was: all 76 of
   its markers are the game's readable notes - the things you press Check on to read an
   inscription - and the game's one actual merchant, Tao Qing, is an NPC and is marked as

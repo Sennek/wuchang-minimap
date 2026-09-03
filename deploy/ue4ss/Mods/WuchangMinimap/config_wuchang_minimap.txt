@@ -139,11 +139,13 @@ floor_z_tolerance = 200
 markers_enabled = 1
 
 ; Which categories to draw. A comma-separated list of
-;   shrine, chest, pickup, boss, elite, enemy, npc, merchant, door, ladder, lift,
+;   shrine, chest, pickup, boss, elite, enemy, npc, note, door, ladder, lift,
 ;   fog_gate, hidden, other
 ; or `all` / `none`. The F2 panel edits the same setting. Enemies are off by default
 ; because the sweep only refreshes them once a second, so they lag while they move.
-markers_categories = shrine,chest,pickup,boss,elite,npc,merchant,door,ladder,lift,fog_gate,hidden,other
+; `note` is the game's readable notes (it was called `merchant` before 0.9.5; the old
+; name is still accepted and is rewritten as `note` the next time Save runs).
+markers_categories = shrine,chest,pickup,boss,elite,npc,note,door,ladder,lift,fog_gate,hidden,other
 
 ; Found (collected / opened) markers: 0 = draw them (dimmed, and as an OUTLINE of the
 ; same glyph), 1 = hide them entirely. 1 is the default: the map is there to show what
@@ -235,9 +237,9 @@ highlight_pad_chord = LB+RB
 highlight_radius = 3000
 
 ; Which categories. Same names as markers_categories: shrine, chest, pickup, boss,
-; elite, enemy, npc, merchant, door, ladder, lift, fog_gate, hidden, other (or
+; elite, enemy, npc, note, door, ladder, lift, fog_gate, hidden, other (or
 ; `all` / `none`).
-highlight_categories = chest,pickup,shrine,boss,npc,merchant
+highlight_categories = chest,pickup,shrine,boss,npc
 highlight_labels = 1
 
 ; Glyph radius on screen, in pixels, and whether the name + distance is drawn.
@@ -486,7 +488,7 @@ map_gamepad_deadzone = 0.22
 ; X-RAY TUNING
 ; ---------------------------------------------------------------------------------
 ; 1 = also highlight loot you have already collected (dimmed). Only chests, pickups
-; and hidden items are affected: shrines, bosses, NPCs, merchants, doors and fog
+; and hidden items are affected: shrines, bosses, NPCs, notes, doors and fog
 ; gates are landmarks and are always highlighted, found or not.
 highlight_show_found = 0
 

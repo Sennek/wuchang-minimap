@@ -610,7 +610,7 @@ The marker block:
 | `markers_rounds_per_sec` | 1 | ceiling on how often a full pass over the object array may **start** (1..10); a pass that finishes early idles |
 | `markers_scan_chunk` | 8192 | object slots the sweep visits per game-thread pump (512..131072) - the frame-cost dial |
 | `markers_scan_period_ms` | 8 | minimum milliseconds between pumps (1..500) |
-| `markers_categories` | all but `enemy` | comma-separated category names, or `all` / `none`; the F2 checkboxes edit the same setting |
+| `markers_categories` | all but `enemy` | comma-separated category names, or `all` / `none`; the F2 checkboxes edit the same setting. The fourteen names are `shrine, chest, pickup, boss, elite, enemy, npc, note, door, ladder, lift, fog_gate, hidden, other`. `note` is the game's readable notes and was called `merchant` before 0.9.5 - the old name is still accepted in any `*_categories` value (with one log line) and is rewritten as `note` by the next **Save**. |
 | `markers_hide_found` | 1 | 0 = draw a found marker dimmed and as an OUTLINE of its glyph, 1 = hide it. The F2 Player tab offers the inverse, "Show found markers". |
 | `markers_found_alpha` | 0.30 | how dim, as a multiple of `opacity` |
 | `markers_size` | 6.5 | glyph radius in minimap pixels |
@@ -878,7 +878,7 @@ no material - nothing that can disagree with the game's render state. Anything o
 camera gets an arrow on the screen edge pointing the way to turn (`highlight_edge_arrows`).
 
 `highlight_show_found = 0` (the default) hides **loot you have already collected** - chests, pickups and
-hidden items, the three categories where finding a thing consumes it. Shrines, bosses, NPCs, merchants,
+hidden items, the three categories where finding a thing consumes it. Shrines, bosses, NPCs, notes,
 doors and fog gates are landmarks, not consumables, so they are highlighted whatever their found state:
 a lit shrine is still worth seeing through a wall.
 

@@ -25,31 +25,36 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   minimap**, **Compass** and **X-ray highlight**, all three the same widget with `all` /
   `none` buttons, and every chip now carrying its category's glyph as well as its colour.
 
-- **NPCs have names.** Every NPC marker used to read "NPC" and every merchant marker
-  "Merchant"; they now carry the game's own English name - "He Youzai", "Huang Jian'e",
-  "Wu Gang", "Qiao Ying", "Villager" - on the map, in the tooltip and in the x-ray label.
-  All 248 of them, and no marker moved. The ones typed as merchants turn out to be the
-  game's readable notes rather than shops, so they read "Reading point".
+- **NPCs have names.** Every NPC marker used to read "NPC"; they now carry the game's
+  own English name - "He Youzai", "Huang Jian'e", "Wu Gang", "Qiao Ying", "Villager" -
+  on the map, in the tooltip and in the x-ray label. All of them, and no marker moved.
 - **Bosses in every chapter, with their real names.** Chapters 2, 3 and 5 had no boss
   markers at all and chapter 4 had two; they now have 5, 6, 2 and 5, and every boss
   marker is labelled with the game's own English name ("Reborn Treant - Soulwood",
   "Sovereign - Zhang Xianzhong") instead of "Boss".
 - **Shrines you have lit now count as found.** The statistics table said 0/12 shrines
   while your save had eighteen lit, and lit shrines still drew as un-found on the map.
-- **NPCs and merchants count as met** once you have been within 30 m of them, so the
-  NPC and Merchant columns of the statistics table fill in as you explore.
+- **NPCs and notes count as met** once you have been within 30 m of them, so the
+  NPC and Notes columns of the statistics table fill in as you explore.
 - **Bosses count as defeated.** A boss you have killed is marked found and stays marked
   after you leave the arena.
 
 ### Changed
-- **The x-ray highlight ships with shrines, bosses, NPCs and merchants on** as well as
-  chests and pickups, so holding the key near a shrine or a merchant shows something. If
-  your config already spells `highlight_categories` out, that line still wins - change it
-  in the panel.
+- **The Merchant category is now Notes**, because that is what it always was: all 76 of
+  its markers are the game's readable notes - the things you press Check on to read an
+  inscription - and the game's one actual merchant, Tao Qing, is an NPC and is marked as
+  one. Notes get their own glyph (a page with a folded corner) and their own colour, and
+  they are drawn on the map and the minimap but not on the compass or through walls. A
+  config line that still says `merchant` keeps working and is rewritten as `note` the
+  next time you press Save.
+- **The x-ray highlight ships with shrines, bosses and NPCs on** as well as chests and
+  pickups, so holding the key near a shrine or an NPC shows something. If your config
+  already spells `highlight_categories` out, that line still wins - change it in the
+  panel.
 - **"Hide collected loot" now only hides loot.** `highlight_show_found = 0` used to drop
   every found marker from the x-ray, which meant a lit shrine or an NPC you had already
   met disappeared. It now suppresses chests, pickups and hidden items only - the three
-  categories where finding a thing consumes it; shrines, bosses, NPCs, merchants, doors
+  categories where finding a thing consumes it; shrines, bosses, NPCs, notes, doors
   and fog gates are landmarks and are always drawn. The **Loot hunting** and
   **Exploration** presets pick x-ray sets to match.
 - **The F2 panel opens in the middle of the screen** and takes the whole mouse while it is
@@ -57,7 +62,7 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   game camera. You can still drag the window anywhere; the keyboard still reaches the game
   except while a text field or a key capture wants it.
 - **The collection statistics show only what you collect** - Shrines, Chests, Pickups,
-  Bosses, NPCs, Merchants - in both tables. The per-chapter matrix no longer scrolls
+  Bosses, NPCs, Notes - in both tables. The per-chapter matrix no longer scrolls
   sideways at 1080p, every one of the six columns is always present (empty cells read
   `-`), and the Enemies / Doors / Ladders / Lifts / Fog gates / Hidden / Other / all
   columns are gone.
@@ -99,12 +104,12 @@ less, the numbers fit on the screen, and every hotkey can be rebound in the pane
   hollow "found" mark on the map, but there is nothing left in the arena to see.
 - **"Shrines lit" in the log was always zero** after the first session, because it
   counted only shrines lit for the first time. It now reads `lit 8 of 12`.
-- **NPCs and merchants are shown where they are, not where they started.** People move
+- **NPCs are shown where they are, not where they started.** People move
   in this game - talk to a quest NPC and it relocates - and the mod was still drawing
   the original spot, so the x-ray could label an "NPC 2 m" through a wall at a place
   the NPC had left. A live NPC's own position always wins now; once the mod can see
   that the area is loaded and nobody is there, the old spot is not drawn at all; and
-  the x-ray only ever highlights an NPC or a merchant it can actually see. Whether you
+  the x-ray only ever highlights an NPC it can actually see. Whether you
   have met them is unaffected. ("It can actually see" is now literal: an NPC whose
   actor the mod found but could not locate no longer counts as seen - that was the
   remaining way an "NPC 2 m" label could hang over an empty spot.)

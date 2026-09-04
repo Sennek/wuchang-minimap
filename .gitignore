@@ -89,3 +89,11 @@ wuchang_minimap.log.*
 # in. The digests it caches ARE committed - they are in every generated
 # markers/*.json.
 tools/markers/.provenance-cache.json
+
+# Claude Code task workspace: the session's task system (skills, hooks, the
+# task-workspace MCP server) and the task notes it writes. Local working state,
+# not part of the mod.
+/.claude/
+/.workspace/
+/.mcp.json
+/CLAUDE.md

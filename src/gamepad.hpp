@@ -3,28 +3,24 @@
 //
 // gamepad - XInput for the full map.
 //
-// THREADING (lessons.md): `XInputGetState` is polled from `on_update`, i.e. the UE4SS
-// EVENT-LOOP thread, in exactly the same place the keyboard is sampled with
-// GetAsyncKeyState - never from the game thread and never from Present. The render
-// thread only reads lock-free atomics published here.
+// Threading: `XInputGetState` is polled from `on_update` on the UE4SS event-loop
+// thread, alongside the keyboard - never from the game thread, never from Present.
+// Every other thread reads only the lock-free atomics published here.
 //
-// XInput is loaded dynamically (xinput1_4 -> 1_3 -> 9_1_0) rather than linked, so a
-// machine without the redistributable simply reports "no pad" instead of failing to
-// load the mod. Polling a DISCONNECTED slot is expensive (it can take a millisecond),
-// so slots that answered ERROR_DEVICE_NOT_CONNECTED are only re-probed once a second -
-// the standard XInput hygiene rule.
+// XInput is loaded dynamically (xinput1_4 -> 1_3 -> 9_1_0), so a machine without the
+// redistributable reports "no pad" rather than failing to load the mod. Polling a
+// disconnected slot costs up to a millisecond, so empty slots are re-probed once a
+// second.
 //
-// Buttons arrive two ways: `held` is the current mask, and `pressed` ACCUMULATES the
-// rising edges seen since the consumer last took them, so a button tapped between two
-// frames can never be missed and can never be seen twice (take_pressed() exchanges the
-// accumulator for 0).
+// `held` is the current button mask; `pressed` accumulates rising edges until a
+// consumer takes them, so a tap between two frames is neither missed nor seen twice.
 //
 
 #include <cstdint>
 
 namespace pad
 {
-    // The XInput button bits, spelled out so <Xinput.h> is not needed here.
+    // XInput button bits, spelled out so <Xinput.h> is not needed.
     constexpr std::uint16_t kDpadUp = 0x0001;
     constexpr std::uint16_t kDpadDown = 0x0002;
     constexpr std::uint16_t kDpadLeft = 0x0004;
@@ -52,8 +48,7 @@ namespace pad
         std::uint16_t held = 0;
     };
 
-    // LOOP THREAD ONLY. `enabled == false` publishes a disconnected state and costs
-    // nothing. `deadzone` is a fraction of full stick deflection (0.05 .. 0.6).
+    // Loop thread only. `deadzone` is a fraction of full stick deflection (0.05 .. 0.6).
     void poll(bool enabled, float deadzone);
 
     // Any thread.
@@ -62,8 +57,7 @@ namespace pad
     // Any thread: the rising edges accumulated since the last call, then cleared.
     std::uint16_t take_pressed();
 
-    // Any thread: drop any accumulated edges (used when the map opens, so a press that
-    // happened while the map was closed cannot fire on the first frame).
+    // Any thread: drop the accumulated edges.
     void clear_pressed();
 
     // For the F2 panel / the log: "xinput1_4.dll" or "not loaded".

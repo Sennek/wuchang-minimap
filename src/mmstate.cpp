@@ -50,10 +50,8 @@ namespace mm
         spin::Spinlock g_log_lock;
         std::vector<std::wstring> g_log_queue;
         DWORD g_loop_thread = 0;
-        // Lines the queue refused because it was already full. DROPPED, never blocked
-        // and never grown: the game thread must not wait on the loop thread, and a
-        // runaway diagnostic must not eat memory. The count is reported (and reset) by
-        // the next drain, so a drop is always visible in the log rather than silent.
+        // Lines the full queue refused. Dropped, never blocked and never grown: the game
+        // thread must not wait on the loop thread. The next drain reports and resets it.
         constexpr std::size_t kLogQueueMax = 4096;
         std::size_t g_log_dropped = 0;
 
@@ -66,7 +64,7 @@ namespace mm
         std::wstring resolve_mod_dir()
         {
             // main.dll lives in ...\ue4ss\Mods\WuchangMinimap\dlls, so the mod folder is
-            // one level up. Same resolution the navmesh dumper uses.
+            // one level up.
             HMODULE self = nullptr;
             if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                      reinterpret_cast<LPCWSTR>(&resolve_mod_dir),
@@ -97,15 +95,11 @@ namespace mm
         }
 
         //==============================================================================
-        // Plain Win32 text file I/O - no iostreams anywhere in this mod (lessons.md)
+        // Plain Win32 text file I/O - no iostreams anywhere in this mod
         //==============================================================================
 
-        // A read that fails on a file which EXISTS is not the same thing as a missing
-        // file, and both used to come back as a bare `false` - so a config file held
-        // open by something else looked exactly like a fresh install and the defaults
-        // silently won. The distinction is made in mmfile::read_whole_file; this
-        // wrapper keeps the old bool signature for the callers and says out loud, at
-        // the normal log level, when data was dropped.
+        // A bool for the callers, plus a normal-level log line whenever data was dropped:
+        // a read that fails on a file which EXISTS is not a missing file.
         bool read_whole_file(const std::wstring& path, std::string& out)
         {
             const mmfile::ReadInfo info = mmfile::read_whole_file(path, out, 64ull << 20);
@@ -130,9 +124,8 @@ namespace mm
             return false;
         }
 
-        // ATOMIC. See atomicfile.hpp: temp file, flush, rename. No backup for these -
-        // the config and the waypoint are cheap to recreate; the found tracker (which
-        // keeps one) is not.
+        // Atomic: temp file, flush, rename (atomicfile.hpp). No backup - the config and
+        // the waypoint are cheap to recreate.
         bool write_whole_file(const std::wstring& path, const std::string& data)
         {
             unsigned err = 0;
@@ -212,12 +205,9 @@ namespace mm
             }
         }
 
-        // Named keys beyond the F-keys / letters / digits. The modifiers are here for
-        // the x-ray highlight, which is a HOLD binding and therefore wants a key the
-        // hand is already resting near: LALT is the shipped default. Both the
-        // side-specific codes and the "either side" ones are offered, because
-        // GetAsyncKeyState answers for either with VK_MENU / VK_SHIFT / VK_CONTROL and
-        // some players will want that.
+        // Named keys beyond the F-keys / letters / digits. Both the side-specific codes
+        // and the "either side" ones are offered - GetAsyncKeyState answers for either
+        // with VK_MENU / VK_SHIFT / VK_CONTROL.
         struct NamedKey
         {
             const char* name;
@@ -229,21 +219,18 @@ namespace mm
             {"RALT", VK_RMENU},       {"ALT", VK_MENU},           {"LSHIFT", VK_LSHIFT},
             {"RSHIFT", VK_RSHIFT},    {"SHIFT", VK_SHIFT},        {"LCTRL", VK_LCONTROL},
             {"RCTRL", VK_RCONTROL},   {"CTRL", VK_CONTROL},
-            // Arrows, the navigation block and Enter / Backspace: ordinary keys a
-            // player may well prefer for a toggle.
             {"UP", VK_UP},            {"DOWN", VK_DOWN},          {"LEFT", VK_LEFT},
             {"RIGHT", VK_RIGHT},      {"ENTER", VK_RETURN},       {"BACKSPACE", VK_BACK},
             {"INSERT", VK_INSERT},    {"DELETE", VK_DELETE},      {"HOME", VK_HOME},
             {"END", VK_END},          {"PAGEUP", VK_PRIOR},       {"PAGEDOWN", VK_NEXT},
-            // The numpad. Named apart from the digit row, because the two are different
-            // virtual keys and a player who binds one means that one.
+            // The numpad: different virtual keys from the digit row.
             {"NUM0", VK_NUMPAD0},     {"NUM1", VK_NUMPAD1},       {"NUM2", VK_NUMPAD2},
             {"NUM3", VK_NUMPAD3},     {"NUM4", VK_NUMPAD4},       {"NUM5", VK_NUMPAD5},
             {"NUM6", VK_NUMPAD6},     {"NUM7", VK_NUMPAD7},       {"NUM8", VK_NUMPAD8},
             {"NUM9", VK_NUMPAD9},     {"NUMPLUS", VK_ADD},        {"NUMMINUS", VK_SUBTRACT},
             {"NUMMUL", VK_MULTIPLY},  {"NUMDIV", VK_DIVIDE},      {"NUMDOT", VK_DECIMAL},
-            // Mouse buttons 3-5 only. Left and right belong to the game and to the
-            // overlay's own clicks; taking either of them away would break both.
+            // Mouse buttons 3-5 only: left and right belong to the game and to the
+            // overlay's own clicks.
             {"MOUSE3", VK_MBUTTON},   {"MOUSE4", VK_XBUTTON1},    {"MOUSE5", VK_XBUTTON2},
         };
 
@@ -258,18 +245,9 @@ namespace mm
             return out;
         }
 
-        // Hotkey name -> virtual key.
-        //
-        // Accepted: F1..F5, F7, F8; a single letter A..Z or digit 0..9; and the named
-        // keys above. F6 and F9..F12 are REJECTED outright rather than trusted to
-        // whoever edits the file: on this machine F6 is the RenoDX DLSS5 toggle (it
-        // ignores modifiers and has already caused one GPU crash), F10 the game console,
-        // F11 the engine fullscreen bind and F12 the Steam screenshot key. See
-        // lessons.md.
-        // ONE modifier prefix, stripped before the key itself is parsed: `ctrl+m`,
-        // `shift+F1`, `alt+n`. Returns the modifier and advances `name` past the `+`.
-        // Two prefixes (`ctrl+shift+m`) are refused by the key parser afterwards,
-        // because what is left is not a key name - which is the diagnostic we want.
+        // Strips ONE modifier prefix (`ctrl+m`, `shift+F1`, `alt+n`) before the key itself
+        // is parsed: returns the modifier and advances `name` past the `+`. Two prefixes
+        // (`ctrl+shift+m`) leave a non-key-name behind and the key parser rejects it.
         int take_key_modifier(std::string& name)
         {
             const std::size_t plus = name.find('+');
@@ -296,8 +274,7 @@ namespace mm
                 return kKeyModNone;
             }
             name = name.substr(plus + 1);
-            // Leading blanks after the `+` ("ctrl + m"), trimmed so the key parser sees
-            // a bare name.
+            // Trim blanks after the `+` ("ctrl + m") so the key parser sees a bare name.
             while (!name.empty() && (name.front() == ' ' || name.front() == '\t'))
             {
                 name.erase(name.begin());
@@ -305,6 +282,9 @@ namespace mm
             return mod;
         }
 
+        // Hotkey name -> virtual key. Accepted: F1..F5, F7, F8; one letter A..Z or digit
+        // 0..9; the named keys above. F6 (the RenoDX DLSS5 toggle), F9/F11 (engine binds),
+        // F10 (the game console) and F12 (Steam screenshot) are rejected.
         int vk_from_name(const std::string& raw_name, int fallback, const char* key_label)
         {
             std::string name = raw_name;
@@ -384,8 +364,8 @@ namespace mm
         // The key half on its own ("F2", "M", "TAB"); vk_name() adds the modifier.
         std::string vk_name_plain(int vk);
 
-        // The inverse of vk_from_name, modifier prefix included, so a binding written
-        // out by Save is one the loader reads back unchanged.
+        // The inverse of vk_from_name, modifier prefix included, so a binding Save writes
+        // out is one the loader reads back unchanged.
         std::string vk_name(int binding)
         {
             const int vk = key_vk(binding);
@@ -425,13 +405,9 @@ namespace mm
             return "none";
         }
 
-        //==============================================================================
-        // The gamepad chord (the highlight's second route)
-        //==============================================================================
-        //
-        // "LB+RB", "A", "LT+RT", "none". The face / shoulder / dpad buttons are bits in
-        // the XInput mask; the two triggers are analogue and are carried as flags. The
-        // names are the ones on the pad, not XInput's XINPUT_GAMEPAD_* spelling.
+        // The gamepad chord: "LB+RB", "A", "LT+RT", "none". Face / shoulder / dpad buttons
+        // are bits in the XInput mask; the two triggers are analogue and carried as flags.
+        // The names are the ones on the pad, not XInput's XINPUT_GAMEPAD_* spelling.
 
         struct PadButton
         {
@@ -446,11 +422,9 @@ namespace mm
             {"LEFT", 0x0004},  {"RIGHT", 0x0008},
         };
 
-        // ONE parser for every `*_categories` key, because there are four of them and
-        // each one needs the same two diagnostics: unknown names are ignored with a log
-        // line naming the whole known set, and a RENAMED name (`merchant` -> `note`)
-        // is honoured with a log line saying it will be rewritten. The next Save writes
-        // the current spelling, so the warning is self-clearing.
+        // One parser for every `*_categories` key. Unknown names are ignored with a log
+        // line naming the known set; a renamed name (`merchant` -> `note`) is honoured and
+        // the next Save writes the current spelling.
         std::uint32_t parse_cats(std::string_view key, const std::string& value, std::uint32_t current)
         {
             std::string rejected;
@@ -540,8 +514,7 @@ namespace mm
             rt = new_rt;
         }
 
-        // "R G B" / "R,G,B", 0..255 each. Anything missing keeps the current value, so
-        // a truncated line degrades one channel at a time instead of resetting three.
+        // "R G B" / "R,G,B", 0..255 each. A missing channel keeps its current value.
         void parse_rgb(const std::string& value, float& r, float& g, float& b)
         {
             float rgb[3] = {r, g, b};
@@ -656,8 +629,7 @@ namespace mm
             {
                 cfg.mod_enabled = parse_bool(value, cfg.mod_enabled);
             }
-            // `enabled` is the pre-0.9.2 name. It is still accepted (the loader logs
-            // one warning naming the new key), so an old file keeps working.
+            // `enabled` is the legacy name, accepted with one warning.
             else if (key == "overlay_enabled" || key == "enabled")
             {
                 cfg.overlay_enabled = parse_bool(value, cfg.overlay_enabled);
@@ -668,8 +640,8 @@ namespace mm
             }
             else if (key == "ui_scale")
             {
-                // `auto` (the shipped default) derives the factor from the back buffer
-                // height on the render thread; a number pins it.
+                // `auto` derives the factor from the back buffer height on the render
+                // thread; a number pins it.
                 if (value == "auto" || value.empty())
                 {
                     cfg.ui_scale_auto = true;
@@ -684,8 +656,7 @@ namespace mm
             {
                 cfg.hud_preset = preset_from_name(value, cfg.hud_preset);
             }
-            // theme / palette. A bad value keeps whatever is already in force and says
-            // so, rather than silently reverting the look to the default.
+            // A bad theme / palette value keeps what is in force and says so.
             else if (key == "theme")
             {
                 if (!gly::theme_from_name(value, cfg.theme))
@@ -916,9 +887,8 @@ namespace mm
             }
             else if (key == "found_profile")
             {
-                // Free text: `auto`, `shared`, or a name of the player's choosing. It
-                // reaches a FILENAME, so it is sanitised (slotid::sanitise_key) before
-                // it is used - here we only reject the empty string.
+                // Free text: `auto`, `shared`, or any name. It reaches a FILENAME and is
+                // sanitised by slotid::sanitise_key before use; only "" is rejected here.
                 const std::string v = trim(value);
                 if (v.empty())
                 {
@@ -936,10 +906,8 @@ namespace mm
             }
             else if (key == "menu_ignore_roots")
             {
-                // Free text, and deliberately not validated against anything: it is a
-                // list of widget class-name prefixes and the whole point is that it can
-                // name a class this build has never seen. An empty value is legal (it
-                // means "the built-in table only").
+                // Free text, unvalidated: a list of widget class-name prefixes that may
+                // name a class this build has never seen. "" means the built-in table only.
                 ::strncpy_s(cfg.menu_ignore_roots, sizeof(cfg.menu_ignore_roots), trim(value).c_str(),
                             _TRUNCATE);
             }
@@ -947,8 +915,7 @@ namespace mm
             {
                 cfg.shrine_list = parse_bool(value, cfg.shrine_list);
             }
-            // How much the mod says. A bad value keeps the level already in force and
-            // names the three that exist, rather than silently going quiet.
+            // A bad value keeps the level in force and names the three that exist.
             else if (key == "log_level")
             {
                 LogLv lv = cfg.log_level;
@@ -973,10 +940,8 @@ namespace mm
             }
             else if (key == "map_pad_open_chord")
             {
-                // The same spelling as highlight_pad_chord, minus the triggers: this is
-                // a chord of BUTTONS, and an analogue trigger is not one. LT / RT in the
-                // value are parsed and then dropped, with the parser's own warning
-                // naming the button set.
+                // The same spelling as highlight_pad_chord, minus the triggers: a chord of
+                // BUTTONS only, so LT / RT are parsed and then dropped.
                 bool ignored_lt = false;
                 bool ignored_rt = false;
                 parse_pad_chord(value, cfg.map_pad_open_chord, ignored_lt, ignored_rt);
@@ -987,10 +952,9 @@ namespace mm
             }
             else if (key == "ui_font")
             {
-                // Free text: an absolute path to a .ttf / .otf. `none` (or an empty
-                // value) means the built-in bitmap font. Not validated here - the render
-                // thread is the only place that can try to open it, and it logs what it
-                // did.
+                // Free text: an absolute path to a .ttf / .otf; `none` or "" means the
+                // built-in bitmap font. Only the render thread can open it, so it
+                // validates and logs.
                 ::strncpy_s(cfg.ui_font, sizeof(cfg.ui_font), trim(value).c_str(), _TRUNCATE);
             }
             else if (key == "zoom_dpi_scaled")
@@ -1407,12 +1371,10 @@ namespace mm
             return true;
         }
 
-        // The whole key table, in groups. It USED to be one if/else-if chain and
-        // MSVC refused it at 123 keys ("compiler limit: blocks nested too deeply",
-        // C1061) - an else-if chain counts as nesting. Each group answers "was this
-        // key mine?", and tests/markers_test.cpp scrapes the key literals out of this
-        // file and compares it with cfgkeys::kConfigKeys and with the shipped config,
-        // so a key that lands in no group is caught on the build machine.
+        // The whole key table, split into groups because MSVC refuses one if/else-if
+        // chain past ~123 arms (C1061, "blocks nested too deeply"). Each group answers
+        // "was this key mine?". tests/markers_test.cpp scrapes the key literals out of
+        // this file, so a key that lands in no group is caught on the build machine.
         void apply_setting(Config& cfg, const std::string& key, const std::string& value)
         {
             if (apply_core(cfg, key, value))
@@ -1443,29 +1405,27 @@ namespace mm
             {
                 return;
             }
-            // An unknown key is ignored on purpose: a config written by a NEWER
-            // build must not stop an older one from starting.
+            // An unknown key is ignored: a config from a NEWER build must not stop an
+            // older one from starting.
         }
     } // namespace
 
-    // The master switch. Written only by modswitch (loop thread); read by the game
-    // thread and the render thread on their first statement. Starts TRUE so the
-    // ProcessEvent callback and Present behave normally between the DLL loading and
-    // the config being read - neither is reachable before that anyway.
+    // The master switch. Written only by modswitch (loop thread); read by the game and
+    // render threads on their first statement. Starts TRUE so ProcessEvent and Present
+    // behave normally between the DLL loading and the config being read.
     std::atomic<bool> g_mod_active{true};
 
-    // Bumped by every set_config; read by cfg_cached() on each thread. Starts at 1 so
-    // that a thread-local generation of 0 always means "never loaded".
+    // Bumped by every set_config; read by cfg_cached() on each thread. Starts at 1 so a
+    // thread-local generation of 0 always means "never loaded".
     std::atomic<std::uint32_t> g_cfg_gen{1};
 
-    // The per-activity counter table (see perf.hpp). Plain storage on purpose: every
-    // counter has exactly one writing thread, and the F2 panel is a reader that can
-    // live with a row being one update stale.
+    // The per-activity counter table (perf.hpp). Plain storage: every counter has exactly
+    // one writing thread, and the F2 panel can live with a row one update stale.
     perf::Table g_perf{};
 
     // "config refresh" - the generation-cached config's slow path. Registered from
-    // load_config_file (loop thread, at start-up) so no call site needs a guarded
-    // static on a hot path.
+    // load_config_file (loop thread, at start-up) so no call site needs a guarded static
+    // on a hot path.
     int g_pf_config = -1;
 
     std::atomic<bool> g_panel_open{false};
@@ -1528,15 +1488,13 @@ namespace mm
             spin::SpinGuard guard(g_cfg_lock);
             g_cfg = cfg;
         }
-        // The log macros read this one atomic instead of taking the config lock, so a
-        // suppressed line costs a relaxed load and nothing else. Published here, which
-        // is the single place every config change goes through - a reload, an F5 or the
-        // panel's Save all change the level immediately, with no restart.
+        // The log macros read this atomic instead of taking the config lock, so a
+        // suppressed line costs one relaxed load. Every config change goes through here,
+        // so a reload, F5 or Save changes the level immediately.
         g_log_level.store(static_cast<int>(cfg.log_level), std::memory_order_relaxed);
-        // Bump AFTER the store so a reader that sees the new generation is guaranteed to
-        // copy the new value. A reader that reads the generation first and then copies
-        // may pick up an even newer struct while recording the older generation - it
-        // simply refreshes once more on the next call, which is harmless.
+        // Bump AFTER the store so a reader that sees the new generation copies the new
+        // value. A reader that reads the generation first may pick up an even newer struct
+        // under the older generation and simply refreshes once more next call.
         g_cfg_gen.fetch_add(1, std::memory_order_release);
     }
 
@@ -1559,19 +1517,17 @@ namespace mm
     namespace
     {
         // GetTickCount64() until which the process counts as stalled, and what said so.
-        // Only ever moved FORWARD, and only by an externally attributable event. The
-        // string is a pointer to a literal, so storing it is a relaxed pointer write.
+        // Only ever moved FORWARD. The string is a pointer to a literal.
         std::atomic<std::uint64_t> g_perf_stall_until{0};
         std::atomic<const wchar_t*> g_perf_stall_why{nullptr};
     } // namespace
 
     int perf_register(const char* name, perf::Thread thread)
     {
-        // Registration happens once per call site, from that call site's own thread,
-        // before or during the first invocation. Two threads registering at the same
-        // instant could in theory both take the same slot; every registration in this
-        // mod is a `static const int` initialised on the first call of a periodic
-        // activity, and the periodic activities start seconds apart.
+        // Registration happens once per call site, from that call site's own thread.
+        // Two threads registering at the same instant could take the same slot; every
+        // registration is a `static const int` on a periodic activity's first call, and
+        // those activities start seconds apart.
         return perf::register_counter(g_perf, name, thread);
     }
 
@@ -1592,8 +1548,7 @@ namespace mm
     void perf_note_stall(const wchar_t* why, unsigned ms)
     {
         const std::uint64_t until = ::GetTickCount64() + ms;
-        // Never shorten a window somebody else opened: two overlapping stalls are one
-        // stall, and the longer answer is the right one.
+        // Never shorten a window somebody else opened: two overlapping stalls are one.
         std::uint64_t was = g_perf_stall_until.load(std::memory_order_relaxed);
         while (until > was && !g_perf_stall_until.compare_exchange_weak(was, until, std::memory_order_relaxed))
         {
@@ -1625,16 +1580,12 @@ namespace mm
         perf::reset_peaks(g_perf);
     }
 
-    // THE PER-THREAD CACHE SLOT, AT NAMESPACE SCOPE ON PURPOSE.
-    //
-    // These were function-local `static thread_local`s, and a guarded function-local
-    // static is what lessons.md forbids on this game's game thread: MSVC implements it
-    // with the host vcruntime's `_Init_thread_header` machinery, the same class of
-    // host-CRT dependency that made std::mutex fault. Config is a trivially copyable
-    // POD whose every default member initialiser is a constant expression, so the slot
-    // is CONSTANT-initialised into the TLS image and no initialiser code runs on any
-    // thread - the static_assert is what keeps that true if Config ever grows a member.
-    // Prevents: the CRT's thread-safe-init path running inside ProcessEvent.
+    // The per-thread cache slot, at NAMESPACE scope: a guarded function-local static is
+    // forbidden on this game's game thread, because MSVC implements one with the host
+    // vcruntime's `_Init_thread_header` machinery - the host-CRT dependency class that
+    // makes std::mutex fault. Config is a trivially copyable POD whose every default
+    // member initialiser is a constant expression, so this slot is constant-initialised
+    // into the TLS image and no initialiser code runs on any thread.
     static_assert(std::is_trivially_copyable_v<Config> && std::is_trivially_destructible_v<Config>,
                   "Config must stay a POD: cfg_cached() keeps a thread_local copy of it and a "
                   "non-trivial member would make MSVC emit CRT TLS-init code on the game thread");
@@ -1654,8 +1605,8 @@ namespace mm
             const std::uint64_t t0 = qpc_us();
             tls_cfg = config();
             tls_gen = gen;
-            // Counts and times the SLOW path only, which is the whole point: the table
-            // shows how often a thread actually had to take the spinlock and copy.
+            // Counts and times the SLOW path only: how often a thread had to take the
+            // spinlock and copy.
             perf_record(g_pf_config, t0);
         }
         return tls_cfg;
@@ -1676,9 +1627,8 @@ namespace mm
         return std::wstring(n.begin(), n.end());
     }
 
-    // THE ACCEPTED SET, in one place, so the Bindings tab's capture widget can only ever
-    // produce a key the config file can also spell. Mirrors vk_from_name exactly:
-    // F1..F5 / F7 / F8, a letter or a digit, and every entry of kNamedKeys.
+    // The accepted set, mirroring vk_from_name exactly: F1..F5 / F7 / F8, a letter or a
+    // digit, and every entry of kNamedKeys.
     bool vk_bindable(int vk)
     {
         if (vk == 0)
@@ -1765,10 +1715,8 @@ namespace mm
         return mod_dir() + L"\\config_wuchang_minimap.txt";
     }
 
-    // The DEV overlay file. It is not shipped in the release zip, it is parsed only if
-    // it exists, and it is loaded AFTER the main file so a dev key set in both wins
-    // here. Everything in it is Tier::Dev (cfgkeys) - dials that existed because a
-    // developer needed one during bring-up.
+    // The dev overlay file: not shipped, parsed only if it exists, loaded AFTER the main
+    // file so a key set in both wins here. Everything in it is Tier::Dev (cfgkeys).
     std::wstring dev_config_path()
     {
         return mod_dir() + L"\\config_wuchang_minimap_dev.txt";
@@ -1776,9 +1724,8 @@ namespace mm
 
     namespace
     {
-        // Written by load_config_file() and save_config_file() (loop thread), read by
-        // the F2 panel (render thread). One atomic, so the label costs nothing per frame
-        // and the panel never stat()s a file inside Present.
+        // Written by load_config_file() / save_config_file() (loop thread), read by the F2
+        // panel (render thread), so the panel never stat()s a file inside Present.
         std::atomic<bool> g_dev_config_active{false};
     } // namespace
 
@@ -1789,9 +1736,8 @@ namespace mm
 
     namespace
     {
-        // One warning per key per process. A removed key or the old `enabled` spelling
-        // is a fact about the user's file, not an event - repeating it on every F5 and
-        // on every 1 Hz mtime reload would bury everything else in the log.
+        // One warning per key per process: every F5 and every 1 Hz mtime reload re-parses
+        // the file, and a removed or renamed key would be re-reported each time.
         bool g_warned[cfgkeys::kKeyCount] = {};
 
         void warn_once(std::string_view key, const std::wstring& text)
@@ -1810,15 +1756,14 @@ namespace mm
             }
         }
 
-        // Applies one config file's text onto `cfg`. Returns how many `key = value`
-        // lines it understood. The line rules are mirrored EXACTLY in
-        // cfgkeys::keys_in(), which is what the offline drift test parses files with.
+        // Applies one config file's text onto `cfg` and returns how many `key = value`
+        // lines it understood. The line rules are mirrored exactly in cfgkeys::keys_in().
         int apply_text(Config& cfg, const std::string& text)
         {
             int lines = 0;
             std::size_t pos = 0;
             // A UTF-8 BOM (PowerShell's Set-Content -Encoding utf8 writes one) would
-            // otherwise be glued to the first key's name.
+            // otherwise glue itself to the first key's name.
             if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
                 static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
             {
@@ -1848,9 +1793,8 @@ namespace mm
                     continue;
                 }
 
-                // A key that used to exist and is now a hard-coded constant. It is
-                // NAMED rather than ignored in silence, because "I set it and nothing
-                // happened" is exactly what an ignored key looks like.
+                // A key that is a hard-coded constant now: named rather than ignored in
+                // silence.
                 if (cfgkeys::is_removed(key))
                 {
                     warn_once(key,
@@ -1874,18 +1818,9 @@ namespace mm
             return lines;
         }
 
-        //==============================================================================
-        // THEME PRECEDENCE
-        //==============================================================================
-        //
-        // A theme supplies a colour ONLY where the config file is silent. `seen` is
-        // every key name that appeared in either file, so a value the player wrote out
-        // by hand always wins - and because this runs after the whole file has been
-        // parsed, it does not matter whether the `theme` line sits above or below the
-        // colour it would otherwise preset.
-        //
-        // With `theme = neutral` (the shipped default) every value below is what 0.9.2
-        // already had, so a config that never mentions a theme is bit-for-bit unchanged.
+        // Theme precedence: a theme supplies a colour ONLY where the config file is
+        // silent. `seen` is every key name that appeared in either file, and this runs
+        // after both are parsed, so the `theme` line's position does not matter.
         void apply_theme_defaults(Config& cfg, const std::vector<std::string>& seen)
         {
             const auto mentioned = [&seen](std::string_view k) {
@@ -1926,9 +1861,7 @@ namespace mm
                 cfg.floor_base_g = static_cast<float>(tc.floor_base.g);
                 cfg.floor_base_b = static_cast<float>(tc.floor_base.b);
             }
-            // The item-quality tiers follow the PALETTE, not the theme: the shipped
-            // defaults are the game's own pale pickup-beam colours, which are the one
-            // place a colour-blind player is left with hue as the only channel.
+            // The item-quality tiers follow the PALETTE, not the theme.
             if (!mentioned("xray_rarity_colors"))
             {
                 const mdb::Rgb* src = gly::rarity_colors(cfg.palette);
@@ -1941,8 +1874,8 @@ namespace mm
 
         void clamp_config(Config& cfg)
         {
-            // Clamp everything: a hand-edited file must not be able to produce a 40 000 px
-            // minimap or a divide-by-zero zoom.
+            // A hand-edited file must not be able to divide by zero, allocate unboundedly
+            // or stall the game thread, so every numeric key is clamped.
             cfg.size_frac = (std::max)(0.05f, (std::min)(0.9f, cfg.size_frac));
             cfg.zoom_uu_per_px = (std::max)(2.0f, (std::min)(400.0f, cfg.zoom_uu_per_px));
             cfg.opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.opacity));
@@ -1970,12 +1903,9 @@ namespace mm
             cfg.found_save_debounce_ms = (std::max)(200, (std::min)(60000, cfg.found_save_debounce_ms));
             cfg.markers_absence_rounds = (std::max)(1, (std::min)(30, cfg.markers_absence_rounds));
             cfg.markers_absence_categories &= mdb::kAllCats;
-            // 40 is lbl::Layout::kMaxRects - past that the overlap pass has nowhere to
-            // put a box and the caller draws the glyph alone anyway.
+            // 40 is lbl::Layout::kMaxRects; past it the overlap pass has nowhere to put a
+            // box and the caller draws the glyph alone.
             cfg.highlight_labels_max = (std::max)(0, (std::min)(40, cfg.highlight_labels_max));
-            // The full map. Same hand-edit discipline as everything above: without a clamp
-            // a typo could ask for a 1 uu/px view of a 500 m chapter, a zero-size slice
-            // texture, or a zoom factor of 1.0 (which never changes the zoom at all).
             cfg.map_zoom_min = (std::max)(1.0f, (std::min)(2000.0f, cfg.map_zoom_min));
             cfg.map_zoom_max = (std::max)(cfg.map_zoom_min, (std::min)(4000.0f, cfg.map_zoom_max));
             cfg.map_zoom = (std::max)(cfg.map_zoom_min, (std::min)(cfg.map_zoom_max, cfg.map_zoom));
@@ -1990,9 +1920,6 @@ namespace mm
             cfg.map_slice_hz = (std::max)(1, (std::min)(30, cfg.map_slice_hz));
             cfg.map_gamepad_deadzone = (std::max)(0.05f, (std::min)(0.6f, cfg.map_gamepad_deadzone));
             cfg.markers_categories &= mdb::kAllCats;
-            // The highlight and the compass. Same discipline: a hand-edited radius of 1e9
-            // would ask the projector for every marker in the game, and a zero-degree span
-            // would divide by zero on the strip.
             cfg.highlight_radius = (std::max)(200.0f, (std::min)(50000.0f, cfg.highlight_radius));
             cfg.highlight_categories &= mdb::kAllCats;
             cfg.highlight_max_draw = (std::max)(1, (std::min)(400, cfg.highlight_max_draw));
@@ -2007,9 +1934,6 @@ namespace mm
             cfg.compass_opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.compass_opacity));
             cfg.compass_categories &= mdb::kAllCats;
             cfg.compass_marker_distance = (std::max)(500.0f, (std::min)(200000.0f, cfg.compass_marker_distance));
-            // The minimap's own look, the slicer's sizing, the reader's rates and the sweep's
-            // caps. Same rule as everything above: a hand-edited file may be wrong, it may
-            // not be able to divide by zero, allocate unboundedly or stall the game thread.
             cfg.minimap_backdrop = (std::max)(0.0f, (std::min)(1.0f, cfg.minimap_backdrop));
             cfg.minimap_backdrop_r = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_r));
             cfg.minimap_backdrop_g = (std::max)(0.0f, (std::min)(255.0f, cfg.minimap_backdrop_g));
@@ -2072,8 +1996,7 @@ namespace mm
         const int lines = apply_text(cfg, text);
         std::vector<std::string> seen = cfgkeys::keys_in(text);
 
-        // The dev overlay, if the developer put one there. Loaded second on purpose: a
-        // dev file is a deliberate override of whatever the shipped file says.
+        // The dev overlay, loaded second so it overrides the shipped file.
         int dev_lines = 0;
         bool have_dev = false;
         std::string dev_text;
@@ -2087,8 +2010,7 @@ namespace mm
             }
         }
 
-        // The theme fills in the colour keys the two files did not mention - after both
-        // of them have been read, so the order of the lines cannot matter.
+        // The theme fills in the colour keys neither file mentioned, after both are read.
         apply_theme_defaults(cfg, seen);
         clamp_config(cfg);
         set_config(cfg);
@@ -2111,13 +2033,10 @@ namespace mm
     // Writing: the config as key -> value
     //==================================================================================
     //
-    // ONE function produces the text form of every setting, and cfgkeys decides which
-    // file each one belongs in. That is what lets the F2 panel's Save rewrite values in
-    // place (src/config_rewrite.hpp) instead of regenerating a file: the writer no
-    // longer owns the layout, only the values.
-    //
-    // Every key in cfgkeys::kKeys with tier Player / Advanced / Dev must appear here
-    // exactly once; one that does not would silently never be saved.
+    // The one place the text form of every setting is produced; cfgkeys decides which
+    // file each belongs in and config_rewrite.hpp owns the layout. Every key in
+    // cfgkeys::kKeys of tier Player / Advanced / Dev must appear here exactly once - one
+    // that does not is never saved.
 
     std::vector<std::pair<std::string, std::string>> config_kv(const Config& cfg)
     {
@@ -2321,9 +2240,8 @@ namespace mm
 
     namespace
     {
-        // The values of one tier as plain `key = value` lines. Used ONLY when a file
-        // does not exist yet; an existing file is rewritten in place, so its
-        // documentation, its ordering and any key we do not know survive a Save.
+        // The values of one tier as plain `key = value` lines. Used only when the file
+        // does not exist yet; an existing file is rewritten in place.
         std::string tier_block(const std::vector<std::pair<std::string, std::string>>& kv,
                                cfgkeys::Tier tier)
         {
@@ -2340,10 +2258,9 @@ namespace mm
 
         constexpr const char* kAppendedBanner = "; ---- added by the settings panel ----";
 
-        // Writes `mine` into `path`. If the file exists, only the VALUES on its
-        // existing `key = value` lines are replaced and anything missing is appended
-        // once under kAppendedBanner - nothing else about the file changes. If it does
-        // not exist, `fresh` is written verbatim.
+        // Writes `mine` into `path`. On an existing file only the VALUES of its
+        // `key = value` lines change and anything missing is appended once under
+        // kAppendedBanner; otherwise `fresh` is written verbatim.
         void write_config(const std::wstring& path, const std::vector<cfgrw::Pair>& mine,
                           const std::string& fresh)
         {
@@ -2374,8 +2291,8 @@ namespace mm
             }
         }
 
-        // Does any Dev key differ from the built-in default? That is the test for
-        // "somebody actually wanted a dev file" - see save_config_file.
+        // Does any Dev key differ from its built-in default? The test for "somebody wanted
+        // a dev file".
         bool dev_values_differ(const std::vector<std::pair<std::string, std::string>>& kv)
         {
             const Config defaults{};
@@ -2423,16 +2340,13 @@ namespace mm
 
         // ---- the dev file: Dev only, and never created for nothing -------------------
         //
-        // It is written when it already exists (a developer is using it), or when some
-        // Dev key has been moved off its built-in default - which is the only way the
-        // Debug tab's edits can be persisted at all. A player who never touched one must
-        // not find a file full of developer dials appear next to their config, so an
-        // all-defaults Dev set with no file writes nothing. Dev keys never leak into the
-        // player file: the filter above cannot see them.
+        // Written when it already exists, or when some Dev key has been moved off its
+        // built-in default. An all-defaults Dev set with no file writes nothing. Dev keys
+        // never leak into the player file - the filter above cannot see them.
         std::string dev_existing;
         const bool have_dev = read_whole_file(dev_config_path(), dev_existing);
-        // What the F2 Save button's label promises. Set BEFORE the write, so the label
-        // is right from the first Save that creates the file.
+        // What the F2 Save button's label promises. Set BEFORE the write, so the label is
+        // right from the first Save that creates the file.
         g_dev_config_active.store(have_dev || dev_values_differ(kv), std::memory_order_relaxed);
         if (have_dev || dev_values_differ(kv))
         {
@@ -2447,14 +2361,9 @@ namespace mm
         }
     }
 
-    //==================================================================================
-    // The master switch, read straight off disk
-    //==================================================================================
-    //
-    // Deliberately NOT load_config_file(): while the mod is off, the file is the only
-    // channel the player has, and re-applying every other key on the way back in would
-    // mean an unrelated edit took effect at a moment nobody asked for. `modswitch`
-    // calls load_config_file() itself once it has decided to turn the mod on.
+    // The master switch, read straight off disk. NOT load_config_file(): no other key is
+    // applied on the way back in. `modswitch` calls load_config_file() itself once it has
+    // decided to turn the mod on.
 
     bool peek_mod_enabled(bool& out)
     {
@@ -2511,10 +2420,8 @@ namespace mm
         }
     } // namespace
 
-    // BOTH files, mixed into one number. The 1 Hz watcher in modswitch compares this
-    // against the value it last saw, so editing EITHER the shipped config or the dev
-    // overlay reloads both - a dev file that only took effect on a restart would be a
-    // trap during bring-up, which is the one thing it exists for.
+    // BOTH files, mixed into one number, so the 1 Hz watcher in modswitch reloads both
+    // when either the shipped config or the dev overlay is edited.
     std::uint64_t config_mtime()
     {
         const std::uint64_t main_ft = file_mtime(config_path());
@@ -2571,7 +2478,7 @@ namespace mm
             spin::SpinGuard guard(g_wp_lock);
             g_wp = wp;
         }
-        // What was just read IS what the file says, so nothing is pending.
+        // What was just read is what the file says, so nothing is pending.
         g_waypoint_dirty.store(false, std::memory_order_release);
     }
 
@@ -2640,57 +2547,40 @@ namespace mm
     }
 
     //==================================================================================
-    // THE MOD'S OWN ROLLING LOG - wuchang_minimap.log
+    // The mod's own rolling log - wuchang_minimap.log
     //==================================================================================
     //
-    // WHY THIS EXISTS. Every line the mod writes also goes to UE4SS's `UE4SS.log`, and
-    // UE4SS TRUNCATES that file on every launch. So the evidence from an in-game session
-    // is gone the moment the player starts the game again to try the next build - which
-    // happened twice in this project, and both times the answer to "which gate dropped
-    // the marker" had been printed in plain text and then overwritten. A log the mod owns
-    // and ROTATES (`.1` / `.2` / `.3`) keeps the last four sessions whatever UE4SS does.
+    // UE4SS truncates `UE4SS.log` on every launch, so this file keeps the last four
+    // sessions through its own `.1` / `.2` / `.3` rotation.
     //
-    // THE CONSTRAINTS. Same family as the crash breadcrumb (breadcrumb.hpp): the game
-    // thread must never touch C++ iostreams or the C++ locale in this process, so this is
-    // flat `CreateFileW` / `WriteFile` over a hand-built UTF-8 buffer. Writing is
-    // BUFFERED (8 KB) because a state line every 10 s plus a marker census is not worth a
-    // syscall each, and flushed (a) whenever the buffer fills, (b) on every crash
-    // breadcrumb write - which is what makes the log and the breadcrumb agree about the
-    // last thing that happened - and (c) every few seconds from the loop thread.
+    // The game thread must never touch C++ iostreams or the C++ locale in this process,
+    // so this is flat `CreateFileW` / `WriteFile` over a hand-built UTF-8 buffer. Writing
+    // is BUFFERED (8 KB) and flushed when the buffer fills, on every crash breadcrumb
+    // write, and every few seconds from the loop thread.
     //
-    // `modlog_line()` is only ever reached from the loop thread (mm::log's direct path and
-    // drain_log), but `modlog_flush()` is called from the breadcrumb and from the stall
-    // watchdog, i.e. from any thread - so the buffer and the handle are behind a spinlock
-    // of their OWN (see g_modlog_lock), never the log queue's, because everything under
-    // it is a blocking file syscall and the queue is what the game thread touches.
-    // Nothing in here allocates while holding it.
+    // `modlog_line()` is only reached from the loop thread (mm::log's direct path and
+    // drain_log), but `modlog_flush()` is called from the breadcrumb and the stall
+    // watchdog, i.e. from any thread. So the buffer and the handle sit behind a spinlock
+    // of their OWN (g_modlog_lock), never the log queue's: everything under it is a
+    // blocking file syscall and the queue is what the game thread touches. Nothing in
+    // here allocates while holding it.
 
     namespace
     {
         constexpr std::size_t kModLogFlushAt = 8192;
-        // The longest line written verbatim. The buffer is flushed at kModLogFlushAt and
+        // The longest line written verbatim. The buffer flushes at kModLogFlushAt and is
         // reserved at twice that, so buffer (< 8192) + line (<= 4096 + a short suffix) +
-        // the cap notice can never reach the reserve - i.e. `append` can never
-        // reallocate while the lock is held. See modlog_line.
+        // the cap notice never reach the reserve - `append` cannot reallocate under the
+        // lock.
         constexpr std::size_t kModLogMaxLine = 4096;
-        // PER-SESSION CAP. A 40-minute session at the default level is a few hundred
-        // kilobytes; 20 MB is two orders of magnitude of headroom and still small enough
-        // to attach to a bug report. At the cap one line says so and writing stops - the
-        // rotation (.1 / .2 / .3) is untouched, so the previous sessions are still there.
+        // Per-session cap. At the cap one line says so and writing stops; the .1 / .2 / .3
+        // rotation is untouched.
         constexpr std::uint64_t kModLogMaxBytes = 20ull * 1024ull * 1024ull;
         constexpr const wchar_t* kModLogName = L"\\wuchang_minimap.log";
 
-        // A LOCK OF ITS OWN, not the log QUEUE's.
-        //
-        // Both used to be behind `g_log_lock`, and that put a `WriteFile` /
-        // `FlushFileBuffers` / a four-file rotation INSIDE the lock that the game thread
-        // and the render thread take to enqueue a log line - a spinlock held across a
-        // blocking syscall, with the game thread as the victim. Nothing needs the two to
-        // be the same lock: the queue is a vector of strings, the buffer is bytes and a
-        // handle, and no path holds one while taking the other (`drain_log` swaps the
-        // queue out under `g_log_lock`, releases it, and only then writes). So they are
-        // separate, and enqueueing a line from the game thread can no longer wait on the
-        // disk.
+        // A lock of its own, not the log QUEUE's, so enqueueing a line from the game
+        // thread never waits on a file syscall. No path holds one while taking the other:
+        // `drain_log` swaps the queue out under `g_log_lock`, releases it, then writes.
         spin::Spinlock g_modlog_lock;
         HANDLE g_modlog = INVALID_HANDLE_VALUE;
         std::string g_modlog_buf;
@@ -2718,9 +2608,8 @@ namespace mm
             return out;
         }
 
-        // ROTATE, then create. `.3` is dropped, everything else shifts up one, and the
-        // live file is always `wuchang_minimap.log` - so "the log" is one stable name in a
-        // bug report and the three previous sessions are still on disk beside it.
+        // Rotate, then create: `.3` is dropped, everything else shifts up one, and the
+        // live file is always `wuchang_minimap.log`.
         void modlog_rotate(const std::wstring& base)
         {
             const std::wstring p1 = base + L".1";
@@ -2774,13 +2663,10 @@ namespace mm
                            static_cast<unsigned>(st.wHour), static_cast<unsigned>(st.wMinute),
                            static_cast<unsigned>(st.wSecond), static_cast<unsigned>(st.wMilliseconds));
             std::string text = utf8_of(std::wstring{stamp} + line);
-            // FIX (A.26): THE BUFFER CANNOT BE ALLOWED TO REALLOCATE UNDER THE LOCK.
-            // The header two screens up promises that nothing allocates while
-            // g_modlog_lock is held - and modlog_flush() takes that lock from the crash
-            // breadcrumb and from the stall watchdog, i.e. from a thread that may be
-            // reporting a corrupted heap. `append` broke the promise for any line longer
-            // than the reserve. The line is truncated to a bound instead, on a UTF-8
-            // character boundary, so buffer + line + the cap notice always fit inside the
+            // The buffer must not reallocate under g_modlog_lock: modlog_flush() takes
+            // that lock from the crash breadcrumb and the stall watchdog, i.e. from a
+            // thread that may be reporting a corrupted heap. Truncating on a UTF-8
+            // character boundary keeps buffer + line + cap notice inside the
             // 2 x kModLogFlushAt bytes reserved once at open time.
             if (text.size() > kModLogMaxLine)
             {
@@ -2840,28 +2726,21 @@ namespace mm
     }
 
     //==================================================================================
-    // A.20: THE GAME BUILD THE SHIPPED DATA WAS DUMPED FROM
+    // The game build the shipped data was dumped from
     //==================================================================================
     //
-    // Every marker coordinate and every map picture in this mod came out of ONE cooked
-    // build of the game. When the game is patched, actors can move, be renamed or be
-    // added - and the symptom a player reports is "the markers are all slightly wrong",
-    // which is indistinguishable from a bug in the reader. So the data files may carry a
-    // top-level `"game_build"` string (the offline extractor stamps it), and this
-    // compares it against the running executable's FILEVERSION - the same number the
-    // startup bug-report header prints.
-    //
-    // It is deliberately forgiving: 1.0.0's data files have no stamp, and a missing one
-    // is a verbose line, not a warning. Only a stamp that DISAGREES is shouted about.
+    // Every marker coordinate and map picture came out of ONE cooked build of the game,
+    // and a patch can move, rename or add actors. The data files may carry a top-level
+    // `"game_build"` string (the offline extractor stamps it), compared here against the
+    // running executable's FILEVERSION. A missing stamp is a verbose line; only a stamp
+    // that disagrees is a warning.
 
     namespace
     {
         bool g_game_build_checked = false;
 
-        // The running executable's FILEVERSION as "a.b.c.d", or an empty string. Same
-        // read as modswitch.cpp's startup header (no engine call, nothing that can
-        // fault); duplicated rather than shared because that one is a private helper of
-        // the startup log.
+        // The running executable's FILEVERSION as "a.b.c.d", or an empty string. No engine
+        // call, nothing that can fault.
         std::wstring exe_file_version()
         {
             wchar_t path[MAX_PATH]{};
@@ -2893,9 +2772,9 @@ namespace mm
         }
 
         // The value of a top-level `"key": "..."` string, searched inside the first
-        // `kHeadBytes` of the file only - which is what makes it TOP-LEVEL without a JSON
-        // parser: these files put their scalar header keys before the big arrays. No
-        // escape handling: a build string is digits and dots.
+        // `kHeadBytes` only - these files put their scalar header keys before the big
+        // arrays, so that is what "top-level" means without a JSON parser. No escape
+        // handling: a build string is digits and dots.
         bool json_head_string(const std::string& text, const char* key, std::string& out)
         {
             constexpr std::size_t kHeadBytes = 2048;

@@ -1,20 +1,14 @@
 #pragma once
 
 //
-// mapview - the PURE half of the full map (step C1).
+// mapview - the pure half of the full map: the viewport transform and its exact
+// inverse, the zoom clamp / zoom step, and the waypoint file round-trip. Plain C++ over
+// doubles and strings, with no dependency on Windows, UE4SS, Dear ImGui or mm::log, so
+// tests/markers_test.cpp links it into a console exe. Anything needing D3D12 or ImGui
+// lives in overlay.cpp.
 //
-// Everything in here is plain C++ over doubles and strings: the full map's viewport
-// transform and its exact inverse, the zoom clamp / zoom step, and the waypoint file
-// round-trip. Like markers_db.hpp it has NO dependency on Windows, UE4SS, Dear ImGui
-// or mm::log, which is what lets tests/markers_test.cpp link it into a console exe and
-// check the world<->screen inverse, the zoom limits and the waypoint file without the
-// game running. Everything that needs D3D12 or ImGui lives in overlay.cpp.
-//
-// THE TRANSFORM
-// -------------
-// The full map is always NORTH-UP - it never rotates with the player - so the mapping
-// is the minimap's own mapping at yaw 0, which is also build_map.py / render.py's
-// convention:
+// The full map is always north-up, so the mapping is the minimap's at yaw 0, which is
+// also build_map.py / render.py's convention:
 //
 //     screen right  ->  world +Y  (east)
 //     screen up     ->  world +X  (north)
@@ -30,18 +24,12 @@
 //     wx = cx - (sy - r.cy()) * uu_per_px
 //     wy = cy + (sx - r.cx()) * uu_per_px
 //
-// The two are tested against each other over the whole viewport in markers_test.
-//
 
 #include <string>
 #include <string_view>
 
 namespace mv
 {
-    //==================================================================================
-    // Screen rectangle
-    //==================================================================================
-
     struct Rect
     {
         float x0 = 0.0f;
@@ -71,10 +59,6 @@ namespace mv
         }
     };
 
-    //==================================================================================
-    // The view
-    //==================================================================================
-
     struct View
     {
         double cx = 0.0;          // world X at the centre of the rectangle
@@ -85,81 +69,52 @@ namespace mv
     void world_to_screen(const View& v, const Rect& r, double wx, double wy, float& sx, float& sy);
     void screen_to_world(const View& v, const Rect& r, float sx, float sy, double& wx, double& wy);
 
-    // Zoom limits. `lo` / `hi` are taken in either order, and a non-finite or
-    // non-positive input falls back to the low limit - a hand-edited config must never
-    // be able to produce a divide-by-zero zoom.
+    // Zoom limits. `lo` / `hi` are taken in either order; a non-finite or non-positive
+    // input falls back to the low limit.
     double clamp_zoom(double z, double lo, double hi);
 
-    // One or more wheel notches. POSITIVE notches zoom IN, i.e. reduce uu_per_px, which
-    // is what a mouse wheel scrolled away from the user means everywhere else.
-    // `factor` is the multiplier per notch (1.15 ships); values <= 1 are ignored.
+    // One or more wheel notches. Positive notches zoom in, reducing uu_per_px.
+    // `factor` is the multiplier per notch; values <= 1 are ignored.
     double zoom_by(double z, double notches, double factor, double lo, double hi);
 
-    //==================================================================================
-    // Zoom to fit
-    //==================================================================================
-    //
-    // The zoom at which a world rectangle exactly fills a canvas. The map is north-up,
-    // so world X (north-south) is spent on the canvas HEIGHT and world Y (east-west) on
-    // its WIDTH - crossing those two over is the classic way to get a fit that is right
-    // on a square canvas and wrong on every other one.
-    //
-    // Returns 0 when either span or either canvas side is unusable, so the caller can
-    // leave the zoom alone rather than dividing by zero. `margin` (0.02 = 2 %) leaves
-    // the fitted rectangle slightly inside the canvas, because a chapter's outermost
-    // markers sit exactly on its bounds.
+    // The zoom at which a world rectangle exactly fills a canvas. North-up, so world X
+    // (north-south) is spent on the canvas height and world Y (east-west) on its width.
+    // Returns 0 when a span or a canvas side is unusable. `margin` (0.02 = 2 %) keeps
+    // the fitted rectangle inside the canvas.
     double fit_zoom(double span_x_uu, double span_y_uu, double canvas_w_px, double canvas_h_px,
                     double margin = 0.02);
 
     //==================================================================================
-    // Minimap zoom presets
+    // Minimap zoom presets - `minimap_zoom_presets` is the ladder, `zoom_key` steps it
     //==================================================================================
-    //
-    // Until 0.9.3 the minimap's zoom could only be changed by opening the F2 panel or
-    // by editing a file, which is the one setting a player wants to change while
-    // walking. `minimap_zoom_presets` is the ladder and `zoom_key` steps through it.
-    //
-    // Both halves are here because both are pure: parsing a hand-edited list, and
-    // deciding which rung comes next.
 
     constexpr int kMaxZoomPresets = 8;
 
     // "13, 26, 52" -> `out`, ascending, duplicates and out-of-range values dropped.
-    // Returns how many presets were stored (0 when the text carries none usable, in
-    // which case `out` is untouched and the caller keeps whatever it had). Malformed
-    // tokens are appended to `rejected` (comma separated) for the loader to log; unlike
-    // a colour list a bad token here does NOT consume a slot, because a zoom ladder is
-    // a set, not a tier-indexed table.
+    // Returns how many presets were stored; 0 leaves `out` untouched. Malformed tokens
+    // are appended to `rejected` (comma separated) and consume no slot.
     int parse_zoom_presets(std::string_view text, float out[kMaxZoomPresets], std::string* rejected = nullptr);
 
-    // One rung along the ladder: `dir > 0` the next rung above `current`, `dir < 0` the
-    // next one below, both wrapping round. `presets` must be ascending
-    // (parse_zoom_presets sorts it). Returns `current` unchanged when there is nothing
-    // to cycle through, so no caller has to special-case an empty ladder.
-    //
-    // "Above" and "below" are deliberately fuzzy (a 0.1 % margin): the current zoom
-    // usually IS one of the presets, and an exact comparison would then be answered by
-    // that same rung - the key would appear to do nothing.
+    // One rung along the ladder: `dir > 0` up, `dir < 0` down, both wrapping round.
+    // `presets` must be ascending. Returns `current` when there is nothing to cycle.
+    // "Above" and "below" carry a 0.1 % margin, so a zoom sitting exactly on a rung
+    // moves off it.
     float step_zoom_preset(const float* presets, int count, float current, int dir);
 
     // step_zoom_preset(..., +1): what `zoom_key` does.
     float next_zoom_preset(const float* presets, int count, float current);
 
-    // WHICH RUNG the current zoom is standing on, 0-based, or -1 when it is on none of
-    // them (a hand-edited `minimap_zoom` between two presets). The on-screen "2 of 3"
-    // caption the zoom key raises reads this; the same 0.1 % margin as
-    // step_zoom_preset, so the rung the ladder just moved TO is the one reported.
+    // Which rung the current zoom stands on, 0-based, or -1 for none. Same 0.1 % margin
+    // as step_zoom_preset.
     int zoom_preset_index(const float* presets, int count, float current);
 
     //==================================================================================
     // The waypoint - wuchang_minimap_waypoint.txt
     //==================================================================================
     //
-    // One waypoint at a time, stored next to the config file as three `key = value`
-    // lines so it stays hand-editable and diffable like every other file this mod
-    // writes. It is deliberately NOT part of config_wuchang_minimap.txt: the config
-    // file is rewritten wholesale by the F2 panel's Save button, and a waypoint set
-    // during play must survive without anybody pressing Save.
+    // One waypoint at a time, next to the config file as three `key = value` lines. Kept
+    // out of config_wuchang_minimap.txt, which the F2 panel's Save button rewrites
+    // wholesale; a waypoint set during play survives without a Save.
 
     struct Waypoint
     {
@@ -171,8 +126,7 @@ namespace mv
 
     std::string waypoint_serialize(const Waypoint& wp);
 
-    // Returns false (and leaves `out` untouched) when the text carries no usable
-    // waypoint. A BOM, CRLF, comments (`;` / `#`) and blank lines are all tolerated,
-    // exactly like the config and found-tracker readers.
+    // False (and `out` untouched) when the text carries no usable waypoint. A BOM, CRLF,
+    // comments (`;` / `#`) and blank lines are tolerated.
     bool waypoint_parse(std::string_view text, Waypoint& out);
 } // namespace mv

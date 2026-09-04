@@ -1,33 +1,21 @@
 #pragma once
 
 //
-// Minimal hand-written declarations of the RC::Unreal reflection API.
-//
-// WHY THIS FILE EXISTS
-// --------------------
-// UE4SS's real Unreal headers live in `deps/first/Unreal`, which is the private
-// UEPseudo repository (see README.md - it needs Epic Games GitHub access). We do not
-// have them, so `#include <Unreal/UObjectGlobals.hpp>` is not an option.
-//
-// But the shipped `UE4SS.dll` *exports* the whole reflection API (4239 exports), and
-// `sdk/lib/UE4SS.lib` - synthesised from its export table - can resolve any of them.
-// An MSVC mangled name depends only on namespace, class name, function name,
-// parameter types, cv/ref qualifiers and the access specifier; it never depends on
-// class layout. So re-declaring the handful of members we call, with the same names
-// and signatures, produces byte-identical symbols and links against the real code.
+// Minimal hand-written declarations of the RC::Unreal reflection API, linked against
+// `sdk/lib/UE4SS.lib` (synthesised from UE4SS.dll's export table). An MSVC mangled
+// name depends only on namespace, class name, function name, parameter types, cv/ref
+// qualifiers and the access specifier - never on class layout - so re-declaring the
+// members we call with matching signatures produces byte-identical symbols.
 //
 // RULES FOR THIS FILE
-// -------------------
-//  * The classes below are deliberately EMPTY. Never instantiate one, never take
-//    sizeof, never dereference. They exist only to carry member-function symbols.
-//  * The inheritance chains mirror the real ones and are all single, non-virtual and
-//    at offset 0, so `this` needs no adjustment when a call lands on a base class.
-//  * Every declaration is annotated with the exact symbol from `sdk/UE4SS.def` it
-//    must match. If the linker ever reports an unresolved external, diff its mangled
-//    name against the comment - that pinpoints the drifted signature immediately.
-//  * `FField::GetNext` is PRIVATE in UEPseudo, and the access specifier *is* part of
-//    the mangled name, so it must stay private here too; FFieldAccess is the friend
-//    that reaches it.
+//  * The classes below are EMPTY. Never instantiate, never sizeof, never dereference.
+//    They exist only to carry member-function symbols.
+//  * Inheritance chains mirror the real ones: single, non-virtual, at offset 0, so
+//    `this` needs no adjustment when a call lands on a base class.
+//  * Every declaration is annotated with the exact symbol from `sdk/UE4SS.def` it must
+//    match. On an unresolved external, diff its mangled name against the comment.
+//  * `FField::GetNext` is PRIVATE in UEPseudo and the access specifier is part of the
+//    mangled name, so it must stay private here; FFieldAccess is the friend.
 //
 
 #include <functional>
@@ -64,19 +52,17 @@ namespace RC::Unreal
 
         // ?GetInternalIndex@UObjectBase@Unreal@RC@@QEBA?BHXZ
         //
-        // The object's slot in GUObjectArray. Captured while the object is known good,
-        // it is the key that makes a later liveness test possible without touching the
-        // object's own (possibly freed) memory.
+        // Slot in GUObjectArray. Captured while the object is known good, it permits a
+        // later liveness test without touching the object's own (possibly freed) memory.
         const int GetInternalIndex() const;
 
         // ?GetObjectItem@UObjectBase@Unreal@RC@@QEAAPEAUFUObjectItem@23@XZ
         FUObjectItem* GetObjectItem();
     };
 
-    // The GUObjectArray slot. This lives in UE's permanently-committed object array,
-    // not in the object's own allocation, so reading it is safe even after the object
-    // has been destroyed and freed - which is exactly why the validation goes through
-    // here rather than through the cached UObject*.
+    // The GUObjectArray slot. Lives in UE's permanently-committed object array, not in
+    // the object's own allocation, so reading it is safe even after the object has been
+    // destroyed and freed. Validation goes through here, not the cached UObject*.
     struct FUObjectItem
     {
         // ?GetUObject@FUObjectItem@Unreal@RC@@QEBAPEAVUObject@23@XZ
@@ -105,13 +91,9 @@ namespace RC::Unreal
 
         // ?GetNumElements@FUObjectArray@Unreal@RC@@SAHXZ
         //
-        // How many slots GUObjectArray currently holds (used, free and never-used).
-        // It is the loop bound of the chunked marker walk: iterating [0, N) and
-        // rejecting the slots whose FUObjectItem is not valid costs one pass over the
-        // array instead of the one-pass-per-class that FindAllOf charges.
-        //
-        // The value GROWS as levels stream in and can drop after a GC, so it is
-        // re-read every slice and the cursor clamped against it - never cached.
+        // Slots GUObjectArray currently holds (used, free and never-used); the loop
+        // bound of the chunked marker walk. Grows as levels stream in and can drop
+        // after a GC: re-read every slice and clamp the cursor against it, never cache.
         static int GetNumElements();
     };
 
@@ -126,8 +108,8 @@ namespace RC::Unreal
 
         // ?GetWorld@UObject@Unreal@RC@@QEBAPEAVUWorld@23@XZ
         //
-        // Used only as a cheap *identity* signal: when the pawn's world pointer changes,
-        // a level transition happened and every cached pointer is suspect.
+        // Cheap *identity* signal only: a changed pawn world pointer means a level
+        // transition, so every cached pointer is suspect.
         UWorld* GetWorld() const;
 
         // ?GetName@UObject@Unreal@RC@@QEBA?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@XZ
@@ -138,21 +120,20 @@ namespace RC::Unreal
 
         // ?GetFunctionByNameInChain@UObject@Unreal@RC@@QEAAPEAVUFunction@23@PEB_W@Z
         //
-        // Looks the UFunction up on this object's class and every super class. Returns
-        // nullptr when the name does not exist, which is the only way to tell - a
-        // BlueprintCallable getter that is not there must never be *assumed* present
-        // (lessons.md: APlayerCameraManager has no GetViewTarget()).
+        // Looks the UFunction up on this object's class and every super class; nullptr
+        // when the name does not exist. Never assume a BlueprintCallable getter is
+        // present - APlayerCameraManager has no GetViewTarget().
         UFunction* GetFunctionByNameInChain(const wchar_t* name);
 
         // ?ProcessEvent@UObject@Unreal@RC@@QEAAXPEAVUFunction@23@PEAX@Z
         //
-        // Calls the function with `params` pointing at the function's parameter block
-        // (parameters in declaration order, then the return value at the end - for the
-        // zero-argument getters we use, `params` is just the return value).
+        // `params` points at the function's parameter block: parameters in declaration
+        // order, then the return value at the end (for a zero-argument getter, `params`
+        // is just the return value).
         //
-        // MUST only be called from the game thread, i.e. from inside our ProcessEvent
-        // pre-callback pump - and the pump has to guard against re-entrancy, because
-        // every call made from it fires the pre-callback again.
+        // GAME THREAD ONLY, i.e. from inside our ProcessEvent pre-callback pump. The
+        // pump must guard against re-entrancy: every call made from it re-fires the
+        // pre-callback.
         void ProcessEvent(UFunction* function, void* params);
     };
 
@@ -180,15 +161,10 @@ namespace RC::Unreal
     {
     };
 
-    // A UFunction IS a UStruct, and that is the whole point: its parameter list is its
-    // child-property chain, so `GetChildProperties()` + `GetPropertiesSize()` recover
-    // the reflected signature (parameter names, offsets and sizes) of any function at
-    // runtime. lessons.md forbids calling a UFunction with a guessed signature; this is
-    // what makes the alternative - read the real one and compare - possible.
-    //
-    // No members of its own are declared: UFunction's own accessors (FunctionFlags,
-    // NumParms, ...) are not needed, and every symbol we would add is one more thing
-    // that can fail to link.
+    // A UFunction IS a UStruct: its parameter list is its child-property chain, so
+    // `GetChildProperties()` + `GetPropertiesSize()` recover the reflected signature
+    // (parameter names, offsets, sizes) at runtime. Never call a UFunction with a
+    // guessed signature - read the real one and compare.
     class UFunction : public UStruct
     {
     };
@@ -225,24 +201,20 @@ namespace RC::Unreal
         const int& GetElementSize() const;
     };
 
-    // A reflected bool is a BITFIELD, and its byte offset alone does not identify it.
-    // `uint8 bHidden : 1` shares a byte with `bNetTemporary`, `bTearOff` and the rest, so
-    // `GetOffset_Internal()` names the byte and these three name the bit inside it:
+    // A reflected bool is a BITFIELD; its byte offset alone does not identify it.
+    // `uint8 bHidden : 1` shares a byte with `bNetTemporary`, `bTearOff` and the rest:
     // address = obj + Offset_Internal + ByteOffset, value = (*address & FieldMask) != 0.
     // A native `bool` member has FieldMask 0xFF.
     //
-    // Only the three accessors are declared, and they are the CONST overloads returning
-    // `const uint8&` - the mangled name carries the access specifier and the constness,
-    // so both halves matter (`QEBAAEBEXZ`, from `sdk/UE4SS.def`).
+    // These are the CONST overloads returning `const uint8&` - the mangled name carries
+    // both the access specifier and the constness (`QEBAAEBEXZ`, from `sdk/UE4SS.def`).
     //
-    // NOTE ON SAFETY. There is no cheap way to ask UE4SS "is this FProperty an
-    // FBoolProperty?" - `FField::IsA` and `FBoolProperty::StaticClass` both traffic in
-    // `FFieldClassVariant`, a struct whose layout we would have to guess, which is
-    // exactly the mistake `lessons.md` records for `FPImplRecastNavMesh`. So these are
-    // called on any FProperty and the ANSWER is validated instead
-    // (uer::bool_info): element size 1, field size 1, byte offset < 8, and a mask that is
-    // a single set bit or 0xFF. Taking the address of the returned reference does not
-    // dereference it, and the read itself goes through the SEH-guarded mem::read_at.
+    // SAFETY. There is no cheap "is this FProperty an FBoolProperty?" test: `FField::IsA`
+    // and `FBoolProperty::StaticClass` both traffic in `FFieldClassVariant`, whose layout
+    // we would have to guess. So these are called on any FProperty and the ANSWER is
+    // validated instead (uer::bool_info): element size 1, field size 1, byte offset < 8,
+    // mask a single set bit or 0xFF. Taking the address of the returned reference does
+    // not dereference it; the read goes through the SEH-guarded mem::read_at.
     class FBoolProperty : public FProperty
     {
       public:
@@ -261,9 +233,9 @@ namespace RC::Unreal
         // ?FindAllOf@UObjectGlobals@Unreal@RC@@YAXV?$basic_string_view@_WU?$char_traits@_W@std@@@std@@
         //   AEAV?$vector@PEAVUObject@Unreal@RC@@V?$allocator@PEAVUObject@Unreal@RC@@@std@@@5@@Z
         //
-        // Finds every live instance of the class with this *short* name (and of its
-        // subclasses). Returns nothing for a name that has no loaded class, which is
-        // exactly what happens at the main menu for "RecastNavMesh".
+        // Every live instance of the class with this *short* name, and of its
+        // subclasses. Empty for a name with no loaded class (e.g. "RecastNavMesh" at
+        // the main menu).
         void FindAllOf(std::wstring_view class_name, std::vector<UObject*>& out);
 
         // ?FindFirstOf@UObjectGlobals@Unreal@RC@@YAPEAVUObject@23@PEB_W@Z
@@ -278,21 +250,15 @@ namespace RC::Unreal
         // ?RegisterProcessEventPreCallback@Hook@Unreal@RC@@YAXV?$function@$$A6AXPEAVUObject@Unreal@RC@@
         //   PEAVUFunction@23@PEAX@Z@std@@@Z
         //
-        // WHY WE NEED THIS
-        // ----------------
-        // `CppUserModBase::on_update` is called from UE4SS's own event-loop thread, NOT
-        // from the game thread. That was proven on 2026-09-02: while the game thread sat
-        // blocked in WaitForSingleObject during a GPU crash dump, our [navmesh] poll kept
-        // logging every 300 ms. So anything that traverses UObjects (FindAllOf walks the
-        // FUObjectHashTables) or reads engine allocations races with level streaming and
-        // with the GC.
+        // `CppUserModBase::on_update` runs on UE4SS's own event-loop thread, NOT the
+        // game thread, so UObject traversal there (FindAllOf walks the
+        // FUObjectHashTables) races level streaming and the GC.
         //
-        // UE4SS's ProcessEvent pre-callback, by contrast, fires *inside*
-        // UObject::ProcessEvent - i.e. always on the thread that is executing the script
-        // VM, which for gameplay is the game thread. It is therefore usable as a
-        // game-thread pump: register once, throttle inside, and do all traversal there.
-        // (`UE4SSProgram::queue_event` is NOT an alternative - it queues onto the same
-        // event-loop thread.)
+        // This pre-callback fires *inside* UObject::ProcessEvent, i.e. on the thread
+        // executing the script VM, which for gameplay is the game thread. It is the
+        // game-thread pump: register once, throttle inside, do all traversal there.
+        // `UE4SSProgram::queue_event` is NOT an alternative - it queues onto the same
+        // event-loop thread.
         void RegisterProcessEventPreCallback(std::function<void(UObject*, UFunction*, void*)> callback);
     } // namespace Hook
 } // namespace RC::Unreal

@@ -1,35 +1,27 @@
 -- WuchangMinimap - UE4SS C++ mod for Wuchang: Fallen Feathers (UE 5.1.1, x64, DX12)
 --
--- This project does NOT include("RE-UE4SS") the way the official docs describe,
--- because UE4SS cannot be built from source on this machine: its `deps/first/Unreal`
--- submodule points at `Re-UE4SS/UEPseudo`, a private repository that requires Epic
--- Games GitHub organisation access. See README.md for the full story.
---
--- Instead we compile against the headers of an RE-UE4SS checkout pinned to the exact
--- commit of the UE4SS build installed in the game, and link against an import library
--- synthesised from that build's UE4SS.dll export table (tools/gen_ue4ss_importlib.ps1).
+-- No include("RE-UE4SS"): UE4SS cannot be built from source here, since its
+-- `deps/first/Unreal` submodule points at the private `Re-UE4SS/UEPseudo`. The build
+-- compiles against the headers of an RE-UE4SS checkout pinned to the commit of the
+-- installed UE4SS build, and links an import library synthesised from that build's
+-- UE4SS.dll export table (tools/gen_ue4ss_importlib.ps1).
 
 set_project("WuchangMinimap")
--- Metadata only. The version the DLL, the F2 panel and tools/package.ps1 all use is
--- the single #define in src/version.hpp; package.ps1 -Version rewrites both.
+-- Metadata only; src/version.hpp holds the version everything else reads.
+-- package.ps1 -Version rewrites both.
 set_version("1.0.0")
--- The only xmake this project has ever been configured and built with is 3.1.1
--- (`xmake --version` -> "xmake v3.1.1+HEAD.3ba37a0d4"). Nothing older has been tried,
--- so the pin names the tested version rather than a guess at the oldest workable one.
--- docs/DEVELOPMENT.md quotes the same number.
+-- The tested xmake version; docs/DEVELOPMENT.md quotes the same number.
 set_xmakever("3.1.1")
 
 set_allowedplats("windows")
 set_allowedarchs("x64")
 
--- UE4SS names its shipping configuration Game__Shipping__Win64; we keep that name so
--- the build command matches the UE4SS documentation.
+-- UE4SS's own configuration names, so the build command matches its documentation.
 set_allowedmodes("Game__Shipping__Win64", "Game__Debug__Win64")
 set_defaultmode("Game__Shipping__Win64")
 
--- Machine-specific: where the RE-UE4SS checkout lives. The default is the original dev
--- box; set the WUCHANG_UE4SS_ROOT environment variable, or pass
--- `--ue4ss_root=<path>` to `xmake f` (build.ps1 -Ue4ssRoot does this), to move it.
+-- Machine-specific. Override with WUCHANG_UE4SS_ROOT or `xmake f --ue4ss_root=<path>`
+-- (build.ps1 -Ue4ssRoot).
 local ue4ss_default = os.getenv("WUCHANG_UE4SS_ROOT") or "F:/Tools/RE-UE4SS"
 
 option("ue4ss_root")
@@ -62,23 +54,21 @@ local function ue4ss_includedirs()
         first .. "MProgram/include",
         first .. "ScopedTimer/include",
         first .. "Profiler/include",
-        -- fmt 11.2.0, the version UE4SS itself uses. DynamicOutput/Output.hpp includes
-        -- <fmt/core.h>; the formatting happens inside our DLL so header-only is fine.
+        -- fmt 11.2.0, the version UE4SS uses. DynamicOutput/Output.hpp includes
+        -- <fmt/core.h>; formatting happens inside this DLL, so header-only is fine.
         "third_party/fmt/include",
     }
 end
 
--- Shared compile settings for every target in this project.
--- The CRT choice is load bearing: the shipped UE4SS.dll imports MSVCP140.dll and
--- VCRUNTIME140.dll, so the mod must use the dynamic release CRT (/MD) or the two will
--- disagree about std:: types across the DLL boundary.
+-- Shared compile settings. The CRT choice is load bearing: the shipped UE4SS.dll
+-- imports MSVCP140.dll and VCRUNTIME140.dll, so the mod needs the dynamic release CRT
+-- (/MD) or the two disagree about std:: types across the DLL boundary.
 local function common_settings()
     set_arch("x64")
     set_plat("windows")
     set_runtimes("MD")
     add_defines("WIN32_LEAN_AND_MEAN", "NOMINMAX", "_CRT_SECURE_NO_WARNINGS", "UNICODE", "_UNICODE")
-    -- Required, not cosmetic: fmt's base.h has a `static_assert(... "Unicode support
-    -- requires compiling with /utf-8")` that fires on MSVC's default codepage.
+    -- Required: fmt's base.h static_asserts on MSVC's default codepage.
     add_cxflags("/utf-8", {tools = {"cl"}})
     add_cflags("/utf-8", {tools = {"cl"}})
     if is_mode("Game__Debug__Win64") then
@@ -91,43 +81,31 @@ local function common_settings()
     end
 end
 
--- Hardening + reproducibility flags for the two targets we actually LINK (the mod DLL
--- and the offline test exe). Not applied to the static third_party targets: xmake hands
--- ldflags to lib.exe there, and /guard:cf on their objects would only add metadata for
--- indirect calls we do not own.
+-- Hardening + reproducibility flags for the two LINKED targets (the mod DLL and the
+-- offline test exe). Not for the static third_party targets: xmake hands their ldflags
+-- to lib.exe.
 --
--- /guard:cf  - Control Flow Guard. Safe in a mod that hooks the host process:
---   * CFG only rewrites *our* indirect calls into __guard_dispatch_icall, and that
---     dispatcher is a plain jmp unless the whole process opted into the CFG mitigation
---     policy - which the game's exe does not, so at runtime today this costs one extra
---     indirect jump and nothing else.
---   * The one thing that could break is calling MinHook's trampoline through
---     `o_Present` etc. Trampolines live in memory MinHook gets from VirtualAlloc with
---     an executable protection, and the kernel marks non-image executable pages as
---     wholly-valid call targets unless a process enables CFG strict mode. So the
---     trampoline is a legal target either way.
---   * The reverse direction (the game calling our hook through the swapchain vtable)
---     never consults our bitmap - it is the caller's module that validates.
--- /DYNAMICBASE /HIGHENTROPYVA - ASLR with the full 64-bit entropy. Both are MSVC
---   defaults for x64; stated explicitly so a future flag change cannot silently drop
---   them, and so `dumpbin /headers` shows the intent.
--- /PDBALTPATH:%_PDB% - write only the PDB's *file name* into the DLL's debug
---   directory instead of the absolute path of whoever built it (a released 1.0.0
---   main.dll carried E:\commcp\wuchang-minimap\build\...\main.pdb). A local debugger
---   still finds the pdb next to the binary; a symbol server still works by GUID.
--- TWO xmake traps cost a rebuild each here; both are why released 1.0.0 shipped an
--- absolute pdb path even though a /PDBALTPATH flag looked present in this file:
+-- /guard:cf - Control Flow Guard, safe in a mod that hooks the host process: it only
+--   rewrites this module's indirect calls, MinHook's VirtualAlloc'd trampolines are
+--   legal targets unless the process enables CFG strict mode, and the game calling our
+--   hook validates against its own bitmap, not ours.
+-- /DYNAMICBASE /HIGHENTROPYVA - ASLR at full 64-bit entropy. MSVC x64 defaults, stated
+--   so a flag change cannot silently drop them and `dumpbin /headers` shows the intent.
+-- /PDBALTPATH:%_PDB% - put only the PDB's file NAME in the debug directory, not the
+--   builder's absolute path. A local debugger still finds it; a symbol server works by
+--   GUID.
+--
+-- Two xmake traps:
 --   1. A `{tools = {"link"}}` filter on add_ldflags does NOT match the MSVC linker -
---      xmake silently drops every flag carrying one. So: no tools filter. The project
---      is `set_allowedplats("windows")`, so unconditional MSVC flags are safe.
---   2. add_ldflags is for BINARY targets. A shared library takes add_shflags.
--- Verify after touching this, do not assume:
+--      xmake silently drops every flag carrying one. The project is
+--      set_allowedplats("windows"), so unconditional MSVC flags are safe.
+--   2. add_ldflags is for BINARY targets; a shared library takes add_shflags.
+-- Verify, do not assume:
 --     xmake -v -r                     the link.exe line must show all four flags
 --     strings main.dll | grep pdb     must be bare "main.pdb", not a build path
 local function hardened_link()
     add_cxflags("/guard:cf", {tools = {"cl"}})
-    -- Both spellings, deliberately: xmake routes an .exe through ldflags and a .dll
-    -- through SHFLAGS, so a target-agnostic helper has to set the pair.
+    -- Both spellings: xmake routes an .exe through ldflags and a .dll through shflags.
     local link = {"/guard:cf", "/DYNAMICBASE", "/HIGHENTROPYVA", "/PDBALTPATH:%_PDB%"}
     add_ldflags(link, {force = true})
     add_shflags(link, {force = true})
@@ -142,12 +120,10 @@ target("imgui")
     set_group("third_party")
     common_settings()
     add_includedirs("third_party/imgui", {public = true})
-    -- XINPUT IS THE LOOP THREAD'S JOB (lessons.md, and src/gamepad.cpp is where it is
-    -- done). With ImGuiConfigFlags_NavEnableGamepad set, imgui_impl_win32 polls XInput
-    -- itself from ImGui_ImplWin32_NewFrame - i.e. from inside Present, where polling an
-    -- empty slot costs about a millisecond. The mod already has the pad state and feeds
-    -- it into io itself (overlay.cpp, feed_pad_nav), so the backend's copy is switched
-    -- off rather than left to duplicate the work on the wrong thread.
+    -- XInput is the loop thread's job (src/gamepad.cpp). With
+    -- ImGuiConfigFlags_NavEnableGamepad set, imgui_impl_win32 would poll XInput from
+    -- ImGui_ImplWin32_NewFrame, i.e. inside Present, where an empty slot costs about a
+    -- millisecond. overlay.cpp feeds the already-polled pad state into io instead.
     add_defines("IMGUI_IMPL_WIN32_DISABLE_GAMEPAD", {public = true})
     add_files(
         "third_party/imgui/imgui.cpp",
@@ -183,9 +159,8 @@ target("WuchangMinimap")
     set_languages("cxx23")
     set_exceptions("cxx")
     set_group("mods")
-    -- "error" = /WX. Our own translation units are warning-free at /W3+ and must stay
-    -- that way; third_party/ is built by its own targets at the default level, so this
-    -- does not turn ImGui or MinHook churn into a build failure.
+    -- "error" = /WX. src/ must stay warning-free; third_party/ builds under its own
+    -- targets at the default level.
     set_warnings("all", "error")
     common_settings()
     hardened_link()
@@ -194,10 +169,9 @@ target("WuchangMinimap")
     add_includedirs("src")
     add_includedirs(ue4ss_includedirs())
 
-    -- fmt must be header-only here: we have no compiled fmt from the UE4SS build.
-    -- RC_IS_ANSI selects the char type used by DynamicOutput; UE4SS ships the wide build.
-    -- The codecvt silencer is for UE4SS's own Helpers/String.hpp, which still uses the
-    -- C++17-deprecated std::wstring_convert; it is the only C4996 in the build.
+    -- fmt is header-only: there is no compiled fmt from the UE4SS build. RC_IS_ANSI
+    -- picks DynamicOutput's char type, and UE4SS ships the wide build. The codecvt
+    -- silencer covers UE4SS's Helpers/String.hpp, the build's only C4996.
     add_defines("FMT_HEADER_ONLY=1", "RC_IS_ANSI=0", "_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING")
 
     add_files("src/*.cpp")
@@ -205,11 +179,9 @@ target("WuchangMinimap")
     -- Import library synthesised from the installed UE4SS.dll export table.
     add_links("sdk/lib/UE4SS.lib")
 
-    -- windowscodecs/ole32: WIC decodes the chapter PNGs (src/mapdata.cpp) - no
-    -- vendored image decoder needed. d3d12/dxgi come in publicly from the imgui
-    -- target, but the overlay calls D3D12CreateDevice / CreateDXGIFactory1 itself.
-    -- version: GetFileVersionInfoW, for the startup bug-report header's game-exe and
-    -- UE4SS build numbers.
+    -- windowscodecs/ole32: WIC decodes the chapter PNGs. d3d12/dxgi arrive publicly
+    -- from the imgui target, but the overlay calls D3D12CreateDevice /
+    -- CreateDXGIFactory1 itself. version: GetFileVersionInfoW for the bug-report header.
     add_syslinks("d3d12", "dxgi", "windowscodecs", "ole32", "version")
 
     after_build(function (target)
@@ -218,12 +190,10 @@ target("WuchangMinimap")
 target_end()
 
 ----------------------------------------------------------------------------------------
--- Offline tests. Everything about the markers that does NOT need the engine - the
--- markers/<chapter>.json loader, the category filter mask the config file and the F2
--- checkboxes share, and the wuchang_minimap_found.txt round-trip - is verified here,
--- in a console exe that links only src/markers_db.cpp. No UE4SS, no D3D12, no
--- UE4SS.lib: it runs on the build machine while the game is closed, which is the whole
--- reason markers_db.cpp is kept free of Windows and Unreal.
+-- Offline tests: everything about the markers that does not need the engine - the
+-- markers/<chapter>.json loader, the shared category filter mask, the
+-- wuchang_minimap_found.txt round-trip. No UE4SS, no D3D12, no UE4SS.lib, so it runs
+-- on the build machine with the game closed.
 --
 --     xmake build markers_test && xmake run markers_test markers
 ----------------------------------------------------------------------------------------
@@ -238,8 +208,7 @@ target("markers_test")
     hardened_link()
     add_includedirs("src")
     add_files("src/markers_db.cpp", "src/mapview.cpp", "src/compass.cpp", "tests/markers_test.cpp")
-    -- The one Windows dependency the offline tests do have: src/pngdecode.hpp, so
-    -- test_map_assets() can decode the SHIPPED map PNGs through exactly the code the
-    -- mod uses. WIC is part of Windows - no UE4SS, no D3D12, still no game needed.
+    -- The tests' one Windows dependency: src/pngdecode.hpp, so test_map_assets() can
+    -- decode the shipped map PNGs through exactly the code the mod uses.
     add_syslinks("windowscodecs", "ole32")
 target_end()

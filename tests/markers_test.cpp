@@ -1,31 +1,11 @@
 //
-// markers_test - the offline half of the marker feature's verification.
-//
-// The mod itself can only be exercised by launching the game, which costs a play
-// session; everything that does NOT need the engine is tested here instead, in a
-// console exe that links exactly two translation units (src/markers_db.cpp and this
-// file) and touches neither UE4SS nor Direct3D:
-//
-//   * the markers/<chapter>.json loader - the happy path against the shipped
-//     hand-written sample, plus every way the file can be wrong;
-//   * the category name <-> bitmask mapping the config file and the F2 filter
-//     checkboxes share;
-//   * the wuchang_minimap_found.txt round-trip;
-//   * the stable-id helpers that join the offline DB to the live actors;
-//   * the full map's viewport transform and its exact inverse, the zoom clamp, and the
-//     waypoint file round-trip (src/mapview.cpp - same "pure half" idea).
-//   * the chapter detection's string logic and its tiered vote (src/chapterid.hpp),
-//     and the maps/maps.json parse (src/mapmanifest.hpp) - including the shipped
-//     five-chapter file and the one-chapter file the same schema used to ship;
-//   * the chunked GUObjectArray scan scheduler (src/scan_sched.hpp): slice
-//     planning, round wrap, the clamps and the rate gates. That walk replaced the
-//     per-class FindAllOf sweep that cost 28.30 ms mean / 51.05 ms peak per
-//     game-thread pump in-game, and its arithmetic is the one part of it that can
-//     be proven without the engine.
+// markers_test - the offline half of the marker feature's verification: everything
+// that does not need the engine, in a console exe linking src/markers_db.cpp and this
+// file and touching neither UE4SS nor Direct3D.
 //
 // Run it with the repo's `markers` directory as argv[1] (build.ps1 does) to include
-// the real sample file in the run; without it the embedded fixtures still cover
-// everything else. Exit code 0 = all green.
+// the shipped data files; without it the embedded fixtures still cover everything
+// else. Exit code 0 = all green.
 //
 
 #include <algorithm>
@@ -52,9 +32,9 @@
 #include "mapview.hpp"
 #include "atomicfile.hpp"
 #include "marker_dedupe.hpp"
-// Brings in <Windows.h> - which is why the two #undefs below exist. `near` and `far`
-// are 16-bit-era keyword macros windef.h still defines (WIN32_LEAN_AND_MEAN does not
-// drop them), and test_glyphs() has a local array called `near`.
+// Brings in <Windows.h>, hence the two #undefs: `near` and `far` are keyword macros
+// windef.h defines (WIN32_LEAN_AND_MEAN does not drop them), and test_glyphs() has a
+// local array called `near`.
 #include "pngdecode.hpp"
 #undef near
 #undef far
@@ -173,9 +153,7 @@ namespace
 }
 )JSON";
 
-    // A manifest from an older release: `merchant` is what `note` used to be called.
-    // A stale markers/ folder beside a new DLL must still load, and those markers must
-    // land in `note` rather than in `other` - 76 of them, all reading points.
+    // `merchant` is the legacy name for `note`; such markers must land in `note`.
     const char* const kLegacyCatJson = R"JSON(
 {
   "schema": "wuchang-minimap-markers/1",
@@ -212,8 +190,7 @@ namespace
         CHECK_EQ(db[0].chapter, 1);
         CHECK(db[1].cat == mdb::Cat::Chest);
         CHECK(db[2].cat == mdb::Cat::Pickup);
-        // An unknown category must degrade to `other`, never drop the marker: a marker
-        // we cannot classify is still a marker on the map.
+        // An unknown category degrades to `other`, never drops the marker.
         CHECK(db[3].cat == mdb::Cat::Other);
         // A per-marker chapter overrides the file's.
         CHECK_EQ(db[4].chapter, 4);
@@ -260,9 +237,7 @@ namespace
             CHECK_EQ(r.chapter, 2);
         }
 
-        // The DLC manifest spells its chapter "DLC", not a number. That must load, with
-        // chapter 0 as the numeric bucket and the label carried through - not be
-        // rejected, and not silently claim to be chapter 1.
+        // A "DLC" chapter loads as numeric bucket 0 with the label carried through.
         {
             std::vector<mdb::StaticMarker> out;
             mdb::ParseReport r{};
@@ -275,8 +250,7 @@ namespace
             CHECK_EQ(out[0].chapter, 0);
         }
 
-        // A UTF-8 BOM (which is what PowerShell's Set-Content -Encoding utf8 writes)
-        // must not make the first token unparseable.
+        // A UTF-8 BOM must not make the first token unparseable.
         {
             std::string bom = "\xEF\xBB\xBF";
             bom += kGoodJson;
@@ -317,9 +291,7 @@ namespace
         std::printf("  %zu marker(s) parsed from %s\n", db.size(), path.c_str());
     }
 
-    // The REAL database, once tools/markers has produced it. Skipped when it is not
-    // there yet, so this file is useful before and after that lands - and once it does,
-    // a regression in the extractor's output shows up here instead of in a play session.
+    // The generated database, skipped when tools/markers has not produced it yet.
     void test_real_db(const std::string& markers_dir)
     {
         section("the generated chapter database");
@@ -338,8 +310,7 @@ namespace
         CHECK_EQ(rep.chapter, 1);
         CHECK_STR(rep.chapter_label, "1");
         CHECK_EQ(rep.skipped, 0);
-        // An unknown category name means the extractor and the runtime have drifted
-        // apart - those markers would still draw, but as anonymous grey dots.
+        // An unknown category name means the extractor and the runtime have drifted apart.
         CHECK_EQ(rep.unknown_cat, 0);
         CHECK(rep.added > 100);
 
@@ -350,10 +321,8 @@ namespace
             CHECK(!m.id.empty());
             per_cat[static_cast<int>(m.cat)] += 1;
             ids.push_back(m.id);
-            // A shrine's id must be the game-authored one (`digong01`), not
-            // <level>/<object>: it is the only thing the live BP_RebornFire_C sweep can
-            // join on. Everything else must be <level>/<object>, which is what the live
-            // sweep builds from GetFullName().
+            // A shrine's id is the game-authored one; every other id is <level>/<object>,
+            // which is what the live sweep builds from GetFullName().
             if (m.cat == mdb::Cat::Shrine)
             {
                 CHECK(m.id.find('/') == std::string::npos);
@@ -363,8 +332,7 @@ namespace
                 CHECK(m.id.find('/') != std::string::npos);
             }
         }
-        // Ids are the join key with the live actors, so a duplicate is a real defect:
-        // the second one could never be reached.
+        // Ids are the join key with the live actors; a duplicate is unreachable.
         std::sort(ids.begin(), ids.end());
         CHECK(std::adjacent_find(ids.begin(), ids.end()) == ids.end());
 
@@ -377,10 +345,8 @@ namespace
             }
         }
 
-        // The rest of the generated set, if it is there. The runtime enumerates the
-        // markers directory rather than probing chapter1..8, so every one of these is
-        // loaded in-game and every one of them has to parse - including the DLC
-        // manifest, whose "chapter" is the string "DLC" rather than a number.
+        // The runtime enumerates the markers directory rather than probing chapter1..8,
+        // so every one of these is loaded in-game and has to parse.
         static const char* const kRest[] = {"chapter2", "chapter3", "chapter4", "chapter5",
                                             "chapter6", "chapter7", "chapter8", "chapterdlc"};
         for (const char* name : kRest)
@@ -407,26 +373,8 @@ namespace
         }
     }
 
-    //==================================================================================
-    // Glyph shapes and marker palettes (src/glyphs.hpp)
-    //==================================================================================
-    //
-    // The v0.9.1 review's finding was that boss / elite / enemy were the same triangle
-    // at three scales and that hidden was a shrine with the fill switched off. The fix
-    // is a table, and the property that makes the table right - no two categories share
-    // a shape AND a colour - is exactly the kind of thing a build machine can prove
-    // while the game is closed.
-    //==================================================================================
-    // The minimap zoom ladder (src/mapview.cpp)
-    //==================================================================================
-    //
-    // `zoom_key` (and the wheel over the disc while the panel is open) steps through
-    // `minimap_zoom_presets`. Both halves are pure, so both are proven here: the parse
-    // of a hand-edited list, and the wrap-around step.
-    // Zoom to fit, the full map's Fit button / Home key. The failure this pins is the
-    // classic one: the map is north-up, so world X is spent on the canvas HEIGHT and
-    // world Y on its WIDTH, and crossing the two over is right on a square canvas and
-    // wrong on every other one.
+    // The map is north-up: world X is spent on the canvas HEIGHT and world Y on its
+    // WIDTH.
     void test_fit_zoom()
     {
         section("full map - zoom to fit");
@@ -448,20 +396,18 @@ namespace
             CHECK(zz > 0.0);
             CHECK(sx / zz <= chh + 1e-6); // north-south inside the canvas height
             CHECK(sy / zz <= cw + 1e-6);  // east-west inside its width
-            // ...and the margin means it is strictly inside, not flush against the edge.
+            // The margin keeps it strictly inside, not flush against the edge.
             CHECK(sx / zz < chh || sy / zz < cw);
         }
-        // Degenerate input leaves the caller's zoom alone rather than dividing by zero:
-        // a chapter with no bounds and a collapsed canvas are both reachable (a map
-        // opened before maps.json loaded, a window dragged to nothing).
+        // Degenerate input leaves the caller's zoom alone rather than dividing by zero.
         CHECK(mv::fit_zoom(0.0, 1000.0, 800.0, 600.0) == 0.0);
         CHECK(mv::fit_zoom(1000.0, 0.0, 800.0, 600.0) == 0.0);
         CHECK(mv::fit_zoom(1000.0, 1000.0, 0.0, 600.0) == 0.0);
         CHECK(mv::fit_zoom(1000.0, 1000.0, 800.0, 1.0) == 0.0);
         CHECK(mv::fit_zoom(-5.0, 1000.0, 800.0, 600.0) == 0.0);
 
-        // The real thing: Chapter 1 is roughly 450 x 300 m, and fitting it into a 1080p
-        // window has to land inside the shipped map_zoom_min/max (4 .. 240).
+        // Chapter 1 is roughly 450 x 300 m; a 1080p fit lands inside the shipped
+        // map_zoom_min/max (4 .. 240).
         {
             const double zz = mv::fit_zoom(45000.0, 30000.0, 1700.0, 900.0);
             CHECK(zz > 4.0 && zz < 240.0);
@@ -473,15 +419,12 @@ namespace
     // X-ray label layout (src/label_layout.hpp)
     //==================================================================================
     //
-    // The property that matters is simply: NO TWO PLACED LABELS OVERLAP. Everything
-    // else (the cap, the push limit, the proximity rule) exists so that the caller can
-    // fall back to a bare glyph instead of drawing a pile.
+    // Invariant: no two placed labels overlap.
     void test_label_layout()
     {
         section("x-ray label layout");
 
-        // Two rectangles that merely touch are not a clash: pushing a whole column one
-        // pixel further down for that would be pure churn.
+        // Rectangles that merely touch are not a clash.
         const lbl::Rect a{0.0f, 0.0f, 10.0f, 10.0f};
         const lbl::Rect touching{10.0f, 0.0f, 20.0f, 10.0f};
         const lbl::Rect over{9.0f, 9.0f, 20.0f, 20.0f};
@@ -492,7 +435,6 @@ namespace
         lbl::Layout l{};
         float y = 0.0f;
 
-        // The first label lands exactly where it was asked to.
         CHECK(l.place(100.0f, 200.0f, 80.0f, 14.0f, 200.0f, y));
         CHECK(y == 200.0f);
         CHECK_EQ(l.rect_count, 1);
@@ -501,25 +443,23 @@ namespace
         CHECK(l.place(100.0f, 200.0f, 80.0f, 14.0f, 200.0f, y));
         CHECK(y > 214.0f);
         const float second = y;
-        // ...and a third below the second, i.e. the column keeps growing downwards.
+        // A third goes below the second: the column grows downwards.
         CHECK(l.place(100.0f, 200.0f, 80.0f, 14.0f, 200.0f, y));
         CHECK(y > second);
 
         // A label whose x does not overlap is NOT pushed: the test is a rectangle
-        // intersection, not "is there anything at this height".
+        // intersection.
         CHECK(l.place(400.0f, 200.0f, 80.0f, 14.0f, 200.0f, y));
         CHECK(y == 200.0f);
 
-        // THE PROPERTY: over a nasty pile of anchors, nothing placed overlaps anything
-        // else placed.
+        // Over a pile of anchors, nothing placed overlaps anything else placed.
         {
             lbl::Layout p{};
             int placed = 0;
             for (int i = 0; i < 30; ++i)
             {
                 float at = 0.0f;
-                // Every anchor within a few pixels of the same spot - the room-full-of-
-                // pickups case that motivated the whole thing.
+                // Every anchor within a few pixels of the same spot.
                 const float ax = 500.0f + static_cast<float>(i % 3);
                 const float ay = 300.0f + static_cast<float>(i % 5);
                 if (p.place(ax, ay, 120.0f, 15.0f, 400.0f, at))
@@ -538,9 +478,8 @@ namespace
             }
         }
 
-        // The push limit: a label that would have to travel further than max_push is
-        // refused outright, and refusing records nothing (so the next one is not
-        // blocked by a rectangle that was never drawn).
+        // A label that would travel further than max_push is refused, and refusing
+        // records nothing.
         {
             lbl::Layout p{};
             float at = 0.0f;
@@ -551,8 +490,7 @@ namespace
             CHECK(p.place(0.0f, 0.0f, 50.0f, 20.0f, 50.0f, at)); // allowed 50 - fits
         }
 
-        // The cap. Once kMaxRects labels are placed the answer is "no", for ever - which
-        // is what makes the caller draw the glyph alone in a room with sixty items.
+        // Once kMaxRects labels are placed the answer is "no", for ever.
         {
             lbl::Layout p{};
             float at = 0.0f;
@@ -564,8 +502,7 @@ namespace
             CHECK(!p.place(2000.0f, 2000.0f, 40.0f, 15.0f, 100.0f, at));
         }
 
-        // Degenerate sizes are refused rather than recorded as zero-area rectangles
-        // that nothing would ever intersect.
+        // Degenerate sizes are refused, not recorded as zero-area rectangles.
         {
             lbl::Layout p{};
             float at = 0.0f;
@@ -576,8 +513,8 @@ namespace
 
         // ---- the proximity rule -------------------------------------------------------
         //
-        // "Never a label for a glyph within r * 2 of one that already has one." An empty
-        // layout says no to everything, which is what lets the caller call it first.
+        // Never a label for a glyph within r * 2 of one that already has one; an empty
+        // layout says no to everything.
         {
             lbl::Layout p{};
             CHECK(!p.near_labelled(100.0f, 100.0f, 20.0f));
@@ -587,7 +524,7 @@ namespace
             CHECK(!p.near_labelled(130.0f, 100.0f, 20.0f));
             CHECK(!p.near_labelled(100.0f, 100.0f, 0.0f)); // a zero radius disables it
             CHECK_EQ(p.glyph_count, 1);
-            // reset() really does clear both lists - it runs once per frame.
+            // reset() clears both lists; it runs once per frame.
             float at = 0.0f;
             CHECK(p.place(0.0f, 0.0f, 10.0f, 10.0f, 10.0f, at));
             p.reset();
@@ -613,16 +550,14 @@ namespace
         CHECK(p[0] == 13.0f && p[1] == 26.0f && p[2] == 52.0f);
         CHECK(rejected.empty());
 
-        // Out of range and unparseable tokens are named, not silently dropped - and
-        // they do NOT consume a slot (a zoom ladder is a set, unlike a rarity palette,
-        // where a bad entry has to keep its tier).
+        // Out-of-range and unparseable tokens are named, not silently dropped, and do
+        // NOT consume a slot.
         rejected.clear();
         CHECK_EQ(mv::parse_zoom_presets("1, 26, 900, wide", p, &rejected), 1);
         CHECK(p[0] == 26.0f);
         CHECK(rejected == "1, 900, wide");
 
-        // Nothing usable: the caller keeps whatever it had, which is what the loader
-        // relies on to leave the shipped ladder in place.
+        // Nothing usable: the caller keeps whatever it had.
         float keep[mv::kMaxZoomPresets] = {13.0f, 26.0f, 52.0f};
         CHECK_EQ(mv::parse_zoom_presets("nonsense", keep, nullptr), 0);
         CHECK(keep[0] == 13.0f && keep[1] == 26.0f && keep[2] == 52.0f);
@@ -636,15 +571,14 @@ namespace
         CHECK(mv::next_zoom_preset(ladder, 3, 13.0f) == 26.0f);
         CHECK(mv::next_zoom_preset(ladder, 3, 26.0f) == 52.0f);
         CHECK(mv::next_zoom_preset(ladder, 3, 52.0f) == 13.0f); // wraps
-        // A zoom that is not on the ladder at all (hand-edited minimap_zoom) still
-        // lands on the next rung above it, and one above the top wraps.
+        // A zoom that is not on the ladder lands on the next rung above; above the top
+        // it wraps.
         CHECK(mv::next_zoom_preset(ladder, 3, 20.0f) == 26.0f);
         CHECK(mv::next_zoom_preset(ladder, 3, 400.0f) == 13.0f);
         CHECK(mv::step_zoom_preset(ladder, 3, 26.0f, -1) == 13.0f);
         CHECK(mv::step_zoom_preset(ladder, 3, 13.0f, -1) == 52.0f); // wraps the other way
         CHECK(mv::step_zoom_preset(ladder, 3, 30.0f, -1) == 26.0f);
-        // An empty ladder, a null ladder and a zero direction all leave the zoom alone -
-        // no caller has to special-case them.
+        // An empty ladder, a null ladder and a zero direction leave the zoom alone.
         CHECK(mv::step_zoom_preset(ladder, 0, 26.0f, 1) == 26.0f);
         CHECK(mv::step_zoom_preset(nullptr, 3, 26.0f, 1) == 26.0f);
         CHECK(mv::step_zoom_preset(ladder, 3, 26.0f, 0) == 26.0f);
@@ -661,9 +595,8 @@ namespace
     {
         section("glyph shapes and marker palettes");
 
-        // Every category has a shape, and in this mod every category has its OWN shape:
-        // shape is the half of a marker's identity that survives being dimmed, drawn at
-        // 6 px, or recoloured by a colour-blind palette.
+        // Every category has its OWN shape: shape is the half of a marker's identity
+        // that survives dimming, 6 px and a recoloured palette.
         int seen[gly::kShapeCount] = {};
         for (int i = 0; i < mdb::kCatCount; ++i)
         {
@@ -677,54 +610,45 @@ namespace
             CHECK(seen[i] == 1); // every shape used exactly once
         }
 
-        // An out-of-range category byte (a corrupt DrawMarker, a future category from a
-        // newer marker file) must never index off the end of the table.
+        // An out-of-range category byte must never index off the end of the table.
         CHECK(gly::shape_of(static_cast<mdb::Cat>(mdb::kCatCount)) == gly::Shape::SmallSquare);
         CHECK(gly::shape_of(static_cast<mdb::Cat>(200)) == gly::Shape::SmallSquare);
 
         const gly::Palette palettes[] = {gly::Palette::Default, gly::Palette::Colorblind};
         for (const gly::Palette pal : palettes)
         {
-            // THE PROPERTY. Two categories may share a hue (the ladder and the lift do)
-            // as long as their shapes differ, and may share a shape as long as their
-            // hues differ - but never both.
+            // Two categories may share a hue or a shape, never both.
             CHECK(gly::palette_is_separable(pal));
 
-            // AND THE STRONGER ONE (review B.7). Separability is satisfied by
-            // construction while all fourteen shapes are distinct, so on its own it
-            // could not catch the colour-blind palette drawing Boss and Enemy in the
-            // same vermillion - which it did in 1.0.0, with a comment above the table
-            // claiming the opposite. The pairs a player compares in one glance are
-            // listed as data in glyphs.hpp and must differ by HUE.
+            // Separability holds by construction while all shapes are distinct, so the
+            // pairs a player compares in one glance are listed as data in glyphs.hpp and
+            // must differ by HUE.
             CHECK(gly::palette_competing_hues_ok(pal));
 
             for (int i = 0; i < mdb::kCatCount; ++i)
             {
                 const mdb::Rgb c = gly::marker_rgb(static_cast<mdb::Cat>(i), pal);
-                // Nothing may be drawn in near-black: the minimap's backdrop is
-                // (6, 9, 13) and the full map's canvas is darker still.
+                // Nothing is drawn in near-black: the minimap's backdrop is (6, 9, 13)
+                // and the full map's canvas is darker still.
                 CHECK(static_cast<int>(c.r) + static_cast<int>(c.g) + static_cast<int>(c.b) > 150);
             }
             CHECK(gly::marker_rgb(static_cast<mdb::Cat>(200), pal) ==
                   gly::marker_rgb(mdb::Cat::Other, pal));
         }
 
-        // The two categories that deliberately share a hue, and the two that used to be
-        // indistinguishable and no longer are.
+        // The two categories that deliberately share a hue, and the pairs that differ.
         CHECK(gly::marker_rgb(mdb::Cat::Ladder, gly::Palette::Default) ==
               gly::marker_rgb(mdb::Cat::Lift, gly::Palette::Default));
         CHECK(gly::shape_of(mdb::Cat::Ladder) != gly::shape_of(mdb::Cat::Lift));
         CHECK(gly::shape_of(mdb::Cat::Boss) != gly::shape_of(mdb::Cat::Elite));
         CHECK(gly::shape_of(mdb::Cat::Elite) != gly::shape_of(mdb::Cat::Enemy));
         CHECK(gly::shape_of(mdb::Cat::Hidden) != gly::shape_of(mdb::Cat::Shrine));
-        // Boss vs Enemy in the colour-blind set: the pair review B.7 was about.
         CHECK(gly::marker_rgb(mdb::Cat::Boss, gly::Palette::Colorblind) !=
               gly::marker_rgb(mdb::Cat::Enemy, gly::Palette::Colorblind));
 
         // ---- the note category ----------------------------------------------------
-        // A note gets its OWN hue in both palettes, distinct from the categories that
-        // sit next to it in the legend (npc above it, door below it) and from the ones
-        // its folded page could be mistaken for at 6 px (chest, door, pickup).
+        // A note has its OWN hue and shape in both palettes, distinct from its legend
+        // neighbours and from the categories its folded page resembles at 6 px.
         for (const gly::Palette pal : palettes)
         {
             const mdb::Cat near[] = {mdb::Cat::Npc, mdb::Cat::Door, mdb::Cat::Chest,
@@ -739,10 +663,9 @@ namespace
 
         // ---- palette and theme names -------------------------------------------------
         //
-        // Both values come out of a hand-edited text file, so the parsers have to be
-        // forgiving about case, spaces and the British spelling, and must leave the
-        // caller's value alone when they do not recognise one (the loader then logs and
-        // keeps whatever was in force).
+        // Both values come out of a hand-edited text file: the parsers are forgiving
+        // about case, spaces and the British spelling, and leave the caller's value
+        // alone when they do not recognise one.
         gly::Palette pal = gly::Palette::Default;
         CHECK(gly::palette_from_name("colorblind", pal) && pal == gly::Palette::Colorblind);
         CHECK(gly::palette_from_name("  Colour-Blind ", pal) && pal == gly::Palette::Colorblind);
@@ -761,7 +684,7 @@ namespace
         CHECK(!gly::theme_from_name("bronze", th));
         CHECK(th == gly::Theme::Ink);
         CHECK(std::strcmp(gly::theme_name(gly::Theme::Ink), "ink") == 0);
-        // Both names round-trip, which is what save_config_file() writes out.
+        // Both names round-trip; save_config_file() writes them out.
         for (const gly::Theme t : {gly::Theme::Neutral, gly::Theme::Ink})
         {
             gly::Theme back = gly::Theme::Neutral;
@@ -775,8 +698,7 @@ namespace
 
         // ---- themes -------------------------------------------------------------------
         //
-        // `neutral` must be EXACTLY what 0.9.2 shipped, or every existing config file
-        // silently changes appearance on upgrade.
+        // `neutral` is pinned exactly: a change alters the look of every existing config.
         const gly::ThemeColors neutral = gly::theme_colors(gly::Theme::Neutral);
         CHECK(neutral.frame == (mdb::Rgb{168, 176, 186}));
         CHECK(neutral.frame_alpha == 0.85f);
@@ -800,9 +722,8 @@ namespace
 
         // ---- the item-quality tiers ---------------------------------------------------
         //
-        // The default set is the GAME's own pickup-beam palette and must not be
-        // rewritten here; the colour-blind set has to be three genuinely different
-        // colours, which the pastel default barely is.
+        // The default set is the game's own pickup-beam palette; the colour-blind set is
+        // three genuinely different colours.
         CHECK(gly::rarity_colors(gly::Palette::Default) == mdb::kDefaultRarityColors);
         const mdb::Rgb* cb = gly::rarity_colors(gly::Palette::Colorblind);
         for (int i = 0; i < mdb::kRarityCount; ++i)
@@ -853,8 +774,7 @@ namespace
         mdb::Cat unused = mdb::Cat::Other;
         CHECK(!mdb::cat_from_name("nonsense", unused));
         CHECK(!mdb::cat_from_name("", unused));
-        // Case and surrounding whitespace must not matter: the value comes out of a
-        // hand-edited text file.
+        // Case and surrounding whitespace must not matter.
         CHECK(mdb::cat_from_name("  SHRINE ", unused) && unused == mdb::Cat::Shrine);
 
         CHECK_EQ(mdb::parse_category_mask("all", 0u), mdb::kAllCats);
@@ -871,17 +791,15 @@ namespace
                  mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Chest));
         CHECK_STR(rejected, "wombat");
 
-        // A value that names nothing usable keeps the previous setting rather than
-        // silently turning every marker off.
+        // A value that names nothing usable keeps the previous setting.
         CHECK_EQ(mdb::parse_category_mask("", mdb::kAllCats), mdb::kAllCats);
         CHECK_EQ(mdb::parse_category_mask("wombat,badger", mdb::kAllCats, &rejected), mdb::kAllCats);
         CHECK_STR(rejected, "wombat,badger");
 
         // ---- the renamed category ----------------------------------------------
-        // `merchant` was the name of what is now `note` up to 0.9.4. An existing
-        // config file must keep working AND the caller must be told, so the value
-        // lands in `legacy` rather than in `rejected`, and the bit set is Note's.
-        CHECK(!mdb::cat_from_name("merchant", unused)); // no longer a current name
+        // `merchant` is the legacy name for `note`: it sets Note's bit and is reported
+        // in `legacy`, not in `rejected`.
+        CHECK(!mdb::cat_from_name("merchant", unused)); // not a current name
         mdb::Cat legacy_cat = mdb::Cat::Other;
         CHECK(mdb::cat_from_legacy_name("merchant", legacy_cat));
         CHECK(legacy_cat == mdb::Cat::Note);
@@ -905,7 +823,7 @@ namespace
                  mdb::cat_bit(mdb::Cat::Note));
         CHECK_STR(legacy, "merchant");
         CHECK_STR(rejected, "wombat");
-        // And what Save writes back is the CURRENT name, so the warning clears itself.
+        // Save writes back the CURRENT name, so the warning clears itself.
         CHECK_STR(mdb::format_category_mask(mdb::cat_bit(mdb::Cat::Note)), "note");
 
         CHECK_STR(mdb::format_category_mask(mdb::kAllCats), "all");
@@ -913,8 +831,8 @@ namespace
         CHECK_STR(mdb::format_category_mask(mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Chest)),
                   "shrine,chest");
 
-        // format -> parse -> format is the config file's save/load path; it must be
-        // exact for every mask, including the shipped default.
+        // format -> parse -> format is the config file's save/load path: exact for every
+        // mask, the shipped default included.
         for (std::uint32_t mask = 0; mask <= mdb::kAllCats; mask += 37u)
         {
             const std::string text = mdb::format_category_mask(mask);
@@ -928,9 +846,7 @@ namespace
     {
         section("manifest schema gate (major 1 only)");
 
-        // A prefix compare accepted "…/10" - a future major with a layout this reader
-        // has never seen - and parsed it as if it were /1. Only major 1 may pass, with
-        // or without a minor.
+        // Only major 1 passes, with or without a minor.
         const struct
         {
             const char* schema;
@@ -999,8 +915,7 @@ namespace
         CHECK_STR(markers[2].id, "c");
         CHECK(markers[0].x == 1.0 && markers[1].x == 2.0 && markers[2].x == 4.0);
 
-        // by_id indexes the SHRUNK vector - that is the map note_found() resolves
-        // through, and an index into the pre-dedupe vector would flag the wrong marker.
+        // by_id indexes the SHRUNK vector: that is the map note_found() resolves through.
         CHECK_EQ(by_id.size(), 3);
         for (std::size_t i = 0; i < markers.size(); ++i)
         {
@@ -1014,8 +929,7 @@ namespace
             }
         }
 
-        // Every drop is reported in ORIGINAL indices, so the loader can name the file
-        // the loser came from and the file whose copy survived.
+        // Every drop is reported in ORIGINAL indices.
         CHECK_EQ(drops.size(), 3);
         CHECK_EQ(drops[0].dropped, 2);
         CHECK_EQ(drops[0].kept, 0);
@@ -1058,9 +972,8 @@ namespace
         CHECK(mmfile::tmp_path(path) == path + L".tmp");
         CHECK(mmfile::bak_path(path) == path + L".bak");
 
-        // A read of a file that is not there is NotFound, not Failed - the found
-        // tracker's whole "do not write over a file I could not read" rule hangs on
-        // that distinction.
+        // A missing file is NotFound, not Failed: the found tracker's "do not write over
+        // a file I could not read" rule hangs on that distinction.
         std::string text;
         CHECK(mmfile::read_whole_file(path, text, 1 << 20).status == mmfile::ReadStatus::NotFound);
 
@@ -1090,8 +1003,7 @@ namespace
         CHECK(info.status == mmfile::ReadStatus::Ok);
         CHECK_STR(text, "first generation\n");
 
-        // A shorter write must not leave a tail of the longer one behind - CREATE_ALWAYS
-        // on the temp file, and the rename replaces rather than merges.
+        // A shorter write leaves no tail of the longer one behind.
         info = mmfile::read_whole_file(path, text, 1 << 20);
         CHECK_STR(text, "third\n");
 
@@ -1168,10 +1080,8 @@ namespace
     // Level-name interning (mdb::lower_ascii / mdb::intern_levels)
     //======================================================================================
     //
-    // publish_round() indexes its per-round level state by these ids instead of hashing
-    // a lower-cased copy of every marker's level name every round. The join is
-    // case-insensitive because the marker DB and UObject::GetFullName() need not agree
-    // on case, so getting the folding wrong would silently disable the absence rule.
+    // The join is case-insensitive: the marker DB and UObject::GetFullName() need not
+    // agree on case.
 
     void test_intern_levels()
     {
@@ -1202,8 +1112,7 @@ namespace
         CHECK(marker_level[3] == 1);
         CHECK(marker_level[4] == 0);
 
-        // Every id is a valid index into `levels` or -1, and it names the marker's own
-        // level - the invariant publish_round() indexes on.
+        // Every id is a valid index into `levels` or -1, and names the marker's own level.
         for (std::size_t i = 0; i < markers.size(); ++i)
         {
             const int id = marker_level[i];
@@ -1228,10 +1137,6 @@ namespace
     //======================================================================================
     // The per-activity performance counters (src/perf.hpp)
     //======================================================================================
-    //
-    // The F2 debug table is only as useful as this arithmetic: a wrong window reset
-    // would show a rate of zero for something running at 1 kHz, and the failure mode of
-    // a diagnostic is that nobody notices it is lying.
 
     void test_perf()
     {
@@ -1245,14 +1150,12 @@ namespace
         CHECK(a == 0);
         CHECK(b == 1);
         CHECK(t.count == 2);
-        // The same name pointer registers once, so a call site's lazy "if (id < 0)"
-        // cannot duplicate a row.
+        // The same name registers once.
         CHECK(perf::register_counter(t, "publish_round", perf::Thread::Game) == 0);
         CHECK(t.count == 2);
         CHECK(perf::register_counter(t, nullptr, perf::Thread::Loop) == -1);
 
-        // Recording into an id that was never handed out must be a no-op, not a write
-        // past the array.
+        // An id that was never handed out is a no-op, not a write past the array.
         perf::record(t, -1, 5.0, 1000);
         perf::record(t, 99, 5.0, 1000);
         CHECK(t.c[0].calls == 0);
@@ -1275,12 +1178,12 @@ namespace
         CHECK(t.c[a].calls == 4);
         CHECK_NEAR(t.c[a].avg_ms, 5.0, 1e-9);
         CHECK_NEAR(t.c[a].rate_hz, 2.0, 1e-9); // 4 calls in 2000 ms
-        // ...and the window restarts empty, so the next average is not diluted.
+        // The window restarts empty.
         CHECK(t.c[a].win_calls == 0);
         CHECK_NEAR(t.c[a].win_total_ms, 0.0, 1e-12);
 
-        // A clock that goes backwards (it can, across a suspend) must not wedge the
-        // window or produce a negative rate.
+        // A clock that goes backwards (a suspend) must not wedge the window or produce a
+        // negative rate.
         perf::record(t, a, 1.0, 10);
         CHECK(t.c[a].calls == 5);
         CHECK(t.c[a].rate_hz >= 0.0);
@@ -1295,18 +1198,15 @@ namespace
         CHECK(!perf::idle(q.c[c], 5000 + perf::kWindowMs * 2));
         CHECK(perf::idle(q.c[c], 5000 + perf::kWindowMs * 4));
 
-        // Peaks are resettable - a hitch during a loading screen must not hide every
-        // later regression behind it - and nothing else is disturbed.
+        // Peaks are resettable, and nothing else is disturbed.
         CHECK_NEAR(q.c[c].peak_ms, 30.0, 1e-12);
         perf::reset_peaks(q);
         CHECK_NEAR(q.c[c].peak_ms, 0.0, 1e-12);
         CHECK(q.c[c].calls == 1);
         CHECK_NEAR(q.c[c].last_ms, 30.0, 1e-12);
 
-        // A STALLED SAMPLE (a loading screen, a swapchain resize, a one-off blocking
-        // job) still shows in `peak_ms` and `last_ms` - nothing is hidden - but it must
-        // not set `peak_calm_ms`, which is the number the F2 table shows, or a single
-        // 358 ms wall-clock wait hides every later regression behind it.
+        // A stalled sample shows in `peak_ms` and `last_ms` but must not set
+        // `peak_calm_ms`, which is the number the F2 table shows.
         perf::Table r{};
         const int d = perf::register_counter(r, "render frame", perf::Thread::Render);
         perf::record(r, d, 1.5, 1000);              // calm by default
@@ -1324,8 +1224,7 @@ namespace
         CHECK_NEAR(r.c[d].peak_calm_ms, 2.5, 1e-12);
         perf::record(r, d, 0.5, 4000);              // closes the window
         CHECK_NEAR(r.c[d].avg_ms, (1.5 + 358.0 + 2.5 + 0.5) / 4.0, 1e-9);
-        // reset_peaks clears all three peaks and the stall count together, or the
-        // button would leave a stale "12 stalls" next to a fresh peak.
+        // reset_peaks clears all three peaks and the stall count together.
         perf::reset_peaks(r);
         CHECK_NEAR(r.c[d].peak_ms, 0.0, 1e-12);
         CHECK_NEAR(r.c[d].peak_calm_ms, 0.0, 1e-12);
@@ -1334,9 +1233,7 @@ namespace
 
         // The table is a fixed array: registering past it is refused, never written.
         perf::Table full{};
-        // Distinct NAMES, because the name check compares content, not the pointer: the
-        // same literal in two translation units is two addresses and used to make two
-        // rows for one activity.
+        // Distinct NAMES: the name check compares content, not the pointer.
         static char storage[perf::kMaxCounters + 4][4] = {};
         for (int i = 0; i < perf::kMaxCounters + 4; ++i)
         {
@@ -1348,8 +1245,8 @@ namespace
         {
             CHECK(perf::register_counter(full, storage[i], perf::Thread::Loop) == i);
         }
-        // A second buffer holding the same TEXT as row 0 is row 0, not a new row - even
-        // with the table full, because the name lookup runs before the cap.
+        // The same TEXT is row 0, not a new row, even with the table full: the name
+        // lookup runs before the cap.
         static char alias[4] = {'c', '0', '0', 0};
         CHECK(perf::register_counter(full, alias, perf::Thread::Loop) == 0);
         CHECK(full.count == perf::kMaxCounters);
@@ -1381,8 +1278,7 @@ namespace
         CHECK_STR(mdb::stable_id("", "BP_ItemRedBox_C_0"), "BP_ItemRedBox_C_0");
         CHECK_STR(mdb::stable_id("Chapter1_DGong_logic", ""), "");
 
-        // The ids the loader read out of the sample manifest must be exactly what the
-        // runtime would build for the same actors - that join is the whole point.
+        // The loader's ids must equal what the runtime builds for the same actors.
         CHECK_STR(mdb::stable_id(mdb::level_from_full_name(
                                      "BP_ItemRedBox_C /Game/Maps/Chapter1/Chapter1_DGong_logic."
                                      "Chapter1_DGong_logic:PersistentLevel.BP_ItemRedBox_C_0"),
@@ -1419,10 +1315,8 @@ namespace
         CHECK_NEAR(sx, 550.0, 1e-3);
         CHECK_NEAR(sy, 350.0, 1e-3);
 
-        // NORTH IS UP and EAST IS RIGHT - the same convention as build_map.py and the
-        // minimap at yaw 0. Getting this backwards is the one bug that would put every
-        // marker in the wrong quadrant, so it is asserted directly rather than only
-        // through the round-trip below.
+        // NORTH IS UP and EAST IS RIGHT, the same convention as build_map.py and the
+        // minimap at yaw 0.
         mv::world_to_screen(v, r, v.cx + 400.0, v.cy, sx, sy); // 400 uu north
         CHECK_NEAR(sx, 550.0, 1e-3);
         CHECK_NEAR(sy, 350.0 - 10.0, 1e-3); // 400 / 40 = 10 px UP
@@ -1430,8 +1324,7 @@ namespace
         CHECK_NEAR(sx, 550.0 + 20.0, 1e-3); // 20 px RIGHT
         CHECK_NEAR(sy, 350.0, 1e-3);
 
-        // The inverse is exact over the whole viewport, at several zooms. This is what
-        // makes a click on the map land on the world position it looks like.
+        // The inverse is exact over the whole viewport, at several zooms.
         const double zooms[] = {6.0, 26.0, 55.0, 240.0, 900.0};
         for (const double z : zooms)
         {
@@ -1448,8 +1341,8 @@ namespace
                     float bx = 0.0f;
                     float by = 0.0f;
                     mv::world_to_screen(v, r, wx, wy, bx, by);
-                    // Everything is done in doubles and only the result is narrowed, so
-                    // a 1/1000 px tolerance is generous even at 900 uu/px.
+                    // Doubles throughout with only the result narrowed, so 1/1000 px is
+                    // generous even at 900 uu/px.
                     CHECK_NEAR(bx, px, 0.001);
                     CHECK_NEAR(by, py, 0.001);
                 }
@@ -1466,8 +1359,7 @@ namespace
         CHECK_NEAR(mv::clamp_zoom(50.0, 10.0, 100.0), 50.0, 1e-9);
         CHECK_NEAR(mv::clamp_zoom(5.0, 10.0, 100.0), 10.0, 1e-9);
         CHECK_NEAR(mv::clamp_zoom(500.0, 10.0, 100.0), 100.0, 1e-9);
-        // The limits are accepted in either order, and nonsense falls back to the low
-        // limit rather than to a division by zero.
+        // The limits are accepted in either order; nonsense falls back to the low limit.
         CHECK_NEAR(mv::clamp_zoom(50.0, 100.0, 10.0), 50.0, 1e-9);
         CHECK_NEAR(mv::clamp_zoom(0.0, 10.0, 100.0), 10.0, 1e-9);
         CHECK_NEAR(mv::clamp_zoom(-3.0, 10.0, 100.0), 10.0, 1e-9);
@@ -1496,8 +1388,7 @@ namespace
         mv::Waypoint back{};
         CHECK(mv::waypoint_parse(text, back));
         CHECK(back.set);
-        // The round-trip is EXACT: the file is written at 17 significant digits, so a
-        // waypoint survives a save/load with no drift at all.
+        // EXACT round trip: the file is written at 17 significant digits.
         CHECK(back.x == wp.x);
         CHECK(back.y == wp.y);
         CHECK(back.z == wp.z);
@@ -1518,8 +1409,8 @@ namespace
         CHECK_NEAR(hand.y, -200.0, 1e-9);
         CHECK_NEAR(hand.z, 0.0, 1e-9);
 
-        // Anything without a usable x AND y is rejected, and the caller's value is left
-        // untouched - a corrupt file must never move an existing waypoint.
+        // Without a usable x AND y the parse is rejected and the caller's value is left
+        // untouched.
         mv::Waypoint keep{};
         keep.set = true;
         keep.x = 7.0;
@@ -1569,8 +1460,7 @@ namespace
             }
             CHECK(wrapped);
             CHECK(expected_next == kTotal);
-            // ceil(25000 / 8192) == 4, so a 1 s round at 8 ms per slice has plenty of
-            // headroom - which is the whole point of the redesign.
+            // ceil(25000 / 8192) == 4.
             CHECK(slices == 4);
             CHECK(c.round == 1);
             CHECK(c.index == 0);
@@ -1588,9 +1478,8 @@ namespace
         }
 
         // --- the array shrinking under the cursor does not run off the end ---------
-        // GUObjectArray grows as levels stream in and can drop after a GC, so `total`
-        // is re-read every slice. A cursor left beyond the new end restarts at 0
-        // instead of planning an out-of-range slice.
+        // GUObjectArray grows as levels stream in and can drop after a GC, so `total` is
+        // re-read every slice; a cursor beyond the new end restarts at 0.
         {
             scan::Cursor c{};
             c.index = 40000;
@@ -1600,7 +1489,6 @@ namespace
         }
 
         // --- an empty array still ends its round -----------------------------------
-        // Otherwise nothing would ever be published again.
         {
             scan::Cursor c{};
             const scan::Slice s = scan::next_slice(c, 0, 8192);
@@ -1627,14 +1515,12 @@ namespace
         }
 
         // --- rate gates ------------------------------------------------------------
-        // A zero "last" means never-ran and is always due; that is what makes the very
-        // first pump after a level load take a slice immediately.
+        // A zero "last" means never-ran and is always due.
         CHECK(scan::elapsed(1000, 0, 1000000));
         CHECK(!scan::slice_due(5000, 1000, 8));   // 4 ms into an 8 ms period
         CHECK(scan::slice_due(9001, 1000, 8));    // 8.001 ms
         CHECK(scan::slice_due(1000000, 0, 8));
-        // A QPC that appears to go backwards (it can across a suspend) must not wedge
-        // the scan forever.
+        // A QPC that appears to go backwards must not wedge the scan forever.
         CHECK(scan::slice_due(500, 1000, 8));
 
         // rounds_per_sec 1 => a finished round waits a second before the next starts.
@@ -1663,10 +1549,8 @@ namespace
     // The adaptive menu-widget discovery sweep (scan::SweepSched)
     //======================================================================================
     //
-    // The FindAllOf("UserWidget") sweep costs 28-51 ms of whole-object-array walk and it
-    // used to run every 250 ms. It now only has to DISCOVER a menu root nobody has ever
-    // seen: gamestate.cpp re-tests every root it has ever confirmed on each 10 Hz pump.
-    // This schedule is the part of that which can be proven with the game closed.
+    // The sweep only has to DISCOVER a menu root nobody has ever seen: gamestate.cpp
+    // re-tests every root it has confirmed on each 10 Hz pump.
 
     void test_sweep_sched()
     {
@@ -1716,14 +1600,9 @@ namespace
         CHECK(q.backoff == 0);
         CHECK(scan::sweep_period_ms(q, 12500) == 250);
 
-        // THE LATENCY GUARANTEE, as revised after the 2026-09-03 in-game measurement.
-        // While nothing at all is on the watchlist there is no cheap per-pump test that
-        // could notice a menu - but an empty watchlist is the STEADY STATE of ordinary
-        // gameplay (the run-2 log reads `sweep every 250 ms (watchlist 0)` on every state
-        // line of the whole session), so pinning the cadence to fast_ms there meant the
-        // discovery pass never backed off once. It now backs off like any other quiet
-        // run and is merely CAPPED at unknown_ms, which is what bounds the first menu
-        // open of a session.
+        // An empty watchlist is the steady state of ordinary gameplay, so the discovery
+        // pass backs off like any other quiet run and is merely CAPPED at unknown_ms,
+        // which bounds the first menu open of a session.
         scan::SweepSched e{};
         scan::sweep_arm(e, 0);
         for (std::uint64_t t = 0; t < 60000; t += 250)
@@ -1736,8 +1615,8 @@ namespace
         CHECK(scan::sweep_period_ms(e, 60000) == 1000); // settled at the cap
         CHECK(e.nothing_known);
 
-        // ... and a sweep that DOES find something on the watchlist is free to back off
-        // all the way to slow_ms again, which is the cheap steady state.
+        // A sweep that DOES find something on the watchlist backs off all the way to
+        // slow_ms, the cheap steady state.
         scan::SweepSched k{};
         scan::sweep_arm(k, 0);
         for (std::uint64_t t = 3000; t < 60000; t += 2000)
@@ -1760,8 +1639,8 @@ namespace
             CHECK(scan::sweep_period_ms(u, t) >= 1500);
         }
 
-        // A re-arm in the middle of a backed-off run puts it straight back to fast and
-        // makes a sweep due on the spot (this is what a menu flip / teleport does).
+        // A re-arm mid-backoff goes straight back to fast and makes a sweep due on the
+        // spot; a menu flip / teleport does this.
         scan::SweepSched r2{};
         scan::sweep_arm(r2, 0);
         scan::sweep_done(r2, 9000, false, false);
@@ -1783,12 +1662,9 @@ namespace
         CHECK(b.backoff == scan::kSweepMaxBackoff);
         CHECK(scan::sweep_period_ms(b, 100000) == 250ull << scan::kSweepMaxBackoff);
 
-        // THE SLICED WIDGET WALK. The discovery pass is one full round of the shared
-        // GUObjectArray cursor now, not one FindAllOf call, so the thing worth pinning is
-        // that a round of a realistically sized array finishes inside the fastest cadence
-        // the schedule can ask for - otherwise rounds would queue up behind each other.
-        // 360 k slots is what the run-2 log implies (44 pumps x 8192 for the marker
-        // scan's round).
+        // The discovery pass is one full round of the shared GUObjectArray cursor, so a
+        // round of a realistically sized array (360 k slots) has to finish inside the
+        // quiet cadences or rounds queue up behind each other.
         CHECK(scan::kWidgetChunkDefault == scan::kChunkDefault);
         CHECK(scan::kWidgetSlicePeriodMs >= scan::kPeriodMinMs);
         {
@@ -1808,27 +1684,22 @@ namespace
             CHECK(slices == 44); // ceil(360000 / 8192)
             // Wall time of one round at the slice spacing, in ms.
             CHECK(slices * scan::kWidgetSlicePeriodMs == 352);
-            // ... which is inside the quiet cadences (unknown_ms / slow_ms), so a round
-            // always finishes and commits before the next one is due. It is LONGER than
-            // fast_ms on purpose: while armed the walk simply runs continuously, which is
-            // exactly the two seconds after a menu flip where discovery latency matters.
+            // Inside the quiet cadences (unknown_ms / slow_ms), so a round finishes and
+            // commits before the next is due. LONGER than fast_ms on purpose: while armed
+            // the walk runs continuously.
             const scan::SweepSched def{};
             CHECK(static_cast<std::uint64_t>(slices * scan::kWidgetSlicePeriodMs) < def.unknown_ms);
             CHECK(static_cast<std::uint64_t>(slices * scan::kWidgetSlicePeriodMs) > def.fast_ms);
         }
-        // THE CANDIDATE CAP, AND WHY IT IS NOT 64 ANY MORE. It applies to every widget
-        // whose Visibility BYTE says Visible - which this game leaves set on widgets it
-        // has removed from the viewport, and which an open menu's child panels have too -
-        // not to the 5-6 in-viewport roots the old value was derived from. The list is
-        // filled in object-array INDEX order and a menu root is constructed lazily, i.e.
-        // late, i.e. at a high index, so a cap sized from the wrong population cut
-        // precisely the widget the pass exists to find.
+        // The candidate cap covers every widget whose Visibility BYTE says Visible -
+        // which this game leaves set on widgets removed from the viewport, and which an
+        // open menu's child panels have too - not just in-viewport roots. The list fills
+        // in object-array INDEX order and a menu root is constructed lazily, i.e. at a
+        // high index.
         CHECK(scan::kWidgetCandidateMax >= 256);
 
-        // THE MENU ANSWER IS AN OR OF TWO FRESH TESTS, and both directions matter: a
-        // watchlist root in the viewport is a menu even if the discovery walk found
-        // nothing new this pump, and a newly discovered root is a menu even though the
-        // watchlist had never heard of it.
+        // The menu answer is an OR of two fresh tests: a watchlist root in the viewport
+        // is a menu, and so is a newly discovered root.
         CHECK(!scan::menu_open_from(false, false));
         CHECK(scan::menu_open_from(true, false));
         CHECK(scan::menu_open_from(false, true));
@@ -1839,16 +1710,13 @@ namespace
         // THE NOT-A-MENU DENY-LIST
         //==============================================================================
         //
-        // 2026-09-03 20:56:16, in combat: `menu root discovered: WB_ZiMu_C_2147458145`,
-        // `menu state -> OPEN`, `minimap HIDDEN: a menu is open`. ZiMu is the game's own
-        // name for SUBTITLES - a combat subtitle hid the minimap for 2.4 s. The rule
-        // ("an in-viewport widget whose Visibility is Visible") is still right for every
-        // menu the game has; the subtitle is furniture the game happens to author as
-        // plain Visible, so it needs a named exception.
+        // The rule ("an in-viewport widget whose Visibility is Visible") is right for
+        // every menu the game has. Furniture the game authors as plain Visible - ZiMu is
+        // its own name for SUBTITLES - needs a named exception.
         std::printf("-- the not-a-menu deny-list --\n");
 
-        // The incident, in both character widths (the runtime matches a wchar_t class
-        // name; the table is ASCII).
+        // Both character widths: the runtime matches a wchar_t class name, the table is
+        // ASCII.
         CHECK(scan::builtin_non_menu_reason(L"WB_ZiMu_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason("WB_ZiMu_C") != nullptr);
         // A prefix, so every instance's class variant is covered.
@@ -1857,10 +1725,8 @@ namespace
         CHECK(scan::builtin_non_menu_reason(L"wb_zimu_c") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_ZIMU_C") != nullptr);
 
-        // THE THREE ROOTS THAT REALLY ARE MENUS MUST SURVIVE THE LIST. These are the
-        // only in-viewport `Visible` roots in any recon UI dump, and if any of them
-        // matched an entry the minimap would stop hiding on menus altogether - which is
-        // a worse bug than the one being fixed.
+        // The roots that really are menus must survive the list, or the minimap stops
+        // hiding on menus altogether.
         CHECK(scan::builtin_non_menu_reason(L"WB_MenuMain_C") == nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_PlumeArchive_Main_C") == nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_Login_C") == nullptr);
@@ -1868,9 +1734,8 @@ namespace
         CHECK(scan::builtin_non_menu_reason(L"WB_PlumeTransit_C") == nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_Setting_C") == nullptr);
 
-        // The HUD roots from the dumps. They are all HitTestInvisible, so the Visibility
-        // test already excludes them - the list is belt as well as braces for the day one
-        // of them is authored differently.
+        // The HUD roots. All HitTestInvisible, so the Visibility test already excludes
+        // them; the list is belt and braces.
         CHECK(scan::builtin_non_menu_reason(L"WB_MainUI_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_InteractionTips_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_ShowAddItemMain_New_C") != nullptr);
@@ -1879,8 +1744,8 @@ namespace
         CHECK(scan::builtin_non_menu_reason(L"WB_AddressInfo_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_AnimationSlot_Fade_C") != nullptr);
 
-        // Every entry must carry a reason, and no entry may be empty (an empty prefix
-        // would match EVERY widget and switch menu detection off entirely).
+        // Every entry carries a reason and a non-empty prefix: an empty prefix would
+        // match EVERY widget and switch menu detection off.
         for (const scan::NonMenuRoot& row : scan::kNonMenuRoots)
         {
             CHECK(row.prefix != nullptr && row.prefix[0] != '\0');
@@ -1897,16 +1762,16 @@ namespace
         CHECK(scan::non_menu_root_reason(L"WB_Weird_C", "WB_Other, WB_Weird ; WB_Third") != nullptr);
         CHECK(scan::non_menu_root_reason(L"WB_Weird_C", "wb_weird") != nullptr);
         CHECK(scan::non_menu_root_reason(L"WB_MenuMain_C", "WB_Weird,WB_Other") == nullptr);
-        // A list of nothing but separators must not match anything (an empty token would
-        // otherwise silence every menu in the game).
+        // A list of nothing but separators matches nothing: an empty token would silence
+        // every menu in the game.
         CHECK(scan::non_menu_root_reason(L"WB_MenuMain_C", " , ; ,, ") == nullptr);
         CHECK(scan::non_menu_root_reason(L"WB_MenuMain_C", ",") == nullptr);
         CHECK(scan::non_menu_root_reason(L"WB_MenuMain_C", static_cast<const char*>(nullptr)) == nullptr);
         // A prefix longer than the name is not a match.
         CHECK(scan::non_menu_root_reason(L"WB_", "WB_MenuMain_C") == nullptr);
 
-        // THE COMMIT BATCH. A pump tests at most kWidgetCommitPerPump candidates and the
-        // rest stay pending, so a burst costs latency and not a frame.
+        // A pump tests at most kWidgetCommitPerPump candidates; the rest stay pending, so
+        // a burst costs latency and not a frame.
         CHECK_EQ(scan::commit_batch(0, 128), 0);
         CHECK_EQ(scan::commit_batch(5, 128), 5);
         CHECK_EQ(scan::commit_batch(300, 128), 128);
@@ -1914,11 +1779,10 @@ namespace
         CHECK_EQ(scan::commit_batch(-3, 128), 0);
         CHECK_EQ(scan::commit_batch(10, 0), 0);
 
-        // THE LATENCY CONTRACT, as arithmetic rather than as a claim in a comment.
+        // The latency contract:
         //
         //   * a menu whose root is already on the watchlist, and a menu CLOSING: one pump
-        //     (~100 ms), because the watchlist re-test runs on every pump and needs no
-        //     commit at all;
+        //     (~100 ms) - the watchlist re-test runs every pump and needs no commit;
         //   * a menu whose root has NEVER been seen: one quiet period (the schedule's
         //     backed-off cadence) + one round of the walk + the pumps needed to commit a
         //     full candidate list.
@@ -1932,10 +1796,8 @@ namespace
             const std::uint64_t worst_first_seen_ms =
                 def.unknown_ms + static_cast<std::uint64_t>(44 * scan::kWidgetSlicePeriodMs) +
                 static_cast<std::uint64_t>(drain_pumps * kPositionMs);
-            // <= ~1.4 s is the contract the round-3 perf work wrote down; the per-pump
-            // commit must not have made it worse.
             CHECK(worst_first_seen_ms <= 1800);
-            // And a KNOWN menu is still one pump, whatever the discovery walk is doing.
+            // A KNOWN menu is one pump, whatever the discovery walk is doing.
             CHECK(scan::menu_open_from(true, false));
         }
     }
@@ -1943,9 +1805,8 @@ namespace
     // src/projection.hpp - world -> screen
     //======================================================================================
     //
-    // The x-ray highlight is only as good as this, and a wrong basis row or FOV axis
-    // would only ever show up in a play session. Every expectation below is computed by
-    // hand from the conventions documented at the top of projection.hpp.
+    // Every expectation below is computed by hand from the conventions documented at the
+    // top of projection.hpp.
 
     void test_projection()
     {
@@ -2020,8 +1881,8 @@ namespace
             CHECK(!left45.behind);
             CHECK(left45.on_screen);
             CHECK_NEAR(left45.ndc_x, -1.0, 1e-9);
-            // What used to be straight ahead is now exactly 90 degrees off, i.e. ON the
-            // camera plane - which is the behind case, not a screen position.
+            // Straight ahead is now exactly 90 degrees off, i.e. ON the camera plane,
+            // which is the behind case rather than a screen position.
             const proj::Result north = proj::project(east, 1000.0, 0.0, 0.0, kW, kH);
             CHECK(north.behind);
             CHECK(north.ndc_x < 0.0);
@@ -2045,8 +1906,7 @@ namespace
             CHECK_NEAR(back.ndc_x, 0.0, 1e-12);
             CHECK_NEAR(back.ndc_y, -2.0, 1e-12);
 
-            // Behind AND to the right: the arrow must point RIGHT (the short way round),
-            // which is exactly what a naive divide by a negative depth gets wrong.
+            // Behind AND to the right: the arrow points RIGHT, the short way round.
             const proj::Result back_right = proj::project(cam, -1000.0, 500.0, 0.0, kW, kH);
             CHECK(back_right.behind);
             CHECK(back_right.ndc_x > 0.0);
@@ -2208,18 +2068,16 @@ namespace
     // chapterid.hpp - "which chapter is the player in?", from the streamed level names
     //==================================================================================
     //
-    // This is the whole of the runtime's chapter detection except the enumeration, and
-    // it is the part that can be wrong in a way no log line would reveal: a bad parse
-    // just quietly loads the wrong map. The fixtures below are real names taken from
-    // the pak index and from the WuchangRecon world dumps.
+    // The fixtures below are real names from the pak index and the WuchangRecon world
+    // dumps.
 
     //==================================================================================
     // The chapter filter for the static marker DB (mdb::marker_in_chapter)
     //==================================================================================
     //
-    // The predicate publish_round() uses to cut the flat 3 601-marker DB down to the
-    // chapter the player is actually in. The whole point is that chapter 4's bounds
-    // cover nearly all of chapter 1, so a position test cannot do this job.
+    // The predicate publish_round() uses to cut the flat DB down to the chapter the
+    // player is in. Chapter 4's bounds cover nearly all of chapter 1, so a position test
+    // cannot do this job.
 
     void test_marker_chapter_filter()
     {
@@ -2291,8 +2149,7 @@ namespace
                      .chapter,
                  4);
         CHECK_EQ(chid::classify(L"B4EX0_L0_X0_Y0_DL0_WP").tier, chid::kTierCell);
-        // The cell wins over the "Chapter2" that is also in the same path - the two
-        // always agree here, but the tier must come from the cell.
+        // The cell wins over the "Chapter2" also in the path: the tier comes from the cell.
         CHECK_EQ(chid::classify("/Game/Maps/Generate/Chapter2/EX0/B2EX0_L0_X4_Y-3_DL0_WP").tier,
                  chid::kTierCell);
 
@@ -2333,11 +2190,8 @@ namespace
 
         // --- the tiered vote ---------------------------------------------------------
         //
-        // THE CASE THIS EXISTS FOR (context/common.md, run 3): at one spot 49 levels
-        // were visible, including eight different Chapter-1 `_Base` levels AND both
-        // `Chapter1_Area` and `Chapter2_Area`. A plain sum over "Chapter<N> appears"
-        // would be decided by how much art each chapter happens to stream; the cells
-        // under the player's feet must win outright.
+        // A plain sum over "Chapter<N> appears" would be decided by how much art each
+        // chapter happens to stream; the cells under the player's feet win outright.
         {
             chid::Vote v{};
             v.add("B1EX0_L0_X1_Y0_DL0_WP");
@@ -2376,8 +2230,8 @@ namespace
             CHECK_EQ(v.best_count(), 2);
         }
 
-        // Nothing recognisable at all - e.g. the Lobby - must answer kNone, which the
-        // runtime treats as "keep whatever you had" rather than "unload the map".
+        // Nothing recognisable answers kNone, which the runtime treats as "keep whatever
+        // you had".
         {
             chid::Vote v{};
             v.add("Lobby");
@@ -2387,9 +2241,7 @@ namespace
             CHECK_EQ(v.best_count(), 0);
         }
 
-        // Two chapters' cells at once cannot normally happen (the streaming window
-        // follows the player), but if it did the answer must be deterministic and the
-        // majority must win.
+        // Two chapters' cells at once: the answer is deterministic and the majority wins.
         {
             chid::Vote v{};
             v.add("B4EX0_L0_X0_Y0_DL0_WP");
@@ -2459,9 +2311,8 @@ namespace
 
         // --- a chapter that states max_surfaces but no plane list --------------------
         //
-        // The names then have to be recovered from the composite's, with the /4 `_h`
-        // spelling - and the chapter number from the key. Anything else silently
-        // loses the map of an install whose manifest was hand-edited.
+        // The plane names are recovered from the composite's with the /4 `_h` spelling,
+        // and the chapter number from the key.
         {
             const char* text = R"({
               "schema": "wuchang-minimap-maps/4",
@@ -2482,18 +2333,17 @@ namespace
             CHECK_STR(m.chapters[0].height_maps[0], std::string("chapter1/small_h0.png"));
             CHECK_STR(m.chapters[0].height_maps[7], std::string("chapter1/small_h7.png"));
             CHECK(m.chapters[0].heights_ok());
-            // Absent z_bits / z_code_max default to what THIS build reads, which is
-            // only safe because the schema string was checked first.
+            // Absent z_bits / z_code_max default to what THIS build reads, which is only
+            // safe because the schema string is checked first.
             CHECK_EQ(m.chapters[0].z_code_max, mapmanifest::kZCodeMax);
         }
 
-        // --- THE VERSION GATE, both directions ---------------------------------------
+        // --- the version gate, both directions ---------------------------------------
         //
-        // A /3 tree read here would put every surface sixteen times too low and look
-        // like an empty map, so a wrong (or missing) schema is fatal and says so. The
-        // other direction - a /3 build reading this /4 file - is covered by the plane
-        // list having moved to "height_planes": that parser finds none, guesses the
-        // "_z" names it used to write, and fails loudly on a missing file.
+        // A /3 tree read here would put every surface sixteen times too low, so a wrong
+        // or missing schema is fatal and says so. The other direction - a /3 build
+        // reading this /4 file - finds no plane list under its own key, guesses "_z"
+        // names and fails loudly on a missing file.
         {
             const char* v3 = R"({
               "schema": "wuchang-minimap-maps/3",
@@ -2511,8 +2361,7 @@ namespace
             CHECK_EQ(static_cast<long long>(problems.size()), 1);
             CHECK(!m.schema_ok());
             CHECK(m.chapters.empty()); // nothing is drawn from a file we cannot read
-            // The message has to name BOTH strings and what to do; a bare "bad
-            // manifest" would send the reader to the wrong half of the mod.
+            // The message names BOTH schema strings and what to do about them.
             CHECK(problems[0].find("wuchang-minimap-maps/3") != std::string::npos);
             CHECK(problems[0].find("wuchang-minimap-maps/4") != std::string::npos);
             CHECK(problems[0].find("build_map.py") != std::string::npos);
@@ -2523,8 +2372,8 @@ namespace
             CHECK_EQ(static_cast<long long>(problems.size()), 1);
             CHECK(problems[0].find("(none)") != std::string::npos);
 
-            // And a /4 file whose plane list is still spelled the /3 way loses the
-            // list, which is exactly the fallback that makes the missing files loud.
+            // A /4 file whose plane list is spelled the /3 way loses the list, which is
+            // the fallback that makes the missing files loud.
             problems.clear();
             const char* mixed_key = R"({
               "schema": "wuchang-minimap-maps/4",
@@ -2597,11 +2446,10 @@ namespace
             CHECK(!m.chapters[0].heights_ok()); // z_max == z_min == 0
         }
 
-        // --- the SHIPPED file --------------------------------------------------------
+        // --- the shipped file ---------------------------------------------------------
         //
-        // Same idea as test_real_db: the manifest that is actually in the repo has to
-        // parse, name five chapters, and have every chapter number and every height
-        // plane the runtime is going to look for.
+        // The repo's manifest has to parse, name five chapters, and carry every chapter
+        // number and every height plane the runtime looks for.
         {
             const std::string path = markers_dir + "/../maps/maps.json";
             std::string text;
@@ -2634,15 +2482,14 @@ namespace
                     CHECK(!e.height_maps_guessed);
                     CHECK_EQ(static_cast<long long>(e.height_maps.size()), 8);
                     CHECK(e.px_per_uu > 0.02 && e.px_per_uu <= 0.06);
-                    // Every shipped chapter is 12-bit, and every plane is named the
-                    // /4 way - the two things a half-applied repack would get wrong.
+                    // Every shipped chapter is 12-bit and every plane is named the /4 way.
                     CHECK_EQ(e.z_bits, mapmanifest::kZBits);
                     CHECK_EQ(e.z_code_max, mapmanifest::kZCodeMax);
                     CHECK(e.height_maps[0].find("_h0.png") != std::string::npos);
                     CHECK(e.z_step_uu() > 0.0 && e.z_step_uu() < 20.0);
-                    // The DENSE size still has to fit the budget build_map.py enforced
-                    // (--max-ram-mb 340); what is actually allocated is the sparse tile
-                    // subset, which test_map_assets() checks against the manifest.
+                    // The DENSE size has to fit build_map.py's budget (--max-ram-mb 340).
+                    // What is actually allocated is the sparse tile subset, which
+                    // test_map_assets() checks against the manifest.
                     const std::size_t bytes = static_cast<std::size_t>(e.image_width) *
                                               static_cast<std::size_t>(e.image_height) * 2u *
                                               e.height_maps.size();
@@ -2663,34 +2510,26 @@ namespace
     // The SPARSE height-plane store (src/mapdata.hpp: build_plane + gather_row)
     //==================================================================================
     //
-    // The planes used to be eight dense `width * height` uint16 arrays - 343 MB for
-    // chapter 1, three quarters of it the code 0 - and are now 128-px blocks with an
-    // index. The contract is that NO ANSWER CHANGES: an absent block must read as code
-    // 0, which is what the dense array held there. So the test is a differential one
-    // against a dense reference, over patterns that hit every edge the indexing has:
-    // a partial block at the right and bottom edge, an empty block between two full
-    // ones, a row that is empty in one plane and not in another, and columns marked
-    // "outside the asset" (col_x < 0) interleaved with real ones.
-    //
-    // It is also the only place the block store's ARITHMETIC is checkable at all - the
-    // alternative is reading a minimap in-game and guessing.
+    // The planes are 128-px blocks with an index, and an absent block reads as code 0.
+    // The test is differential against a dense reference, over patterns that hit every
+    // edge the indexing has: a partial block at the right and bottom edge, an empty
+    // block between two full ones, a row empty in one plane and not in another, and
+    // columns marked "outside the asset" (col_x < 0) interleaved with real ones.
 
     void test_height_planes()
     {
         section("the sparse height-plane store: gather_row vs a dense reference");
 
-        // 600x500 is 5 x 4 blocks of 128 px with a partial block at the right (88 px)
-        // and at the bottom (116 px), so every combination of full and partial block
-        // is present - and it is big enough that the block store is a saving, which
-        // 300x200 would not have been (6 whole blocks is more cells than the picture).
+        // 600x500 is 5 x 4 blocks of 128 px with a partial block at the right (88 px) and
+        // at the bottom (116 px), so every combination of full and partial block is
+        // present, and the block store is a saving at that size.
         const int w = 600;
         const int h = 500;
         std::vector<std::uint16_t> dense(static_cast<std::size_t>(w) * h, 0);
-        // A pattern with structure rather than noise: a diagonal band plus a solid
-        // square in the bottom-right partial block, with block COLUMN 1 (x 128..255)
-        // and block ROW 2 (y 256..383) left deliberately empty. That gives absent
-        // interior blocks in both axes, and 128 rows that are empty across the whole
-        // picture - which is the case gather_row() reports by returning false.
+        // A diagonal band plus a solid square in the bottom-right partial block, with
+        // block COLUMN 1 (x 128..255) and block ROW 2 (y 256..383) deliberately empty:
+        // absent interior blocks in both axes, and 128 rows empty across the whole
+        // picture, which is the case gather_row() reports by returning false.
         for (int y = 0; y < h; ++y)
         {
             if (y >= 256 && y < 384)
@@ -2717,8 +2556,7 @@ namespace
         mapdata::build_plane(p, dense.data(), w, h);
         CHECK_EQ(p.ntx, 5); // ceil(600 / 128)
         CHECK_EQ(p.nty, 4); // ceil(500 / 128)
-        // Twelve of the twenty: the empty block column and the empty block row are
-        // not allocated at all.
+        // Twelve of the twenty: the empty block column and row are not allocated.
         CHECK_EQ(p.tiles, 12);
         CHECK(p.block(1, 0) == nullptr); // the empty column
         CHECK(p.block(0, 2) == nullptr); // the empty row
@@ -2814,9 +2652,8 @@ namespace
                         ++mismatches;
                     }
                 }
-                // The return value is "this row contributed something", and the caller
-                // uses it to skip the row - so a false when the row DOES carry a
-                // surface would silently erase a floor.
+                // The return value is "this row contributed something"; the caller skips
+                // the row on false.
                 if (any != want_any)
                 {
                     ++mismatches;
@@ -2890,28 +2727,18 @@ namespace
     // The SHIPPED PNGs, through the runtime's own decode (src/pngdecode.hpp)
     //==================================================================================
     //
-    // This is the only test in this file that touches Windows, and it is here because
-    // the alternative is a play session. The two things it proves cannot be proven by
-    // reading maps.json:
+    // Two things maps.json cannot state:
     //
-    //   * THE COMPOSITE IS READABLE AS RGBA even though it is now PNG colour type 3
-    //     (256-colour palette) with a tRNS ARRAY. WIC is supposed to expand an indexed
-    //     frame through its own palette; if it did not - or if Pillow wrote a
-    //     single-index tRNS instead of the array - the map would come back fully
-    //     opaque or fully transparent, and the first person to find out would be a
-    //     player with `fallback_use_composite = 1`.
+    //   * the composite is readable as RGBA even though it is PNG colour type 3
+    //     (256-colour palette) with a tRNS ARRAY, which WIC expands through its own
+    //     palette;
+    //   * the height codes are in range and in the right byte order. PNG stores 16-bit
+    //     samples big-endian and WIC hands them back native-endian; 4095 byte-swapped is
+    //     65295, so a single swapped pixel puts the maximum past `z_code_max`.
     //
-    //   * THE HEIGHT CODES ARE IN RANGE AND IN THE RIGHT BYTE ORDER. PNG stores 16-bit
-    //     samples big-endian and WIC hands them back native-endian; a decoder that did
-    //     not would produce byte-swapped garbage whose only in-game symptom is a map
-    //     that looks empty. With 12-bit codes that is a hard test rather than a
-    //     plausibility one: 4095 byte-swapped is 65295, so a single swapped pixel puts
-    //     the maximum past `z_code_max`.
-    //
-    // And one cross-check that ties the asset to the manifest: `surface_hist[k]` counts
-    // pixels with EXACTLY k surfaces, so plane z0's lit-pixel count must equal
-    // sum(surface_hist[1:]) exactly. That one number exercises the dimensions, the
-    // sentinel and the decode in a single comparison.
+    // Plus one cross-check tying the asset to the manifest: `surface_hist[k]` counts
+    // pixels with EXACTLY k surfaces, so plane z0's lit-pixel count equals
+    // sum(surface_hist[1:]).
 
     void test_map_assets(const std::string& markers_dir)
     {
@@ -2932,9 +2759,8 @@ namespace
             return;
         }
 
-        // The per-chapter numbers this test compares against are in maps.json but not
-        // in mapmanifest::Entry (the runtime has no use for them), so they are picked
-        // out of the raw text with a small scan rather than by growing the parser.
+        // These per-chapter numbers are in maps.json but not in mapmanifest::Entry, so
+        // they are picked out of the raw text rather than by growing the parser.
         const auto number_in_chapter = [&text](const std::string& key, const char* field,
                                                double fallback) {
             const std::size_t at = text.find("\"" + key + "\"");
@@ -3021,8 +2847,8 @@ namespace
             CHECK_EQ(static_cast<long long>(px.size()),
                      static_cast<long long>(e.image_width) * e.image_height * 4);
 
-            // Alpha must be exactly two values: 0 for the background and the fill
-            // alpha for everything walkable. A lost tRNS array shows up as one value.
+            // Alpha is exactly two values: 0 for the background and the fill alpha for
+            // everything walkable. A lost tRNS array shows up as one value.
             int alpha_lo = 256;
             int alpha_hi = -1;
             std::size_t opaque = 0;
@@ -3046,8 +2872,7 @@ namespace
             CHECK_EQ(static_cast<long long>(distinct_alpha), 2);
             CHECK_EQ(alpha_lo, 0);
             CHECK_EQ(alpha_hi, 235); // build_map.py's FILL_ALPHA
-            // A composite that decoded to "all transparent" or "all opaque" would pass
-            // every check above except this one.
+            // All-transparent or all-opaque passes every check above except this one.
             const std::size_t total_px =
                 static_cast<std::size_t>(e.image_width) * static_cast<std::size_t>(e.image_height);
             CHECK(opaque > total_px / 100 && opaque < total_px * 9 / 10);
@@ -3085,7 +2910,7 @@ namespace
                 code_lo = c < code_lo ? c : code_lo;
             }
             CHECK(lit > 0);
-            // THE byte-order / format test.
+            // The byte-order / format test.
             CHECK(code_hi <= z_code_max);
             CHECK(code_lo >= 1);
             // And the manifest's own histogram has to predict that count exactly.
@@ -3095,24 +2920,19 @@ namespace
                 CHECK_EQ(lit, want_lit);
             }
 
-            // The Z the runtime will read back, over the same [z_min, z_max] the
-            // manifest states, must land inside those bounds.
+            // The Z the runtime reads back lands inside the manifest's [z_min, z_max].
             const double step = (e.z_max - e.z_min) / static_cast<double>(z_code_max - 1);
             const double z_lo = e.z_min + (code_lo - 1) * step;
             const double z_hi = e.z_min + (code_hi - 1) * step;
             CHECK(z_lo >= e.z_min - 1.0 && z_hi <= e.z_max + 1.0);
 
-            // The error the requantisation actually introduced, as measured by
-            // tools/navmesh/repack_maps.py over every lit pixel. The slicer's floor
-            // tolerance is 200 uu, so anything above 20 uu here is a format change
-            // that has stopped being free.
+            // The requantisation error, as measured by tools/navmesh/repack_maps.py over
+            // every lit pixel. The slicer's floor tolerance is 200 uu, so anything above
+            // 20 uu is a format change that has stopped being free.
             const double shift = number_in_chapter(e.key, "z_requantise_worst_uu", 0.0);
             CHECK(shift < 20.0);
 
-            // What the runtime will actually allocate: the pipeline measured the
-            // non-empty 128-px tiles, and that is the number the review's 343 MB ->
-            // ~90 MB item is about. Checked here so a rebuild that quietly went back
-            // to a dense-ish asset cannot slip through.
+            // What the runtime allocates: the pipeline's count of non-empty 128-px tiles.
             const double tiles = number_in_chapter(e.key, "height_tiles_128", 0.0);
             const double tile_ram = number_in_chapter(e.key, "height_tile_ram_bytes", 0.0);
             const double dense_ram = number_in_chapter(e.key, "height_map_raw_bytes", 0.0);
@@ -3121,19 +2941,13 @@ namespace
             CHECK(tile_ram > 0.0 && tile_ram <= 100.0 * 1024.0 * 1024.0);
             CHECK(dense_ram > 3.0 * tile_ram); // the whole point of the tile store
 
-            // END TO END, on the FIRST chapter only (eight more PNG decodes): put
-            // every shipped plane through pngdec + mapdata::build_plane - the exact
-            // pair the mod runs at a chapter load - and check two things the manifest
-            // cannot check itself.
+            // End to end on the FIRST chapter only: every shipped plane through pngdec +
+            // mapdata::build_plane, the pair the mod runs at a chapter load.
             //
-            //   1. The block count the runtime will allocate is the one the pipeline
-            //      measured. If those two ever disagree, one of them is computing
-            //      occupancy differently and the RAM figure in the log is fiction.
-            //   2. gather_row() over the real asset answers exactly what the dense
-            //      buffer it was built from holds, on a sample of rows spread over the
-            //      picture. That is the claim the whole sparse store rests on, and the
-            //      synthetic test in test_height_planes() proves it only for a
-            //      pattern this test's author chose.
+            //   1. The block count the runtime allocates is the one the pipeline
+            //      measured.
+            //   2. gather_row() over the real asset answers exactly what the dense buffer
+            //      it was built from holds, on a sample of rows spread over the picture.
             if (&e == &m.chapters.front())
             {
                 mapdata::HeightMaps hm{};
@@ -3170,8 +2984,8 @@ namespace
                     hm.count = static_cast<int>(k + 1);
                     tiles_built += hm.layer[k].tiles;
 
-                    // 37 rows, prime-strided so the sample is not aligned to the
-                    // 128-px block grid.
+                    // 37 rows, prime-strided so the sample is not aligned to the 128-px
+                    // block grid.
                     for (int row = 0; row < 37; ++row)
                     {
                         const int sy = (row * 4093) % hm.height;
@@ -3198,9 +3012,9 @@ namespace
                 CHECK_EQ(mismatches, 0);
                 CHECK(sampled > 0);
                 CHECK_EQ(tiles_built, static_cast<long long>(tiles));
-                // The manifest's `height_tile_ram_bytes` is the block PAYLOAD; the
-                // runtime also holds one int32 per block slot as the index, which is
-                // 0.05 % on top and is what makes the two numbers differ.
+                // `height_tile_ram_bytes` is the block PAYLOAD; the runtime also holds
+                // one int32 per block slot as the index, which is what makes the two
+                // numbers differ.
                 const double tiles_total = number_in_chapter(e.key, "height_tiles_128_total", 0.0);
                 CHECK(tiles_total > 0.0);
                 CHECK_EQ(static_cast<long long>(hm.bytes()),
@@ -3230,13 +3044,8 @@ namespace
     // The config file's keys: shipped file == known keys == what the parser accepts
     //==================================================================================
     //
-    // Three things drift apart silently. A key in the struct and the parser but not in
-    // the SHIPPED file is invisible to everyone who never presses Save in the F2 panel;
-    // a key left in the shipped file after a rename is ignored without a word, which
-    // looks exactly like the setting not working; and a key documented in
-    // config_keys.hpp that the parser never matches is a lie in the one place a reader
-    // would trust. So all three sets are compared, in both directions, and the failure
-    // message names the offending keys rather than just the count.
+    // The shipped file, the config_keys.hpp tiers and the parser's own set are compared
+    // in both directions, and the failure message names the offending keys.
     //
     // The parser's set is SCRAPED from src/mmstate.cpp (`key == "..."`), so the table in
     // config_keys.hpp describes the code instead of being a second hand-kept list.
@@ -3276,38 +3085,29 @@ namespace
     }
 
     //==================================================================================
-    // mm::Config equality is COMPLETE (review B.19)
+    // mm::Config equality is COMPLETE
     //==================================================================================
     //
-    // The F2 panel and the full map both edit a copy of the config and publish it only
-    // if the copy differs. That test used to be a std::memcmp, which is right until a
-    // member stops being a flat POD and then silently wrong; it is an explicit,
-    // field-by-field operator== now, and the risk moved with it - a field added to the
-    // struct and forgotten in the comparison is a setting whose slider does nothing.
+    // The F2 panel and the full map edit a copy of the config and publish it only if the
+    // copy differs, so a field missing from the field-by-field operator== is a setting
+    // whose slider does nothing.
     //
-    // This is the guard, and it needs no list of field names: fill two Configs with a
-    // byte pattern, then flip each byte of one in turn and require operator== to notice.
-    // The only bytes it cannot see are the struct's PADDING, so the count of invisible
-    // bytes is a constant - and the moment a field is added without being compared, that
-    // count grows and this fails, naming the offsets.
+    // The guard needs no list of field names: fill two Configs with a byte pattern, flip
+    // each byte of one in turn and require operator== to notice. The only bytes it
+    // cannot see are the struct's PADDING, so their count is a constant.
     //
-    // The pattern is 0x01 rather than 0x00 or 0xA5 for two reasons: every float and
-    // double in it is a small NORMAL number (0x00 would make a zero, whose sign byte is
-    // invisible to ==, and 0xA5 patterns can flip into a NaN, which is never equal to
-    // itself and would make the baseline fail), and every bool is 1, so a flip to 0xFE
-    // is a different value rather than another shade of true.
+    // The pattern is 0x01: every float and double in it is a small NORMAL number (0x00
+    // makes a zero, whose sign byte is invisible to ==; 0xA5 can flip into a NaN, which
+    // is never equal to itself), and every bool is 1, so a flip to 0xFE is a different
+    // value rather than another shade of true.
     void test_config_equality()
     {
         section("mm::Config equality is complete");
 
-        // The number of PADDING bytes in mm::Config. Not a magic number to be adjusted
-        // until the test passes: if this fails, either a field was added to the struct
-        // and not to operator== (fix operator==), or the struct's layout genuinely
-        // changed and the new padding count belongs here with a note saying why.
-        // Measured, and cross-checked: offset 0 (mod_enabled, a bool) and offsets 3-4
-        // (the two enum bytes) are NOT in the list, which is what proves the comparison
-        // sees a bool and an enum byte-for-byte rather than normalising them - so every
-        // byte it cannot see is a hole between fields. 1000-byte struct, 156 fields.
+        // PADDING bytes in mm::Config. Not a number to adjust until the test passes: a
+        // failure means either a field was added to the struct and not to operator==
+        // (fix operator==), or the layout genuinely changed and the new count belongs
+        // here with a note saying why.
         constexpr std::size_t kPaddingBytes = 75;
 
         mm::Config a{};
@@ -3379,11 +3179,9 @@ namespace
             return;
         }
 
-        // THE SHIPPED X-RAY SET AND THE COMPILED DEFAULT MUST AGREE, and both must carry
-        // the readable notes (the user's round-4 call: a sign you are standing in front of
-        // is exactly what the x-ray should point at). The shipped file WINS over the
-        // compiled default for anyone who already has a config, which is why both halves
-        // are pinned here rather than one.
+        // The shipped x-ray set and the compiled default must agree, and both must carry
+        // the readable notes. The shipped file WINS over the compiled default for anyone
+        // who already has a config, so both halves are pinned.
         {
             std::string header;
             const bool have_header = read_file(root + "/src/mmstate.hpp", header);
@@ -3419,8 +3217,7 @@ namespace
 
         // ---- the tiers are pairwise disjoint, and nothing is listed twice ------------
         //
-        // Every set comparison below would pass by accident if a key appeared in two
-        // tiers, so this is checked first.
+        // Every set comparison below would pass by accident if a key were in two tiers.
         for (std::size_t i = 0; i < cfgkeys::kKeyCount; ++i)
         {
             int seen = 0;
@@ -3478,10 +3275,8 @@ namespace
 
         // ---- the shipped file's banner order agrees with the Player/Advanced tags ----
         //
-        // The file has one `; ---- PLAYER SETTINGS ----` banner and one
-        // `; ---- ADVANCED ----` banner; every key above the second is Player, every key
-        // below it is Advanced. Without this the tags and the file could describe two
-        // different layouts and no set comparison would notice.
+        // Every key above the `; ---- ADVANCED ----` banner is Player, every key below it
+        // is Advanced.
         {
             const std::size_t player_banner = shipped.find("; ---- PLAYER SETTINGS ----");
             const std::size_t adv_banner = shipped.find("; ---- ADVANCED ----");
@@ -3539,11 +3334,8 @@ namespace
     // Saving: rewriting the VALUES in a config file and nothing else
     //==================================================================================
     //
-    // The F2 panel used to regenerate config_wuchang_minimap.txt from a thin comment
-    // block, so one click destroyed the whole documented file. cfgrw::rewrite is the
-    // replacement, and the property that matters is boring and absolute: a save that
-    // changes no value must produce the file BYTE FOR BYTE. That is checked against the
-    // real shipped file, which is the only version of it anyone will ever hold.
+    // A save that changes no value must produce the file BYTE FOR BYTE, checked against
+    // the real shipped file.
 
     void test_config_rewrite(const std::string& markers_dir)
     {
@@ -3629,8 +3421,8 @@ namespace
             CHECK(r.text == std::string{"a = 1\r\n\r\n"} + kBanner + "\r\nb = 2\r\n");
         }
         {
-            // Duplicate lines for one key: the loader lets the last win, so BOTH have
-            // to be rewritten or a save would be undone by the earlier line.
+            // Duplicate lines for one key: the loader lets the last win, so BOTH are
+            // rewritten or the earlier line undoes the save.
             std::vector<cfgrw::Pair> kv{{"a", "9"}};
             const cfgrw::Result r = cfgrw::rewrite("a = 1\na = 2\n", kv, kBanner);
             CHECK_EQ(r.rewritten, 2);
@@ -3657,8 +3449,8 @@ namespace
                 std::printf("  SKIPPED %s (run from the repo)\n", name);
                 continue;
             }
-            // Rewriting every key it carries with the value it already has must give
-            // the file back unchanged - all ~470 lines of documentation included.
+            // Rewriting every key with the value it already has gives the file back
+            // unchanged, documentation included.
             std::vector<cfgrw::Pair> kv;
             for (const std::string& k : cfgkeys::keys_in(text))
             {
@@ -3731,20 +3523,16 @@ namespace
     // Absence as evidence of a collect
     //==================================================================================
     //
-    // The whole truth table, because this is the one auto-mark that fires on something
-    // NOT being there - and lessons.md is unambiguous that absence is normally not
-    // evidence at all. Every condition is checked on its own, in both directions, and
-    // the debounce is walked round by round.
+    // The one auto-mark that fires on something NOT being there. Every condition is
+    // checked on its own, in both directions, and the debounce is walked round by round.
 
     //==================================================================================
     // Item quality ("rarity")
     //==================================================================================
     //
-    // Three things can go wrong independently and each is cheap to pin here: the JSON
-    // field is optional and must default to 0 (a marker file written before rarity
-    // existed has to keep working), the palette parser has to survive whatever a player
-    // types into the config, and the palette round-trip has to be exact or the F2
-    // panel's Save silently rewrites the colours.
+    // The JSON field is optional and defaults to 0, the palette parser has to survive
+    // whatever a player types into the config, and the palette round-trip has to be
+    // exact or the F2 panel's Save rewrites the colours.
 
     void test_rarity()
     {
@@ -3813,8 +3601,8 @@ namespace
         CHECK(pal[1] == mdb::kDefaultRarityColors[1]);
         CHECK(pal[2] == mdb::kDefaultRarityColors[2]);
 
-        // A bad entry is reported, keeps its own tier's old value, and - the point of
-        // the rule - does NOT shift the later colours onto the wrong tiers.
+        // A bad entry is reported, keeps its own tier's old value, and does NOT shift
+        // the later colours onto the wrong tiers.
         defaults(pal);
         rejected.clear();
         CHECK_EQ(mdb::parse_rarity_colors("112233, nope, 445566", pal, &rejected), 2);
@@ -3854,15 +3642,13 @@ namespace
 
         // ---- the shipped default palette IS the game's own pickup-beam palette -------
         // DT_Particle LightColor of PickupEffect / PickupEffect4 / PickupEffect7,
-        // linear -> sRGB. If these ever change, the config file's comment is wrong too.
+        // linear -> sRGB.
         CHECK(mdb::kDefaultRarityColors[0] == (mdb::Rgb{0xAD, 0xAF, 0xDA}));
         CHECK(mdb::kDefaultRarityColors[1] == (mdb::Rgb{0xDA, 0xAD, 0xC5}));
         CHECK(mdb::kDefaultRarityColors[2] == (mdb::Rgb{0xDA, 0xD6, 0xAD}));
     }
 
-    // The real database must actually carry tiers - a pipeline that silently stopped
-    // emitting `rarity` would leave every x-ray label one flat colour and nothing else
-    // would fail.
+    // The real database must carry tiers.
     void test_rarity_db(const std::string& markers_dir)
     {
         section("item quality in the generated database");
@@ -3889,24 +3675,18 @@ namespace
         }
         // Only pickups have items, so only pickups may carry a tier.
         CHECK_EQ(non_pickup_with_tier, 0);
-        // Both non-default tiers occur in chapter 1 (measured: 18 Equipment, 21 Key of its
-        // 287 pickups). Exact counts would be brittle; "some of each" is the invariant.
+        // Both non-default tiers occur in chapter 1; "some of each" is the invariant.
         CHECK(per_tier[1] > 0);
         CHECK(per_tier[2] > 0);
         CHECK(per_tier[0] > per_tier[1] + per_tier[2]);
     }
 
     // -----------------------------------------------------------------------
-    // Data invariants over EVERY shipped markers/*.json (review item C.18)
+    // Data invariants over EVERY shipped markers/*.json
     //
-    // The tests above guard chapter 1 and the hand-written sample. That is what
-    // let the DLC ship with all 77 of its named pickups called "Ancient Chisel"
-    // (C.1) and with the class table missing three ladder, three lift and twelve
-    // door classes (C.10): nothing ever looked at the other five files.
-    //
-    // Everything here is a property of the DATA, not of the loader, and each one
-    // is written so that a regeneration that IMPROVES the data passes while a
-    // regeneration that loses data fails. Floors, not exact counts.
+    // Properties of the DATA, not of the loader. Each is written so that a
+    // regeneration which IMPROVES the data passes and one that loses data fails:
+    // floors, not exact counts.
     // -----------------------------------------------------------------------
 
     struct ChapterFile
@@ -3917,7 +3697,7 @@ namespace
         int min_markers;
     };
 
-    // The six shipped chapters. Floors are ~85 % of what 1.0.1 extracts, so a real
+    // The six shipped chapters. Floors are ~85 % of the extracted counts, so a real
     // loss fails and a few markers either way does not.
     constexpr ChapterFile kChapterFiles[] = {
         {"chapter1.json", "1", 1, 780},
@@ -3928,12 +3708,10 @@ namespace
         {"chapterdlc.json", "DLC", 0, 310},
     };
 
-    // Per-(chapter, category) floors. ONLY the categories that must not vanish are
-    // listed - the point is to catch "chapter 5 ships 0 ladders" and "chapter 4
-    // ships 0 lifts", the review's improbable zeros, without pinning numbers that
-    // legitimately move. A category genuinely absent from a chapter (chapter 5 has
-    // no ladder actor at all, chapters 4 and DLC have no lift) is listed as 0 with
-    // the reason, so the absence is a recorded decision rather than a blind spot.
+    // Per-(chapter, category) floors. Only the categories that must not vanish are
+    // listed, so numbers that legitimately move are not pinned. A category genuinely
+    // absent from a chapter is listed as 0 with the reason, so the absence is a
+    // recorded decision rather than a blind spot.
     struct CatFloor
     {
         int chapter;      // 0 = DLC
@@ -3946,8 +3724,7 @@ namespace
         {1, mdb::Cat::Shrine, 12}, {2, mdb::Cat::Shrine, 12},
         {3, mdb::Cat::Shrine, 12}, {4, mdb::Cat::Shrine, 9},
         {5, mdb::Cat::Shrine, 5},  {0, mdb::Cat::Shrine, 7},
-        // bosses: 28 in the game, and every one of them is authored, so these are
-        // exact-minus-nothing.
+        // bosses: 28 in the game, every one of them authored.
         {1, mdb::Cat::Boss, 9}, {2, mdb::Cat::Boss, 5}, {3, mdb::Cat::Boss, 6},
         {4, mdb::Cat::Boss, 5}, {5, mdb::Cat::Boss, 2}, {0, mdb::Cat::Boss, 1},
         // pickups and chests: the collection tracker's whole content.
@@ -3957,18 +3734,15 @@ namespace
         {1, mdb::Cat::Chest, 10}, {2, mdb::Cat::Chest, 16},
         {3, mdb::Cat::Chest, 13}, {4, mdb::Cat::Chest, 9},
         {5, mdb::Cat::Chest, 2},  {0, mdb::Cat::Chest, 8},
-        // navigation aids. Chapter 5 really has no ladder and chapters 4 / DLC
-        // really have no lift: the class table is now the descendants of
-        // `BP_LadderV2_C` + `BP_InteractionLadder_C` and of `BP_ElevatorBase_C` +
-        // `BP_ElevatorBox_C`, and adding the three classes the hand list missed
-        // moved those chapters' counts by zero.
+        // navigation aids. Chapter 5 has no ladder and chapters 4 / DLC no lift: the
+        // class table is the descendants of `BP_LadderV2_C` + `BP_InteractionLadder_C`
+        // and of `BP_ElevatorBase_C` + `BP_ElevatorBox_C`.
         {1, mdb::Cat::Ladder, 28}, {2, mdb::Cat::Ladder, 38},
         {3, mdb::Cat::Ladder, 32}, {4, mdb::Cat::Ladder, 4},
         {5, mdb::Cat::Ladder, 0},  {0, mdb::Cat::Ladder, 2},
         {1, mdb::Cat::Lift, 6}, {2, mdb::Cat::Lift, 7}, {3, mdb::Cat::Lift, 1},
         {4, mdb::Cat::Lift, 0}, {5, mdb::Cat::Lift, 14}, {0, mdb::Cat::Lift, 0},
-        // the two categories that were dead until 1.0.1 (C.9): produced now, and a
-        // floor is the only thing that keeps them produced.
+        // a floor is the only thing that keeps these two produced.
         {1, mdb::Cat::Elite, 3}, {2, mdb::Cat::Elite, 2}, {3, mdb::Cat::Elite, 4},
         {4, mdb::Cat::Elite, 5}, {5, mdb::Cat::Elite, 12}, {0, mdb::Cat::Elite, 24},
         {1, mdb::Cat::Hidden, 4}, {2, mdb::Cat::Hidden, 8},
@@ -3990,11 +3764,8 @@ namespace
     };
 
     // The generic label `tools/markers/marker_classes.LABEL` writes when nothing
-    // better is known. It is NOT `mdb::cat_word()` - that one is the runtime's own
-    // singular ("Item" for a pickup, "Hidden item") and the two are allowed to
-    // differ, so this list mirrors the generator instead of the loader. Both
-    // spellings are accepted here, which is what keeps the test from failing on a
-    // cosmetic change to either side.
+    // better is known. NOT `mdb::cat_word()` - the runtime's own singular is allowed
+    // to differ - so this list mirrors the generator and both spellings are accepted.
     bool is_generic_name(mdb::Cat cat, const std::string& name)
     {
         static const char* kGeneric[mdb::kCatCount][2] = {
@@ -4013,8 +3784,8 @@ namespace
         {
             return true;
         }
-        // A shrine with no `DT_FirePoint` name keeps the readable id form the
-        // extractor builds, "Shrine <fire-point id>" - generic, not a real name.
+        // A shrine with no `DT_FirePoint` name keeps the extractor's readable id form,
+        // "Shrine <fire-point id>" - generic, not a real name.
         if (cat == mdb::Cat::Shrine && name.rfind("Shrine ", 0) == 0)
         {
             return true;
@@ -4022,10 +3793,9 @@ namespace
         return name.empty();
     }
 
-    // Every `"NNNNN": {` key in markers/items.json. A text scan rather than a JSON
-    // walk because that is all the check needs and it drags in no parser: the
-    // question is only "is this id a row of the item database at all", and an item
-    // DESCRIPTION cannot contain `": {`.
+    // Every `"NNNNN": {` key in markers/items.json. A text scan: the question is only
+    // whether the id is a row of the item database at all, and an item DESCRIPTION
+    // cannot contain `": {`.
     std::vector<int> read_item_ids(const std::string& text)
     {
         std::vector<int> out;
@@ -4065,9 +3835,8 @@ namespace
         return out;
     }
 
-    // Every integer inside every `"items": [ ... ]` array of a chapter file. Same
-    // reasoning as above; `StaticMarker` deliberately does not keep the id list
-    // (the runtime only needs the rarity tier), so the text is the only source.
+    // Every integer inside every `"items": [ ... ]` array of a chapter file.
+    // `StaticMarker` does not keep the id list, so the text is the only source.
     std::vector<int> read_marker_item_ids(const std::string& text)
     {
         std::vector<int> out;
@@ -4112,8 +3881,7 @@ namespace
         const std::vector<int> item_ids = have_items ? read_item_ids(items_text) : std::vector<int>{};
         if (have_items)
         {
-            // 2 384 rows across the six item DataTables. A floor, because a game
-            // patch may add items.
+            // A floor over the six item DataTables, because a game patch may add items.
             CHECK(item_ids.size() > 2000);
         }
 
@@ -4149,14 +3917,13 @@ namespace
             CHECK_STR(rep.schema, "wuchang-minimap-markers/1");
             CHECK_STR(rep.chapter_label, cf.label);
             CHECK_EQ(rep.chapter, cf.chapter);
-            // A skipped entry is a marker the generator wrote and the loader threw
-            // away - always a bug in one of them, never acceptable in shipped data.
+            // A skipped entry is a marker the generator wrote and the loader threw away.
             CHECK_EQ(rep.skipped, 0);
             CHECK_EQ(rep.unknown_cat, 0);
             CHECK_EQ(rep.legacy_cat, 0);
             CHECK(static_cast<int>(rep.added) >= cf.min_markers);
 
-            // Per-category floors, and the name-concentration cap that catches C.1.
+            // Per-category floors, and the name-concentration cap.
             for (int c = 0; c < mdb::kCatCount; ++c)
             {
                 const mdb::Cat cat = static_cast<mdb::Cat>(c);
@@ -4171,8 +3938,8 @@ namespace
                     ++total;
                     CHECK_EQ(m.chapter, cf.chapter);
                     CHECK(!m.id.empty());
-                    // The world is a few hundred thousand uu across; a decode that
-                    // drifted would produce 1e38 or 1e-317, not a plausible number.
+                    // The world is a few hundred thousand uu across; a drifted decode
+                    // produces 1e38 or 1e-317, not a plausible number.
                     CHECK(std::fabs(m.x) < 1.0e7 && std::fabs(m.y) < 1.0e7 && std::fabs(m.z) < 1.0e7);
                     if (!is_generic_name(cat, m.name))
                     {
@@ -4190,14 +3957,10 @@ namespace
                     }
                 }
 
-                // THE C.1 CHECK. Among the entries that carry a REAL name, no single
-                // name may account for more than half. Every one of the 77 named DLC
-                // pickups read "Ancient Chisel" (the first row of DT_Item_ToolTable,
-                // i.e. the value an unconfigured pickup carries), which is exactly
-                // 100 % and exactly what this refuses. Generic labels are excluded on
-                // purpose: 394 enemies all reading "Enemy" is the honest answer,
-                // because Wuchang has no name for an ordinary enemy anywhere in its
-                // data (see tools/markers/build_enemies.py --prove).
+                // Among the entries that carry a REAL name, no single name may account
+                // for more than half - an unconfigured pickup carries the first row of
+                // DT_Item_ToolTable. Generic labels are excluded on purpose: the game has
+                // no name for an ordinary enemy anywhere in its data.
                 if (named.size() >= 8)
                 {
                     std::sort(named.begin(), named.end());
@@ -4236,9 +3999,8 @@ namespace
             }
 
             // Every shrine marker must have a row in the shrine table: that table is
-            // what the full map's Shrines panel lists and what the save's unlocked
-            // ids are joined against, so a shrine missing from it is invisible to
-            // both. This is the check the seven DLC shrines used to fail.
+            // what the full map's Shrines panel lists and what the save's unlocked ids
+            // join against, so a shrine missing from it is invisible to both.
             if (!shrine_rows.empty())
             {
                 for (const mdb::StaticMarker& m : db)
@@ -4264,10 +4026,9 @@ namespace
         CHECK_EQ(unknown_items, 0);
         CHECK_EQ(missing_shrine_rows, 0);
 
-        // No duplicate id within a file OR across files. The loader globs every
-        // markers/*.json into ONE database keyed by id, so a collision means the
-        // second marker can never be marked found (markers.cpp resolves note_found
-        // through a by-id map that keeps only the first index).
+        // No duplicate id within a file OR across files: the loader globs every
+        // markers/*.json into ONE database keyed by id, and note_found resolves through
+        // a by-id map that keeps only the first index.
         std::sort(all_ids.begin(), all_ids.end());
         int dupes = 0;
         for (std::size_t i = 1; i < all_ids.size(); ++i)
@@ -4307,10 +4068,9 @@ namespace
         // The one combination that confirms.
         CHECK(mdb::absence_round_confirms(all_true()));
 
-        // Each condition alone is enough to refuse. The level tests are the safety
-        // rails: an unmatched level, or a level that streamed in mid-round, must never
-        // mark anything - that is exactly the "an unloaded level and a collected pickup
-        // look identical" trap.
+        // Each condition alone is enough to refuse. An unmatched level, or one that
+        // streamed in mid-round, must never mark anything: an unloaded level and a
+        // collected pickup look identical.
         {
             mdb::AbsenceFacts f = all_true();
             f.feature_on = false;
@@ -4353,14 +4113,14 @@ namespace
         CHECK(mdb::absence_marks(ok, 1, 1));
         CHECK(!mdb::absence_marks(ok, 4, 5));
         CHECK(mdb::absence_marks(ok, 5, 5));
-        // A nonsensical requirement never marks (the config clamp keeps it >= 1, but
-        // the predicate must not depend on that).
+        // A nonsensical requirement never marks; the predicate does not lean on the
+        // config clamp that keeps it >= 1.
         CHECK(!mdb::absence_marks(ok, 1, 0));
         CHECK(!mdb::absence_marks(ok, 1, -3));
 
-        // The runtime's own state machine, simulated: a marker whose level loads at
-        // round 4, is unseen from round 5 on, and is marked on the second confirming
-        // round - then a live twin appears and the streak has to reset.
+        // The runtime's state machine, simulated: a marker whose level loads at round 4,
+        // is unseen from round 5 on, and is marked on the second confirming round - then
+        // a live twin appears and the streak resets.
         {
             const std::uint64_t level_round = 4;
             int streak = 0;
@@ -4392,16 +4152,15 @@ namespace
         section("which gate drops a marker from the x-ray");
 
         {
-            // A chest 11 m away, in the x-ray set, not collected: it must be DRAWN. This
-            // is the exact case the user reported twice.
+            // A chest 11 m away, in the x-ray set, not collected: it must be DRAWN.
             mdb::XrayFacts f{};
             f.cat = mdb::Cat::Chest;
             f.cat_selected = true;
             f.within_radius = true;
             CHECK(mdb::xray_gate(f) == mdb::XrayDrop::Drawn);
 
-            // ...and each way it can be dropped, one at a time, so a future extra
-            // condition cannot hide inside another one's counter.
+            // Each way it can be dropped, one at a time, so a future extra condition
+            // cannot hide inside another one's counter.
             mdb::XrayFacts g = f;
             g.cat_selected = false;
             CHECK(mdb::xray_gate(g) == mdb::XrayDrop::Category);
@@ -4416,9 +4175,8 @@ namespace
             g.show_found = true;
             CHECK(mdb::xray_gate(g) == mdb::XrayDrop::Drawn);
 
-            // FOUND ONLY HIDES LOOT AND A DEFEATED BOSS. A lit shrine, a met NPC and a
-            // read note are landmarks, and hiding them is what made the x-ray look dead
-            // near a shrine in round 1.
+            // Found only hides loot and a defeated boss: a lit shrine, a met NPC and a
+            // read note are landmarks.
             for (int c = 0; c < mdb::kCatCount; ++c)
             {
                 const auto cat = static_cast<mdb::Cat>(c);
@@ -4432,9 +4190,8 @@ namespace
                 CHECK_EQ(mdb::xray_gate(h) == mdb::XrayDrop::Found, expect_hidden);
             }
 
-            // A person is highlighted where they stand or not at all - and no other
-            // category may ever need the live flag, which is what used to keep static
-            // loot out of the x-ray in principle.
+            // A person is highlighted where they stand or not at all, and no other
+            // category needs the live flag.
             for (int c = 0; c < mdb::kCatCount; ++c)
             {
                 const auto cat = static_cast<mdb::Cat>(c);
@@ -4446,9 +4203,9 @@ namespace
                 CHECK_EQ(mdb::xray_gate(h) == mdb::XrayDrop::Live, mdb::is_mobile_category(cat));
             }
 
-            // Order matters for the DIAGNOSTIC, not just for the answer: a marker that
-            // fails several gates is reported under the first one, so the counters add up
-            // to the published total.
+            // Order matters for the DIAGNOSTIC as well as the answer: a marker failing
+            // several gates is reported under the first, so the counters add up to the
+            // published total.
             g = f;
             g.cat_selected = false;
             g.within_radius = false;
@@ -4465,8 +4222,7 @@ namespace
 
         section("no user-facing label is ever a class name");
 
-        // The three shapes a class name takes in this game, and the one our own older
-        // label path produced.
+        // The shapes a class name takes in this game.
         CHECK(mdb::looks_like_class_name("BP_PickupActor_C"));
         CHECK(mdb::looks_like_class_name("BP_DropItem_C"));
         CHECK(mdb::looks_like_class_name("BP_treasurebox_C"));
@@ -4476,9 +4232,9 @@ namespace
         CHECK(mdb::looks_like_class_name("pickup_actor"));
         CHECK(mdb::looks_like_class_name("  BP_Wumen_C  ")); // trimmed first
 
-        // Real display names must all survive. Every one of these is a name that the
-        // shipped manifests actually carry, including the tricky ones: an apostrophe, a
-        // '+1' suffix, a two-word category label used as a name, and a proper noun.
+        // Real display names all survive, including the tricky ones the shipped
+        // manifests carry: an apostrophe, a '+1' suffix, a two-word category label used
+        // as a name, a proper noun.
         CHECK(!mdb::looks_like_class_name("Cloudfrost's Edge"));
         CHECK(!mdb::looks_like_class_name("Cloudfrost's Edge +1"));
         CHECK(!mdb::looks_like_class_name("Blood of Wangdi"));
@@ -4489,8 +4245,7 @@ namespace
         CHECK(!mdb::looks_like_class_name(""));    // no label, not a class name
         CHECK(!mdb::looks_like_class_name("Ash")); // three letters, no underscore
 
-        // Every category has a non-empty singular word, and none of them is itself a
-        // class name (which would defeat the whole point of the fallback).
+        // Every category has a non-empty singular word, and none is itself a class name.
         for (int c = 0; c < mdb::kCatCount; ++c)
         {
             const auto cat = static_cast<mdb::Cat>(c);
@@ -4500,7 +4255,7 @@ namespace
         }
 
         // display_label: a real name passes through; empty and class names become the
-        // category word. This is what the x-ray and the map tooltip both call.
+        // category word.
         CHECK_STR(mdb::display_label(mdb::Cat::Pickup, "Blood of Wangdi"), "Blood of Wangdi");
         CHECK_STR(mdb::display_label(mdb::Cat::Pickup, "BP_PickupActor_C"), "Item");
         CHECK_STR(mdb::display_label(mdb::Cat::Pickup, ""), "Item");
@@ -4526,16 +4281,15 @@ namespace
             CHECK_STR(names[20001].c_str(), "Ancient Chisel");
             CHECK_STR(names[10000].c_str(), "Cloudfrost's Edge");
 
-            // Schema /1 is accepted too: this reader only wants {id -> name} and both
-            // minors carry it.
+            // Schema /1 is accepted too: this reader only wants {id -> name}, which both
+            // minors carry.
             CHECK(mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/1","items":{"1":{"name":"x"}}})",
                                         names, err));
             // Anything else is refused rather than guessed at.
             CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-markers/1","items":{}})", names, err));
             CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/2"})", names, err));
             CHECK(!mdb::parse_items_json("not json", names, err));
-            // A named entry is required: an empty table would silently disable the
-            // feature and look like the file was fine.
+            // A named entry is required: an empty table would silently disable the feature.
             CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/2","items":{}})", names, err));
             // Non-numeric keys and entries with no usable name are skipped, not fatal.
             CHECK(mdb::parse_items_json(
@@ -4549,9 +4303,8 @@ namespace
 
         section("is this character dead? (the three-way health answer)");
 
-        // A read that did not answer is UNKNOWN, never dead. Guessing dead erases living
-        // enemies; the published `health unknown` count is the only thing that separates
-        // "the rule never fires" from "the property name (or WIDTH) is wrong".
+        // A read that did not answer is UNKNOWN, never dead: guessing dead erases living
+        // enemies.
         CHECK(mdb::health_answer(false, 0.0, 100.0) == mdb::Health::Unknown);
         CHECK(mdb::health_answer(false, 50.0, 100.0) == mdb::Health::Unknown);
 
@@ -4560,16 +4313,13 @@ namespace
         CHECK(mdb::health_answer(true, 1.0, 100.0) == mdb::Health::Alive);
         CHECK(mdb::health_answer(true, 269.1, 269.1) == mdb::Health::Alive);
 
-        // Max <= 0 is an uninitialised or hot-swapped stat component, not a corpse - a
-        // rule that called this dead would erase every enemy in a level that had just
-        // streamed in.
+        // Max <= 0 is an uninitialised or hot-swapped stat component, not a corpse.
         CHECK(mdb::health_answer(true, 0.0, 0.0) == mdb::Health::Unknown);
         CHECK(mdb::health_answer(true, 0.0, -1.0) == mdb::Health::Unknown);
 
-        // The garbage a misaligned 8-byte read produces (lessons.md: ~1e-317 / ~1e-299),
-        // plus NaN and the infinities, are all UNKNOWN. Note that a denormal CURRENT with
-        // a sane MAX is a live character with almost no health left, which is why only
-        // the non-finite bound rejects.
+        // The garbage a misaligned 8-byte read produces (~1e-317 / ~1e-299), plus NaN and
+        // the infinities, is UNKNOWN. A denormal CURRENT with a sane MAX is a live
+        // character with almost no health left, so only the non-finite bound rejects.
         CHECK(mdb::health_answer(true, 1e-317, 1e-299) == mdb::Health::Alive);
         {
             const double nan_v = std::numeric_limits<double>::quiet_NaN();
@@ -4580,8 +4330,7 @@ namespace
             CHECK(mdb::health_answer(true, 50.0, inf_v) == mdb::Health::Unknown);
             CHECK(mdb::health_answer(true, -inf_v, 100.0) == mdb::Health::Unknown);
         }
-        // It is constexpr, so a mistake in it is a compile error rather than a play
-        // session.
+        // constexpr, so a mistake in it is a compile error.
         static_assert(mdb::health_answer(true, 0.0, 10.0) == mdb::Health::Dead);
         static_assert(mdb::health_answer(true, 10.0, 10.0) == mdb::Health::Alive);
         static_assert(mdb::health_answer(false, 0.0, 10.0) == mdb::Health::Unknown);
@@ -4589,31 +4338,27 @@ namespace
 
         section("a boss killed before the mod existed (the save-backed rule)");
 
-        // The whole point: the health read needs the boss ACTOR, and a boss already
-        // killed never spawns again. The only state that outlives the encounter is the
-        // save's `UnlockedFirepoints`, and it can only speak for a boss whose marker
-        // carries the `bossdoor_*` id the game's level script names for it.
+        // A boss already killed never spawns again, so the health read has no actor. The
+        // only state that outlives the encounter is the save's `UnlockedFirepoints`,
+        // which speaks only for a marker carrying the `bossdoor_*` id the game's level
+        // script names for it.
         CHECK(mdb::boss_found_from_save(true, true, true, true));
         // No door in the manifest (2 of the 28 boss markers) - the save cannot answer.
         CHECK(!mdb::boss_found_from_save(true, true, false, true));
         CHECK(!mdb::boss_found_from_save(true, true, false, false));
         // The door exists and the save has not unlocked it: not defeated.
         CHECK(!mdb::boss_found_from_save(true, true, true, false));
-        // The config key is a real off switch. It has to be, because what the unlocked
-        // id MEANS is an open question ("cleared" vs "fought and respawned here") and
-        // the mark is derived rather than persisted precisely so that flipping this
-        // undoes it completely.
+        // The config key is a real off switch: the mark is derived rather than
+        // persisted, so flipping this undoes it completely.
         CHECK(!mdb::boss_found_from_save(false, true, true, true));
-        // It never speaks for another category, whatever the door state says - a shrine
-        // has its own rule and a chest has no door.
+        // It never speaks for another category, whatever the door state says.
         CHECK(!mdb::boss_found_from_save(true, false, true, true));
         static_assert(mdb::boss_found_from_save(true, true, true, true));
         static_assert(!mdb::boss_found_from_save(true, true, true, false));
         static_assert(!mdb::boss_found_from_save(false, true, true, true));
 
-        // The manifest side of it: `bossdoor` is additive and optional, so a manifest
-        // built before tools/markers/build_bossdoors.py existed parses exactly as it
-        // did and the rule simply never fires.
+        // `bossdoor` is additive and optional: a manifest without it parses and the rule
+        // simply never fires.
         {
             std::vector<mdb::StaticMarker> out;
             mdb::ParseReport rep{};
@@ -4634,30 +4379,25 @@ namespace
 
         section("a corpse has two halves and both must go");
 
-        // THE END-TO-END CHAIN, as an invariant rather than a comment. An enemy is in the
-        // published buffer twice - its authored spawn point (static) and the pawn the
-        // sweep found (live) - and suppressing only one of them made the marker jump back
-        // to the spawn point on the next publish, which looks exactly like "the health
-        // rule never fired".
+        // An enemy is in the published buffer twice - its authored spawn point (static)
+        // and the pawn the sweep found (live) - and both halves have to go, or the marker
+        // jumps back to the spawn point on the next publish.
         CHECK(mdb::static_twin_is_hidden_by_corpse(true, true));
-        // A live twin that is alive does not hide its spawn point - the live position
-        // simply wins.
+        // A live twin that is alive does not hide its spawn point: the live position wins.
         CHECK(!mdb::static_twin_is_hidden_by_corpse(true, false));
-        // No live twin at all: nothing is known, so the authored hint stays. (Absence is
-        // never evidence - lessons.md.)
+        // No live twin at all: nothing is known, so the authored hint stays.
         CHECK(!mdb::static_twin_is_hidden_by_corpse(false, true));
         CHECK(!mdb::static_twin_is_hidden_by_corpse(false, false));
 
-        // The live half. A corpse is never drawn wherever it fell, and neither is an
-        // actor with no usable position.
+        // The live half: a corpse is never drawn where it fell, and neither is an actor
+        // with no usable position.
         CHECK(mdb::live_only_is_drawn(true, false));
         CHECK(!mdb::live_only_is_drawn(true, true));
         CHECK(!mdb::live_only_is_drawn(false, false));
         CHECK(!mdb::live_only_is_drawn(false, true));
 
-        // Together: a dead enemy is in NEITHER half of the published buffer, which is
-        // what makes the minimap, the full map, the compass and the x-ray agree - they
-        // all read the same buffer.
+        // A dead enemy is in NEITHER half of the published buffer, which is what makes
+        // the minimap, the full map, the compass and the x-ray agree: one buffer.
         {
             const bool has_twin = true;
             const bool dead = true;
@@ -4665,9 +4405,8 @@ namespace
             CHECK(!mdb::live_only_is_drawn(/*pos_valid=*/false, dead));
         }
 
-        // A DEFEATED BOSS is a different mechanism and must not use this one: it stays in
-        // the buffer (so the map can draw its hollow found glyph) and leaves the x-ray
-        // through the found gate instead.
+        // A defeated boss is a different mechanism: it stays in the buffer, so the map
+        // can draw its hollow found glyph, and leaves the x-ray through the found gate.
         {
             mdb::XrayFacts b{};
             b.cat = mdb::Cat::Boss;
@@ -4680,11 +4419,9 @@ namespace
 
         section("npc markers that have walked away");
 
-        // Only people move. Every other category's authored position is a fact about
-        // the level, so nothing else may ever be hidden by this rule - a chest that has
-        // not been seen yet is the ABSENCE rule's business, and that one marks it found
-        // rather than making it disappear. `Note` is explicitly NOT mobile: a reading
-        // point hangs on a wall (it was in this set while it was misnamed `merchant`).
+        // Only people move: every other category's authored position is a fact about the
+        // level, and an unseen chest is the ABSENCE rule's business instead. `Note` is
+        // explicitly NOT mobile - a reading point hangs on a wall.
         for (int c = 0; c < mdb::kCatCount; ++c)
         {
             const auto cat = static_cast<mdb::Cat>(c);
@@ -4702,7 +4439,7 @@ namespace
             CHECK(mdb::mobile_twin_is_stale(f)); // case (c): nobody answered
 
             // Case (a): a locatable live actor answered - its position wins, the entry
-            // stays and the publish point draws it there (superseded, not hidden).
+            // stays and the publish point draws it there: superseded, not hidden.
             mdb::MobileTwinFacts g = f;
             g.live_twin_this_round = true;
             CHECK(!mdb::mobile_twin_is_stale(g));
@@ -4722,13 +4459,10 @@ namespace
             g.mobile = false;
             CHECK(!mdb::mobile_twin_is_stale(g));
 
-            // CASE (b), THE ONE THAT WAS MISSING. A live actor answered for the id and
-            // could NOT be located - this game parks a used-up actor at (0,0,0), so that
-            // is the normal state of a person who has moved on. It must hide with NO help
-            // from the level table, because the level table is a second thing that can be
-            // incomplete: run 3 could only name 21 of 53 people's levels as resident, and
-            // the census read `hidden 0` while an x-ray label still hung where an NPC had
-            // been.
+            // Case (b): a live actor answered for the id and could NOT be located - this
+            // game parks a used-up actor at (0,0,0), the normal state of a person who has
+            // moved on. It hides with NO help from the level table, which can itself be
+            // incomplete.
             g = mdb::MobileTwinFacts{};
             g.mobile = true;
             g.live_twin_unlocatable = true;
@@ -4736,43 +4470,36 @@ namespace
             CHECK(!g.full_round_since_level_load);
             CHECK(mdb::mobile_twin_is_stale(g));
 
-            // ...and it must not override a live actor we CAN locate (the same id can
-            // read both ways across rounds; this round's locatable answer wins).
+            // It must not override a live actor we CAN locate: the same id can read both
+            // ways across rounds, and this round's locatable answer wins.
             g.live_twin_this_round = true;
             CHECK(!mdb::mobile_twin_is_stale(g));
 
-            // Unlocatable is still only a rule about people. A note that has not
-            // streamed in yet must never vanish on this route.
+            // Unlocatable is only a rule about people: a note that has not streamed in
+            // must never vanish on this route.
             g = mdb::MobileTwinFacts{};
             g.live_twin_unlocatable = true;
             CHECK(!mdb::mobile_twin_is_stale(g)); // mobile == false
 
-            // CASE (e), THE ONE RUN 4 PROVED IS THE REAL MECHANISM. The census read
-            // `static 53, live 24, joined 21, superseded 0, walked away 0, hidden 0`
-            // while the user was still seeing an NPC drawn at a spot they had left: every
-            // joined twin answered WITH a usable position, standing where it was
-            // authored, so (b), (c) and (d) were all unreachable and (a) drew it. The
-            // actor is not parked and not destroyed - it is made INVISIBLE.
+            // Case (e): the actor is neither parked nor destroyed - it is made INVISIBLE
+            // while still answering with a usable position at where it was authored, so
+            // (b), (c) and (d) are all unreachable.
             g = mdb::MobileTwinFacts{};
             g.mobile = true;
             g.live_twin_this_round = true; // located, at its authored position
             g.live_twin_invisible = true;
             CHECK(mdb::mobile_twin_is_stale(g));
-            // ...which means (e) has to be tested BEFORE (a), or the located answer
-            // would win and nothing would change. That ordering IS the fix, so it is
-            // pinned here rather than left to the reading of the function.
+            // (e) is tested BEFORE (a), or the located answer would win.
             CHECK(g.live_twin_this_round && mdb::mobile_twin_is_stale(g));
-            // With no level knowledge at all - the same independence (b) needed, and for
-            // the same reason.
+            // With no level knowledge at all: the same independence (b) needs.
             g.level_known = false;
             g.full_round_since_level_load = false;
             CHECK(mdb::mobile_twin_is_stale(g));
             // A visible located twin is still drawn.
             g.live_twin_invisible = false;
             CHECK(!mdb::mobile_twin_is_stale(g));
-            // And invisibility is a rule about people only: a note is a thing on a wall
-            // whose blueprint references no character mesh, so its visibility flags are
-            // not evidence about anybody and must not delete 76 markers.
+            // Invisibility is a rule about people only: a note's visibility flags are not
+            // evidence about anybody.
             g = mdb::MobileTwinFacts{};
             g.live_twin_invisible = true;
             g.live_twin_this_round = true;
@@ -4781,8 +4508,8 @@ namespace
         // Nothing is hidden by default: a zeroed fact set must be a no-op.
         CHECK(!mdb::mobile_twin_is_stale(mdb::MobileTwinFacts{}));
 
-        // The join key the rule uses: the level short name out of a ULevel's full name,
-        // which is the same helper the marker ids are built with.
+        // The join key: the level short name out of a ULevel's full name, the same helper
+        // the marker ids are built with.
         CHECK_STR(mdb::level_from_full_name(
                       "Level /Game/Maps/Chapter1/Chapter1_DGong_logic.Chapter1_DGong_logic:PersistentLevel"),
                   "Chapter1_DGong_logic");
@@ -4792,9 +4519,7 @@ namespace
     // The save-slot key: sanitising, filenames, and pulling a slot out of a path
     //======================================================================================
     //
-    // This is the half of src/saveslot.hpp that never touches the engine, and it is the
-    // half that decides a FILENAME - so a wrong answer either writes somewhere it should
-    // not or reads a collection that belongs to a different character.
+    // The half of src/saveslot.hpp that never touches the engine and decides a FILENAME.
 
     //=======================================================================================
     // src/spinlock.hpp - the mod's only lock (std::mutex faults on the game thread).
@@ -4827,8 +4552,8 @@ namespace
         CHECK(lock.try_lock());
         lock.unlock();
 
-        // Contention: two threads increment a plain int 20 000 times each under the
-        // lock. Without mutual exclusion the sum comes out short.
+        // Two threads increment a plain int 20 000 times each under the lock; without
+        // mutual exclusion the sum comes out short.
         {
             int counter = 0;
             const int per_thread = 20000;
@@ -4849,9 +4574,8 @@ namespace
             lock.unlock();
         }
 
-        // try_lock_ms honours its deadline: a held lock is not acquired, and the wait
-        // is bounded (a 50 ms budget must not become a hang, and must not return early
-        // before the budget - the whole point is that a stall does not become one).
+        // try_lock_ms honours its deadline: a held lock is not acquired, and the wait is
+        // bounded rather than returning early or hanging.
         {
             spin::Spinlock held;
             held.lock();
@@ -4915,22 +4639,20 @@ namespace
         // ---- found_filename --------------------------------------------------------
         CHECK_STR(slotid::found_filename(""), "wuchang_minimap_found.txt");
         CHECK_STR(slotid::found_filename("maingame0"), "wuchang_minimap_found_maingame0.txt");
-        // The empty key is the ONLY thing that may produce the shared name - a bug here
-        // would have every profile share one file again, silently.
+        // The empty key is the ONLY thing that may produce the shared name.
         CHECK(slotid::found_filename("a") != slotid::found_filename(""));
 
         // ---- path parsing ----------------------------------------------------------
-        // The real shape, from the research document.
+        // The real shape.
         const char* kReal =
             "C:\\Users\\me\\AppData\\Local\\Project_Plague\\Saved\\36053875\\GameSlots\\maingame0\\maingame0.sav";
         CHECK_STR(slotid::slot_from_path(kReal), "maingame0");
         CHECK_STR(slotid::account_from_path(kReal), "36053875");
         CHECK_STR(slotid::key_from_sav_path(kReal), "36053875_maingame0");
         // Forward slashes and a different case of the anchor component both work: the
-        // string comes from an FString the game wrote, not from us.
+        // string comes from an FString the game wrote.
         CHECK_STR(slotid::key_from_sav_path("D:/x/saved/99/gameslots/ng2/ng2.sav"), "99_ng2");
-        // No GameSlots component at all -> no key, so the caller falls back to shared
-        // rather than inventing one.
+        // No GameSlots component -> no key, so the caller falls back to the shared name.
         CHECK_STR(slotid::key_from_sav_path("C:\\nothing\\here.sav"), "");
         CHECK_STR(slotid::key_from_sav_path(""), "");
         // GameSlots as the last component has no slot after it.
@@ -4943,11 +4665,9 @@ namespace
     // Map -> clipboard: the pixel unpack and the DIB layout
     //======================================================================================
     //
-    // The D3D12 readback around this cannot be tested offline; these two can, and they are
-    // the parts that fail SILENTLY - a wrong unpack gives a picture with shifted channels
-    // and a wrong DIB gives one that pastes upside down or not at all. This game's back
-    // buffer is R10G10B10A2_UNORM (lessons.md), which is exactly the case every
-    // screenshot example gets wrong.
+    // A wrong unpack gives a picture with shifted channels and a wrong DIB one that
+    // pastes upside down or not at all. This game's back buffer is R10G10B10A2_UNORM,
+    // which is the case every screenshot example gets wrong.
 
     void test_clipimg()
     {
@@ -4959,17 +4679,17 @@ namespace
         CHECK(clipimg::fmt_from_dxgi(29) == clipimg::Fmt::R8G8B8A8); // _SRGB
         CHECK(clipimg::fmt_from_dxgi(87) == clipimg::Fmt::B8G8R8A8);
         CHECK(clipimg::fmt_from_dxgi(91) == clipimg::Fmt::B8G8R8A8);
-        // A float back buffer would need tone mapping, not unpacking - refused, not guessed.
+        // A float back buffer needs tone mapping, not unpacking: refused, not guessed.
         CHECK(clipimg::fmt_from_dxgi(10) == clipimg::Fmt::Unknown); // R16G16B16A16_FLOAT
         CHECK(clipimg::fmt_from_dxgi(0) == clipimg::Fmt::Unknown);
 
         // ---- 10-bit -> 8-bit --------------------------------------------------------
-        // Rounded, not shifted: `v >> 2` makes white 252, which is a visible grey cast.
+        // Rounded, not shifted: `v >> 2` makes white 252, a visible grey cast.
         CHECK_EQ(clipimg::from10(0), 0);
         CHECK_EQ(clipimg::from10(1023), 255);
         CHECK_EQ(clipimg::from10(512), 128);
-        // Round-to-nearest against the real range, not a shift: 1020/1023 is 254.25 and
-        // must land on 254, where the obvious `v >> 2` gives 255.
+        // Round-to-nearest against the real range: 1020/1023 is 254.25 and lands on 254,
+        // where `v >> 2` gives 255.
         CHECK_EQ(clipimg::from10(1020), 254);
         CHECK(clipimg::from10(1020) != (1020u >> 2));
 
@@ -5016,8 +4736,8 @@ namespace
 
         // ---- the DIB -----------------------------------------------------------------
         {
-            // 2x3 BGRA, top-down, with a source pitch bigger than the row (a D3D12
-            // readback footprint is 256-aligned, so it always is).
+            // 2x3 BGRA, top-down, with a source pitch bigger than the row: a D3D12
+            // readback footprint is 256-aligned, so it always is.
             const int w = 2;
             const int h = 3;
             const std::size_t pitch = 16;
@@ -5081,8 +4801,8 @@ namespace
             CHECK(rep.error.empty());
         }
         {
-            // One good entry, one with no id and one that is not an object: a generated
-            // file that has been hand-edited must cost the bad LINE, not the whole list.
+            // One good entry, one with no id and one that is not an object: a hand-edited
+            // file costs the bad LINE, not the whole list.
             const char* json = R"({"schema":"wuchang-minimap-shrines/1","shrines":[
                 {"id":"temple02","name":"Reverent Temple","chapter":1,"shrine":true,
                  "x":1.0,"y":2.0,"z":3.0,"bx":4.0,"by":5.0,"bz":6.0},
@@ -5132,11 +4852,10 @@ namespace
         shdb::Report rep{};
         CHECK(shdb::parse(text, v, rep));
         CHECK_STR(rep.error, "");
-        // 88 contiguous rows in DT_FirePoint, 50 of which join to a shrine marker; the
-        // rest are the bossdoor_/Task pseudo-points. Plus the seven DLC shrines, which
-        // have no DT_FirePoint row anywhere in this build and are added from the marker
-        // DB with the marker's own "Shrine <fire-point id>" label. If the extractor
-        // ever regresses, these numbers are what says so on the build machine.
+        // 88 contiguous rows in DT_FirePoint, 50 joining a shrine marker, the rest
+        // bossdoor_/Task pseudo-points. Plus the seven DLC shrines, which have no
+        // DT_FirePoint row in this build and come from the marker DB with the marker's
+        // own "Shrine <fire-point id>" label.
         CHECK_EQ(rep.rows, 95);
         CHECK_EQ(rep.shrines, 57);
         CHECK_EQ(rep.named, 95);
@@ -5149,21 +4868,15 @@ namespace
         {
             with_birth += s.has_birth ? 1 : 0;
             // Every real shrine must be usable by the UI: a name, a chapter and a place
-            // on the map. Anything else would draw as an unnamed pin at the origin.
-            //
-            // The name is the one part a DLC shrine cannot get from the game: this
-            // build's `DT_FirePoint` has no DLC rows at all (88 rows, chapters 1-5,
-            // and its name map does not contain `BaiYS01` / `borencl01` /
-            // `LiuHKK01` / `pinmingk01`), so `extract_shrines.py` adds those seven
-            // from the marker DB and their label is the marker's own
-            // "Shrine <fire-point id>". It is still never EMPTY, which is what this
-            // check is really about, so the assertion stands as written.
+            // on the map, or it draws as an unnamed pin at the origin. A DLC shrine's
+            // name comes from the marker DB rather than `DT_FirePoint`, which has no DLC
+            // rows in this build, but it is never EMPTY.
             if (s.shrine && (s.name.empty() || s.chapter < 0 || !s.has_pos))
             {
                 ++bad;
             }
-            // The world is a few hundred thousand uu across (maps.json bounds); a
-            // decode that drifted would produce 1e38 or 1e-317, not a plausible number.
+            // The world is a few hundred thousand uu across (maps.json bounds); a drifted
+            // decode produces 1e38 or 1e-317, not a plausible number.
             if (s.has_birth && !(std::fabs(s.bx) < 1.0e7 && std::fabs(s.by) < 1.0e7 &&
                                  std::fabs(s.bz) < 1.0e7))
             {
@@ -5171,8 +4884,8 @@ namespace
             }
         }
         CHECK_EQ(bad, 0);
-        // 88 `DT_FirePoint` rows carry a `BirthPosition`; the seven DLC shrines come
-        // from the marker DB instead and have no travel destination of their own.
+        // 88 `DT_FirePoint` rows carry a `BirthPosition`; the seven DLC shrines come from
+        // the marker DB and have no travel destination of their own.
         CHECK_EQ(with_birth, 88);
         CHECK_EQ(static_cast<int>(v.size()), 95);
         int dlc = 0;
@@ -5186,7 +4899,7 @@ namespace
             }
         }
         CHECK_EQ(dlc, 7);
-        // The known first row of the table, as a fixed point on the whole decode chain:
+        // The first row of the table, a fixed point on the whole decode chain:
         // row name -> locres key -> English string.
         const int ti = shdb::find_id(v, "temple02");
         CHECK(ti >= 0);
@@ -5196,7 +4909,7 @@ namespace
             CHECK_EQ(v[static_cast<std::size_t>(ti)].chapter, 1);
             CHECK(v[static_cast<std::size_t>(ti)].shrine);
         }
-        // Ids are unique: the runtime joins the save's unlocked list to this table by id
+        // Ids are unique: the runtime joins the save's unlocked list to this table by id,
         // and a duplicate would light the wrong row.
         int dupes = 0;
         for (std::size_t i = 0; i < v.size(); ++i)

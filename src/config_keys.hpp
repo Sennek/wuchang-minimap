@@ -1,49 +1,20 @@
 #pragma once
 
 //
-// config_keys - the canonical list of every key the mod's config files may carry,
-// each tagged with the TIER it belongs to, plus the same line parser the loader
-// uses, as PURE C++.
+// config_keys - every key the config files may carry, tagged with its tier, plus the
+// loader's line parser as pure C++. tests/markers_test.cpp asserts, in both directions,
+// that the tiers match the shipped files under deploy/ue4ss/Mods/WuchangMinimap/ and the
+// `key == "..."` set scraped out of mmstate.cpp, that the tiers are pairwise disjoint,
+// and that no Removed or Legacy key appears in a shipped file.
 //
-// WHY IT EXISTS
-// -------------
-// The config has several independent halves that can drift apart without anyone
-// noticing: the parser in mmstate.cpp (`key == "..."`), the key->value writer in the
-// same file (which is what the F2 panel's Save produces), and the two SHIPPED files
-// under deploy/ue4ss/Mods/WuchangMinimap/. A key added to the struct and the parser
-// but left out of the shipped file is invisible to every player who never presses
-// Save; a key left in a shipped file after being renamed is silently ignored, which
-// reads exactly like the setting not working.
+// Tiers
+//   Player    - shipped config under `; ---- PLAYER SETTINGS ----`, F2 Player tab.
+//   Advanced  - shipped config under `; ---- ADVANCED ----`, F2 Advanced tab.
+//   Dev       - config_wuchang_minimap_dev.txt, not shipped, parsed only when present.
+//   Removed   - hard-coded constant now; recognised only to warn instead of ignoring.
+//   Legacy    - old name for a live key; accepted, warned once, mapped to the new name.
 //
-// So tests/markers_test.cpp asserts, in BOTH directions, that
-//
-//     keys(config_wuchang_minimap.txt)      == { Tier::Player } U { Tier::Advanced }
-//     keys(config_wuchang_minimap_dev.txt)  == { Tier::Dev }
-//     { key == "..." in mmstate.cpp }       == Player U Advanced U Dev U Legacy
-//
-// and that the four tiers are pairwise disjoint, that no Removed or Legacy key appears
-// in either shipped file, and that the shipped file's `; ---- PLAYER SETTINGS ----` /
-// `; ---- ADVANCED ----` banners agree with the Player/Advanced tags below.
-//
-// The parser's set is scraped from the source, which is what makes the table below a
-// description of the parser rather than a second thing to maintain by hand.
-//
-// THE TIERS
-//   Player    - a person tuning the HUD would plausibly change it. Lives in the shipped
-//               config under `; ---- PLAYER SETTINGS ----` and in the F2 Player tab.
-//   Advanced  - correct as shipped; changed to answer a symptom. Shipped config under
-//               `; ---- ADVANCED ----`, F2 Advanced tab.
-//   Dev       - a dial that existed because a developer needed it during bring-up.
-//               Lives in config_wuchang_minimap_dev.txt, which is NOT shipped in the
-//               release zip and is parsed only when it exists.
-//   Removed   - a sanity cap that used to be a key and is now a hard-coded constant. A
-//               wrong value was never a preference, it was a bug report. Recognised
-//               only so that a user's old file gets one warning instead of silence.
-//   Legacy    - an old NAME for a key that still exists. Accepted, warned about once,
-//               and mapped onto the new name.
-//
-// No Windows, no UE4SS, no allocation beyond the strings the caller asks for - the same
-// rule as markers_db / mapview / chapterid.
+// No Windows, no UE4SS, no allocation beyond the strings the caller asks for.
 //
 
 #include <cstddef>
@@ -68,13 +39,10 @@ namespace cfgkeys
         Tier tier;
     };
 
-    // Every key the loader understands or deliberately refuses, in the order the
-    // shipped files list them. Order matters for exactly one test (the banner order in
-    // the shipped file); everything else compares sets.
+    // Every key the loader understands or deliberately refuses, in shipped-file order.
+    // Order matters only for the banner-order test; everything else compares sets.
     inline constexpr KeyInfo kKeys[] = {
-        //------------------------------------------------------------------------------
         // PLAYER
-        //------------------------------------------------------------------------------
         {"mod_enabled", Tier::Player},
         {"overlay_enabled", Tier::Player},
         {"show_minimap", Tier::Player},
@@ -134,9 +102,7 @@ namespace cfgkeys
         {"reload_key", Tier::Player},
         {"screenshot_key", Tier::Player},
 
-        //------------------------------------------------------------------------------
         // ADVANCED
-        //------------------------------------------------------------------------------
         {"require_pawn_view", Tier::Advanced},
         {"state_stale_ms", Tier::Advanced},
         {"min_visible_after_state_ok_ms", Tier::Advanced},
@@ -201,9 +167,7 @@ namespace cfgkeys
         {"ui_font", Tier::Advanced},
         {"zoom_dpi_scaled", Tier::Advanced},
 
-        //------------------------------------------------------------------------------
         // DEV - config_wuchang_minimap_dev.txt, not shipped
-        //------------------------------------------------------------------------------
         {"debug_readout", Tier::Dev},
         {"debug_show_panel_on_start", Tier::Dev},
         {"fallback_use_composite", Tier::Dev},
@@ -229,11 +193,7 @@ namespace cfgkeys
         {"highlight_pov_bad_reads", Tier::Dev},
         {"saveslot_uuid_call", Tier::Dev},
 
-        //------------------------------------------------------------------------------
-        // REMOVED - hard-coded constants since 0.9.2. A wrong value here was never a
-        // preference; it was a bug report. Kept in the table so an old file gets one
-        // warning naming the key instead of the silence an unknown key gets.
-        //------------------------------------------------------------------------------
+        // REMOVED - hard-coded constants; listed so the key gets a named warning
         {"minimap_circle_segments", Tier::Removed},
         {"slice_min_px", Tier::Removed},
         {"slice_max_px", Tier::Removed},
@@ -246,11 +206,9 @@ namespace cfgkeys
         {"markers_class_cache_max", Tier::Removed},
         {"markers_fallback_max_per_class", Tier::Removed},
 
-        //------------------------------------------------------------------------------
-        // LEGACY - old names, still accepted with one warning
-        //------------------------------------------------------------------------------
-        {"recon_dump_key", Tier::Removed}, // the recon dump is a Debug-tab button now
-        {"enabled", Tier::Legacy}, // -> overlay_enabled (0.9.2)
+        // LEGACY - old names, accepted with one warning
+        {"recon_dump_key", Tier::Removed}, // recon dump is a Debug-tab button
+        {"enabled", Tier::Legacy}, // -> overlay_enabled
     };
 
     inline constexpr std::size_t kKeyCount = sizeof(kKeys) / sizeof(kKeys[0]);
@@ -330,23 +288,23 @@ namespace cfgkeys
         return k != nullptr && k->tier == t;
     }
 
-    // "the loader will do something with this key" - Player, Advanced, Dev or Legacy.
-    // A Removed key is deliberately NOT known: it is recognised, warned about, ignored.
+    // The loader acts on this key: Player, Advanced, Dev or Legacy. A Removed key is
+    // deliberately not known - it is recognised, warned about and ignored.
     inline bool is_known(std::string_view key)
     {
         const KeyInfo* k = find(key);
         return k != nullptr && k->tier != Tier::Removed;
     }
 
-    // "this key used to exist and no longer does" - the warning path.
+    // Recognised but no longer honoured - the warning path.
     inline bool is_removed(std::string_view key)
     {
         return tier_is(key, Tier::Removed);
     }
 
-    // The SAME line rules as mmstate.cpp's loader: a UTF-8 BOM is skipped, `;` and `#`
-    // start a comment, the key is everything left of the first `=`, trimmed. Duplicates
-    // are reported once each, in first-seen order.
+    // Same line rules as mmstate.cpp's loader: UTF-8 BOM skipped, `;` and `#` start a
+    // comment, key is everything left of the first `=`, trimmed. Duplicates once each,
+    // in first-seen order.
     inline std::vector<std::string> keys_in(std::string_view text)
     {
         const auto trim = [](std::string_view v) {

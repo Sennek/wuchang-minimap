@@ -1,47 +1,29 @@
 #pragma once
 
 //
-// chapterid - "which chapter is the player in?", as pure string logic.
+// chapterid - "which chapter is the player in?", as pure string logic. Not a bounds
+// test: the five chapters' world extents overlap heavily, so a position alone cannot
+// name one.
 //
-// WHY THIS IS NOT A BOUNDS TEST
-// -----------------------------
-// The five chapters' world extents OVERLAP, heavily. Measured from the cooked
-// navmesh cells (`context/maps-all-chapters.md`):
-//
-//     chapter1  X -20736.. 51456   Y -41216.. 41216
-//     chapter2  X  -4546.. 80316   Y -76906.. 10496
-//     chapter3  X   -256..120446   Y -19226.. 60416
-//     chapter4  X -16696.. 70656   Y -60416.. 33586      <- almost all of chapter1
-//     chapter5  X-190976.. 38246   Y -70656.. 30976
-//
-// So a position alone cannot name a chapter, and the overlay MVP's "first chapter
-// whose bounds contain the player" was only ever right because one chapter shipped.
-//
-// WHAT DOES IDENTIFY IT
-// ---------------------
-// The streamed level set. `context/common.md` (run 3): the whole of a chapter's ART
-// streams in at once, `Chapter<N>_Area` levels of two chapters can be resident
-// simultaneously, and `_Base` / `_Land` names are useless. The one unambiguous signal
-// is the **navmesh/streaming cell packages**
+// The identifying signal is the streamed level set. A chapter's whole art streams in at
+// once and two chapters' `Chapter<N>_Area` levels can be resident together, so `_Base` /
+// `_Land` names are useless; the unambiguous signal is the navmesh/streaming cell
+// packages
 //
 //     /Game/Maps/Generate/Chapter<N>/EX0/B<N>EX0_L0_X<x>_Y<y>_DL0_WP
 //
-// of which only the current chapter's 4-6 are ever loaded, because the streaming
-// window follows the player.
+// of which only the current chapter's 4-6 are loaded, the streaming window following
+// the player.
 //
-// The DLC is the exception and it is a data fact, not an oversight: the paks contain
-// **no `Maps/Generate/ChapterDLC` cells at all** (verified against all three paks -
-// 480 `Generate/` entries, chapters 1-5 only), so a DLC area streams no cell package
-// and there is no cooked navmesh to build a map from either. The DLC's only cooked
-// levels are the 28 `Maps/ChapterDLC_logic/ChapterDLC_*_{logic,AI}.umap`, so those are
-// what names it.
+// The DLC is the exception: the paks carry no `Maps/Generate/ChapterDLC` cells at all
+// (480 `Generate/` entries, chapters 1-5 only), so a DLC area streams no cell package
+// and has no cooked navmesh. Its only cooked levels are the 28
+// `Maps/ChapterDLC_logic/ChapterDLC_*_{logic,AI}.umap`.
 //
-// Hence a TIERED vote rather than a sum: cell packages beat `_logic` levels, and
-// `_logic` levels beat a bare `Chapter<N>` mention. A tier is only consulted when no
-// higher tier saw anything, so one stray Chapter-2 art level cannot outvote the
-// Chapter-1 cells the player is standing on.
+// Hence a tiered vote, not a sum: cell packages beat `_logic` levels, which beat a bare
+// `Chapter<N>` mention, and a tier is consulted only when no higher tier saw anything.
 //
-// Pure: no Windows, no UE4SS, no allocation. tests/markers_test.cpp exercises it.
+// Pure: no Windows, no UE4SS, no allocation.
 //
 
 #include <cstddef>
@@ -52,7 +34,7 @@ namespace chid
 {
     constexpr int kNone = -1;      // nothing recognised
     constexpr int kDlc = 0;        // the DLC, which has no numbered chapter
-    constexpr int kMaxChapter = 9; // chapters are single-digit in every name we parse
+    constexpr int kMaxChapter = 9; // chapters are single-digit in every parsed name
 
     // Signal strength, strongest first. `add()` keeps them in separate buckets.
     constexpr int kTierCell = 3;  // B<N>EX0_L0_X<x>_Y<y>_DL0_WP - the streaming cell
@@ -72,8 +54,8 @@ namespace chid
 
     namespace detail
     {
-        // Case-sensitive ASCII substring search that works for char and wchar_t alike:
-        // every name we parse (level packages, object paths) is ASCII.
+        // Case-sensitive ASCII substring search over char or wchar_t; level packages and
+        // object paths are ASCII.
         template <class CharT>
         inline std::size_t find_ascii(std::basic_string_view<CharT> hay, const char* needle,
                                       std::size_t from = 0)
@@ -108,9 +90,8 @@ namespace chid
             return c >= static_cast<CharT>('0') && c <= static_cast<CharT>('9');
         }
 
-        // Reads the digits at `i` as a chapter number. Returns kNone unless there is
-        // exactly one digit (every chapter in this game is 1..5, and a two-digit run is
-        // far more likely to be an index suffix than a chapter).
+        // The digits at `i` as a chapter number, kNone unless there is exactly one:
+        // chapters are 1..5, and a two-digit run is an index suffix.
         template <class CharT>
         inline int one_digit(std::basic_string_view<CharT> s, std::size_t i)
         {
@@ -139,10 +120,8 @@ namespace chid
             using View = std::basic_string_view<CharT>;
 
             // ---- tier 3: a streaming cell package, `B<N>EX0_L0_X<x>_Y<y>_DL0_WP` ----
-            //
-            // Anchored on "EX0_L0_X" and read BACKWARDS to the 'B', so it matches both
-            // the bare package name and the full object path
-            // `Level /Game/Maps/Generate/Chapter1/EX0/B1EX0_L0_X1_Y0_DL0_WP....`.
+            // Anchored on "EX0_L0_X" and read backwards to the 'B', matching both the
+            // bare package name and the full object path.
             for (std::size_t at = find_ascii(name, "EX0_L0_X"); at != View::npos;
                  at = find_ascii(name, "EX0_L0_X", at + 1))
             {
@@ -193,8 +172,7 @@ namespace chid
     }
 
     // `"chapter3"` -> 3, `"chapterdlc"` -> kDlc, anything else -> kNone. Mirrors
-    // build_map.py's `chapter_number()`; the manifest states the number explicitly and
-    // this is only the fallback for a manifest written before that field existed.
+    // build_map.py's `chapter_number()`; the fallback for a manifest with no number.
     inline int chapter_from_key(std::string_view key)
     {
         int value = kNone;
@@ -259,10 +237,8 @@ namespace chid
             return counts_[tier][chapter + 1];
         }
 
-        // The winner: the chapter with the most hits in the HIGHEST tier that saw
-        // anything at all. A lower tier is never mixed in - one stray Chapter-2 art
-        // level must not outvote the Chapter-1 cells under the player's feet. Ties go
-        // to the lower chapter number so the answer is deterministic.
+        // The chapter with the most hits in the highest tier that saw anything; lower
+        // tiers are never mixed in. Ties go to the lower chapter number.
         int best() const
         {
             for (int tier = kTierCell; tier >= 1; --tier)
@@ -318,8 +294,8 @@ namespace chid
         }
 
       private:
-        // [tier][chapter + 1] - chapter kDlc (0) lives at index 1, so index 0 is unused
-        // and the array never needs a negative index.
+        // [tier][chapter + 1]: kDlc (0) lives at index 1, index 0 is unused, so no
+        // negative index is ever needed.
         int counts_[kTierCell + 1][kMaxChapter + 2]{};
         int seen_ = 0;
         int classified_ = 0;

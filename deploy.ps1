@@ -14,9 +14,8 @@
     exactly what ends up in the game.
 
 .PARAMETER GameRoot
-    The game's install directory (the one containing Project_Plague). Machine-specific:
-    the default is the Steam library on the original dev box. Override with -GameRoot or
-    by setting the WUCHANG_GAME_ROOT environment variable.
+    The game's install directory (the one containing Project_Plague). Machine-specific;
+    override with -GameRoot or the WUCHANG_GAME_ROOT environment variable.
 
 .PARAMETER Force
     Overwrite even if the target dlls folder does not exist yet (it is created either
@@ -100,18 +99,14 @@ foreach ($modDir in $targets) {
     $enabled = Join-Path $modDir 'enabled.txt'
     if (-not (Test-Path $enabled)) { New-Item -ItemType File -Path $enabled | Out-Null }
 
-    # Config files are never overwritten unless -ForceConfig: the user may have turned
-    # the navmesh dumper on for a capture session, or tuned the minimap by hand.
+    # Config files are never overwritten unless -ForceConfig - they are hand-tuned.
     #   config.ini                     - the runtime navmesh dumper (off by default)
     #   config_wuchang_minimap.txt     - the overlay / minimap / full map settings
-    #   config_wuchang_minimap_dev.txt - the developer dials. Installed HERE (this is a
-    #                                    dev deploy) but deliberately NOT part of the
-    #                                    release zip - tools\package.ps1 refuses to ship
-    #                                    it. It is read after the player config and
-    #                                    overrides it.
-    # wuchang_minimap_found.txt (the collection tracker) and
-    # wuchang_minimap_waypoint.txt (the full map waypoint) also live in the mod root and
-    # are the player's own state: never shipped, never touched by a deploy.
+    #   config_wuchang_minimap_dev.txt - developer dials, read after the player config
+    #                                    and overriding it. Installed by this dev deploy;
+    #                                    tools\package.ps1 refuses to ship it.
+    # wuchang_minimap_found.txt (collection tracker) and wuchang_minimap_waypoint.txt
+    # (full map waypoint) are the player's own state: never shipped, never deployed.
     foreach ($cfgName in @('config.ini', 'config_wuchang_minimap.txt', 'config_wuchang_minimap_dev.txt')) {
         $cfgSrc = Join-Path $PSScriptRoot "deploy\ue4ss\Mods\WuchangMinimap\$cfgName"
         $cfgDst = Join-Path $modDir $cfgName
@@ -122,14 +117,14 @@ foreach ($modDir in $targets) {
     }
 
     # The map assets the overlay loads at start-up: maps\maps.json plus
-    # maps\<chapter>\*.png, built by tools\navmesh\build_map.py. Always refreshed -
-    # they are generated, not user-editable.
+    # maps\<chapter>\*.png, built by tools\navmesh\build_map.py. Generated, so always
+    # refreshed.
     if (-not $NoMaps) {
         $mapsSrc = Join-Path $PSScriptRoot 'maps'
         if (Test-Path $mapsSrc) {
             $mapsDst = Join-Path $modDir 'maps'
-            # Wipe first: Copy-Item does not remove files the pipeline stopped
-            # producing, and a stale asset set would be loaded alongside the new one.
+            # Wipe first: Copy-Item leaves files the pipeline stopped producing, and a
+            # stale asset would be loaded alongside the new set.
             if ((Test-Path $mapsDst) -and ($mapsSrc -ne $mapsDst)) {
                 Remove-Item -Recurse -Force $mapsDst
             }
@@ -146,9 +141,8 @@ foreach ($modDir in $targets) {
     }
 
     # The static marker database: markers\<chapter>.json, produced offline by
-    # tools\markers. Generated, so it is wiped and re-copied like maps\ - but
-    # wuchang_minimap_found.txt lives in the mod root, NOT in here, so the player's
-    # collection tracker is never touched by a deploy.
+    # tools\markers. Generated, so wiped and re-copied like maps\. The player's
+    # collection tracker lives in the mod root, not here.
     $markersSrc = Join-Path $PSScriptRoot 'markers'
     if (Test-Path $markersSrc) {
         $markersDst = Join-Path $modDir 'markers'

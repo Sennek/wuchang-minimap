@@ -24,29 +24,13 @@ namespace modswitch
 {
     namespace
     {
-        // How often the loop thread stat()s the config file while the mod is running
-        // AND while it is off. One GetFileAttributesEx of a file that is already in the
-        // OS cache is a few microseconds; the file is only parsed when the timestamp
-        // actually moved.
+        // How often the loop thread stat()s the config file, running or off. The file is
+        // parsed only when the timestamp moved.
         constexpr std::uint64_t kWatchPeriodMs = 1000;
 
         // How long a disable waits for the render thread to tear its own D3D12 objects
-        // down before the hooks come out anyway. At 60 fps a frame is 17 ms; three
-        // seconds is a game that is minimised or paused at a driver level.
+        // down before the hooks come out anyway.
         constexpr std::uint64_t kStopTimeoutMs = 3000;
-
-        // ------------------------------------------------------------------------------
-        // THE BUG-REPORT HEADER
-        // ------------------------------------------------------------------------------
-        //
-        // Six lines at the top of every session, at the NORMAL level, naming everything
-        // that has to be in a bug report and where the three files a player is asked to
-        // attach actually live. Every one of these has cost a round trip at some point:
-        // "which version?", "which game build?", "you have another overlay injected",
-        // "where is the log?".
-        //
-        // Everything here is read ONCE, at startup, from the loaded modules and the OS -
-        // no engine call, no reflection, nothing that can fault.
 
         // A module's FILEVERSION as "a.b.c.d", or an empty string. `nullptr` asks for the
         // running executable, which is how the game's own build is named.
@@ -84,8 +68,8 @@ namespace modswitch
                                HIWORD(info->dwFileVersionLS), LOWORD(info->dwFileVersionLS));
         }
 
-        // The real build number. GetVersionEx lies to a process without a manifest entry
-        // for the running OS; RtlGetVersion does not, and it is one GetProcAddress.
+        // The real build number: GetVersionEx lies to a process without a manifest entry
+        // for the running OS, RtlGetVersion does not.
         std::wstring windows_build()
         {
             using RtlGetVersionFn = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
@@ -135,10 +119,9 @@ namespace modswitch
         };
 
         State g_state = State::Off;
-        // "Disable for this session": the F2 panel's other off switch. It goes through
-        // the SAME three-step stop as mod_enabled = 0, but writes nothing - so the file
-        // still says mod_enabled = 1 and saving it (or any other edit) turns the mod back
-        // on through the mtime watch, with no restart and no file to repair.
+        // "Disable for this session" from the F2 panel: the same three-step stop as
+        // mod_enabled = 0, writing nothing, so the mtime watch turns the mod back on
+        // when the config is next saved.
         std::atomic<bool> g_session_disable{false};
         bool g_ever_started = false;
         std::uint64_t g_last_watch = 0;
@@ -147,12 +130,12 @@ namespace modswitch
 
         void start_subsystems()
         {
-            // ORDER MATTERS and is the same as the original dllmain:
+            // Order matters:
             //   overlay  - config-driven assets + the DX12 hooks (no UObject work);
-            //   markers  - the static DB and the found tracker, read on THIS thread,
+            //   markers  - the static DB and the found tracker, read on this thread,
             //              before anything can pump the live half;
             //   gamestate- registers the ProcessEvent game-thread pump (idempotent);
-            //   navmesh  - opt-in, and it registers its own pump (idempotent).
+            //   navmesh  - opt-in, registers its own pump (idempotent).
             overlay::start();
             markers::on_unreal_init();
             gamestate::on_unreal_init();
@@ -165,8 +148,8 @@ namespace modswitch
             {
                 return;
             }
-            // A flip back on re-reads the WHOLE file: the player has had the mod off,
-            // and whatever else they edited in the meantime is what they meant.
+            // A flip back on re-reads the whole file, picking up every other edit made
+            // while the mod was off.
             mm::load_config_file();
             mm::g_mod_active.store(true, std::memory_order_release);
             g_state = State::Running;
@@ -178,9 +161,8 @@ namespace modswitch
             }
             else
             {
-                // A restart. gamestate / navmesh are already registered and guard
-                // themselves; the overlay re-enables its hooks and the assets are read
-                // again from disk.
+                // gamestate / navmesh are already registered and guard themselves; the
+                // overlay re-enables its hooks and re-reads the assets from disk.
                 overlay::start();
                 markers::reload();
             }
@@ -207,9 +189,8 @@ namespace modswitch
         void finish_disable(bool timed_out)
         {
             overlay::finish_stop(); // step 3a: the hooks come out
-            // Step 3a': persisted state before anything is torn down. The found
-            // tracker's write is debounced by a couple of seconds, so turning the mod
-            // off used to drop the marks made just before the switch was flipped.
+            // The found tracker's write is debounced by a couple of seconds, so it is
+            // flushed before anything is torn down.
             markers::flush_found_tracker();
             mapdata::unload();      // step 3b: the chapter's height planes are freed
             g_state = State::Off;
@@ -226,9 +207,8 @@ namespace modswitch
             mm::drain_log();
         }
 
-        // The 1 Hz watcher. It reads ONLY `mod_enabled`, and only when the file's
-        // timestamp moved - an edit to any other key is picked up by F5 while the mod
-        // runs, and by the full reload a re-enable does.
+        // The 1 Hz watcher. Reads only `mod_enabled`, and only when the file's timestamp
+        // moved; other keys are picked up by F5 or by the full reload a re-enable does.
         void watch(std::uint64_t now)
         {
             if (now - g_last_watch < kWatchPeriodMs)
@@ -245,7 +225,7 @@ namespace modswitch
             bool wanted = mm::config().mod_enabled;
             if (!mm::peek_mod_enabled(wanted))
             {
-                return; // no mod_enabled line (or the file vanished): change nothing
+                return; // no mod_enabled line, or the file vanished
             }
             if (wanted && g_state != State::Running)
             {
@@ -270,13 +250,11 @@ namespace modswitch
         g_config_mtime = mm::config_mtime();
         g_last_watch = ::GetTickCount64();
 
-        // The crash breadcrumb, as early as it can possibly be: it reads what the
-        // PREVIOUS session left behind before overwriting it, and a non-terminal stage
-        // there is the only evidence that survives a process that died with the log
-        // buffer unflushed.
-        // The mod's own rolling log is opened by the first line written; wiring the flush
-        // hook first means every breadcrumb stage from here on also flushes it, so the
-        // two files can never disagree about the last thing that happened.
+        // The crash breadcrumb goes as early as possible: it reads what the previous
+        // session left before overwriting it, and a non-terminal stage there is the only
+        // evidence that survives a process that died with the log buffer unflushed. The
+        // flush hook is wired first so every breadcrumb stage also flushes the log and
+        // the two files cannot disagree.
         crumb::set_flush_hook(&mm::modlog_flush);
         crumb::init(mm::mod_dir().c_str(), mm::config().crash_breadcrumb);
         log_bug_report_header();
@@ -312,12 +290,8 @@ namespace modswitch
     void on_update()
     {
         const std::uint64_t now = ::GetTickCount64();
-        // THE MOD LOG IS FLUSHED WHATEVER STATE THE MOD IS IN. This used to sit at the
-        // bottom of the function, i.e. on the Running path only - so a mod that had been
-        // disabled (or was stopping) never flushed its buffered tail again, and the last
-        // few kilobytes before the disable - the lines that say WHY it was disabled -
-        // were lost if the game was then closed. It is a compare and a return every time
-        // but once per three seconds.
+        // The mod log is flushed in every state, not just Running, so a disabled or
+        // stopping mod still writes its buffered tail.
         mm::modlog_tick(now);
 
         if (g_state == State::Stopping)
@@ -327,14 +301,14 @@ namespace modswitch
             {
                 finish_disable(!done);
             }
-            // Nothing else runs during a stop; the log is drained by finish_disable.
+            // Nothing else runs during a stop.
             mm::drain_log();
             return;
         }
 
         if (g_state == State::Off)
         {
-            // THE ONLY THING A DISABLED MOD DOES.
+            // The only thing a disabled mod does.
             g_session_disable.store(false, std::memory_order_relaxed);
             watch(now);
             mm::drain_log();
@@ -349,12 +323,11 @@ namespace modswitch
             return;
         }
 
-        // Running: the original dllmain body, plus the watcher.
         navmesh::on_update();
         overlay::on_update();
-        // The chapter's map asset is loaded and unloaded here, on the loop thread:
-        // gamestate names the chapter from the game thread with one atomic store, and
-        // mapdata does the (multi-second, allocating) PNG work off it. See mapdata.hpp.
+        // The chapter's map asset is loaded and unloaded on the loop thread: gamestate
+        // names the chapter from the game thread with one atomic store, and mapdata does
+        // the multi-second, allocating PNG work off it.
         mapdata::on_update();
         gamestate::on_update();
         markers::on_update();

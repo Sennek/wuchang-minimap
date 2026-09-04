@@ -18,10 +18,9 @@ namespace mapdata
 {
     namespace
     {
-        // The manifest parse itself lives in mapmanifest.hpp - pure, header-only and
-        // exercised by tests/markers_test.cpp on the build machine. Everything left in
-        // this file is what genuinely needs Windows: the file read, the WIC decode and
-        // the residency state machine.
+        // The manifest parse lives in mapmanifest.hpp - pure, header-only and exercised by
+        // tests/markers_test.cpp. What is left here needs Windows: the file read, the WIC
+        // decode and the residency state machine.
 
         //==============================================================================
         // State
@@ -29,11 +28,10 @@ namespace mapdata
 
         std::atomic<bool> g_loaded{false};
 
-        // Decoded images waiting for the render thread. A chapter now decodes ten
-        // pictures (nine layers plus, optionally, the composite), so this is a queue
-        // rather than a single slot. std::mutex is banned in this mod (lessons.md), so
-        // the critical section - a push_back or a pop_front of a pointer - is guarded
-        // by an atomic_flag spinlock and never does I/O.
+        // Decoded images waiting for the render thread. A chapter decodes ten pictures
+        // (nine layers plus, optionally, the composite). std::mutex is banned in this mod,
+        // so the critical section - one push_back or pop_front of a pointer - is guarded by
+        // an atomic_flag spinlock and never does I/O.
         std::atomic_flag g_pending_lock = ATOMIC_FLAG_INIT;
         std::vector<PendingImage*> g_pending;
 
@@ -77,11 +75,9 @@ namespace mapdata
         }
 
         // Published as an immutable snapshot pointer: the loop thread builds a fresh
-        // vector, then swaps the pointer in. The render thread can therefore read it
-        // with no lock while an F5 reload is rebuilding it. The old vector is leaked on
-        // purpose (a handful of bytes, bounded by the number of reloads) because a
-        // reader may still be walking it - there is no safe point to free it and no
-        // std::mutex allowed in this mod.
+        // vector, then swaps the pointer in, so the render thread reads it with no lock
+        // while an F5 reload rebuilds it. The old vector is leaked on purpose (bounded by
+        // the number of reloads) because a reader may still be walking it.
         std::atomic<const std::vector<Chapter>*> g_chapters{nullptr};
 
         void publish_chapters(std::vector<Chapter>&& list)
@@ -115,16 +111,11 @@ namespace mapdata
         // PNG -> pixels
         //==============================================================================
         //
-        // The WIC decode itself lives in pngdecode.hpp - pure Windows, no UE4SS - so
-        // tests/markers_test.cpp can put a SHIPPED PNG through exactly this path on
-        // the build machine. What is left here is the logging and the timing, which
-        // are the mod's business and not the decoder's.
-        //
-        // It runs on the loop thread, so the decode never stalls Present.
+        // The WIC decode lives in pngdecode.hpp - pure Windows, no UE4SS - so
+        // tests/markers_test.cpp can put a SHIPPED PNG through exactly this path on the
+        // build machine. Runs on the loop thread, so the decode never stalls Present.
 
-        // Returns the wall time the decode took, in ms, or a negative value on
-        // failure - so a caller can log "how long did the map cost" (C.15) without
-        // timing the call itself at every site.
+        // Returns the wall time the decode took, in ms, or a negative value on failure.
         double decode_raw_ms(const std::wstring& path, int channels, int& out_w, int& out_h,
                              std::vector<std::uint8_t>& out_pixels)
         {
@@ -150,14 +141,14 @@ namespace mapdata
         // ONE CHAPTER AT A TIME
         //==============================================================================
         //
-        // All of this is loop-thread state except the two atomics. The published
-        // chapter list is never freed (see publish_chapters), so a render thread that
-        // is holding a `const Chapter*` keeps a valid object across a reload; what it
-        // may find inside it is a null `heights`, which every caller already tests for.
+        // All loop-thread state except the two atomics. The published chapter list is never
+        // freed (see publish_chapters), so a render thread holding a `const Chapter*` keeps
+        // a valid object across a reload; what it may find inside is a null `heights`,
+        // which every caller already tests for.
 
         // Parsed manifest, kept in step (index for index) with the published chapter
         // vector. It carries the per-chapter z_min / z_max and file list that decoding
-        // needs, so `Chapter` does not have to grow fields the render side never reads.
+        // needs.
         mapmanifest::Manifest g_manifest{};
         std::wstring g_maps_dir;
 
@@ -187,8 +178,8 @@ namespace mapdata
             return path;
         }
 
-        // Decodes one chapter's height planes into the sparse block store. Returns
-        // nullptr when nothing usable came back; it logs why.
+        // Decodes one chapter's height planes into the sparse block store. Returns nullptr
+        // when nothing usable came back; it logs why.
         HeightMaps* decode_heights(const Chapter& ch, const mapmanifest::Entry& e)
         {
             auto hm = std::make_unique<HeightMaps>();
@@ -211,11 +202,9 @@ namespace mapdata
                 return nullptr;
             }
 
-            // C.15: the whole decode is ~430 MB of PNG work and nothing measured it,
-            // so "the map takes a while to appear" had no number attached. Every
-            // plane and the composite are timed, and the per-plane line also carries
-            // what the block store allocated for it - which is the only place the
-            // 26 % occupancy is visible on a player's machine.
+            // Every plane and the composite are timed, and the per-plane line carries what
+            // the block store allocated for it - the only place the 26 % occupancy is
+            // visible on a player's machine.
             double total_ms = 0.0;
             std::vector<std::uint8_t> raw;
             for (std::size_t k = 0; k < ch.height_files.size() && k < kMaxSurfaces; ++k)
@@ -284,12 +273,11 @@ namespace mapdata
 
             // SANITY CHECK ON THE BYTE ORDER AND THE QUANTISATION. PNG stores 16-bit
             // samples big-endian; WIC's 16bppGray converter hands them back in native
-            // (little-endian) order, but a decoder that did not would produce codes
-            // that are byte-swapped garbage - and the only symptom would be a map that
-            // looks like noise. Since schema /4 that is a hard test rather than a
-            // plausibility one: the codes only go up to `z_code_max` (4095), and 4095
-            // byte-swapped is 65295, so ONE swapped pixel puts the maximum out of
-            // range. Decode plane 0's actual Z range and lit count and log both.
+            // (little-endian) order, and a decoder that did not would produce byte-swapped
+            // garbage whose only symptom is a map that looks like noise. Codes only go up
+            // to `z_code_max` (4095) and 4095 byte-swapped is 65295, so ONE swapped pixel
+            // puts the maximum out of range. Decode plane 0's Z range and lit count and log
+            // both.
             float lo = hm->z_max;
             float hi = hm->z_min;
             std::size_t lit = 0;
@@ -375,18 +363,16 @@ namespace mapdata
             {
                 return;
             }
-            // Only one retirement can ever be in flight, because a switch never starts
-            // while one is pending. Free defensively in case that changes.
-            // A chapter swap is the longest, largest and rarest thing this mod does -
-            // a ~340 MB free followed by a ~340 MB decode - so it gets its own pair of
-            // breadcrumb stages. A crash reported as "it died on a loading screen" is
-            // then either inside the swap or not, with no guessing.
+            // Only one retirement is ever in flight, because a switch never starts while
+            // one is pending. Free defensively in case that changes.
+            // A chapter swap - a ~340 MB free followed by a ~340 MB decode - gets its own
+            // pair of breadcrumb stages, so a crash on a loading screen is placed.
             crumb::stage(crumb::kChapterSwapStart);
             delete g_retired;
             g_retired = const_cast<HeightMaps*>(planes);
-            // `map_asset_retire_grace_ms` (default kRetireGraceMs), read here rather
-            // than baked in: it is the one number that decides whether a render thread
-            // still inside a slice can be handed freed memory.
+            // `map_asset_retire_grace_ms` (default kRetireGraceMs), read here rather than
+            // baked in: it decides whether a render thread still inside a slice can be
+            // handed freed memory.
             const std::uint64_t grace = static_cast<std::uint64_t>(mm::config().map_asset_retire_grace_ms);
             g_retire_at = now + grace;
             mm::logf(L"maps: chapter \"{}\" unloaded ({} MB freed in {} ms)",
@@ -421,21 +407,18 @@ namespace mapdata
         {
             return;
         }
-        // NOTE there is no "schema mismatch, reading it anyway" branch any more:
-        // mapmanifest::parse() refuses a manifest whose schema is not exactly
-        // kSchema and puts the reason in `problems`, which was logged above. The /3
-        // and /4 height encodings differ by a factor of sixteen in one scale, so
-        // reading the wrong one draws a map that looks empty rather than reporting a
-        // version error - and an asset tree that old cannot be fixed by being
-        // tolerant of it.
+        // There is no "schema mismatch, read it anyway" branch: mapmanifest::parse()
+        // refuses a manifest whose schema is not exactly kSchema. The /3 and /4 height
+        // encodings differ by a factor of sixteen in one scale, so reading the wrong one
+        // draws a map that looks empty rather than reporting a version error.
         if (parsed_manifest.chapters.empty())
         {
             mm::log(L"maps: no usable chapter in the manifest");
             return;
         }
 
-        // An F5 reload publishes a fresh chapter list; the planes hanging off the old
-        // one have to be retired here or they are leaked with it (327 MB a press).
+        // An F5 reload publishes a fresh chapter list; the planes hanging off the old one
+        // are retired here or leaked with it (327 MB a press).
         const std::uint64_t now = ::GetTickCount64();
         retire_active(now);
         pending_clear(); // an F5 reload must not upload the previous composite
@@ -494,9 +477,9 @@ namespace mapdata
         g_chapters_mut = const_cast<std::vector<Chapter>*>(g_chapters.load(std::memory_order_acquire));
         g_loaded = true;
 
-        // Start on the chapter the detection has already named, if it has; otherwise on
-        // the lowest-numbered one, which reproduces the single-chapter build's start-up
-        // (chapter 1 resident at the main menu, so the slicer self-test has an asset).
+        // Start on the chapter the detection has already named, if it has; otherwise on the
+        // lowest-numbered one, so chapter 1 is resident at the main menu and the slicer
+        // self-test has an asset.
         const int detected = g_detected.load(std::memory_order_relaxed);
         const int want = detected == chid::kNone ? -1 : g_manifest.index_of_number(detected);
         g_pending_chapter = want >= 0 ? want : g_manifest.default_index();
@@ -506,16 +489,15 @@ namespace mapdata
                      ? widen(g_manifest.chapters[static_cast<std::size_t>(g_pending_chapter)].key)
                      : std::wstring{L"(none)"});
 
-        // Decode it now rather than on the next tick, so a cold start (and F5) behaves
-        // exactly as the single-chapter build did: when load() returns, the map is there.
+        // Decode now rather than on the next tick, so the map is there when load() returns.
         on_update();
     }
 
     void unload()
     {
-        // LOOP THREAD, master switch only, and only AFTER overlay::stop_complete():
-        // with the render side torn down nobody can be inside a height slice, so the
-        // planes are freed here and now rather than through the kRetireGraceMs path.
+        // LOOP THREAD, master switch only, and only AFTER overlay::stop_complete(): with
+        // the render side torn down nobody can be inside a height slice, so the planes are
+        // freed here and now rather than through the kRetireGraceMs path.
         const std::uint64_t now = ::GetTickCount64();
         retire_active(now);
         delete g_retired;
@@ -523,8 +505,8 @@ namespace mapdata
         g_retire_at = 0;
         g_pending_chapter = -1;
         pending_clear();
-        // Nothing is detected while the mod is off, and the next enable must log the
-        // chapter again rather than assume the player never moved.
+        // Nothing is detected while the mod is off; the next enable logs the chapter
+        // again rather than assuming the player never moved.
         g_detected.store(chid::kNone, std::memory_order_relaxed);
         g_last_logged = chid::kNone - 1;
     }
@@ -585,10 +567,10 @@ namespace mapdata
             const int active = g_active.load(std::memory_order_acquire);
             if (want != active)
             {
-                // want < 0 means "this chapter has no map asset" - the DLC, whose
-                // navmesh the paks do not carry at all. Unloading is the RIGHT answer
-                // there: the chapters' world bounds overlap, so keeping the old one
-                // resident would draw chapter 3's geometry under a DLC player.
+                // want < 0 means "this chapter has no map asset" - the DLC, whose navmesh
+                // the paks do not carry. Unloading is right: the chapters' world bounds
+                // overlap, so keeping the old one resident would draw chapter 3's geometry
+                // under a DLC player.
                 const std::wstring from =
                     active >= 0 ? widen((*g_chapters_mut)[static_cast<std::size_t>(active)].key)
                                 : std::wstring{L"(none)"};
@@ -612,11 +594,8 @@ namespace mapdata
         g_pending_chapter = -1;
         Chapter& ch = (*g_chapters_mut)[static_cast<std::size_t>(index)];
         const mapmanifest::Entry& entry = g_manifest.chapters[static_cast<std::size_t>(index)];
-        // C.15: the load is the largest and slowest thing this mod does and nothing
-        // measured it, so "the map took a while to come back after a loading screen"
-        // arrived with no number attached. Every plane is timed inside
-        // decode_heights(); this is the wall clock for the whole chapter, composite
-        // included, logged once at normal level.
+        // Wall clock for the whole chapter, composite included. Individual planes are
+        // timed inside decode_heights().
         const std::uint64_t load_t0 = ::GetTickCount64();
         HeightMaps* planes = decode_heights(ch, entry);
         ch.heights = planes;
@@ -624,9 +603,8 @@ namespace mapdata
         crumb::stage(crumb::kChapterSwapEnd);
 
         // The composite is only the no-height-map fallback and it is off by default
-        // (`fallback_use_composite = 0`). Note it IS re-decoded on a chapter switch, but
-        // the upload still happens inside overlay.cpp's own frame path - this side only
-        // queues the pixels.
+        // (`fallback_use_composite = 0`). It IS re-decoded on a chapter switch; the upload
+        // happens in overlay.cpp's frame path, this side only queues the pixels.
         if (mm::config().fallback_use_composite || planes == nullptr)
         {
             auto img = std::make_unique<PendingImage>();
@@ -703,18 +681,16 @@ namespace mapdata
     const Chapter* chapter_ptr_for(double wx, double wy)
     {
         // Safe to hand out a pointer: the published vector is never freed (see
-        // publish_chapters), precisely so a reader can keep using it across a reload.
+        // publish_chapters), so a reader can keep using it across a reload.
         const std::vector<Chapter>* list = g_chapters.load(std::memory_order_acquire);
         if (list == nullptr)
         {
             return nullptr;
         }
 
-        // A chapter is resident: it is the only possible answer. The five chapters'
-        // world bounds overlap (chapter 4 covers nearly all of chapter 1), so a bounds
-        // scan here would hand back a different chapter's map the moment the player
-        // stepped into an overlap - which is the bug this whole mechanism exists to
-        // remove.
+        // A chapter is resident: it is the only possible answer. The five chapters' world
+        // bounds overlap (chapter 4 covers nearly all of chapter 1), so a bounds scan would
+        // hand back a different chapter's map inside an overlap.
         const int active = g_active.load(std::memory_order_acquire);
         if (active >= 0 && active < static_cast<int>(list->size()))
         {
@@ -722,8 +698,8 @@ namespace mapdata
             return ch.contains(wx, wy) ? &ch : nullptr;
         }
 
-        // Nothing resident yet (main menu, or the detection has not landed): the old
-        // behaviour, preferring a chapter that actually has planes decoded.
+        // Nothing resident yet (main menu, or the detection has not landed): prefer a
+        // chapter that actually has planes decoded.
         for (const Chapter& ch : *list)
         {
             if (ch.has_heights() && ch.contains(wx, wy))

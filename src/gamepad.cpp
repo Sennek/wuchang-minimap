@@ -9,8 +9,7 @@ namespace pad
 {
     namespace
     {
-        // Declared here rather than pulled from <Xinput.h>: the layout is fixed ABI and
-        // this way the mod neither links nor needs the SDK header.
+        // Fixed ABI, redeclared so the mod neither links nor needs the XInput SDK.
         struct XiGamepad
         {
             WORD wButtons;
@@ -40,9 +39,8 @@ namespace pad
         std::uint64_t g_next_probe_ms = 0; // when a disconnected slot may be re-probed
         std::uint16_t g_prev_held = 0;
 
-        // Published to every other thread. Individually lock-free: a torn read across
-        // two axes is one frame of a slightly wrong pan vector, which is invisible -
-        // and it costs no lock inside Present.
+        // Published to every other thread, individually lock-free: a torn read across
+        // two axes costs one frame of a slightly wrong pan vector.
         std::atomic<bool> g_connected{false};
         std::atomic<float> g_lx{0.0f};
         std::atomic<float> g_ly{0.0f};
@@ -86,9 +84,8 @@ namespace pad
             return false;
         }
 
-        // Radial deadzone: the magnitude is what is tested and what is rescaled, so a
-        // diagonal push is not clipped to a square and a stick just past the deadzone
-        // starts from 0 instead of jumping to `deadzone`.
+        // Radial deadzone: magnitude is tested and rescaled, so a diagonal push is not
+        // clipped to a square and a stick just past the deadzone starts from 0.
         void apply_deadzone(float x, float y, float dz, float& ox, float& oy)
         {
             const float mag = std::sqrt(x * x + y * y);
@@ -159,8 +156,7 @@ namespace pad
         }
         if (slot < 0)
         {
-            // Probing every slot costs real time when nothing is plugged in, so it only
-            // happens once a second.
+            // Probing every slot is expensive with nothing plugged in: once a second.
             if (now < g_next_probe_ms)
             {
                 publish_off();
@@ -175,14 +171,8 @@ namespace pad
                     g_slot = i;
                     st = probe;
                     rc = ERROR_SUCCESS;
-                    // A FRESH SLOT STARTS FROM WHAT IT IS HOLDING, not from zero.
-                    // `publish_off` leaves g_prev_held at 0, so every button that
-                    // happened to be down at the moment a pad was plugged in (or at the
-                    // moment the mod started polling) used to arrive as a rising EDGE -
-                    // a phantom press that could set a waypoint or close the map on the
-                    // first frame after a hot-plug. Seeding the previous mask with the
-                    // current one means the first real transition is the first edge, and
-                    // the accumulator is emptied for the same reason.
+                    // A fresh slot starts from what it is holding, not from zero:
+                    // otherwise buttons already down at hot-plug arrive as rising edges.
                     g_prev_held = probe.Gamepad.wButtons;
                     g_pressed.store(0, std::memory_order_release);
                     break;

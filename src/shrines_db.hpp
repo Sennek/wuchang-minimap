@@ -1,25 +1,19 @@
 #pragma once
 
 //
-// shrines_db - the PURE parser for `markers/shrines.json`.
+// shrines_db - the pure parser for `markers/shrines.json`, produced by
+// tools/markers/extract_shrines.py from the game's `DT_FirePoint` DataTable. Per row:
 //
-// The file is produced by tools/markers/extract_shrines.py out of the game's own
-// `DT_FirePoint` DataTable (see that script's header for how it is read without a
-// `.usmap`). It carries, per row:
-//
-//   id       the game's shrine id - the same string the marker DB uses as a marker id
-//            and the same string `RebornManagerComponent_C::UnlockedFirepoints` holds,
-//            so it is the join key for everything;
-//   name     the localised display name from MMGame.locres ("Reverent Temple");
+//   id       the game's shrine id - also the marker DB's marker id and the string in
+//            `RebornManagerComponent_C::UnlockedFirepoints`, so it is the join key;
+//   name     localised display name from MMGame.locres ("Reverent Temple");
 //   chapter  1..5, or 0 for the DLC bucket;
-//   x/y/z    the shrine ACTOR's world position, joined from the marker DB - what the
-//            map draws and what a distance is measured to;
+//   x/y/z    the shrine ACTOR's world position, joined from the marker DB;
 //   bx/by/bz `BirthPosition`, the game's own travel destination for that id;
-//   shrine   false for the `bossdoor_*` / `Task*` pseudo-rows, which live in the same
-//            table and in the same unlocked list but are not places to travel to.
+//   shrine   false for the `bossdoor_*` / `Task*` pseudo-rows, which share the table and
+//            the unlocked list but are not places to travel to.
 //
-// Same split as markers_db / mapview / chapterid: no Windows, no UE4SS, no ImGui, so
-// tests/markers_test.cpp parses the shipped file on the build machine.
+// No Windows, no UE4SS, no ImGui, so tests parse the shipped file on the build machine.
 //
 
 #include <cstddef>
@@ -33,8 +27,8 @@ namespace shdb
 {
     inline constexpr const char* kSchema = "wuchang-minimap-shrines/1";
 
-    // The longest shrine id in the table is 23 chars (`Task_Special_Level_Back`);
-    // 40 is what the runtime's fixed-size copies use.
+    // Longest id in the table is 23 chars (`Task_Special_Level_Back`); the runtime's
+    // fixed-size copies use 40.
     inline constexpr std::size_t kMaxIdLen = 40;
 
     struct Shrine
@@ -52,8 +46,7 @@ namespace shdb
         double by = 0.0;
         double bz = 0.0;
 
-        // What the UI shows. An id is a poor label but it is never empty, and a shrine
-        // with no name is still a shrine the player can walk to.
+        // An id is a poor label but it is never empty.
         const std::string& label() const
         {
             return name.empty() ? id : name;
@@ -68,10 +61,8 @@ namespace shdb
         int named = 0;
     };
 
-    // Replaces `out`. Returns false with `rep.error` set on anything it will not accept:
-    // a wrong schema, a missing `shrines` array, or an entry with no `id`. A single bad
-    // ENTRY is skipped and counted, not fatal - the file is a generated artefact in the
-    // player's game folder and one hand-edited line must not cost them the whole list.
+    // Replaces `out`. Returns false with `rep.error` set on a wrong schema, a missing
+    // `shrines` array, or a non-object root. A single bad ENTRY is skipped, not fatal.
     inline bool parse(std::string_view text, std::vector<Shrine>& out, Report& rep)
     {
         out.clear();
@@ -150,9 +141,8 @@ namespace shdb
         return true;
     }
 
-    // Index of the entry with this id, or -1. Case-insensitive on ASCII: the save's
-    // ids and the DataTable's row names come from two different extraction paths and
-    // the game itself is inconsistent (`Task1` next to `digong01`).
+    // Index of the entry with this id, or -1. Case-insensitive on ASCII: the game is
+    // inconsistent (`Task1` next to `digong01`).
     inline int find_id(const std::vector<Shrine>& list, std::string_view id)
     {
         const auto lower = [](char c) {
@@ -179,8 +169,7 @@ namespace shdb
     }
 
     // Is this id a real shrine rather than a `bossdoor_*` / `Task*` pseudo-point?
-    // An id the table does not know at all counts as NOT a shrine, so a new patch
-    // adding a pseudo-point cannot silently be reported as a lit shrine.
+    // An unknown id counts as NOT a shrine.
     inline bool is_shrine_id(const std::vector<Shrine>* list, std::string_view id)
     {
         if (list == nullptr)

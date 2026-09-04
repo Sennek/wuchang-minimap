@@ -22,17 +22,15 @@ namespace mdb
             "Notes",   "Doors",  "Ladders", "Lifts",  "Fog gates", "Traps", "Other",
         };
 
-        // The last-resort SINGULAR word for one marker, used when nothing better is
-        // known. `cat_label` is the plural filter title ("Chests") and reads wrong on a
-        // single glyph; "Marker" is deliberately vague for `other`, because that bucket
-        // holds whatever the classifier could not place.
+        // The last-resort SINGULAR word for one marker. `cat_label` is the plural filter
+        // title ("Chests") and reads wrong on a single glyph; "Marker" is vague for
+        // `other`, the bucket the classifier could not place.
         constexpr const char* kCatWords[kCatCount] = {
             "Shrine", "Chest", "Item",  "Boss", "Elite",     "Enemy",  "NPC",
             "Note",   "Door",  "Ladder", "Lift", "Fog gate", "Hidden item", "Marker",
         };
 
-        // Renamed categories: {what an older file says, what it means now}. Kept for
-        // one release, so a 0.9.4 config or a stale `markers/` folder still parses.
+        // Renamed categories: {what an older file says, what it means now}.
         struct LegacyCatName
         {
             const char* name;
@@ -125,10 +123,9 @@ namespace mdb
         {
             return true;
         }
-        // And the third shape, which is ours: `pickup_actor` - the snake_case
-        // transliteration an older label path produced from a class name. Anything with
-        // no space and an underscore, all lower case, is not a display name in this game
-        // (every real one is either English prose or a proper noun).
+        // The third shape: `pickup_actor` - a snake_case transliteration of a class name.
+        // Anything with no space and an underscore, all lower case, is not a display name
+        // in this game (every real one is English prose or a proper noun).
         bool has_underscore = false;
         bool has_space = false;
         bool has_upper = false;
@@ -223,8 +220,8 @@ namespace mdb
             }
             else if (cat_from_legacy_name(token, cat))
             {
-                // A renamed category still selects its slot - the setting the player
-                // made is honoured - and is reported so the caller can say so once.
+                // A renamed category still selects its slot, and is reported so the caller
+                // can say so once.
                 mask |= cat_bit(cat);
                 any = true;
                 if (legacy != nullptr)
@@ -435,10 +432,9 @@ namespace mdb
 
         const mjson::JValue* schema = root.find("schema");
         report.schema = schema != nullptr ? schema->string_or("") : "";
-        // Accept any MINOR of major 1 - "…/1", "…/1.2" - and refuse everything else
-        // rather than guess at a layout we have never seen. A plain prefix compare is
-        // not that test: it also accepted "…/10", i.e. a future major with a different
-        // layout, which would have been parsed as if it were this one.
+        // Accept any MINOR of major 1 - "…/1", "…/1.2" - and refuse everything else. A
+        // plain prefix compare is not that test: it also accepts "…/10", a future major
+        // with a different layout.
         constexpr std::string_view kWant = "wuchang-minimap-markers/1";
         const bool major_1 = report.schema.compare(0, kWant.size(), kWant) == 0 &&
                              (report.schema.size() == kWant.size() || report.schema[kWant.size()] == '.');
@@ -510,8 +506,8 @@ namespace mdb
             const std::string cat_text = str("cat");
             if (!cat_from_name(cat_text, m.cat))
             {
-                // A manifest written by an older release: accept the old spelling for
-                // one release rather than dumping 76 markers into `other`.
+                // Accept the old spelling for one release rather than dumping 76 markers
+                // into `other`.
                 if (cat_from_legacy_name(cat_text, m.cat))
                 {
                     ++report.legacy_cat;
@@ -523,19 +519,16 @@ namespace mdb
                 }
             }
 
-            // Item quality tier. Optional and additive: extract_markers.py omits it when
-            // it is 0, so a file written before rarity existed reads as all-Common.
+            // Item quality tier. Optional: extract_markers.py omits it when it is 0.
             const mjson::JValue* rv = entry.find("rarity");
             m.rarity = static_cast<std::uint8_t>(
                 rv != nullptr ? rarity_clamp(static_cast<int>(rv->number_or(0.0))) : 0);
 
-            // The boss' save-backed defeat signal. Additive and optional: a manifest
-            // built before build_bossdoors.py existed simply has no boss doors, and the
-            // rule then reads exactly as it did before.
+            // The boss' save-backed defeat signal. Optional: a manifest built without
+            // build_bossdoors.py has no boss doors.
             m.bossdoor = str("bossdoor");
 
-            // A per-marker "chapter" overrides the file's, so one file could in
-            // principle carry several chapters.
+            // A per-marker "chapter" overrides the file's, so one file can carry several.
             const mjson::JValue* mc = entry.find("chapter");
             m.chapter = mc != nullptr ? static_cast<int>(mc->number_or(report.chapter)) : report.chapter;
 
@@ -639,7 +632,7 @@ namespace mdb
         const mjson::JValue* schema = root.find("schema");
         const std::string schema_str = schema != nullptr ? schema->string_or("") : "";
         // Any minor of the item database: this reader only wants {id -> name}, which
-        // schema /1 and /2 both carry (/2 added the type and quality fields).
+        // schema /1 and /2 both carry.
         constexpr std::string_view kWant = "wuchang-minimap-items/";
         if (schema_str.compare(0, kWant.size(), kWant) != 0)
         {
@@ -653,8 +646,7 @@ namespace mdb
             return false;
         }
         // The keys are the numeric item ids, as strings, exactly as the game's own
-        // DataTable row FNames are (they are numbers, which is why the row list was
-        // readable without a .usmap in the first place).
+        // DataTable row FNames are.
         for (const auto& kv : *items->obj)
         {
             if (kv.first.empty())

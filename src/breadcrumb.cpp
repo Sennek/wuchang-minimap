@@ -1,7 +1,3 @@
-//
-// breadcrumb - see breadcrumb.hpp. Everything in here is deliberately primitive.
-//
-
 #include "breadcrumb.hpp"
 
 #include <Windows.h>
@@ -26,8 +22,7 @@ namespace crumb
         void (*g_flush_hook)() = nullptr;
         LONG g_closing_written = 0; // interlocked: mark_closing() writes exactly once
 
-        // strlen without <string>, so this file can stay free of anything that reaches
-        // into the host CRT beyond the flat Win32 API.
+        // strlen without <string>: this file stays on the flat Win32 API only.
         std::size_t len(const char* s)
         {
             std::size_t n = 0;
@@ -81,8 +76,7 @@ namespace crumb
             if (::ReadFile(h, buf, sizeof(buf) - 1, &read, nullptr) != 0 && read > 0)
             {
                 buf[read] = '\0';
-                // The stage name is everything up to the first tab - the rest of the line
-                // is the timestamp and the thread id.
+                // The stage name runs up to the first tab.
                 std::size_t n = 0;
                 while (n + 1 < sizeof(g_previous) && buf[n] != '\0' && buf[n] != '\t' && buf[n] != '\r' &&
                        buf[n] != '\n')
@@ -131,8 +125,7 @@ namespace crumb
         {
             return;
         }
-        // The in-memory copy is kept even when the FILE is switched off, so the F2 Debug
-        // tab can still say where the overlay is.
+        // The in-memory copy is kept even when the file is off, for the F2 Debug tab.
         std::size_t at = 0;
         g_current[0] = '\0';
         append(g_current, sizeof(g_current), at, name);
@@ -158,9 +151,8 @@ namespace crumb
         append_u32(line, sizeof(line), n, ::GetCurrentThreadId(), 1);
         append(line, sizeof(line), n, "\r\n");
 
-        // CREATE_ALWAYS: the file is one line and is rewritten, never appended to - a
-        // growing log is what UE4SS's own log is for. FILE_FLAG_WRITE_THROUGH plus the
-        // close is what makes the content survive a process that dies immediately after.
+        // CREATE_ALWAYS: one line, rewritten. WRITE_THROUGH + close makes the content
+        // survive a process that dies immediately after.
         const HANDLE h = ::CreateFileW(g_path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
                                        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
         if (h == INVALID_HANDLE_VALUE)
@@ -172,8 +164,7 @@ namespace crumb
         ::FlushFileBuffers(h);
         ::CloseHandle(h);
 
-        // And flush the mod's own rolling log in the same breath: a stage transition is
-        // exactly the moment its buffered tail is worth having on disk.
+        // A stage transition is when the rolling log's buffered tail is worth flushing.
         if (g_flush_hook != nullptr)
         {
             g_flush_hook();

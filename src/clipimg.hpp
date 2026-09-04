@@ -1,19 +1,11 @@
 #pragma once
 
 //
-// clipimg - the PURE half of "copy the map to the clipboard": back-buffer pixel
+// clipimg - the pure half of "copy the map to the clipboard": back-buffer pixel
 // formats in, a CF_DIB payload out.
 //
-// WHY IT IS ITS OWN HEADER
-// ------------------------
-// The interesting part of a screenshot feature is not the D3D12 readback (which is
-// ~40 lines of barrier + CopyTextureRegion) but the two things that are silently wrong
-// if they are wrong: the pixel unpack, and the DIB layout. Wuchang's back buffer is
-// `R10G10B10A2_UNORM` (HDR10 - lessons.md), not the `R8G8B8A8` every screenshot example
-// assumes, so a naive `memcpy` produces a picture with the channels shifted and a
-// two-bit alpha; and a DIB with the wrong row order or the wrong header size pastes
-// upside down or not at all. Both are pure functions of bytes, so both are tested
-// offline instead of by pasting into Paint after a play session.
+// Wuchang's back buffer is `R10G10B10A2_UNORM` (HDR10), not the `R8G8B8A8` every
+// screenshot example assumes.
 //
 // No Windows, no D3D12, no allocation beyond the output vector.
 //
@@ -25,12 +17,11 @@
 
 namespace clipimg
 {
-    // Only the formats this game's swapchain can actually present. Anything else is
-    // refused with a named reason rather than guessed at.
+    // The formats this game's swapchain can present. Anything else is refused.
     enum class Fmt
     {
         Unknown = 0,
-        R10G10B10A2,   // DXGI_FORMAT_R10G10B10A2_UNORM = 24  (Wuchang's real back buffer)
+        R10G10B10A2,   // DXGI_FORMAT_R10G10B10A2_UNORM = 24  (Wuchang's back buffer)
         R8G8B8A8,      // 28 (_UNORM) / 29 (_UNORM_SRGB)
         B8G8R8A8,      // 87 (_UNORM) / 91 (_UNORM_SRGB)
     };
@@ -68,26 +59,22 @@ namespace clipimg
         }
     }
 
-    // Every supported format is 4 bytes per pixel; kept as a function so a 16-bit
-    // float back buffer (which would need tone mapping, not unpacking) cannot be added
-    // by accident.
+    // Every supported format is 4 bytes per pixel. A function, so a 16-bit float back
+    // buffer (which needs tone mapping, not unpacking) cannot slip in.
     inline int bytes_per_pixel(Fmt f)
     {
         return f == Fmt::Unknown ? 0 : 4;
     }
 
-    // 10-bit channel -> 8-bit, rounded rather than shifted: `v >> 2` loses a quarter of
-    // a level at the top and makes white 252, which is visible as a grey cast on a
-    // screenshot of a white UI.
+    // 10-bit channel -> 8-bit, rounded not shifted: `v >> 2` makes white 252, a visible
+    // grey cast.
     inline std::uint8_t from10(std::uint32_t v)
     {
         return static_cast<std::uint8_t>((v * 255u + 511u) / 1023u);
     }
 
-    // Unpacks `px` pixels into BGRA8 (the byte order a Windows 32bpp DIB wants: blue
-    // first, then green, red, alpha). Alpha is forced OPAQUE: the back buffer's alpha
-    // is whatever the game left there (2 bits of it, in the HDR10 case) and a
-    // half-transparent screenshot is never what was asked for.
+    // Unpacks `px` pixels into BGRA8, the byte order a Windows 32bpp DIB wants. Alpha is
+    // forced opaque; the back buffer's alpha is whatever the game left there.
     inline bool unpack_row(Fmt f, const std::uint8_t* src, std::uint8_t* dst_bgra, int px)
     {
         if (src == nullptr || dst_bgra == nullptr || px <= 0)
@@ -137,12 +124,10 @@ namespace clipimg
     //==================================================================================
     //
     // A clipboard DIB is a BITMAPINFOHEADER immediately followed by the pixels - no
-    // BITMAPFILEHEADER (that is only for a .bmp on disk, and including it is the classic
-    // way to get a clipboard image that nothing can paste).
+    // BITMAPFILEHEADER, which belongs only to a .bmp on disk.
     //
-    // 32 bpp / BI_RGB, and BOTTOM-UP with a positive height. A negative height (top-down)
-    // is legal in the DIB format and is mishandled by enough applications that it is not
-    // worth the saved memcpy; rows are reversed on the way in instead.
+    // 32 bpp / BI_RGB, bottom-up with a positive height. Top-down (negative height) is
+    // legal but mishandled by enough applications that rows are reversed on the way in.
 
     inline constexpr std::size_t kHeaderSize = 40; // sizeof(BITMAPINFOHEADER)
 
@@ -171,8 +156,8 @@ namespace clipimg
         return static_cast<std::int32_t>(get_u32(p));
     }
 
-    // `bgra` is `h` rows of `w` BGRA pixels, TOP-DOWN, `src_pitch` bytes apart (a D3D12
-    // readback footprint pitch is 256-aligned, so it is never simply w*4).
+    // `bgra` is `h` rows of `w` BGRA pixels, top-down, `src_pitch` bytes apart. A D3D12
+    // readback footprint pitch is 256-aligned, so it is never simply w*4.
     inline bool build_dib(int w, int h, const std::uint8_t* bgra, std::size_t src_pitch,
                           std::vector<std::uint8_t>& out)
     {
@@ -186,10 +171,9 @@ namespace clipimg
         {
             return false;
         }
-        // 4 bytes per pixel means every row is already DWORD-aligned, so there is no
-        // padding to add - which is the only reason 32 bpp is worth the memory here.
+        // 4 bytes per pixel: every row is already DWORD-aligned, no padding to add.
         const std::size_t pixels = row * static_cast<std::size_t>(h);
-        // ~500 MB would be a 11000x11000 map; refuse rather than try.
+        // ~500 MB, about an 11000x11000 map.
         if (pixels > (512u << 20))
         {
             return false;

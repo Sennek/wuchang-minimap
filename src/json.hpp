@@ -1,18 +1,12 @@
 #pragma once
 
 //
-// json.hpp - the mod's one JSON reader.
+// json.hpp - the mod's one JSON reader: a minimal recursive-descent parser over
+// numbers, strings, bools, null, arrays and objects, with a depth cap. The manifests it
+// reads sit in the user's game folder as hand-editable text.
 //
-// Both manifests the mod loads are produced offline by our own Python tools
-// (`maps/maps.json` from tools/navmesh/build_map.py, `markers/<chapter>.json` from
-// tools/markers) but they live in the user's game folder as plain text, so they still
-// have to survive being hand-edited into nonsense. This is therefore a complete (if
-// minimal) recursive-descent parser rather than a pattern match: numbers, strings,
-// bools, null, arrays and objects, with a depth cap.
-//
-// It was extracted verbatim from mapdata.cpp when markers.cpp needed the same thing;
-// it is header-only and has no dependency on Windows, on UE4SS or on mm::log, which is
-// what lets the offline test target (tests/markers_test.cpp) link it.
+// Header-only, with no dependency on Windows, UE4SS or mm::log, so the offline test
+// target links it.
 //
 
 #include <cstdlib>
@@ -163,7 +157,7 @@ class JParser
                     out.push_back('\r');
                     break;
                 case 'u':
-                    // Not needed for this manifest; skip the code point.
+                    // The code point is skipped, not decoded.
                     p_ += 4;
                     out.push_back('?');
                     break;

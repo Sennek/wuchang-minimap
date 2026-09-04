@@ -31,11 +31,8 @@ namespace recon
         std::atomic<bool> g_requested{false};
         std::atomic<bool> g_ready{false};
 
-        //==============================================================================
-        // The gathering side (game thread). Everything appends to a local vector; no
-        // logging, no file access, no formatting that touches the C++ locale.
-        //==============================================================================
-
+        // Gathering side (game thread): appends to a local vector only - no logging, no
+        // file access, no locale-touching formatting.
         struct Out
         {
             std::vector<std::string> lines;
@@ -72,8 +69,8 @@ namespace recon
             return uer::narrow_ascii(static_cast<UObject*>(cls)->GetName());
         }
 
-        // The whole point of item 3: the reflected parameter list, printed even when the
-        // function does not exist (so a wrong name is distinguishable from a wrong shape).
+        // Prints the reflected parameter list, and a distinct line when the function
+        // does not exist, so a wrong name reads differently from a wrong shape.
         void dump_function(Out& o, uer::FuncCache& funcs, UObject* obj, const char* obj_label,
                            const wchar_t* fname)
         {
@@ -114,8 +111,7 @@ namespace recon
             return nullptr;
         }
 
-        // Every property of a class chain, with offset and size. This is what turns "the
-        // name I guessed is not there" into "here is what IS there".
+        // Every property of a class chain, with offset and size.
         void dump_properties(Out& o, uer::LayoutCache& layouts, UObject* obj, const char* label)
         {
             const uer::ClassLayout* layout = layouts.get(obj);
@@ -200,8 +196,8 @@ namespace recon
             }
             if (gm == nullptr)
             {
-                // The research saw DCSGameMode_Net_C in a world dump; try it by name so
-                // the rest of the dump still happens when the world read fails.
+                // By class name, so the rest of the dump still happens when the world
+                // read fails.
                 for (const wchar_t* cls : {L"DCSGameMode_Net_C", L"DCSGameMode_C", L"GameModeBase"})
                 {
                     gm = find_first(cls);
@@ -220,8 +216,8 @@ namespace recon
             else
             {
                 const uer::ClassLayout* gl = layouts.get(gm);
-                // AActor's component lists. Both are UPROPERTYs, so this is a raw read of
-                // a TArray<UActorComponent*>.
+                // AActor's component lists: both UPROPERTYs, raw-read as
+                // TArray<UActorComponent*>.
                 for (const wchar_t* prop : {L"BlueprintCreatedComponents", L"InstanceComponents"})
                 {
                     const uer::Prop* p = uer::find_prop(gl, prop);
@@ -292,7 +288,7 @@ namespace recon
             o.add("");
 
             //--------------------------------------------------------------------------
-            // 3. the function signatures - the thing offline work cannot get
+            // 3. the function signatures
             //--------------------------------------------------------------------------
             o.add("[3] REFLECTED FUNCTION SIGNATURES (name@offset/size per parameter)");
             UObject* saver = find_first(L"GameSaveExecutor");

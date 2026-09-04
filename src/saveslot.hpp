@@ -1,48 +1,30 @@
 #pragma once
 
 //
-// saveslot - "which save game is this?", so the collection tracker can be per-slot.
+// saveslot - "which save game is this?", so the collection tracker is per-slot: one key
+// per save, one file per key (`wuchang_minimap_found_<key>.txt`).
 //
-// WHY
-// ---
-// `wuchang_minimap_found.txt` was global, so starting a second character inherited the
-// first one's collection and every marker was already grey. The fix is one key per save
-// and one file per key: `wuchang_minimap_found_<key>.txt`.
-//
-// THE KEY, AND THE LADDER THAT PRODUCES IT
-// ----------------------------------------
-// `context/saveslot-and-teleport-research.md` established (from the save file itself)
-// that the save is NOT a UGameplayStatics SaveGame - it is the native `GameSaverNative`
-// plugin writing
+// The save is written by the native `GameSaverNative` plugin, not UGameplayStatics, to
 //
 //     %LOCALAPPDATA%\Project_Plague\Saved\<SteamAccountID>\GameSlots\<slot>\<slot>.sav
 //
-// and that the per-save identity inside it is `datasummery.uuid` (32 hex chars). Three
-// routes can produce a key, tried in this order and each one LOGGED with the route that
-// answered - a silent fallback is what makes a wrong found file impossible to diagnose:
+// and the per-save identity inside it is `datasummery.uuid` (32 hex chars). Four routes,
+// tried in order, each logging the answer:
 //
-//   1. `uuid`   - the game's own KV accessor (`Get Save Slot Value`) on the GameMode's
-//                 `GameSaveExe` component. Research §1.2. The parameter arity is not
-//                 recoverable offline, so the call is made ONLY when the UFunction's
-//                 reflected parameter list matches what we predict (see saveslot.cpp);
-//                 on any mismatch the rung is refused and the reason logged.
-//   2. `slot`   - `Impl_GameSettingsSaver_C::TickCountSavPath`, a plain FString that
-//                 contains `...\GameSlots\<slot>\...`. Raw property read, no
-//                 ProcessEvent at all. Research §1.3.1.
-//   3. `file`   - the newest `*.sav` under `%LOCALAPPDATA%\Project_Plague\Saved`, which
-//                 gives `<accountid>_<slot>` straight from the path. Research §1.3.2
-//                 without the zlib chain: the mod only needs a key that is DIFFERENT
-//                 for two different saves, and the slot directory is exactly that - the
-//                 uuid is nicer but not more discriminating, and inflating the save to
-//                 get it would be 300 lines of decoder for no behavioural difference.
-//   4. `shared` - nothing answered; the old global file is used, exactly as before.
+//   1. `uuid`   - `Get Save Slot Value` on the GameMode's `GameSaveExe` component. Made
+//                 only when the UFunction's reflected parameter list matches the
+//                 prediction in saveslot.cpp; on mismatch the rung is refused.
+//   2. `slot`   - `Impl_GameSettingsSaver_C::TickCountSavPath`, an FString containing
+//                 `...\GameSlots\<slot>\...`. Raw property read, no ProcessEvent.
+//   3. `file`   - newest `*.sav` under `%LOCALAPPDATA%\Project_Plague\Saved`, giving
+//                 `<accountid>_<slot>` from the path.
+//   4. `shared` - nothing answered; the global file.
 //
 // `found_profile` (Player tier) overrides the ladder: `auto` runs it, `shared` pins the
-// global file, anything else is used verbatim as the key.
+// global file, anything else is the key verbatim.
 //
-// This header's top half is PURE (no Windows, no UE4SS) so the filename rules and the
-// path parsing are tested offline in tests/markers_test.cpp - the same split every
-// other module here uses.
+// The top half of this header is pure (no Windows, no UE4SS) and tested offline in
+// tests/markers_test.cpp.
 //
 
 #include <cstdint>
@@ -55,8 +37,8 @@ namespace slotid
     // Pure: keys and filenames
     //==================================================================================
 
-    // The longest key we will ever put in a filename. A uuid is 32 chars; a slot key
-    // like `36053875_maingame0` is 18.
+    // Longest key allowed in a filename. A uuid is 32 chars; a slot key like
+    // `36053875_maingame0` is 18.
     inline constexpr std::size_t kMaxKeyLen = 48;
 
     inline bool key_char_ok(char c)
@@ -65,11 +47,9 @@ namespace slotid
                c == '-';
     }
 
-    // Filename-safe form of whatever a route produced. Everything outside
-    // [A-Za-z0-9_-] becomes '_', runs of '_' collapse, leading/trailing '_' are
-    // dropped, and the result is capped at kMaxKeyLen. An empty result means "no key" -
-    // the caller must then fall back to the shared file rather than writing
-    // `wuchang_minimap_found_.txt`.
+    // Filename-safe form of a route's answer: everything outside [A-Za-z0-9_-] becomes
+    // '_', runs of '_' collapse, leading/trailing '_' drop, capped at kMaxKeyLen. Empty
+    // result means "no key" - the caller falls back to the shared file.
     inline std::string sanitise_key(std::string_view raw)
     {
         std::string out;
@@ -99,8 +79,7 @@ namespace slotid
         return out;
     }
 
-    // The tracker file's name for a key. An empty key is the shared (pre-0.9.4) file,
-    // which is also what every fallback lands on.
+    // The tracker file's name for a key. An empty key is the shared file.
     inline std::string found_filename(std::string_view key)
     {
         if (key.empty())
@@ -187,7 +166,7 @@ namespace slotid
     }
 
     //==================================================================================
-    // Runtime (not pure) - implemented in saveslot.cpp
+    // Runtime - implemented in saveslot.cpp
     //==================================================================================
 
     // Which rung of the ladder produced the key currently in force.
@@ -207,25 +186,22 @@ namespace slotid
     {
         char key[kMaxKeyLen + 1]{}; // "" = the shared file
         Route route = Route::None;
-        // Every rung's outcome, for the F2 readout and the log: "" until it has been
-        // tried, otherwise either the value it produced or why it refused.
+        // Rung outcome: "" until tried, otherwise the value produced or the refusal.
         char note[96]{};
     };
 
     // Any thread. A snapshot of the key in force.
     Status status();
 
-    // Loop thread, once, before the game thread ever runs: route 3 (the filesystem) so
-    // the very first found-file load already has a key.
+    // Loop thread, once, before the game thread runs: route 3, so the first found-file
+    // load already has a key.
     void on_unreal_init();
 
-    // GAME THREAD ONLY, from markers::game_thread_pump. Runs routes 1 and 2 at most
-    // once every few seconds until one answers, then re-checks slowly so a slot switch
-    // is noticed.
+    // GAME THREAD ONLY. Runs routes 1 and 2 every few seconds until one answers, then
+    // re-checks slowly to notice a slot switch.
     void game_thread_pump(std::uint64_t now, const void* world);
 
-    // GAME THREAD ONLY, from markers::drop_caches: the world changed, so the objects
-    // the routes cached are dead and the key must be re-resolved from scratch.
+    // GAME THREAD ONLY. Drops the objects the routes cached; the key is re-resolved.
     void drop_caches();
 
     // Loop thread. Re-runs route 3 (used by F5 and by the slot-change watch).

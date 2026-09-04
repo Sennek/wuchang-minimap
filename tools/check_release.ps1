@@ -18,7 +18,7 @@
       1. One version everywhere - src\version.hpp, xmake.lua's set_version, the top
          RELEASED changelog heading, and (with -PackageRoot) the package folder name.
       2. One UE4SS build string everywhere a reader can see one - BUILD_INFO.txt,
-         THIRD_PARTY_NOTICES.md, README.md, tools\INSTALL_GUIDE.html, docs\NEXUS.md.
+         THIRD_PARTY_NOTICES.md, README.md, docs\NEXUS.md.
       3. No unfilled placeholders: `@@...@@`, `<ALLCAPS>` template slots, TODO/FIXME.
       4. Every relative link in a shipped document resolves to a file that is really
          in the package (Markdown links and HTML hrefs).
@@ -123,7 +123,7 @@ if ($PackageRoot) {
         Add-Problem "package folder is '$pkgName', expected 'WuchangMinimap-$verHpp'"
     }
     foreach ($n in @('README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md',
-                     'INSTALL_GUIDE.html', 'BUILD_INFO.txt')) {
+                     'BUILD_INFO.txt')) {
         $docs[$n] = Join-Path $PackageRoot $n
     }
 } else {
@@ -131,14 +131,13 @@ if ($PackageRoot) {
     $docs['LICENSE']                = Join-Path $repo 'LICENSE'
     $docs['THIRD_PARTY_NOTICES.md'] = Join-Path $repo 'THIRD_PARTY_NOTICES.md'
     $docs['CHANGELOG.md']           = $changelogSrc
-    $docs['INSTALL_GUIDE.html']     = Join-Path $PSScriptRoot 'INSTALL_GUIDE.html'
 }
 $docs['docs\NEXUS.md'] = Join-Path $repo 'docs\NEXUS.md'
 
-# Repo-side, two of these are TEMPLATES: package.ps1 expands @@VERSION@@ / @@DATE@@ when
-# it copies them in. An unexpanded placeholder is a bug in the PACKAGE and completely
+# Repo-side, CHANGELOG.md is a TEMPLATE: package.ps1 expands @@VERSION@@ / @@DATE@@ when
+# it copies it in. An unexpanded placeholder is a bug in the PACKAGE and completely
 # normal in the repo, so the @@...@@ rule only applies to a package tree.
-$templatesInRepo = @('INSTALL_GUIDE.html', 'CHANGELOG.md')
+$templatesInRepo = @('CHANGELOG.md')
 
 #--------------------------------------------------------------------------------------
 # 3. One UE4SS build string everywhere a reader can see one
@@ -146,7 +145,7 @@ $templatesInRepo = @('INSTALL_GUIDE.html', 'CHANGELOG.md')
 # The mod is ABI-tied to one UE4SS build, so a document naming a different one (or none)
 # is the single most expensive support mistake available. BUILD_INFO.txt only exists in
 # a package, so it is required only there.
-$ue4ssWanted = @('README.md', 'THIRD_PARTY_NOTICES.md', 'INSTALL_GUIDE.html', 'docs\NEXUS.md')
+$ue4ssWanted = @('README.md', 'THIRD_PARTY_NOTICES.md', 'docs\NEXUS.md')
 if ($PackageRoot) { $ue4ssWanted += 'BUILD_INFO.txt' }
 foreach ($n in $ue4ssWanted) {
     $t = Read-TextOrNull $docs[$n]
@@ -194,7 +193,7 @@ Say "placeholders       none"
 # expected to dangle, because that file is generated at packaging time.
 if ($PackageRoot) {
     $linkChecked = 0
-    foreach ($n in @('README.md', 'CHANGELOG.md', 'THIRD_PARTY_NOTICES.md', 'INSTALL_GUIDE.html')) {
+    foreach ($n in @('README.md', 'CHANGELOG.md', 'THIRD_PARTY_NOTICES.md')) {
         $path = $docs[$n]
         $t = Read-TextOrNull $path
         if ($null -eq $t) { continue }

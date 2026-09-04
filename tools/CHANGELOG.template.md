@@ -63,10 +63,8 @@ What the mod does:
   every launch and never written to the collection file, so `boss_defeat_from_save = 0`
   undoes it.
 - **A few dozen detached patches of walkable ground per chapter are drawn although you
-  cannot walk to them.** The navmesh carries no notion of "reachable", and a strict
-  reachability filter costs 56 % of the walkable area, so the filter keeps any detached
-  patch of at least 40 m2 or one that carries a marker. Chapter 1's palace lake is the
-  most visible case.
+  cannot walk to them.** Fixed in 1.0.1: every surface now carries whether a player can
+  reach it, and `map_unreachable` decides what to do with the rest.
 - **The overlay draws underneath ReShade's effects**, so a heavy preset tints it.
 - **Enemy markers are off by default.** The live sweep refreshes them about once a
   second, so they lag behind anything that moves.

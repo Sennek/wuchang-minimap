@@ -23,8 +23,8 @@ run it now and fix whatever it prints, before touching a version number:
       cut, and its body describes what the mod does in that version.
 - [ ] `THIRD_PARTY_NOTICES.md` still matches `third_party\` — check the versions if
       anything was updated, and `third_party\VENDORING.md` with it.
-- [ ] `README.md` and `tools\INSTALL_GUIDE.html` describe the keys the build actually
-      ships, and name the UE4SS build it is compiled against.
+- [ ] `README.md` describes the keys the build actually ships, and names the UE4SS
+      build it is compiled against.
 
 ## 1. Stamp the version, commit, tag
 
@@ -77,7 +77,6 @@ Open `dist\WuchangMinimap-1.0.1\` and confirm:
 | Path | What to check |
 |---|---|
 | `BUILD_INFO.txt` | version, commit hash and UE4SS build are the ones you expect; **no `DIRTY`**, and the commit is the tagged one |
-| `INSTALL_GUIDE.html` | opens in a browser, version and date filled in (no `@@VERSION@@`) |
 | `README.md`, `CHANGELOG.md` | the changelog's top section is this version |
 | `LICENSE` | real author name, no placeholder |
 | `THIRD_PARTY_NOTICES.md` | present |

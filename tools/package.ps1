@@ -18,7 +18,6 @@
     The package tree:
 
         WuchangMinimap-<version>\
-          INSTALL_GUIDE.html
           README.md
           CHANGELOG.md
           LICENSE
@@ -271,13 +270,6 @@ try {
     if (Test-Path $devCfg) { throw "config_wuchang_minimap_dev.txt must never be packaged." }
 
     # 3e. docs at the package root.
-    $guideSrc = Join-Path $PSScriptRoot 'INSTALL_GUIDE.html'
-    if (-not (Test-Path $guideSrc)) { throw "tools\INSTALL_GUIDE.html is missing." }
-    $guide = Get-Content -Raw -LiteralPath $guideSrc
-    $guide = $guide.Replace('@@VERSION@@', $ver).Replace('@@DATE@@', (Get-Date -Format 'yyyy-MM-dd'))
-    [System.IO.File]::WriteAllText((Join-Path $pkgRoot 'INSTALL_GUIDE.html'), $guide,
-                                   (New-Object System.Text.UTF8Encoding($false)))
-
     $changelogSrc = Join-Path $PSScriptRoot 'CHANGELOG.template.md'
     $changelog = (Get-Content -Raw -LiteralPath $changelogSrc).
                     Replace('@@VERSION@@', $ver).Replace('@@DATE@@', (Get-Date -Format 'yyyy-MM-dd'))
@@ -333,9 +325,7 @@ try {
     }
     Require-File (Join-Path $modDir 'dlls\main.dll') 'mod DLL' | Out-Null
     # The package-root documents. A zip without LICENSE / THIRD_PARTY_NOTICES.md is not
-    # shippable (see the notices file), and one without the README/guide is a support
-    # ticket.
-    Require-File (Join-Path $pkgRoot 'INSTALL_GUIDE.html') 'install guide' | Out-Null
+    # shippable (see the notices file), and one without the README is a support ticket.
     Require-File (Join-Path $pkgRoot 'README.md') 'README' | Out-Null
     Require-File (Join-Path $pkgRoot 'CHANGELOG.md') 'changelog' | Out-Null
     Require-File (Join-Path $pkgRoot 'LICENSE') 'licence' | Out-Null
@@ -444,7 +434,7 @@ try {
     # this script having been taught about it is a leak by definition. (The tree is
     # assembled file by file from the repo, so this can only fire after an edit here -
     # which is exactly when it should.)
-    $allowedRoot = @('INSTALL_GUIDE.html', 'README.md', 'CHANGELOG.md', 'LICENSE',
+    $allowedRoot = @('README.md', 'CHANGELOG.md', 'LICENSE',
                      'THIRD_PARTY_NOTICES.md', 'BUILD_INFO.txt', 'ue4ss')
     foreach ($e in Get-ChildItem -LiteralPath $pkgRoot) {
         if ($e.Name -notin $allowedRoot) { $problems.Add("unexpected at package root: $($e.Name)") }

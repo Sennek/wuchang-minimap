@@ -11,36 +11,26 @@ namespace overlay
     namespace ovl
     {
         //==============================================================================
-        // Drawing: the FULL MAP (step C1)
+        // Drawing: the FULL MAP
         //==============================================================================
         //
         // Toggled by `map_key` (M). While it is open the minimap is hidden, a dark
         // backdrop covers the scene and one ImGui window holds the map: north-up,
-        // pannable and zoomable, drawn from the SAME height-sliced asset the minimap
-        // uses, with every marker on it.
+        // pannable and zoomable, with every marker on it.
         //
-        // WHAT IS SHARED WITH THE MINIMAP, DELIBERATELY
-        //   * the asset (mapdata::HeightMaps) - one copy in RAM, ~327 MB, and the map
-        //     adds nothing to it: it cuts a second small dynamic texture out of the same
-        //     planes rather than keeping a picture of its own;
-        //   * the height-slice rule and its config (floor_z_tolerance / floor_fade_uu /
-        //     the gradient / the base colour), so the two never disagree about what a
-        //     floor is - the only addition is a floor OFFSET the player can nudge;
-        //   * the marker draw buffer, the category filter mask and the glyphs.
+        // Shared with the minimap: the asset (mapdata::HeightMaps, one ~327 MB copy in
+        // RAM), the height-slice rule and its config (floor_z_tolerance / floor_fade_uu
+        // / the gradient / the base colour) plus a floor OFFSET the player can nudge,
+        // and the marker draw buffer, category mask and glyphs.
         //
-        // WHAT IS DIFFERENT
-        //   * the cut is DECIMATED (one texture pixel covers `step` source pixels) and
-        //     covers the visible viewport plus a 30 % margin, not the whole chapter;
-        //   * it only re-cuts when something changed - a pan that leaves the cut region,
-        //     a zoom, a floor change, or a big player move - capped at map_slice_hz. An
-        //     idle open map costs nothing per frame beyond the draw;
-        //   * it is always north-up. A rotating full map is unreadable and every
-        //     reference implementation avoids it.
+        // Different: the cut is decimated (one texture pixel covers `step` source
+        // pixels) and covers the visible viewport plus a 30 % margin; it re-cuts only
+        // when something changed - a pan out of the cut region, a zoom, a floor change,
+        // a big player move - capped at map_slice_hz; and it is always north-up.
         //
-        // NO LATCHES (lessons.md). The map closes itself the moment the state that
-        // allows it stops being true - a menu opening, the pawn going away, a level
-        // transition - and closing gives the mouse and the keyboard straight back to the
-        // game on the same frame, because the swallow condition IS `g_map_open`.
+        // No latches: the map closes itself the moment the state that allows it stops
+        // being true, and closing hands the mouse and keyboard back on the same frame,
+        // because the swallow condition IS `g_map_open`.
 
         // The published found flag with the render side's own pending toggle applied.
         // An override is dropped as soon as the published buffer says the same thing,
@@ -150,8 +140,7 @@ namespace overlay
 
             if (g_mslice[0].w != tw || g_mslice[0].h != th || g_mslice[0].tex == nullptr)
             {
-                // A failing allocation must not retry (and log) once per frame - the
-                // same "back a failing blind path off" rule the navmesh scan learned.
+                // A failing allocation must not retry (and log) once per frame.
                 static std::uint64_t create_failed_ms = 0;
                 if (create_failed_ms != 0 && now - create_failed_ms < 5000)
                 {
@@ -221,7 +210,7 @@ namespace overlay
             {
                 return;
             }
-            // Re-read the planes on EVERY cut: a chapter switch retires them and frees
+            // Re-read the planes on every cut: a chapter switch retires them and frees
             // them after a grace period. mapdata's retire runs on this same thread, so a
             // pointer read here cannot be freed while the cut is running.
             const mapdata::Chapter* chp = mapdata::chapter_ptr_for(snap.x, snap.y);
@@ -279,9 +268,9 @@ namespace overlay
                 return;
             }
 
-            // The rate cap. An urgent cut (the view has left the region, or the zoom
-            // changed) still has to wait for the buffer, but not for the clock: showing
-            // an empty edge is worse than one extra cut.
+            // The rate cap. An urgent cut (the view left the region, the zoom changed)
+            // waits for the buffer but not for the clock: an empty edge is worse than
+            // one extra cut.
             const int period = cfg.map_slice_hz > 0 ? 1000 / cfg.map_slice_hz : 166;
             if (!urgent && g_mslice_last_ms != 0 &&
                 now - g_mslice_last_ms < static_cast<std::uint64_t>(period))
@@ -300,9 +289,8 @@ namespace overlay
             SliceStyle st = style_from(cfg);
             if (req.show_all_floors)
             {
-                // "Show everything": no surface is ever out of range, so the whole
-                // chapter's walkable area is on screen with the current storey still
-                // picked out at full opacity.
+                // "Show everything": no surface is out of range, so the whole chapter's
+                // walkable area is drawn with the current storey still at full opacity.
                 st.fade = 1.0e9f;
                 st.a_dim = 0.34f;
                 st.a_faint = 0.24f;
@@ -368,10 +356,9 @@ namespace overlay
         void draw_waypoint_glyph(ImDrawList* dl, ImVec2 p, float r, int alpha)
         {
             const ImU32 col = IM_COL32(255, 92, 210, alpha);
-            // A 1 Hz pulse ring. The waypoint is the one marker that is never culled and
-            // never dimmed, and on a screen of static glyphs the eye finds the moving
-            // one - which is the whole job of a waypoint. Phase comes from the wall
-            // clock, so every view (minimap, full map, compass) pulses together.
+            // A 1 Hz pulse ring; the waypoint is never culled and never dimmed. The
+            // phase comes from the wall clock, so the minimap, the full map and the
+            // compass pulse together.
             {
                 const float phase =
                     static_cast<float>(::GetTickCount64() % 1000) / 1000.0f;
@@ -399,8 +386,8 @@ namespace overlay
             {
                 return;
             }
-            // The Stats panel belongs to the map mode, so it goes with it - otherwise it
-            // would be left drawn over the game with nothing swallowing the input.
+            // The Stats panel belongs to the map mode: left open it would sit over the
+            // game with nothing swallowing the input.
             g_stats_page = false;
             g_shrine_panel = false;
             g_shot_canvas_valid = false;
@@ -460,14 +447,11 @@ namespace overlay
             // First frame after opening: centre on the player, reset the zoom and the
             // floor offset, and drop any gamepad edges from while it was closed.
             //--------------------------------------------------------------------------
-            // DPI AND THE MAP'S ZOOM (review B.12). This view gets the UNSCALED config -
-            // the legend's filter chips write back into it - so the ui-scale factor the
-            // minimap's zoom key gets through ui_scaled() is applied here at the point of
-            // use instead. Same promise: one config file shows the same area of the world
-            // at 1080p and at 2160p.
-            // 1/ui_scale, not ui_scale: the canvas is `ui_scale` times as many pixels
-            // across, so uu-per-pixel has to come down by the same factor for the view to
-            // cover the same ground. See the derivation in ui_scaled().
+            // This view gets the UNSCALED config - the legend's filter chips write back
+            // into it - so the ui-scale factor ui_scaled() applies to the minimap's zoom
+            // key is applied here at the point of use. 1/ui_scale, not ui_scale: the
+            // canvas is `ui_scale` times as many pixels across, so uu-per-pixel comes
+            // down by the same factor to cover the same ground.
             const float zscale = (cfg.zoom_dpi_scaled && ui_scale > 0.0f) ? 1.0f / ui_scale : 1.0f;
             if (!g_mv_init)
             {
@@ -502,9 +486,7 @@ namespace overlay
             //--------------------------------------------------------------------------
             ImGui::Text("Wuchang map");
             ImGui::SameLine();
-            // The floor offset in METRES, and named as a storey delta: `floor +200 uu`
-            // was a number in the engine's unit that meant nothing to a player standing
-            // one storey up. 1 uu = 1 cm.
+            // The floor offset in metres, named as a storey delta. 1 uu = 1 cm.
             ImGui::TextDisabled("%s   |   %.0f uu/px   |   floor %+.1f m   |   X %.0f  Y %.0f",
                                 chapter_ptr != nullptr ? chapter_ptr->key.c_str() : "no chapter here",
                                 g_mv.uu_per_px,
@@ -513,8 +495,7 @@ namespace overlay
                                 snap.y);
             ImGui::SameLine((std::max)(200.0f, ImGui::GetWindowWidth() -
                                                    ImGui::CalcTextSize("FitRecentreClose").x - 90.0f));
-            // ZOOM TO FIT. The chapter's bounds are in the manifest, so this is the one
-            // view control that cannot be reached by panning and zooming by hand.
+            // Zoom to fit, from the chapter's bounds in the manifest.
             bool want_fit = ImGui::SmallButton("Fit");
             ImGui::SameLine();
             if (ImGui::SmallButton("Stats"))
@@ -544,11 +525,9 @@ namespace overlay
             // The canvas, with the legend column reserved on its right
             //--------------------------------------------------------------------------
             //
-            // The 14 saturated `SmallButton`s that used to sit here (black text on a
-            // filled category colour, no wrapping, no counts) are gone: the LEGEND is
-            // the filter now. It says what each glyph means, how many of that category
-            // this chapter has and how many are found, and clicking a row toggles it -
-            // which is three answers from the space one of them used to take.
+            // The legend is the filter: it says what each glyph means, how many of that
+            // category the chapter has and how many are found, and clicking a row
+            // toggles it.
             const float footer_h = ImGui::GetTextLineHeightWithSpacing() * 2.2f;
             const ImVec2 avail = ImGui::GetContentRegionAvail();
             // Sized from the text, so it is right at every ui_scale.
@@ -561,10 +540,9 @@ namespace overlay
             const bool canvas_hovered = ImGui::IsItemHovered();
             const bool canvas_active = ImGui::IsItemActive();
             const mv::Rect canvas{cpos.x, cpos.y, cpos.x + csize.x, cpos.y + csize.y};
-            // What the screenshot key copies. Recorded every frame the map draws, on
-            // the same thread that reads it, so no synchronisation is involved - and
-            // cleared by close_map, which is what makes "the map is not open" a
-            // reportable failure instead of a copy of whatever was there last.
+            // What the screenshot key copies. Recorded every frame the map draws, on the
+            // thread that reads it, and cleared by close_map, so a copy with the map shut
+            // is a reportable failure rather than a stale picture.
             g_shot_canvas = canvas;
             g_shot_canvas_valid = true;
 
@@ -572,12 +550,11 @@ namespace overlay
             // The legend, which IS the category filter
             //--------------------------------------------------------------------------
             //
-            // One row per category: the glyph as it is actually drawn on the map, the
-            // name, and `found / total` from markers::stats() - counted for the CHAPTER
-            // in force when the marker filter is on, because a whole-DB total would
-            // count five chapters the player cannot see. Clicking a row toggles that
-            // category in `markers_categories`, the same mask the minimap, the compass
-            // and the F2 chips share.
+            // One row per category: the glyph as drawn on the map, the name, and
+            // `found / total` from markers::stats() - counted for the chapter in force
+            // when the marker filter is on, so the total is not five chapters the player
+            // cannot see. Clicking a row toggles that category in `markers_categories`,
+            // the mask the minimap, the compass and the F2 chips share.
             ImGui::SameLine();
             if (ImGui::BeginChild("##legend", ImVec2{legend_w, csize.y}, ImGuiChildFlags_None,
                                   ImGuiWindowFlags_NoSavedSettings))
@@ -597,14 +574,11 @@ namespace overlay
                     const ImVec2 row = ImGui::GetCursorScreenPos();
                     ImGui::PushID(i);
                     // The leading spaces are the glyph's gutter: the glyph is drawn over
-                    // the row afterwards, so a Selectable still owns the whole width and
-                    // the hit area is the row, not the text.
+                    // the row afterwards, so the Selectable owns the whole width.
                     //
-                    // CACHED (review B.18). These fourteen strings were fourteen
-                    // std::format calls - fourteen heap allocations - on the render
-                    // thread on every frame the map was open, for text that changes when
-                    // a marker is found (about once a minute) or the chapter changes.
-                    // The cache is keyed on exactly what the text is made of.
+                    // Cached, keyed on exactly what the text is made of: otherwise these
+                    // are fourteen std::format allocations per frame inside Present for
+                    // text that changes when a marker is found or the chapter changes.
                     static char row_text[mdb::kCatCount][64]{};
                     static int row_found[mdb::kCatCount]{};
                     static int row_total[mdb::kCatCount]{};
@@ -688,8 +662,8 @@ namespace overlay
                 mv::screen_to_world(g_mv, canvas, sx, sy, wx, wy);
                 g_mv.uu_per_px =
                     mv::zoom_by(g_mv.uu_per_px, notches, static_cast<double>(cfg.map_zoom_factor), zmin, zmax);
-                // Solve the inverse for the centre so that (wx, wy) lands on (sx, sy)
-                // again: it is the same transform, read the other way round.
+                // The same transform read the other way round: solve for the centre that
+                // puts (wx, wy) back on (sx, sy).
                 g_mv.cx = wx + (static_cast<double>(sy) - static_cast<double>(canvas.cy())) * g_mv.uu_per_px;
                 g_mv.cy = wy - (static_cast<double>(sx) - static_cast<double>(canvas.cx())) * g_mv.uu_per_px;
             };
@@ -750,35 +724,25 @@ namespace overlay
                 close_map(L"Escape");
             }
             // Home = Fit, the same action as the header button. Safe as a bare key: the
-            // full map swallows the keyboard for as long as it is open (lessons.md), so
-            // nothing here can leak into the game.
+            // full map swallows the keyboard for as long as it is open.
             if (ImGui::IsKeyPressed(ImGuiKey_Home, false))
             {
                 want_fit = true;
             }
-            // F1 / H (and pad Back, below) toggle the controls legend. One long
-            // TextDisabled sentence in the footer was unreadable and could not grow.
-            //
-            // NOT `?`: the footer and the legend both advertised `?` while the code
-            // tested ImGuiKey_Slash, i.e. the UNSHIFTED key - so on a keyboard where `?`
-            // needs Shift (every US/UK layout) the advertised gesture opened nothing and
-            // an undocumented one did. `?` is a CHARACTER, not a key, and ImGui's key
-            // enum has no portable name for it, so the honest fix is to bind keys that
-            // can be named: F1 (the universal help key) and H. Both are safe bare keys
-            // here - the full map is a MODE and swallows the whole keyboard for as long
-            // as it is open (lessons.md) - and F1 is not in the F6/F9/F10/F11/F12
-            // minefield this machine's other injected DLLs own. `/` stays wired as an
-            // unadvertised third route so nobody's muscle memory breaks.
+            // F1 / H (and pad Back, below) toggle the controls legend. Not `?`: that is
+            // a CHARACTER with no portable name in ImGui's key enum, and testing
+            // ImGuiKey_Slash means the unshifted key on every US/UK layout. Both are
+            // safe bare keys because the map swallows the whole keyboard while it is
+            // open, and F1 is outside the F6/F9-F12 minefield this machine's other
+            // injected DLLs own. `/` stays wired as an unadvertised third route.
             if (ImGui::IsKeyPressed(ImGuiKey_F1, false) || ImGui::IsKeyPressed(ImGuiKey_H, false) ||
                 ImGui::IsKeyPressed(ImGuiKey_Slash, false))
             {
                 g_map_help = !g_map_help;
             }
-            // Keyboard equivalents of the two mouse actions, at the view centre. They
-            // exist because the mouse cursor is the one part of this that depends on
-            // what the game does with the cursor while we hold the input - with these
-            // (and the gamepad) the map is fully usable if it turns out the cursor
-            // cannot be moved freely.
+            // Keyboard equivalents of the two mouse actions, at the view centre: the
+            // cursor is the one part of this that depends on what the game does with it
+            // while we hold the input, and the map stays usable without it.
             bool key_waypoint = ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
                                 ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
                                 ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
@@ -844,10 +808,9 @@ namespace overlay
                 g_mv.cy = snap.y;
                 g_map_floor_off = 0.0f;
             }
-            // FIT. The chapter's bounds come from maps.json, and mv::fit_zoom() spends
-            // world X on the canvas height and world Y on its width (the map is
-            // north-up) - crossing those over gives a fit that is right on a square
-            // canvas and wrong on a 16:9 one.
+            // Fit. The chapter's bounds come from maps.json, and mv::fit_zoom() spends
+            // world X on the canvas HEIGHT and world Y on its WIDTH, because the map is
+            // north-up; crossing them over is right on a square canvas only.
             if (want_fit)
             {
                 if (chapter_ptr == nullptr)
@@ -921,20 +884,15 @@ namespace overlay
             if (cfg.markers_enabled && mv_all.data != nullptr)
             {
                 //----------------------------------------------------------------------
-                // TWO PASSES, NOT ONE (review B.16)
+                // TWO PASSES, NOT ONE
                 //----------------------------------------------------------------------
                 //
-                // 1.0.0 walked the published buffer in DB ORDER and stopped at
-                // map_markers_max_draw. Two consequences: with more markers than the cap
-                // the ones dropped were whichever the database happened to list last -
-                // so zooming out lost markers at random rather than the far ones - and
-                // nothing merged, so a room with six chests in it was a smear.
-                //
-                // So: collect what is on screen, order it by distance from the VIEW
-                // CENTRE (which is what the player is looking at, and is also what the
-                // Fit button and the recentre key aim), cap that, merge coincident glyphs
-                // of the same category, and only then draw. All three buffers are static
-                // and reused - this runs inside Present (review B.18).
+                // Collect what is on screen, order it by distance from the VIEW CENTRE
+                // (what the player is looking at, and what Fit and the recentre key
+                // aim), cap that, merge coincident glyphs of the same category, and only
+                // then draw - so the cap drops the far markers rather than whichever the
+                // database listed last. All three buffers are static and reused, because
+                // this runs inside Present.
                 struct MapCand
                 {
                     float sx = 0.0f;
@@ -982,7 +940,7 @@ namespace overlay
                     cands.push_back(c);
                 }
 
-                // NEAREST THE CENTRE FIRST. partial_sort leaves [0, cap) sorted, which
+                // Nearest the centre first; partial_sort leaves [0, cap) sorted, which
                 // is all the draw order needs.
                 const std::size_t cap = cfg.map_markers_max_draw > 0
                                             ? static_cast<std::size_t>(cfg.map_markers_max_draw)
@@ -1020,8 +978,8 @@ namespace overlay
                     cands.resize(kept);
                 }
 
-                // DRAWN FAR TO NEAR, so the marker nearest what the player is looking at
-                // ends up on top - the same trick the minimap uses.
+                // Far to near, so the marker nearest what the player is looking at ends
+                // up on top.
                 for (std::size_t ci = cands.size(); ci-- > 0;)
                 {
                     const MapCand& c = cands[ci];
@@ -1045,9 +1003,7 @@ namespace overlay
                         hover_d2 = d2;
                     }
                     // The keyboard / gamepad "toggle found" acts on the marker nearest
-                    // the CENTRE of the view - but only within the same radius a mouse
-                    // would have to be in, so it can never reach a marker on the far
-                    // side of the screen.
+                    // the view centre, within the same radius a mouse would need.
                     if (c.cd2 <= kCentrePickR * kCentrePickR && (centre_marker == nullptr || c.cd2 < centre_d2))
                     {
                         centre_marker = &m;
@@ -1106,9 +1062,8 @@ namespace overlay
             {
                 toggle_found(*hover);
             }
-            // SET, or CLEAR when the same gesture lands on the waypoint that is
-            // already there. Clearing used to be possible only from the F2 panel, which
-            // means leaving the map to undo something done on the map.
+            // Sets a waypoint, or clears it when the gesture lands on the one already
+            // there.
             const auto set_or_clear = [&](double wx, double wy) {
                 const mv::Waypoint had = mm::waypoint();
                 if (had.set)
@@ -1162,10 +1117,9 @@ namespace overlay
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(marker_color(cat, 255)), "%s",
                                    mdb::display_label(cat, hover->label));
                 ImGui::Text("category: %s", mdb::cat_name(cat));
-                // The stable id is a path (`Chapter1_DGong_logic/BP_treasurebox_C_12`).
-                // It is the join key with the live actors and is exactly what a bug
-                // report needs - and it is noise to everyone else, so it lives behind
-                // the debug switch now.
+                // The stable id is a path (`Chapter1_DGong_logic/BP_treasurebox_C_12`),
+                // the join key with the live actors and what a bug report needs - noise
+                // to everyone else, hence the debug switch.
                 if (cfg.debug_readout)
                 {
                     ImGui::TextDisabled("%s", hover->id);
@@ -1207,10 +1161,9 @@ namespace overlay
             // The collection statistics panel (the `Stats` button in the header)
             //--------------------------------------------------------------------------
             //
-            // A child window over the map rather than a separate top-level one: the map
-            // is a MODE that owns the whole screen and swallows the input, so a floating
-            // window the player cannot reach with a normal Alt+Tab-style focus change
-            // would be a trap. It closes with the same button, with Esc, and with the map.
+            // A child window over the map, not a top-level one: the map is a mode that
+            // owns the screen and swallows the input, so a floating window would be a
+            // trap. It closes with the same button, with Esc, and with the map.
             if (g_stats_page)
             {
                 const ImVec2 vp = ImGui::GetMainViewport()->Size;
@@ -1234,11 +1187,8 @@ namespace overlay
             // The controls legend (`?` / pad Back)
             //--------------------------------------------------------------------------
             //
-            // What used to be one long TextDisabled sentence in the footer. Two columns,
-            // built from the CONFIG (so a rebound key is what the player is told), with
-            // the gamepad column present only while a pad is actually connected -
-            // telling a keyboard player about LB/RB is noise, and XInput already knows
-            // the answer.
+            // Two columns, built from the config so a rebound key is what the player is
+            // told, with the gamepad column present only while a pad is connected.
             if (g_map_help)
             {
                 struct Row
@@ -1246,11 +1196,10 @@ namespace overlay
                     std::string control;
                     std::string action;
                 };
-                // BUILT ONCE, NOT PER FRAME (review B.18). This is ~28 strings in two
-                // vectors, i.e. ~30 heap allocations on the render thread inside Present,
-                // for text whose content only changes when a binding changes or a pad is
-                // plugged in. The vectors are static (so their capacity survives too) and
-                // the signature below is exactly what the text is made of.
+                // Built once, not per frame: ~28 strings in two static vectors would
+                // otherwise be ~30 allocations inside Present for text that changes only
+                // when a binding changes or a pad is plugged in. The signature below is
+                // exactly what the text is made of.
                 struct HelpKey
                 {
                     int panel = 0;
@@ -1263,9 +1212,9 @@ namespace overlay
                     bool hl_on = false;
                     bool hl_hold = false;
                     bool pad = false;
-                    // Defaulted, not memcmp: padding bytes in an aggregate are
-                    // unspecified, and a spurious "changed" here would silently put the
-                    // per-frame allocations back (the same trap as review B.19).
+                    // Defaulted ==, not memcmp: padding bytes in an aggregate are
+                    // unspecified, and a spurious "changed" puts the per-frame
+                    // allocations back silently.
                     bool operator==(const HelpKey&) const = default;
                 };
                 const HelpKey want{cfg.panel_key,     cfg.map_key,
@@ -1402,9 +1351,8 @@ namespace overlay
 
             ImGui::End();
 
-            // Field by field (review B.19), not memcmp: a Config is a value, and
-            // `mm::operator==` is generated from the struct with a byte-flip drift
-            // guard behind it in markers_test.
+            // Field by field, not memcmp: a Config is a value, and `mm::operator==` is
+            // generated from the struct with a byte-flip drift guard in markers_test.
             if (before != cfg)
             {
                 mm::set_config(cfg);

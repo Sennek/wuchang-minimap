@@ -20,15 +20,12 @@
 //   3. throw the dummy objects away and wait. The first real Present gives us the
 //      swapchain; the first real ExecuteCommandLists gives us the queue.
 //
-// The dummy objects are created through *our own import table*, i.e. through whatever
-// `dxgi.dll` is loaded in the process. On this machine that is **ReShade's** proxy, so
-// our dummy swapchain is a ReShade wrapper with exactly the same vtable the game holds
-// - which is the point: we hook the same slot the game calls, whoever owns it. The
-// module that owns every hooked address is logged, so the log answers the coexistence
-// question directly instead of us having to guess. A watchdog complains if no Present
-// arrives within a few seconds, which is the signal that the swapchain is wrapped by
-// something we did not go through (e.g. a DLSS-FG proxy).
-//
+// The dummy objects go through our own import table, i.e. through whatever `dxgi.dll`
+// is loaded - on this machine ReShade's proxy, so the dummy swapchain is a ReShade
+// wrapper with the same vtable the game holds and we hook the slot the game calls. The
+// module owning every hooked address is logged. A watchdog complains when no Present
+// arrives within a few seconds: the swapchain is then wrapped by something we did not
+// go through (e.g. a DLSS-FG proxy).
 //
 
 #include "overlay_internal.hpp"
@@ -46,17 +43,13 @@ namespace overlay
         // its free list are ours. A fixed 64-slot heap is plenty: the font atlas plus
         // one map texture.
 
-
-
         void srv_alloc_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu)
         {
             if (!g_srv_heap.alloc(*cpu, *gpu))
             {
                 cpu->ptr = 0;
                 gpu->ptr = 0;
-                // ONCE. ImGui asks for a descriptor when it (re)builds the font atlas,
-                // which is not a per-frame event - but this is a render-thread callback
-                // and a heap that is full stays full, so it says so once and then stops.
+                // Once: a full heap stays full, and this is a render-thread callback.
                 static bool said = false;
                 if (!said)
                 {
@@ -76,27 +69,22 @@ namespace overlay
         // Renderer state
         //==============================================================================
 
-
-
         //==============================================================================
         // The height-slice texture
         //==============================================================================
         //
-        // A small dynamic RGBA8 texture the CPU slicer refills at slice_hz. Two of
-        // them, because the GPU may still be sampling one while we write the next:
-        // `in_flight_fence` is the fence value of the last frame that DREW this buffer,
-        // so a buffer is only rewritten once GetCompletedValue() has passed it.
+        // A small dynamic RGBA8 texture the CPU slicer refills at slice_hz. Two of them,
+        // because the GPU may still be sampling one while we write the next:
+        // `in_flight_fence` is the fence value of the last frame that drew this buffer,
+        // and a buffer is only rewritten once GetCompletedValue() has passed it.
         //
         // The upload heap stays mapped for the buffer's whole life (a 512x512 RGBA
         // window is 1 MB, and Map/Unmap per update is pure overhead), and the copy is
         // recorded on the same command list Present already records for ImGui - so
         // there is no extra queue, no PSO and no root signature on ReShade's swapchain.
 
-
-
-
-        // QueryPerformanceFrequency is a constant for the life of the process, and it
-        // was being asked for on every slice and every map cut. Once, lazily.
+        // QueryPerformanceFrequency is constant for the life of the process: asked once,
+        // lazily.
         std::int64_t qpc_freq()
         {
             static const std::int64_t freq = [] {
@@ -107,26 +95,12 @@ namespace overlay
             return freq;
         }
 
-
-
-        // The window proc that was there before ours, and the one every message is
-
-        // ATOMIC, because all three are written by the RENDER thread and read by other
-        // threads: `g_imgui_ready` gates the WndProc hook's whole body on the GAME
-        // thread, and the F2 panel / the loop thread read the other two. As plain bools
-        // NOT TERMINAL FOR A SWAPCHAIN-LEVEL FAILURE. `g_failed` means "this mod cannot
-        // draw and must stop trying": a hook that would not install, a device that is
-
-
-
-
         //==============================================================================
         // The slicer runs on the LOOP thread
         //==============================================================================
         //
         // `slice_region` is 1-4 ms of pure CPU that writes into a persistently mapped
-        // upload heap. Nothing about it needs Present, and running it inside the frame
-        // put a 1-4 ms spike into frame time twelve times a second. It now runs from
+        // upload heap and needs nothing from Present, so it runs from
         // `overlay::on_update` on the UE4SS loop thread; `render()` only records the
         // CopyTextureRegion for a buffer the slicer has finished and stamps the fence of
         // the frame that sampled it.
@@ -137,18 +111,13 @@ namespace overlay
         //   * the LOOP thread only ever writes into `mapped` memory of a buffer that
         //     already exists, and only while the slicer is not paused;
         //   * a buffer may be written only when the fence of the last frame that
-        //     sampled it has completed (`g_slice_in_flight`), exactly as before;
+        //     sampled it has completed (`g_slice_in_flight`);
         //   * before creating or destroying any slice buffer the render thread PAUSES
         //     the slicer and waits, with a bound, for it to leave the critical section.
         //     If it cannot, it does not touch the buffers this frame and tries again.
         //   * `g_slice_gen` is bumped by every create/destroy; the slicer re-reads it
         //     after writing and throws the result away if it moved, so a cut can never
         //     be published against a buffer set that no longer exists.
-
-
-
-
-
 
         SliceView slice_view()
         {
@@ -174,11 +143,9 @@ namespace overlay
             g_mslice_view = MapSliceView{};
         }
 
-        // RENDER THREAD. Stop the slicer and wait for it to leave its critical section.
-        // Returns false when it did not stop inside `budget_ms` - the caller must then
-        // leave every slice buffer alone and try again on the next frame. The slicer's
-        // critical section is a few milliseconds of arithmetic and never blocks, so a
-        // timeout means something is very wrong and skipping is the safe answer.
+        // Render thread. Stops the slicer and waits for it to leave its critical
+        // section. False when it did not stop inside `budget_ms`: the caller must then
+        // leave every slice buffer alone and try again next frame.
         bool slicer_pause_begin(unsigned budget_ms)
         {
             g_slicer_pause.store(true); // seq_cst on purpose: it pairs with the loop's
@@ -208,28 +175,17 @@ namespace overlay
         }
 
         //==============================================================================
-        // The full map (step C1)
+        // The full map
         //==============================================================================
         //
         // The same height-sliced asset the minimap draws, at map scale: north-up,
-        // pannable, zoomable, with every marker on it. It has its own pair of dynamic
-        // textures because its window is both bigger and DECIMATED - one texture pixel
-        // covers `step` source pixels - and its own update policy: the minimap re-cuts
-        // 12 times a second because the player is always moving, while the map only
-        // re-cuts when something actually changed (pan out of the cut region, zoom,
-        // floor slice, a big player move), capped at map_slice_hz.
+        // pannable, zoomable, with every marker on it. Its own pair of dynamic textures,
+        // because its window is bigger and decimated - one texture pixel covers `step`
+        // source pixels - and its own update policy: it re-cuts only when something
+        // changed (pan out of the cut region, zoom, floor slice, a big player move),
+        // capped at map_slice_hz, where the minimap re-cuts 12 times a second.
 
-
-
-        // The SAME object as g_swapchain, QueryInterface'd once and kept with a
-        // reference held, because `GetCurrentBackBufferIndex()` lives only on
-        // IDXGISwapChain3 and a QI per frame is a virtual call plus an AddRef/Release
-
-        // RE-ADOPTION. Set when the swapchain or the device we latched onto has stopped
-        // being usable - DXGI_ERROR_DEVICE_REMOVED / _RESET out of Present, a GetBuffer
-        // or render-target failure, a command queue that turns out to belong to another
-
-        // Drops the captured command queue AND the reference held on it. Only ever
+        // Drops the captured command queue and the reference held on it. Only ever
         // called from the render thread's teardown, so no other thread can be inside
         // `o_ExecuteCommandLists(queue, ...)` with our pointer at the same time.
         void safe_release_queue()
@@ -252,11 +208,8 @@ namespace overlay
             }
         }
 
-        // WHAT THE RENDER THREAD IS DOING, and which thread it is, for the loop
-
         // The stage names are ASCII literals and the log takes wide strings. An explicit
-        // cast loop rather than `std::wstring(a.begin(), a.end())`, which warns (C4244)
-        // and this repo is warning-free by policy.
+        // cast loop rather than `std::wstring(a.begin(), a.end())`, which warns (C4244).
         std::wstring stage_w(const char* s)
         {
             const char* p = s != nullptr ? s : "?";
@@ -268,10 +221,8 @@ namespace overlay
             return out;
         }
 
-
-
-        // Every hide/show transition is logged with its reason, so one line in the log
-
+        // Every hide/show transition is logged with its reason, rate-limited by
+        // hide_reason_log_ms.
         void set_hide_reason(const wchar_t* text)
         {
             if (::wcscmp(g_hide_reason, text) == 0)
@@ -308,8 +259,6 @@ namespace overlay
         // Original functions
         //==============================================================================
 
-
-
         //==============================================================================
         // Teardown of the swapchain-dependent objects
         //==============================================================================
@@ -341,12 +290,9 @@ namespace overlay
             }
         }
 
-        // How many frames in flight the ImGui DX12 backend was initialised with. A
-
-        // ONE ALLOCATOR PER BACK BUFFER, created for every buffer that has none. They
-        // used to be created once, for the count seen at init: after a fullscreen toggle
-        // that raised BufferCount from 2 to 3, `render()` called `frame.allocator->Reset()`
-        // on a null pointer. `g_buffer_count` is already clamped to kMaxBuffers.
+        // One allocator per back buffer, created for every buffer that has none - a
+        // fullscreen toggle can raise BufferCount after init. `g_buffer_count` is
+        // already clamped to kMaxBuffers.
         bool ensure_frame_allocators()
         {
             if (g_device == nullptr)
@@ -415,15 +361,14 @@ namespace overlay
                 handle.ptr += stride;
             }
 
-            // DOES THE BACK BUFFER BELONG TO THE DEVICE WE TOOK OFF THE QUEUE? The
-            // device comes from the first DIRECT command queue seen executing anywhere
-            // in the process (IDXGISwapChain::GetDevice does not work through this
-            // game's ReShade wrapper), and with frame generation or a second renderer
-            // that queue need not belong to the presenting device. `ID3D12Resource::
-            // GetDevice` on a back buffer answers authoritatively, and it is the one
-            // link from the swapchain to a device that the wrapper does forward.
-            // Recording our command list on a queue of a different device is an
-            // immediate device removal, so this is a hard reject.
+            // Does the back buffer belong to the device taken off the queue? That device
+            // comes from the first DIRECT command queue seen executing anywhere in the
+            // process (IDXGISwapChain::GetDevice does not work through this game's
+            // ReShade wrapper), and with frame generation or a second renderer that
+            // queue need not belong to the presenting device. `ID3D12Resource::GetDevice`
+            // on a back buffer answers authoritatively and is the one link from the
+            // swapchain to a device the wrapper does forward. Recording our command list
+            // on a queue of another device is an immediate device removal: hard reject.
             if (g_backbuffers[0] != nullptr)
             {
                 ID3D12Device* owner = nullptr;
@@ -466,9 +411,9 @@ namespace overlay
         void build_ui()
         {
             // `raw` is what the panel edits and what Save writes; `cfg` is the same
-            // settings with every pixel key multiplied by the UI scale, and it is what
-            // the HUD draws from. Keeping them apart is what stops a scaled value ever
-            // being written back into the config file.
+            // settings with every pixel key multiplied by the UI scale and is what the
+            // HUD draws from. Keeping them apart stops a scaled value ever being written
+            // back into the config file.
             const mm::Config& raw = mm::cfg_cached();
             mm::Config cfg = ui_scaled(raw, g_ui_scale);
             // The look, once per frame: every draw path below reads these two globals
@@ -483,17 +428,15 @@ namespace overlay
             const bool map_open = mm::g_map_open.load(std::memory_order_relaxed);
             const std::uint64_t frame_now = ::GetTickCount64();
 
-            // THE HUD FADE. Its target is the gate result and nothing else: 0 is applied
-            // instantly (and the gate stops the draw anyway, so hiding is immediate),
-            // and only showing is eased - 150 ms, so a menu closing does not snap the
-            // HUD back on. It is applied by scaling the opacity keys of the per-frame
-            // config copy, which is why `cfg` is a mutable copy: nothing downstream has
-            // to know the fade exists, and no scaled value can reach the config file.
+            // THE HUD FADE. Its target is the gate result and nothing else: 0 applies
+            // instantly (and the gate stops the draw anyway), only showing is eased over
+            // 150 ms. It is applied by scaling the opacity keys of the per-frame config
+            // copy, so nothing downstream has to know the fade exists.
             const bool gate_open = have && hud_gate(cfg, snap, have, frame_now) == nullptr;
             if (gate_open && !g_hud_gate_ever_open.load(std::memory_order_relaxed))
             {
-                // The first frame anything of ours could be seen. The first-run tip on
-                // the loop thread is waiting for exactly this (review B.2).
+                // The first frame anything of ours could be seen; the loop thread's
+                // first-run tip waits for it.
                 g_hud_gate_ever_open.store(true, std::memory_order_release);
             }
             const float fade = hud_fade_step(gate_open && cfg.overlay_enabled, frame_now);
@@ -503,19 +446,17 @@ namespace overlay
             cfg.highlight_alpha_far *= fade;
 
             // The mouse cursor belongs to whoever is taking the input. Both conditions
-            // are plain reads of the live flags - nothing here is remembered, so the
-            // frame the map or the panel closes is the frame the game gets the cursor
-            // back.
+            // are plain reads of the live flags, so the frame the map or the panel
+            // closes is the frame the game gets the cursor back.
             ImGui::GetIO().MouseDrawCursor = map_open || mm::g_panel_open.load(std::memory_order_relaxed);
 
-            // The pad, into ImGui's own nav (review B.8). Only while the panel is open,
-            // and from the state the loop thread sampled - never a poll from here.
+            // The pad, into ImGui's own nav. Only while the panel is open, and from the
+            // state the loop thread sampled - never a poll from here.
             feed_pad_nav(raw);
 
             // THE ONE MARKER PASS. The minimap, the full map, the compass pips and the
-            // x-ray highlight all read the same published buffer; walking it once here
-            // and letting each of them filter the result replaces three (four with the
-            // map open) full scans plus their square roots.
+            // x-ray highlight all read the same published buffer: it is walked once here
+            // and each of them filters the result.
             if (have)
             {
                 build_frame_candidates(snap);
@@ -534,9 +475,9 @@ namespace overlay
             }
             else if (g_capture_row >= 0)
             {
-                // The panel closed with a capture armed. Disarm it here rather than in
-                // the close paths: this is the one place that runs on every frame, so
-                // the keyboard can never stay swallowed with no panel on screen.
+                // The panel closed with a capture armed. Disarmed here rather than in the
+                // close paths - this runs every frame, so the keyboard cannot stay
+                // swallowed with no panel on screen.
                 arm_capture(-1);
             }
 
@@ -558,9 +499,8 @@ namespace overlay
             }
             else if (mm::g_map_open.load(std::memory_order_relaxed))
             {
-                // The full map replaces the minimap while it is up - two views of the
-                // same thing on one screen is just clutter, and the slicer would then be
-                // cutting two windows a frame.
+                // The full map replaces the minimap while it is up, so the slicer never
+                // cuts two windows a frame.
                 set_hide_reason(L"the full map is open");
             }
             else
@@ -573,10 +513,9 @@ namespace overlay
                 draw_minimap(cfg, snap, have);
             }
 
-            // The compass and the x-ray highlight ask the SAME gate the minimap does -
+            // The compass and the x-ray highlight ask the same gate the minimap does -
             // one evaluation, no second set of rules, no second latch - and additionally
-            // stand down while the full map is open, because the map is a mode of its own
-            // (it swallows the input and covers the scene they would be drawn over).
+            // stand down while the full map is open.
             const bool hud_ok = gate_open && !mm::g_map_open.load(std::memory_order_relaxed);
             draw_compass(cfg, snap, hud_ok);
             draw_highlight(cfg, snap, hud_ok);
@@ -615,11 +554,9 @@ namespace overlay
                 return true;
             }
 
-            // The device comes off the CAPTURED QUEUE, not off the swapchain.
-            // IDXGISwapChain::GetDevice(ID3D12Device) fails on this game's swapchain -
-            // it is a ReShade wrapper (all four hooked addresses live in the 5.6 MB
-            // dxgi.dll ReShade drops next to the exe) and its GetDevice does not hand
-            // out the D3D12 device. ID3D12CommandQueue::GetDevice always does.
+            // The device comes off the captured QUEUE, not off the swapchain:
+            // IDXGISwapChain::GetDevice(ID3D12Device) fails on this game's ReShade
+            // wrapper. ID3D12CommandQueue::GetDevice always works.
             HRESULT hr = queue->GetDevice(IID_PPV_ARGS(&g_device));
             if (FAILED(hr) || g_device == nullptr)
             {
@@ -634,9 +571,9 @@ namespace overlay
                 return false;
             }
 
-            // NOT `g_failed`: a swapchain that will not hand out its buffers is a
+            // Not `g_failed`: a swapchain that will not hand out its buffers is a
             // swapchain-level failure (a resize in flight, a device that has just gone,
-            // a wrapper being swapped), and those recover. `create_render_targets` has
+            // a wrapper being swapped) and those recover. `create_render_targets` has
             // already asked for a re-adoption where it knew the reason.
             if (!create_render_targets(swapchain))
             {
@@ -686,10 +623,10 @@ namespace overlay
             ImGuiIO& io = ImGui::GetIO();
             io.IniFilename = nullptr;
             io.LogFilename = nullptr;
-            // We draw our own software cursor for the panel; never let ImGui fight the
-            // game over the OS cursor shape.
+            // The panel draws its own software cursor; ImGui must not fight the game
+            // over the OS cursor shape.
             io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
-            // [fix-ui] keyboard + gamepad navigation for the F2 panel (review B.8).
+            // Keyboard + gamepad navigation for the F2 panel.
             ui_init_io(io);
             ImGui::StyleColorsDark();
             ImGui::GetStyle().WindowRounding = 4.0f;
@@ -718,12 +655,10 @@ namespace overlay
                 return false;
             }
 
-            // WHICH DEVICES THE GAME READS THROUGH WM_INPUT. This decides whether
-            // swallowing a key as a window message is enough: a game that registers a
-            // raw KEYBOARD also has to have the raw packet filtered (which the panel's
-            // Esc path does), and one that registers only the mouse does not. It is one
-            // call, once, and it turns "does UE read Esc through raw input?" from a
-            // guess into a log line.
+            // Which devices the game reads through WM_INPUT, logged once. It decides
+            // whether swallowing a key as a window message is enough: a game that
+            // registers a raw KEYBOARD also needs the raw packet filtered (the panel's
+            // Esc path), one that registers only the mouse does not.
             {
                 UINT count = 0;
                 if (::GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) == 0 &&
@@ -772,14 +707,11 @@ namespace overlay
             return true;
         }
 
-
-        // NEVER GUESSES. This used to fall back to a rotating counter when
-        // IDXGISwapChain3 was unavailable, which is worse than doing nothing: the index
-        // decides which resource the PRESENT -> RENDER_TARGET barrier is issued on, and
-        // a barrier declaring the wrong before-state on a resource that is not in it is
-        // a device-removal-class error (and, with the wrong RTV, a frame drawn into the
-        // buffer the display is scanning out). The interface is QI'd once at adoption
-        // and cached; if it is not there, the caller skips the frame.
+        // Never guesses. The index decides which resource the PRESENT -> RENDER_TARGET
+        // barrier is issued on, and a barrier declaring the wrong before-state is a
+        // device-removal-class error (and, with the wrong RTV, a frame drawn into the
+        // buffer being scanned out). IDXGISwapChain3 is QI'd once at adoption and
+        // cached; without it the caller skips the frame.
         UINT current_backbuffer_index(IDXGISwapChain* swapchain)
         {
             if (g_sc3 == nullptr)
@@ -849,29 +781,25 @@ namespace overlay
         //==============================================================================
         //
         // Everything below is a D3D12 object or an ImGui context, and both may only be
-        // touched from the thread that created them - which is whichever thread calls
-        // Present. So the loop thread clears mm::g_mod_active and this runs inside the
-        // next Present, before the hooks are taken out.
+        // touched from the thread that created them - whichever thread calls Present. So
+        // the loop thread clears mm::g_mod_active and this runs inside the next Present,
+        // before the hooks are taken out. It leaves the module in the state it had
+        // before the first frame: `start()` re-enables the hooks, ExecuteCommandLists
+        // re-captures the queue and ensure_initialised() builds everything again.
         //
-        // It leaves the module in exactly the state it had before the first frame:
-        // `start()` re-enables the hooks, ExecuteCommandLists re-captures the queue and
-        // ensure_initialised() builds everything again.
-        //
-        // TWO CALLERS, ONE BODY. The master switch (shutdown_render) and a lost device /
-        // replaced swapchain (the re-adoption path in render()) release exactly the same
-        // objects; the only difference is that the master switch also answers the loop
-        // thread's handshake with `g_render_stopped`, which a re-adoption must NOT touch
-        // or the loop thread would believe a disable it never asked for had completed.
+        // Two callers, one body. The master switch (shutdown_render) and a lost device /
+        // replaced swapchain (the re-adoption path in render()) release the same
+        // objects; only the master switch also answers the loop thread's handshake with
+        // `g_render_stopped`, which a re-adoption must not touch or the loop thread
+        // believes a disable it never asked for has completed.
 
         void release_device_objects()
         {
             if (g_imgui_ready || g_device != nullptr)
             {
                 crumb::stage(crumb::kTeardownBegin);
-                // The slicer writes into mapped upload heaps we are about to release.
-                // It is a few milliseconds of arithmetic and it re-checks the pause flag
-                // on entry, so this always succeeds; if it somehow did not we would
-                // rather leak the buffers than free memory under a live writer.
+                // The slicer writes into mapped upload heaps about to be released. On a
+                // timeout the buffers are leaked rather than freed under a live writer.
                 const bool paused = slicer_pause_begin(1000);
                 wait_for_gpu();
                 if (!paused)
@@ -915,8 +843,8 @@ namespace overlay
                         L"the slice buffers and the map textures");
             }
             g_swapchain = nullptr;
-            // The cached IDXGISwapChain3 holds a reference on the swapchain we are
-            // letting go of; keeping it would pin a dead object and, worse, answer
+            // The cached IDXGISwapChain3 holds a reference on the swapchain being let
+            // go; keeping it would pin a dead object and answer
             // GetCurrentBackBufferIndex for a swapchain we no longer draw on.
             safe_release(g_sc3);
             g_candidates_logged = 0;
@@ -932,14 +860,14 @@ namespace overlay
         void shutdown_render()
         {
             release_device_objects();
-            // THE MASTER SWITCH'S HANDSHAKE, and the one thing a re-adoption must not do.
+            // The master switch's handshake, and the one thing a re-adoption must skip.
             g_render_stopped.store(true, std::memory_order_release);
         }
 
         void render(IDXGISwapChain* swapchain)
         {
-            // THE MASTER SWITCH, first statement. One relaxed atomic load per Present
-            // while the mod is off - and the one Present that first sees it off does the
+            // The master switch, first statement: one relaxed atomic load per Present
+            // while the mod is off, and the first Present to see it off does the
             // teardown, because this is the only thread allowed to.
             if (!mm::mod_active())
             {
@@ -963,13 +891,12 @@ namespace overlay
             spin::SpinGuard guard(g_render_lock);
             g_render_stage.store("holding the render lock", std::memory_order_relaxed);
 
-            // RE-ADOPTION, and it happens here because this is the only thread that may
-            // touch a D3D12 object. Whatever asked for it (a removed device, a swapchain
-            // that stopped handing out buffers, a queue from the wrong device) has left
-            // this module holding objects that belong to something that no longer
-            // exists; releasing them and starting over is what lets the overlay come
-            // back by itself after a driver reset or a swapchain swap. `g_failed` is
-            // deliberately NOT set: this path is recoverable, that flag is not.
+            // RE-ADOPTION, here because this is the only thread that may touch a D3D12
+            // object. Whatever asked for it (a removed device, a swapchain that stopped
+            // handing out buffers, a queue from the wrong device) left this module
+            // holding objects of something that no longer exists; releasing them and
+            // starting over is what brings the overlay back after a driver reset or a
+            // swapchain swap. `g_failed` is not set - this path is recoverable.
             if (g_readopt.exchange(false, std::memory_order_acquire))
             {
                 g_render_stage.store("re-adopting the swapchain", std::memory_order_relaxed);
@@ -1001,14 +928,14 @@ namespace overlay
             if (!g_rt_ready && !create_render_targets(swapchain))
             {
                 // A GetBuffer / RTV failure is recoverable (a resize in flight, a device
-                // that has gone): hand it to the re-adoption path instead of retrying
-                // the same objects every frame for ever.
+                // that has gone), so it goes to the re-adoption path instead of retrying
+                // the same objects every frame.
                 request_readoption(L"the render targets could not be rebuilt");
                 return;
             }
-            // AFTER a resize that raised BufferCount, the ImGui backend still has one
-            // set of per-frame buffers per OLD frame in flight and would reuse the
-            // vertex, index and descriptor storage of a frame the GPU has not finished.
+            // After a resize that raised BufferCount the ImGui backend still has one set
+            // of per-frame buffers per OLD frame in flight and would reuse the vertex,
+            // index and descriptor storage of a frame the GPU has not finished.
             // Re-initialising the DX12 backend is the only way to change that count; it
             // happens outside a frame (before NewFrame) and with the GPU idle.
             if (g_imgui_ready && g_imgui_frames_in_flight != 0 &&
@@ -1048,9 +975,8 @@ namespace overlay
             FrameCtx& frame = g_frames[index];
             if (frame.allocator == nullptr)
             {
-                // Cannot happen now that the allocators are grown with BufferCount; it
-                // stays as the cheap guard that turns the old null-Reset() crash into a
-                // dropped frame.
+                // A cheap guard: a missing allocator drops the frame instead of faulting
+                // in Reset().
                 request_readoption(L"a back buffer has no command allocator");
                 return;
             }
@@ -1063,17 +989,16 @@ namespace overlay
                 }
             }
 
-            // A reload (F5) rebuilds the whole texture set, so the old textures go
-            // first - and they may only be released here, on the render thread, and
-            // BEFORE the frame's draw lists are built, or this frame would reference
-            // an SRV slot we just handed back.
+            // A reload (F5) rebuilds the whole texture set. The old textures may only be
+            // released here, on the render thread and BEFORE the frame's draw lists are
+            // built, or the frame references an SRV slot just handed back.
             if (g_drop_textures.load(std::memory_order_acquire))
             {
                 if (slicer_pause_begin(kSlicerPauseMs))
                 {
                     g_drop_textures.store(false, std::memory_order_release);
-                    // A full GPU flush plus ~340 MB of releases: a one-off, and one that
-                    // must not become the peak every later frame is judged against.
+                    // A full GPU flush plus ~340 MB of releases: a one-off that must not
+                    // become the peak every later frame is judged against.
                     mm::perf_note_stall(L"a map texture reload (F5)", 2000);
                     wait_for_gpu();
                     destroy_all_map_textures();
@@ -1090,17 +1015,16 @@ namespace overlay
                 g_pf_frame = mm::perf_register("render frame (ImGui)", perf::Thread::Render);
             }
             const std::uint64_t frame_t0 = mm::qpc_us();
-            // The UI scale, decided from the CURRENT back buffer and applied before the
-            // frame's draw lists exist. ResizeBuffers changes g_height, and a config
+            // The UI scale, decided from the current back buffer and applied before the
+            // frame's draw lists exist. ResizeBuffers changes g_height and a config
             // change comes through cfg_cached, so both re-enter here on their own.
             apply_ui_scale(wanted_ui_scale(mm::cfg_cached(), static_cast<float>(g_height)));
-            // TWO SUB-COUNTERS, because the 358 ms peak this row showed after 30 minutes
-            // had to be attributed to one side or the other. ImGui_ImplWin32_NewFrame is
-            // the suspect: it reads and writes the CURSOR and the client rect of a window
-            // owned by the GAME thread, and a cross-thread user32 call blocks until that
-            // thread pumps messages - which it does not do while it is inside a
+            // Two sub-counters, because the two halves fail differently:
+            // ImGui_ImplWin32_NewFrame reads and writes the cursor and the client rect
+            // of a window owned by the GAME thread, and that cross-thread user32 call
+            // blocks until that thread pumps messages - which it does not do inside a
             // synchronous level load. build_ui() is our own drawing and touches no OS
-            // handle at all. Whichever one carries the peak, the table now says so.
+            // handle.
             if (g_pf_newframe < 0)
             {
                 g_pf_newframe = mm::perf_register("render NewFrame (win32)", perf::Thread::Render);
@@ -1112,12 +1036,12 @@ namespace overlay
                 // is allowed to touch the ImGui context.
                 g_render_stage.store("imgui: replaying window messages", std::memory_order_relaxed);
                 replay_imgui_messages();
-                // CROSS-THREAD USER32, and the render lock is held across it. Everything
-                // in here reads or writes the cursor and the client rect of a window
-                // owned by the GAME thread, so it is the one place in the frame that can
-                // wait on another thread - which is why `hk_ResizeBuffers` (the only
-                // other taker of that lock, and a call that can arrive on the game
-                // thread) acquires it with a bound instead of spinning for ever.
+                // Cross-thread user32 with the render lock held: everything in here
+                // reads or writes the cursor and the client rect of a window owned by
+                // the GAME thread, so it is the one place in the frame that can wait on
+                // another thread. That is why `hk_ResizeBuffers` - the only other taker
+                // of that lock, and a call that can arrive on the game thread - acquires
+                // it with a bound instead of spinning for ever.
                 g_render_stage.store("imgui: ImplWin32_NewFrame (user32)", std::memory_order_relaxed);
                 ImGui_ImplWin32_NewFrame();
             }
@@ -1146,10 +1070,10 @@ namespace overlay
                 begin_map_upload(*pending, g_cmd_list);
             }
 
-            // The height-slice window the CPU filled during build_ui(). Recorded here,
-            // i.e. BEFORE ImGui's draw call in the same command list, so the GPU sees
-            // the copy complete before it samples the texture - no extra queue, no
-            // second submission and no PSO of our own.
+            // The height-slice window the CPU filled during build_ui(), recorded BEFORE
+            // ImGui's draw call in the same command list, so the GPU sees the copy
+            // complete before it samples the texture - no extra queue, no second
+            // submission, no PSO of our own.
             record_slice_copy(g_cmd_list);
 
             D3D12_RESOURCE_BARRIER barrier{};
@@ -1167,7 +1091,7 @@ namespace overlay
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_cmd_list);
 
             // The screenshot copy, if one was asked for: it takes the back buffer from
-            // RENDER_TARGET to PRESENT itself (via COPY_SOURCE), so it REPLACES the
+            // RENDER_TARGET to PRESENT itself (via COPY_SOURCE), so it replaces the
             // closing barrier below rather than adding to it.
             const bool shot_recorded = record_shot_copy(g_cmd_list, g_backbuffers[index], index);
             if (!shot_recorded)
@@ -1181,7 +1105,7 @@ namespace overlay
             g_render_stage.store("submitting the command list", std::memory_order_relaxed);
             ID3D12CommandQueue* queue = g_queue.load(std::memory_order_acquire);
             ID3D12CommandList* lists[] = {g_cmd_list};
-            // The ORIGINAL, so our own submission does not re-enter the hook.
+            // The original, so our own submission does not re-enter the hook.
             o_ExecuteCommandLists(queue, 1, lists);
             ++g_fence_value;
             queue->Signal(g_fence, g_fence_value);
@@ -1224,24 +1148,18 @@ namespace overlay
 
         // THE EXCEPTION BARRIER.
         //
-        // Everything our frame does - std::format for a panel line, a vector that grows
-        // while markers are collected, the ImGui context itself - can throw
-        // std::bad_alloc, and a throw here would unwind THROUGH the MinHook trampoline
-        // and into DXGI, i.e. through frames that were compiled with no idea our code
-        // exists. That is a hard crash inside the graphics driver stack with a call
-        // stack that names dxgi.dll and not this mod, which is the worst possible
-        // diagnostic for the player who has to report it.
+        // Anything in the frame can throw std::bad_alloc, and a throw would unwind
+        // through the MinHook trampoline into DXGI - frames compiled with no idea this
+        // code exists, i.e. a crash inside the driver stack whose call stack names
+        // dxgi.dll. So the whole frame is wrapped once, at the hook boundary: a throw
+        // becomes one log line and a dead overlay, and the game keeps presenting.
         //
-        // So the whole frame is wrapped, once, at the hook boundary: a throw becomes one
-        // log line and a dead overlay, and the game keeps presenting.
-        //
-        // NOT SEH. An access violation is deliberately left to crash: __try cannot live
-        // in a function that needs C++ unwinding (MSVC C2712, lessons.md), so it would
-        // take a second POD-only trampoline - and swallowing an AV in the middle of our
-        // command-list recording would leave the list open and the back buffer stranded
-        // between resource states, which the next frames turn into a device removal with
-        // no evidence left. The crash breadcrumb plus CrashContext.runtime-xml is the
-        // route that has actually diagnosed every fault in this project so far.
+        // Not SEH: an access violation is left to crash. `__try` cannot live in a
+        // function needing C++ unwinding (MSVC C2712), and swallowing an AV mid
+        // command-list recording leaves the list open and the back buffer stranded
+        // between resource states, which later frames turn into a device removal with no
+        // evidence. The crash breadcrumb plus CrashContext.runtime-xml is the diagnostic
+        // route here.
         void render_guarded(IDXGISwapChain* sc)
         {
             try
@@ -1269,12 +1187,10 @@ namespace overlay
         }
 
         // The screenshot readback: mapped, unpacked and turned into a DIB OUTSIDE the
-        // render lock. It used to run inside render(), which holds that lock across the
-        // whole frame - and `hk_ResizeBuffers` waits on the same lock from the GAME
-        // thread, so a full-canvas unpack (two allocations plus a per-row conversion of
-        // up to ~8 MB) sat directly in front of a resize. Same thread, same point in the
-        // frame, no lock held: the readback resource and the fence are render-thread-only
-        // objects and this is the render thread.
+        // render lock, because a full-canvas unpack is two allocations plus a per-row
+        // conversion of up to ~8 MB and `hk_ResizeBuffers` waits on that same lock from
+        // the GAME thread. Still the render thread, which is what owns the readback
+        // resource and the fence.
         void collect_guarded()
         {
             try
@@ -1287,11 +1203,9 @@ namespace overlay
             }
         }
 
-        // DID THE PRESENT ITSELF FAIL? The HRESULT used to be discarded, which is how a
-        // TDR or a driver reset left the overlay silently dead for the rest of the
-        // session: every later frame drew into resources belonging to a device that no
-        // longer exists. Both removal codes mean "everything we hold is gone", so the
-        // next Present starts over from an empty state.
+        // Did the Present itself fail? Both removal codes (a TDR, a driver reset) mean
+        // everything this module holds is gone, so the next Present starts over from an
+        // empty state.
         void note_present_result(HRESULT hr)
         {
             if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
@@ -1308,10 +1222,9 @@ namespace overlay
             {
                 collect_guarded();
             }
-            // THE ORIGINAL IS ALWAYS CALLED, for every swapchain in the process - see
-            // the comment on this hook's install: Present is one dxgi function shared by
-            // every swapchain, D3D11 and D3D12 alike, and returning early for "not ours"
-            // would stop somebody else's overlay from presenting at all.
+            // The original is always called, for every swapchain in the process: Present
+            // is one dxgi function shared by every swapchain, D3D11 and D3D12 alike, and
+            // returning early for "not ours" would stop another overlay presenting.
             const HRESULT hr = o_Present(sc, sync, flags);
             if (sc == g_swapchain)
             {
@@ -1348,20 +1261,18 @@ namespace overlay
             // the tail of a level load): the frames around it are wall-clock waits, not
             // this mod's cost, so they go to the stall columns of the F2 table.
             mm::perf_note_stall(L"a swapchain resize", 2000);
-            // A BOUNDED ACQUIRE, NOT A SPIN. This call can arrive on the game thread,
-            // and the render thread holds this same lock across
-            // `ImGui_ImplWin32_NewFrame()`, which reads and writes the cursor and the
-            // client rect of a window the GAME thread owns. Spinning here for ever is
-            // therefore a two-thread deadlock with no diagnostic; a bound turns the
-            // worst case into a named log line and a resize that may fail, which the
-            // next Present recovers from by recreating its render targets.
+            // A bounded acquire, not a spin: this call can arrive on the game thread and
+            // the render thread holds the same lock across `ImGui_ImplWin32_NewFrame()`,
+            // which waits on that very thread. Spinning for ever is a two-thread
+            // deadlock; the bound turns the worst case into a named log line and a
+            // resize that may fail, which the next Present recovers from by recreating
+            // its render targets.
             if (g_render_lock.try_lock_ms(2000))
             {
-                // OURS OR NOT, TESTED BEFORE THE LINE IS FORMATTED. Every swapchain in
-                // the process comes through this one function, and formatting a log line
-                // for each of them (the game presents a decoy 144x8 D3D11 swapchain too)
-                // put a wstring allocation and a log write in front of resizes that have
-                // nothing to do with this mod.
+                // Ours or not, tested before the line is formatted: every swapchain in
+                // the process comes through this function, the decoy 144x8 D3D11 one
+                // included, and formatting for each would put a wstring allocation and a
+                // log write in front of resizes that have nothing to do with this mod.
                 if (sc == g_swapchain)
                 {
                     mm::logf(L"ResizeBuffers({} buffers, {}x{}, {}) - releasing render targets",
@@ -1369,9 +1280,9 @@ namespace overlay
                              w,
                              h,
                              format_name(format));
-                    // A throw in here would unwind into DXGI through the trampoline, the
-                    // same hazard the Present barrier exists for - and this one runs on
-                    // the GAME thread, where it would take the game down with it.
+                    // A throw here would unwind into DXGI through the trampoline - the
+                    // same hazard the Present barrier exists for, and on the GAME
+                    // thread, where it takes the game down with it.
                     try
                     {
                         if (g_imgui_ready)
@@ -1423,28 +1334,23 @@ namespace overlay
                     ID3D12CommandQueue* expected = nullptr;
                     if (g_queue.compare_exchange_strong(expected, queue))
                     {
-                        // A REFERENCE IS HELD FROM HERE UNTIL THE TEARDOWN RELEASES IT.
-                        // The pointer was borrowed before: the queue is the game's, and
-                        // a game that destroys it (a device reset, a renderer swap) left
-                        // this module submitting command lists to freed memory. One
-                        // AddRef costs nothing and makes the pointer valid for as long
-                        // as we hold it.
+                        // A reference is held from here until the teardown releases it:
+                        // the queue is the game's, and a game that destroys it (a device
+                        // reset, a renderer swap) would leave this module submitting
+                        // command lists to freed memory.
                         queue->AddRef();
                         mm::logf(L"captured the game's DIRECT command queue {:p} (priority {}, flags {})",
                                  static_cast<void*>(queue),
                                  desc.Priority,
                                  static_cast<unsigned>(desc.Flags));
-                        // WHICH QUEUE, AND WHY IT MAY BE THE WRONG ONE. There is no way
-                        // to ask this game's swapchain which queue presented it: it is a
-                        // ReShade wrapper and IDXGISwapChain::GetDevice does not even
-                        // forward, so "the queue that executed last before Present on
-                        // our swapchain" is not derivable here - ExecuteCommandLists is
-                        // hooked process-wide and every renderer in the process (the
-                        // game, ReShade's own effects, a frame-generation runtime) uses
-                        // it. What IS checkable is the device: create_render_targets
-                        // compares the back buffer's ID3D12Device with the one this
-                        // queue hands out and rejects the queue on a mismatch, which is
-                        // the failure that would actually matter.
+                        // Which queue, and why it may be the wrong one: this game's
+                        // swapchain cannot be asked which queue presented it (a ReShade
+                        // wrapper whose GetDevice does not forward), and
+                        // ExecuteCommandLists is hooked process-wide, so every renderer
+                        // in the process comes through here. What is checkable is the
+                        // device - create_render_targets compares the back buffer's
+                        // ID3D12Device with the one this queue hands out and rejects the
+                        // queue on a mismatch.
                     }
                 }
             }
@@ -1461,22 +1367,17 @@ namespace overlay
         //
         // Discovery creates a throwaway D3D12 device, a DIRECT command queue and a 64x64
         // swapchain on a hidden window, reads four vtable slots and destroys all three.
-        // That is the hudhook recipe and it is what found the addresses in the first
-        // place - but Steam's GameOverlayRenderer64 hooks the device-, queue- and
-        // swapchain-creating entry points and re-targets its overlay onto what it sees
-        // created. Ours are created LATER than the game's (this runs from
-        // on_unreal_init, long after RHI init) and are then destroyed, which is a
-        // textbook way to leave the Steam overlay pointed at a dead object - the
-        // reported symptom, "the Steam FPS counter stopped rendering with the mod".
+        // Steam's GameOverlayRenderer64 hooks the device-, queue- and swapchain-creating
+        // entry points and re-targets its overlay onto what it sees created, so creating
+        // and destroying objects after the game's own RHI init leaves the Steam overlay
+        // pointed at a dead object - "the Steam FPS counter stopped rendering".
         //
-        // The addresses, though, are a property of the DLL and not of the session: the
-        // first launch writes them down as module + RVA, and every launch after that
-        // hooks them directly and creates NOTHING. The cache is keyed to the module's
-        // SizeOfImage, TimeDateStamp and CheckSum - all three baked into the file - so a
-        // ReShade, driver or Windows update invalidates it and discovery runs once more.
-        // If cached addresses ever produce no Present at all, the watchdog deletes the
-        // file, so a stale cache costs one launch and heals itself.
-
+        // The addresses are a property of the DLL, not of the session: the first launch
+        // writes them down as module + RVA and every launch after that hooks them
+        // directly and creates nothing. The cache is keyed to the module's SizeOfImage,
+        // TimeDateStamp and CheckSum, so a ReShade, driver or Windows update invalidates
+        // it and discovery runs once more. Cached addresses that produce no Present make
+        // the watchdog delete the file, so a stale cache costs one launch.
 
         std::wstring hook_cache_path()
         {
@@ -1560,9 +1461,9 @@ namespace overlay
             return true;
         }
 
-        // Resolves every entry against the module loaded RIGHT NOW. Any mismatch refuses
-        // the WHOLE cache: a half-valid one would hook an address inside the wrong DLL,
-        // which is a crash rather than a missing overlay.
+        // Resolves every entry against the module loaded right now. Any mismatch refuses
+        // the whole cache: a half-valid one hooks an address inside the wrong DLL, which
+        // is a crash rather than a missing overlay.
         bool read_hook_cache(void** addr)
         {
             HANDLE h = ::CreateFileW(hook_cache_path().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
@@ -1715,13 +1616,10 @@ namespace overlay
             const MH_STATUS s4 = MH_CreateHook(addr[3], reinterpret_cast<void*>(&hk_ExecuteCommandLists),
                                                reinterpret_cast<void**>(&o_ExecuteCommandLists));
 
-            // THE STATUSES ARE CHECKED BEFORE ANYTHING IS ENABLED. MH_EnableHook used to
-            // run first, so a partial install (Present created, ExecuteCommandLists not)
-            // left LIVE trampolines behind while this function reported failure - and
-            // `g_hooks_created` then stayed false, so the master switch's re-enable took
-            // the "install from scratch" branch and ran the dummy-device discovery
-            // again on top of hooks that were already in place. Either both required
-            // hooks exist or nothing of ours is installed at all.
+            // The statuses are checked before anything is enabled: either both required
+            // hooks exist or nothing of ours is installed at all. A partial install
+            // would leave live trampolines behind while reporting failure, and the
+            // master switch's re-enable would then run discovery on top of them.
             const MH_STATUS created[kHookCount] = {s1, s2, s3, s4};
             const bool required_ok = s1 == MH_OK && s4 == MH_OK;
             MH_STATUS en = MH_ERROR_NOT_CREATED;
@@ -1778,7 +1676,7 @@ namespace overlay
             {
                 return false;
             }
-            // WHO WAS ALREADY THERE, read before we write a byte.
+            // Who was already there, read before a byte is written.
             for (int i = 0; i < kHookCount; ++i)
             {
                 mm::logf(L"hook cache: {} -> {} {}", kHookNames[i], module_of(addr[i]),
@@ -1860,10 +1758,9 @@ namespace overlay
                     q_vtable[10],  // ID3D12CommandQueue::ExecuteCommandLists
                 };
 
-                // WHO WAS ALREADY THERE. Read before we write a byte: a jmp in front of
+                // Who was already there, read before a byte is written: a jmp in front of
                 // Present names the module that installed it, and MinHook relocates
-                // those bytes into our trampoline - which is the proof that the other
-                // overlay stays in the chain below us instead of being replaced.
+                // those bytes into our trampoline, so that overlay stays in the chain.
                 ModuleId ids[kHookCount]{};
                 bool all_identified = true;
                 for (int i = 0; i < kHookCount; ++i)
@@ -1877,9 +1774,9 @@ namespace overlay
 
                 ok = create_and_enable(addr, L"by dummy-swapchain discovery");
 
-                // The addresses belong to the DLLs, so the next launch can hook them
-                // without creating (and then destroying) a device, a queue and a
-                // swapchain that Steam's overlay may have re-targeted itself onto.
+                // The addresses belong to the DLLs, so the next launch hooks them without
+                // creating (and destroying) a device, a queue and a swapchain that
+                // Steam's overlay may re-target itself onto.
                 if (ok && all_identified && write_hook_cache(ids))
                 {
                     mm::logf(L"hook cache: written to {} - the next launch hooks these addresses directly "
@@ -1905,7 +1802,7 @@ namespace overlay
             return ok;
         }
 
-        // THE ONE ENTRY POINT. The cache first (it creates nothing), the dummy-swapchain
+        // The one entry point: the cache first (it creates nothing), the dummy-swapchain
         // discovery as the fallback that also refreshes the cache.
         bool install_hooks()
         {

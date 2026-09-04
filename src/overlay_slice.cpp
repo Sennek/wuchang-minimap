@@ -46,7 +46,7 @@ namespace overlay
             }
         }
 
-        // RENDER THREAD, and only with the slicer paused.
+        // Render thread, and only with the slicer paused.
         void destroy_slice_buffers()
         {
             destroy_slice_set(g_slice, kSliceBufs);
@@ -62,7 +62,7 @@ namespace overlay
             note_slice_buffers_changed();
         }
 
-        // RENDER THREAD, and only with the slicer paused.
+        // Render thread, and only with the slicer paused.
         void destroy_map_slice_buffers()
         {
             destroy_slice_set(g_mslice, kMapSliceBufs);
@@ -78,9 +78,9 @@ namespace overlay
             note_slice_buffers_changed();
         }
 
-        // RENDER THREAD. Every caller must already have the slicer paused; the two
-        // that matter (the F5 texture drop and shutdown_render) do it around
-        // wait_for_gpu() as well, so the GPU is idle AND the loop thread is out.
+        // Render thread. Every caller must already have the slicer paused; the F5
+        // texture drop and shutdown_render also do it around wait_for_gpu(), so the GPU
+        // is idle and the loop thread is out.
         void destroy_all_map_textures()
         {
             destroy_texture(g_map);
@@ -88,8 +88,8 @@ namespace overlay
             destroy_map_slice_buffers();
             g_feet_z_valid = false;
             g_slice_scratch.clear();
-            // g_mslice_scratch belongs to the loop thread now, but the slicer is paused
-            // here, so clearing it is safe and keeps the memory from a closed map.
+            // g_mslice_scratch belongs to the loop thread; the slicer is paused here,
+            // so clearing it is safe and gives back a closed map's memory.
             g_mslice_scratch.clear();
             g_slice_want_px.store(0, std::memory_order_relaxed);
             {
@@ -98,9 +98,9 @@ namespace overlay
             }
         }
 
-        // An upload buffer only has to live until the GPU has run the copy. Releasing
-        // them matters now that a chapter uploads ten pictures: keeping them would park
-        // ~100 MB of CPU-visible memory for the whole session.
+        // An upload buffer only has to live until the GPU has run the copy, and a
+        // chapter uploads ten pictures - keeping them parks ~100 MB of CPU-visible
+        // memory for the session.
         void release_finished_uploads()
         {
             if (g_fence == nullptr)
@@ -251,39 +251,28 @@ namespace overlay
         // The height slicer
         //==============================================================================
         //
-        // WHY THIS REPLACED THE ORDINAL LAYERS (2026-09-02, round 3 of the in-world
-        // feedback). The map used to ship one pre-rendered texture per per-pixel
-        // surface ORDINAL plus a 640-uu grid of surface bands, and the runtime guessed
-        // which ordinal the player's storey was from that grid. The guess is genuinely
-        // ambiguous - a band names up to three ordinals - so a temple interior drew
-        // several layers blended together and read as noise, exactly the failure mode
-        // `CURRENT.md` had written down as the trigger for this rewrite.
-        //
-        // Now the asset carries the ACTUAL Z of up to four stacked surfaces per pixel
-        // (mapdata::HeightMaps) and this code answers the question exactly, per pixel:
+        // The asset carries the actual Z of up to four stacked surfaces per pixel
+        // (mapdata::HeightMaps) and this code answers, per pixel:
         //
         //     |Z - feetZ| <= floor_z_tolerance          -> the floor I am on, opaque
         //     nearest surface below within floor_fade_uu -> dim  (adjacent_floor_opacity)
         //     nearest surface above within floor_fade_uu -> faint (x 0.6)
         //     nothing                                    -> transparent
         //
-        // and shades each pixel by (surfaceZ - feetZ) so slopes and staircases inside
-        // one storey read as a gentle gradient instead of a flat silhouette. There are
-        // no floor ranks, no bands and no per-position grid lookup left - the only
-        // hysteresis is the EMA on feetZ.
+        // Each pixel is shaded by (surfaceZ - feetZ), so slopes and staircases inside
+        // one storey read as a gradient rather than a flat silhouette. No floor ranks,
+        // no bands, no per-position grid lookup; the only hysteresis is the EMA on
+        // feetZ.
         //
         // It runs on the CPU, at slice_hz, over only the window the minimap can show
         // (a ~512x512 source region), and uploads that window into a small dynamic
-        // texture. That buys the shader path's exact semantics without a custom root
-        // signature / PSO / D3DCompile on a ReShade-wrapped DX12 swapchain - see
-        // CURRENT.md § Decisions. The shader path stays documented as a later
-        // optimisation: it would move this loop to the GPU and drop the 512x512 upload.
+        // texture - the shader path's semantics without a custom root signature / PSO /
+        // D3DCompile on a ReShade-wrapped DX12 swapchain.
 
-
-        // Creates `count` dynamic RGBA textures of w x h with a persistently mapped
-        // upload heap each. Shared by the minimap (square) and the full map
-        // (rectangular): the resources, the barriers and the copy are identical, only
-        // the size and the update policy differ.
+        // Creates `count` dynamic RGBA textures of w x h, each with a persistently
+        // mapped upload heap. Shared by the minimap (square) and the full map
+        // (rectangular): resources, barriers and copy are identical, only the size and
+        // the update policy differ.
         bool create_slice_set(SliceBuf* bufs, int count, int w, int h, const wchar_t* what)
         {
             destroy_slice_set(bufs, count);
@@ -381,7 +370,7 @@ namespace overlay
             return true;
         }
 
-        // RENDER THREAD, and only with the slicer paused.
+        // Render thread, and only with the slicer paused.
         bool create_slice_buffers(int size)
         {
             if (!create_slice_set(g_slice, kSliceBufs, size, size, L"minimap"))
@@ -423,25 +412,22 @@ namespace overlay
         // One pixel's colour, from the up-to-four surface Z values under it.
         //
         // `state` 3 = the floor the player is on, 2 = the nearest surface below,
-        // 1 = the nearest above, 0 = nothing. The gradient is the SAME rule offline
+        // 1 = the nearest above, 0 = nothing. The gradient is the same rule the offline
+        // preview (tools/navmesh/slice_preview.py) uses.
 
         // Fills `dst` (size*size RGBA8, row pitch `pitch`) with the window whose
         // top-left source pixel is (x0, y0).
         //
-        // PLANE-MAJOR, deliberately. The obvious pixel-major loop reads all eight
-        // planes at one pixel before moving on - eight addresses ~43 MB apart, i.e. one
-        // cache miss per plane per pixel, ~2.1 M misses for a 512x512 window. Walking
-        // one plane's window to completion instead touches 512 contiguous uint16 per
-        // row, so the whole pass is ~65 k cache lines: the same arithmetic, ~30x fewer
-        // misses. The per-pixel decision state lives in ~1.3 MB of scratch, which fits
-        // in L2/L3.
+        // Plane-major, deliberately: a pixel-major loop reads eight planes ~43 MB
+        // apart at every pixel (~2.1 M cache misses for a 512x512 window), while
+        // walking one plane's window to completion touches 512 contiguous uint16 per
+        // row - the same arithmetic, ~30x fewer misses. The per-pixel decision state is
+        // ~1.3 MB of scratch and fits in L2/L3.
         // `sx0` / `sy0` are the source pixel of the destination's top-left CORNER and
         // `src_step` is how many source pixels one destination pixel advances - 1.0 for
-        // the minimap (which shows the asset at its own resolution) and > 1 for the full
-        // map, which decimates. Sampling is nearest, at the destination pixel's centre;
-        // at a decimating step a 1-px corridor can drop out, but at that zoom it is
-        // sub-pixel anyway, and the alternative (scanning every source pixel of the
-        // region) is ~30x the work for a picture nobody can resolve.
+        // the minimap (the asset at its own resolution) and > 1 for the full map, which
+        // decimates. Sampling is nearest, at the destination pixel's centre, so a 1-px
+        // corridor can drop out at a decimating step - sub-pixel at that zoom anyway.
         void slice_region(const mapdata::HeightMaps& hm, double sx0, double sy0, double src_step, int w, int h,
                           std::uint8_t* dst, UINT pitch, float feet, const SliceStyle& st, SliceScratch& sc,
                           SliceCounts& counts)
@@ -463,9 +449,8 @@ namespace overlay
             float* best_ad = sc.best_ad.data();
             float* best_d = sc.best_d.data();
 
-            // Destination -> source index, computed once instead of once per plane. It
-            // is also where the bounds check lives: -1 means "outside the asset", which
-            // comes out transparent.
+            // Destination -> source index, computed once instead of once per plane, and
+            // where the bounds check lives: -1 means outside the asset, i.e. transparent.
             if (sc.col_x.size() != static_cast<std::size_t>(w))
             {
                 sc.col_x.resize(static_cast<std::size_t>(w));
@@ -507,12 +492,11 @@ namespace overlay
                     {
                         continue;
                     }
-                    // Gather the row's codes out of the block store. `false` means
-                    // no surface anywhere on this row of this plane, which in the
-                    // deeper planes is most rows - and skipping them here is where the
-                    // sparse store gives some of the RAM saving back as speed. Columns
-                    // outside the asset (col_x < 0) and absent blocks both come back
-                    // as code 0, which is exactly what the dense plane held there.
+                    // Gather the row's codes out of the block store. `false` means no
+                    // surface anywhere on this row of this plane - most rows in the
+                    // deeper planes, and skipping them is where the sparse store pays
+                    // back in speed. Columns outside the asset (col_x < 0) and absent
+                    // blocks both come back as code 0.
                     if (!hm.gather_row(k, sy, col_x, w, gathered))
                     {
                         continue;
@@ -542,7 +526,7 @@ namespace overlay
                             continue;
                         }
                         const std::size_t i = out_base + static_cast<std::size_t>(col);
-                        // Class first, then "nearest": exactly the offline rule in
+                        // Class first, then nearest: the offline rule in
                         // tools/navmesh/slice_preview.py (slice_window + shade).
                         if (cand > state[i] || (cand == state[i] && ad < best_ad[i]))
                         {
@@ -570,10 +554,8 @@ namespace overlay
                         px[0] = px[1] = px[2] = px[3] = 0;
                         continue;
                     }
-                    // lum = 1 + strength * clamp(d / span, -1, +1), span = tol for my own
-                    // floor and fade for the dimmed ones - so a ramp or a staircase
-                    // inside one storey reads as a gentle gradient, and the dimmed
-                    // storeys are shaded by how far away they are.
+                    // lum = 1 + strength * clamp(d / span, -1, +1), span = tol for the
+                    // player's own floor and fade for the dimmed ones.
                     const float span = cls == 3 ? st.tol : st.fade;
                     float t = span > 0.0f ? best_d[i] / span : 0.0f;
                     t = t < -1.0f ? -1.0f : (t > 1.0f ? 1.0f : t);
@@ -633,9 +615,9 @@ namespace overlay
             return st;
         }
 
-        // RENDER THREAD. Everything about the minimap slice that must happen inside the
+        // Render thread. The part of the minimap slice that must happen inside the
         // frame: size the buffers (creation is the render thread's alone) and tell the
-        // slicer the minimap is drawing and how big a window it needs. The CUT itself
+        // slicer the minimap is drawing and how big a window it needs. The cut itself
         // runs on the loop thread - see slice_minimap_step().
         //
         // Returns true when a buffer is available to draw. The window carries margin,
@@ -652,9 +634,9 @@ namespace overlay
             const int want = slice_size_for(cfg, hm, half_px);
             if (want != g_slice_size)
             {
-                // The buffers are the render thread's to allocate, and the slicer may be
-                // writing into the old ones right now. If it will not stand down we
-                // simply keep the current size for this frame.
+                // The buffers are the render thread's to allocate and the slicer may be
+                // writing into the old ones; if it will not stand down, the current size
+                // is kept for this frame.
                 if (slicer_pause_begin(kSlicerPauseMs))
                 {
                     wait_for_gpu(); // the old buffers may still be in flight
@@ -672,10 +654,10 @@ namespace overlay
             return slice_view().shown >= 0;
         }
 
-        // LOOP THREAD. The actual cut: pace it, take the next buffer if the GPU is done
+        // Loop thread. The actual cut: pace it, take the next buffer if the GPU is done
         // with it, fill the mapped upload heap and publish the result.
         //
-        // The height planes are re-read from `mapdata` on EVERY call and never cached
+        // The height planes are re-read from `mapdata` on every call and never cached
         // across one: a chapter switch retires the old planes and frees them after a
         // grace period, so a pointer held from the previous slice could be freed memory.
         void slice_minimap_step(std::uint64_t now)
@@ -686,7 +668,7 @@ namespace overlay
                 return; // the minimap is not drawing, or the render thread is resizing
             }
             // The minimap stopped drawing (the overlay hid, the map opened) and nobody
-            // has asked since: stop cutting rather than burning a millisecond forever.
+            // has asked since: stop cutting rather than burning a millisecond a loop.
             if (now - g_slice_want_ms.load(std::memory_order_relaxed) > 500)
             {
                 return;
@@ -745,7 +727,7 @@ namespace overlay
             if (in_flight != 0 && fence != nullptr && fence->GetCompletedValue() < in_flight)
             {
                 // The GPU is still sampling this one. Never stall for the map: keep
-                // showing the other buffer and try again on the next loop iteration.
+                // showing the other buffer and try again on the next iteration.
                 ++g_slice_skipped;
                 return;
             }
@@ -798,9 +780,8 @@ namespace overlay
             g_slice_next = (g_slice_next + 1) % kSliceBufs;
             g_slice_last_ms = now;
             {
-                // The first slice is the stage where a map asset, the CPU slicer and a
-                // D3D12 upload heap are all live at once - i.e. the first moment a bad
-                // manifest or a bad buffer would take the process down.
+                // The first slice is where a map asset, the CPU slicer and a D3D12
+                // upload heap are first all live at once.
                 static bool first = true;
                 if (first)
                 {
@@ -810,14 +791,13 @@ namespace overlay
             }
         }
 
-        // MAIN-MENU SELF-TEST. The slicer only ever runs inside draw_minimap, which is
-        // gated on a gameplay pawn - so at the main menu neither the D3D12 resources nor
-        // the CPU loop is exercised, and a verification run there could only say "it did
-        // not crash". This allocates the buffers and slices one window at the chapter's
-        // centre so a Lobby log line proves the whole path: texture + mapped upload heap
-        // created, the loop ran, and what it cost. It also removes the first-frame hitch
-        // in-world, since the buffers already exist.
-        // RENDER THREAD, during set-up. It creates the buffers and writes into one of
+        // Main-menu self-test: the slicer otherwise only runs inside draw_minimap,
+        // which is gated on a gameplay pawn. This allocates the buffers and slices one
+        // window at the chapter's centre, so a Lobby log line proves the whole path
+        // (texture + mapped upload heap created, the loop ran, what it cost) and the
+        // in-world first frame has no allocation hitch.
+        //
+        // Render thread, during set-up. It creates the buffers and writes into one of
         // them, so the loop-thread slicer must be held off for its duration.
         void slice_selftest()
         {
@@ -871,17 +851,16 @@ namespace overlay
             LARGE_INTEGER t0{};
             LARGE_INTEGER t1{};
             ::QueryPerformanceCounter(&t0);
-            // Slice a window that actually HAS geometry in it, at a feet Z taken from
-            // that geometry - a window over empty map at the mid-Z of the chapter comes
-            // out fully transparent and proves nothing about the colour path.
+            // A window that has geometry in it, at a feet Z taken from that geometry -
+            // a window over empty map comes out transparent and proves nothing about
+            // the colour path.
             const int wx0 = (hm.width - b.w) / 2;
             const int wy0 = (hm.height - b.w) / 2;
             float probe_z = (hm.z_min + hm.z_max) * 0.5f;
             int sx0 = wx0;
             int sy0 = wy0;
             {
-                // The block store knows where its first lit pixel is, so this no
-                // longer has to stride over a 43 MB dense plane to find one.
+                // The block store knows where its first lit pixel is.
                 int px = 0;
                 int py = 0;
                 std::uint16_t code = 0;
@@ -899,7 +878,7 @@ namespace overlay
             const double ms = freq > 0 ? 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) /
                                              static_cast<double>(freq)
                                        : 0.0;
-            // Deliberately NOT marked needs_copy: nothing may be drawn at the main menu.
+            // Deliberately not marked needs_copy: nothing may be drawn at the main menu.
             mm::logf(L"slice: self-test sliced a {}x{} window of \"{}\" at source ({}, {}), feet Z "
                      L"{:.0f}, over {} surface(s) in {:.2f} ms (opaque {}, dim {}, faint {}) - the CPU "
                      L"path and the dynamic texture both work",
@@ -929,7 +908,7 @@ namespace overlay
             {
                 SliceBuf& b = bufs[i];
                 // exchange, not load+store: the slicer may fill this buffer again the
-                // instant we clear the flag, and that next fill must not be lost.
+                // instant the flag is cleared, and that next fill must not be lost.
                 if (b.tex == nullptr || !pending[i].exchange(false))
                 {
                     continue;
@@ -959,12 +938,11 @@ namespace overlay
                 barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
                 list->ResourceBarrier(1, &barrier);
                 b.in_copy_dest = false;
-                // The upload heap this copy READS may not be rewritten until the GPU has
-                // run it, so claim the fence this frame is about to signal. Without this
-                // the loop thread could refill the heap between the recording and the
-                // execution of the copy (two buffers, and a stalled frame is all it
-                // takes) and the texture would show a window the mapping does not
-                // describe. The stamp for a buffer that is merely being SAMPLED happens
+                // The upload heap this copy reads may not be rewritten until the GPU
+                // has run it, so it claims the fence this frame is about to signal -
+                // otherwise the loop thread could refill the heap between the recording
+                // and the execution of the copy and the texture would show a window the
+                // mapping does not describe. A buffer that is merely SAMPLED is stamped
                 // at the end of the frame, alongside the fence signal.
                 in_flight[i].store(g_fence_value + 1, std::memory_order_release);
             }
@@ -1019,13 +997,9 @@ namespace overlay
         }
 
         // The mod's own wide strings (the log is wide) rendered for ImGui, which is
-        // UTF-8. Key names, chord names and stage names are pure ASCII, so this is a
-        // cast per character - but it has to be an EXPLICIT one:
-        // std::string(w.begin(), w.end()) compiles and warns (C4244), and this mod
-        // ships warning-free.
-        //
-        // ONE converter. key_name_ascii() used to be a byte-for-byte copy of this with
-        // `mm::key_name(vk)` inlined into it (review B.22).
+        // UTF-8. Key names, chord names and stage names are pure ASCII, so this is one
+        // explicit cast per character - std::string(w.begin(), w.end()) warns (C4244)
+        // and this mod ships warning-free.
         std::string wide_to_ascii(const std::wstring& wide)
         {
             std::string out;
@@ -1043,9 +1017,9 @@ namespace overlay
             return wide_to_ascii(mm::key_name(binding));
         }
 
-        // THE KEY HINTS. Built from the CONFIG, never from the defaults, so a rebound key
-        // is what the player is told - both in the F2 panel and along the bottom of the
-        // full map. One builder, so the two can never drift apart.
+        // The key hints, built from the config and never from the defaults, so a
+        // rebound key is what the player is told. One builder for both the F2 panel and
+        // the full map's footer.
         std::string bindings_hint(const mm::Config& cfg)
         {
             std::string s = std::format("{} panel   {} full map ({} recentres)   {} minimap zoom   "

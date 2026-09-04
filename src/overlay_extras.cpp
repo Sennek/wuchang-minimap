@@ -16,18 +16,12 @@ namespace overlay
         //
         // Every shrine of the current chapter with its in-game name, its distance and
         // whether the save has lit it - and, behind `fast_travel_enabled`, a Travel
-        // action per row.
+        // action per row. Sorted by distance; the chapter filter follows the marker
+        // filter.
         //
-        // Sources, all published snapshots (render thread, no game-thread work):
-        //   shr::table()  markers/shrines.json - the id, the localised name, the chapter,
-        //                 the actor position and the game's own BirthPosition;
-        //   shr::state()  the save's UnlockedFirepoints list, read raw at 1 Hz;
-        //   snap          the pawn position, for the distance.
-        //
-        // Sorted by distance, because "which shrine is near me" is the question a player
-        // asks; the chapter filter follows the marker filter so the list and the map
-        // agree about what exists.
-
+        // Render thread only. Sources are published snapshots: shr::table()
+        // (markers/shrines.json), shr::state() (the save's UnlockedFirepoints, read raw
+        // at 1 Hz) and snap (the pawn position).
 
         void draw_shrine_list(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
                               int filter_chapter)
@@ -48,10 +42,8 @@ namespace overlay
                 double dist;
                 bool unlocked;
             };
-            // REUSED FRAME TO FRAME (review B.18): the shrine window is open while the
-            // player reads it, so this vector was allocated and freed on the render
-            // thread at frame rate. Render thread only, like every other static in this
-            // file. (`Shrine::label()` returns a reference and allocates nothing.)
+            // Reused frame to frame instead of reallocated at frame rate. Render thread
+            // only, like every other static in this file.
             static std::vector<Row> rows;
             rows.clear();
             rows.reserve(table->size());
@@ -133,9 +125,8 @@ namespace overlay
                 ImGui::TableNextColumn();
                 ImGui::PushID(static_cast<int>(i));
                 const bool selected = ::strcmp(g_shrine_selected, r.s->id.c_str()) == 0;
-                // One click sets a waypoint on it, a double-click centres the map there -
-                // review item 1. Selectable, so the whole row is the hit target rather
-                // than the eight characters of a name.
+                // One click sets a waypoint, a double-click centres the map. Selectable,
+                // so the whole row is the hit target.
                 if (ImGui::Selectable(r.s->label().c_str(), selected,
                                       ImGuiSelectableFlags_SpanAllColumns |
                                           ImGuiSelectableFlags_AllowDoubleClick))
@@ -146,9 +137,9 @@ namespace overlay
                     {
                         g_mv.cx = r.s->x;
                         g_mv.cy = r.s->y;
-                        // The height slice is cut around the view centre, so a jump has
-                        // to invalidate it or the map draws the old storey at the new
-                        // place until the next scheduled cut.
+                        // The height slice is cut around the view centre, so a jump must
+                        // invalidate it or the map draws the old storey at the new place
+                        // until the next scheduled cut.
                         g_map_recut.store(true, std::memory_order_release);
                         toast("centred on the shrine");
                     }
@@ -211,8 +202,8 @@ namespace overlay
                 if (cfg.fast_travel_enabled)
                 {
                     ImGui::TableNextColumn();
-                    // Only an id the save says is unlocked: travelling to a locked one is
-                    // untested and is exactly the call that can wedge level streaming.
+                    // Only an id the save says is unlocked - travelling to a locked one
+                    // can wedge level streaming.
                     const bool can = r.unlocked && tv.phase != shr::Travel::Requested &&
                                      tv.phase != shr::Travel::InFlight;
                     ImGui::BeginDisabled(!can);
@@ -236,21 +227,14 @@ namespace overlay
         // The collection statistics page
         //==============================================================================
         //
-        // "Why am I using this mod" on one screen: found/total for every chapter and
-        // every category, the shrines the save has lit, and one overall percentage.
+        // Found/total for every chapter and every category, the shrines the save has
+        // lit, and one overall percentage.
         //
-        // RENDER THREAD ONLY, and it never asks the game anything. Both sources are
-        // published snapshots - `markers::stats()` (a spinlock and a ~1.5 KB copy) and
-        // `shr::state()` (~6.5 KB) - so asking per frame would be ~8 KB of copying and a
-        // lock round-trip per frame for numbers that change once per SWEEP ROUND. The
-        // cache below therefore refreshes when `markers::rounds()` moves, with a 1 s
-        // floor so the page still fills in when the live sweep is off entirely (rounds
-        // never advance then, and a page that stays empty for ever reads as a bug).
-
-
-
-
-        // THE CATEGORIES THE COLLECTION PAGE COUNTS, and the order they are shown in.
+        // Render thread only, and it asks the game nothing. Both sources are published
+        // snapshots - `markers::stats()` (a spinlock and a ~1.5 KB copy) and
+        // `shr::state()` (~6.5 KB) - and their numbers change once per sweep round, so
+        // the cache refreshes when `markers::rounds()` moves, with a 1 s floor for when
+        // the live sweep is off and rounds never advance.
 
         // Draws into whatever window is current. `compact` drops the per-chapter matrix
         // and keeps the summary, for the F2 panel where vertical space is scarce.
@@ -286,10 +270,9 @@ namespace overlay
 
             // ---- shrines lit ----------------------------------------------------------
             //
-            // `UnlockedFirepoints` also holds boss-door and task pseudo-points, so the
-            // raw count is not "shrines". Only the ids that JOIN to a shrine marker in
-            // the static DB are counted; the raw list length is shown beside it so a
-            // join that goes wrong is visible rather than silent.
+            // `UnlockedFirepoints` also holds boss-door and task pseudo-points, so only
+            // ids that join to a shrine marker in the static DB are counted; the raw
+            // list length is shown beside it so a bad join is visible.
             const int shrine_total = st.cat[static_cast<int>(mdb::Cat::Shrine)].total;
             if (!c.shrines.valid)
             {
@@ -371,9 +354,8 @@ namespace overlay
 
             // ---- per chapter x category ----------------------------------------------
             //
-            // The six collectable categories, always all six, and nothing else: with the
-            // full enum this was 15 columns and had to scroll sideways inside a 1080p
-            // panel, which made the numbers on the right unreachable in practice.
+            // The six collectable categories only - the full 15-column enum scrolls
+            // sideways inside a 1080p panel.
             ImGui::Spacing();
             ImGui::TextDisabled("per chapter");
             if (ImGui::BeginTable("stats_matrix", kStatsCatCount + 1,
@@ -460,11 +442,8 @@ namespace overlay
             const std::uint64_t left = g_toast_until - now;
             const float a = left >= 300 ? 1.0f : static_cast<float>(left) / 300.0f;
             const ImGuiViewport* vp = ImGui::GetMainViewport();
-            // The one thing that KEEPS the foreground list (review B.20 moved the HUD
-            // off it): a toast is a two-second notice about something the player just
-            // did, and it has to be readable over the panel and over the full map -
-            // "map copied to clipboard" is raised by a key that only works while the map
-            // is open.
+            // The foreground list, unlike the HUD: a toast must be readable over the
+            // panel and over the full map.
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             const ImVec2 ts = ImGui::CalcTextSize(g_toast);
             const float pad = ImGui::GetTextLineHeight() * 0.5f;
@@ -479,10 +458,7 @@ namespace overlay
 
         // ---- "this marker just became found" -----------------------------------------
         //
-        // A 400 ms ring where a marker was collected. The event has to come from
-
-
-
+        // A 400 ms ring where a marker was collected.
 
         void note_found_event(double x, double y, std::uint64_t now)
         {
@@ -516,10 +492,9 @@ namespace overlay
                 }
                 ::strncpy_s(next[n].id, sizeof(next[n].id), fc.m->id, _TRUNCATE);
                 next[n].found = fc.found;
-                // A marker that was in the previous round's watch as NOT found and is
-                // found now is the event. A marker that was not being watched cannot
-                // produce one - which is what stops the first round after a load firing
-                // a ring for every item the save says is already collected.
+                // The event is a marker the previous round watched as not found. One
+                // that was not being watched produces nothing, so the first round after
+                // a load fires no rings for items the save already has.
                 if (!first && next[n].found)
                 {
                     for (int j = 0; j < g_found_watch_n; ++j)
@@ -539,7 +514,6 @@ namespace overlay
             }
             g_found_watch_n = n;
         }
-
 
         void build_frame_candidates(const mm::Snapshot& snap)
         {

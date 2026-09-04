@@ -20,14 +20,9 @@ namespace overlay
         //==============================================================================
         //
         // Every periodic activity in this mod records into perf.hpp's counter table;
-        // this prints it. The review of v0.9.1 found two costs that had been invisible
-        // for weeks (the 4 Hz widget sweep at 28-51 ms, and publish_round, never timed
-        // at all) by reading code - this is so the next one is found by looking.
-        //
-        // The columns: how often it runs, what an average invocation costs, the worst
-        // one since the peaks were last reset, the most recent one, and which thread
-        // pays. `avg` and `Hz` are over a rolling window (perf::kWindowMs), so they
-        // react instead of being diluted by the whole session.
+        // this prints it. The columns: how often it runs, what an average invocation
+        // costs, the worst since the peaks were last reset, the most recent, and which
+        // thread pays. `avg` and `Hz` are over a rolling window (perf::kWindowMs).
         void draw_perf_table()
         {
             const perf::Table& pt = mm::perf_table();
@@ -46,13 +41,11 @@ namespace overlay
             }
             ImGui::SameLine();
             ImGui::TextDisabled("a peak from a loading screen otherwise hides every later one");
-            // WHAT `peak ms` MEANS. All three of this mod's threads measure wall clock,
-            // so a sample taken while the game thread is inside a synchronous load, or
-            // while the swapchain is being resized, or while the mod is doing a one-off
-            // blocking job, is time spent WAITING - and one of those hides every later
-            // regression behind it. Those samples are counted in `stalls` instead, with
-            // their own worst case, and nothing is thrown away: hover a peak for the raw
-            // one that includes them.
+            // All three threads measure wall clock, so a sample taken during a
+            // synchronous load, a swapchain resize or a one-off blocking job is time
+            // spent WAITING and would hide every later regression. Those samples go to
+            // `stalls`, with their own worst case; hover a peak for the raw one that
+            // includes them.
             ImGui::TextDisabled("peak ms = the worst sample OUTSIDE a load / resize / one-off job; "
                                 "the rest are counted under stalls (hover a peak for the raw one)");
             {
@@ -93,8 +86,8 @@ namespace overlay
                     ImGui::TableNextColumn();
                     ImGui::Text("%.3f", c.avg_ms);
                     ImGui::TableNextColumn();
-                    // The one number worth colouring: anything over a millisecond on a
-                    // periodic path is a frame-time or game-thread problem.
+                    // Over a millisecond on a periodic path is a frame-time or
+                    // game-thread problem.
                     if (c.peak_calm_ms >= 4.0)
                     {
                         ImGui::TextColored(ImVec4{1.0f, 0.45f, 0.35f, 1.0f}, "%.3f", c.peak_calm_ms);
@@ -135,17 +128,11 @@ namespace overlay
         // Category chips
         //==============================================================================
         //
-        // Three places used to draw fourteen `ImGui::Checkbox`es in a hand-computed grid
-        // (the minimap filter, the x-ray filter, the compass filter) - forty-two
-        // checkboxes in one window, all identical, none of them telling you what colour
-        // the category is on the map.
-        //
         // A chip is a SmallButton filled with the category's own glyph colour when the
-        // category is on and drawn as a flat outline when it is off, so the row doubles
-        // as the legend. `base_id` keeps the three rows apart: ImGui identifies a widget
-        // by its label, and three rows of "Chest" in one window would be one widget
-        // (that is the PushID rule in lessons.md, and it is why each row passes its own
-        // base).
+        // category is on and a flat outline when it is off, so the row doubles as the
+        // legend. Three rows exist (minimap, x-ray, compass) and `base_id` keeps them
+        // apart: ImGui identifies a widget by its label, so three rows of "Chest" in one
+        // window would be one widget.
         bool category_chips(std::uint32_t& mask, int base_id, float wrap_width)
         {
             bool changed = false;
@@ -155,10 +142,8 @@ namespace overlay
             {
                 const mdb::Cat cat = static_cast<mdb::Cat>(i);
                 const bool on = mdb::cat_enabled(mask, cat);
-                // A GUTTER FOR THE GLYPH. The chip's own shape is the half of a
-                // category's identity that survives at map scale, so the filter shows it
-                // rather than only the colour: the button's label is padded on the left
-                // and the glyph is drawn into that gap afterwards.
+                // A gutter for the glyph: the label is padded on the left and the glyph
+                // drawn into that gap afterwards, so the filter shows the shape too.
                 const float glyph_r = (std::max)(4.0f, ImGui::GetTextLineHeight() * 0.30f);
                 const float gutter = glyph_r * 2.0f + 4.0f;
                 const char* label = mdb::cat_label(cat);
@@ -178,9 +163,8 @@ namespace overlay
 
                 const ImU32 col = marker_color(cat, 255);
                 const ImVec4 fill = ImGui::ColorConvertU32ToFloat4(col);
-                // Black text on a saturated fill, the category's own colour as a thin
-                // outline when off. The luminance test is what stops a yellow chip from
-                // getting white text nobody can read.
+                // Black text on a saturated fill, the category's colour as a thin
+                // outline when off; the luminance test keeps a yellow chip readable.
                 const float lum = 0.299f * fill.x + 0.587f * fill.y + 0.114f * fill.z;
                 const ImVec4 text_col = on ? (lum > 0.55f ? ImVec4{0.06f, 0.06f, 0.06f, 1.0f}
                                                           : ImVec4{1.0f, 1.0f, 1.0f, 1.0f})
@@ -213,11 +197,9 @@ namespace overlay
             return changed;
         }
 
-        // ONE CATEGORY FILTER, all three of them identical: a title, `all` / `none`, the
-        // config key it writes, then the chip grid. Three of these exist (the map and
-        // minimap share one mask, the compass has its own, the x-ray has its own) and a
-        // player has to be able to tell at a glance which is which - so the title says
-        // what the filter is FOR, not what the key is called.
+        // One category filter: a title, `all` / `none`, the config key it writes, then
+        // the chip grid. The map and minimap share one mask, the compass and the x-ray
+        // have their own, so the title says what the filter is FOR, not its key name.
         void category_filter(const char* title, const char* key, std::uint32_t& mask, int base_id,
                              float wrap_width)
         {
@@ -243,7 +225,9 @@ namespace overlay
         // Player presets
         //==============================================================================
         //
-        // Three named starting points, each setting SEVERAL Player keys at once, so the
+        // Three named starting points, each setting several Player keys at once. They
+        // never touch a hotkey, the UI scale, the placement, the master switch or any
+        // Advanced key.
 
         void apply_preset(mm::Config& cfg, Preset which)
         {
@@ -266,8 +250,8 @@ namespace overlay
             switch (which)
             {
             case Preset::Minimal:
-                // As little as possible while still being a map: a small disc, only the
-                // landmarks you navigate by, nothing you have already taken, no compass.
+                // A small disc, only the landmarks you navigate by, nothing already
+                // taken, no compass.
                 cfg.show_minimap = true;
                 cfg.size_frac = 0.16f;
                 cfg.zoom_uu_per_px = 30.0f;
@@ -279,9 +263,8 @@ namespace overlay
                 cfg.highlight_categories = chest | pickup;
                 break;
             case Preset::Loot:
-                // Sweeping a level for what is left in it: a close zoom, only loot on
-                // the map, found things gone, everything that is off the disc kept on
-                // its rim, and the x-ray tuned wide with the quality colours on.
+                // Sweeping a level: a close zoom, loot only, found things gone,
+                // off-disc markers kept on the rim, a wide x-ray with quality colours.
                 cfg.show_minimap = true;
                 cfg.size_frac = 0.24f;
                 cfg.zoom_uu_per_px = 20.0f;
@@ -298,10 +281,9 @@ namespace overlay
                 break;
             case Preset::Exploration:
             default:
-                // Learning the level: a wide view, every landmark and every connection
-                // (doors, ladders, lifts), found markers still drawn so you can see
-                // where you have been. Enemies stay off - the sweep only refreshes them
-                // once a second, so they lag while they move.
+                // Learning the level: a wide view, every landmark and connection
+                // (doors, ladders, lifts), found markers still drawn. Enemies stay off -
+                // the sweep refreshes them once a second, so they lag while they move.
                 cfg.show_minimap = true;
                 cfg.size_frac = 0.28f;
                 cfg.zoom_uu_per_px = 40.0f;
@@ -311,8 +293,7 @@ namespace overlay
                 cfg.markers_clamp_to_edge = true;
                 cfg.compass_enabled = true;
                 cfg.compass_categories = shrine | boss | elite | fog | door | ladder | lift | npc;
-                // `note` is in the x-ray set: a readable sign is exactly the thing you
-                // want pointed out while you are standing in front of one.
+                // `note` is in the x-ray set: a readable sign is worth pointing out.
                 cfg.highlight_categories = chest | pickup | shrine | boss | npc | note;
                 break;
             }
@@ -322,28 +303,15 @@ namespace overlay
         // The F2 panel: Player / Advanced / Debug
         //==============================================================================
         //
-        // Until 0.9.2 this was one flat window with fourteen category checkboxes three
-        // times over, scan-chunk sliders, POV offsets and fence counters - a developer
-        // console with the player's settings mixed into it. The three tabs below are the
-        // §2 classification of the config made visible: the Player tab is the Player
-        // tier, the Advanced tab is the Advanced tier, and the Debug tab is the Dev tier
-        // plus every read-only diagnostic. NOTHING was dropped in the move; the
-        // diagnostics that used to sit inside the Markers / Full map / X-ray / Compass
-        // headers are on the Debug tab now.
+        // The tabs are the config's tiers made visible: the Player tab is the Player
+        // tier, the Advanced tab the Advanced tier, and the Debug tab the Dev tier plus
+        // every read-only diagnostic.
         //
         // Each tab is its own function for a reason beyond tidiness: MSVC counts nested
-        // blocks and C1061'd this file once already (lessons.md).
+        // blocks and C1061s this file otherwise.
 
-        // ONE PLAYER-TAB SECTION EACH. They were one 300-line function with
-        // SeparatorText between the blocks; the user asked for the Advanced tab's
-        // collapsible sections here too, and a CollapsingHeader has to be able to
-        // SKIP its contents - which a separator cannot. Splitting the blocks into
-        // functions is what makes that possible without wrapping 300 lines in an if.
-        //
-        // The open state is not persisted, exactly as on the Advanced tab: ImGui's ini
-        // file is disabled (io.IniFilename = nullptr), so every header opens at its
-        // default - open here, because a player tab that starts collapsed hides the
-        // settings it exists for.
+        // One function per Player-tab section, so a CollapsingHeader can SKIP a
+        // section's contents without wrapping 300 lines in an if.
 
         void player_presets(mm::Config& cfg)
         {
@@ -368,12 +336,10 @@ namespace overlay
         // Look: theme and palette
         //--------------------------------------------------------------------------
         //
-        // In the FILE a theme only fills in colours the file does not mention; in
-        // the PANEL choosing one is an explicit act, so it writes the theme's
-        // colours into the five colour keys there and then (they are on the Advanced
-        // tab, and the change is visible on the next frame). Anything else would
-        // make the combo look broken for a player whose config happens to spell one
-        // of those keys out.
+        // In the FILE a theme only fills in colours the file does not mention; in the
+        // PANEL choosing one is explicit, so it writes the theme's colours into the five
+        // colour keys there and then - otherwise the combo looks broken for a player
+        // whose config spells one of those keys out.
         void player_look(mm::Config& cfg)
         {
             int theme_i = static_cast<int>(cfg.theme);
@@ -401,7 +367,7 @@ namespace overlay
                 const gly::Palette was = cfg.palette;
                 cfg.palette = static_cast<gly::Palette>(pal_i);
                 // The item-quality tiers follow the palette only while they are still
-                // the OTHER palette's set - a hand-picked xray_rarity_colors survives.
+                // the other palette's set, so a hand-picked xray_rarity_colors survives.
                 bool untouched = true;
                 const mdb::Rgb* old_set = gly::rarity_colors(was);
                 for (int i = 0; i < mdb::kRarityCount; ++i)
@@ -425,12 +391,9 @@ namespace overlay
         //--------------------------------------------------------------------------
         void player_minimap(mm::Config& cfg)
         {
-            // THE ONE LINE THAT ANSWERS "why is the minimap not there", on the tab a
-            // PLAYER actually opens. It used to live only on the Debug tab, which since
-            // 0.9.2 is hidden unless the unshipped dev config turns it on - so the
-            // diagnostic the whole show/hide design exists to produce was invisible to
-            // everyone it was written for. Only shown while the minimap is hidden;
-            // saying "minimap: shown" over a visible minimap is noise.
+            // The one line that answers "why is the minimap not there", on the tab a
+            // player opens (the Debug tab is hidden without the unshipped dev config).
+            // Only shown while the minimap is hidden.
             if (!g_last_mini.visible)
             {
                 char reason[192]{};
@@ -463,7 +426,7 @@ namespace overlay
         //--------------------------------------------------------------------------
         void player_placement(mm::Config& cfg)
         {
-            // ONE key that moves the whole HUD. `custom` keeps the three placement keys
+            // One key that moves the whole HUD. `custom` keeps the three placement keys
             // below in force; anything else overrides the minimap's corner and puts the
             // compass on the same vertical side.
             int preset = static_cast<int>(cfg.hud_preset);
@@ -484,8 +447,8 @@ namespace overlay
             ImGui::DragFloat("Offset Y", &cfg.offset_y, 1.0f, 0.0f, 2000.0f, "%.0f px");
             ImGui::TextDisabled("in 1080p pixels");
 
-            // UI SCALE. `auto` is a checkbox over the slider rather than a magic value
-            // inside the number, so the slider always says what is actually in force.
+            // `auto` is a checkbox over the slider rather than a magic value inside the
+            // number, so the slider always says what is in force.
             bool auto_scale = cfg.ui_scale_auto;
             if (ImGui::Checkbox("Scale the UI automatically", &auto_scale))
             {
@@ -509,9 +472,8 @@ namespace overlay
         {
             ImGui::Checkbox("Show markers", &cfg.markers_enabled);
             ImGui::SameLine();
-            // The INVERSE of markers_hide_found. The config key is phrased as "hide",
-            // the question a player asks is "show" - and a checkbox whose label is the
-            // opposite of what ticking it does is a bug report waiting to happen.
+            // The inverse of markers_hide_found: the key is phrased as "hide", the
+            // question a player asks is "show".
             bool show_found = !cfg.markers_hide_found;
             if (ImGui::Checkbox("Show found markers", &show_found))
             {
@@ -536,9 +498,8 @@ namespace overlay
             ImGui::SameLine();
             ImGui::Checkbox("Mark items whose level is loaded but absent", &cfg.markers_absence_marks);
             const markers::Stats st = markers::stats();
-            // WHICH file, and how it was chosen. A per-save tracker that silently picked
-            // the wrong save is indistinguishable from a lost collection, so the answer
-            // is on screen rather than only in the log.
+            // Which file, and how it was chosen: a per-save tracker that picked the
+            // wrong save looks exactly like a lost collection.
             ImGui::Text("Profile: %s", st.found_file[0] != '\0' ? st.found_file : "(none yet)");
             ImGui::SameLine();
             ImGui::TextDisabled("(via %s)", st.found_route[0] != '\0' ? st.found_route : "unresolved");
@@ -554,8 +515,7 @@ namespace overlay
                                   "shared = one file for every save\n"
                                   "anything else = wuchang_minimap_found_<name>.txt");
             }
-            // The whole collection-statistics page, shared with the full map's Stats
-            // panel. One function, so the two views can never disagree about a number.
+            // The collection-statistics page, shared with the full map's Stats panel.
             draw_collection_stats(::GetTickCount64(), false);
         }
 
@@ -602,14 +562,13 @@ namespace overlay
                                                                      cfg.highlight_pad_lt,
                                                                      cfg.highlight_pad_rt));
             }
-            // The MODE, next to the key it applies to, because "press or hold?" is the
-            // first thing a player asks about the line above.
+            // The mode, next to the key it applies to.
             int hl_mode = cfg.highlight_mode == mm::HighlightMode::Hold ? 1 : 0;
             ImGui::TextUnformatted("Mode");
             ImGui::SameLine();
-            // Both radios must be DRAWN every frame, so neither call may sit behind a
-            // short-circuiting || - the second one would disappear on the frame the
-            // first was clicked.
+            // Both radios must be drawn every frame, so neither call may sit behind a
+            // short-circuiting || - the second would vanish on the frame the first was
+            // clicked.
             bool hl_mode_changed = ImGui::RadioButton("Toggle", &hl_mode, 0);
             ImGui::SameLine();
             hl_mode_changed = ImGui::RadioButton("Hold", &hl_mode, 1) || hl_mode_changed;
@@ -653,8 +612,7 @@ namespace overlay
             ImGui::SameLine();
             ImGui::Checkbox("Show the waypoint bearing", &cfg.compass_show_waypoint);
             ImGui::SliderFloat("Width (fraction of the screen)", &cfg.compass_width, 0.1f, 1.0f, "%.2f");
-            // Overridden by a non-custom hud_preset, which is why it goes flat when one
-            // is chosen rather than silently doing nothing.
+            // Overridden by a non-custom hud_preset, hence greyed out when one is set.
             ImGui::BeginDisabled(cfg.hud_preset != mm::HudPreset::Custom);
             int canchor = cfg.compass_anchor == mm::VAnchor::Bottom ? 1 : 0;
             const char* canchors[] = {"top", "bottom"};
@@ -673,8 +631,8 @@ namespace overlay
         //--------------------------------------------------------------------------
         // Keys
         //--------------------------------------------------------------------------
-        // Read from the config by the SAME builder the full map's footer uses, so a
-        // rebind cannot make one of the two lie.
+        // Built by the same builder as the full map's footer, so a rebind cannot make
+        // one of the two lie.
         void player_keys(mm::Config& cfg)
         {
             ImGui::TextWrapped("%s", bindings_hint(cfg).c_str());
@@ -682,21 +640,16 @@ namespace overlay
         }
 
         //==============================================================================
-        // THE PANEL'S OWN STATE FILE (review B.14)
+        // THE PANEL'S OWN STATE FILE
         //==============================================================================
         //
-        // Which Player-tab sections are folded up, remembered between sessions.
+        // Which Player-tab sections are folded up, remembered between sessions: one
+        // line, one number, in wuchang_minimap_panel.txt beside the config.
         //
-        // NOT imgui.ini: io.IniFilename is nullptr and stays that way. ImGui's ini is a
-        // whole window-layout store - positions, sizes, docking, every window the mod
-        // has ever opened - and turning it on would mean the panel's own "come back
-        // centred" behaviour stops working, plus a file whose format is ImGui's business
-        // and which nobody can hand-edit meaningfully in a bug report.
-        //
-        // So: one line, one number, in wuchang_minimap_panel.txt beside the config. Also
-        // not a config key, because it is not a setting - it is where the player left a
-        // window, and it must not appear in the file a Save writes or in the drift test
-        // that guards that file.
+        // Not imgui.ini - io.IniFilename is nullptr and stays that way, or the panel's
+        // "come back centred" behaviour stops working. Not a config key either: it is
+        // not a setting, and it must not appear in the file a Save writes or in the
+        // drift test that guards it.
         //
 
         std::wstring panel_state_path()
@@ -704,9 +657,8 @@ namespace overlay
             return mm::mod_dir() + L"\\wuchang_minimap_panel.txt";
         }
 
-        // LOOP THREAD. Plain CreateFileW/ReadFile and a hand-rolled hex parse: no
-        // iostreams anywhere in this mod (lessons.md), and this runs before the render
-        // thread has drawn a panel.
+        // Loop thread. Plain CreateFileW/ReadFile and a hand-rolled hex parse: this mod
+        // uses no iostreams anywhere.
         void panel_state_load()
         {
             if (g_panel_state_loaded.exchange(true))
@@ -779,7 +731,7 @@ namespace overlay
             }
         }
 
-        // LOOP THREAD, and only when the render thread says something changed.
+        // Loop thread, and only when the render thread says something changed.
         void panel_state_save()
         {
             char text[256]{};
@@ -804,22 +756,14 @@ namespace overlay
         }
 
         //==============================================================================
-        // THE PLAYER TAB (review B.14)
+        // THE PLAYER TAB
         //==============================================================================
         //
-        // Ten sections, all of them DefaultOpen in 1.0.0, in a window with no ini file -
-        // so folding one up lasted until the panel was closed, and finding one setting
-        // meant scrolling past nine sections you were not looking for.
-        //
-        // Three things fix that, and they are listed here rather than spread through the
-        // section functions:
-        //   * the fold state is remembered, in the panel's own state file (see
-        //     panel_state_load / panel_state_save - never imgui.ini);
-        //   * a filter box hides the sections that have nothing to do with what was
-        //     typed. Matching is per SECTION, against its title AND the words its
-        //     settings are named with (`kSections` below), not per widget: filtering
-        //     individual widgets would mean wrapping every one of the ~120 calls inside
-        //     the section functions in a test, and a table of a section's own vocabulary
+        // Ten collapsible sections whose fold state lives in the panel's own state file
+        // (panel_state_load / panel_state_save - never imgui.ini), plus a filter box.
+        // Matching is per SECTION, against its title and the words its settings are
+        // named with (`kSections` below), not per widget: filtering widgets would mean a
+        // test around each of the ~120 calls inside the section functions.
 
         // Thin adapters, so every section has the same signature and the table stays a
         // table. (`wrap` is the content width the category-chip rows need.)
@@ -849,8 +793,8 @@ namespace overlay
         constexpr int kSectionCount = static_cast<int>(std::size(kSections));
         static_assert(kSectionCount <= 32, "one bit per section in g_panel_sections");
 
-        // Case-insensitive substring, both ways round: typing "colour" finds "Look"
-        // through its words, and typing "compa" finds "Compass" through its title.
+        // Case-insensitive substring, both ways round: "colour" finds "Look" through
+        // its words, "compa" finds "Compass" through its title.
         bool section_matches(const PanelSection& s, const char* needle)
         {
             if (needle == nullptr || needle[0] == '\0')
@@ -867,8 +811,8 @@ namespace overlay
             {
                 return true;
             }
-            // Both haystacks are ASCII literals; _stristr does not exist, so lower the
-            // needle once (above) and walk the haystacks with a case-insensitive compare.
+            // Both haystacks are ASCII literals and there is no _stristr, so the needle
+            // is lowered once above and compared case-insensitively here.
             const auto contains = [&low, n](const char* hay) {
                 for (const char* h = hay; *h != '\0'; ++h)
                 {
@@ -919,10 +863,9 @@ namespace overlay
                 }
                 ++shown;
                 const std::uint32_t bit = 1u << i;
-                // While filtering, everything that matched is forced OPEN - the answer to
-                // "where is that setting" must not be a folded header. The stored bit is
-                // deliberately not touched by that (`Always` sets the state without
-                // asking the header), so clearing the filter restores the fold exactly.
+                // While filtering, everything that matched is forced open. The stored
+                // bit is not touched by that (`Always` sets the state without asking the
+                // header), so clearing the filter restores the fold exactly.
                 if (filtering)
                 {
                     ImGui::SetNextItemOpen(true, ImGuiCond_Always);
@@ -957,8 +900,7 @@ namespace overlay
             // ---- reset ---------------------------------------------------------------
             ImGui::Spacing();
             ImGui::Separator();
-            // TWO CLICKS. This throws away every tuned value in the struct, and a stray
-            // click on a settings panel should not be able to do that. It is armed until
+            // Two clicks: this throws away every tuned value in the struct. Armed until
             // the panel is closed or the button is pressed.
             static bool confirm_reset = false;
             if (!confirm_reset)
@@ -982,8 +924,8 @@ namespace overlay
                     confirm_reset = false;
                     const bool was_on = cfg.mod_enabled;
                     cfg = mm::Config{};
-                    // The master switch is not a preference, it is whether the mod is
-                    // running - and it has its own checkbox and its own log line.
+                    // The master switch is not a preference: it has its own checkbox
+                    // and its own log line.
                     cfg.mod_enabled = was_on;
                     mm::log(L"config: reset to the shipped defaults from the F2 panel (not saved yet)");
                 }
@@ -995,7 +937,6 @@ namespace overlay
             }
             ImGui::TextDisabled("Nothing is written until Save.");
         }
-
 
         void panel_advanced(mm::Config& cfg)
         {
@@ -1091,9 +1032,8 @@ namespace overlay
                     cfg.minimap_frame_b = frame[2] * 255.0f;
                 }
                 ImGui::SliderFloat("Frame alpha", &cfg.minimap_frame_alpha, 0.0f, 1.0f, "%.2f");
-                // The zoom ladder is edited in the file (it is a list); the panel shows
-                // what is in force and which key steps through it, because "nothing
-                // happens when I press N" is otherwise unanswerable from in-game.
+                // The zoom ladder is a list and is edited in the file; the panel shows
+                // what is in force and which key steps through it.
                 {
                     std::string ladder;
                     for (int i = 0; i < cfg.minimap_zoom_preset_count && i < mv::kMaxZoomPresets; ++i)
@@ -1174,9 +1114,8 @@ namespace overlay
 
             if (ImGui::CollapsingHeader("Diagnostics"))
             {
-                // The one Advanced key a bug report cares about. `normal` is what
-                // ships; the other two exist so a problem can be reproduced with the
-                // running commentary on without editing a file.
+                // `normal` is what ships; the other two reproduce a problem with the
+                // running commentary on, without editing a file.
                 int lv = static_cast<int>(cfg.log_level);
                 if (ImGui::Combo("Log detail", &lv, "normal\0verbose\0trace\0"))
                 {
@@ -1258,8 +1197,8 @@ namespace overlay
         // The Bindings tab
         //==============================================================================
         //
-        // Every hotkey a player has, in one place, with a "press a key" capture instead
-        // of a text field in a file. Three rules make it safe:
+        // Every hotkey in one place, with a "press a key" capture. Three rules make it
+        // safe:
         //   * the capture only accepts a key mm::vk_bindable() says the config file can
         //     spell, so a binding always survives a save and a reload;
         //   * while it is armed mm::g_key_capture makes the WndProc hook swallow the
@@ -1271,7 +1210,7 @@ namespace overlay
         // else.
 
         //==============================================================================
-        // MODIFIERS, AND THE KEYS THE GAME ITSELF WANTS (review B.13)
+        // MODIFIERS, AND THE KEYS THE GAME ITSELF WANTS
         //==============================================================================
 
         bool is_modifier_vk(int vk)
@@ -1315,24 +1254,15 @@ namespace overlay
 
         // THE KEYS SOMETHING ELSE ALREADY OWNS.
         //
-        // This list is ADVISORY and it is not read from the game - there is no API for
-        // that, and the mod must not pretend otherwise. Two sources, both written down
-        // so the next person can judge them:
+        // Advisory, and not read from the game - there is no API for that. Two sources:
         //
         //   * the movement / interaction set this genre binds by default (WASD, Space,
-        //     Shift, Ctrl, E, F, Q, R, Tab, Esc, 1..5) - a bare letter bound to a mod
-        //     action while the HUD is a pure overlay both fires the mod AND does its
-        //     game thing, which is what the hotkey swallow now prevents; that makes the
-        //     GAME action the casualty instead, so the player has to be told;
-        //   * the keys this machine's other injected DLLs own, from lessons.md: F6 is
-        //     RenoDX's DLSS 5 toggle (it ignores modifiers and has already caused one
-        //     GPU crash), F10 is the UE4SS console, F9 / F11 are engine binds and F12 is
-        //     the Steam screenshot key. Those four are refused by the config parser
-
-
-
-
-
+        //     Shift, Ctrl, E, F, Q, R, Tab, Esc, 1..5) - the hotkey swallow makes the
+        //     GAME action the casualty of a clash, so the player has to be told;
+        //   * the keys other injected DLLs own here: F6 is RenoDX's DLSS 5 toggle (it
+        //     ignores modifiers and has caused a GPU crash), F10 is the UE4SS console,
+        //     F9 / F11 are engine binds and F12 is the Steam screenshot key. Those four
+        //     are refused by the config parser outright.
 
         void arm_capture(int row)
         {
@@ -1347,13 +1277,11 @@ namespace overlay
 
             // ---- the capture, before anything is drawn --------------------------------
             //
-            // A CAPTURE CAN NOW TAKE A MODIFIER (review B.13). Two shapes, and both have
-            // to work: `ctrl+m` (hold Ctrl, press M) and a bare modifier (`LALT`, which
-            // is the x-ray highlight's shipped default). So a non-modifier key wins
+            // A capture takes two shapes: `ctrl+m` (hold Ctrl, press M) and a bare
+            // modifier (`LALT`, the x-ray's shipped default). So a non-modifier key wins
             // immediately and carries whatever modifier is held with it, while a
-            // modifier pressed ON ITS OWN is only taken once everything is released -
-            // which is also the only way to tell "I am reaching for Ctrl+M" from "I want
-            // Ctrl".
+            // modifier pressed on its own is only taken once everything is released -
+            // the only way to tell "reaching for Ctrl+M" from "I want Ctrl".
             if (g_capture_row >= 0 && g_capture_row < kKeyBindCount)
             {
                 bool any_down = false;
@@ -1432,8 +1360,7 @@ namespace overlay
                 for (int i = 0; i < kKeyBindCount; ++i)
                 {
                     const int vk = cfg.*kKeyBinds[i].member;
-                    // CONFLICT. Two actions on one key is not an error the mod can
-                    // resolve - both fire - so it is named rather than prevented.
+                    // Two actions on one key both fire: named rather than prevented.
                     const char* clash = nullptr;
                     for (int j = 0; j < kKeyBindCount && clash == nullptr; ++j)
                     {
@@ -1442,12 +1369,10 @@ namespace overlay
                             clash = kKeyBinds[j].label;
                         }
                     }
-                    // AND THE UNMODIFIED TWIN. `ctrl+m` and `m` are different bindings
-                    // but the same key press: a no-modifier binding deliberately does
-                    // not require the modifiers to be up (see mm::key_mod), so pressing
-                    // Ctrl+M fires both. That is a choice, not a bug - it is what keeps
-                    // every hotkey alive while the x-ray's Alt is held - so it is named
-                    // rather than prevented.
+                    // The unmodified twin: `ctrl+m` and `m` are different bindings but
+                    // the same key press, because a no-modifier binding does not require
+                    // the modifiers to be up (mm::key_mod) - which is what keeps every
+                    // hotkey alive while the x-ray's Alt is held. Named, not prevented.
                     const char* twin = nullptr;
                     for (int j = 0; j < kKeyBindCount && twin == nullptr; ++j)
                     {
@@ -1567,10 +1492,10 @@ namespace overlay
             // The crash breadcrumb
             //--------------------------------------------------------------------------
             //
-            // Where the overlay is now, and - the useful half - what the PREVIOUS session
-            // left in wuchang_minimap_last_stage.txt. A non-terminal value there is the
-            // only surviving evidence when the process died with UE4SS's log buffer
-            // unflushed, so it is called out in colour rather than printed as a fact.
+            // Where the overlay is now, and what the PREVIOUS session left in
+            // wuchang_minimap_last_stage.txt. A non-terminal value there is the only
+            // evidence surviving a death with UE4SS's log buffer unflushed, so it is
+            // called out in colour.
             ImGui::SeparatorText("Stage");
             ImGui::Text("now: %s", crumb::current()[0] != '\0' ? crumb::current() : "(none)");
             ImGui::SameLine();
@@ -1594,10 +1519,10 @@ namespace overlay
             // The one-press recon dump
             //--------------------------------------------------------------------------
             //
-            // context/saveslot-and-teleport-research.md section 3: the four things that
-            // cannot be recovered from the cooked assets. It calls nothing and changes
-            // nothing - reflection lookups and raw reads only - and writes one file the
-            // user can send back.
+            // The four things that cannot be recovered from the cooked assets
+            // (context/saveslot-and-teleport-research.md section 3). It calls nothing
+            // and changes nothing - reflection lookups and raw reads only - and writes
+            // one file the user can send back.
             ImGui::SeparatorText("Recon dump");
             const recon::Status rc = recon::status();
             ImGui::BeginDisabled(rc.pending);
@@ -1623,10 +1548,9 @@ namespace overlay
             // The runtime navmesh dump
             //--------------------------------------------------------------------------
             //
-            // A button, not a binding: it scans engine memory and writes JSON, which is
-            // never something a player should be able to trigger by leaning on a key.
-            // The module ships disabled (config.ini [navmesh] navmesh_dump = 1), and the
-            // button says so rather than doing nothing.
+            // A button, not a binding: it scans engine memory and writes JSON, which no
+            // player should trigger by leaning on a key. The module ships disabled
+            // (config.ini [navmesh] navmesh_dump = 1) and the button says so.
             ImGui::SeparatorText("Runtime navmesh dump");
             ImGui::BeginDisabled(!navmesh::enabled());
             if (ImGui::Button("Dump the live navmesh tiles"))
@@ -1654,24 +1578,22 @@ namespace overlay
                         st.found_ids,
                         st.published,
                         st.live_entries);
-            // The absence rule (markers_absence_*). Both numbers are diagnostics:
-            // `levels loaded` at 0 means the rule can NEVER fire (nothing to match a
-            // marker's level against), which is the failure worth seeing at a glance.
+            // The absence rule (markers_absence_*). `levels loaded` at 0 means the rule
+            // can never fire - nothing to match a marker's level against.
             ImGui::Text("absence marks %d   levels loaded %d   (rule %s, %d round(s), %s)",
                         st.absence_marks,
                         st.levels_loaded,
                         cfg.markers_absence_marks ? "on" : "off",
                         cfg.markers_absence_rounds,
                         mdb::format_category_mask(cfg.markers_absence_categories).c_str());
-            // Two independent numbers, and they answer different questions.
-            //   PUMP  - what one game-thread pump costs. This is the frame-hitch number;
-            //           the target is well under 1 ms, and `max` is the worst single pump
-            //           since the mod loaded.
-            //   ROUND - what a full pass over the object array cost and how many object
-            //           slots it visited. This is the freshness number: the marker set is
+            // Two numbers, two questions.
+            //   PUMP  - what one game-thread pump costs: the frame-hitch number, target
+            //           well under 1 ms, `max` the worst single pump since load.
+            //   ROUND - what a full pass over the object array cost and how many slots
+            //           it visited: the freshness number, the marker set being
             //           `slices x period_ms` old at worst.
-            // `!` marks the FindAllOf fallback, which is the old 28 ms-per-pump path and
-            // only runs when GUObjectArray reports no elements.
+            // `!` marks the FindAllOf fallback, ~28 ms per pump, which runs only when
+            // GUObjectArray reports no elements.
             ImGui::Text("scan pump %.3f ms (avg %.3f, peak %.3f, max %.3f)%s",
                         st.scan_slice_ms,
                         st.scan_slice_ms_avg,
@@ -1708,10 +1630,7 @@ namespace overlay
             char padmod[64]{};
             ::WideCharToMultiByte(CP_UTF8, 0, pad::module_name(), -1, padmod, sizeof(padmod) - 1, nullptr,
                                   nullptr);
-            // TRUTHFUL, whatever the answer is (review B.1). This line read `none` for
-            // ever in 1.0.0 - not because no pad was plugged in, but because XInput was
-            // only polled while the full map was open, and the map could only be opened
-            // from the keyboard. So it now also says whether anything is ASKING: with
+            // Says whether anything is ASKING as well as what was found: with
             // map_gamepad off nothing polls, and "none" then means "not looked at".
             ImGui::Text("pad: %s (%s)   sticks %.2f,%.2f / %.2f,%.2f   triggers %.2f/%.2f",
                         gp.connected ? "connected"
@@ -1741,9 +1660,8 @@ namespace overlay
             //--------------------------------------------------------------------------
             // The x-ray camera
             //--------------------------------------------------------------------------
-            // WHERE THE CAMERA COMES FROM. This is the block to screenshot if the labels
-            // are in the wrong place: it names the route, the pinned offset and how old
-            // the pose is.
+            // The block to screenshot when the labels are in the wrong place: the
+            // route, the pinned offset and the age of the pose.
             ImGui::SeparatorText("X-ray camera");
             const hl::Stats hs = hl::stats();
             const char* route = "none yet";
@@ -1851,8 +1769,8 @@ namespace overlay
                             snap.widgets_seen,
                             snap.widgets_visible_in_viewport,
                             snap.loc_from_function ? "K2_GetActorLocation" : "RootComponent");
-                // Menu hide/show latency: how long ago the game thread saw the menu state
-                // change, and how many roots it re-tests on every pump.
+                // Menu hide/show latency: how long ago the game thread saw the state
+                // change, and how many roots it re-tests per pump.
                 char holder[128]{};
                 ::WideCharToMultiByte(CP_UTF8, 0, snap.menu_holder, -1, holder, sizeof(holder) - 1, nullptr,
                                       nullptr);
@@ -1876,9 +1794,8 @@ namespace overlay
             ImGui::Spacing();
             char reason[192]{};
             ::WideCharToMultiByte(CP_UTF8, 0, g_hide_reason, -1, reason, sizeof(reason) - 1, nullptr, nullptr);
-            // THE ONE LINE THAT ANSWERS "why is the minimap not there". It is recomputed
-            // from live state every frame - there is no latch anywhere in the show
-            // condition - and every change to it is also logged.
+            // Recomputed from live state every frame - the show condition has no latch -
+            // and every change to it is logged.
             if (g_last_mini.visible)
             {
                 ImGui::TextColored(ImVec4{0.55f, 0.9f, 0.6f, 1.0f}, "minimap: %s", reason);
@@ -1908,11 +1825,10 @@ namespace overlay
             bool open = true;
             ImGui::SetNextWindowSize(ImVec2{520.0f * g_ui_scale, 620.0f * g_ui_scale},
                                      ImGuiCond_FirstUseEver);
-            // CENTRED, every time it opens. `Appearing` rather than `FirstUseEver` so a
-            // panel that was dragged to a corner and closed comes back in the middle of
-            // the screen; the pivot is the window's own centre, so its size does not
-            // change where it lands. Dragging it still works - the position is only
-            // written on the frame the window appears.
+            // Centred every time it opens: `Appearing`, not `FirstUseEver`, so a panel
+            // dragged to a corner and closed comes back in the middle. The pivot is the
+            // window's own centre, so its size does not change where it lands, and
+            // dragging still works - the position is written only on the appearing frame.
             const ImGuiViewport* pvp = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(ImVec2{pvp->Pos.x + pvp->Size.x * 0.5f,
                                            pvp->Pos.y + pvp->Size.y * 0.5f},
@@ -1931,9 +1847,7 @@ namespace overlay
 
             const mm::Config before = cfg;
 
-            // The version and nothing else. "beta" was a note to ourselves and 1.0.0 is
-            // not one (lessons.md: a user-visible "not yet verified" line is a note to
-            // OURSELVES); version.hpp is the single source of truth for the string.
+            // The version and nothing else; version.hpp is the single source of truth.
             ImGui::TextColored(ImVec4{0.62f, 0.68f, 0.78f, 1.0f},
                                "WuchangMinimap v" WUCHANG_MINIMAP_VERSION);
 
@@ -1954,9 +1868,8 @@ namespace overlay
                         panel_advanced(cfg);
                         ImGui::EndTabItem();
                     }
-                    // The Debug tab EXISTS only while debug_readout is on, which is a
-                    // Dev key in a file players do not have. So the panel a player sees
-                    // has two tabs and no developer surface at all.
+                    // The Debug tab exists only while debug_readout is on, a Dev key in
+                    // a file players do not have, so a player sees two tabs.
                     if (ImGui::BeginTabItem("Bindings"))
                     {
                         panel_bindings(cfg);
@@ -1973,12 +1886,9 @@ namespace overlay
             ImGui::EndChild();
 
             ImGui::Separator();
-            // The button says WHICH FILE it writes: there are two now, and the panel is
-            // the only place that says which of them a setting lives in. And it has to
-            // say BOTH when both are written - a Save with a dev file present (or with a
-            // Dev dial moved off its default, which is what the Debug tab does) rewrites
-            // config_wuchang_minimap_dev.txt as well, and a button that named one file
-            // while writing two is exactly the kind of thing a bug report starts with.
+            // The button names which file it writes, and both when both are written: a
+            // Save with a dev file present, or with a Dev dial off its default, rewrites
+            // config_wuchang_minimap_dev.txt as well.
             const bool dev_too = mm::dev_config_active();
             if (ImGui::Button(dev_too ? "Save to config_wuchang_minimap.txt + _dev.txt"
                                       : "Save to config_wuchang_minimap.txt"))
@@ -2006,11 +1916,10 @@ namespace overlay
                 mm::g_reload_config = true;
             }
 
-            // THE MASTER SWITCH. Unticking it does not stop anything from here - it only
-            // writes mod_enabled = 0 into the config file, which the loop thread's 1 Hz
-            // watcher then acts on (modswitch.hpp). That keeps the whole shutdown
-            // sequence on the one thread that is allowed to run it, and it means the file
-            // and the running state can never disagree.
+            // The master switch. Unticking it stops nothing from here: it writes
+            // mod_enabled = 0 into the config file and the loop thread's 1 Hz watcher
+            // acts on it (modswitch.hpp), so the whole shutdown runs on the one thread
+            // allowed to run it and the file cannot disagree with the running state.
             if (ImGui::Checkbox("Mod enabled (master switch - turns EVERYTHING off)", &cfg.mod_enabled))
             {
                 if (!cfg.mod_enabled)
@@ -2027,8 +1936,8 @@ namespace overlay
                                    "The mod is shutting down. Set mod_enabled = 1 in %s to restart it.",
                                    "config_wuchang_minimap.txt");
             }
-            // THE OTHER OFF SWITCH. Same shutdown, no file written - for ruling the mod
-            // out of a problem without ending up with a config to repair afterwards.
+            // The other off switch: the same shutdown with no file written, for ruling
+            // the mod out of a problem without a config to repair afterwards.
             ImGui::SameLine();
             if (ImGui::Button("Disable for this session"))
             {
@@ -2044,9 +1953,8 @@ namespace overlay
 
             ImGui::End();
 
-            // Field by field (review B.19), not memcmp: a Config is a value, and
-            // `mm::operator==` is generated from the struct with a byte-flip drift
-            // guard behind it in markers_test.
+            // Field by field, not memcmp: a Config is a value, and `mm::operator==` is
+            // generated from the struct with a byte-flip drift guard in markers_test.
             if (before != cfg)
             {
                 mm::set_config(cfg);

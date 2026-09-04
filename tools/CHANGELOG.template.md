@@ -16,7 +16,9 @@ What the mod does:
   distance readout follows the nearest one. `G` sets one on the nearest marker you have
   not found yet.
 - **Export / import**: the F2 panel writes your found list and waypoints to one JSON
-  file next to the DLL, and reads one back in - a merge, so nothing is ever lost.
+  file next to the DLL, and reads one back in - a merge, so nothing you have is
+  overwritten; waypoints you already have, and any past the 16-waypoint cap, are
+  reported rather than added twice.
 - **An x-ray key** (`LALT`, or `LB`+`RB`) that draws nearby markers through walls with
   names and distances, tinted by the game's own item-quality beam colours.
 - **A collection tracker per save slot** that ticks things off as you take them, with

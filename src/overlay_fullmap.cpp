@@ -392,6 +392,23 @@ namespace overlay
             dl->AddCircleFilled(ImVec2{p.x, p.y - r * 0.15f}, r * 0.3f, edge, 8);
         }
 
+        // Everything the map mode owns, dropped. The panels belong to the map: left
+        // open they would sit over the game with nothing swallowing the input, and the
+        // search text left behind would filter the next open and eat its first Escape.
+        // Called from close_map and, for a close the map itself never sees (the M key,
+        // the pad chord, the HUD gate), from the render loop's edge.
+        void reset_map_mode()
+        {
+            g_stats_page = false;
+            g_shrine_panel = false;
+            g_search_panel = false;
+            g_wp_panel = false;
+            g_shot_canvas_valid = false;
+            g_map_search[0] = '\0';
+            g_map_search_hits = 0;
+            g_map_search_active.store(false, std::memory_order_relaxed);
+        }
+
         // Closes the map and says why, exactly once per transition.
         void close_map(const wchar_t* why)
         {
@@ -399,14 +416,7 @@ namespace overlay
             {
                 return;
             }
-            // The Stats panel belongs to the map mode: left open it would sit over the
-            // game with nothing swallowing the input.
-            g_stats_page = false;
-            g_shrine_panel = false;
-            g_search_panel = false;
-            g_wp_panel = false;
-            g_shot_canvas_valid = false;
-            g_map_search_active.store(false, std::memory_order_relaxed);
+            reset_map_mode();
             MM_LOGV(L"full map closed: {}", why);
         }
 
@@ -458,6 +468,9 @@ namespace overlay
                                 IM_COL32(3, 5, 8, static_cast<int>(cfg.map_backdrop * 255.0f + 0.5f)));
 
             const mapdata::Chapter* chapter_ptr = mapdata::chapter_ptr_for(snap.x, snap.y);
+            // Copied once: the set is 520 bytes taken under the loop thread's spinlock,
+            // and the header, the glyphs and the list all want the same frame's answer.
+            const mv::WaypointSet wps = mm::waypoints();
 
             //--------------------------------------------------------------------------
             // First frame after opening: centre on the player, reset the zoom and the
@@ -547,6 +560,55 @@ namespace overlay
             }
             const bool searching = g_map_search[0] != '\0';
             g_map_search_active.store(searching, std::memory_order_relaxed);
+
+            //--------------------------------------------------------------------------
+            // The search pass, over the WHOLE published buffer rather than the viewport,
+            // so a name typed in is found wherever it is. Here rather than beside the
+            // results window because the header below prints the count. The rows are
+            // built and sorted only while the results window is up; with it closed this
+            // is a count and nothing else.
+            //--------------------------------------------------------------------------
+            const markers::View mv_all = markers::view();
+            static std::vector<const markers::DrawMarker*> hits;
+            hits.clear();
+            g_map_search_hits = 0;
+            if (searching && cfg.markers_enabled && mv_all.data != nullptr)
+            {
+                const bool want_rows = g_search_panel;
+                if (want_rows && hits.capacity() < mv_all.count)
+                {
+                    hits.reserve(mv_all.count);
+                }
+                for (std::size_t i = 0; i < mv_all.count; ++i)
+                {
+                    const markers::DrawMarker& m = mv_all.data[i];
+                    const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
+                    if (static_cast<int>(m.cat) >= mdb::kCatCount ||
+                        !mdb::cat_enabled(cfg.markers_categories, cat) ||
+                        (marker_found_now(m) && cfg.markers_hide_found) ||
+                        !txt::contains_ci(mdb::display_label(cat, m.label), g_map_search))
+                    {
+                        continue;
+                    }
+                    ++g_map_search_hits;
+                    if (want_rows)
+                    {
+                        hits.push_back(&m);
+                    }
+                }
+                if (want_rows)
+                {
+                    const auto nearer_player = [&snap](const markers::DrawMarker* a,
+                                                       const markers::DrawMarker* b) {
+                        const double ax = a->x - snap.x;
+                        const double ay = a->y - snap.y;
+                        const double bx = b->x - snap.x;
+                        const double by = b->y - snap.y;
+                        return ax * ax + ay * ay < bx * bx + by * by;
+                    };
+                    std::sort(hits.begin(), hits.end(), nearer_player);
+                }
+            }
             ImGui::SameLine();
             ImGui::BeginDisabled(!searching);
             if (ImGui::SmallButton("clear"))
@@ -566,7 +628,7 @@ namespace overlay
                 g_wp_panel = !g_wp_panel;
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("%zu set", mm::waypoints().count);
+            ImGui::TextDisabled("%zu set", wps.count);
 
             //--------------------------------------------------------------------------
             // The canvas, with the legend column reserved on its right
@@ -929,7 +991,6 @@ namespace overlay
             //--------------------------------------------------------------------------
             // Markers
             //--------------------------------------------------------------------------
-            const markers::View mv_all = markers::view();
             g_map_markers_drawn = 0;
             g_map_markers_total = static_cast<int>(mv_all.count);
             const markers::DrawMarker* hover = nullptr;
@@ -1086,7 +1147,6 @@ namespace overlay
                                  mv::world_to_screen(g_mv, canvas, wx, wy, sx, sy);
                                  return canvas.contains(sx, sy);
                              });
-            const mv::WaypointSet wps = mm::waypoints();
             for (std::size_t wi = 0; wi < wps.count; ++wi)
             {
                 float sx = 0.0f;
@@ -1199,41 +1259,10 @@ namespace overlay
             }
 
             //--------------------------------------------------------------------------
-            // Search results (while the box is not empty)
+            // Search results (while the box is not empty) - the rows collected above,
+            // nearest first; clicking one waypoints it.
             //--------------------------------------------------------------------------
-            //
-            // Over the WHOLE published buffer, not the viewport, so a name typed in is
-            // found wherever it is; nearest first, and clicking a row waypoints it.
             {
-                static std::vector<const markers::DrawMarker*> hits;
-                hits.clear();
-                if (searching && mv_all.data != nullptr)
-                {
-                    for (std::size_t i = 0; i < mv_all.count; ++i)
-                    {
-                        const markers::DrawMarker& m = mv_all.data[i];
-                        const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
-                        if (static_cast<int>(m.cat) >= mdb::kCatCount ||
-                            !mdb::cat_enabled(cfg.markers_categories, cat) ||
-                            (marker_found_now(m) && cfg.markers_hide_found) ||
-                            !txt::contains_ci(mdb::display_label(cat, m.label), g_map_search))
-                        {
-                            continue;
-                        }
-                        hits.push_back(&m);
-                    }
-                    const auto nearer_player = [&snap](const markers::DrawMarker* a,
-                                                       const markers::DrawMarker* b) {
-                        const double ax = a->x - snap.x;
-                        const double ay = a->y - snap.y;
-                        const double bx = b->x - snap.x;
-                        const double by = b->y - snap.y;
-                        return ax * ax + ay * ay < bx * bx + by * by;
-                    };
-                    std::sort(hits.begin(), hits.end(), nearer_player);
-                }
-                g_map_search_hits = static_cast<int>(hits.size());
-
                 if (searching && g_search_panel)
                 {
                     const ImVec2 vpsz = ImGui::GetMainViewport()->Size;
@@ -1292,7 +1321,7 @@ namespace overlay
                 if (ImGui::Begin("Waypoints", &g_wp_panel,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
-                    const mv::WaypointSet live = mm::waypoints();
+                    const mv::WaypointSet& live = wps;
                     ImGui::TextDisabled("%zu of %zu   -   right-click the map to drop one, again on it "
                                         "to remove it",
                                         live.count, mv::kMaxWaypoints);

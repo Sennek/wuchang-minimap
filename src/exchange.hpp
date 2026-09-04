@@ -13,6 +13,7 @@
 // }
 //
 
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <string_view>
@@ -31,6 +32,76 @@ namespace xch
         std::vector<std::string> found;
         std::vector<mv::Waypoint> waypoints;
     };
+
+    // Two waypoints closer than this in every axis are the same place (uu).
+    inline constexpr double kWaypointEpsilon = 25.0;
+
+    struct MergeResult
+    {
+        int added = 0;      // appended to the set
+        int duplicates = 0; // already there, within kWaypointEpsilon
+        int dropped = 0;    // no room left
+    };
+
+    // Appends what `incoming` adds to `set`: a waypoint within kWaypointEpsilon of one
+    // already present - including one this merge just added - is a duplicate, and what
+    // does not fit under mv::kMaxWaypoints is counted rather than silently lost.
+    inline MergeResult merge_waypoints(mv::WaypointSet& set, const std::vector<mv::Waypoint>& incoming)
+    {
+        MergeResult r{};
+        for (const mv::Waypoint& wp : incoming)
+        {
+            bool dup = false;
+            for (std::size_t i = 0; i < set.count && i < mv::kMaxWaypoints; ++i)
+            {
+                const mv::Waypoint& have = set.items[i];
+                if (std::abs(have.x - wp.x) <= kWaypointEpsilon &&
+                    std::abs(have.y - wp.y) <= kWaypointEpsilon &&
+                    std::abs(have.z - wp.z) <= kWaypointEpsilon)
+                {
+                    dup = true;
+                    break;
+                }
+            }
+            if (dup)
+            {
+                ++r.duplicates;
+                continue;
+            }
+            if (set.count >= mv::kMaxWaypoints)
+            {
+                ++r.dropped;
+                continue;
+            }
+            set.items[set.count] = wp;
+            set.items[set.count].set = true;
+            ++set.count;
+            ++r.added;
+        }
+        return r;
+    }
+
+    // A path the player typed into the import box. True for `C:\x`, `C:/x`, a UNC
+    // `\\server\share` and a rooted `\x`; everything else is relative.
+    inline bool path_is_absolute(std::wstring_view p)
+    {
+        if (p.size() >= 2 && p[1] == L':')
+        {
+            return true;
+        }
+        return !p.empty() && (p[0] == L'\\' || p[0] == L'/');
+    }
+
+    // What the import reads: the path as typed when it is absolute, otherwise the same
+    // name under `dir` (the mod folder, where the exports land).
+    inline std::wstring resolve_import_path(std::wstring_view dir, std::wstring_view typed)
+    {
+        if (typed.empty() || path_is_absolute(typed))
+        {
+            return std::wstring{typed};
+        }
+        return std::wstring{dir} + L"\\" + std::wstring{typed};
+    }
 
     inline std::string json_escape(std::string_view s)
     {

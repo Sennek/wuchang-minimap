@@ -1286,24 +1286,19 @@ namespace
 
         section("full map - the waypoint file");
 
-        mv::Waypoint wp{};
-        wp.set = true;
-        wp.x = 18176.671875;
-        wp.y = -13905.2109375;
-        wp.z = -7641.22;
-        const std::string text = mv::waypoint_serialize(wp);
+        // The format 0.9.x wrote, which is still read. Written out here rather than
+        // produced by a serializer: nothing in the mod writes it any more.
         mv::Waypoint back{};
-        CHECK(mv::waypoint_parse(text, back));
+        CHECK(mv::waypoint_parse("set = 1\nx = 18176.671875\ny = -13905.2109375\nz = -7641.22\n", back));
         CHECK(back.set);
-        // EXACT round trip: the file is written at 17 significant digits.
-        CHECK(back.x == wp.x);
-        CHECK(back.y == wp.y);
-        CHECK(back.z == wp.z);
+        // EXACT: the file was written at 17 significant digits.
+        CHECK(back.x == 18176.671875);
+        CHECK(back.y == -13905.2109375);
+        CHECK(back.z == -7641.22);
 
-        mv::Waypoint none{};
         mv::Waypoint none_back{};
         none_back.set = true;
-        CHECK(mv::waypoint_parse(mv::waypoint_serialize(none), none_back));
+        CHECK(mv::waypoint_parse("set = 0\nx = 0\ny = 0\nz = 0\n", none_back));
         CHECK(!none_back.set);
 
         // Hand-written files: a BOM, CRLF, comments, spacing, and no `set` line at all.
@@ -1354,12 +1349,23 @@ namespace
             CHECK(back.items[i].z == set.items[i].z);
         }
 
-        // An empty set writes comments only, and reads back as "nothing usable".
+        // An empty set writes comments only, and reads back as the empty set - what
+        // Clear all leaves behind must not look like a damaged file.
         mv::WaypointSet empty{};
         mv::WaypointSet keep{};
         keep.count = 1;
-        CHECK(!mv::waypoints_parse(mv::waypoints_serialize(empty), keep));
-        CHECK_EQ(static_cast<int>(keep.count), 1);
+        CHECK(mv::waypoints_parse(mv::waypoints_serialize(empty), keep));
+        CHECK_EQ(static_cast<int>(keep.count), 0);
+        mv::WaypointSet blank{};
+        blank.count = 3;
+        CHECK(mv::waypoints_parse("", blank));
+        CHECK_EQ(static_cast<int>(blank.count), 0);
+
+        // A `waypoint` line whose coordinates are unreadable IS a damaged file.
+        mv::WaypointSet bad{};
+        bad.count = 2;
+        CHECK(!mv::waypoints_parse("waypoint = hello there\n", bad));
+        CHECK_EQ(static_cast<int>(bad.count), 2);
 
         // THE OLD SINGLE-WAYPOINT FORMAT still loads, as a list of one.
         mv::Waypoint one{};
@@ -1368,14 +1374,17 @@ namespace
         one.y = -13905.2109375;
         one.z = -7641.22;
         mv::WaypointSet old_back{};
-        CHECK(mv::waypoints_parse(mv::waypoint_serialize(one), old_back));
+        CHECK(mv::waypoints_parse("set = 1\nx = 18176.671875\ny = -13905.2109375\nz = -7641.22\n",
+                                  old_back));
         CHECK_EQ(static_cast<int>(old_back.count), 1);
         CHECK(old_back.items[0].x == one.x);
         CHECK(old_back.items[0].y == one.y);
         CHECK(old_back.items[0].z == one.z);
         // An old file saying `set = 0` carries no waypoint at all.
         mv::WaypointSet cleared{};
-        CHECK(!mv::waypoints_parse(mv::waypoint_serialize(mv::Waypoint{}), cleared));
+        cleared.count = 1;
+        CHECK(mv::waypoints_parse("set = 0\nx = 0\ny = 0\nz = 0\n", cleared));
+        CHECK_EQ(static_cast<int>(cleared.count), 0);
 
         // Hand-written: a BOM, CRLF, comments, commas, a missing z, and junk lines.
         mv::WaypointSet hand{};
@@ -1478,6 +1487,58 @@ namespace
         CHECK_EQ(static_cast<int>(lax.found.size()), 1);
         CHECK_EQ(static_cast<int>(lax.waypoints.size()), 1);
         CHECK_NEAR(lax.waypoints[0].z, 0.0, 1e-9);
+
+        section("import - the waypoint merge");
+
+        mv::WaypointSet set{};
+        set.count = 1;
+        set.items[0] = mv::Waypoint{true, 100.0, 200.0, 300.0};
+        std::vector<mv::Waypoint> incoming;
+        incoming.push_back(mv::Waypoint{true, 100.0, 200.0, 300.0});                       // exact twin
+        incoming.push_back(mv::Waypoint{true, 100.0 + xch::kWaypointEpsilon * 0.5, 200.0, 300.0}); // inside
+        incoming.push_back(mv::Waypoint{true, 100.0 + xch::kWaypointEpsilon * 2.0, 200.0, 300.0}); // outside
+        incoming.push_back(mv::Waypoint{true, 100.0 + xch::kWaypointEpsilon * 2.0, 200.0, 300.0}); // its twin
+        xch::MergeResult r = xch::merge_waypoints(set, incoming);
+        CHECK_EQ(r.added, 1);
+        CHECK_EQ(r.duplicates, 3);
+        CHECK_EQ(r.dropped, 0);
+        CHECK_EQ(static_cast<int>(set.count), 2);
+        CHECK(set.items[1].set);
+
+        // The cap counts what did not fit instead of dropping it silently.
+        mv::WaypointSet full{};
+        std::vector<mv::Waypoint> many;
+        for (std::size_t i = 0; i < mv::kMaxWaypoints + 3; ++i)
+        {
+            many.push_back(mv::Waypoint{true, static_cast<double>(i) * 1000.0, 0.0, 0.0});
+        }
+        r = xch::merge_waypoints(full, many);
+        CHECK_EQ(static_cast<int>(full.count), static_cast<int>(mv::kMaxWaypoints));
+        CHECK_EQ(r.added, static_cast<int>(mv::kMaxWaypoints));
+        CHECK_EQ(r.dropped, 3);
+
+        // Z separates two waypoints one above the other.
+        mv::WaypointSet stack{};
+        stack.count = 1;
+        stack.items[0] = mv::Waypoint{true, 0.0, 0.0, 0.0};
+        r = xch::merge_waypoints(stack, {mv::Waypoint{true, 0.0, 0.0, xch::kWaypointEpsilon * 4.0}});
+        CHECK_EQ(r.added, 1);
+
+        section("import - resolving the typed path");
+
+        CHECK(xch::path_is_absolute(L"C:\\x\\y.json"));
+        CHECK(xch::path_is_absolute(L"c:/x/y.json"));
+        CHECK(xch::path_is_absolute(L"\\\\server\\share\\y.json"));
+        CHECK(xch::path_is_absolute(L"\\rooted.json"));
+        CHECK(!xch::path_is_absolute(L"y.json"));
+        CHECK(!xch::path_is_absolute(L"backups\\y.json"));
+        CHECK(!xch::path_is_absolute(L""));
+        const std::wstring dir = L"D:\\game\\Mods\\WuchangMinimap";
+        CHECK(xch::resolve_import_path(dir, L"y.json") == dir + L"\\y.json");
+        // A separator in the name does NOT make it absolute - that was the bug.
+        CHECK(xch::resolve_import_path(dir, L"backups\\y.json") == dir + L"\\backups\\y.json");
+        CHECK(xch::resolve_import_path(dir, L"C:\\else\\y.json") == L"C:\\else\\y.json");
+        CHECK(xch::resolve_import_path(dir, L"") == L"");
     }
 
     // The chunked object-array scan scheduler (src/scan_sched.hpp)

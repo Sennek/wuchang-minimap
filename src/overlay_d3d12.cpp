@@ -470,26 +470,33 @@ namespace overlay
 
             // NEAREST UNFOUND (the waypoint_nearest_key hotkey). The pick lives here
             // because the frame's candidate list is what knows both distance and the
-            // category mask in force.
+            // category mask in force. It has no radius: the whole chapter's published
+            // buffer is a candidate.
             if (g_nearest_request.exchange(false, std::memory_order_acquire))
             {
                 const FrameCand* best = nullptr;
-                for (const FrameCand& c : g_frame_cands)
+                if (cfg.markers_enabled)
                 {
-                    if (c.found || !mdb::cat_enabled(cfg.markers_categories, static_cast<mdb::Cat>(c.cat)))
+                    for (const FrameCand& c : g_frame_cands)
                     {
-                        continue;
-                    }
-                    if (best == nullptr || c.d2_3d < best->d2_3d)
-                    {
-                        best = &c;
+                        if (c.found ||
+                            !mdb::cat_enabled(cfg.markers_categories, static_cast<mdb::Cat>(c.cat)))
+                        {
+                            continue;
+                        }
+                        if (best == nullptr || c.d2_3d < best->d2_3d)
+                        {
+                            best = &c;
+                        }
                     }
                 }
                 char note[160]{};
                 if (best == nullptr)
                 {
                     (void)std::snprintf(note, sizeof(note),
-                                        "nothing unfound nearby in the categories you have on");
+                                        cfg.markers_enabled
+                                            ? "nothing unfound in the categories you have on"
+                                            : "markers are turned off");
                 }
                 else
                 {
@@ -532,9 +539,12 @@ namespace overlay
             }
             if (g_map_was_open && !mm::g_map_open.load(std::memory_order_relaxed))
             {
-                // Closed (by the key, by the gate, or from inside the map): the next
-                // open starts centred on the player again.
+                // Closed (by the key, by the pad chord, by the gate, or from inside the
+                // map): the next open starts centred on the player again, with the map
+                // mode's panels and search box reset. close_map has already done that
+                // for its own routes; this is the edge the map never sees.
                 g_mv_init = false;
+                reset_map_mode();
             }
             g_map_was_open = mm::g_map_open.load(std::memory_order_relaxed);
 
@@ -1100,6 +1110,7 @@ namespace overlay
             ImGui::Render();
             // The game thread's swallow decision reads this instead of the context.
             g_imgui_want_keyboard.store(ImGui::GetIO().WantCaptureKeyboard, std::memory_order_relaxed);
+            g_imgui_want_text.store(ImGui::GetIO().WantTextInput, std::memory_order_relaxed);
             mm::perf_record(g_pf_frame, frame_t0);
 
             if (FAILED(frame.allocator->Reset()) || FAILED(g_cmd_list->Reset(frame.allocator, nullptr)))

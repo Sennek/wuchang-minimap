@@ -246,20 +246,6 @@ namespace mv
         return -1;
     }
 
-    std::string waypoint_serialize(const Waypoint& wp)
-    {
-        std::string out;
-        out += "; WuchangMinimap waypoint. Written when you set one on the full map;\n";
-        out += "; delete this file (or set `set = 0`) to clear it.\n";
-        out += "set = ";
-        out += wp.set ? "1" : "0";
-        out += "\n";
-        out += "x = " + num(wp.x) + "\n";
-        out += "y = " + num(wp.y) + "\n";
-        out += "z = " + num(wp.z) + "\n";
-        return out;
-    }
-
     bool waypoint_parse(std::string_view text, Waypoint& out)
     {
         std::size_t pos = 0;
@@ -351,6 +337,7 @@ namespace mv
 
         WaypointSet set{};
         bool any = false;
+        bool saw_key = false; // a `waypoint =` line, however unreadable its value
         while (pos <= text.size())
         {
             const std::size_t nl = text.find('\n', pos);
@@ -367,6 +354,7 @@ namespace mv
             {
                 continue;
             }
+            saw_key = true;
             // `x y z`, also tolerating commas between the three.
             std::string value = trim(raw.substr(eq + 1));
             for (char& c : value)
@@ -414,14 +402,18 @@ namespace mv
 
         if (!any)
         {
-            // The older format: one waypoint as a `set` / `x` / `y` / `z` block.
-            Waypoint one{};
-            if (!waypoint_parse(text, one) || !one.set)
+            if (saw_key)
             {
-                return false;
+                return false; // waypoint lines that carry no coordinates
             }
-            set.count = 1;
-            set.items[0] = one;
+            // The older format: one waypoint as a `set` / `x` / `y` / `z` block. Absent
+            // too, the file is the empty set the Clear all button writes.
+            Waypoint one{};
+            if (waypoint_parse(text, one) && one.set)
+            {
+                set.count = 1;
+                set.items[0] = one;
+            }
         }
         out = set;
         return true;

@@ -521,21 +521,27 @@ namespace overlay
             // mod folder. Both buttons only raise a flag: the loop thread owns every
             // read and write (overlay.cpp).
             ImGui::SeparatorText("Backup / transfer");
+            static char import_path[512]{};
+            // The newest export the loop thread found, offered once - on the first frame
+            // it exists, and again after an export writes a newer one. Never on every
+            // empty frame: a box the player has cleared has to stay clear.
+            static bool import_path_seeded = false;
             if (ImGui::Button("Export"))
             {
                 g_export_request.store(true, std::memory_order_release);
+                import_path_seeded = false; // offer the file it is about to write
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("writes wuchang_minimap_export_<date>_<time>.json next to the DLL");
+                ImGui::SetTooltip("writes wuchang_minimap_export_<date>_<time>.json next to the DLL\n"
+                                  "(a counter is added when that name is taken)");
             }
-            static char import_path[512]{};
-            // The newest export the loop thread found, offered whenever the box is
-            // empty, so a typed path is never overwritten under the cursor.
-            if (import_path[0] == '\0' && g_latest_export_ready.load(std::memory_order_acquire))
+            if (!import_path_seeded && import_path[0] == '\0' &&
+                g_latest_export_ready.load(std::memory_order_acquire))
             {
                 spin::SpinGuard guard(g_exchange_lock);
                 ::strncpy_s(import_path, sizeof(import_path), g_latest_export, _TRUNCATE);
+                import_path_seeded = import_path[0] != '\0';
             }
             ImGui::SameLine();
             if (ImGui::Button("Import"))
@@ -548,8 +554,8 @@ namespace overlay
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("merges the file's found ids and appends its waypoints;\n"
-                                  "nothing is ever removed by an import");
+                ImGui::SetTooltip("merges the file's found ids and adds the waypoints you do not\n"
+                                  "already have; nothing is ever removed by an import");
             }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(-1.0f);

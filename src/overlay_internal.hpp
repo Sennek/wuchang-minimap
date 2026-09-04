@@ -549,6 +549,10 @@ namespace overlay
         // decision never reads the ImGui context. `WantCaptureMouse` is not needed - the
         // panel owns the whole mouse whenever it is open.
         extern std::atomic<bool> g_imgui_want_keyboard;
+        // render -> loop: a text box of ours has the caret. Narrower than
+        // WantCaptureKeyboard, which keyboard navigation also raises - a binding must
+        // still work while the map has nav focus, and must not while a name is typed.
+        extern std::atomic<bool> g_imgui_want_text;
         // World -> texture uv for one image. The composite and every floor layer have
         // their own bounds (layers are cropped to their own footprint), so the mapping
         // travels with the picture rather than with the chapter.
@@ -1176,6 +1180,7 @@ namespace overlay
                             float feet, std::uint64_t now);
         void slice_map_step(std::uint64_t now);
         void draw_waypoint_glyph(ImDrawList* dl, ImVec2 p, float r, int alpha);
+        void reset_map_mode();
         void close_map(const wchar_t* why);
         void draw_full_map(mm::Config cfg, const mm::Snapshot& snap, bool have_state, float ui_scale);
         void draw_perf_table();

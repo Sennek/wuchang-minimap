@@ -754,8 +754,6 @@ namespace mm
     // the spinlocked-copy pattern.
 
     mv::WaypointSet waypoints();
-    // The one nearest (x, y) horizontally; `set` is false when there are none.
-    mv::Waypoint nearest_waypoint(double x, double y);
     void set_waypoints(const mv::WaypointSet& set); // any thread; marks the file dirty
     // False when the set is already mv::kMaxWaypoints long.
     bool add_waypoint(const mv::Waypoint& wp);

@@ -999,14 +999,30 @@ copies the whole thing inside Present, and a `std::vector` there would allocate.
 **Search** — the full map's header carries a name box. While it is not empty only markers whose
 display name contains the text (case-insensitively, `src/textmatch.hpp`) are drawn, the header
 says how many matched, and a `Search results` window lists them nearest-first with a click to
-waypoint one. Every bare key the map binds stands down while the box has the caret
-(`io.WantTextInput`), and `Esc` empties the box before it closes the map.
+waypoint one. The match count is one pass over the published buffer taken before the header
+prints it; the rows are built and sorted only while the results window is up. `Esc` empties the
+box before it closes the map.
+
+Two mechanisms keep a typed letter out of the bindings, one per thread that samples keys. The
+map's own bare keys (`WASD`, `E`/`Q`, `F`, `Home`, ...) test `io.WantTextInput` on the render
+thread. The configured bindings (`map_key`, `screenshot_key`, `zoom_key`, ...) are sampled with
+`GetAsyncKeyState` on the loop thread, which cannot see a caret, so they test the same flag
+published as `g_imgui_want_text`. Deliberately not `WantCaptureKeyboard` (what the WndProc
+swallow uses): keyboard navigation raises that too, and `M` has to keep closing a map the arrow
+keys have just panned.
 
 **Export / import** — the F2 panel's Tracker section writes the found list and the waypoints of
-the profile in force to `wuchang_minimap_export_<date>_<time>.json` (`src/exchange.hpp`), and
-reads one back as a **merge**: found ids are unioned, waypoints appended, nothing is ever
-removed. Both buttons only raise a flag; the loop thread does every read, write and directory
-walk, through the same atomic temp-plus-rename as every other file here.
+the profile in force to `wuchang_minimap_export_<date>_<time>.json` (`src/exchange.hpp`; a
+counter is appended when that name is taken), and reads one back as a **merge**: found ids are
+unioned and nothing is ever removed. Waypoints are appended by `xch::merge_waypoints`, which
+skips any within `kWaypointEpsilon` (25 uu) of one already set and counts what does not fit
+under the 16-waypoint cap — the toast reports both. An import whose `profile` is not the one in
+force is merged and flagged as such in the toast and the log, and an import before the save slot
+is resolved (`slotid::Route::None`) is refused, because its ids would land in the wrong file.
+The path box is UTF-8 and the file system is UTF-16 (`WideCharToMultiByte`/`CP_UTF8`); a
+relative path is taken under the mod folder, an absolute one as typed. Both buttons only raise a
+flag; the loop thread does every read, write and directory walk, through the same atomic
+temp-plus-rename as every other file here.
 
 **Nothing latches.** The map closes itself the moment the state that allows it stops being true
 — a menu opening, the pawn going away, a level transition, a stale snapshot — and the input

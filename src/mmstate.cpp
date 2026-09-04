@@ -2339,13 +2339,6 @@ namespace mm
         return g_wp;
     }
 
-    mv::Waypoint nearest_waypoint(double x, double y)
-    {
-        const mv::WaypointSet set = waypoints();
-        const int i = mv::nearest_waypoint(set, x, y);
-        return i >= 0 ? set.items[static_cast<std::size_t>(i)] : mv::Waypoint{};
-    }
-
     void set_waypoints(const mv::WaypointSet& set)
     {
         {
@@ -2419,7 +2412,7 @@ namespace mm
                 logf(L"waypoint: {} exists but carries no usable coordinates - ignored", path);
                 set = mv::WaypointSet{};
             }
-            else
+            else if (set.count != 0)
             {
                 logf(L"waypoint: loaded {} waypoint(s) from {}", set.count, path);
             }

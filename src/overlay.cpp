@@ -27,6 +27,7 @@
 
 #include "atomicfile.hpp"
 #include "exchange.hpp"
+#include "saveslot.hpp"
 
 namespace overlay
 {
@@ -174,6 +175,7 @@ namespace overlay
         int g_msg_count = 0; // slots in use
         std::atomic<std::uint64_t> g_msg_dropped{0};
         std::atomic<bool> g_imgui_want_keyboard{false};
+        std::atomic<bool> g_imgui_want_text{false};
         MiniDebug g_last_mini{};
         std::atomic<int> g_zoom_steps{0};
         std::atomic<bool> g_hud_gate_ever_open{false};
@@ -730,6 +732,44 @@ namespace overlay
 
         constexpr std::wstring_view kExportPrefix = L"wuchang_minimap_export_";
 
+        // The path box is UTF-8 (ImGui's encoding) and the file system is UTF-16, so a
+        // path with any non-ASCII character in it survives the round trip.
+        std::string wide_to_utf8(const std::wstring& w)
+        {
+            if (w.empty())
+            {
+                return std::string{};
+            }
+            const int need = ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()),
+                                                   nullptr, 0, nullptr, nullptr);
+            if (need <= 0)
+            {
+                return std::string{};
+            }
+            std::string out(static_cast<std::size_t>(need), '\0');
+            (void)::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), out.data(),
+                                        need, nullptr, nullptr);
+            return out;
+        }
+
+        std::wstring utf8_to_wide(const std::string& s)
+        {
+            if (s.empty())
+            {
+                return std::wstring{};
+            }
+            const int need =
+                ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), nullptr, 0);
+            if (need <= 0)
+            {
+                return std::wstring{};
+            }
+            std::wstring out(static_cast<std::size_t>(need), L'\0');
+            (void)::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), out.data(),
+                                        need);
+            return out;
+        }
+
         // The newest wuchang_minimap_export_*.json in the mod folder, so the panel's path
         // box has something to offer. The names sort by time, so `max` is the answer.
         void scan_latest_export()
@@ -750,7 +790,7 @@ namespace overlay
                 } while (::FindNextFileW(h, &find) != 0);
                 ::FindClose(h);
             }
-            const std::string narrow = best.empty() ? std::string{} : wide_to_ascii(mm::mod_dir() + L"\\" + best);
+            const std::string narrow = best.empty() ? std::string{} : wide_to_utf8(mm::mod_dir() + L"\\" + best);
             {
                 spin::SpinGuard guard(g_exchange_lock);
                 ::strncpy_s(g_latest_export, sizeof(g_latest_export), narrow.c_str(), _TRUNCATE);
@@ -758,7 +798,9 @@ namespace overlay
             g_latest_export_ready.store(true, std::memory_order_release);
         }
 
-        std::wstring export_file_name()
+        // Second granularity plus a counter: two exports inside one second are two
+        // files, never a silent overwrite.
+        std::wstring export_path()
         {
             SYSTEMTIME st{};
             ::GetLocalTime(&st);
@@ -767,7 +809,13 @@ namespace overlay
                                 static_cast<unsigned>(st.wYear), static_cast<unsigned>(st.wMonth),
                                 static_cast<unsigned>(st.wDay), static_cast<unsigned>(st.wHour),
                                 static_cast<unsigned>(st.wMinute), static_cast<unsigned>(st.wSecond));
-            return std::wstring{kExportPrefix} + stamp + L".json";
+            const std::wstring base = mm::mod_dir() + L"\\" + std::wstring{kExportPrefix} + stamp;
+            std::wstring path = base + L".json";
+            for (int n = 2; n < 1000 && ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; ++n)
+            {
+                path = base + L"_" + std::to_wstring(n) + L".json";
+            }
+            return path;
         }
 
         void run_export()
@@ -783,7 +831,7 @@ namespace overlay
                 p.waypoints.push_back(set.items[i]);
             }
 
-            const std::wstring path = mm::mod_dir() + L"\\" + export_file_name();
+            const std::wstring path = export_path();
             unsigned err = 0;
             char note[160]{};
             if (!mmfile::write_whole_file_atomic(path, xch::serialize(p), false, &err))
@@ -814,16 +862,21 @@ namespace overlay
                 post_toast("import: no file path given", 3000);
                 return;
             }
-            mm::perf_note_stall(L"a found-list import", 1000);
-            std::wstring path = widen(narrow);
-            // A bare file name means the mod folder, where the exports land.
-            if (path.find(L'\\') == std::wstring::npos && path.find(L'/') == std::wstring::npos)
+            // The found list belongs to a save slot. Before one is resolved the ids
+            // would be merged into whatever profile happens to be in force and written
+            // out to it, so the import waits instead.
+            if (slotid::status().route == slotid::Route::None)
             {
-                path = mm::mod_dir() + L"\\" + path;
+                post_toast("import: no save profile yet - load your save first", 4000);
+                return;
             }
+            mm::perf_note_stall(L"a found-list import", 1000);
+            // Absolute as typed, anything else under the mod folder where exports land.
+            const std::wstring path = xch::resolve_import_path(mm::mod_dir(), utf8_to_wide(narrow));
 
             std::string text;
-            const mmfile::ReadInfo info = mmfile::read_whole_file(path, text, 64ull << 20);
+            // A few MB is a huge export; the parse runs here, on the loop thread.
+            const mmfile::ReadInfo info = mmfile::read_whole_file(path, text, 4ull << 20);
             char note[160]{};
             if (info.status != mmfile::ReadStatus::Ok)
             {
@@ -841,21 +894,30 @@ namespace overlay
                 post_toast(note, 5000);
                 return;
             }
+            // A file written from another save slot merges cleanly, but its ids belong
+            // to that playthrough - say so rather than letting it look like a bug later.
+            const std::string profile = markers::found_file_name();
+            const bool foreign = !p.profile.empty() && p.profile != profile;
             const int added = markers::merge_found_ids(p.found);
-            int wp_added = 0;
-            for (const mv::Waypoint& wp : p.waypoints)
+            mv::WaypointSet set = mm::waypoints();
+            const xch::MergeResult wp = xch::merge_waypoints(set, p.waypoints);
+            if (wp.added != 0)
             {
-                if (!mm::add_waypoint(wp))
-                {
-                    break;
-                }
-                ++wp_added;
+                mm::set_waypoints(set);
             }
-            (void)std::snprintf(note, sizeof(note), "imported %d new found id(s) and %d waypoint(s)", added,
-                                wp_added);
-            mm::logf(L"import: {} -> {} new found id(s), {} waypoint(s) (profile {})", path, added, wp_added,
-                     widen(p.profile));
-            post_toast(note, 4000);
+            char extra[96]{};
+            if (wp.duplicates != 0 || wp.dropped != 0)
+            {
+                (void)std::snprintf(extra, sizeof(extra), "; %d already set, %d over the limit of %zu",
+                                    wp.duplicates, wp.dropped, mv::kMaxWaypoints);
+            }
+            (void)std::snprintf(note, sizeof(note), "imported %d new found id(s) and %d waypoint(s)%s%s",
+                                added, wp.added, extra, foreign ? "; from ANOTHER save profile" : "");
+            mm::logf(L"import: {} -> {} new found id(s), {} waypoint(s) ({} duplicate, {} over the limit); "
+                     L"exported from profile {}, merged into {}",
+                     path, added, wp.added, wp.duplicates, wp.dropped,
+                     widen(p.profile.empty() ? std::string{"(none)"} : p.profile), widen(profile));
+            post_toast(note, foreign ? 6000 : 4000);
         }
     } // namespace
 
@@ -1204,11 +1266,15 @@ namespace overlay
                 return true;
             }
         };
-        const auto key_down = [&mod_held](int binding) {
+        // A letter typed into the map's search box or the panel's import path is the
+        // text box's, not a binding's: this thread samples the keyboard directly, so the
+        // one test that knows a caret is up is ImGui's, published by the render thread.
+        const bool imgui_typing = g_imgui_want_text.load(std::memory_order_relaxed);
+        const auto key_down = [&mod_held, imgui_typing](int binding) {
             const int vk = mm::key_vk(binding);
-            if (vk == 0)
+            if (vk == 0 || imgui_typing)
             {
-                return false; // `none` - deliberately unbound
+                return false; // `none` - deliberately unbound, or a text box has the caret
             }
             return (::GetAsyncKeyState(vk) & 0x8000) != 0 && mod_held(mm::key_mod(binding));
         };

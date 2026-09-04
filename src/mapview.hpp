@@ -135,16 +135,16 @@ namespace mv
         Waypoint items[kMaxWaypoints]{};
     };
 
-    std::string waypoint_serialize(const Waypoint& wp);
-
-    // False (and `out` untouched) when the text carries no usable waypoint. A BOM, CRLF,
-    // comments (`;` / `#`) and blank lines are tolerated.
+    // The older single-waypoint file, still read by waypoints_parse. False (and `out`
+    // untouched) when the text carries no usable waypoint. A BOM, CRLF, comments
+    // (`;` / `#`) and blank lines are tolerated.
     bool waypoint_parse(std::string_view text, Waypoint& out);
 
     std::string waypoints_serialize(const WaypointSet& set);
 
     // Both formats: `waypoint = x y z` lines, and the older single `set` / `x` / `y` /
-    // `z` block. False (and `out` untouched) when the text carries neither.
+    // `z` block. A file with neither is the empty set (what Clear all writes); false,
+    // with `out` untouched, only for `waypoint` lines whose coordinates are unreadable.
     bool waypoints_parse(std::string_view text, WaypointSet& out);
 
     // The member of `set` nearest (x, y) horizontally, or -1 when the set is empty.

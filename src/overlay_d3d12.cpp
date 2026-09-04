@@ -71,6 +71,23 @@ namespace overlay
         // Renderer state
         //==============================================================================
 
+        // RENDER THREAD ONLY, like `g_swapchain` itself.
+        //
+        // `g_adopted_present_ms` is GetTickCount64() of the last Present on the adopted
+        // swapchain; 0 means "no reference point yet" and disables the check below. A
+        // game that RECREATES its swapchain (an HDR toggle, a fullscreen mode change)
+        // leaves the adopted one presenting nothing while a new one presents every
+        // frame, and the plain "not ours" filter would drop the new one for the rest of
+        // the session. So a D3D12 swapchain presenting while ours has been silent for
+        // kSwapchainSilentMs asks for the ordinary re-adoption.
+        //
+        // `g_imgui_rtv_format` is the RTV format ImGui's DX12 backend was initialised
+        // for. Its pipeline state bakes that format in, so a back-buffer format change
+        // needs the backend rebuilt exactly as a raised buffer count does.
+        static std::uint64_t g_adopted_present_ms = 0;
+        static DXGI_FORMAT g_imgui_rtv_format = DXGI_FORMAT_UNKNOWN;
+        constexpr std::uint64_t kSwapchainSilentMs = 2000;
+
         //==============================================================================
         // The height-slice texture
         //==============================================================================
@@ -751,6 +768,7 @@ namespace overlay
             hook_wndproc();
 
             g_imgui_frames_in_flight = static_cast<int>(g_buffer_count);
+            g_imgui_rtv_format = g_format;
             g_imgui_ready = true;
             crumb::stage(crumb::kImGuiUp);
             mm::logf(L"ImGui {} initialised on the game's swapchain: device {:p}, queue {:p}, {} frames in flight, "
@@ -896,10 +914,14 @@ namespace overlay
                 g_srv_heap.destroy();
                 safe_release(g_device);
                 g_imgui_frames_in_flight = 0;
+                g_imgui_rtv_format = DXGI_FORMAT_UNKNOWN;
                 mm::log(L"the render thread has released ImGui, the descriptor heaps, "
                         L"the slice buffers and the map textures");
             }
             g_swapchain = nullptr;
+            // Nothing is adopted, so there is no silence to measure until the next
+            // Present on a newly adopted swapchain.
+            g_adopted_present_ms = 0;
             // The cached IDXGISwapChain3 holds a reference on the swapchain being let
             // go; keeping it would pin a dead object and answer
             // GetCurrentBackBufferIndex for a swapchain we no longer draw on.
@@ -975,8 +997,29 @@ namespace overlay
             }
             else if (swapchain != g_swapchain)
             {
-                return; // another swapchain (frame generation / ReShade) - not ours
+                // Another swapchain - frame generation, ReShade, the game's decoy D3D11
+                // one - and normally not ours. It IS ours when the game has recreated
+                // its swapchain: the adopted one then presents nothing while this one
+                // presents every frame. Both tests have to hold before that is believed
+                // - our swapchain silent for kSwapchainSilentMs AND this one a D3D12
+                // swapchain - because the decoy presents right through a level load,
+                // when the game's own swapchain is legitimately quiet.
+                const std::uint64_t now = ::GetTickCount64();
+                if (g_adopted_present_ms != 0 && now - g_adopted_present_ms > kSwapchainSilentMs &&
+                    is_d3d12_swapchain(swapchain))
+                {
+                    // The ordinary re-adoption: release everything on this thread and
+                    // let the next Present adopt whatever is presenting now.
+                    g_adopted_present_ms = 0; // one attempt per adopted swapchain
+                    request_readoption(L"the adopted swapchain has not presented for 2 s while another "
+                                       L"D3D12 swapchain has - the game has replaced it");
+                }
+                return;
             }
+
+            // This Present is on the adopted swapchain: the reference point the check
+            // above measures silence against.
+            g_adopted_present_ms = ::GetTickCount64();
 
             if (!ensure_initialised(swapchain))
             {
@@ -994,14 +1037,20 @@ namespace overlay
             // of per-frame buffers per OLD frame in flight and would reuse the vertex,
             // index and descriptor storage of a frame the GPU has not finished.
             // Re-initialising the DX12 backend is the only way to change that count; it
-            // happens outside a frame (before NewFrame) and with the GPU idle.
+            // happens outside a frame (before NewFrame) and with the GPU idle. A changed
+            // back-buffer FORMAT (an HDR toggle) needs the same rebuild: the backend's
+            // pipeline state bakes the RTV format in, and drawing it against a render
+            // target of another format is a debug-layer error and a wrong-looking frame.
             if (g_imgui_ready && g_imgui_frames_in_flight != 0 &&
-                g_imgui_frames_in_flight < static_cast<int>(g_buffer_count))
+                (g_imgui_frames_in_flight < static_cast<int>(g_buffer_count) ||
+                 g_imgui_rtv_format != g_format))
             {
-                mm::logf(L"the swapchain now has {} buffers, ImGui was initialised for {} frames in "
-                         L"flight - re-initialising the DX12 backend",
+                mm::logf(L"the swapchain now has {} buffer(s) in {}, ImGui was initialised for {} frames "
+                         L"in flight in {} - re-initialising the DX12 backend",
                          g_buffer_count,
-                         g_imgui_frames_in_flight);
+                         format_name(g_format),
+                         g_imgui_frames_in_flight,
+                         format_name(g_imgui_rtv_format));
                 wait_for_gpu();
                 ImGui_ImplDX12_Shutdown();
                 ImGui_ImplDX12_InitInfo info{};
@@ -1020,6 +1069,7 @@ namespace overlay
                     return;
                 }
                 g_imgui_frames_in_flight = static_cast<int>(g_buffer_count);
+                g_imgui_rtv_format = g_format;
             }
 
             const UINT index = current_backbuffer_index(swapchain);

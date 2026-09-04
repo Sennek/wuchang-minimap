@@ -28,7 +28,7 @@ namespace mm
         Config g_cfg{};
 
         spin::Spinlock g_wp_lock;
-        mv::Waypoint g_wp{};
+        mv::WaypointSet g_wp{};
 
         spin::Spinlock g_log_lock;
         std::vector<std::wstring> g_log_queue;
@@ -674,6 +674,11 @@ namespace mm
             else if (key == "screenshot_key")
             {
                 cfg.screenshot_key = vk_from_name(value, cfg.screenshot_key, "screenshot_key");
+            }
+            else if (key == "waypoint_nearest_key")
+            {
+                cfg.waypoint_nearest_key =
+                    vk_from_name(value, cfg.waypoint_nearest_key, "waypoint_nearest_key");
             }
             else if (key == "minimap_shape")
             {
@@ -2050,6 +2055,7 @@ namespace mm
         add("zoom_key", vk(cfg.zoom_key));
         add("reload_key", vk(cfg.reload_key));
         add("screenshot_key", vk(cfg.screenshot_key));
+        add("waypoint_nearest_key", vk(cfg.waypoint_nearest_key));
 
         add("require_pawn_view", b(cfg.require_pawn_view));
         add("state_stale_ms", std::to_string(cfg.state_stale_ms));
@@ -2327,17 +2333,71 @@ namespace mm
         return main_ft ^ (dev_ft * 0x9E3779B97F4A7C15ull);
     }
 
-    mv::Waypoint waypoint()
+    mv::WaypointSet waypoints()
     {
         spin::SpinGuard guard(g_wp_lock);
         return g_wp;
     }
 
-    void set_waypoint(const mv::Waypoint& wp)
+    mv::Waypoint nearest_waypoint(double x, double y)
+    {
+        const mv::WaypointSet set = waypoints();
+        const int i = mv::nearest_waypoint(set, x, y);
+        return i >= 0 ? set.items[static_cast<std::size_t>(i)] : mv::Waypoint{};
+    }
+
+    void set_waypoints(const mv::WaypointSet& set)
     {
         {
             spin::SpinGuard guard(g_wp_lock);
-            g_wp = wp;
+            g_wp = set;
+            if (g_wp.count > mv::kMaxWaypoints)
+            {
+                g_wp.count = mv::kMaxWaypoints;
+            }
+        }
+        g_waypoint_dirty.store(true, std::memory_order_release);
+    }
+
+    bool add_waypoint(const mv::Waypoint& wp)
+    {
+        {
+            spin::SpinGuard guard(g_wp_lock);
+            if (g_wp.count >= mv::kMaxWaypoints)
+            {
+                return false;
+            }
+            g_wp.items[g_wp.count] = wp;
+            g_wp.items[g_wp.count].set = true;
+            ++g_wp.count;
+        }
+        g_waypoint_dirty.store(true, std::memory_order_release);
+        return true;
+    }
+
+    void remove_waypoint(std::size_t index)
+    {
+        {
+            spin::SpinGuard guard(g_wp_lock);
+            if (index >= g_wp.count)
+            {
+                return;
+            }
+            for (std::size_t i = index + 1; i < g_wp.count; ++i)
+            {
+                g_wp.items[i - 1] = g_wp.items[i];
+            }
+            --g_wp.count;
+            g_wp.items[g_wp.count] = mv::Waypoint{};
+        }
+        g_waypoint_dirty.store(true, std::memory_order_release);
+    }
+
+    void clear_waypoints()
+    {
+        {
+            spin::SpinGuard guard(g_wp_lock);
+            g_wp = mv::WaypointSet{};
         }
         g_waypoint_dirty.store(true, std::memory_order_release);
     }
@@ -2351,22 +2411,22 @@ namespace mm
     {
         const std::wstring path = waypoint_path();
         std::string text;
-        mv::Waypoint wp{};
+        mv::WaypointSet set{};
         if (read_whole_file(path, text))
         {
-            if (!mv::waypoint_parse(text, wp))
+            if (!mv::waypoints_parse(text, set))
             {
-                logf(L"waypoint: {} exists but carries no usable x / y - ignored", path);
-                wp = mv::Waypoint{};
+                logf(L"waypoint: {} exists but carries no usable coordinates - ignored", path);
+                set = mv::WaypointSet{};
             }
-            else if (wp.set)
+            else
             {
-                logf(L"waypoint: loaded ({:.0f}, {:.0f}, {:.0f}) from {}", wp.x, wp.y, wp.z, path);
+                logf(L"waypoint: loaded {} waypoint(s) from {}", set.count, path);
             }
         }
         {
             spin::SpinGuard guard(g_wp_lock);
-            g_wp = wp;
+            g_wp = set;
         }
         // What was just read is what the file says, so nothing is pending.
         g_waypoint_dirty.store(false, std::memory_order_release);
@@ -2374,21 +2434,14 @@ namespace mm
 
     void save_waypoint_file()
     {
-        const mv::Waypoint wp = waypoint();
+        const mv::WaypointSet set = waypoints();
         const std::wstring path = waypoint_path();
-        if (!write_whole_file(path, mv::waypoint_serialize(wp)))
+        if (!write_whole_file(path, mv::waypoints_serialize(set)))
         {
             logf(L"waypoint: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
             return;
         }
-        if (wp.set)
-        {
-            logf(L"waypoint: saved ({:.0f}, {:.0f}, {:.0f})", wp.x, wp.y, wp.z);
-        }
-        else
-        {
-            log(L"waypoint: cleared");
-        }
+        logf(L"waypoint: saved {} waypoint(s)", set.count);
     }
 
     std::atomic<int> g_log_level{static_cast<int>(LogLv::Normal)};

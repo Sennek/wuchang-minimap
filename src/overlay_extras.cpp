@@ -150,9 +150,8 @@ namespace overlay
                         wp.x = r.s->x;
                         wp.y = r.s->y;
                         wp.z = r.s->z;
-                        mm::set_waypoint(wp);
-                        mm::g_waypoint_dirty.store(true, std::memory_order_release);
-                        toast("waypoint set on the shrine");
+                        toast(mm::add_waypoint(wp) ? "waypoint set on the shrine"
+                                                   : "no room for another waypoint");
                     }
                 }
                 if (ImGui::IsItemHovered())

@@ -25,6 +25,7 @@
 //     wy = cy + (sx - r.cx()) * uu_per_px
 //
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -109,11 +110,11 @@ namespace mv
     int zoom_preset_index(const float* presets, int count, float current);
 
     //==================================================================================
-    // The waypoint - wuchang_minimap_waypoint.txt
+    // The waypoints - wuchang_minimap_waypoint.txt
     //==================================================================================
     //
-    // One waypoint at a time, next to the config file as three `key = value` lines. Kept
-    // out of config_wuchang_minimap.txt, which the F2 panel's Save button rewrites
+    // A list of waypoints next to the config file, one `waypoint = x y z` line each.
+    // Kept out of config_wuchang_minimap.txt, which the F2 panel's Save button rewrites
     // wholesale; a waypoint set during play survives without a Save.
 
     struct Waypoint
@@ -124,9 +125,28 @@ namespace mv
         double z = 0.0;
     };
 
+    // Fixed capacity and trivially copyable: every draw site takes a copy of the whole
+    // set under a spinlock, inside Present, and must not allocate.
+    inline constexpr std::size_t kMaxWaypoints = 16;
+
+    struct WaypointSet
+    {
+        std::size_t count = 0;
+        Waypoint items[kMaxWaypoints]{};
+    };
+
     std::string waypoint_serialize(const Waypoint& wp);
 
     // False (and `out` untouched) when the text carries no usable waypoint. A BOM, CRLF,
     // comments (`;` / `#`) and blank lines are tolerated.
     bool waypoint_parse(std::string_view text, Waypoint& out);
+
+    std::string waypoints_serialize(const WaypointSet& set);
+
+    // Both formats: `waypoint = x y z` lines, and the older single `set` / `x` / `y` /
+    // `z` block. False (and `out` untouched) when the text carries neither.
+    bool waypoints_parse(std::string_view text, WaypointSet& out);
+
+    // The member of `set` nearest (x, y) horizontally, or -1 when the set is empty.
+    int nearest_waypoint(const WaypointSet& set, double x, double y);
 } // namespace mv

@@ -321,4 +321,127 @@ namespace mv
         out = wp;
         return true;
     }
+
+    std::string waypoints_serialize(const WaypointSet& set)
+    {
+        std::string out;
+        out += "; WuchangMinimap waypoints. Written when you set one on the full map;\n";
+        out += "; delete this file, or delete a line, to drop them. One line each:\n";
+        out += ";   waypoint = <x> <y> <z>\n";
+        for (std::size_t i = 0; i < set.count && i < kMaxWaypoints; ++i)
+        {
+            const Waypoint& wp = set.items[i];
+            if (!wp.set)
+            {
+                continue;
+            }
+            out += "waypoint = " + num(wp.x) + " " + num(wp.y) + " " + num(wp.z) + "\n";
+        }
+        return out;
+    }
+
+    bool waypoints_parse(std::string_view text, WaypointSet& out)
+    {
+        std::size_t pos = 0;
+        if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
+            static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
+        {
+            pos = 3;
+        }
+
+        WaypointSet set{};
+        bool any = false;
+        while (pos <= text.size())
+        {
+            const std::size_t nl = text.find('\n', pos);
+            std::string_view raw = text.substr(pos, (nl == std::string_view::npos ? text.size() : nl) - pos);
+            pos = (nl == std::string_view::npos) ? text.size() + 1 : nl + 1;
+
+            const std::size_t comment = raw.find_first_of(";#");
+            if (comment != std::string_view::npos)
+            {
+                raw = raw.substr(0, comment);
+            }
+            const std::size_t eq = raw.find('=');
+            if (eq == std::string_view::npos || trim(raw.substr(0, eq)) != "waypoint")
+            {
+                continue;
+            }
+            // `x y z`, also tolerating commas between the three.
+            std::string value = trim(raw.substr(eq + 1));
+            for (char& c : value)
+            {
+                if (c == ',' || c == '\t')
+                {
+                    c = ' ';
+                }
+            }
+            double v[3] = {0.0, 0.0, 0.0};
+            int got = 0;
+            std::size_t at = 0;
+            while (got < 3 && at < value.size())
+            {
+                while (at < value.size() && value[at] == ' ')
+                {
+                    ++at;
+                }
+                if (at >= value.size())
+                {
+                    break;
+                }
+                const std::size_t end = value.find(' ', at);
+                const std::string token =
+                    value.substr(at, end == std::string::npos ? std::string::npos : end - at);
+                at = (end == std::string::npos) ? value.size() : end;
+                if (!parse_double(token, v[got]))
+                {
+                    got = 0;
+                    break;
+                }
+                ++got;
+            }
+            if (got < 2 || set.count >= kMaxWaypoints)
+            {
+                continue;
+            }
+            Waypoint& wp = set.items[set.count++];
+            wp.set = true;
+            wp.x = v[0];
+            wp.y = v[1];
+            wp.z = v[2];
+            any = true;
+        }
+
+        if (!any)
+        {
+            // The older format: one waypoint as a `set` / `x` / `y` / `z` block.
+            Waypoint one{};
+            if (!waypoint_parse(text, one) || !one.set)
+            {
+                return false;
+            }
+            set.count = 1;
+            set.items[0] = one;
+        }
+        out = set;
+        return true;
+    }
+
+    int nearest_waypoint(const WaypointSet& set, double x, double y)
+    {
+        int best = -1;
+        double best_d2 = 0.0;
+        for (std::size_t i = 0; i < set.count && i < kMaxWaypoints; ++i)
+        {
+            const double dx = set.items[i].x - x;
+            const double dy = set.items[i].y - y;
+            const double d2 = dx * dx + dy * dy;
+            if (best < 0 || d2 < best_d2)
+            {
+                best = static_cast<int>(i);
+                best_d2 = d2;
+            }
+        }
+        return best;
+    }
 } // namespace mv

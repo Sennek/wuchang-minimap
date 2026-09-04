@@ -392,6 +392,7 @@ namespace mm
         int map_recenter_key = 0x52;            // 'R' - recentre the full map on the player
         int zoom_key = 0x4E;                    // 'N' - cycle the minimap zoom
         int screenshot_key = 0x43;              // 'C' - full map -> clipboard
+        int waypoint_nearest_key = 0x47;        // 'G' - waypoint the nearest unfound marker
 
         // wuchang_minimap_last_stage.txt, rewritten at every overlay stage transition. The UE4SS
         // log buffer can be lost when the process dies; a file closed after each write cannot be.
@@ -597,6 +598,7 @@ namespace mm
         a.map_recenter_key == b.map_recenter_key &&
         a.zoom_key == b.zoom_key &&
         a.screenshot_key == b.screenshot_key &&
+        a.waypoint_nearest_key == b.waypoint_nearest_key &&
         a.crash_breadcrumb == b.crash_breadcrumb &&
         a.log_level == b.log_level &&
         a.fast_travel_enabled == b.fast_travel_enabled &&
@@ -745,13 +747,20 @@ namespace mm
     // Returns true when any of them changed. Any thread.
     bool set_pad_chord(const std::string& text, std::uint16_t& mask, bool& lt, bool& rt);
 
-    //=== The waypoint ==============================================================
-    // One waypoint at a time, set on the full map and drawn on the full map and the minimap.
-    // It lives in its own file so a waypoint set during play survives without a Save. The
-    // render thread sets it; the loop thread writes the file, via the spinlocked-copy pattern.
+    //=== The waypoints =============================================================
+    // Up to mv::kMaxWaypoints of them, set on the full map and drawn on the full map, the
+    // minimap and the compass. They live in their own file so one set during play survives
+    // without a Save. The render thread sets them; the loop thread writes the file, via
+    // the spinlocked-copy pattern.
 
-    mv::Waypoint waypoint();
-    void set_waypoint(const mv::Waypoint& wp); // any thread; marks the file dirty
+    mv::WaypointSet waypoints();
+    // The one nearest (x, y) horizontally; `set` is false when there are none.
+    mv::Waypoint nearest_waypoint(double x, double y);
+    void set_waypoints(const mv::WaypointSet& set); // any thread; marks the file dirty
+    // False when the set is already mv::kMaxWaypoints long.
+    bool add_waypoint(const mv::Waypoint& wp);
+    void remove_waypoint(std::size_t index);
+    void clear_waypoints();
     void load_waypoint_file();                 // loop thread
     void save_waypoint_file();                 // loop thread
     std::wstring waypoint_path();

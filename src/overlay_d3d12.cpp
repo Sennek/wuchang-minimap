@@ -468,6 +468,51 @@ namespace overlay
                 g_frame_bad_cat = 0;
             }
 
+            // NEAREST UNFOUND (the waypoint_nearest_key hotkey). The pick lives here
+            // because the frame's candidate list is what knows both distance and the
+            // category mask in force.
+            if (g_nearest_request.exchange(false, std::memory_order_acquire))
+            {
+                const FrameCand* best = nullptr;
+                for (const FrameCand& c : g_frame_cands)
+                {
+                    if (c.found || !mdb::cat_enabled(cfg.markers_categories, static_cast<mdb::Cat>(c.cat)))
+                    {
+                        continue;
+                    }
+                    if (best == nullptr || c.d2_3d < best->d2_3d)
+                    {
+                        best = &c;
+                    }
+                }
+                char note[160]{};
+                if (best == nullptr)
+                {
+                    (void)std::snprintf(note, sizeof(note),
+                                        "nothing unfound nearby in the categories you have on");
+                }
+                else
+                {
+                    mv::Waypoint wp{};
+                    wp.set = true;
+                    wp.x = best->m->x;
+                    wp.y = best->m->y;
+                    wp.z = best->m->z;
+                    const char* name = mdb::display_label(static_cast<mdb::Cat>(best->cat), best->m->label);
+                    if (mm::add_waypoint(wp))
+                    {
+                        (void)std::snprintf(note, sizeof(note), "waypoint: %s, %.0f m away", name,
+                                            std::sqrt(static_cast<double>(best->d2_3d)) / 100.0);
+                    }
+                    else
+                    {
+                        (void)std::snprintf(note, sizeof(note), "%zu waypoints already - clear one first",
+                                            mv::kMaxWaypoints);
+                    }
+                }
+                toast_for(note, 3500);
+            }
+
             if (mm::g_panel_open.load(std::memory_order_relaxed))
             {
                 draw_panel(raw, snap, have);

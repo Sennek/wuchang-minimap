@@ -696,6 +696,22 @@ namespace overlay
         extern char g_toast_pending[160];
         extern unsigned g_toast_pending_ms;
         extern std::atomic<bool> g_toast_pending_ready;
+        // ---- waypoints, search, import / export ---------------------------------------
+        // loop -> render: waypoint the nearest unfound marker. The pick needs the
+        // published marker buffer and the frame's category mask, both render-thread.
+        extern std::atomic<bool> g_nearest_request;
+        // render -> window thread: the full map's search box holds text, so Esc empties
+        // it instead of closing the map. The WndProc hook closes the map on Esc itself,
+        // which is why this cannot be decided on the render thread alone.
+        extern std::atomic<bool> g_map_search_active;
+        // render -> loop: the found list + waypoints as one JSON file. All file I/O for
+        // both directions is the loop thread's.
+        extern std::atomic<bool> g_export_request;
+        extern std::atomic<bool> g_import_request;
+        extern spin::Spinlock g_exchange_lock;
+        extern char g_import_path[512];   // what the panel's path box holds
+        extern char g_latest_export[512]; // newest wuchang_minimap_export_*.json, or ""
+        extern std::atomic<bool> g_latest_export_ready;
         extern bool g_shrine_panel;
         extern char g_shrine_selected[shdb::kMaxIdLen];
         struct StatsCache
@@ -1023,6 +1039,8 @@ namespace overlay
             {"Cycle the minimap zoom", "zoom_key", &mm::Config::zoom_key},
             {"Reload settings, maps and markers", "reload_key", &mm::Config::reload_key},
             {"Copy the full map to the clipboard", "screenshot_key", &mm::Config::screenshot_key},
+            {"Waypoint the nearest unfound marker", "waypoint_nearest_key",
+             &mm::Config::waypoint_nearest_key},
             {"X-ray highlight", "highlight_key", &mm::Config::highlight_key},
         };
         constexpr int kKeyBindCount = static_cast<int>(std::size(kKeyBinds));

@@ -292,7 +292,8 @@ namespace overlay
                     // GetAsyncKeyState on the loop thread, so it still closes the map.
                     // Esc closes it too, by a store on the flag the swallow condition
                     // reads - input is back on the next message.
-                    if (is_escape_key_down(msg, wparam))
+                    if (is_escape_key_down(msg, wparam) &&
+                        !g_map_search_active.load(std::memory_order_relaxed))
                     {
                         mm::g_map_open.store(false);
                         MM_LOGVS(L"full map closed (Esc)");

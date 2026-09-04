@@ -32,6 +32,8 @@
 #undef far
 #include "mmstate.hpp"
 #include "markers_db.hpp"
+#include "exchange.hpp"
+#include "textmatch.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
 #include "saveslot.hpp"
@@ -1325,6 +1327,159 @@ namespace
         CHECK(keep.set);
         CHECK_NEAR(keep.x, 7.0, 1e-9);
     }
+    // The waypoint list, the marker-name filter and the import / export file.
+
+    void test_waypoint_list()
+    {
+        section("full map - the waypoint list file");
+
+        mv::WaypointSet set{};
+        set.count = 3;
+        for (int i = 0; i < 3; ++i)
+        {
+            set.items[i].set = true;
+            set.items[i].x = 100.5 + i;
+            set.items[i].y = -200.25 - i;
+            set.items[i].z = 7.125 * (i + 1);
+        }
+        mv::WaypointSet back{};
+        CHECK(mv::waypoints_parse(mv::waypoints_serialize(set), back));
+        CHECK_EQ(static_cast<int>(back.count), 3);
+        for (int i = 0; i < 3; ++i)
+        {
+            CHECK(back.items[i].set);
+            // EXACT round trip: the file is written at 17 significant digits.
+            CHECK(back.items[i].x == set.items[i].x);
+            CHECK(back.items[i].y == set.items[i].y);
+            CHECK(back.items[i].z == set.items[i].z);
+        }
+
+        // An empty set writes comments only, and reads back as "nothing usable".
+        mv::WaypointSet empty{};
+        mv::WaypointSet keep{};
+        keep.count = 1;
+        CHECK(!mv::waypoints_parse(mv::waypoints_serialize(empty), keep));
+        CHECK_EQ(static_cast<int>(keep.count), 1);
+
+        // THE OLD SINGLE-WAYPOINT FORMAT still loads, as a list of one.
+        mv::Waypoint one{};
+        one.set = true;
+        one.x = 18176.671875;
+        one.y = -13905.2109375;
+        one.z = -7641.22;
+        mv::WaypointSet old_back{};
+        CHECK(mv::waypoints_parse(mv::waypoint_serialize(one), old_back));
+        CHECK_EQ(static_cast<int>(old_back.count), 1);
+        CHECK(old_back.items[0].x == one.x);
+        CHECK(old_back.items[0].y == one.y);
+        CHECK(old_back.items[0].z == one.z);
+        // An old file saying `set = 0` carries no waypoint at all.
+        mv::WaypointSet cleared{};
+        CHECK(!mv::waypoints_parse(mv::waypoint_serialize(mv::Waypoint{}), cleared));
+
+        // Hand-written: a BOM, CRLF, comments, commas, a missing z, and junk lines.
+        mv::WaypointSet hand{};
+        CHECK(mv::waypoints_parse("\xEF\xBB\xBF; mine\r\nwaypoint = 1 2 3\r\n"
+                                  "waypoint = 4, 5\r\nwaypoint = hello there\r\nnonsense\r\n",
+                                  hand));
+        CHECK_EQ(static_cast<int>(hand.count), 2);
+        CHECK_NEAR(hand.items[0].x, 1.0, 1e-9);
+        CHECK_NEAR(hand.items[0].z, 3.0, 1e-9);
+        CHECK_NEAR(hand.items[1].y, 5.0, 1e-9);
+        CHECK_NEAR(hand.items[1].z, 0.0, 1e-9);
+
+        // The cap holds: extra lines are dropped, not written past the array.
+        std::string many;
+        for (std::size_t i = 0; i < mv::kMaxWaypoints + 5; ++i)
+        {
+            many += "waypoint = 1 2 3\n";
+        }
+        mv::WaypointSet capped{};
+        CHECK(mv::waypoints_parse(many, capped));
+        CHECK_EQ(static_cast<int>(capped.count), static_cast<int>(mv::kMaxWaypoints));
+
+        section("full map - the nearest waypoint");
+
+        mv::WaypointSet near_set{};
+        near_set.count = 3;
+        near_set.items[0] = mv::Waypoint{true, 1000.0, 0.0, 0.0};
+        near_set.items[1] = mv::Waypoint{true, 10.0, 10.0, 0.0};
+        near_set.items[2] = mv::Waypoint{true, -500.0, 0.0, 0.0};
+        CHECK_EQ(mv::nearest_waypoint(near_set, 0.0, 0.0), 1);
+        CHECK_EQ(mv::nearest_waypoint(near_set, 900.0, 0.0), 0);
+        CHECK_EQ(mv::nearest_waypoint(mv::WaypointSet{}, 0.0, 0.0), -1);
+    }
+
+    void test_search_match()
+    {
+        section("full map - the marker name filter");
+
+        CHECK(txt::contains_ci("Red Box", "red"));
+        CHECK(txt::contains_ci("Red Box", "BOX"));
+        CHECK(txt::contains_ci("Red Box", "d B"));
+        CHECK(txt::contains_ci("Red Box", ""));       // an empty box filters nothing
+        CHECK(txt::contains_ci("", ""));
+        CHECK(!txt::contains_ci("Red Box", "boxes")); // longer than the name
+        CHECK(!txt::contains_ci("", "a"));
+        CHECK(!txt::contains_ci("Red Box", "green"));
+        // The match may sit at either end, and a near miss must not slide into one.
+        CHECK(txt::contains_ci("abcabd", "abd"));
+        CHECK(!txt::contains_ci("abcabc", "abd"));
+    }
+
+    void test_exchange()
+    {
+        section("import / export - the JSON round trip");
+
+        xch::Payload p{};
+        p.profile = "wuchang_minimap_found_0123.txt";
+        p.found = {"Chapter1_DGong_logic/BP_treasurebox_C_12", "Chapter2/BP_item_C_3",
+                   "quote\"and\\slash"};
+        p.waypoints.push_back(mv::Waypoint{true, 18176.671875, -13905.2109375, -7641.22});
+        p.waypoints.push_back(mv::Waypoint{true, 0.0, 0.0, 0.0});
+
+        xch::Payload back{};
+        std::string error;
+        CHECK(xch::parse(xch::serialize(p), back, error));
+        CHECK(error.empty());
+        CHECK(back.profile == p.profile);
+        CHECK_EQ(static_cast<int>(back.found.size()), 3);
+        for (std::size_t i = 0; i < p.found.size(); ++i)
+        {
+            CHECK(back.found[i] == p.found[i]);
+        }
+        CHECK_EQ(static_cast<int>(back.waypoints.size()), 2);
+        // EXACT: the file is written at 17 significant digits.
+        CHECK(back.waypoints[0].x == p.waypoints[0].x);
+        CHECK(back.waypoints[0].y == p.waypoints[0].y);
+        CHECK(back.waypoints[0].z == p.waypoints[0].z);
+        CHECK(back.waypoints[0].set);
+
+        // An empty payload is still valid JSON that round-trips.
+        xch::Payload none{};
+        xch::Payload none_back{};
+        CHECK(xch::parse(xch::serialize(none), none_back, error));
+        CHECK(none_back.found.empty());
+        CHECK(none_back.waypoints.empty());
+
+        // Rejections, each with a reason.
+        xch::Payload junk{};
+        CHECK(!xch::parse("", junk, error));
+        CHECK(!error.empty());
+        CHECK(!xch::parse("[1,2,3]", junk, error));
+        CHECK(!xch::parse("{}", junk, error));
+        CHECK(!xch::parse("{\"schema\": \"something-else\"}", junk, error));
+
+        // Rows that are not usable are skipped, not fatal.
+        xch::Payload lax{};
+        CHECK(xch::parse("{\"schema\": \"wuchang-minimap-export-1\", \"found\": [\"a\", 3, \"\"], "
+                         "\"waypoints\": [{\"x\": 1}, {\"x\": 1, \"y\": 2}]}",
+                         lax, error));
+        CHECK_EQ(static_cast<int>(lax.found.size()), 1);
+        CHECK_EQ(static_cast<int>(lax.waypoints.size()), 1);
+        CHECK_NEAR(lax.waypoints[0].z, 0.0, 1e-9);
+    }
+
     // The chunked object-array scan scheduler (src/scan_sched.hpp)
 
     void test_scan_sched()
@@ -2851,7 +3006,7 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
-        constexpr std::size_t kPaddingBytes = 75;
+        constexpr std::size_t kPaddingBytes = 71;
 
         mm::Config a{};
         mm::Config b{};
@@ -4550,6 +4705,9 @@ int main(int argc, char** argv)
     test_intern_levels();
     test_perf();
     test_mapview();
+    test_waypoint_list();
+    test_search_match();
+    test_exchange();
     test_scan_sched();
     test_sweep_sched();
     test_projection();

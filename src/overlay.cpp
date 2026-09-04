@@ -25,6 +25,9 @@
 
 #include "overlay_internal.hpp"
 
+#include "atomicfile.hpp"
+#include "exchange.hpp"
+
 namespace overlay
 {
     namespace ovl
@@ -202,6 +205,14 @@ namespace overlay
         char g_toast_pending[160]{};
         unsigned g_toast_pending_ms = 2500;
         std::atomic<bool> g_toast_pending_ready{false};
+        std::atomic<bool> g_nearest_request{false};
+        std::atomic<bool> g_map_search_active{false};
+        std::atomic<bool> g_export_request{false};
+        std::atomic<bool> g_import_request{false};
+        spin::Spinlock g_exchange_lock;
+        char g_import_path[512]{};
+        char g_latest_export[512]{};
+        std::atomic<bool> g_latest_export_ready{false};
         bool g_shrine_panel = false;
         char g_shrine_selected[shdb::kMaxIdLen]{};
         StatsCache g_stats_cache;
@@ -706,9 +717,152 @@ namespace overlay
                            std::size(g_entry_points));
     }
 
+    namespace
+    {
+        //==============================================================================
+        // Import / export - LOOP THREAD ONLY
+        //==============================================================================
+        //
+        // One JSON file holds the found list and the waypoints of the profile in force
+        // (src/exchange.hpp). The panel raises a flag and hands over a path; every read,
+        // write and directory walk happens here, through the same atomic temp-plus-
+        // rename every other file of this mod is written with.
+
+        constexpr std::wstring_view kExportPrefix = L"wuchang_minimap_export_";
+
+        // The newest wuchang_minimap_export_*.json in the mod folder, so the panel's path
+        // box has something to offer. The names sort by time, so `max` is the answer.
+        void scan_latest_export()
+        {
+            std::wstring best;
+            WIN32_FIND_DATAW find{};
+            const std::wstring pattern = mm::mod_dir() + L"\\" + std::wstring{kExportPrefix} + L"*.json";
+            const HANDLE h = ::FindFirstFileW(pattern.c_str(), &find);
+            if (h != INVALID_HANDLE_VALUE)
+            {
+                do
+                {
+                    if ((find.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
+                        (best.empty() || best < find.cFileName))
+                    {
+                        best = find.cFileName;
+                    }
+                } while (::FindNextFileW(h, &find) != 0);
+                ::FindClose(h);
+            }
+            const std::string narrow = best.empty() ? std::string{} : wide_to_ascii(mm::mod_dir() + L"\\" + best);
+            {
+                spin::SpinGuard guard(g_exchange_lock);
+                ::strncpy_s(g_latest_export, sizeof(g_latest_export), narrow.c_str(), _TRUNCATE);
+            }
+            g_latest_export_ready.store(true, std::memory_order_release);
+        }
+
+        std::wstring export_file_name()
+        {
+            SYSTEMTIME st{};
+            ::GetLocalTime(&st);
+            wchar_t stamp[32]{};
+            (void)std::swprintf(stamp, std::size(stamp), L"%04u%02u%02u_%02u%02u%02u",
+                                static_cast<unsigned>(st.wYear), static_cast<unsigned>(st.wMonth),
+                                static_cast<unsigned>(st.wDay), static_cast<unsigned>(st.wHour),
+                                static_cast<unsigned>(st.wMinute), static_cast<unsigned>(st.wSecond));
+            return std::wstring{kExportPrefix} + stamp + L".json";
+        }
+
+        void run_export()
+        {
+            mm::perf_note_stall(L"a found-list export", 1000);
+            xch::Payload p{};
+            p.profile = markers::found_file_name();
+            p.found = markers::found_ids();
+            std::sort(p.found.begin(), p.found.end()); // a diffable file, not hash order
+            const mv::WaypointSet set = mm::waypoints();
+            for (std::size_t i = 0; i < set.count; ++i)
+            {
+                p.waypoints.push_back(set.items[i]);
+            }
+
+            const std::wstring path = mm::mod_dir() + L"\\" + export_file_name();
+            unsigned err = 0;
+            char note[160]{};
+            if (!mmfile::write_whole_file_atomic(path, xch::serialize(p), false, &err))
+            {
+                (void)std::snprintf(note, sizeof(note), "export FAILED (error %u) - see the log", err);
+                mm::logf(L"export: FAILED to write {} (error {})", path, err);
+            }
+            else
+            {
+                (void)std::snprintf(note, sizeof(note), "exported %zu found id(s) and %zu waypoint(s)",
+                                    p.found.size(), p.waypoints.size());
+                mm::logf(L"export: wrote {} ({} found id(s), {} waypoint(s))", path, p.found.size(),
+                         p.waypoints.size());
+                scan_latest_export();
+            }
+            post_toast(note, 4000);
+        }
+
+        void run_import()
+        {
+            char narrow[512]{};
+            {
+                spin::SpinGuard guard(g_exchange_lock);
+                ::strncpy_s(narrow, sizeof(narrow), g_import_path, _TRUNCATE);
+            }
+            if (narrow[0] == '\0')
+            {
+                post_toast("import: no file path given", 3000);
+                return;
+            }
+            mm::perf_note_stall(L"a found-list import", 1000);
+            std::wstring path = widen(narrow);
+            // A bare file name means the mod folder, where the exports land.
+            if (path.find(L'\\') == std::wstring::npos && path.find(L'/') == std::wstring::npos)
+            {
+                path = mm::mod_dir() + L"\\" + path;
+            }
+
+            std::string text;
+            const mmfile::ReadInfo info = mmfile::read_whole_file(path, text, 64ull << 20);
+            char note[160]{};
+            if (info.status != mmfile::ReadStatus::Ok)
+            {
+                (void)std::snprintf(note, sizeof(note), "import: could not read that file");
+                mm::logf(L"import: could not read {} (error {})", path, info.error);
+                post_toast(note, 4000);
+                return;
+            }
+            xch::Payload p{};
+            std::string error;
+            if (!xch::parse(text, p, error))
+            {
+                (void)std::snprintf(note, sizeof(note), "import: %s", error.c_str());
+                mm::logf(L"import: {} rejected - {}", path, widen(error));
+                post_toast(note, 5000);
+                return;
+            }
+            const int added = markers::merge_found_ids(p.found);
+            int wp_added = 0;
+            for (const mv::Waypoint& wp : p.waypoints)
+            {
+                if (!mm::add_waypoint(wp))
+                {
+                    break;
+                }
+                ++wp_added;
+            }
+            (void)std::snprintf(note, sizeof(note), "imported %d new found id(s) and %d waypoint(s)", added,
+                                wp_added);
+            mm::logf(L"import: {} -> {} new found id(s), {} waypoint(s) (profile {})", path, added, wp_added,
+                     widen(p.profile));
+            post_toast(note, 4000);
+        }
+    } // namespace
+
     void start()
     {
         mm::load_waypoint_file();
+        scan_latest_export();
         mapdata::load(mm::mod_dir());
 
         // The render thread is allowed to build its objects again from the next frame.
@@ -1092,6 +1246,7 @@ namespace overlay
                 arm(cfg.zoom_key, !map_open_now);
                 arm(cfg.screenshot_key, map_open_now);
                 arm(cfg.map_recenter_key, map_open_now);
+                arm(cfg.waypoint_nearest_key, true);
                 arm(cfg.highlight_key, cfg.highlight_enabled);
             }
         }
@@ -1303,6 +1458,14 @@ namespace overlay
             g_map_recenter.store(true, std::memory_order_relaxed);
         }
 
+        // NEAREST UNFOUND. The pick reads the published marker buffer and the frame's
+        // category mask, so it is the render thread's; this only asks.
+        static Edge nearest_edge{};
+        if (edge_fired(nearest_edge, key_down(cfg.waypoint_nearest_key), now) && foreground)
+        {
+            g_nearest_request.store(true, std::memory_order_release);
+        }
+
         // XInput, on this thread - the same place the keyboard is sampled, and never on
         // the game thread.
         //
@@ -1394,6 +1557,15 @@ namespace overlay
                 const mm::PerfScope save_scope(g_pf_save);
                 mm::save_waypoint_file();
             }
+        }
+
+        if (g_export_request.exchange(false, std::memory_order_acquire))
+        {
+            run_export();
+        }
+        if (g_import_request.exchange(false, std::memory_order_acquire))
+        {
+            run_import();
         }
 
         panel_state_load();

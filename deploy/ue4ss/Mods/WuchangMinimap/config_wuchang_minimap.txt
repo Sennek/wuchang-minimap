@@ -249,6 +249,10 @@ zoom_key = N
 ; open. Nothing is written to disk.
 screenshot_key = C
 
+; Sets a waypoint on the nearest marker you have not found yet, among the categories
+; that are switched on. A toast names it and how far away it is.
+waypoint_nearest_key = G
+
 ; =================================================================================
 ; ---- ADVANCED ----
 ; =================================================================================

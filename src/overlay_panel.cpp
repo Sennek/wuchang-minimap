@@ -515,6 +515,49 @@ namespace overlay
                                   "shared = one file for every save\n"
                                   "anything else = wuchang_minimap_found_<name>.txt");
             }
+            //---- import / export ------------------------------------------------------
+            //
+            // The found list and the waypoints of this profile as one JSON file in the
+            // mod folder. Both buttons only raise a flag: the loop thread owns every
+            // read and write (overlay.cpp).
+            ImGui::SeparatorText("Backup / transfer");
+            if (ImGui::Button("Export"))
+            {
+                g_export_request.store(true, std::memory_order_release);
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("writes wuchang_minimap_export_<date>_<time>.json next to the DLL");
+            }
+            static char import_path[512]{};
+            static bool import_primed = false;
+            // The newest export the loop thread found, offered once so a typed path is
+            // never overwritten under the cursor.
+            if (!import_primed && g_latest_export_ready.load(std::memory_order_acquire))
+            {
+                spin::SpinGuard guard(g_exchange_lock);
+                ::strncpy_s(import_path, sizeof(import_path), g_latest_export, _TRUNCATE);
+                import_primed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Import"))
+            {
+                {
+                    spin::SpinGuard guard(g_exchange_lock);
+                    ::strncpy_s(g_import_path, sizeof(g_import_path), import_path, _TRUNCATE);
+                }
+                g_import_request.store(true, std::memory_order_release);
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("merges the file's found ids and appends its waypoints;\n"
+                                  "nothing is ever removed by an import");
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputTextWithHint("##import_path", "path to a .json export", import_path,
+                                     sizeof(import_path));
+
             // The collection-statistics page, shared with the full map's Stats panel.
             draw_collection_stats(::GetTickCount64(), false);
         }
@@ -533,20 +576,37 @@ namespace overlay
             ImGui::SameLine();
             ImGui::Checkbox("Gamepad (XInput)", &cfg.map_gamepad);
             ImGui::SameLine();
-            ImGui::Checkbox("Remember the waypoint", &cfg.map_waypoint_persist);
-            const mv::Waypoint wp = mm::waypoint();
-            if (wp.set)
+            ImGui::Checkbox("Remember the waypoints", &cfg.map_waypoint_persist);
+            //---- waypoints ------------------------------------------------------------
+            const mv::WaypointSet wps = mm::waypoints();
+            if (wps.count == 0)
             {
-                ImGui::Text("waypoint  X %.0f  Y %.0f  Z %.0f", wp.x, wp.y, wp.z);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Clear waypoint"))
-                {
-                    mm::set_waypoint(mv::Waypoint{});
-                }
+                ImGui::TextDisabled("no waypoints - right-click on the full map to drop one, or press "
+                                    "%s in-world for the nearest unfound marker",
+                                    key_name_ascii(cfg.waypoint_nearest_key).c_str());
             }
             else
             {
-                ImGui::TextDisabled("no waypoint - right-click on the full map to set one");
+                ImGui::Text("%zu waypoint(s) of %zu", wps.count, mv::kMaxWaypoints);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear waypoints"))
+                {
+                    mm::clear_waypoints();
+                }
+                for (std::size_t wi = 0; wi < wps.count; ++wi)
+                {
+                    ImGui::PushID(static_cast<int>(wi) + 4100);
+                    if (ImGui::SmallButton("X"))
+                    {
+                        mm::remove_waypoint(wi);
+                        ImGui::PopID();
+                        break;
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("%zu.  X %.0f  Y %.0f  Z %.0f", wi + 1, wps.items[wi].x, wps.items[wi].y,
+                                wps.items[wi].z);
+                    ImGui::PopID();
+                }
             }
         }
 

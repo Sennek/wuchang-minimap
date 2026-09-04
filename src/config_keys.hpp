@@ -101,6 +101,7 @@ namespace cfgkeys
         {"zoom_key", Tier::Player},
         {"reload_key", Tier::Player},
         {"screenshot_key", Tier::Player},
+        {"waypoint_nearest_key", Tier::Player}, // sets a waypoint on the nearest unfound marker
 
         // ADVANCED
         {"require_pawn_view", Tier::Advanced},

@@ -1069,11 +1069,14 @@ namespace overlay
                 dl->AddText(tp, north_col, "N");
             }
 
-            // The waypoint, edge-clamped with its distance, and never culled.
+            // Every waypoint, edge-clamped and never culled; only the nearest one
+            // carries the distance readout.
             {
-                const mv::Waypoint wp = mm::waypoint();
-                if (wp.set)
+                const mv::WaypointSet set = mm::waypoints();
+                const int near_i = mv::nearest_waypoint(set, g.px, g.py);
+                for (std::size_t wi = 0; wi < set.count; ++wi)
                 {
+                    const mv::Waypoint& wp = set.items[wi];
                     const float wr = (std::max)(5.0f, cfg.markers_size * cfg.waypoint_size_scale);
                     const float lim = (std::max)(4.0f, g.half - wr - 3.0f);
                     // Always clamped: an off-map waypoint must still say which way to
@@ -1082,6 +1085,10 @@ namespace overlay
                     const ImVec2 wp_pos{g.center.x + static_cast<float>(off.dx),
                                         g.center.y + static_cast<float>(off.dy)};
                     draw_waypoint_glyph(dl, wp_pos, off.clamped ? wr * 0.85f : wr, alpha(1.0f));
+                    if (static_cast<int>(wi) != near_i)
+                    {
+                        continue;
+                    }
                     const double wdx = wp.x - g.px;
                     const double wdy = wp.y - g.py;
                     const double dist_m = std::sqrt(wdx * wdx + wdy * wdy) / 100.0;
@@ -1805,11 +1812,14 @@ namespace overlay
                 }
             }
 
-            // The waypoint is never culled: being told which way to walk while it is off
-            // the strip is the whole point, so it clamps to the edge instead.
-            const mv::Waypoint wp = mm::waypoint();
-            if (cfg.compass_show_waypoint && wp.set)
+            // A waypoint is never culled: being told which way to walk while it is off
+            // the strip is the whole point, so it clamps to the edge instead. Only the
+            // nearest one carries the distance readout.
+            const mv::WaypointSet wps = mm::waypoints();
+            const int near_wp = mv::nearest_waypoint(wps, snap.x, snap.y);
+            for (std::size_t wi = 0; cfg.compass_show_waypoint && wi < wps.count; ++wi)
             {
+                const mv::Waypoint& wp = wps.items[wi];
                 double x = 0.0;
                 double rel = 0.0;
                 const bool inside = cmp::strip_x(strip, cmp::bearing_deg(snap.x, snap.y, wp.x, wp.y), x, rel);
@@ -1821,6 +1831,11 @@ namespace overlay
                     add_edge_arrow(dl, ImVec2{wx + (rel < 0.0 ? -8.0f : 8.0f), at.y}, rel < 0.0 ? -1.0f : 1.0f,
                                    0.0f, 5.0f, IM_COL32(255, 190, 235, alpha(0.9f)),
                                    IM_COL32(10, 12, 16, alpha(0.9f)));
+                }
+                ++g_compass_debug.pips;
+                if (static_cast<int>(wi) != near_wp)
+                {
+                    continue;
                 }
                 const double dxw = wp.x - snap.x;
                 const double dyw = wp.y - snap.y;
@@ -1835,7 +1850,6 @@ namespace overlay
                     (void)std::snprintf(text, sizeof(text), "%.0f m", metres);
                 }
                 draw_label(dl, ImVec2{wx, y1 + 9.0f}, text, IM_COL32(255, 190, 235, alpha(1.0f)), alpha(1.0f));
-                ++g_compass_debug.pips;
             }
 
             g_compass_debug.visible = true;

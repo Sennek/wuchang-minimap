@@ -2638,6 +2638,46 @@ namespace markers
         g_toggle_pending.store(true, std::memory_order_release);
     }
 
+    std::vector<std::string> found_ids()
+    {
+        std::vector<std::string> ids;
+        ids.reserve(g_found_master.size());
+        for (const std::string& id : g_found_master)
+        {
+            ids.push_back(id);
+        }
+        return ids;
+    }
+
+    int merge_found_ids(const std::vector<std::string>& ids)
+    {
+        int added = 0;
+        for (const std::string& id : ids)
+        {
+            if (!id.empty() && g_found_master.insert(id).second)
+            {
+                ++added;
+            }
+        }
+        if (added == 0)
+        {
+            return 0;
+        }
+        const std::uint64_t now = ::GetTickCount64();
+        g_found_dirty = true;
+        g_found_dirty_ms = now;
+        g_stage_dirty = true;
+        publish_inbox(found_ids(), true);
+        recompute_stats();
+        mm::logf(L"markers: imported {} new found id(s) ({} total)", added, g_found_master.size());
+        return added;
+    }
+
+    std::string found_file_name()
+    {
+        return slotid::found_filename(g_found_key);
+    }
+
     void reload()
     {
         load_static_db();

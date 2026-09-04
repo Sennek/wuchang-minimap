@@ -157,6 +157,20 @@ namespace markers
     // Loop thread. F5 / "Reload settings + maps": re-read both files from disk.
     void reload();
 
+    //==================================================================================
+    // Import / export of the found list
+    //==================================================================================
+
+    // LOOP THREAD. Every id in the found set of the profile in force, unordered.
+    std::vector<std::string> found_ids();
+
+    // LOOP THREAD. Adds `ids` to the found set; returns how many were new. A non-zero
+    // return schedules the same debounced write a manual mark does.
+    int merge_found_ids(const std::vector<std::string>& ids);
+
+    // LOOP THREAD. The found file the profile in force writes to, for an export's label.
+    std::string found_file_name();
+
     // Loop thread. Writes the found tracker NOW if a debounced write is pending.
     void flush_found_tracker();
 

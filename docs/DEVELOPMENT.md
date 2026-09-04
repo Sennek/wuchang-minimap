@@ -346,6 +346,9 @@ src/scan_sched.hpp         PURE scan scheduler: which object-array slots this pu
 src/mapview.{hpp,cpp}      PURE full-map layer: the north-up viewport transform and its
                            exact inverse, the zoom clamp / step, zoom-to-fit, the
                            minimap's zoom-preset ladder, the waypoint file round-trip
+src/textmatch.hpp          PURE case-insensitive substring match: the full map's marker
+                           name filter
+src/exchange.hpp           PURE found-list + waypoint export file: serialize, parse
 src/glyphs.hpp             PURE shape-per-category and hue-per-category tables plus the
                            themes; markers_test asserts that no two categories share a
                            shape AND a colour, for every palette
@@ -940,7 +943,7 @@ north-up window over the chapter with a dark backdrop, pannable and zoomable. Wh
 | zoom | wheel, `+` / `-` | triggers, right stick Y |
 | floor slice up / down | `ctrl`+wheel, `E` / `Q`, PageUp / PageDown | RB / LB |
 | recentre on the player | `R` (`map_recenter_key`), the Recentre button | Y |
-| set the waypoint | right-click, `Space` / `Enter` | A (at the view centre) |
+| drop / remove a waypoint | right-click, `Space` / `Enter` | A (at the view centre) |
 | toggle "found" by hand | left-click a marker, `F` (nearest to the centre) | X |
 | close | `M`, `Esc`, the Close button | B |
 
@@ -972,12 +975,38 @@ loop thread and into the found file. The live sweep still owns the truth: un-mar
 the game reports as `Used` is undone on the next sweep round, because the tracker follows the
 save, not the mod.
 
-**The waypoint** is a single position set with a right-click (or `Space`, or gamepad A). It is
-drawn on the map and, edge-clamped with its distance in metres, on the minimap. It persists in
-`wuchang_minimap_waypoint.txt` next to the config: three plain `key = value` lines,
-hand-editable, written by the loop thread (the render thread only sets the value). It is
+**Waypoints** — up to `mv::kMaxWaypoints` (16) of them. A right-click (or `Space`, or gamepad
+A) drops one, and the same gesture on one already there removes it; the map's `Waypoints`
+window lists them with a per-row `X` and a `Clear all`, and `waypoint_nearest_key` (`G`) sets
+one on the nearest marker not yet found among the categories switched on. They are drawn on
+the map and, edge-clamped, on the minimap and the compass; only the one **nearest the player**
+carries the distance readout.
+
+They persist in `wuchang_minimap_waypoint.txt` next to the config, one hand-editable line each:
+
+```
+waypoint = <x> <y> <z>
+```
+
+written by the loop thread (the render thread only sets the value). The older single-waypoint
+format — a `set` / `x` / `y` / `z` block — is still read, as a list of one. The file is
 deliberately **not** part of `config_wuchang_minimap.txt`, which is only written by the panel's
 Save button, because a waypoint set during play must survive without anybody pressing Save.
+
+The set lives in one fixed-capacity POD (`mv::WaypointSet`) behind a spinlock: every draw site
+copies the whole thing inside Present, and a `std::vector` there would allocate.
+
+**Search** — the full map's header carries a name box. While it is not empty only markers whose
+display name contains the text (case-insensitively, `src/textmatch.hpp`) are drawn, the header
+says how many matched, and a `Search results` window lists them nearest-first with a click to
+waypoint one. Every bare key the map binds stands down while the box has the caret
+(`io.WantTextInput`), and `Esc` empties the box before it closes the map.
+
+**Export / import** — the F2 panel's Tracker section writes the found list and the waypoints of
+the profile in force to `wuchang_minimap_export_<date>_<time>.json` (`src/exchange.hpp`), and
+reads one back as a **merge**: found ids are unioned, waypoints appended, nothing is ever
+removed. Both buttons only raise a flag; the loop thread does every read, write and directory
+walk, through the same atomic temp-plus-rename as every other file here.
 
 **Nothing latches.** The map closes itself the moment the state that allows it stops being true
 — a menu opening, the pawn going away, a level transition, a stale snapshot — and the input

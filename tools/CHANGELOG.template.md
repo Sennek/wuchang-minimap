@@ -5,11 +5,18 @@
 What the mod does:
 
 - A **minimap** with a compass strip, and a **full chapter map** on `M` to pan, zoom and
-  place a waypoint on. The background is built from the game's own navigation data, so
+  place waypoints on. The background is built from the game's own navigation data, so
   what is drawn is ground you can stand on. The picture is sliced by height, so only the
   storey you are on is opaque.
 - **Markers with the game's own names** - chests, pickups, shrines, bosses, NPCs, notes,
   doors, ladders, lifts and fog gates - for all five chapters and the DLC.
+- **A name search on the full map**: type part of a name and only those markers are
+  drawn, with a nearest-first list you can waypoint straight from.
+- **Up to 16 waypoints at once**, drawn on the map, the minimap and the compass; the
+  distance readout follows the nearest one. `G` sets one on the nearest marker you have
+  not found yet.
+- **Export / import**: the F2 panel writes your found list and waypoints to one JSON
+  file next to the DLL, and reads one back in - a merge, so nothing is ever lost.
 - **An x-ray key** (`LALT`, or `LB`+`RB`) that draws nearby markers through walls with
   names and distances, tinted by the game's own item-quality beam colours.
 - **A collection tracker per save slot** that ticks things off as you take them, with

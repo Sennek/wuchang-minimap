@@ -3,6 +3,15 @@
 A minimap, full map, compass and collection tracker for **Wuchang: Fallen Feathers**,
 with the map built from the game's own navmesh.
 
+- A **minimap**, a **compass strip** and a **full chapter map** on `M` to pan and zoom.
+- **Markers with the game's own names** for every chapter and the DLC, filtered by
+  category, and a **name search** on the full map.
+- **Up to 16 waypoints** at once, on the map, the minimap and the compass; `G` drops one
+  on the nearest thing you have not collected.
+- **A collection tracker per save slot**, with **export / import** of your found list and
+  waypoints as one JSON file.
+- **An x-ray key** that draws nearby markers through walls.
+
 ## Requirements
 
 **UE4SS for Wuchang: Fallen Feathers** (Nexus mod **384**), installed into
@@ -52,6 +61,7 @@ mod. It is a UE4SS-plus-Wuchang problem, not a bug here.
 | `LB`+`RB` | The same, on a controller |
 | `N` | Cycle the minimap zoom |
 | `R` | Recentre the full map |
+| `G` | Set a waypoint on the nearest marker you have not found |
 | `F5` | Reload the config, maps and markers |
 
 Everything is rebindable in `F2` → **Bindings**.
@@ -79,7 +89,8 @@ None of these stops the mod working.
     config_wuchang_minimap.txt      your settings (the F2 panel's Save writes this)
     wuchang_minimap.log             the mod's log, rotated .1 .2 .3 per launch
     wuchang_minimap_found*.txt      the collection tracker, one file per save slot
-    wuchang_minimap_waypoint.txt    the full map's waypoint
+    wuchang_minimap_waypoint.txt    the full map's waypoints
+    wuchang_minimap_export_*.json   backups written by the F2 panel's Export button
     wuchang_minimap_hookaddr.txt    cached hook addresses (delete to re-discover)
     wuchang_minimap_last_stage.txt  crash breadcrumb: how far start-up got
     wuchang_minimap_watchdog.txt    written only if the game froze

@@ -2,6 +2,9 @@
 
 ## 1.0.1
 
+- **Shrines never disappear from the maps** - `Hide found` no longer removes a lit shrine
+  from the minimap or the full map: a shrine is a landmark, not loot. A lit one is drawn
+  solid, an unlit one hollow.
 - **Right-click a marker on the full map to waypoint it**, again to take the waypoint off - on
   the map itself and on a search-result row. Right-clicking bare ground still drops one there.
 - Full-map marker tooltip says `12 m above` / `8 m below` / `same level` instead of `-20 m up`.

@@ -770,7 +770,7 @@ namespace overlay
                     continue;
                 }
                 const bool found = fc.found;
-                if (found && cfg.markers_hide_found)
+                if (mdb::hidden_as_found(cat, found, cfg.markers_hide_found))
                 {
                     ++g_marker_draw.filtered;
                     continue;
@@ -851,7 +851,9 @@ namespace overlay
             for (std::size_t ci = cands.size(); ci-- > 0;)
             {
                 const Cand& cand = cands[ci];
-                const float a = op * (cand.found ? cfg.markers_found_alpha : 1.0f);
+                const bool hollow =
+                    mdb::drawn_as_found(static_cast<mdb::Cat>(cand.cat), cand.found);
+                const float a = op * (hollow ? cfg.markers_found_alpha : 1.0f);
                 if (a <= 0.01f)
                 {
                     continue;
@@ -862,7 +864,7 @@ namespace overlay
                 const ImU32 edge = IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f));
                 const ImVec2 p{g.center.x + cand.dx, g.center.y + cand.dy};
                 draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, cand.clamped ? r * 0.72f : r, col, edge,
-                                  cand.found);
+                                  hollow);
                 draw_count_badge(dl, p, r, cand.count, alpha);
                 ++g_marker_draw.drawn;
                 g_marker_draw.clamped += cand.clamped ? 1 : 0;
@@ -1407,8 +1409,9 @@ namespace overlay
                 const ImU32 edge = IM_COL32(10, 12, 16, static_cast<int>(sh.alpha * 0.9f));
                 if (sh.on_screen)
                 {
-                    draw_marker_glyph(dl, cat, ImVec2{sh.sx, sh.sy}, sh.found ? r * 0.75f : r, sh.col, edge,
-                                      sh.found);
+                    const bool hollow = mdb::drawn_as_found(cat, sh.found);
+                    draw_marker_glyph(dl, cat, ImVec2{sh.sx, sh.sy}, hollow ? r * 0.75f : r, sh.col, edge,
+                                      hollow);
                     ++g_hl_debug.on_screen;
                 }
                 else
@@ -1747,13 +1750,14 @@ namespace overlay
                 for (std::size_t pi = pips.size(); pi-- > 0;)
                 {
                     const Pip& p = pips[pi];
-                    const int a = p.found ? alpha(0.35f) : alpha(1.0f);
+                    const bool hollow = mdb::drawn_as_found(static_cast<mdb::Cat>(p.cat), p.found);
+                    const int a = hollow ? alpha(0.35f) : alpha(1.0f);
                     const ImU32 col = marker_color_q(static_cast<mdb::Cat>(p.cat), p.rarity, a,
                                                      cfg.markers_rarity_tint, cfg.xray_rarity_colors);
                     const ImVec2 at{static_cast<float>(p.x), y1 - height * 0.30f};
                     const float gr = height * 0.22f;
                     draw_marker_glyph(dl, static_cast<mdb::Cat>(p.cat), at, gr, col,
-                                      IM_COL32(10, 12, 16, a), p.found);
+                                      IM_COL32(10, 12, 16, a), hollow);
                     // Above / below: a bearing alone sends the player at a wall when the
                     // chest is on the floor over their head, so a marker further than
                     // compass_pip_height_uu off the player's own Z gets an arrow beside

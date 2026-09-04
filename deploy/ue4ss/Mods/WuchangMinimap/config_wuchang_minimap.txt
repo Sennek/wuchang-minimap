@@ -114,7 +114,8 @@ markers_enabled = 1
 ; move.
 markers_categories = shrine,chest,pickup,boss,elite,npc,note,door,ladder,lift,fog_gate,hidden,other
 
-; Found markers: 0 = draw dimmed as a hollow glyph, 1 = hide.
+; Found markers: 0 = draw dimmed as a hollow glyph, 1 = hide. Shrines are exempt:
+; a shrine always stays on the map, lit ones solid and unlit ones hollow.
 markers_hide_found = 1
 
 ; Glyph radius in minimap pixels.

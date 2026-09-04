@@ -4113,6 +4113,31 @@ namespace
             CHECK_EQ(streak, 1);
         }
 
+        section("hide-found on the map surfaces");
+
+        {
+            // The bug this rule exists for: a lit shrine is FOUND, and hiding it takes the
+            // checkpoints out of an explored area. Landmarks are exempt, loot is not.
+            CHECK(!mdb::hidden_as_found(mdb::Cat::Shrine, true, true));
+            CHECK(!mdb::hidden_as_found(mdb::Cat::Shrine, false, true));
+            CHECK(mdb::hidden_as_found(mdb::Cat::Chest, true, true));
+            CHECK(!mdb::hidden_as_found(mdb::Cat::Chest, true, false));
+            CHECK(!mdb::hidden_as_found(mdb::Cat::Chest, false, true));
+
+            // Only the shrine is a landmark; every other category hides when found.
+            for (int c = 0; c < mdb::kCatCount; ++c)
+            {
+                const auto cat = static_cast<mdb::Cat>(c);
+                CHECK_EQ(mdb::hidden_as_found(cat, true, true), cat != mdb::Cat::Shrine);
+                CHECK(!mdb::hidden_as_found(cat, false, true));
+                CHECK(!mdb::hidden_as_found(cat, true, false));
+
+                // Hollow is the found look everywhere but a shrine, where it is the UNLIT look.
+                CHECK_EQ(mdb::drawn_as_found(cat, true), cat != mdb::Cat::Shrine);
+                CHECK_EQ(mdb::drawn_as_found(cat, false), cat == mdb::Cat::Shrine);
+            }
+        }
+
         section("which gate drops a marker from the x-ray");
 
         {

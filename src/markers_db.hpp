@@ -375,6 +375,28 @@ namespace mdb
         return cat == Cat::Chest || cat == Cat::Pickup || cat == Cat::Hidden;
     }
 
+    // A landmark is a place you navigate BY, so using it does not use it up and
+    // `markers_hide_found` never removes it. Shrines are the checkpoints: hiding a lit one
+    // erases the way back through an area you have explored.
+    constexpr bool is_landmark_cat(Cat cat)
+    {
+        return cat == Cat::Shrine;
+    }
+
+    // THE ONE DECISION every map surface asks: does `markers_hide_found` drop this marker?
+    // The minimap, the full map and the full map's search all call this, so they agree.
+    constexpr bool hidden_as_found(Cat cat, bool found, bool hide_found)
+    {
+        return found && hide_found && !is_landmark_cat(cat);
+    }
+
+    // Solid or hollow. A found marker is drawn hollow and dimmed; a landmark inverts it,
+    // because the useful state is the USED one: a lit shrine is solid, an unlit one hollow.
+    constexpr bool drawn_as_found(Cat cat, bool found)
+    {
+        return is_landmark_cat(cat) ? !found : found;
+    }
+
     constexpr XrayDrop xray_gate(const XrayFacts& f)
     {
         if (!f.cat_selected)

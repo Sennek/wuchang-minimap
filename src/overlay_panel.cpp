@@ -675,7 +675,7 @@ namespace overlay
             ImGui::SameLine();
             ImGui::Checkbox("x-ray", &cfg.highlight_show_found);
             ImGui::SameLine();
-            ImGui::TextDisabled("(found ones are drawn hollow)");
+            ImGui::TextDisabled("(found ones are drawn hollow; shrines always stay, lit ones solid)");
 
             ImGui::TextUnformatted("Glyph size");
             ImGui::SameLine();

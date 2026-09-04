@@ -84,13 +84,11 @@ Z_CODE_MAX_LEGACY = 65535
 PALETTE_SIZE = 256
 FILL_ALPHA = 235  # must match build_map.FILL_ALPHA
 
-# The manifest key and the file naming for the height planes. BOTH changed with /4,
-# and not for tidiness: 1.0.0 is released and its parser cannot be taught to refuse a
-# /4 tree, so /4 has to be a tree it cannot find. A /3 build reading a /4 manifest
-# sees no `height_maps`, guesses the `_z` names it used to write, finds nothing on
-# disk and logs "NO height plane decoded ... build them with build_map.py" - which is
-# a loud, accurate failure instead of a map drawn 16x too high. See the version
-# discussion in src/mapmanifest.hpp.
+# The manifest key and the file naming for the height planes. Both differ from the
+# /3 names so that a /3 parser, which cannot be taught to refuse a /4 tree, finds
+# nothing: it sees no `height_maps`, guesses the `_z` names, finds no file and logs
+# "NO height plane decoded ... build them with build_map.py" instead of drawing the
+# map 16x too high. See the version discussion in src/mapmanifest.hpp.
 HEIGHT_KEY = "height_planes"
 HEIGHT_KEY_LEGACY = "height_maps"
 

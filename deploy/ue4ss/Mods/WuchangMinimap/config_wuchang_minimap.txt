@@ -1,136 +1,98 @@
 ; WuchangMinimap - overlay settings.
 ;
-; Plain `key = value` lines; `;` and `#` start a comment. Written by the F2 settings
-; panel ("Save"), which rewrites ONLY the values on these lines - your comments, your
-; ordering and any key it does not know are left exactly as they are. Re-read by F5 or
-; by the panel's "Reload", so the game does not have to be restarted for an edit here.
+; Plain `key = value` lines; `;` and `#` start a comment. The F2 panel's Save rewrites
+; values only: comments, ordering and unknown keys are kept. F5 or the panel's Reload
+; re-reads the file; no restart.
 ;
-; HOTKEYS: F1..F5, F7, F8, any single letter (A..Z) or digit (0..9), TAB, SPACE,
-; ENTER, BACKSPACE, the arrows (UP / DOWN / LEFT / RIGHT), INSERT / DELETE / HOME /
-; END / PAGEUP / PAGEDOWN, NUM0..NUM9 / NUMPLUS / NUMMINUS / NUMMUL / NUMDIV /
-; NUMDOT, MOUSE3 / MOUSE4 / MOUSE5, or one of LALT / RALT / ALT / LSHIFT / RSHIFT /
-; SHIFT / LCTRL / RCTRL / CTRL. `none` leaves an action unbound.
-; The F2 panel's Bindings tab rebinds all of them by pressing the new key.
-; F6 and F9..F12 are REJECTED and fall back to the default, because on this machine
-;   F6  toggles RenoDX / DLSS 5 Neural Rendering (it ignores modifiers, and pressing
-;       it in-world hung the GPU on 2026-09-02)
-;   F9  / F11 are engine screenshot / fullscreen binds
-;   F10 opens the game console (UE4SS ConsoleEnablerMod)
-;   F12 is the Steam screenshot key
-; Shipped defaults: F2 settings panel, M full map, R recentre the map, F5 reload,
-; and LALT for the x-ray highlight (a press-on / press-off toggle - see
-; highlight_mode).
+; HOTKEY NAMES: F1..F5, F7, F8, A..Z, 0..9, TAB, SPACE, ENTER, BACKSPACE, UP / DOWN /
+; LEFT / RIGHT, INSERT / DELETE / HOME / END / PAGEUP / PAGEDOWN, NUM0..NUM9, NUMPLUS /
+; NUMMINUS / NUMMUL / NUMDIV / NUMDOT, MOUSE3 / MOUSE4 / MOUSE5, LALT / RALT / ALT /
+; LSHIFT / RSHIFT / SHIFT / LCTRL / RCTRL / CTRL, or `none` for unbound. One modifier
+; may prefix a key (`ctrl+m`). F6 and F9..F12 are rejected and fall back to the default:
+; they belong to RenoDX/DLSS, the engine, the game console and Steam.
+; The F2 panel's Bindings tab rebinds every key by pressing the new one.
 ;
-; A developer-only overlay file, config_wuchang_minimap_dev.txt, is read after this
-; one when it exists. It is not part of the release; see docs/DEVELOPMENT.md.
+; config_wuchang_minimap_dev.txt, when present, is read after this file and overrides it.
 
 ; =================================================================================
 ; ---- PLAYER SETTINGS ----
 ; =================================================================================
-; Everything a person tuning the HUD would plausibly change. All of it is also in the
-; F2 panel's "Player" tab.
+; Everything on the F2 panel's "Player" tab.
 
 ; ---------------------------------------------------------------------------------
 ; THE MASTER SWITCH
 ; ---------------------------------------------------------------------------------
-; mod_enabled = 0 makes the mod inert: no DX12 hook in the game's Present path, no
-; work in the game-thread callback, no object scans, no map in memory (that is
-; 320-340 MB) and no gamepad polling. Leave the mod installed and prove it is not the
-; cause of whatever you are chasing.
-;
-; The only thing that keeps running is a check of THIS file's timestamp once a second,
-; so setting mod_enabled back to 1 and saving turns the mod on again within a second -
-; no restart. F5 does NOT work while the mod is off: nothing is reading the keyboard.
-; The F2 panel can turn it off (it just writes this key), never on.
-;
-; A flip is logged: look for "master switch:" in UE4SS.log.
+; 1 = run; 0 = inert (no DX12 hook, no object scans, no map in memory, no gamepad).
+; While off, only this file's timestamp is checked once a second, so setting it back
+; to 1 restarts the mod within a second. F5 does nothing while the mod is off. The F2
+; panel can switch it off, never on. Flips are logged as "master switch:".
 mod_enabled = 1
 
-; Draw anything at all. The three switches, in order of how much they stop:
-;   mod_enabled     - the whole mod (no DX12 hook, no scans, no map in memory)
-;   overlay_enabled - anything we draw; the reader and the marker sweep keep running
-;   show_minimap    - just the minimap disc
-; The older name `enabled` is still accepted and logs one warning; please rename it.
+; 1 = draw; 0 = draw nothing, but keep the reader and the marker sweep running.
+; (`enabled` is the old name for this key; it is accepted and logs one warning.)
 overlay_enabled = 1
 
-; Draw the minimap. Turn off to keep only the F2 panel.
+; Draw the minimap disc.
 show_minimap = 1
 
 ; ---------------------------------------------------------------------------------
 ; LOOK: THEME AND PALETTE
 ; ---------------------------------------------------------------------------------
-; THEME - the CHROME, i.e. everything drawn that is not a marker: the minimap's
-; frame and disc backdrop, the dark plate behind every label and the compass strip,
-; and the walkable fill the height slicer paints.
-;   neutral  what the mod has always looked like: a cold blue-grey frame on a
-;            blue-black disc, light warm grey fill.
-;   ink      bronze frame on near-black, warmer parchment fill.
-; PRECEDENCE: a theme only supplies a colour this file does NOT mention. If you
-; write out minimap_frame_color, minimap_frame_alpha, minimap_backdrop_color,
-; minimap_backdrop or floor_base_color (all in the ADVANCED section), your value
-; wins under every theme - so switching themes can never overwrite a tuned config.
-; Deleting the line (or commenting it out) hands that colour back to the theme.
+; Chrome colours (frame, disc backdrop, label plates, walkable fill): neutral | ink.
+; A theme only supplies a colour this file does not mention, so an explicit
+; minimap_frame_color / minimap_frame_alpha / minimap_backdrop_color / minimap_backdrop
+; / floor_base_color always wins.
 theme = neutral
 
-; PALETTE - the MARKER HUE SET (the shapes never change; every category has its own,
-; which is what carries the identity when a hue is reused).
-;   default     the 14 hues the mod has always used.
-;   colorblind  an Okabe-Ito-derived set that stays distinguishable under
-;               deuteranopia / protanopia / tritanopia. It also swaps in
-;               colour-blind-safe item-quality tier colours, unless
-;               xray_rarity_colors is written out in the ADVANCED section.
+; Marker hue set: default | colorblind (Okabe-Ito, plus colour-blind-safe item-quality
+; tiers unless xray_rarity_colors is written out). Shapes never change.
 palette = default
 
 ; ---------------------------------------------------------------------------------
 ; SCALE AND PLACEMENT
 ; ---------------------------------------------------------------------------------
-; UI SCALE. ImGui draws at 13 px, which is a quarter of the intended physical size
-; on a 4K screen. `auto` derives the factor from the back buffer height
-; (clamp(height / 1080, 1, 4)); a number pins it (1.0 = 1080p sizing, 2.0 = 4K).
-; It scales the font, the F2 panel's spacing, and every PIXEL key in this file:
-; markers_size, map_marker_size, highlight_size, compass_height, compass_offset_y,
-; minimap_offset_x/y, minimap_min_px, minimap_arrow_min_px. minimap_size and
-; compass_width are fractions of the screen and are left alone.
+; auto = clamp(back-buffer height / 1080, 1, 4); a number pins it (1.0 = 1080p sizing).
+; Scales the font, the panel and every pixel key: markers_size, map_marker_size,
+; highlight_size, compass_height, compass_offset_y, minimap_offset_x/y, minimap_min_px,
+; minimap_arrow_min_px. minimap_size and compass_width are fractions and are not scaled.
 ui_scale = auto
 
-; HUD PLACEMENT PRESET: custom | top-left | top-right | bottom-left | bottom-right.
-; `custom` (the default) obeys minimap_anchor / minimap_offset_* / compass_anchor
-; exactly as written below. Any other value moves the minimap into that corner AND
-; puts the compass on the same vertical side, so one key relocates the whole HUD
-; instead of three keys that can disagree with each other.
+; custom | top-left | top-right | bottom-left | bottom-right. `custom` obeys
+; minimap_anchor / minimap_offset_* / compass_anchor; any other value moves the minimap
+; into that corner and the compass to the same vertical side.
 hud_preset = custom
 
 ; ---------------------------------------------------------------------------------
 ; THE MINIMAP
 ; ---------------------------------------------------------------------------------
-; Minimap side length as a fraction of the screen height (0.05 .. 0.9).
+; Side length as a fraction of screen height (0.05 .. 0.9).
 minimap_size = 0.24
 
-; World units per minimap pixel. Smaller = more zoomed in. 1 uu = 1 cm, so 26 shows
-; roughly a 70 m square on a 270 px minimap.
+; World units per minimap pixel; smaller = more zoomed in. 1 uu = 1 cm.
 minimap_zoom = 26
 
 ; round | square
 minimap_shape = round
 
-; top-left | top-right | bottom-left | bottom-right
+; top-left | top-right | bottom-left | bottom-right, and the offset from that corner
+; in pixels.
 minimap_anchor = top-left
 minimap_offset_x = 24
 minimap_offset_y = 24
 
-; 0 = north up (the map never turns, the arrow does); 1 = the map turns with you.
+; 0 = north up (the arrow turns); 1 = the map turns with you.
 rotate_with_player = 0
+
+; Minimap opacity, 0 .. 1.
 opacity = 0.92
 
-; Hide the minimap while any menu is open (inventory / pause / shrine map).
+; Hide the minimap while any menu is open.
 hide_in_menus = 1
 
 ; Also draw the surfaces below (dimmed) and above (dimmer).
 show_adjacent_floors = 1
 
-; Half-thickness of "my floor", in uu (1 uu = 1 cm). Any surface whose Z is within this
-; of your feet is drawn opaque, so a sloped courtyard or a flight of stairs stays one
-; floor. 200 = 2 m.
+; Half-thickness of "my floor" in uu: a surface within this of your feet is opaque.
 floor_z_tolerance = 200
 
 ; ---------------------------------------------------------------------------------
@@ -139,294 +101,223 @@ floor_z_tolerance = 200
 ; Draw markers at all.
 markers_enabled = 1
 
-; Which categories to draw. A comma-separated list of
+; Categories to draw: a comma-separated list of
 ;   shrine, chest, pickup, boss, elite, enemy, npc, note, door, ladder, lift,
 ;   fog_gate, hidden, other
-; or `all` / `none`. The F2 panel edits the same setting. Enemies are off by default
-; because the sweep only refreshes them once a second, so they lag while they move.
-; `note` is the game's readable notes (it was called `merchant` before 0.9.5; the old
-; name is still accepted and is rewritten as `note` the next time Save runs).
+; or `all` / `none`. `note` is the game's readable notes; the old name `merchant` is
+; accepted and rewritten by Save. Enemies refresh once a second, so they lag while they
+; move.
 markers_categories = shrine,chest,pickup,boss,elite,npc,note,door,ladder,lift,fog_gate,hidden,other
 
-; Found (collected / opened) markers: 0 = draw them (dimmed, and as an OUTLINE of the
-; same glyph), 1 = hide them entirely. 1 is the default: the map is there to show what
-; is still out there. The F2 Player tab has this as a "Show found markers" checkbox.
+; Found markers: 0 = draw dimmed as a hollow glyph, 1 = hide.
 markers_hide_found = 1
 
 ; Glyph radius in minimap pixels.
 markers_size = 6.5
 
-; Keep markers that are outside the minimap on its rim, drawn smaller, instead of
-; dropping them.
+; 1 = keep off-map markers on the rim, drawn smaller; 0 = drop them.
 markers_clamp_to_edge = 0
 
-; Absence as evidence of a collect
-; An item you picked up before installing the mod leaves no live actor behind at all -
-; the game parks a collected pickup at the world origin when the level loads and frees
-; it at the next garbage collection - so nothing the mod can read says "taken", and the
-; so without the rule below such a marker stays on the map for ever.
-;
-; With this on, a marker is marked collected when ALL of these hold:
-;   * its owning level is one the game currently reports as loaded (a marker whose
-;     level cannot be matched is NEVER marked - that is the safety rail);
-;   * at least one full pass over the game's object array has completed since that
-;     level was first seen loaded;
-;   * that pass found no live twin for it (a twin parked at the origin, or flagged
-;     dying, does not count as alive - those are collected too);
-;   * and the same has been true for markers_absence_rounds passes in a row.
-;
-; The mark is written to wuchang_minimap_found.txt like any other, and can be undone by
-; clicking the marker on the full map. Set markers_absence_marks = 0 to switch the whole
-; rule off. The F2 panel counts how many marks came from it.
+; Mark a chest or pickup collected when its level is loaded, a full pass over the
+; object array has completed since, and no live twin was found - for
+; markers_absence_rounds passes in a row. A marker whose level cannot be matched is
+; never marked. The mark goes into the found file and can be undone by clicking the
+; marker on the full map. 0 switches the rule off.
 markers_absence_marks = 1
+
+; Write the collection file.
 found_tracker = 1
 
-; WHICH collection file. Every save game gets its own, so a second character does not
-; start with the first one's collection already ticked off.
-;   auto    - the mod works out which save slot is loaded and uses
-;             wuchang_minimap_found_<slot>.txt. The first time it sees a new slot it
-;             copies the old shared file into it once, so nothing is lost.
-;   shared  - always use the single wuchang_minimap_found.txt.
-;   <name>  - any name of your own; the file becomes wuchang_minimap_found_<name>.txt.
-; The F2 panel's Player tab shows which file is in force and how it was chosen.
+; Which collection file: auto | shared | <name>. auto = one file per save slot,
+; wuchang_minimap_found_<slot>.txt, seeded once from the shared file. shared = the
+; single wuchang_minimap_found.txt. <name> = wuchang_minimap_found_<name>.txt.
 found_profile = auto
 
-; Show a 10-second toast on the very first launch after installing, naming the panel,
-; map and highlight keys. Shown once per install (a marker file next to this one
-; records that it has been); delete wuchang_minimap_firstrun.txt to see it again.
+; Show a 10-second toast naming the panel, map and highlight keys on the first launch
+; after installing. Delete wuchang_minimap_firstrun.txt to see it again.
 first_run_toast = 1
 
 ; ---------------------------------------------------------------------------------
 ; THE FULL MAP
 ; ---------------------------------------------------------------------------------
-; Zoom the map opens at, and the limits it can be taken to.
+; Zoom the map opens at, in uu per screen pixel.
 map_zoom = 30
 
-; Marker glyph radius on the full map, in screen pixels, and the hard cap on how many
-; are drawn per frame.
+; Marker glyph radius on the full map, in screen pixels.
 map_marker_size = 8.0
 
-; 1 = ignore the height slice and draw every walkable surface (the current storey stays
-; opaque, everything else is dimmed). Useful for route planning, noisy in a temple.
+; 1 = draw every walkable surface (the current storey stays opaque); 0 = height slice.
 map_show_all_floors = 0
 
-; Gamepad (XInput). Only polled while the map is open, so a controller costs nothing
-; during play. The deadzone is a fraction of full stick deflection.
+; Poll XInput while the map is open.
 map_gamepad = 1
 
-; Remember the waypoint across sessions in wuchang_minimap_waypoint.txt (next to this
-; file). It is three plain `key = value` lines and is hand-editable.
+; Remember the waypoint across sessions in wuchang_minimap_waypoint.txt, three plain
+; `key = value` lines next to this file.
 map_waypoint_persist = 1
 
 ; ---------------------------------------------------------------------------------
 ; THE X-RAY HIGHLIGHT
 ; ---------------------------------------------------------------------------------
+; Draw nearby markers through walls while armed.
 highlight_enabled = 1
 
-; How the key arms the highlight.
-;   toggle = press once to turn it on, press again to turn it off (the default)
-;   hold   = on only while the key or the pad chord is held down
-; A toggled-on highlight is always turned off again by a level transition or a lost
-; pawn, so it can never be left on with nothing to point at.
+; toggle = press to turn on, press again to turn off; hold = on only while held.
+; A level transition or a lost pawn always turns it off.
 highlight_mode = toggle
 
-; Any hotkey name (see the list at the top of this file). LALT is the shipped default:
-; it is next to the hand whichever mode you use.
+; The key that arms the highlight. Any hotkey name from the list at the top.
 highlight_key = LALT
 
-; The second route, for a controller. Join buttons with `+`; known names are
-; LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, RS, UP, DOWN, LEFT, RIGHT.
-; `none` disables the chord. XInput is only polled while a chord is configured.
+; The controller route: 1 = accept the pad chord below. Buttons joined with `+`, from
+; LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, RS, UP, DOWN, LEFT, RIGHT; `none`
+; disables it. XInput is polled only while a chord is configured.
 highlight_gamepad = 1
 highlight_pad_chord = LB+RB
 
-; How far a marker may be from the PLAYER (not the camera) to be highlighted, in uu.
-; 1 uu = 1 cm, so 3000 = 30 m.
+; How far a marker may be from the player, in uu (1 uu = 1 cm).
 highlight_radius = 3000
 
-; Which categories. Same names as markers_categories: shrine, chest, pickup, boss,
-; elite, enemy, npc, note, door, ladder, lift, fog_gate, hidden, other (or
-; `all` / `none`).
+; Categories to highlight; same names as markers_categories, or `all` / `none`.
 highlight_categories = chest,pickup,shrine,boss,npc,note
+
+; Draw the name and distance next to each glyph.
 highlight_labels = 1
 
-; Glyph radius on screen, in pixels, and whether the name + distance is drawn.
+; Glyph radius on screen, in pixels.
 highlight_size = 7.0
 
-; Wuchang has no rarity ladder - no quality enum exists anywhere in the game's data.
-; What it does have is the colour of the beam a pickup gives off, which follows the
-; item's type (E_ItemType), and that is what these three tiers are:
-;
-;   0 Common     tools, consumables, arrows, enchanting materials   (blue beam)
-;   1 Equipment  weapons, armour, accessories, gems, spells, skills (pink beam)
-;   2 Key        quest items and red-mercury upgrade materials      (gold beam)
-;
-; 1 = while the x-ray key is held, a marker with a tier above 0 is drawn in that
-; tier's colour instead of its category colour. Tier 0 - which is every chest, every
-; live actor the offline database does not know, and every ordinary consumable - keeps
-; the category colour it always had.
+; 1 = while the highlight is armed, a pickup of item-quality tier 1 or 2 is drawn in
+; that tier's colour instead of its category colour. The tiers are the game's own
+; pickup-beam grouping by E_ItemType:
+;   0 Common     tools, consumables, arrows, enchanting materials      (blue beam)
+;   1 Equipment  weapons, armour, accessories, gems, spells, skills    (pink beam)
+;   2 Key        quest items and red-mercury upgrade materials         (gold beam)
+; Tier 0 keeps its category colour.
 xray_rarity_colors_enabled = 1
 
-; 1 = use the same quality colours on the MINIMAP, the full map and the compass pips
-; too. Off by default: those views are read as a category map, and recolouring part of
-; the pickups there costs more than it buys.
+; 1 = use the tier colours on the minimap, the full map and the compass pips too.
 markers_rarity_tint = 0
 
 ; ---------------------------------------------------------------------------------
 ; THE COMPASS STRIP
 ; ---------------------------------------------------------------------------------
+; Draw the heading strip.
 compass_enabled = 1
 
-; Strip width as a fraction of the screen width, and the distance from the anchored
-; edge in pixels.
+; Strip width as a fraction of screen width, and the distance from the anchored edge
+; in pixels.
 compass_width = 0.340
 compass_offset_y = 18
 
-; How many degrees the whole strip covers. 120 is a comfortable "what is in front of
-; me"; 360 turns it into a full ring.
+; Degrees the whole strip covers; 360 makes it a full ring.
 compass_span_deg = 120
+
+; Strip opacity, 0 .. 1.
 compass_opacity = 0.90
 
-; Which markers get a bearing pip, and how far away they may be (uu).
+; Categories that get a bearing pip.
 compass_categories = shrine,boss,elite,fog_gate
 
 ; Write the distance in metres under each pip.
 compass_pip_labels = 1
 
-; Show the shrine list on the full map: every shrine of the chapter with its in-game
-; name, chapter and distance. Click a row to set a waypoint on it, double-click to
-; centre the map there. Travelling to one needs fast_travel_enabled (ADVANCED).
+; Show the shrine list on the full map: name, chapter, distance and lit state. Click a
+; row to set a waypoint, double-click to centre the map. Travelling needs
+; fast_travel_enabled.
 shrine_list = 1
 
 ; ---------------------------------------------------------------------------------
 ; HOTKEYS
 ; ---------------------------------------------------------------------------------
-; Opening the full map with a CONTROLLER: press these pad buttons together. Same
-; spelling as highlight_pad_chord (BACK, START, A, B, X, Y, LB, RB, LS, RS, UP, DOWN,
-; LEFT, RIGHT, joined with +), and `none` disables it. Needs map_gamepad = 1. The
-; triggers are analogue and are not accepted here.
+; Pad buttons that open and close the full map, joined with `+`; `none` disables it.
+; Needs map_gamepad = 1. The analogue triggers are not accepted.
 map_pad_open_chord = BACK+Y
 
-; Settings panel, full map, recentre the full map, and config + map + marker reload.
-; ONE MODIFIER may be put in front of any of these - `ctrl+`, `shift+` or `alt+`, as
-; in `map_key = ctrl+m` - which is the answer when a bare letter clashes with one of
-; the game's own binds. A key bound here is swallowed while the mod is using it, so
-; the game does not also see it.
+; The settings panel, the full map, recentring the full map, and reloading the config,
+; maps and markers. A key bound here is swallowed while the mod uses it.
 panel_key = F2
 map_key = M
 map_recenter_key = R
 reload_key = F5
 
-; Cycles the minimap zoom through minimap_zoom_presets (ADVANCED section) and wraps
-; round. See the hotkey list at the top of this file. The mouse wheel over the
-; minimap does the same thing while the F2 panel is open.
+; Steps the minimap zoom through minimap_zoom_presets. The mouse wheel over the disc
+; does the same while the F2 panel is open.
 zoom_key = N
 
-; Copies the full map to the Windows clipboard as a bitmap, ready to paste into a chat
-; or an image editor. Only active WHILE THE FULL MAP IS OPEN - the map swallows the
-; keyboard, so a plain letter here cannot reach the game. Nothing is written to disk.
+; Copies the full map to the clipboard as a bitmap. Active only while the full map is
+; open. Nothing is written to disk.
 screenshot_key = C
-
 
 ; =================================================================================
 ; ---- ADVANCED ----
 ; =================================================================================
-; Correct as shipped. Change one of these to answer a symptom, not for fun. They are
-; all in the F2 panel's "Advanced" tab.
+; Correct as shipped; change one to answer a symptom. All on the F2 panel's "Advanced"
+; tab.
 
 ; ---------------------------------------------------------------------------------
 ; WHEN THE OVERLAY IS ALLOWED ON SCREEN
 ; ---------------------------------------------------------------------------------
 ; Hide the minimap unless the camera's view target is the player pawn. This is what
-; keeps it off the main menu (the Lobby view target is a CineCameraActor) and out of
-; cutscenes.
+; keeps it off the main menu and out of cutscenes.
 require_pawn_view = 1
 
-; Hide the minimap if the game-thread reader has not published a position in this
-; many milliseconds.
+; Hide the minimap if the game-thread reader has not published a position for this
+; many ms.
 state_stale_ms = 1000
 
-; Grace period: how long the reader must have had a validated gameplay pawn
-; (class BP_CombatCharacter_Player*, live in GUObjectArray) before the minimap is
-; allowed to appear. Stops it flashing during a level load / right after Continue.
+; How long the reader must have had a validated gameplay pawn before the minimap may
+; appear, in ms.
 min_visible_after_state_ok_ms = 600
 
-; A menu closing is not a level transition, so showing the minimap again waits only
-; this long (hiding is immediate - the game thread re-tests the cached in-viewport
-; menu roots on every 10 Hz pump).
+; Delay before the minimap comes back after a menu closes, in ms. Hiding is immediate.
 menu_close_show_delay_ms = 150
 
 ; ---------------------------------------------------------------------------------
-; HEIGHT SLICING - what the minimap actually draws
+; HEIGHT SLICING - what the minimap draws
 ; ---------------------------------------------------------------------------------
-; Opacity of the surface below, as a multiple of `opacity`. The one above uses 60 % of
-; this. 0 = draw only the floor you are on.
+; Opacity of the surface below, as a multiple of `opacity`; the one above uses 60 % of
+; it. 0 = draw only the floor you are on.
 adjacent_floor_opacity = 0.25
 
-; How far below / above your feet a surface is still drawn (dimmed) before it is
-; dropped entirely. 800 = 8 m, i.e. roughly one storey.
+; How far below / above your feet a surface is still drawn, in uu.
 floor_fade_uu = 800
 
-; Height gradient. The fill is shaded by
-;     lum = 1 + floor_gradient_strength * clamp((surfaceZ - feetZ) / span, -1, +1)
-; with span = floor_z_tolerance for your own floor and floor_fade_uu for the dimmed
-; ones, so ramps and staircases read as a gentle gradient instead of a flat
-; silhouette. 0 = a flat fill.
+; Height shading: lum = 1 + strength * clamp((surfaceZ - feetZ) / span, -1, +1), with
+; span = floor_z_tolerance on your own floor and floor_fade_uu on the dimmed ones.
+; 0 = a flat fill.
 floor_gradient_strength = 0.18
 
-; The walkable fill colour, "R G B" (0..255 each). A light warm grey that reads on this
-; game's dark scenes.
+; The walkable fill colour, "R G B" (0..255 each).
 floor_base_color = 214 208 196
 
-; How many times a second the CPU re-cuts the window (2..30). 12 is invisible in motion
-; and costs ~1-3 ms per update on one core; the window is cut with margin, so a skipped
-; update never shows an edge.
+; How many times a second the CPU re-cuts the minimap window (2..30).
 slice_hz = 12
 
-; Time constant of the EMA on your feet Z, in ms. Stops a jump or a single step from
-; snapping the whole picture to another floor.
+; Time constant of the smoothing on your feet Z, in ms.
 feet_z_smooth_ms = 100
 
-; The pawn's reported location is its capsule centre, about 90 uu above the navmesh it
-; stands on; this is subtracted to get feet Z.
+; uu subtracted from the pawn's capsule centre to get feet Z.
 player_z_offset = 90
 
 ; ---------------------------------------------------------------------------------
 ; MARKER SWEEP AND TRACKER TUNING
 ; ---------------------------------------------------------------------------------
-; Run the live actor sweep on the game thread. Turning this off leaves only the
-; static database (positions, but no collected / opened state).
+; Run the live actor sweep on the game thread. 0 = static positions only, no collected
+; or opened state.
 markers_live = 1
 
-; Draw only the markers of the chapter you are actually in.
-;
-; The static database is one flat set of all six chapters' 3601 markers, and the
-; chapters' world extents overlap badly - chapter 4's bounds cover nearly all of
-; chapter 1's - so with this off you get other chapters' shrines and chests painted
-; on top of the current map. The chapter is named by the streamed level packages, not
-; by your position (a position cannot tell chapter 1 from chapter 4). Until it has
-; been recognised, nothing is filtered. Live actors are in the current world by
-; definition and are never filtered. Set to 0 only to debug the marker database.
+; Draw only the current chapter's static markers. The database holds all six chapters
+; and their world extents overlap, so 0 paints other chapters' markers on this map.
+; The chapter comes from the streamed level packages; nothing is filtered until it is
+; recognised, and live actors are never filtered.
 markers_filter_chapter = 1
 
-; How the live sweep works, and its three dials.
-;
-; The sweep walks the engine's object array ONCE per full pass, a slice at a time, and
-; classifies each object by its blueprint class. A "pump" is one slice; a "round" is a
-; complete pass, after which the marker set is republished.
-;
-;   markers_rounds_per_sec  (1..10)      how often a full pass may START. A pass that
-;                                        finishes early idles until its next turn, so
-;                                        this is a ceiling, not a target.
-;   markers_scan_chunk      (512..131072) object slots visited per pump. This is the
-;                                        frame-cost dial: more slots = a fresher marker
-;                                        set and a costlier pump.
-;   markers_scan_period_ms  (1..500)     minimum milliseconds between pumps.
-;
-; The F2 panel prints both numbers you need to tune these: `scan pump` (what one pump
-; costs the game thread - keep it under ~1 ms) and `round` (how long a full pass took
-; and how many object slots it covered). Halve the chunk if pumps are expensive; the
-; round simply takes proportionally longer.
+; The sweep walks the object array once per round, a slice per pump.
+;   markers_rounds_per_sec (1..10)       ceiling on how often a round may start
+;   markers_scan_chunk     (512..131072) object slots per pump - the frame-cost dial
+;   markers_scan_period_ms (1..500)      minimum ms between pumps
+; The F2 panel prints `scan pump` (keep it under ~1 ms) and `round`.
 markers_rounds_per_sec = 1
 markers_scan_chunk = 8192
 markers_scan_period_ms = 8
@@ -434,144 +325,134 @@ markers_scan_period_ms = 8
 ; How dim a found marker is, as a multiple of `opacity`.
 markers_found_alpha = 0.30
 
-; Hard cap on markers drawn per frame, nearest first. Safety valve only.
+; Hard cap on markers drawn per frame, nearest first.
 markers_max_draw = 400
 
-; How long after the last change the file is written, in ms. Debounced so a room
-; full of pickups is one write, not thirty.
+; How long after the last change the found file is written, in ms.
 found_save_debounce_ms = 2000
+
+; Consecutive confirming rounds before markers_absence_marks marks something, and the
+; categories that rule may mark.
 markers_absence_rounds = 2
 markers_absence_categories = chest,pickup
 
-; A boss you killed before installing the mod never spawns again, so nothing the mod
-; can read on the boss itself says "defeated". The save does carry a per-boss trace:
-; every boss arena has its own `bossdoor_*` respawn point, and the game keeps a list
-; of the ones it has unlocked. With this on, a boss whose door is in that list counts
-; as defeated even if the mod has never seen the boss.
-; It is not certain that the game unlocks the door on the KILL rather than on the
-; first attempt, so this may mark a boss you fought and did not beat. It is worked out
-; fresh every time, never written to the collection file, so setting this to 0 undoes
-; it completely.
+; 1 = count a boss as defeated when its arena's `bossdoor_*` respawn point is in the
+; save's unlocked list, even if the mod has never seen the boss. Whether the game
+; unlocks that point on the kill or on the first attempt is unconfirmed, so this may
+; mark a boss you fought and did not beat. It is derived on every publish and never
+; written to the collection file, so 0 undoes it completely.
 boss_defeat_from_save = 1
 
 ; ---------------------------------------------------------------------------------
 ; MINIMAP LOOK
 ; ---------------------------------------------------------------------------------
-; The zoom ladder zoom_key steps through, in uu per minimap pixel: 1 to 8 numbers
-; between 2 and 400, in any order (they are sorted, and duplicates are dropped).
-; 13 / 26 / 52 is "this room" / the shipped default / "this district".
+; The ladder zoom_key steps through, in uu per minimap pixel: 1 to 8 numbers between 2
+; and 400, in any order (sorted, duplicates dropped).
 minimap_zoom_presets = 13, 26, 52
 
-; The dark disc the map is drawn on. The first in-world screenshot was a light grey
-; map over a light grey scene - this is what the walkable fill sits on.
+; The dark disc the map is drawn on: opacity, then "R G B".
 minimap_backdrop = 0.86
 minimap_backdrop_color = 6 9 13
 
-; The ring / border around the minimap.
+; The ring around the minimap: "R G B", then opacity.
 minimap_frame_color = 168 176 186
 minimap_frame_alpha = 0.85
 
-; Floor on the minimap's side length in pixels, whatever minimap_size works out to.
+; Floor on the minimap's side length, in pixels.
 minimap_min_px = 72
 
-; The player arrow: a fraction of the minimap's side, never smaller than this.
+; The player arrow: a fraction of the minimap's side, never smaller than this many
+; pixels.
 minimap_arrow_frac = 0.055
 minimap_arrow_min_px = 8
 
-; The waypoint glyph's radius as a multiple of markers_size. It is the one marker that
-; is never culled, so it is drawn a touch bigger than the rest.
+; Waypoint glyph radius, as a multiple of markers_size.
 waypoint_size_scale = 1.05
 
 ; ---------------------------------------------------------------------------------
 ; FULL MAP TUNING
 ; ---------------------------------------------------------------------------------
+; Zoom limits, in uu per screen pixel (min = most zoomed in).
 map_zoom_min = 4
 map_zoom_max = 240
 
 ; Zoom multiplier per wheel notch (1.01 .. 2.0).
 map_zoom_factor = 1.15
 
-; Keyboard / stick pan speed, in SCREEN pixels per second (so it feels the same at
-; every zoom).
+; Keyboard / stick pan speed, in screen pixels per second.
 map_pan_speed = 900
 
-; Border left around the map, as a fraction of the screen height, and how dark the
-; backdrop behind it is.
+; Border around the map as a fraction of screen height, and the opacity of the dark
+; backdrop behind it.
 map_margin = 0.045
 map_backdrop = 0.86
+
+; Hard cap on markers drawn per frame on the full map.
 map_markers_max_draw = 4000
 
-; How far one press of the floor adjustment moves the height slice, in uu. The slice
-; itself uses floor_z_tolerance / floor_fade_uu, exactly like the minimap.
+; How far one press of the floor adjustment moves the height slice, in uu.
 map_floor_step = 200
 
-; The dynamic texture the map is cut into. The cut costs roughly
-; (width x height x surfaces) reads, so 768 lands around 5-10 ms - which is why it only
-; runs when the view actually changed (pan out of the cut region, zoom, floor, or a big
-; player move), never more than map_slice_hz times a second.
+; The map's own dynamic slice texture: width in pixels, and the cap on re-cuts per
+; second. It only re-cuts when the view changed.
 map_slice_px = 768
 map_slice_hz = 6
+
+; Stick deadzone, as a fraction of full deflection.
 map_gamepad_deadzone = 0.22
 
 ; ---------------------------------------------------------------------------------
 ; X-RAY TUNING
 ; ---------------------------------------------------------------------------------
-; 1 = also highlight loot you have already collected (dimmed). Only chests, pickups
-; and hidden items are affected: shrines, bosses, NPCs, notes, doors and fog
-; gates are landmarks and are always highlighted, found or not.
+; 1 = also highlight collected loot, dimmed. Only chests, pickups and hidden items are
+; affected; shrines, bosses, NPCs, notes, doors and fog gates are always highlighted.
 highlight_show_found = 0
 
-; Hard cap on GLYPHS per frame, nearest first.
+; Hard cap on glyphs per frame, nearest first.
 highlight_max_draw = 60
 
-; Hard cap on LABELS (name + distance), which is a much smaller number: sixty names
-; do not fit on a screen. The labels go to the nearest markers, never two for glyphs
-; within highlight_size x 2 of each other, and are laid out top to bottom so no two
-; boxes overlap - a box that had to be pushed down gets a leader line to its glyph.
-; 0 turns names off as surely as highlight_labels = 0 does; 40 is the ceiling.
+; Hard cap on labels (name + distance), 0 .. 40. Labels go to the nearest markers,
+; never two for glyphs within highlight_size x 2 of each other, and are pushed down
+; until no two boxes overlap; a pushed box draws a leader line to its glyph.
 highlight_labels_max = 12
 
-; Alpha at the camera and at the radius; the fade between them is linear.
+; Alpha at the camera and at highlight_radius; the fade between them is linear.
 highlight_alpha_near = 1.00
 highlight_alpha_far = 0.25
 
-; 1 = anything off screen or behind the camera gets an arrow on the screen edge
-; pointing the way to turn.
+; 1 = anything off screen or behind the camera gets an arrow on the screen edge.
 highlight_edge_arrows = 1
 
-; How often the game thread re-reads the camera WHILE THE KEY IS HELD. The read is a
-; few dozen bytes at a cached offset, so this is cheap; it only has to keep up with how
-; fast the camera can swing. Nothing is read at all when the key is up and the compass
-; is off.
+; How often the game thread re-reads the camera while the highlight is armed, in Hz.
+; Nothing is read when it is disarmed and the compass is off.
 highlight_camera_hz = 60
 
 ; ---------------------------------------------------------------------------------
 ; ITEM QUALITY COLOURS
 ; ---------------------------------------------------------------------------------
-; The palette, one RRGGBB per tier, in tier order (0, 1, 2). The defaults are the
-; game's own pickup-beam colours (DT_Particle LightColor, converted to sRGB). Tier 0's
-; entry is only used if you switch a tier-0 marker on somewhere else; a `#` prefix and
-; the 3-digit short form are both accepted.
+; One RRGGBB per tier, in tier order (Common, Equipment, Key). The defaults are the
+; game's own pickup-beam colours. A `#` prefix and the 3-digit short form are accepted.
 xray_rarity_colors = ADAFDA, DAADC5, DAD6AD
 
 ; ---------------------------------------------------------------------------------
 ; COMPASS TUNING
 ; ---------------------------------------------------------------------------------
-; Which edge the strip hangs off: top or bottom. compass_offset_y is the distance
-; from that edge either way. A non-custom hud_preset overrides this.
+; Which edge the strip hangs off: top | bottom. compass_offset_y measures from that
+; edge. A non-custom hud_preset overrides this.
 compass_anchor = top
+
+; Strip height in pixels.
 compass_height = 26
 
-; The filled plate behind the strip. 0 = ticks and letters only, each with a
-; one-pixel shadow so they stay readable without it - the strip then sits much more
-; lightly on top of the game's own HUD.
+; 1 = a filled plate behind the strip; 0 = ticks and letters only, each shadowed.
 compass_plate = 1
+
+; How far away a marker may be to get a pip, in uu.
 compass_marker_distance = 15000
 
 ; The waypoint is never culled: off the strip it clamps to the edge with an arrow.
 compass_show_waypoint = 1
 
-; Compass geometry
 ; Minor-tick spacing in degrees. A tick at a multiple of 45 gets a label, one at a
 ; multiple of 90 gets its cardinal letter.
 compass_tick_step_deg = 15
@@ -579,52 +460,39 @@ compass_tick_step_deg = 15
 ; Hard cap on marker pips, nearest first.
 compass_max_pips = 32
 
-; A pip gets an up / down arrow once the marker is this far off the player's own
-; height, in uu (1 uu = 1 cm, so 300 = 3 m). 0 turns the arrows off.
+; A pip gets an up / down arrow once the marker is this far off your own height, in uu.
+; 0 turns the arrows off.
 compass_pip_height_uu = 300
 
 ; ---------------------------------------------------------------------------------
 ; DIAGNOSTICS AND FAST TRAVEL
 ; ---------------------------------------------------------------------------------
-; How much the mod writes to its log (wuchang_minimap.log beside this file, and
-; UE4SS.log). Three levels:
-;   normal   what a bug report needs - startup, what loaded, chapter and save-slot
-;            changes, every warning and error, first-time diagnostics, and a health
-;            summary once a minute. A long session is a few hundred kilobytes.
-;   verbose  adds the running commentary: the player-state line, per-round marker
-;            timings, menu open/close, why the minimap is hidden, x-ray toggles.
-;   trace    adds everything else, including a marker census every two seconds.
-; Turn this up only when someone asks you to reproduce a problem with it on.
+; How much goes into wuchang_minimap.log and UE4SS.log:
+;   normal   startup, what loaded, chapter and save-slot changes, warnings, errors,
+;            first-time diagnostics, a health summary once a minute
+;   verbose  adds the player-state line, per-round marker timings, menu open/close,
+;            why the minimap is hidden, x-ray toggles
+;   trace    adds everything else, including a marker census every two seconds
 log_level = normal
 
-; Rewrite wuchang_minimap_last_stage.txt at every stage the overlay passes through
-; (hooks installed, swapchain chosen, ImGui up, first map slice, chapter swap,
-; teardown, clean exit). If the game ever dies with the overlay loaded, that one line
-; names the stage it was in - the UE4SS log buffer can be lost, this file cannot.
-; Costs one tiny file write per stage change, which is a handful per session.
+; Rewrite wuchang_minimap_last_stage.txt at every overlay stage (hooks installed,
+; swapchain chosen, ImGui up, first map slice, chapter swap, teardown, exit), so a
+; crash leaves the stage it was in behind. One small file write per stage change.
 crash_breadcrumb = 1
 
-; Let the shrine list travel. OFF by default and deliberately so: the mod calls the
-; game's own fast-travel function, and it will only do that after a reflection
-; self-check confirms the function's parameters are exactly what is expected - if they
-; are not, it refuses and says why in the log. Turn this on only if you are happy to
-; test it; a bad fast travel can leave the game streaming the wrong level.
+; 1 = let the shrine list travel, using the game's own fast-travel function. The call
+; is issued only after a reflection self-check of that function's parameters, and only
+; for an unlocked shrine; a mismatch refuses and says so in the log.
 fast_travel_enabled = 0
 
 ; ---------------------------------------------------------------------------------
 ; TEXT AND DPI
 ; ---------------------------------------------------------------------------------
-; The font the whole overlay draws with, as a full path to a .ttf or .otf. Segoe UI
-; ships with Windows and is what the OS itself uses. It is rasterised at 13 pixels
-; times ui_scale, so the text is as sharp at 4K as at 1080p; the built-in bitmap font
-; could only be magnified. `none`, an empty value or a file that cannot be read falls
-; back to that built-in font and says so in the log.
+; Full path to a .ttf or .otf for the whole overlay, rasterised at 13 px times
+; ui_scale. `none`, empty or an unreadable file falls back to ImGui's built-in bitmap
+; font and logs it.
 ui_font = C:\Windows\Fonts\segoeui.ttf
 
-; Scale the two ZOOM keys with ui_scale as well (minimap_zoom and map_zoom).
-;   1  one config file shows the SAME AREA OF THE WORLD at every resolution: at 4K the
-;      minimap disc is twice as many pixels across and each of those pixels covers half
-;      as much ground, so you get the picture you tuned at 1080p at twice the detail.
-;   0  uu/px is literal, so a bigger screen shows more of the world at the same
-;      setting. This is what 1.0.0 did - set it to 0 to get that back.
+; 1 = scale minimap_zoom and map_zoom with ui_scale, so one config shows the same area
+; of the world at every resolution. 0 = uu per pixel is literal.
 zoom_dpi_scaled = 1

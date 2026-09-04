@@ -14,16 +14,13 @@ run it now and fix whatever it prints, before touching a version number:
 ```
 
 - [ ] **`LICENSE` names a real copyright holder.** No `<AUTHOR>` and no other
-      `<PLACEHOLDER>`. **1.0.0 shipped with a literal `<AUTHOR>` on the copyright line**,
-      which makes the MIT grant unattributable — this is the one item on this page that
-      has already gone wrong in public. `check_release.ps1` now fails on it, and so does
-      `package.ps1`, but check it with your own eyes anyway.
+      `<PLACEHOLDER>`: a placeholder makes the MIT grant unattributable.
+      `check_release.ps1` and `package.ps1` both fail on it; check it by eye anyway.
 - [ ] **Close the game.** `deploy.ps1` and the packaging both touch files the game locks,
       and the in-game smoke test at the end needs a fresh launch.
 - [ ] `git status` is **clean**. Every step below refuses to run otherwise.
-- [ ] `tools\CHANGELOG.template.md` has a section for the version you are about to cut,
-      moved out of `## Unreleased`, with an **In short** list written for players at the
-      top of it.
+- [ ] `tools\CHANGELOG.template.md`'s `## x.y.z` heading is the version you are about to
+      cut, and its body describes what the mod does in that version.
 - [ ] `THIRD_PARTY_NOTICES.md` still matches `third_party\` — check the versions if
       anything was updated, and `third_party\VENDORING.md` with it.
 - [ ] `README.md` and `tools\INSTALL_GUIDE.html` describe the keys the build actually
@@ -31,10 +28,9 @@ run it now and fix whatever it prints, before touching a version number:
 
 ## 1. Stamp the version, commit, tag
 
-The order matters, and it is the opposite of what it used to be. `package.ps1` refuses a
-dirty tree because `BUILD_INFO.txt` names a commit hash — but `-Version` *itself* dirties
-the tree, so stamping and packaging in one run records the commit from **before** the
-stamp. So stamp first, as its own step:
+Stamp first, as its own step: `package.ps1` refuses a dirty tree because `BUILD_INFO.txt`
+names a commit hash, and `-Version` itself dirties the tree, so stamping and packaging in
+one run records the commit from *before* the stamp.
 
 ```powershell
 .\tools\package.ps1 -StampOnly -Version 1.0.1
@@ -45,8 +41,8 @@ git tag v1.0.1
 `-StampOnly` rewrites `src\version.hpp` and `xmake.lua`'s `set_version` and stops. It
 builds nothing and packages nothing.
 
-> Passing `-Version` to a normal packaging run still works and still warns you about
-> exactly this. Do not use it for a release.
+> Passing `-Version` to a normal packaging run works and warns about exactly this. Do not
+> use it for a release.
 
 ## 2. Build the package
 
@@ -72,7 +68,7 @@ consistency failure by zipping the folder yourself.
 
 **Keep the symbols zip.** It is the only way to read a crash dump from that exact build,
 and `main.pdb` otherwise lives only in the gitignored `build\` folder. Upload it as an
-optional file, or archive it with the tag — but never as the main download.
+optional file or archive it with the tag, never as the main download.
 
 ## 3. Eyeball `dist\`
 
@@ -82,7 +78,7 @@ Open `dist\WuchangMinimap-1.0.1\` and confirm:
 |---|---|
 | `BUILD_INFO.txt` | version, commit hash and UE4SS build are the ones you expect; **no `DIRTY`**, and the commit is the tagged one |
 | `INSTALL_GUIDE.html` | opens in a browser, version and date filled in (no `@@VERSION@@`) |
-| `README.md`, `CHANGELOG.md` | changelog's top section is this version, and opens with the **In short** list |
+| `README.md`, `CHANGELOG.md` | the changelog's top section is this version |
 | `LICENSE` | real author name, no placeholder |
 | `THIRD_PARTY_NOTICES.md` | present |
 | `ue4ss\Mods\WuchangMinimap\dlls\main.dll` | the only file in `dlls\` — **no `main.pdb`** |
@@ -98,9 +94,9 @@ understanding before uploading.
 ## 4. Install it and smoke-test in the game
 
 Install the packaged zip **the way a player would** — unzip into
-`<Game>\Project_Plague\Binaries\Win64\` — not with `deploy.ps1`. The point is to test
-what people download; `deploy.ps1` installs a different, PDB-bearing layout, so it cannot
-catch a packaging mistake. Then launch the game and check:
+`<Game>\Project_Plague\Binaries\Win64\` — not with `deploy.ps1`, which installs a
+different, PDB-bearing layout and cannot catch a packaging mistake. Then launch the game
+and check:
 
 - [ ] The UE4SS console / `UE4SS.log` shows **`WuchangMinimap vX.Y.Z loaded`** with the
       version you just cut.
@@ -117,15 +113,12 @@ If anything here fails, the release does not ship — fix, re-tag.
 
 - File: `dist\WuchangMinimap-1.0.1.zip`, named exactly that (Nexus shows the file name).
 - Version field: `1.0.1`, matching the tag and `BUILD_INFO.txt`.
-- Changelog: paste the `## 1.0.1` section of `tools\CHANGELOG.template.md` — the **In
-  short** list first. Nexus does not render `<details>`/`<summary>`, so delete those two
-  lines and the closing `</details>` when pasting the detail, or paste only the In short
-  list and link to the changelog in the download.
+- Changelog: paste the `## 1.0.1` section of `tools\CHANGELOG.template.md`.
 - Description: `docs\NEXUS.md`, BBCode editor (not rich text).
 - **Requirements tab**: UE4SS for Wuchang: Fallen Feathers, mod **384**, the
   `experimental-latest` asset — build `v3.0.1-1111-g97b7e501`. Put the build string in
-  the requirement note, not only in the description: the mod is ABI-tied to it and a
-  mismatch produces no overlay and no in-game message. It is **not** bundled.
+  the requirement note as well as the description: a mismatch produces no overlay and no
+  in-game message. It is **not** bundled.
 - Tick "this mod contains files derived from the game's data" if the upload form asks;
   see the "Game data" section of `THIRD_PARTY_NOTICES.md`.
 - Screenshots: the checklist at the end of `docs\NEXUS.md`. The first image is the mod
@@ -139,4 +132,3 @@ If anything here fails, the release does not ship — fix, re-tag.
 - [ ] Older `dist\WuchangMinimap-*` folders and zips can be deleted — `dist\` is
       gitignored and every package is reproducible from its tag. Keep the symbols zip of
       any version that is still in the wild.
-- [ ] Start a fresh `## Unreleased` section in `tools\CHANGELOG.template.md`.

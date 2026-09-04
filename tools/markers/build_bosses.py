@@ -1,26 +1,16 @@
 #!/usr/bin/env python3
 r"""Build `markers/bosses.json` - the game's boss roster, offline, with no `.usmap`.
 
-WHY
----
-`context/markers-offline.md` section 7 said `boss` was unreliable outside
-Chapters 1 and 4 because chapters 2/3/5 ship no `*_BOSS_AI` sublevel and their
-bosses are "spawned by `BP_BossPool_C`".  Both halves of that turned out to be
-wrong, and the data says so plainly:
-
-* there is exactly **one** `BP_BossPool_C` in the whole game
-  (`Chapter1_Wanrenk_BOSS_AI`), so it cannot be spawning anybody's bosses;
-* every boss in the game is a **placed actor** deriving from
-  `BP_PlacedBossAI_C` -- 25 instances across 25 `*_AI` sublevels whose names
-  are simply not spelled `_BOSS_AI` outside Chapter 1
-  (`Chapter3_ZhenWuG_ZhangXianZ_AI`, `Chapter5_ZhenLiZM_YHXYZ_AI`, ...).
-
-So the category is a CLASS question, and the class question is answered by the
-inheritance graph (`class_graph.py`) rather than by a level-name heuristic.
-The old heuristic was also wrong in the other direction: it typed
-`BP_FireReed_C` (8 in Chapter 1), `BP_BossPool_C` and
-`BossLightingEffectActor_C` as bosses because they happen to sit in a
-`_BOSS_AI` package or have "Boss" in the name, none of which is a character.
+BOSS IS A CLASS QUESTION
+------------------------
+Every boss in the game is a **placed actor** deriving from `BP_PlacedBossAI_C`
+-- 25 instances across 25 `*_AI` sublevels, whose names are spelled `_BOSS_AI`
+only in Chapter 1 (`Chapter3_ZhenWuG_ZhangXianZ_AI`,
+`Chapter5_ZhenLiZM_YHXYZ_AI`, ...).  So the roster comes from the inheritance
+graph (`class_graph.py`), never from a level-name or class-name heuristic: a
+name rule misses chapters 2/3/5 entirely and types `BP_FireReed_C` (8 in
+Chapter 1), `BP_BossPool_C` (one instance in the whole game, a spawner) and
+`BossLightingEffectActor_C` (a light rig) as bosses.
 
 THREE THINGS THIS SCRIPT WRITES
 -------------------------------

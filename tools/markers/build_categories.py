@@ -2,21 +2,15 @@
 r"""Derive the marker-category class table from the blueprint class graph
 (review item C.10) -> `markers/categories.json`.
 
-WHY THIS FILE EXISTS
---------------------
-`marker_classes.EXACT` used to be a hand-written list of *leaf* classes, and
-the review found the shape of the damage that always causes: improbable zeros.
-Chapter 5 had 0 ladders next to Chapter 2's 44, Chapter 4 had 0 lifts and 2
-doors, `ItemCollectionBox_C` never resolved.  The table knew two ladder classes
-and two lift classes; the game has more, and no amount of staring at the list
-reveals which ones are missing.
-
-The graph answers it exactly.  `class_graph.py` reads the `super` field out of
-every cooked `.uasset` export map, so the question "which classes are doors?"
-becomes "what are the descendants of the game's own door base?".  What this
-script adds is the choice of BASES - one per category, taken from the game's
-own hierarchy - and the precedence that resolves a class reachable from two of
-them.  Everything below the base is data.
+THE GRAPH, NOT A HAND-WRITTEN LEAF LIST
+---------------------------------------
+`class_graph.py` reads the `super` field out of every cooked `.uasset` export
+map, so "which classes are doors?" is "what are the descendants of the game's
+own door base?".  What this script adds is the choice of BASES - one per
+category, taken from the game's own hierarchy - and the precedence that
+resolves a class reachable from two of them.  Everything below a base is data,
+which is what keeps a category from silently missing the classes nobody
+thought to list.
 
 WHAT THE GRAPH FOUND THAT THE HAND LIST DID NOT
 -----------------------------------------------
@@ -101,14 +95,13 @@ ROOTS: dict[str, list[str]] = {
     # The 32 boss classes are descendants of it as well, which is why `boss`
     # comes first in `ORDER`.
     #
-    # This retires the `_AI`-sublevel heuristic as the PRIMARY rule (it stays in
-    # `marker_classes` as a fallback, counted, for the handful of classes whose
-    # `super` the graph never saw - `BP_jiaheshang_AI_C` has no parent recorded).
-    # It also fixes a case the old rule got backwards in both directions:
-    # `Pangzi_NPC_C` is a `BP_PlacedAI_C` descendant - an ENEMY whose name says
-    # NPC - while `PangZi_NPC_C`, a different class differing only in one letter's
-    # case, really is a `BP_NPC_C`. A name regex cannot tell those apart and a
-    # case-insensitive lookup would merge them; the graph separates them.
+    # The `_AI`-sublevel heuristic stays in `marker_classes` only as a counted
+    # fallback, for the handful of classes whose `super` the graph never saw
+    # (`BP_jiaheshang_AI_C` has no parent recorded). A name rule cannot do this
+    # job: `Pangzi_NPC_C` is a `BP_PlacedAI_C` descendant - an ENEMY whose name
+    # says NPC - while `PangZi_NPC_C`, differing only in one letter's case,
+    # really is a `BP_NPC_C`. A case-insensitive lookup merges them; the graph
+    # separates them.
     "enemy":    ["BP_BaseAI_C"],
 }
 

@@ -8,11 +8,10 @@ the description box with the BBCode editor, not the rich-text one.
 *UE4SS for Wuchang: Fallen Feathers* — Wuchang mod **384**, the **`experimental-latest`**
 asset, which is UE4SS build **`v3.0.1-1111-g97b7e501`**.
 
-> The exact build matters and belongs in the Requirements note, not only in the
-> description: `main.dll` links directly to that DLL's exports, so any other UE4SS build
-> fails to load with no overlay and no in-game message. Keep this string identical to the
-> one in `BUILD_INFO.txt`, `README.md`, `THIRD_PARTY_NOTICES.md` and
-> `tools/INSTALL_GUIDE.html` — `tools/check_release.ps1` fails the release if they drift.
+> The build string belongs in the Requirements note as well as the description: any other
+> UE4SS build fails to load with no overlay and no in-game message. It must be identical
+> to the one in `BUILD_INFO.txt`, `README.md`, `THIRD_PARTY_NOTICES.md` and
+> `tools/INSTALL_GUIDE.html`; `tools/check_release.ps1` fails the release if they drift.
 
 ---
 
@@ -37,7 +36,7 @@ A minimap, a full chapter map, a compass and a collection tracker for Wuchang: F
 
 [b]It has to be this exact UE4SS build:[/b]
 [code]UE4SS v3.0.1-1111-g97b7e501   (the "experimental-latest" asset of mod 384)[/code]
-This mod links straight to that DLL's exports, so [b]another UE4SS build will not work[/b] — and it fails silently. A mismatch looks like: the game launches and plays normally, no overlay ever appears, F2 does nothing, and [code]ue4ss\UE4SS.log[/code] says [code]Failed to load dll <...\Mods\WuchangMinimap\dlls\main.dll> for mod WuchangMinimap, error: The specified procedure could not be found.[/code] instead of [code]WuchangMinimap v1.0.0 loaded[/code]. [code]BUILD_INFO.txt[/code] in the download repeats the version.
+This mod links straight to that DLL's exports, so [b]another UE4SS build will not work[/b], and the failure is silent: the game plays normally, no overlay appears, F2 does nothing, and [code]ue4ss\UE4SS.log[/code] says [code]Failed to load dll <...\Mods\WuchangMinimap\dlls\main.dll> for mod WuchangMinimap, error: The specified procedure could not be found.[/code] instead of [code]WuchangMinimap v1.0.0 loaded[/code]. [code]BUILD_INFO.txt[/code] in the download repeats the version.
 
 [size=4][color=#ff6600]Then: HookInitGameState = 0[/color][/size]
 Open [code]Project_Plague\Binaries\Win64\ue4ss\UE4SS-settings.ini[/code] and set:
@@ -45,7 +44,7 @@ Open [code]Project_Plague\Binaries\Win64\ue4ss\UE4SS-settings.ini[/code] and set
 [Hooks]
 HookInitGameState = 0
 [/code]
-[b]Without this the game crashes about a third of a second into loading[/b], with or without this mod. It is a UE4SS-plus-Wuchang problem, not a bug here — if the game started crashing the moment you installed UE4SS, this is why.
+[b]Without this the game crashes about a third of a second into loading[/b], with or without this mod. It is a UE4SS-plus-Wuchang problem, not a bug here.
 
 [size=5]Install[/size]
 [list=1]
@@ -66,20 +65,20 @@ To uninstall, delete [code]ue4ss\Mods\WuchangMinimap\[/code]. That is the whole 
 Everything is rebindable in F2 → Bindings.
 
 [size=5]Known conflicts[/size]
-None of these stops the mod working, but all three have surprised someone.
+None of these stops the mod working.
 [list]
-[*][b]ReShade / RenoDX[/b] (any [code]dxgi.dll[/code] or [code]d3d12.dll[/code] next to the game exe) — the mod draws [i]before[/i] ReShade's effects, so grading and sharpening are applied on top of the minimap and a strong LUT tints it. Cosmetic only. Related: RenoDX's default toggle is F6, which is why F6 is refused as a mod hotkey.
-[*][b]Another UE4SS C++ mod that also hooks Present[/b] — the one combination that can actually lose an overlay. Whichever installs second usually wins; the loser is invisible. Test them one at a time before reporting a blank screen.
-[*][b]The Steam overlay[/b] — start-up creates and destroys a throwaway swapchain once and Steam's overlay follows what it sees created, so the Steam FPS counter can end up pointing at nothing. First run of a new install only; the addresses are cached afterwards. Shift+Tab still works.
+[*][b]ReShade / RenoDX[/b] (any [code]dxgi.dll[/code] or [code]d3d12.dll[/code] next to the game exe) — the mod draws [i]before[/i] ReShade's effects, so grading and sharpening are applied on top of the minimap and a strong LUT tints it. Cosmetic only. F6 is refused as a mod hotkey because it is RenoDX's default toggle.
+[*][b]Another UE4SS C++ mod that also hooks Present[/b] — the one combination that can lose an overlay: whichever installs second usually wins, and the loser is invisible. Test them one at a time before reporting a blank screen.
+[*][b]The Steam overlay[/b] — the first run of a new install creates and destroys a throwaway swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at nothing. The addresses are cached afterwards. Shift+Tab still works.
 [/list]
 
 [size=5]Reporting a bug[/size]
-Attach [code]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/code] — the mod's own log, rotated per launch, so it survives restarting the game. Its first six lines carry every version number a report needs. Add [code]wuchang_minimap_last_stage.txt[/code] if the game crashed, [code]wuchang_minimap_watchdog.txt[/code] if it froze, and your [code]config_wuchang_minimap.txt[/code].
+Attach [code]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/code] — the mod's own log, rotated per launch. Its first six lines carry every version number a report needs. Add [code]wuchang_minimap_last_stage.txt[/code] if the game crashed, [code]wuchang_minimap_watchdog.txt[/code] if it froze, and your [code]config_wuchang_minimap.txt[/code].
 
 If the minimap simply is not on screen, press F2 and screenshot the orange [code]hidden because:[/code] line at the top of the Player tab — it names the exact reason. If I ask you to reproduce something, set [code]log_level = verbose[/code] in the config first (or pick it under Advanced → Diagnostics → Log detail).
 
 [size=5]Permissions and credits[/size]
-[b]MIT licensed[/b] — fork it, reuse it, translate it; the licence just has to travel with it. Credit appreciated, not required. Third-party components: Dear ImGui (MIT), MinHook (BSD-2-Clause), fmt (MIT), RE-UE4SS (MIT); full notices ship in [code]THIRD_PARTY_NOTICES.md[/code].
+[b]MIT licensed[/b] — fork it, reuse it, translate it; the licence has to travel with it. Credit appreciated, not required. Third-party components: Dear ImGui (MIT), MinHook (BSD-2-Clause), fmt (MIT), RE-UE4SS (MIT); full notices ship in [code]THIRD_PARTY_NOTICES.md[/code].
 
 The map backgrounds, the marker database and every name shown are extracted from the game's own data. Not affiliated with the developers or publisher of Wuchang: Fallen Feathers.
 ```
@@ -88,27 +87,20 @@ The map backgrounds, the marker database and every name shown are extracted from
 
 ## Screenshots to take
 
-The first image is the mod page's thumbnail, so it has to read at a small size. Take
-everything at the game's native resolution and do not crop the HUD away.
+Image 1 is the mod page thumbnail and has to read at a small size. Native resolution, HUD
+not cropped.
 
-- [ ] **1 — The minimap in the world (thumbnail).** Daylight or a lit area, standing
-  somewhere with real structure, minimap top-left at its default size, several marker
-  categories visible at once (a shrine, a chest or two, a pickup, an NPC). The compass
-  strip in the frame at the top. This is the one people judge the mod by.
-- [ ] **2 — The full map on `M`.** A chapter fitted to the screen (`Home`) so the shape of
-  the level reads, the legend column on the right visible, a waypoint placed, the floor
-  offset showing. Chapter 1 or 3 — they have the most recognisable silhouettes.
-- [ ] **3 — The x-ray highlight.** Standing in front of a wall with loot behind it,
-  highlight on, several labelled markers through the wall with names and distances, an
-  edge arrow if one is showing. This is the feature that needs a picture to be understood.
-- [ ] **4 — The F2 panel, Player tab.** Open on the category-filter block so the coloured
-  chips with their glyphs are visible, with a couple of sections expanded — it shows at a
-  glance that the mod is configurable in-game rather than by file editing.
-- [ ] **5 — The collection statistics page.** The per-chapter matrix with real numbers in
-  it, from a save with a decent amount of progress. Empty columns look broken; make sure
-  the save has shrines lit, chests opened and at least one boss beaten.
-- [ ] **6 — The shrine list on the full map**, showing the game's own shrine names and
-  distances next to the map. This is the concrete proof of "real names, not internal ids",
-  which is otherwise a claim.
-- [ ] *(optional)* **7 — The Bindings tab**, mid-rebind, for the "every hotkey is
-  rebindable" claim.
+- [ ] **1 — The minimap in the world (thumbnail).** A lit area with real structure,
+  minimap top-left at its default size, several marker categories at once (shrine, a
+  chest or two, a pickup, an NPC), the compass strip in frame.
+- [ ] **2 — The full map on `M`.** A chapter fitted to the screen (`Home`), the legend
+  column visible, a waypoint placed, the floor offset showing. Chapter 1 or 3.
+- [ ] **3 — The x-ray highlight.** In front of a wall with loot behind it, highlight on,
+  several labelled markers through the wall, an edge arrow if one is showing.
+- [ ] **4 — The F2 panel, Player tab**, on the category-filter block so the coloured
+  chips and glyphs are visible, a couple of sections expanded.
+- [ ] **5 — The collection statistics page**, from a save with shrines lit, chests opened
+  and at least one boss beaten.
+- [ ] **6 — The shrine list on the full map**, with the game's own shrine names and
+  distances.
+- [ ] *(optional)* **7 — The Bindings tab**, mid-rebind.

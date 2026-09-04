@@ -247,10 +247,9 @@ try {
     if (Test-Path $itemsSrc) { Copy-Item -LiteralPath $itemsSrc -Destination $markersDst -Force }
 
     #     shrines.json (schema wuchang-minimap-shrines/1, from
-    #     tools\markers\extract_shrines.py) is REQUIRED from 0.9.4: it is what the full
-    #     map's shrine list shows (the localised names and the chapter) and what fast
-    #     travel targets. Without it the panel says so, which reads as a broken feature -
-    #     so a package that lacks it is a packaging bug, not a degraded build.
+    #     tools\markers\extract_shrines.py) is REQUIRED: it is what the full map's shrine
+    #     list shows (the localised names and the chapter) and what fast travel targets.
+    #     A package that lacks it is a packaging bug, not a degraded build.
     $shrinesSrc = Join-Path $repo 'markers\shrines.json'
     if (-not (Test-Path $shrinesSrc)) {
         throw "markers\shrines.json is missing - build it with tools\markers\extract_shrines.py."
@@ -346,10 +345,9 @@ try {
     # a shipped document are all checked by tools\check_release.ps1, against THIS package
     # tree. It lives in its own script so it can also be run before a release starts, and
     # so there is exactly one definition of "consistent".
-    #
-    # The old check here was `-match '@@[A-Z]+@@'` over two files, which is why 1.0.0
-    # shipped a LICENSE reading "Copyright (c) 2026 <AUTHOR>": a `<...>` placeholder is
-    # not an `@@...@@` one, and LICENSE was not one of the two files.
+    # It covers every shipped document and both placeholder shapes: `@@...@@` and
+    # `<ALLCAPS>` (a LICENSE reading "Copyright (c) 2026 <AUTHOR>" is not an `@@...@@`
+    # one).
     & (Join-Path $PSScriptRoot 'check_release.ps1') -PackageRoot $pkgRoot -Ue4ssBuild $Ue4ssBuild
     if ($LASTEXITCODE -ne 0) {
         $problems.Add("release consistency check reported $LASTEXITCODE problem(s) - see above")

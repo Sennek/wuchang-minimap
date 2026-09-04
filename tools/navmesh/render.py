@@ -41,19 +41,18 @@ lost to a mis-assigned floor. This is the map background.
 
 Optional floor split (`--floors`)
 ---------------------------------
-Two modes, both **global** -- neither buckets by streaming cell, which is what produced
-the cell-shaped black squares in the first render (a 12-polygon Z outlier in one cell
-monopolised that cell's "floor 0" and pushed its real ground into floor 1, so the cell
-went black on floor 0 while its neighbours were fine):
+Two modes, both **global**. Neither buckets by streaming cell: per-cell ranking draws
+cell-shaped black squares, because one 12-polygon Z outlier can monopolise that cell's
+"floor 0" and push its real ground into floor 1.
 
   * `--floor-mode grid` (default): cluster on a fine XY grid (`--floor-grid`, 640 uu)
     by splitting sorted centroid Z wherever the gap exceeds `--floor-gap` (500 uu),
     then rank the resulting bands locally (0 = lowest surface in that bucket) and
     median-smooth those ranks across 4-neighbour buckets whose Z ranges are compatible
     for a few passes, so a floor stays continuous across grid, tile and package borders
-    while a lone Z outlier can no longer take a whole bucket's floor 0 with it. (A
-    union-find over the same relation was tried and is useless here: ramps connect
-    every storey, so the whole chapter collapses into one sheet.)
+    while a lone Z outlier cannot take a whole bucket's floor 0 with it. (A union-find
+    over the same relation is useless here: ramps connect every storey, so the whole
+    chapter collapses into one sheet.)
   * `--floor-mode bands`: pick global Z bands from the histogram of all centroid Z
     (split at the widest empty Z gaps, `--floor-gap`). Cruder, but immune to ramps
     merging two storeys into one sheet.
@@ -62,10 +61,10 @@ Flat planes: out of bounds vs a real floor
 ------------------------------------------
 Chapter 1 contains 347 polygons that are a single flat quad filling an entire 1 280-uu
 tile (1 638 400 uu2). They carry the same `area = 63` (RC_WALKABLE_AREA) and `flags = 1`
-as everything else, so they cannot be filtered by area type - but they are NOT all
-scenery either. Dropping them all (what this script used to do) deleted the drained-lake
-Commander Honglan boss arena and the Tang-palace shrine terrace along with the sky
-plane, and the user saw those as black tile-aligned squares on the minimap.
+as everything else, so they cannot be filtered by area type - and they are not all
+scenery: the drained-lake Commander Honglan boss arena and the Tang-palace shrine
+terrace are flat quads too, and dropping them draws black tile-aligned squares on the
+minimap.
 
 So the quads are clustered by Z into *sheets* and a sheet is dropped only when it looks
 out of bounds (see `classify_flat_planes`):
@@ -435,10 +434,10 @@ def classify_flat_planes(
       * no *ordinary* (non-candidate) navmesh exists within `isolation` uu of the
         sheet's Z anywhere under its 1280-uu tile footprint.
 
-    Everything else is a real floor and is kept. `min_area` alone used to decide this,
-    which deleted the drained-lake boss arena (4 quads at Z 71 under the Honglan boss)
-    and the Tang-palace shrine terrace (4 quads at Z 1671) - both of them rendered
-    in-game as a black tile-aligned square.
+    Everything else is a real floor and is kept. Area alone cannot decide this: the
+    drained-lake boss arena (4 quads at Z 71 under the Honglan boss) and the
+    Tang-palace shrine terrace (4 quads at Z 1671) are full-tile flat quads and are
+    floors.
     """
     by_z: dict[float, int] = {}
     cand: list[dict] = []

@@ -87,8 +87,8 @@ else {
     }
 }
 
-# The changelog's top RELEASED heading. "## Unreleased" is deliberately skipped - it is
-# where in-progress entries live - but a released heading must exist and must be ours.
+# The changelog's top "## x.y.z" heading. Any other heading is skipped; a version
+# heading must exist and must match version.hpp.
 $changelogSrc = Join-Path $PSScriptRoot 'CHANGELOG.template.md'
 $t = Read-TextOrNull $changelogSrc
 if (-not $t) { Add-Problem 'tools\CHANGELOG.template.md is missing' }

@@ -72,14 +72,12 @@
   <h4>It must be this exact UE4SS build</h4>
   <pre>UE4SS v3.0.1-1111-g97b7e501   (the "experimental-latest" asset of Nexus mod 384)</pre>
   <p>The mod links straight to that DLL's exports, so <strong>another UE4SS build will not
-  work</strong> &mdash; and it fails silently. What a mismatch looks like: the game launches and
-  plays normally, no overlay ever appears, <kbd>F2</kbd> does nothing, and
-  <code>ue4ss\UE4SS.log</code> contains</p>
+  work</strong>, and the failure is silent: the game plays normally, no overlay appears,
+  <kbd>F2</kbd> does nothing, and <code>ue4ss\UE4SS.log</code> contains</p>
   <pre>Failed to load dll &lt;...\Mods\WuchangMinimap\dlls\main.dll&gt; for mod WuchangMinimap,
 error: The specified procedure could not be found.</pre>
-  <p>rather than <code>WuchangMinimap v@@VERSION@@ loaded</code>. If you see that, install the
-  build named above. <code>BUILD_INFO.txt</code> in this folder repeats the version, so a bug
-  report can be checked against it.</p>
+  <p>rather than <code>WuchangMinimap v@@VERSION@@ loaded</code>. <code>BUILD_INFO.txt</code>
+  in this folder repeats the version.</p>
 </div>
 
 <div class="box danger">
@@ -89,9 +87,9 @@ error: The specified procedure could not be found.</pre>
   <pre>[Hooks]
 HookInitGameState = 0</pre>
   <p><strong>Without this the game crashes about a third of a second into loading</strong>, with or
-  without this mod. UE4SS's hook on <code>AGameModeBase::InitGameState</code> breaks Wuchang's custom
-  game mode. Every other hook can stay on. This is a UE4SS-plus-Wuchang problem, not a bug in this
-  mod &mdash; if the game started crashing the moment you installed UE4SS, this is why.</p>
+  without this mod: UE4SS's hook on <code>AGameModeBase::InitGameState</code> breaks Wuchang's custom
+  game mode. Every other hook can stay on. It is a UE4SS-plus-Wuchang problem, not a bug in this
+  mod.</p>
 </div>
 
 <h2 id="install">2. Install</h2>
@@ -101,17 +99,16 @@ HookInitGameState = 0</pre>
   <li>Copy the <code>ue4ss\</code> folder from this download into
       <code>Project_Plague\Binaries\Win64\</code> and <strong>merge</strong> when Windows asks.
       Everything in the package lives under <code>ue4ss\Mods\WuchangMinimap\</code>, so nothing of
-      UE4SS's own is overwritten. (Updating over an old install? Windows will offer to replace
-      <code>config_wuchang_minimap.txt</code> &mdash; if you have edited yours, keep yours.)</li>
+      UE4SS's own is overwritten. Updating over an old install: Windows offers to replace
+      <code>config_wuchang_minimap.txt</code> &mdash; keep yours if you have edited it.</li>
   <li>Check <code>[Hooks] HookInitGameState = 0</code>, as above.</li>
-  <li>Launch the game and load a save &mdash; the overlay is deliberately hidden on the main menu
-      &mdash; then press <kbd>F2</kbd>.</li>
+  <li>Launch the game and load a save &mdash; the overlay is hidden on the main menu &mdash; then
+      press <kbd>F2</kbd>.</li>
 </ol>
 
 <p>There is no <code>mods.txt</code> to edit: the empty <code>enabled.txt</code> in the mod folder is
-the opt-in. <strong>To uninstall</strong>, delete
-<code>ue4ss\Mods\WuchangMinimap\</code>; that is the whole mod, and it modifies no game or save
-data.</p>
+the opt-in. <strong>To uninstall</strong>, delete <code>ue4ss\Mods\WuchangMinimap\</code>. The mod
+modifies no game or save data.</p>
 
 <h2 id="hotkeys">3. Hotkeys</h2>
 
@@ -133,9 +130,8 @@ bind a combination such as <kbd>Ctrl</kbd>+<kbd>M</kbd>. <kbd>F6</kbd> and
 <kbd>F9</kbd>&ndash;<kbd>F12</kbd> are refused &mdash; they belong to RenoDX/DLSS, the engine, the game
 console and Steam. The tab warns when a key is one the game itself is likely to want.</p>
 
-<p>A key bound to the mod is <strong>taken away from the game</strong> while the mod is using it, so a
-hotkey no longer does two things at once. If you would rather the game kept a key, put a modifier in
-front of the mod's binding.</p>
+<p>A key bound to the mod is <strong>taken away from the game</strong> while the mod is using it. Put
+a modifier in front of the binding to leave the bare key to the game.</p>
 
 <p>Settings live in <code>ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt</code>, which documents
 every key inline; the <kbd>F2</kbd> panel edits the same file, and <kbd>F5</kbd> reloads it without
@@ -143,30 +139,27 @@ restarting the game.</p>
 
 <h2 id="conflicts">4. Known conflicts</h2>
 
-<p>None of these stops the mod working, but all three have surprised someone.</p>
-
 <table>
   <tr><th style="width:210px">What</th><th>What happens</th></tr>
   <tr>
     <td><strong>ReShade / RenoDX</strong><br><span style="color:var(--muted)">any
         <code>dxgi.dll</code> or <code>d3d12.dll</code> next to the game exe</span></td>
     <td>The mod draws <em>before</em> ReShade's effects, so colour-grading, tone-mapping and
-        sharpening are applied on top of the minimap and a strong LUT will tint it. Cosmetic
-        only &mdash; the map just is not colour-accurate. Related: RenoDX's default toggle is
-        <kbd>F6</kbd>, which is why <kbd>F6</kbd> is refused as a mod hotkey.</td>
+        sharpening are applied on top of the minimap and a strong LUT tints it. Cosmetic only.
+        <kbd>F6</kbd> is refused as a mod hotkey because it is RenoDX's default toggle.</td>
   </tr>
   <tr>
     <td><strong>Another UE4SS C++ mod that also hooks <code>Present</code></strong></td>
-    <td>The one combination that can genuinely lose an overlay. Two overlays on one swapchain:
-        whichever installs second usually wins and the loser is invisible. If you run one, test
-        them one at a time before reporting a blank screen.</td>
+    <td>The one combination that can lose an overlay: two overlays on one swapchain, whichever
+        installs second usually wins, and the loser is invisible. Test them one at a time before
+        reporting a blank screen.</td>
   </tr>
   <tr>
     <td><strong>The Steam overlay</strong></td>
-    <td>Starting up creates and destroys a throwaway swapchain once, and Steam's overlay follows
-        what it sees created &mdash; the reported symptom is the Steam FPS counter pointing at
-        nothing. Addresses are cached after the first launch, so this affects the <strong>first
-        run of a new install only</strong>. Shift+Tab keeps working.</td>
+    <td>The first run of a new install creates and destroys a throwaway swapchain, which Steam's
+        overlay follows, so its FPS counter can end up pointing at nothing. The addresses are
+        cached afterwards, so it is the <strong>first run only</strong>. Shift+Tab keeps
+        working.</td>
   </tr>
 </table>
 
@@ -182,8 +175,8 @@ running and only the minimap is suppressed: the top of the <em>Player</em> tab p
 <div class="box warn">
   <h4>Reporting a bug: attach this file</h4>
   <p><code>ue4ss\Mods\WuchangMinimap\wuchang_minimap.log</code> &mdash; the mod's own log, rotated per
-  launch (<code>.1</code>&hellip;<code>.3</code> are previous sessions), so it survives restarting the
-  game to try something else. Its first six lines carry every version number a report needs.</p>
+  launch (<code>.1</code>&hellip;<code>.3</code> are previous sessions). Its first six lines carry
+  every version number a report needs.</p>
   <p>Also useful: <code>wuchang_minimap_last_stage.txt</code> if the game <em>crashed</em>,
   <code>wuchang_minimap_watchdog.txt</code> if it <em>froze</em>, and your
   <code>config_wuchang_minimap.txt</code>.</p>

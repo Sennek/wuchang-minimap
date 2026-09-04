@@ -364,8 +364,8 @@ try {
     $pngCount = 0
     if (Require-File $manifestPath 'maps.json') {
         $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-        if ($manifest.schema -ne 'wuchang-minimap-maps/4') {
-            $problems.Add("maps.json schema is '$($manifest.schema)', expected 'wuchang-minimap-maps/4'")
+        if ($manifest.schema -ne 'wuchang-minimap-maps/5') {
+            $problems.Add("maps.json schema is '$($manifest.schema)', expected 'wuchang-minimap-maps/5'")
         }
         $chapters = @($manifest.chapters.PSObject.Properties)
         if ($chapters.Count -lt 5) { $problems.Add("maps.json lists $($chapters.Count) chapters, expected 5") }

@@ -28,6 +28,11 @@ WHAT IT REWRITES
                               1..4095 (still 16-bit grayscale PNGs; the /3 files are
                               deleted). THE FILES AND THE MANIFEST KEY ARE RENAMED ON
                               PURPOSE - see src/mapmanifest.hpp.
+                              Bit 12, the reachable flag, rides through untouched: it
+                              is not a number and is never re-scaled. A tree built
+                              before the reachability pass carries no flag, so a repack
+                              of one flags every surface - which is exactly what a
+                              flagless asset means.
   * `maps/maps.json`          the format fields (`z_bits`, `z_code_max`, `z_step_uu`,
                               `z_quantisation`, `composite_format`), the new byte
                               counts, and the tile-store numbers the runtime pays
@@ -45,6 +50,7 @@ than a blank map in-game.
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
 import time
@@ -110,17 +116,18 @@ def _repack_heights(key: str, entry: dict, src: Path, dst: Path, dry_run: bool) 
     # rename happens here, and the /3 files are deleted at the end - a maps/ folder
     # holding both would double the download and the first stale one would win the
     # next time somebody hand-edited the manifest.
-    stem = Path(files[0]).name
-    stem = stem[: stem.rfind("_z")] if "_z" in stem else Path(files[0]).stem
+    # `small_z0.png` and `small_h0.png` both belong to the stem `small`, so a repack of
+    # a repack keeps the names it already wrote instead of stacking another suffix.
+    stem = re.sub(r"_[hz]\d+$", "", Path(files[0]).stem)
     out_files = [mapfmt.height_plane_name(key, stem, k) for k in range(len(files))]
 
-    sizes: list[int] = []
+    src_step = mapfmt.z_step_uu(z_min, z_max, src_code_max)
+    dst_step = mapfmt.z_step_uu(z_min, z_max)
+
     before = 0
     planes: list["np.ndarray"] = []
     worst_uu = 0.0
-    src_step = mapfmt.z_step_uu(z_min, z_max, src_code_max)
-    dst_step = mapfmt.z_step_uu(z_min, z_max)
-    for k, hrel in enumerate(files):
+    for hrel in files:
         hp = src / hrel
         code = mapfmt.read_height_png(hp)
         before += hp.stat().st_size
@@ -130,20 +137,36 @@ def _repack_heights(key: str, entry: dict, src: Path, dst: Path, dry_run: bool) 
         )
         # The error this step actually introduced, in world units - measured over
         # every lit pixel rather than predicted from the step size.
-        nz = code != 0
+        zc = mapfmt.z_codes(code)
+        nz = zc != 0
         if nz.any():
-            old_uu = (code[nz].astype(np.float64) - 1.0) * src_step
-            new_uu = (out[nz].astype(np.float64) - 1.0) * dst_step
+            old_uu = (zc[nz].astype(np.float64) - 1.0) * src_step
+            new_uu = (mapfmt.z_codes(out)[nz].astype(np.float64) - 1.0) * dst_step
             worst_uu = max(worst_uu, float(np.abs(new_uu - old_uu).max()))
+        planes.append(out)
+
+    # No flag anywhere means the source predates the reachability pass, and a flagless
+    # asset means "every surface is reachable" - so say so explicitly rather than
+    # shipping a /5 tree the runtime would draw as empty.
+    flagged = any(bool(mapfmt.reach_mask(a).any()) for a in planes)
+    if not flagged:
+        planes = [mapfmt.apply_reach_bit(a, np.ones(a.shape, dtype=bool)) for a in planes]
+        print("  reachability: the source carries no flag - flagging every surface")
+        entry["reachability"] = {
+            "enabled": False,
+            "note": "repacked from an asset with no reachability pass: every surface is flagged",
+        }
+
+    sizes: list[int] = []
+    for k, out in enumerate(planes):
         data = mapfmt.encode_height_png(out)
         if not dry_run:
             (dst / out_files[k]).parent.mkdir(parents=True, exist_ok=True)
             (dst / out_files[k]).write_bytes(data)
         sizes.append(len(data))
-        planes.append(out)
         print(
-            f"    {hrel} -> {out_files[k]}: "
-            f"{mapfmt.mb(hp.stat().st_size)} -> {mapfmt.mb(sizes[-1])}"
+            f"    {files[k]} -> {out_files[k]}: "
+            f"{mapfmt.mb((src / files[k]).stat().st_size)} -> {mapfmt.mb(sizes[-1])}"
         )
 
     if not dry_run and from_legacy:

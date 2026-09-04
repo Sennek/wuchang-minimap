@@ -283,7 +283,7 @@ up in the tree.
 
 **Smoke check**, before the zip is created:
 
-* `maps.json` parses, is schema `wuchang-minimap-maps/4` and lists five chapters;
+* `maps.json` parses, is schema `wuchang-minimap-maps/5` and lists five chapters;
 * every `image` and every `height_planes` entry it names exists and is non-empty — the list
   `mapdata.cpp` walks at start-up — and a PNG in `maps\` the manifest does *not* name is
   warned about as dead download weight;
@@ -385,7 +385,7 @@ tools/INSTALL_GUIDE.html   the player-facing guide; @@VERSION@@ / @@DATE@@ are s
 tools/CHANGELOG.template.md the changelog dropped at the package root
 tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
 tools/navmesh/build_map.py tile JSON -> composite + multi-surface height planes + maps/maps.json
-tools/navmesh/mapfmt.py    the ON-DISK format: schema, palette PNG, 12-bit height codes
+tools/navmesh/mapfmt.py    the ON-DISK format: schema, palette PNG, 12-bit height codes + reach bit
 tools/navmesh/repack_maps.py re-encode a shipped maps/ tree (no dumps needed)
 tools/navmesh/slice_preview.py the runtime's height-slicing rule, offline, for any (x, y, z)
 maps/                      the shipped map assets (deployed into the mod folder)
@@ -601,7 +601,7 @@ python build_map.py --input dumps_offline --chapter chapter1 --out ..\..\maps
 `build_map.py` imports `render.py`, so the loader, the richest-copy dedupe and the flat-plane
 filter are shared, and `mapfmt.py`, which owns the on-disk format (schema string, palette
 encoder, height quantisation) so a fresh build and a re-encode cannot disagree. It writes
-three things (schema `wuchang-minimap-maps/4`):
+three things (schema `wuchang-minimap-maps/5`):
 
 1. **`chapter1/small.png`** — the Z-shaded composite of every storey, transparent background,
    as a **256-colour palette PNG** with a tRNS array. The render is flat-filled from a
@@ -613,8 +613,10 @@ three things (schema `wuchang-minimap-maps/4`):
    and is not loaded unless `fallback_use_composite = 1`.
 2. **`chapter1/small_h0.png` .. `_h7.png`** — the **multi-surface height map**: eight 16-bit
    grayscale PNGs where plane k holds, at every pixel, the Z of the k-th walkable surface
-   from the bottom. `code = 1 + round((Z - z_min) / (z_max - z_min) * 4094)`, and **code 0
-   means "no surface"**. All eight share one size, one `px_per_uu` and one set of bounds.
+   from the bottom. Bits 0..11 are the Z:
+   `code = 1 + round((Z - z_min) / (z_max - z_min) * 4094)`, and **code 0 means "no
+   surface"**. **Bit 12 (0x1000) means the surface is REACHABLE** (below). All eight share
+   one size, one `px_per_uu` and one set of bounds.
    Chapter 1: **4947 x 4333, 5.2 MB of PNG, 86 MB of RAM** (`z_min` -11649, `z_max` 38871,
    12.34 uu per step). Properties that matter:
    * **Fill only, no outlines.** Coverage is "the sample point is inside the polygon, or
@@ -636,20 +638,20 @@ three things (schema `wuchang-minimap-maps/4`):
    the surface slot) and the measured tile-store cost (`height_tiles_128`,
    `height_tile_ram_bytes`). 11 kB.
 
-### Formats and sizes (schema /4)
+### Formats and sizes (schema /5)
 
 | | chapter 1 | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|---|
 | `px_per_uu` | 0.0600 | 0.0553 | 0.0483 | 0.0523 | 0.0320 |
 | pixels | 4947x4333 | 4821x4613 | 3812x5835 | 4898x4541 | 3029x7342 |
 | composite PNG | 1.51 MiB | 1.24 | 1.35 | 1.00 | 0.79 |
-| height planes, PNG | 5.15 MiB | 4.08 | 4.14 | 3.09 | 3.79 |
+| height planes, PNG | 5.22 MiB | 4.13 | 4.19 | 3.11 | 3.82 |
 | Z step | 12.34 uu | 12.23 | 12.44 | 7.26 | 3.98 |
 | 128-px blocks lit | 2766/10608 | 2215/11248 | 2366/11040 | 1644/11232 | 1515/11136 |
 | **RAM resident** | **86 MiB** | 69 | 74 | 51 | 47 |
 | (dense would be) | 327 MiB | 339 | 339 | 339 | 339 |
 
-`maps/` is **26.1 MiB** in total.
+`maps/` is **26.4 MiB** in total.
 
 **Why 12 bits.** The slicer's decision is `|Z - feetZ| <= floor_z_tolerance` with a 200 uu
 tolerance and an 800 uu fade, and the pipeline's own storey separator (`--floor-band-gap`) is
@@ -657,6 +659,41 @@ tolerance and an 800 uu fade, and the pipeline's own storey separator (`--floor-
 a storey gap. 10-bit (49 uu, a quarter of the tolerance) would start to matter.
 `repack_maps.py` measures the error it introduced over every lit pixel and stamps it into the
 manifest as `z_requantise_worst_uu`; `markers_test` fails if it exceeds 20 uu.
+
+### Reachability: bit 12
+
+The map background is every walkable Recast polygon the game cooked, and Recast walks
+wall tops, roof ridges, cliff ledges, rubble under scenery and the outside faces of arena
+walls. That is 34..63 % of the walkable area and 98 % of the visually separate blobs on the
+map — the shipped assets carry 670..931 of them per chapter, which is what the player sees
+as one arena in a field of scraps.
+
+`build_map.py` marks what a player can get to, right after the rasterisation and before the
+quantisation. The surfaces of the height planes are the nodes of a directed 8-neighbour
+graph, with an edge from surface *s* to a neighbouring surface *t* when
+`Z_t <= Z_s + --reach-step-up` (default **60 uu**) — a walk, a small step up, or a fall of
+any depth — and it is flooded by one BFS from a virtual super-source over every seed. The
+seeds are **every marker in `markers/<chapter>.json`, every category**, snapped to the
+surface within 400 uu of its own Z, which is `marker_coverage.py`'s own criterion: enemy
+spawns alone are 40..60 % of them, and an AI stands where the floor is real. Everything the
+flood reaches gets bit 12; nothing is deleted, and the runtime decides what to do with the
+rest (`map_unreachable`).
+
+| | chapter 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| seeds (of all markers) | 728 of 916 | 707 of 905 | 565 of 740 | 289 of 341 | 324 of 359 |
+| reached area | 66 % | 54 % | 44 % | 40 % | 37 % |
+| blobs, 8-connected | 763 -> 13 | 931 -> 10 | 931 -> 22 | 670 -> 16 | 771 -> 8 |
+| markers stranded | 0 | 0 | 0 | 0 | 0 |
+| unreached blobs >= 400 m2 | 22 | 24 | 47 | 31 | 31 |
+
+The parameters are measured insensitive: 60 -> 300 uu of step-up moves chapter 2 by 0.8 pp
+and a 3-px neighbour radius by 1.7 pp. **The seeds are the whole lever**, so the risk is an
+area whose only access is a ladder, a lift or a jump *and* which holds no marker at all;
+every unreached blob of 400 m2 or more is listed in `maps.json` under
+`reachability.big_unreached` with its centre and Z, so "why is there a hole here" starts
+from a table. `--reach-seeds-extra <json>` adds seed points from a recorded player track,
+and `--no-reach` flags every surface instead.
 
 **Why 128-px blocks.** The planes are read by a CPU loop, never sampled by the GPU, so they
 live in ordinary RAM — and three quarters of a dense plane is code 0, because a chapter's
@@ -669,10 +706,12 @@ so there is no row pointer — gather a row with
 `HeightMaps::gather_row(k, sy, col_x, n, dst)`, which returns `false` for a row with no
 surface at all so the caller can skip it.
 
-**The version is enforced in both directions.** `mapmanifest::parse()` refuses any schema
-that is not exactly `kSchema`: a /3 plane read by a /4 decoder puts every surface sixteen
-times too low and looks like an empty map rather than like an error. In the other direction,
-/4 renamed the manifest key (`height_maps` -> `height_planes`) and the files
+**The version is enforced in both directions.** `mapmanifest::parse()` accepts only the
+schemas the build implements: a /3 plane read by a /4 decoder puts every surface sixteen
+times too low and a /5 plane read by a /4 decoder puts every reachable surface 4096 codes
+too high — both look like an empty map rather than like an error. A **/4 asset stays
+readable**: it carries no flag bit, which means "every surface is reachable". In the other
+direction, /4 renamed the manifest key (`height_maps` -> `height_planes`) and the files
 (`_z<k>.png` -> `_h<k>.png`), so an older parser finds no list, guesses the `_z` names, finds
 nothing on disk and logs `NO height plane decoded ... build them with build_map.py`. Change
 the schema string in `tools/navmesh/mapfmt.py`, `src/mapmanifest.hpp` and
@@ -690,7 +729,9 @@ python tools\navmesh\repack_maps.py                    # in place, maps\
 not in the repo. A pure **format** change does not: the composite is re-palettised from its
 own pixels and the planes are re-scaled from their own codes, so `repack_maps.py` re-encodes
 a `maps/` tree in about 45 seconds with nothing else on disk, verifying every PNG by decoding
-the bytes back before they land. Use it when only the encoding changes; use `build_map.py`
+the bytes back before they land. Bit 12 rides through a repack untouched — it is a flag, not
+a number — and a tree that carries no flag at all is repacked with every surface flagged,
+which is what a flagless asset means. Use it when only the encoding changes; use `build_map.py`
 when the geometry, the filters or the resolution change.
 
 ### Resolution is per chapter

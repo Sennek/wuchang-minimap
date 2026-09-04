@@ -45,11 +45,29 @@ loss, and the tile store in `src/mapdata.cpp` takes the RAM to ~90 MB:
     flip anyway. 10-bit (49 uu, 25 % of the tolerance) would start to matter; 12 is
     the last power-of-two step that is unarguably free.
 
-A NEW DLL MUST REFUSE AN OLD MANIFEST AND VICE VERSA, because the two differ only in
-how a number is scaled: a /3 plane read with a /4 decoder puts every surface 16x too
-high, which looks like a map that is simply empty rather than like a version error.
-So `SCHEMA` is compared for exact equality on both sides and a mismatch is fatal -
-not, as before, a warning followed by reading it anyway.
+THE HEIGHT CODE, BIT BY BIT (schema /5)
+---------------------------------------
+One 16-bit grayscale sample per pixel per plane:
+
+    bits 0..11   the Z code, 1..4095; **0 = no surface** at this pixel and slot
+    bit 12       0x1000, REACHABLE - a player can walk, step up or fall onto this surface
+    bits 13..15  zero
+
+WHY /5. `build_map.py` floods the surface graph from every marker (walk, small step up,
+fall of any depth) and sets bit 12 on what it reaches; everything else stays in the
+asset with the bit clear. The runtime masks the flag out of the Z and decides per
+surface whether to hide, dim or show it (`map_unreachable`), so the two thirds of the
+walkable area that nobody can stand on stop cluttering the map without a single pixel
+being deleted - and the pass is reversible from one config line rather than by
+rebuilding assets. A /4 asset carries no flag, which reads as "every surface is
+reachable".
+
+A DECODER MUST MATCH THE MANIFEST, because the versions differ only in how a number is
+scaled or masked: a /3 plane read with a /4 decoder puts every surface 16x too high, and
+a /5 plane read with a /4 decoder puts every reachable surface 4096 codes too high -
+both look like a map that is simply empty rather than like a version error. So `SCHEMA`
+is compared on both sides and only the versions the reader actually implements are
+accepted; a mismatch is fatal.
 """
 
 from __future__ import annotations
@@ -71,12 +89,14 @@ except ImportError:  # pragma: no cover
 Image.MAX_IMAGE_PIXELS = None
 
 # The manifest contract with src/mapmanifest.hpp. Bump BOTH or neither.
-SCHEMA = "wuchang-minimap-maps/4"
+SCHEMA = "wuchang-minimap-maps/5"
 
 # Height codes. 0 means "no surface here"; 1..Z_CODE_MAX are heights, so the number
 # of distinct heights is Z_CODE_MAX - 1 and the step is span / (Z_CODE_MAX - 1).
 Z_BITS = 12
 Z_CODE_MAX = (1 << Z_BITS) - 1  # 4095
+Z_CODE_MASK = Z_CODE_MAX  # 0x0FFF - the Z lives in bits 0..11
+REACH_BIT = 1 << Z_BITS  # 0x1000 - "a player can reach this surface"
 # What schema /3 shipped, needed to requantise an already-built plane.
 Z_CODE_MAX_LEGACY = 65535
 
@@ -138,6 +158,23 @@ def quantise_z(z: "np.ndarray", z_min: float, z_max: float) -> "np.ndarray":
     return code
 
 
+def z_codes(code: "np.ndarray") -> "np.ndarray":
+    """The Z part of a height code - bits 0..11, 0 for "no surface"."""
+    return (code & np.uint16(Z_CODE_MASK)).astype(np.uint16)
+
+
+def reach_mask(code: "np.ndarray") -> "np.ndarray":
+    """Which cells of a height plane carry the reachable flag."""
+    return (code & np.uint16(REACH_BIT)) != 0
+
+
+def apply_reach_bit(code: "np.ndarray", reach: "np.ndarray") -> "np.ndarray":
+    """Set bit 12 wherever `reach` is true AND a surface exists. Never on code 0."""
+    out = z_codes(code)
+    out[reach & (out != 0)] |= np.uint16(REACH_BIT)
+    return out
+
+
 def requantise_codes(code: "np.ndarray", src_code_max: int, dst_code_max: int) -> "np.ndarray":
     """
     Re-scale already-quantised codes, preserving the 0 sentinel exactly.
@@ -146,13 +183,16 @@ def requantise_codes(code: "np.ndarray", src_code_max: int, dst_code_max: int) -
     navmesh dumps: the extra error is one dst step, and the src error it inherits
     (0.25..0.8 uu) is two orders of magnitude smaller than that.
     """
+    z = z_codes(code)
     out = np.zeros(code.shape, dtype=np.uint16)
-    nz = code != 0
+    nz = z != 0
     if nz.any():
-        t = (code[nz].astype(np.float64) - 1.0) / float(src_code_max - 1)
+        t = (z[nz].astype(np.float64) - 1.0) / float(src_code_max - 1)
         out[nz] = np.clip(1.0 + np.rint(t * (dst_code_max - 1)), 1.0, float(dst_code_max)).astype(
             np.uint16
         )
+    # The reachable flag rides along untouched: it is not a number and must not be scaled.
+    out |= code & np.uint16(REACH_BIT)
     return out
 
 
@@ -160,8 +200,15 @@ def encode_height_png(code: "np.ndarray") -> bytes:
     """One height plane -> 16-bit grayscale PNG bytes, verified bit-exact."""
     if code.dtype != np.uint16:
         raise ValueError(f"height codes must be uint16, got {code.dtype}")
-    if int(code.max(initial=0)) > Z_CODE_MAX:
-        raise ValueError(f"height code {int(code.max())} exceeds Z_CODE_MAX {Z_CODE_MAX}")
+    z = z_codes(code)
+    if int(z.max(initial=0)) > Z_CODE_MAX:
+        raise ValueError(f"height code {int(z.max())} exceeds Z_CODE_MAX {Z_CODE_MAX}")
+    spare = code & np.uint16(~(Z_CODE_MASK | REACH_BIT) & 0xFFFF)
+    if spare.any():
+        raise ValueError(f"height code {int(code[spare != 0][0])} uses bits above the reach flag")
+    stranded = reach_mask(code) & (z == 0)
+    if stranded.any():
+        raise ValueError(f"{int(stranded.sum())} cells carry the reach flag with no surface")
     buf = io.BytesIO()
     Image.frombytes(
         "I;16", (code.shape[1], code.shape[0]), code.astype("<u2").tobytes()
@@ -322,9 +369,12 @@ def stamp_format(entry: dict, z_min: float, z_max: float) -> dict:
     """Write the format fields src/mapmanifest.hpp reads into one chapter entry."""
     entry["z_bits"] = Z_BITS
     entry["z_code_max"] = Z_CODE_MAX
+    entry["z_code_mask"] = Z_CODE_MASK
     entry["z_code_no_surface"] = 0
+    entry["reach_bit"] = REACH_BIT
     entry["z_step_uu"] = z_step_uu(z_min, z_max)
     entry["z_quantisation"] = z_quantisation_text()
+    entry["reach_flag"] = "bit 12 of the height code = the surface is reachable"
     entry["composite_format"] = "png8-palette-trns"
     return entry
 
@@ -358,7 +408,7 @@ def tile_occupancy(planes: list["np.ndarray"], tile: int = 128) -> tuple[int, in
         nty = (h + tile - 1) // tile
         ntx = (w + tile - 1) // tile
         pad = np.zeros((nty * tile, ntx * tile), dtype=bool)
-        pad[:h, :w] = a != 0
+        pad[:h, :w] = z_codes(a) != 0
         blocks = pad.reshape(nty, tile, ntx, tile).any(axis=(1, 3))
         present += int(blocks.sum())
         total += nty * ntx
@@ -377,12 +427,17 @@ __all__ = [
     "SCHEMA",
     "Z_BITS",
     "Z_CODE_MAX",
+    "Z_CODE_MASK",
+    "REACH_BIT",
     "Z_CODE_MAX_LEGACY",
     "PALETTE_SIZE",
     "FILL_ALPHA",
     "z_step_uu",
     "z_quantisation_text",
     "quantise_z",
+    "z_codes",
+    "reach_mask",
+    "apply_reach_bit",
     "requantise_codes",
     "encode_height_png",
     "write_height_png",

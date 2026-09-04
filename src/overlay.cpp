@@ -220,24 +220,17 @@ namespace overlay
         bool g_capture_wait_release = false;
 
         //==============================================================================
-        // UI SCALE (review-0.9.1 § 1 item 1)
+        // UI SCALE
         //==============================================================================
         //
-        // ImGui's built-in font is 13 px and nothing here ever touched it, so on a 4K
-        // screen every label, tooltip, x-ray name and compass letter was a quarter of
-        // its intended physical size - the single biggest legibility problem in the mod.
+        // `ui_scale = auto` derives one number from the back-buffer height; a number in
+        // the config pins it. It is applied in exactly two places, so nothing can be
+        // scaled twice or missed:
         //
-        // ONE number fixes all of it. `ui_scale = auto` derives it from the back buffer
-        // height; a number in the config pins it. It is applied in exactly two places:
-        //
-        //   apply_ui_scale()  - the ImGui font size and the whole style, on the RENDER
-        //                       thread, before the frame's draw lists are built (the
-        //                       same rule the F5 texture drop obeys).
-        //   ui_scaled()       - every PIXEL config key, multiplied once per frame into
+        //   apply_ui_scale()  - the ImGui font size and the whole style, on the render
+        //                       thread, before the frame's draw lists are built.
+        //   ui_scaled()       - every pixel config key, multiplied once per frame into
         //                       a copy of the Config the HUD draws from.
-        //
-        // Nothing else in the drawing code knows about it, which is what stops the
-        // scale being applied twice to something or not at all to something else.
         //
 
         float wanted_ui_scale(const mm::Config& cfg, float screen_h)
@@ -245,8 +238,7 @@ namespace overlay
             float s = cfg.ui_scale;
             if (cfg.ui_scale_auto)
             {
-                // 1080p is the design size, so 1.0 there and 2.0 at 2160p. Never below
-                // 1: shrinking the UI on a small screen helps nobody.
+                // 1080p is the design size: 1.0 there, 2.0 at 2160p, never below 1.
                 s = screen_h > 0.0f ? screen_h / kBaseScreenHeight : 1.0f;
                 s = (std::max)(1.0f, (std::min)(kUiScaleMax, s));
             }
@@ -254,25 +246,21 @@ namespace overlay
             {
                 s = (std::max)(kUiScaleMin, (std::min)(kUiScaleMax, s));
             }
-            // Snap to a hundredth: a back buffer of 1081 px must not make the style be
-            // rebuilt on the next frame for a difference nobody can see.
+            // Snap to a hundredth, so a back buffer of 1081 px does not rebuild the
+            // style for an invisible difference.
             return std::round(s * 100.0f) / 100.0f;
         }
 
         //==============================================================================
-        // THE FONT (review B.11)
+        // THE FONT
         //==============================================================================
         //
-        // ImGui's built-in font is ProggyClean, a 13-pixel BITMAP. At 1080p that is the
-        // size it was drawn for; at 2160p `style.FontScaleMain = 2` magnifies the bitmap,
-        // which is the one part of the HUD a resolution-independent design cannot fake -
-        // every number in the panel and every marker label came out soft and blocky.
-        //
-        // So a real TTF is loaded and rasterised at 13 px, and ImGui 1.92's dynamic atlas
-        // re-rasterises it at 13 * ui_scale when the scale changes (the backend declares
-        // ImGuiBackendFlags_RendererHasTextures, so there is no atlas of ours to rebuild
-        // and no texture of ours to release - which is also why this is the only place
-        // that has to react to a scale change at all).
+        // ImGui's built-in ProggyClean is a 13-pixel bitmap, and `style.FontScaleMain`
+        // only magnifies it. So a real TTF is loaded and rasterised at 13 px, and ImGui
+        // 1.92's dynamic atlas re-rasterises it at 13 * ui_scale when the scale changes
+        // (the backend declares ImGuiBackendFlags_RendererHasTextures, so there is no
+        // atlas of ours to rebuild and no texture of ours to release) - which is why
+        // this is the only place that reacts to a scale change.
         //
 
         bool font_path_is_none(const char* path)
@@ -301,14 +289,13 @@ namespace overlay
                 mm::log(L"ui font: the built-in bitmap font (ui_font = none)");
                 return;
             }
-            // 13 px is the BASE size; style.FontScaleMain multiplies it, so this number
+            // 13 px is the base size; style.FontScaleMain multiplies it, so this number
             // stays 13 at every resolution and the scaling lives in one place.
             const ImFont* f = io.Fonts->AddFontFromFileTTF(cfg.ui_font, 13.0f);
             const std::wstring shown(cfg.ui_font, cfg.ui_font + ::strlen(cfg.ui_font));
             if (f == nullptr)
             {
-                // A wrong path is one log line and a working mod, never a mod with no
-                // text in it.
+                // A wrong path costs one log line, not a mod with no text in it.
                 io.Fonts->Clear();
                 io.Fonts->AddFontDefault();
                 mm::logf(L"ui font: could not read '{}' - using the built-in bitmap font", shown);
@@ -318,18 +305,17 @@ namespace overlay
         }
 
         //==============================================================================
-        // KEYBOARD AND GAMEPAD NAVIGATION (review B.8)
+        // KEYBOARD AND GAMEPAD NAVIGATION
         //==============================================================================
         //
-        // Called once from the D3D12 init, straight after CreateContext. The F2 panel was
-        // mouse-only: a player on a controller could open it and then not move inside it.
+        // Called once from the D3D12 init, straight after CreateContext.
         //
-        // NavEnableGamepad makes ImGui read io's gamepad buttons. It does NOT make
-        // anything poll XInput here: the backend's own XInput code is compiled out (see
-        // xmake.lua) because that runs inside Present, and feed_pad_nav() below hands
-        // ImGui the state the loop thread has already sampled.
+        // NavEnableGamepad makes ImGui read io's gamepad buttons. Nothing here polls
+        // XInput: the backend's own XInput code is compiled out (see xmake.lua) because
+        // it would run inside Present, and feed_pad_nav() below hands ImGui the state
+        // the loop thread already sampled.
         //
-        // NavEnableSetMousePos is deliberately NOT set - it would warp the OS cursor to
+        // NavEnableSetMousePos is deliberately not set - it would warp the OS cursor to
         // the focused widget, and the game owns that cursor.
         void ui_init_io(ImGuiIO& io)
         {
@@ -337,13 +323,9 @@ namespace overlay
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
         }
 
-        // RENDER THREAD. The pad state comes from gamepad.cpp on the loop thread; this
-        // only translates it into io events.
-        //
-        // ONLY WHILE THE PANEL IS OPEN. The full map reads the pad directly (it is a
-        // canvas, not a widget tree, and it has its own bindings for the sticks and the
-        // triggers), and during play the pad belongs to the game - a stick push must
-        // never move a focus rectangle nobody can see.
+        // Render thread. The pad state comes from gamepad.cpp on the loop thread; this
+        // only translates it into io events, and only while the panel is open - the full
+        // map reads the pad directly and during play the pad belongs to the game.
         void feed_pad_nav(const mm::Config& cfg)
         {
             static bool fed_last_frame = false;
@@ -362,9 +344,8 @@ namespace overlay
             {
                 if (fed_last_frame)
                 {
-                    // Release everything ONCE. Without this ImGui keeps whatever was
-                    // last held for ever, and nav stays stuck in a direction - the same
-                    // "nothing latched" rule the rest of the input obeys.
+                    // Release everything once, or ImGui keeps whatever was last held for
+                    // ever and nav stays stuck in a direction.
                     ImGuiIO& io = ImGui::GetIO();
                     for (const ImGuiKey k : kAllPadKeys)
                     {
@@ -379,8 +360,7 @@ namespace overlay
             const auto btn = [&io, &gp](ImGuiKey key, std::uint16_t bit) {
                 io.AddKeyEvent(key, (gp.held & bit) != 0);
             };
-            // A activates, B cancels: the Xbox layout, which is what ImGui's own nav
-            // key names mean.
+            // A activates, B cancels: the Xbox layout ImGui's nav key names mean.
             btn(ImGuiKey_GamepadFaceDown, pad::kA);
             btn(ImGuiKey_GamepadFaceRight, pad::kB);
             btn(ImGuiKey_GamepadFaceLeft, pad::kX);
@@ -394,8 +374,8 @@ namespace overlay
             btn(ImGuiKey_GamepadStart, pad::kStart);
             btn(ImGuiKey_GamepadBack, pad::kBack);
             // The left stick moves the focus. ImGui wants an analogue value for a
-            // directional nav key (0 = not pressed, 1 = fully pushed); the deadzone has
-            // already been applied and the range rescaled by gamepad.cpp.
+            // directional nav key (0 = not pressed, 1 = fully pushed); gamepad.cpp has
+            // already applied the deadzone and rescaled the range.
             const auto axis = [&io](ImGuiKey key, float v) {
                 const float a = v > 0.0f ? (v > 1.0f ? 1.0f : v) : 0.0f;
                 io.AddKeyAnalogEvent(key, a > 0.1f, a);
@@ -406,12 +386,12 @@ namespace overlay
             axis(ImGuiKey_GamepadLStickDown, -gp.ly);
         }
 
-        // Render thread. Rebuilds the ImGui style FROM SCRATCH at the new scale - never
-        // ScaleAllSizes on the already-scaled style, which would compound every time.
+        // Render thread. Rebuilds the ImGui style from scratch at the new scale - never
+        // ScaleAllSizes on an already-scaled style, which compounds.
         void apply_ui_scale(float scale)
         {
-            // The font rides along here because this is the one function that runs on
-            // the render thread at the top of every frame, before a draw list exists.
+            // The font rides along: this is the one function that runs on the render
+            // thread at the top of every frame, before a draw list exists.
             ensure_ui_font(mm::cfg_cached());
             if (scale == g_ui_scale_applied)
             {
@@ -428,7 +408,7 @@ namespace overlay
             mm::logf(L"ui scale: {:.2f} (font {:.0f} px, style rebuilt)", scale, 13.0f * scale);
         }
 
-        // Every config key that is a NUMBER OF PIXELS, multiplied once. Fractions of the
+        // Every config key that is a number of pixels, multiplied once. Fractions of the
         // screen (minimap_size, compass_width, map_margin) are already resolution
         // independent and are deliberately absent.
         mm::Config ui_scaled(const mm::Config& cfg, float s)
@@ -447,28 +427,17 @@ namespace overlay
             out.offset_y *= s;
             out.minimap_min_px *= s;
             out.minimap_arrow_min_px *= s;
-            // THE TWO ZOOM KEYS (review B.12). `zoom_uu_per_px` and `map_zoom` are world
-            // units per SCREEN PIXEL, and the disc's SIZE is a fraction of the screen -
-            // so leaving them alone means a 4K minimap, twice as many pixels across,
-            // shows twice the world radius at the same setting. That is a different view,
-            // not a bigger one, and it is not what "a config tuned at 1080p is correct at
-            // 4K" promises anywhere else in this function.
+            // The zoom keys are world units per SCREEN PIXEL and the disc's size is a
+            // fraction of the screen, so coverage = pixels x uu-per-pixel. The pixels go
+            // up by `s`, so the uu per pixel comes down by `s` and the 4K disc shows the
+            // same ground at twice the detail. `zoom_dpi_scaled = 0` leaves it literal.
             //
-            // Coverage is pixels x uu-per-pixel, and the pixels went up by `s`, so the
-            // uu per pixel has to come DOWN by `s` to keep the coverage identical: the
-            // 4K disc is twice as wide and each of its pixels covers half as much ground,
-            // which is the same picture at twice the detail. `zoom_dpi_scaled = 0`
-            // restores 1.0.0's literal behaviour for anyone who preferred it.
-            //
-            // The zoom LADDER (minimap_zoom_presets) is deliberately not touched here: it
-            // is the set of values the zoom key writes back into zoom_uu_per_px, i.e. a
-            // config value, and scaling it would feed a scaled number into the config
-            // file the next time the key was pressed.
-            //
-            // Only the MINIMAP's key is scaled here. The full map is handed the
-            // unscaled config on purpose (its filter chips write back into it, and a
-            // scaled number must never reach the config file), so it applies the same
-            // factor at the point of use - see `zscale` in draw_full_map.
+            // The zoom LADDER (minimap_zoom_presets) is not touched: it is what the zoom
+            // key writes back into zoom_uu_per_px, and a scaled number must never reach
+            // the config file. For the same reason only the MINIMAP's key is scaled here
+            // - the full map is handed the unscaled config (its filter chips write into
+            // it) and applies the factor at the point of use, see `zscale` in
+            // draw_full_map.
             if (cfg.zoom_dpi_scaled && s > 0.0f)
             {
                 out.zoom_uu_per_px /= s;
@@ -477,15 +446,14 @@ namespace overlay
         }
 
         //==============================================================================
-        // HUD PLACEMENT (review-0.9.1 § 1 item 12)
+        // HUD PLACEMENT
         //==============================================================================
         //
-        // `hud_preset` is one key that moves the WHOLE HUD. `custom` (the shipped
-        // default) means "obey minimap_anchor / minimap_offset_* / compass_anchor
-        // exactly as written", i.e. v0.9.1 unchanged; any other value puts the minimap
-        // in that corner and the compass on the same vertical side, so the two can no
-        // longer end up on opposite halves of the screen because one key was edited and
-        // the other was not.
+        // `hud_preset` is one key that moves the whole HUD. `custom` (the shipped
+        // default) obeys minimap_anchor / minimap_offset_* / compass_anchor exactly as
+        // written; any other value puts the minimap in that corner and the compass on
+        // the same vertical side, so the two cannot end up on opposite halves of the
+        // screen.
         //
         // Both readers are pure functions of the config, evaluated per frame, so a
         // preset change is live and there is nothing to keep in sync.
@@ -523,7 +491,6 @@ namespace overlay
             }
         }
 
-
         //==============================================================================
         // Small helpers
         //==============================================================================
@@ -555,14 +522,11 @@ namespace overlay
         // WHOSE FUNCTION IS THIS, AND WAS SOMEBODY ALREADY THERE
         //==============================================================================
         //
-        // Three overlays live in this process - ReShade (this game's dxgi.dll IS a
-        // ReShade proxy), Steam's GameOverlayRenderer64 and us - and all three want
-        // IDXGISwapChain::Present. When the Steam FPS counter stops appearing the first
-        // question is always "is our hook ON TOP of Steam's, UNDER it, or did we replace
-        // it", and that is answerable in one line: read the first bytes of the function
-        // BEFORE hooking it. A jmp already sitting there names the module that put it
-        // there - which is the proof that our MinHook trampoline chains INTO that module
-        // rather than around it.
+        // Three overlays share this process - ReShade (this game's dxgi.dll IS a ReShade
+        // proxy), Steam's GameOverlayRenderer64 and us - and all three want
+        // IDXGISwapChain::Present. Reading the first bytes of the function before
+        // hooking it says whether somebody is already there: a jmp names the module that
+        // put it there.
         //
         // MinHook is a trampoline on the function, never a vtable patch, so a detour
         // installed before ours ends up downstream of ours (its bytes are relocated into
@@ -570,10 +534,9 @@ namespace overlay
         // chain is intact, and hk_Present / hk_ResizeBuffers / hk_Present1 call the
         // original unconditionally, for every swapchain, ours or not.
 
-
-        // The three PE fields that identify a BUILD of a DLL. All of them are baked into
-        // the file, so they are identical on every launch - which is what makes an RVA
-        // captured in one session safe to reuse in the next.
+        // The three PE fields that identify a BUILD of a DLL. All are baked into the
+        // file and identical on every launch, which is what makes an RVA captured in one
+        // session safe to reuse in the next.
         bool module_identity(HMODULE mod, ModuleId& out)
         {
             if (mod == nullptr)
@@ -675,8 +638,8 @@ namespace overlay
             return std::format(L"[{}] no detour", bytes);
         }
 
-        // The overlays sharing this process, with their bases - so "who is here" sits in
-        // the log next to the hook report instead of being guessed at.
+        // The overlays sharing this process, with their bases, logged next to the hook
+        // report.
         void log_overlay_modules()
         {
             static const wchar_t* const names[] = {L"dxgi.dll",
@@ -830,37 +793,27 @@ namespace overlay
                  static_cast<int>(st));
     }
 
-
     //======================================================================================
     // THE STALL WATCHDOG (loop thread)
     //======================================================================================
     //
-    // WHY. On 2026-09-03 at 20:56 the game hard-hung and had to be killed. Both logs
-    // stop inside the same 200 ms, the crash breadcrumb still says "first slice" (a
-    // hang, not a crash, so no dump), and there is NOTHING in the process that could
-    // say which thread stopped or what it was doing - the whole diagnosis had to be done
-    // by reading code. That must never cost a second session.
+    // The UE4SS loop thread keeps running when the game thread and the render thread
+    // wedge, so it watches two counters - `g_present_count` for the render thread and
+    // `gamestate::pump_calls()` for the game thread - and when either has not moved for
+    // `kStallMs` it says so, naming the stage each was last seen in.
     //
-    // WHAT IT IS. The UE4SS loop thread is the one thread that keeps running when the
-    // game thread and the render thread wedge (it did in that incident, long enough to
-    // flush a log buffer). So it watches two counters - `g_present_count` for the render
-    // thread and `gamestate::pump_calls()` for the game thread - and when either has not
-    // moved for `kStallMs` it says so, naming the stage each of them was last seen in.
+    // The report must not depend on the stalled thread or on the HEAP - a corrupted CRT
+    // heap would hang `std::format` on the last thread still running. So the first thing
+    // it does is `crumb::watchdog()`, POD-only, allocation-free and WRITE_THROUGH to its
+    // own file; only then does it try the ordinary log.
     //
-    // THE FLUSHER MUST NOT DEPEND ON THE STALLED THREAD, and it must not depend on the
-    // HEAP either: the leading hypothesis for that freeze is a corrupted CRT heap, in
-    // which case `std::format` would hang the last thread still running. So the first
-    // thing this does is `crumb::watchdog()`, which is POD-only, allocation-free and
-    // WRITE_THROUGH to its own file; only then does it try the ordinary log.
-    //
-    // FALSE POSITIVES. A synchronous level load blocks the game thread and stops Present
-    // too, so the perf stall window (opened by `overlay::on_update` itself whenever
-    // there is no validated gameplay pawn, and by ResizeBuffers) suppresses this. What
-    // is left is a stall in gameplay, which is exactly the thing being hunted.
+    // A synchronous level load blocks the game thread and stops Present too, so the perf
+    // stall window (opened by `overlay::on_update` whenever there is no validated
+    // gameplay pawn, and by ResizeBuffers) suppresses this. What is left is a stall in
+    // gameplay.
     void stall_watchdog(std::uint64_t now)
     {
-        // Generous, because a stutter is not a freeze: a 6 s gap in gameplay is already
-        // "the game has stopped responding" to a player.
+        // Generous, because a stutter is not a freeze: 6 s reads as "not responding".
         constexpr std::uint64_t kStallMs = 6000;
         constexpr std::uint64_t kRepeatMs = 5000;
 
@@ -934,8 +887,8 @@ namespace overlay
                       mm::g_panel_open.load() ? 1 : 0,
                       mm::g_map_open.load() ? 1 : 0,
                       static_cast<unsigned long long>(g_msg_dropped.load(std::memory_order_relaxed)));
-        // POD FIRST. If the heap is the thing that is wedged, everything below this line
-        // never returns - and the line is already on disk.
+        // POD first: if the heap is what is wedged, nothing below this line returns -
+        // and the line is already on disk.
         crumb::watchdog(static_cast<unsigned long>(render_ms), static_cast<unsigned long>(game_ms),
                         rstage, gstage, note);
         mm::modlog_flush();
@@ -961,11 +914,9 @@ namespace overlay
     // ONE DEBOUNCE PER BINDING
     //==================================================================================
     //
-    // Until 1.0.1 the four toggles shared a single `last_key` timestamp, so a press of
-    // the map key within 250 ms of the panel key was DROPPED - two unrelated actions
-    // debouncing each other. The debounce exists to swallow a contact bounce and a key
-    // repeat of the SAME key, which is a property of one binding, so it lives with the
-    // binding: `Edge` is the level plus the last accepted time of exactly one hotkey.
+    // The debounce swallows a contact bounce and a key repeat of the SAME key, which is
+    // a property of one binding - so `Edge` is the level plus the last accepted time of
+    // exactly one hotkey, and two unrelated actions can never debounce each other.
     constexpr std::uint64_t kEdgeDebounceMs = 250;
 
     struct Edge
@@ -998,9 +949,9 @@ namespace overlay
         const mm::Config& cfg = mm::cfg_cached();
         const std::uint64_t now = ::GetTickCount64();
 
-        // THE HEIGHT SLICER. 1-4 ms of CPU that used to run inside Present twelve times
-        // a second; it writes into a persistently mapped upload heap and needs nothing
-        // from the frame. render() now only records the CopyTextureRegion.
+        // THE HEIGHT SLICER. 1-4 ms of CPU, on this thread: it writes into a
+        // persistently mapped upload heap and needs nothing from the frame, so render()
+        // only records the CopyTextureRegion.
         //
         // The guard sequence is the loop-thread half of the pause handshake: check,
         // mark busy, check AGAIN. The render thread sets `pause` and then waits for
@@ -1029,28 +980,18 @@ namespace overlay
             }
         }
 
-        // THE HOTKEY BLOCK, gated to ~60 Hz. UE4SS spins this loop far faster than
-        // that, and every iteration used to cost a GetForegroundWindow +
-        // GetWindowThreadProcessId pair plus five GetAsyncKeyState calls. A key press
-        // lasts tens of milliseconds, so nothing is missed - and the pad poll and the
-        // hold key ride along with it, which is exactly the cadence they want.
+        // THE HOTKEY BLOCK, gated to ~60 Hz - UE4SS spins this loop far faster and a key
+        // press lasts tens of milliseconds, so nothing is missed. The pad poll and the
+        // hold key ride along with it.
         static std::uint64_t last_input_ms = 0;
         if (now - last_input_ms < 16)
         {
             return;
         }
         last_input_ms = now;
-        // ONE COUNTER CANNOT ANSWER TWO QUESTIONS (lessons.md), and this row had to be
-        // told twice. It reaches to the end of the function, so it started out timing the
-        // hotkey samples together with the gamepad poll (32 ms peak, 2026-09-03) - which
-        // got its own row - and then read a 366 ms PEAK against a ~0 ms average, which
-        // was the other things sharing the scope: the map screenshot's clipboard hand-off
-        // (a full-resolution DIB through GlobalAlloc + SetClipboardData, which takes a
-        // window-station-wide lock), `mm::save_config_file()` (a ~28 KB rewrite) and the
-        // F5 reload (`mapdata::load` re-decodes up to ~340 MB of PNG). All three now have
-        // their own rows and all three declare a stall, so this row is the ~8
-        // GetAsyncKeyState calls and nothing else. Every one of them is on the LOOP
-        // thread, where a stall costs no frame and no game tick.
+        // This row is the ~8 GetAsyncKeyState calls and nothing else. The gamepad poll,
+        // the clipboard hand-off, the config rewrite and the F5 reload all have their
+        // own rows and all declare a stall - one counter cannot answer two questions.
         if (g_pf_input < 0)
         {
             g_pf_input = mm::perf_register("loop input (hotkeys)", perf::Thread::Loop);
@@ -1074,12 +1015,11 @@ namespace overlay
         }
         const bool foreground = fg_cached;
 
-        // A LOADING SCREEN IS A STALL, and this is the cheapest honest place to notice
-        // one: the snapshot is a seqlock read, it is already published for the render
-        // thread, and "no validated gameplay pawn" is exactly the state the game is in
-        // while it blocks its own thread loading a level. The window is generous (1.5 s)
-        // because the frames on either side of a load are wall-clock waits too, and it
-        // is refreshed on every 60 Hz pass for as long as the condition holds.
+        // A loading screen is a stall, and "no validated gameplay pawn" is the state the
+        // game is in while it blocks its own thread loading a level. The snapshot is a
+        // seqlock read already published for the render thread. The window is generous
+        // (1.5 s) because the frames on either side of a load are wall-clock waits too,
+        // and it is refreshed on every 60 Hz pass while the condition holds.
         {
             mm::Snapshot snap{};
             const bool have = mm::read_snapshot(snap);
@@ -1090,14 +1030,13 @@ namespace overlay
             }
         }
 
-        // THE BINDINGS, sampled as a LEVEL with their modifier (review B.13). A binding
-        // carries its virtual key in the low byte and one modifier in bits 8..9
-        // (mm::key_vk / mm::key_mod), so `map_key = ctrl+m` is one int and one sample.
+        // THE BINDINGS, sampled as a level with their modifier. A binding carries its
+        // virtual key in the low byte and one modifier in bits 8..9 (mm::key_vk /
+        // mm::key_mod), so `map_key = ctrl+m` is one int and one sample.
         //
-        // A binding with NO modifier does not require the modifiers to be up: the x-ray
-        // hold key is Alt by default, and demanding a clean Alt would have made every
-        // other hotkey dead for as long as the x-ray is held. The Bindings tab names
-        // that overlap rather than the code inventing a rule about it.
+        // A binding with no modifier does not require the modifiers to be up: the x-ray
+        // hold key is Alt by default, and demanding a clean Alt would kill every other
+        // hotkey while the x-ray is held. The Bindings tab names such overlaps.
         const auto mod_held = [](int mod) {
             switch (mod)
             {
@@ -1120,21 +1059,17 @@ namespace overlay
             return (::GetAsyncKeyState(vk) & 0x8000) != 0 && mod_held(mm::key_mod(binding));
         };
 
-        // WHAT THE WINDOW THREAD MAY SWALLOW, recomputed on every 60 Hz pass (review
-        // B.13). A key is in the set only while the action it is bound to can actually
-        // fire, so `C` is the game's again the moment the full map closes, and the
-        // modifier has to be held for a modified binding - `ctrl+m` never costs the game
-        // a bare `m`.
+        // WHAT THE WINDOW THREAD MAY SWALLOW, recomputed on every 60 Hz pass. A key is
+        // in the set only while the action it is bound to can fire, so `C` is the game's
+        // again the moment the full map closes, and the modifier has to be held for a
+        // modified binding - `ctrl+m` never costs the game a bare `m`.
         //
-        // Three keys are NEVER swallowed however they are bound: Alt+F4, Alt+Enter and
-        // Alt+Tab are the player's way out of a game that is misbehaving, and a mod that
-        // eats them is a mod nobody can quit. (Review B.4 is the same bug in the map's
-        // blanket swallow.)
+        // Alt+F4, Alt+Enter and Alt+Tab are never swallowed however they are bound: they
+        // are the player's way out of a game that is misbehaving.
         {
             const bool map_open_now = mm::g_map_open.load(std::memory_order_relaxed);
             swallow_set_clear();
-            // Sampled once, not once per binding: this block runs 60 times a second and
-            // every GetAsyncKeyState is a syscall-ish read.
+            // Sampled once, not once per binding: this block runs 60 times a second.
             const bool alt_now = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
             const auto arm = [&](int binding, bool live) {
                 const int vk = mm::key_vk(binding);
@@ -1184,12 +1119,9 @@ namespace overlay
             MM_LOGV(L"full map {}", open ? L"opened" : L"closed");
         }
 
-        // THE FULL MAP ON A GAMEPAD (review B.1). Every pad control inside the map was
-        // unreachable for a controller-only player, because nothing opened the map: the
-        // key is a keyboard key and `want_pad` only polled XInput once the map was
-        // already open. The chord is a press of ALL its buttons at once, taken from the
-        // held mask rather than from the edge accumulator, so the order they go down in
-        // does not matter; `map_pad_open_chord = none` disables it.
+        // THE FULL MAP ON A GAMEPAD. The chord is a press of all its buttons at once,
+        // taken from the held mask rather than from the edge accumulator, so the order
+        // they go down in does not matter; `map_pad_open_chord = none` disables it.
         static bool pad_chord_down = false;
         if (cfg.map_gamepad && cfg.map_pad_open_chord != 0)
         {
@@ -1233,11 +1165,8 @@ namespace overlay
             if (edit.zoom_uu_per_px != cfg.zoom_uu_per_px)
             {
                 mm::set_config(edit);
-                // ON SCREEN, not only in the log (review B.9). The zoom key was the one
-                // in-play gesture whose only feedback was a log line: the picture does
-                // change, but at 13 -> 26 uu/px on a small disc that is not obviously
-                // "I changed a setting" rather than "the map moved". One second is long
-                // enough to read and short enough not to sit over the game.
+                // On screen as well as in the log: at 13 -> 26 uu/px on a small disc the
+                // picture alone does not read as "I changed a setting".
                 const int rung =
                     mv::zoom_preset_index(edit.minimap_zoom_presets, n, edit.zoom_uu_per_px);
                 char note[64]{};
@@ -1263,16 +1192,12 @@ namespace overlay
         }
 
         // THE FIRST-RUN TIP. Once per install: a 10-second toast naming the keys that
-        // are actually bound, because "the mod does nothing" is almost always "I did not
-        // know which key opens it". The sentinel is a file next to the config, so
-        // reinstalling into a clean folder shows it again and a config reload does not.
+        // are actually bound. The sentinel is a file next to the config, so reinstalling
+        // into a clean folder shows it again and a config reload does not.
         //
-        // IT WAITS FOR THE HUD (review B.2). It used to fire on the first pass of this
-        // function - at process start, over the splash screen and the main menu, where
-        // nothing of ours draws - and it wrote the sentinel there too, so the one tip a
-        // player ever gets was spent on a screen that never showed it. The gate is the
-        // render thread's own "the HUD may be on screen" answer, published the first
-        // time it opens, i.e. the first frame with a validated gameplay pawn.
+        // It waits for the render thread's "the HUD may be on screen" answer - the first
+        // frame with a validated gameplay pawn - so the one tip a player gets is not
+        // spent on the splash screen.
         static bool first_run_checked = false;
         if (!first_run_checked && cfg.first_run_toast && g_hud_gate_ever_open.load(std::memory_order_acquire))
         {
@@ -1301,9 +1226,9 @@ namespace overlay
             }
         }
 
-        // MAP -> CLIPBOARD. Only while the full map is open, which is also what makes a
-        // plain letter safe as the default: the map mode swallows every keyboard message
-        // (lessons.md), so `C` cannot reach the game while this can fire.
+        // MAP -> CLIPBOARD. Only while the full map is open, which is what makes a plain
+        // letter safe as the default: map mode swallows every keyboard message, so `C`
+        // cannot reach the game while this can fire.
         static Edge shot_edge{};
         if (edge_fired(shot_edge, key_down(cfg.screenshot_key), now) && foreground &&
             mm::g_map_open.load())
@@ -1338,9 +1263,8 @@ namespace overlay
             }
             else
             {
-                // GMEM_MOVEABLE is required: the clipboard takes OWNERSHIP of the handle
-                // on success, so it must not be freed afterwards - and must be freed by
-                // us on failure, which is the only branch that calls GlobalFree.
+                // GMEM_MOVEABLE is required. The clipboard takes ownership of the handle
+                // on success, so only the failure branches call GlobalFree.
                 HGLOBAL mem = ::GlobalAlloc(GMEM_MOVEABLE, dib.size());
                 void* dst = mem != nullptr ? ::GlobalLock(mem) : nullptr;
                 if (dst != nullptr)
@@ -1379,30 +1303,19 @@ namespace overlay
             g_map_recenter.store(true, std::memory_order_relaxed);
         }
 
-        // XInput, on THIS thread - the same place the keyboard is sampled, and never on
-        // the game thread (lessons.md).
+        // XInput, on this thread - the same place the keyboard is sampled, and never on
+        // the game thread.
         //
-        // WHY THIS IS NOT GATED ON THE MAP BEING OPEN ANY MORE (review B.1). It was
-        // `map_gamepad && map_open`, and that is a deadlock in the shape of a condition:
-        // the only thing that could open the map was a keyboard key, so a controller-only
-        // player could never reach any of the pad controls inside it, and the Debug tab's
-        // "gamepad connected" line said `false` for ever because nothing had ever asked.
-        //
-        // The cost that gate existed to avoid is polling an EMPTY slot, and gamepad.cpp
-        // already handles that itself: with no pad found it probes the four slots once a
-        // second and returns, and once a slot answers it follows that one at whatever
-        // rate it is called (a connected-slot XInputGetState is a handful of
-        // microseconds). So "poll whenever the feature is switched on" is a ~1 Hz probe
-        // when nothing is plugged in and full rate as soon as something is - which is
-        // exactly what the map, the open chord and the x-ray chord all need.
+        // Polled whenever the feature is switched on, not only while the map is open:
+        // the pad has to be able to OPEN the map. gamepad.cpp keeps that cheap - with no
+        // pad found it probes the four slots once a second, and once a slot answers it
+        // follows that one at whatever rate it is called.
         const bool want_pad = cfg.map_gamepad ||
                               (cfg.highlight_enabled && cfg.highlight_gamepad &&
                                (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt));
-        // Its own row: `XInputGetState` on an empty slot costs about a millisecond, and
-        // the first call also pays a `LoadLibraryW("xinput1_4.dll")`. The enumeration is
-        // already behind a 1 Hz probe with the found slot pinned, so this should read
-        // ~0.00 ms average with a one-off peak - and if it does not, the number says so
-        // instead of hiding inside the block above.
+        // Its own row: `XInputGetState` on an empty slot costs about a millisecond and
+        // the first call also pays a `LoadLibraryW("xinput1_4.dll")`, so the cost is
+        // visible instead of hiding inside the block above.
         if (g_pf_pad < 0)
         {
             g_pf_pad = mm::perf_register("gamepad poll", perf::Thread::Loop);
@@ -1415,15 +1328,14 @@ namespace overlay
         // THE X-RAY HIGHLIGHT'S KEY. The key and the pad chord are always sampled as a
         // LEVEL (`down` below); what `highlight_mode` decides is what that level means.
         //
-        //   hold   - the original: on while down. No debounce, no "turn it off" path.
-        //   toggle - the default the user asked for: the RISING EDGE of the level flips
-        //            hl's latch. The latch is the one piece of latched input state in
-        //            the mod, so it follows the rule that goes with that (lessons.md):
-        //            it is cleared from live state by hl::drop_caches() - every level
+        //   hold   - on while down. No debounce, no "turn it off" path.
+        //   toggle - the default: the rising edge of the level flips hl's latch. That
+        //            latch is the one piece of latched input state in the mod, and it is
+        //            cleared from live state by hl::drop_caches() - every level
         //            transition and every dropped pawn - and by turning the feature off.
         //
-        // Either way the DEMAND handed to hl needs the window in the foreground, or
-        // alt-tabbing would leave the game thread reading the camera for nothing.
+        // Either way the demand handed to hl needs the window in the foreground, or
+        // alt-tabbing leaves the game thread reading the camera for nothing.
         bool down = cfg.highlight_enabled && key_down(cfg.highlight_key);
         if (!down && cfg.highlight_enabled && cfg.highlight_gamepad)
         {
@@ -1441,8 +1353,8 @@ namespace overlay
         }
         else if (cfg.highlight_mode == mm::HighlightMode::Hold)
         {
-            // Leaving hold mode armed would strand the latch on; clearing it here is
-            // also what makes switching the mode in the panel take effect at once.
+            // Leaving hold mode armed would strand the latch on; clearing it here also
+            // makes switching the mode in the panel take effect at once.
             hl::xray_latch_clear(L"switched to hold mode");
             held = down;
         }
@@ -1456,16 +1368,15 @@ namespace overlay
         }
         xray_down = down;
         held = held && foreground;
-        // This is what makes the game thread read the camera at all: with neither the
+        // The only thing that makes the game thread read the camera: with neither the
         // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.
         hl::set_demand(held, cfg.overlay_enabled && cfg.compass_enabled);
 
-        // THE FILE WRITES. All of them are on this thread and none of them is anywhere
-        // near Present: the render thread only ever raises a flag (a waypoint drag, the
-        // panel's Save button, the screenshot request) and this is where the flag turns
-        // into a write. They share one row, because "the mod wrote a file" is one
-        // question, and they declare a stall, because a ~28 KB rewrite through
-        // CreateFile can block on a virus scanner for as long as it likes.
+        // THE FILE WRITES, all on this thread and none near Present: the render thread
+        // only raises a flag (a waypoint drag, the panel's Save button, the screenshot
+        // request) and this is where the flag turns into a write. They share one perf
+        // row and declare a stall - a ~28 KB rewrite through CreateFile can block on a
+        // virus scanner for as long as it likes.
         const bool wp_dirty = mm::g_waypoint_dirty.exchange(false);
         const bool cfg_dirty = mm::g_save_config.load();
         if (wp_dirty || cfg_dirty)
@@ -1488,8 +1399,8 @@ namespace overlay
         panel_state_load();
         if (g_panel_state_dirty.exchange(false, std::memory_order_acquire))
         {
-            // Tiny (one line), and on the same thread as every other write this mod
-            // does. It shares the file-write perf row above by design.
+            // One line, on the same thread as every other write, sharing the file-write
+            // perf row above.
             panel_state_save();
         }
 
@@ -1499,9 +1410,9 @@ namespace overlay
             {
                 g_pf_reload = mm::perf_register("reload (config+maps+markers)", perf::Thread::Loop);
             }
-            // Hundreds of milliseconds by design: `mapdata::load` re-decodes the
-            // chapter's height PNGs. A one-off, and it must not set the peak every
-            // later sample of every other row is judged against.
+            // Hundreds of milliseconds by design - `mapdata::load` re-decodes the
+            // chapter's height PNGs - so it must not set the peak every later sample is
+            // judged against.
             mm::perf_note_stall(L"an F5 reload", 4000);
             const mm::PerfScope reload_scope(g_pf_reload);
             mm::log(L"reloading config + maps + markers");
@@ -1516,9 +1427,9 @@ namespace overlay
             const mm::PerfScope save_scope(g_pf_save);
             mm::save_config_file();
         }
-        // REVERT: re-read the config files and publish them, throwing away every
-        // unsaved edit made in the panel. Deliberately not a maps / markers reload -
-        // "undo what I just fiddled with" should not cost a 340 MB asset swap.
+        // REVERT: re-read the config files and publish them, throwing away every unsaved
+        // edit made in the panel. Not a maps / markers reload - an undo must not cost a
+        // 340 MB asset swap.
         if (mm::g_revert_config.exchange(false))
         {
             mm::log(L"config: reverting to what is on disk");
@@ -1531,8 +1442,7 @@ namespace overlay
             mm::logf(L"first Present seen; the hook is live (count {})", g_present_count.load());
         }
         // The panel renders every frame, so this is throttled hard: once when it first
-        // draws, then at most one line every 10 s. (Without the throttle a single
-        // main-menu verification run wrote 2 100 identical lines.)
+        // draws, then at most one line every 10 s.
         static std::uint64_t last_panel_log = 0;
         if (mm::g_panel_drew_frame.exchange(false) && (last_panel_log == 0 || now - last_panel_log > 10000))
         {
@@ -1564,8 +1474,7 @@ namespace overlay
                 }
             }
         }
-        // NAMES THE STALLED THREAD, so the next freeze does not have to be diagnosed by
-        // reading code (see the comment on stall_watchdog).
+        // Names the stalled thread (see the comment on stall_watchdog).
         stall_watchdog(now);
 
         mm::drain_log();

@@ -15,24 +15,21 @@ namespace overlay
         // Drawing: the minimap
         //==============================================================================
 
-
         UvMap uv_of(const mapdata::Chapter& c)
         {
             return UvMap{c.min_y, c.max_x, c.px_per_uu, c.image_width, c.image_height};
         }
 
-
         //==============================================================================
-        // WORLD -> MINIMAP OFFSET, and the edge clamp (review B.22)
+        // WORLD -> MINIMAP OFFSET, and the edge clamp
         //==============================================================================
         //
-        // Three copies of this arithmetic lived inside draw_minimap: one in draw_markers,
-        // one in the found-ring projector and one in the waypoint block - the same
-        // rotate-and-divide, then the same round-or-square limit test, then the same
-        // scale-onto-the-rim. Three copies of a coordinate transform is three chances for
-        // the waypoint to sit a pixel off the marker it was set on.
+        // The one copy of the rotate-and-divide, the round-or-square limit test and the
+        // scale-onto-the-rim, shared by draw_markers, the found-ring projector and the
+        // waypoint block, so they cannot disagree by a pixel.
         //
         // The three callers differ only in what they want done when the point falls
+        // outside the disc - see MiniOffset.
 
         MiniOffset mini_offset(const MiniGeom& g, double wx, double wy, bool round, float limit,
                                bool clamp_to_edge)
@@ -148,11 +145,8 @@ namespace overlay
         // Drawing: markers
         //==============================================================================
         //
-        // Glyphs are drawn with ImDrawList primitives, not from an image atlas: the mod
-        // ships no marker art, there is no texture to keep in sync with the categories,
-        // and a vector glyph stays sharp at any minimap size. Each category gets a
-        // shape AND a colour, because a dimmed "found" marker loses most of its colour
-        // contrast and the shape is what still tells it apart.
+        // Glyphs are ImDrawList primitives, not an image atlas. Each category has a
+        // shape AND a colour, because a dimmed "found" marker keeps only its shape.
         //
         // World -> minimap pixels is the inverse of uv_at(): for yaw a,
         // forward = (cos a, sin a) and right = (-sin a, cos a), so
@@ -164,44 +158,35 @@ namespace overlay
         // At yaw 0 that is dx = wdy/z (east to the right) and dy = -wdx/z (north up),
         // i.e. exactly build_map.py's north-up convention.
 
-        // Defined with the rest of the full map, below - the minimap draws the same
-        // glyph, edge-clamped, so the two views agree on what a waypoint looks like.
+        // Defined with the full map, below: the minimap draws the same glyph.
 
-        // THE LOOK, cached once per frame (build_ui) so nothing on a draw path has to
-        // take a config copy to know what colour to be. Render thread only.
-        //
-        // `g_palette` is the marker hue set and `g_plate` the theme's dark label plate;
-        // the theme's other colours are resolved into the ordinary colour config keys at
-        // load time (mmstate.cpp's apply_theme_defaults), which is what lets an explicit
-        // key in the file override a theme.
+        // The look, cached once per frame (build_ui). Render thread only. `g_palette`
+        // is the marker hue set, `g_plate` the theme's dark label plate; the theme's
+        // other colours are resolved into ordinary colour config keys at load time
+        // (mmstate.cpp's apply_theme_defaults), so an explicit key overrides a theme.
 
-        // "THE HUD HAS BEEN ON SCREEN AT LEAST ONCE", published by the render thread the
-        // first frame hud_gate() answers "yes" - i.e. the first frame with a validated
+        // "The HUD has been on screen at least once", published by the render thread on
+        // the first frame hud_gate() answers yes - the first frame with a validated
+        // gameplay pawn.
 
-
-        // The hue table lives in the PURE header src/glyphs.hpp, next to the shape
-        // table, because "no two categories share a shape and a colour" is a property
-        // of the two together and is asserted offline.
+        // The hue table lives in the pure header src/glyphs.hpp, beside the shape
+        // table: "no two categories share a shape and a colour" is asserted offline.
         ImU32 marker_color(mdb::Cat cat, int alpha)
         {
             const mdb::Rgb c = gly::marker_rgb(cat, g_palette);
             return IM_COL32(c.r, c.g, c.b, alpha);
         }
 
-        // The dark box behind a label, the compass strip and the waypoint's distance -
-        // one colour, from the theme, instead of the same literal in five places.
+        // The dark box behind a label, the compass strip and the waypoint's distance.
         ImU32 plate_color(int alpha)
         {
             return IM_COL32(g_plate.r, g_plate.g, g_plate.b, alpha);
         }
 
-        // Category colour, or the ITEM QUALITY colour when the caller has quality
-        // colouring switched on and this marker actually has a tier.
-        //
-        // Tier 0 deliberately falls through to the category colour: it is what every
-        // chest, every live-only actor and every ordinary consumable is, so a palette
-        // that repainted it would recolour most of the screen to say nothing. See
-        // mdb::Rarity for where the tiers and the default palette come from.
+        // Category colour, or the item-quality colour when the caller asked for it and
+        // this marker has a tier. Tier 0 falls through to the category colour - it is
+        // what every chest, live-only actor and ordinary consumable is. Tiers and the
+        // default palette come from mdb::Rarity.
         ImU32 marker_color_q(mdb::Cat cat, std::uint8_t rarity, int alpha, bool use_rarity,
                              const mdb::Rgb* palette)
         {
@@ -214,25 +199,16 @@ namespace overlay
             return IM_COL32(c.r, c.g, c.b, alpha);
         }
 
-        // ONE glyph. `hollow` is what a FOUND marker is drawn as: dimming alone takes
-        // the colour away first and leaves an unreadable grey blob, while an outline
-        // keeps the shape - which is the half of the identity that survives at 6 px.
-        //
-        // Every glyph gets a dark halo first (the review's `AddCircleFilled(p, r + 1,
-        // 0x000000_78)`), so a light glyph still has an edge against the parchment fill
-        // and a dark one against a lit scene. Its alpha follows the glyph's, so a
-        // faded-out marker does not leave a black dot behind.
-        // THE CATEGORIES "found" MEANS SOMETHING FOR. Collecting a chest, a pickup or a
+        // One glyph. `hollow` is how a FOUND marker is drawn - an outline keeps the
+        // shape where dimming would leave a grey blob. Every glyph gets a dark halo
+        // first, at the glyph's own alpha, so it has an edge over any scene.
 
         void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge,
                                bool hollow)
         {
             const int ca = static_cast<int>((col >> IM_COL32_A_SHIFT) & 0xFFu);
-            // THE HALO COVERS THE SHAPE (review B.17). It used to be a fixed r + 1
-            // circle, which the chest's box CORNERS stuck out of - so the one glyph most
-            // often drawn over a bright floor lost its edge exactly where its outline
-            // turns. gly::shape_extent() is how far this shape actually reaches; 16
-            // segments rather than 12, because a bigger circle shows its facets.
+            // gly::shape_extent() is how far this shape reaches, so the halo covers
+            // corners a plain r + 1 circle would leave sticking out.
             const gly::Shape shape = gly::shape_of(cat);
             dl->AddCircleFilled(p, r * gly::shape_extent(shape) + 1.0f,
                                 IM_COL32(0, 0, 0, (ca * 120) / 255), 16);
@@ -241,9 +217,8 @@ namespace overlay
             // silhouette, so the three complex shapes have a simplified form.
             const bool simple = r < gly::kSimpleGlyphRadius;
             const float w = hollow ? 1.7f : 1.2f;
-            // A filled shape when the marker is live, the same shape as an outline when
-            // it is found. Both take the SAME geometry, so the two states are the same
-            // glyph and nothing moves when one becomes the other.
+            // Filled when live, the same geometry as an outline when found, so nothing
+            // moves when one state becomes the other.
             const auto ngon = [&](float rad, int n) {
                 if (hollow)
                 {
@@ -293,9 +268,8 @@ namespace overlay
                     dl->AddTriangle(a, b, c, edge, w);
                 }
             };
-            // A pip is the dark centre that tells a shrine from a plain diamond. On a
-            // hollow glyph it is drawn in the marker's own colour, because there is no
-            // fill for it to contrast against.
+            // The dark centre that tells a shrine from a plain diamond. On a hollow
+            // glyph it takes the marker's own colour - there is no fill to contrast with.
             const auto pip = [&](float rad) {
                 dl->AddCircleFilled(p, r * rad, hollow ? col : edge, 8);
             };
@@ -303,7 +277,6 @@ namespace overlay
             switch (shape)
             {
             case gly::Shape::Diamond:
-                // AddNgon starts at angle 0, so a 4-gon has its vertices on the axes.
                 ngon(r * 1.15f, 4);
                 pip(0.32f);
                 break;
@@ -319,16 +292,11 @@ namespace overlay
                 tri(1.5f);
                 break;
             case gly::Shape::TriangleNotched:
-                // The elite's triangle is smaller than the boss's AND wears a bar. The
-                // scale difference alone was a three-pixel difference at markers_size
-                // 6.5, which is what made the two read as one category.
                 tri(1.15f);
                 dl->AddLine(ImVec2{p.x - r * 0.62f, p.y + r * 0.30f},
                             ImVec2{p.x + r * 0.62f, p.y + r * 0.30f}, hollow ? col : edge, w + 0.3f);
                 break;
             case gly::Shape::DotRing:
-                // A small dot with a DETACHED ring: at glyph size the gap is what makes
-                // it read as an enemy rather than as a pickup.
                 dl->AddCircleFilled(p, r * 0.34f, col, 8);
                 dl->AddCircle(p, r * 0.92f, col, 12, w);
                 break;
@@ -338,10 +306,8 @@ namespace overlay
             case gly::Shape::NotePage:
             {
                 // A page with its top-right corner folded away, plus two text rules.
-                // The fold is what keeps it apart from the door's plain tall box at
-                // glyph size: same family of silhouette, but one corner is missing and
-                // the inside is not empty. Wider than the door (0.62 vs 0.55 half-
-                // width) and shorter (0.88 vs 0.95) for the same reason.
+                // The fold and the proportions are what keep it apart from the door's
+                // plain tall box at glyph size.
                 const float hw = r * 0.62f;
                 const float hh = r * 0.88f;
                 const float fold = r * 0.44f; // the 45-degree bite out of the corner
@@ -361,15 +327,13 @@ namespace overlay
                     dl->AddConvexPolyFilled(pts, 5, col);
                     dl->AddPolyline(pts, 5, edge, ImDrawFlags_Closed, w);
                 }
-                // The fold itself: the two edges of the turned-down corner.
                 const ImU32 ink = hollow ? col : edge;
                 dl->AddLine(ImVec2{p.x + hw - fold, p.y - hh}, ImVec2{p.x + hw - fold, p.y - hh + fold},
                             ink, w);
                 dl->AddLine(ImVec2{p.x + hw - fold, p.y - hh + fold}, ImVec2{p.x + hw, p.y - hh + fold},
                             ink, w);
-                // Two rules of "writing", inset from the edges - dropped in the
-                // simplified form, where they are 2 px apart inside a 5 px page and
-                // fill it in. The folded corner is the identity and it survives.
+                // Two rules of "writing" - dropped in the simplified form, where they
+                // are 2 px apart inside a 5 px page and fill it in.
                 if (!simple)
                 {
                     for (int i = 0; i < 2; ++i)
@@ -386,9 +350,8 @@ namespace overlay
             case gly::Shape::Ladder:
                 dl->AddLine(ImVec2{p.x - r * 0.5f, p.y - r}, ImVec2{p.x - r * 0.5f, p.y + r}, col, 1.6f);
                 dl->AddLine(ImVec2{p.x + r * 0.5f, p.y - r}, ImVec2{p.x + r * 0.5f, p.y + r}, col, 1.6f);
-                // SIMPLIFIED: one rung, not three. At r = 6.5 the three rungs are ~3.5
-                // px apart and the 1.2 px lines merge into a filled box - which is the
-                // chest's silhouette. One rung keeps the H that says "ladder".
+                // Simplified: one rung, not three - at r = 6.5 three rungs merge into
+                // the chest's filled box.
                 if (simple)
                 {
                     dl->AddLine(ImVec2{p.x - r * 0.5f, p.y}, ImVec2{p.x + r * 0.5f, p.y}, col, 1.2f);
@@ -404,11 +367,8 @@ namespace overlay
                 break;
             case gly::Shape::Lift:
             {
-                // SIMPLIFIED: a flatter platform and a taller, narrower arrow, drawn
-                // FILLED even when the marker is found. The two shapes are 1 px apart at
-                // r = 6.5, and an outlined arrow over an outlined box at that size is a
-                // grey blob; the arrow is the whole difference from the chest's box, so
-                // it is the part that must stay solid.
+                // Simplified: a flatter platform and a taller, narrower arrow, drawn
+                // filled even when found - at r = 6.5 two outlines this close are a blob.
                 const float box_hh = simple ? 0.36f : 0.5f;
                 rect(0.85f, box_hh);
                 const float tip = p.y - r * (simple ? 1.2f : 1.35f);
@@ -431,8 +391,6 @@ namespace overlay
                 dl->AddLine(ImVec2{p.x - r * 0.7f, p.y}, ImVec2{p.x + r * 0.7f, p.y}, col, 1.4f);
                 break;
             case gly::Shape::Cross:
-                // "X marks the spot" - and, unlike the unfilled 4-gon it replaces, it is
-                // not a shrine with the fill switched off.
                 dl->AddLine(ImVec2{p.x - r * 0.85f, p.y - r * 0.85f},
                             ImVec2{p.x + r * 0.85f, p.y + r * 0.85f}, col, 2.1f);
                 dl->AddLine(ImVec2{p.x - r * 0.85f, p.y + r * 0.85f},
@@ -446,41 +404,33 @@ namespace overlay
             }
         }
 
-
-
         //==============================================================================
         // ONE marker pass per frame
         //==============================================================================
         //
-        // The minimap, the compass pips and the x-ray highlight each used to walk the
-        // whole published marker buffer (700-3 600 entries) with its own loop and its own
-        // sqrt. They ask different questions of the same rows, so the walk happens ONCE,
-        // here, and each of them filters the result with its own rule.
+        // The minimap, the compass pips and the x-ray highlight ask different questions
+        // of the same 700-3 600 published rows, so the buffer is walked once here and
+        // each of them filters the result.
         //
-        // Distances are kept SQUARED: every consumer only needs them to compare and to
-        // sort, and the two that want metres take the square root of the handful they
-        // actually draw.
-
-
+        // Distances are kept squared: consumers only compare and sort on them, and the
+        // two that want metres take the square root of the handful they draw.
 
         //==============================================================================
         // Animation, toasts, and the "it just became found" event
         //==============================================================================
         //
-        // All of it is RENDER-THREAD state derived from what the frame already has. None
-        // of it costs the game thread anything, and - the rule that matters - none of it
-        // can keep something on screen after the state that allows it went away:
+        // All of it is render-thread state derived from what the frame already has. None
+        // of it costs the game thread anything, and none of it can keep something on
+        // screen after the state that allows it went away:
         //
-        //   * the HUD fade's TARGET is the hud_gate result. A target of 0 is applied
+        //   * the HUD fade's target is the hud_gate result. A target of 0 is applied
         //     instantly (hiding is immediate; the gate also stops the draw outright),
-        //     and only showing is eased. That is the no-latch rule from lessons.md
-        //     applied to an animation instead of to a condition.
+        //     and only showing is eased - the no-latch rule applied to an animation.
         //   * a toast is a string plus a deadline; it says what just happened and then
         //     goes.
         //   * the found ring is driven by comparing the PUBLISHED found flags of the
         //     markers near the player between marker rounds - the game thread does no
         //     extra work for it, and nothing is remembered longer than one round.
-
 
         // Eases towards 1 while `target_on`, drops to 0 the instant it is false.
         float hud_fade_step(bool target_on, std::uint64_t now)
@@ -502,7 +452,6 @@ namespace overlay
             return g_hud_fade;
         }
 
-
         void toast_for(const char* text, unsigned ms)
         {
             ::strncpy_s(g_toast, sizeof(g_toast), text, _TRUNCATE);
@@ -518,45 +467,32 @@ namespace overlay
         // Map -> clipboard
         //==============================================================================
         //
-        // The picture we want is exactly what the player is looking at, so the source is
-        // the BACK BUFFER, taken from the frame that has just been drawn - not a
-        // re-render of the map into an offscreen target (which would need our own RTV,
-        // our own pass and would then differ from the screen).
-        //
-        // THE SEQUENCE, and why it is spread over frames
-        //   frame N   : after ImGui's draw call is recorded, the back buffer is
-        //               transitioned RENDER_TARGET -> COPY_SOURCE, one
-        //               CopyTextureRegion of the canvas rect is recorded into a readback
-        //               buffer, and the fence value this frame will signal is remembered.
+        // The source is the BACK BUFFER of the frame just drawn, so the picture is what
+        // the player is looking at. Spread over frames:
+        //   frame N   : after ImGui's draw call is recorded, the back buffer goes
+        //               RENDER_TARGET -> COPY_SOURCE, one CopyTextureRegion of the
+        //               canvas rect is recorded into a readback buffer, and the fence
+        //               this frame will signal is remembered.
         //   frame N+k : once GetCompletedValue() has passed that fence the readback is
         //               mapped, unpacked to BGRA8 (clipimg - the back buffer is HDR10
-        //               R10G10B10A2 on this game, not R8G8B8A8) and turned into a CF_DIB
-        //               payload, which is handed to the LOOP thread.
+        //               R10G10B10A2 here, not R8G8B8A8) and turned into a CF_DIB payload
+        //               handed to the LOOP thread.
         //   loop      : OpenClipboard / EmptyClipboard / SetClipboardData / CloseClipboard.
         //
-        // Two rules from lessons.md are load-bearing: nothing is mapped before its fence
-        // has passed (a readback read early is a garbage picture, not an error), and the
-        // clipboard - which is a blocking, window-station-wide, message-pumping API - is
-        // never touched from the render thread inside Present.
-        //
+        // Nothing is mapped before its fence has passed (a readback read early is a
+        // garbage picture, not an error), and the clipboard - a blocking,
+        // window-station-wide, message-pumping API - is never touched inside Present.
         // No file is ever written.
 
-
-
-
-
         //==============================================================================
-        // THE TOAST MAILBOX (review B.22)
+        // THE TOAST MAILBOX
         //==============================================================================
         //
-        // One slot, one lock, and it is ITS OWN. post_toast() used to take the
-        // SCREENSHOT's spinlock and write into a buffer that lived among the screenshot
-        // state, so an unrelated notice ("first run: these are your keys", "minimap zoom
-        // 26 uu/px") contended with a full-resolution DIB hand-off and read as part of
-        // the clipboard machinery. They share nothing but a direction: loop -> render.
+        // One slot and its own lock, separate from the screenshot's: the two share
+        // nothing but a direction, loop -> render.
         //
 
-        // ANY THREAD. Queues a toast for the render thread to draw.
+        // Any thread. Queues a toast for the render thread to draw.
         void post_toast(const char* text, unsigned ms)
         {
             {
@@ -582,10 +518,10 @@ namespace overlay
             g_shot_pitch = 0;
         }
 
-        // RENDER THREAD. Records the copy into the command list the frame is already
+        // Render thread. Records the copy into the command list the frame is already
         // building, between ImGui's draw call and the transition back to PRESENT. The
-        // back buffer is in RENDER_TARGET state on entry and is left in PRESENT state,
-        // i.e. this REPLACES the caller's closing barrier when it returns true.
+        // back buffer is in RENDER_TARGET state on entry and left in PRESENT state, so
+        // this replaces the caller's closing barrier when it returns true.
         bool record_shot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* backbuffer, UINT index)
         {
             if (g_shot_stage != ShotStage::Idle || !g_shot_request.exchange(false, std::memory_order_acquire))
@@ -607,9 +543,7 @@ namespace overlay
                          static_cast<int>(fmt));
                 return false;
             }
-            // The region: the map canvas as it was laid out this frame, clamped to the
-            // back buffer. Without a canvas (the map is not open) there is nothing to
-            // copy, and the hotkey should not have fired.
+            // The map canvas as laid out this frame, clamped to the back buffer.
             if (!g_shot_canvas_valid)
             {
                 shot_fail("screenshot: the map is not open");
@@ -691,8 +625,8 @@ namespace overlay
             return true;
         }
 
-        // RENDER THREAD, top of the frame. Once the GPU is past the fence, map the
-        // readback and build the DIB.
+        // Render thread, top of the frame. Once the GPU is past the fence, maps the
+        // readback and builds the DIB.
         void shot_collect()
         {
             if (g_shot_stage_done.exchange(false, std::memory_order_acquire))
@@ -717,8 +651,8 @@ namespace overlay
                 shot_reset();
                 return;
             }
-            // Unpack row by row into a tight BGRA image, then let clipimg flip it into
-            // the bottom-up DIB the clipboard wants.
+            // Row by row into a tight BGRA image; clipimg flips it into the bottom-up
+            // DIB the clipboard wants.
             std::vector<std::uint8_t> bgra(static_cast<std::size_t>(g_shot_w) * 4u * g_shot_h);
             bool ok = true;
             for (UINT y = 0; y < g_shot_h && ok; ++y)
@@ -755,29 +689,20 @@ namespace overlay
         }
 
         //==============================================================================
-        // DECLUTTER: MERGING COINCIDENT GLYPHS (review B.16)
+        // DECLUTTER: MERGING COINCIDENT GLYPHS
         //==============================================================================
         //
-        // Six chests in one room are six glyphs inside one glyph's width: a smear that
-        // says "chests" less clearly than a single chest with a 6 next to it. The compass
-        // has deduped its pips since 0.9.2; the minimap and the full map never did - they
-        // only ever culled by distance and by a hard count.
+        // Six chests in one room are six glyphs inside one glyph's width, so glyphs of
+        // the same category and the same found state merge into one with a count badge,
+        // and the nearest member of a cluster is the one drawn.
         //
-        // WHAT MERGES. Same CATEGORY only, and same found state. Merging across
-        // categories would be a lie - one glyph cannot mean "a chest and an NPC" - and
-        // the shape is the half of a marker's identity that survives at 6 px, so it is
-        // the half that must not be invented. The nearest member of a cluster is the one
-        // drawn, because it is the one the player is walking to.
-        //
-        // HOW. A uniform grid keyed on (cell, category): anything landing in the same
-        // cell as an already-kept glyph of the same category joins it. Cell size is the
-        // merge distance, so two glyphs that straddle a cell boundary can stay separate -
-        // the same property the compass's 3-pixel columns have, and the same reason: an
-        // O(n) grid instead of an O(n x kept) sweep on the render thread, for a
+        // A uniform grid keyed on (cell, category): anything landing in the cell of an
+        // already-kept glyph of the same category joins it. Cell size is the merge
+        // distance, so two glyphs straddling a boundary can stay separate - the price of
+        // an O(n) grid instead of an O(n x kept) sweep on the render thread.
 
-        // The little "and N more like this one" badge. Drawn up and to the right of the
-        // glyph, on the plate colour so it reads over both the walkable fill and the
-        // dark backdrop, and never for a cluster of one.
+        // The "and N more like this one" badge, up and to the right of the glyph, on
+        // the plate colour, and never drawn for a cluster of one.
         void draw_count_badge(ImDrawList* dl, ImVec2 at, float r, int count, int alpha)
         {
             if (count < 2)
@@ -827,7 +752,7 @@ namespace overlay
                 std::uint8_t rarity = 0;
                 bool found = false;
                 bool clamped = false;
-                int count = 1; // how many markers this glyph stands for (review B.16)
+                int count = 1; // how many markers this glyph stands for
                 const char* id = nullptr;
             };
             // Render thread only, and reused frame to frame so a full minimap never
@@ -851,9 +776,9 @@ namespace overlay
                     continue;
                 }
 
-                // The minimap is centred on the position the RENDER side works from,
-                // so the on-screen offset is still computed here; the distance used for
-                // the cap and the sort comes from the shared pass.
+                // The minimap is centred on the position the render side works from,
+                // so the on-screen offset is computed here; the distance for the cap and
+                // the sort comes from the shared pass.
                 const MiniOffset off =
                     mini_offset(g, m.x, m.y, round, limit, cfg.markers_clamp_to_edge);
                 if (!off.visible)
@@ -873,11 +798,10 @@ namespace overlay
                 cands.push_back(cand);
             }
 
-            // ONE sort, nearest first: the cap drops the far ones and the draw loop then
-            // walks the array BACKWARDS, so the near ones are painted last (on top).
-            // partial_sort already leaves [0, cap) sorted ascending, so after the resize
-            // the whole array is sorted - the second full sort this used to do was pure
-            // waste on up to 400 candidates every single frame.
+            // One sort, nearest first: the cap drops the far ones and the draw loop
+            // walks the array backwards, so the near ones are painted last (on top).
+            // partial_sort leaves [0, cap) sorted ascending, so after the resize the
+            // whole array is sorted and no second sort is needed.
             const std::size_t cap = cfg.markers_max_draw > 0
                                         ? static_cast<std::size_t>(cfg.markers_max_draw)
                                         : cands.size();
@@ -894,11 +818,9 @@ namespace overlay
 
             // ---- declutter -----------------------------------------------------------
             //
-            // After the sort, so the glyph kept for a cluster is its NEAREST member, and
-            // after the cap, so merging cannot resurrect a marker the cap dropped. A
-            // clamped glyph is left out of it: everything on the rim is at the rim by
-            // definition and merging those would collapse a whole direction into one
-            // number.
+            // After the sort, so a cluster's kept glyph is its nearest member, and after
+            // the cap, so merging cannot resurrect a dropped marker. Clamped glyphs are
+            // left out: merging those collapses a whole direction into one number.
             {
                 static MergeGrid grid;
                 const float merge_r = (std::max)(3.0f, r);
@@ -965,13 +887,10 @@ namespace overlay
         //==============================================================================
         //
         // "May anything of ours be on screen right now?" - the minimap, the compass and
-        // the x-ray highlight all ask exactly this, so it is evaluated exactly once, in
-        // one place, from live state only. It returns nullptr when everything of ours may
-        // draw, or the reason it may not, and the caller decides what to do with that:
-        // the minimap feeds it to set_hide_reason() (which owns the "hidden because"
-        // readout and the transition log lines), the compass and the highlight simply do
-        // not draw. Adding a second set of show/hide rules for the compass is exactly the
-        // shape of bug lessons.md warns about, so there isn't one.
+        // the x-ray highlight all ask this, evaluated once from live state only. It
+        // returns nullptr, or the reason nothing may draw: the minimap feeds that to
+        // set_hide_reason() (which owns the "hidden because" readout and the transition
+        // log lines), the compass and the highlight simply do not draw.
         //
 
         void draw_minimap(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
@@ -1034,9 +953,7 @@ namespace overlay
 
             const float op = cfg.opacity;
             const auto alpha = [op](float a) { return static_cast<int>((std::min)(1.0f, op * a) * 255.0f + 0.5f); };
-            // A darker, more opaque disc than the MVP had: the first in-world
-            // screenshot showed a light grey map over a light grey scene, and the
-            // walkable fill needs something dark to sit on.
+            // The walkable fill needs something dark to sit on, or a light scene eats it.
             const auto ch = [](float v) { return static_cast<int>(v + 0.5f); };
             const ImU32 backdrop = IM_COL32(ch(cfg.minimap_backdrop_r), ch(cfg.minimap_backdrop_g),
                                             ch(cfg.minimap_backdrop_b), alpha(cfg.minimap_backdrop));
@@ -1049,14 +966,8 @@ namespace overlay
             const ImU32 tint_slice = IM_COL32(255, 255, 255, alpha(1.0f));
             const ImU32 tint_composite = IM_COL32(255, 255, 255, alpha(cfg.minimap_composite_alpha));
 
-            // THE HUD DRAWS UNDER OUR OWN WINDOWS (review B.20). ImGui renders the
-            // background draw list first, then every window, then the foreground list -
-            // so a HUD on the FOREGROUND list painted over the centred F2 panel
-            // whatever order the calls were made in. The background list is still over
-            // the game (everything ImGui draws is), it is just under the panel, the full
-            // map and the tooltips. Suppressing the HUD while the panel is open was the
-            // other option and it is worse: the panel is where the minimap's own sliders
-            // live, and you cannot tune a picture you cannot see.
+            // The background draw list: over the game, under our own windows (the
+            // panel, the full map, the tooltips).
             ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
             if (cfg.round)
@@ -1068,10 +979,10 @@ namespace overlay
                 dl->AddRectFilled(ImVec2{x0, y0}, ImVec2{x0 + side, y0 + side}, backdrop, 4.0f);
             }
 
-            // ONE textured quad: the height slice. `update_slice` re-cuts the window
-            // around the player at slice_hz and returns true while a window is
-            // available to draw (its own or the previous one's - the window carries
-            // margin, so a skipped update is invisible).
+            // One textured quad: the height slice. `update_slice` re-cuts the window
+            // around the player at slice_hz and returns true while a window is available
+            // (its own or the previous one's - the window carries margin, so a skipped
+            // update is invisible).
             const bool slice_ok = plan_slice(cfg, chapter, g.half, now);
             const SliceView sv = slice_view();
             if (slice_ok && sv.shown >= 0)
@@ -1101,16 +1012,16 @@ namespace overlay
                 dl->AddRect(ImVec2{x0, y0}, ImVec2{x0 + side, y0 + side}, frame, 4.0f, 0, 2.0f);
             }
 
-            // Markers go over the map and under the frame ring's highlight and the
-            // player arrow, so the arrow is never hidden by a glyph standing on it.
+            // Markers go over the map and under the frame ring and the player arrow, so
+            // the arrow is never hidden by a glyph standing on it.
             draw_markers(cfg, g, cfg.round, x0, y0, side, dl);
 
-            // A ring where something was just collected - so a pickup taken off screen
-            // (or behind the player) still registers on the minimap.
+            // A ring where something was just collected, so a pickup taken off screen
+            // still registers on the minimap.
             draw_found_rings(dl, now, (std::max)(4.0f, cfg.markers_size * 1.4f),
                              [&](double wx, double wy, float& sx, float& sy) {
-                                 // A ring is never clamped: it says "that was collected
-                                 // THERE", and a ring on the rim would be a lie.
+                                 // Never clamped: a ring on the rim would name the
+                                 // wrong place.
                                  const MiniOffset off =
                                      mini_offset(g, wx, wy, cfg.round, g.half - 2.0f, false);
                                  if (!off.visible)
@@ -1122,16 +1033,12 @@ namespace overlay
                                  return true;
                              });
 
-            // THE CARDINAL REFERENCE, always drawn (review-0.9.1 item 5). Until 0.9.3
-            // the north dot appeared only when `rotate_with_player` was on - so the
-            // SHIPPED north-up default had no cardinal reference at all, and nothing on
-            // screen said which way the picture was oriented. Now: four ticks on the
-            // rim plus the letter N, rotating with the yaw in rotate mode and standing
-            // still (N straight up) in north-up mode, where they say "this is north-up"
-            // rather than nothing.
+            // The cardinal reference, always drawn: four ticks on the rim plus the
+            // letter N, rotating with the yaw in rotate mode and standing still (N
+            // straight up) in north-up mode.
             {
-                // A point on the rim, `inset` pixels in from it - the disc's circle or
-                // the square's edge, so the ticks sit ON the frame either way.
+                // A point `inset` pixels in from the rim - the disc's circle or the
+                // square's edge, so the ticks sit on the frame either way.
                 const auto rim = [&](float ang, float inset) {
                     const float dx = std::sin(ang);
                     const float dy = -std::cos(ang);
@@ -1157,23 +1064,20 @@ namespace overlay
                 const ImVec2 np = rim(na, 19.0f);
                 const ImVec2 ts = ImGui::CalcTextSize("N");
                 const ImVec2 tp{np.x - ts.x * 0.5f, np.y - ts.y * 0.5f};
-                // A shadow rather than a plate: a plate at the rim would cover the map,
-                // and the letter has to be legible over both the fill and the backdrop.
+                // A shadow rather than a plate, which at the rim would cover the map.
                 dl->AddText(ImVec2{tp.x + 1.0f, tp.y + 1.0f}, IM_COL32(0, 0, 0, alpha(0.8f)), "N");
                 dl->AddText(tp, north_col, "N");
             }
 
-            // The waypoint, edge-clamped with its distance. It is the one marker that
-            // must never be culled: the whole point of setting one is to be told which
-            // way to walk while it is off the map.
+            // The waypoint, edge-clamped with its distance, and never culled.
             {
                 const mv::Waypoint wp = mm::waypoint();
                 if (wp.set)
                 {
                     const float wr = (std::max)(5.0f, cfg.markers_size * cfg.waypoint_size_scale);
                     const float lim = (std::max)(4.0f, g.half - wr - 3.0f);
-                    // ALWAYS clamped: the whole point of setting a waypoint is to be
-                    // told which way to walk while it is off the map.
+                    // Always clamped: an off-map waypoint must still say which way to
+                    // walk.
                     const MiniOffset off = mini_offset(g, wp.x, wp.y, cfg.round, lim, true);
                     const ImVec2 wp_pos{g.center.x + static_cast<float>(off.dx),
                                         g.center.y + static_cast<float>(off.dy)};
@@ -1201,13 +1105,11 @@ namespace overlay
             add_player_arrow(dl, g.center, snap.yaw - eff_yaw,
                              (std::max)(cfg.minimap_arrow_min_px, side * cfg.minimap_arrow_frac));
 
-            // THE WHEEL OVER THE DISC, and why it is gated on the panel being open.
-            // Nothing here swallows the wheel: the WndProc hook only swallows input for
-            // a MODE (the full map), so during play a wheel notch reaches the game as
-            // well - and stealing the player's weapon / item wheel to zoom a minimap is
-            // not a trade anybody asked for. While the F2 panel is up the cursor is
-            // already ours and the wheel is already an overlay gesture, so it is safe
-            // there. `zoom_key` is the route that works during play.
+            // The wheel over the disc, gated on the panel being open. Nothing here
+            // swallows the wheel - the WndProc hook only swallows input for a MODE (the
+            // full map) - so during play a notch would reach the game's weapon wheel as
+            // well. While the F2 panel is up the cursor is already ours. `zoom_key` is
+            // the route that works during play.
             if (mm::g_panel_open.load(std::memory_order_relaxed) && !ImGui::GetIO().WantCaptureMouse)
             {
                 const ImGuiIO& io = ImGui::GetIO();
@@ -1220,8 +1122,8 @@ namespace overlay
                                           : (std::abs(mdx) <= g.half && std::abs(mdy) <= g.half);
                     if (over)
                     {
-                        // Away from the player = zoom out = a LARGER uu/px, so the sign
-                        // matches the full map's wheel.
+                        // Away from the player = zoom out = a larger uu/px, the same
+                        // sign as the full map's wheel.
                         g_zoom_steps.fetch_add(io.MouseWheel > 0.0f ? -1 : 1, std::memory_order_relaxed);
                     }
                 }
@@ -1238,28 +1140,22 @@ namespace overlay
         }
 
         //==============================================================================
-        // Drawing: the HOLD-KEY X-RAY HIGHLIGHT (master plan step 7, v1)
+        // Drawing: the X-RAY HIGHLIGHT
         //==============================================================================
         //
         // While the highlight key (or the pad chord) is held, every marker of an enabled
         // category within highlight_radius of the PLAYER is drawn at its projected screen
         // position: category glyph, name, distance in metres, alpha fading with distance.
-        // It is "through walls" for free - the overlay is composited over the finished
-        // frame, so there is no occlusion test, no CustomDepth, no material, and nothing
-        // that can go wrong with the game's render state.
+        // "Through walls" is free - the overlay is composited over the finished frame, so
+        // there is no occlusion test, no CustomDepth and no material.
         //
-        // WHAT IT NEEDS AND WHAT IT DOES WITHOUT
         //   * the camera pose comes from hl::camera() (game thread, see highlight.cpp)
-        //     and is REQUIRED: no fresh pose, no highlight. Falling back to the pawn's
-        //     own position and yaw would put every label a spring-arm's length away from
-        //     the truth, which is worse than drawing nothing;
+        //     and is required: no fresh pose, no highlight. The pawn's own position and
+        //     yaw would put every label a spring-arm's length off;
         //   * the screen size comes from the ImGui viewport, which is the swapchain's -
-        //     the same rectangle UE built its projection matrix for;
+        //     the rectangle UE built its projection matrix for;
         //   * the radius test is against the player, the projection against the camera,
-        //     and the distance shown is the player's. That is what "30 m away" means to
-        //     someone deciding whether to walk over.
-
-
+        //     and the distance shown is the player's.
 
         // A small outward-pointing triangle at `p`, aimed along (dx, dy) in screen space.
         void add_edge_arrow(ImDrawList* dl, ImVec2 p, float dx, float dy, float r, ImU32 col, ImU32 edge)
@@ -1278,8 +1174,8 @@ namespace overlay
             dl->AddTriangle(tip, a, b, edge, 1.2f);
         }
 
-        // `const char*`, not std::string (review B.18): every caller of this is inside
-        // Present, and the x-ray builds up to twelve of these a frame.
+        // `const char*`, not std::string: every caller is inside Present and the x-ray
+        // builds up to twelve of these a frame.
         void draw_label(ImDrawList* dl, ImVec2 at, const char* text, ImU32 col, int alpha)
         {
             if (text == nullptr || text[0] == '\0')
@@ -1313,9 +1209,9 @@ namespace overlay
             }
             const std::uint64_t now = ::GetTickCount64();
             g_hl_debug.cam_age_ms = pose.stamp_ms == 0 ? 0 : now - pose.stamp_ms;
-            // A pose older than a few frames is a camera that has stopped being read (the
-            // game thread stalled, or the pawn went) - draw with it and the labels lag
-            // visibly behind the scene, which reads as a bug. 250 ms is ~15 frames.
+            // A pose older than a few frames means the camera stopped being read (a
+            // stalled game thread, a dropped pawn), and labels drawn from it lag visibly
+            // behind the scene. 250 ms is ~15 frames.
             if (pose.stamp_ms == 0 || g_hl_debug.cam_age_ms > 250)
             {
                 return;
@@ -1356,17 +1252,15 @@ namespace overlay
             static std::vector<Cand> cands; // render thread only, reused every frame
             cands.clear();
 
-            // The one per-frame marker pass has already walked the buffer and computed
-            // the distances; this only filters. The square root is taken for the handful
-            // that are actually drawn, where metres are needed.
+            // The per-frame marker pass has already walked the buffer and computed the
+            // distances; this only filters, and takes the square root for the handful
+            // that are drawn in metres.
             const double radius = static_cast<double>(cfg.highlight_radius);
             const float radius2 = static_cast<float>(radius * radius);
-            // ONE GATE, AND IT NAMES ITS REASON. "It is on the minimap and not in the
-            // x-ray" has been reported twice (a chest in a house 11 m away; a pre-placed
-            // pickup lying on the ground in front of the player) and each guess at which
-            // condition did it costs a play session. The conditions now live in the pure,
-            // offline-tested mdb::xray_gate() and every rejection is counted, so the
-            // per-round line below answers it from the log instead.
+            // One gate, and it names its reason: the conditions live in the pure,
+            // offline-tested mdb::xray_gate() and every rejection is counted, so "it is
+            // on the minimap and not in the x-ray" is answered by the per-round line
+            // below rather than by a play session.
             for (const FrameCand& fc : g_frame_cands)
             {
                 const mdb::Cat cat = static_cast<mdb::Cat>(fc.cat);
@@ -1402,22 +1296,15 @@ namespace overlay
                 std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
             }
 
-            // THE HUD DRAWS UNDER OUR OWN WINDOWS (review B.20). ImGui renders the
-            // background draw list first, then every window, then the foreground list -
-            // so a HUD on the FOREGROUND list painted over the centred F2 panel
-            // whatever order the calls were made in. The background list is still over
-            // the game (everything ImGui draws is), it is just under the panel, the full
-            // map and the tooltips. Suppressing the HUD while the panel is open was the
-            // other option and it is worse: the panel is where the minimap's own sliders
-            // live, and you cannot tune a picture you cannot see.
+            // The background draw list: over the game, under our own windows (the
+            // panel, the full map, the tooltips).
             ImDrawList* dl = ImGui::GetBackgroundDrawList();
             const float r = cfg.highlight_size;
             const float pad = r * 2.4f;
 
-            // ONE projection pass, nearest first. Everything after it works off this
-            // list: the glyphs are drawn from it backwards (far to near, so the nearest
-            // ends up on top) and the labels are chosen from it forwards (nearest first,
-            // so the cap keeps the ones the player is walking towards).
+            // One projection pass, nearest first. The glyphs are drawn from it
+            // backwards (far to near) and the labels chosen from it forwards, so the
+            // label cap keeps the ones the player is walking towards.
             struct Shown
             {
                 float sx = 0.0f; // screen position, viewport-relative already applied
@@ -1446,9 +1333,8 @@ namespace overlay
                     continue;
                 }
 
-                // Fade with distance: fully lit at the camera, highlight_alpha_far at the
-                // radius. Linear - a squared falloff makes everything past half the radius
-                // look identical.
+                // Fully lit at the camera, highlight_alpha_far at the radius. Linear: a
+                // squared falloff makes everything past half the radius look identical.
                 const double t = radius > 1.0 ? (cand_dist / radius) : 0.0;
                 const double a = static_cast<double>(cfg.highlight_alpha_near) +
                                  (static_cast<double>(cfg.highlight_alpha_far) -
@@ -1464,8 +1350,8 @@ namespace overlay
                 Shown sh{};
                 sh.dist = cand_dist;
                 sh.alpha = alpha;
-                // THE POINT OF THE FEATURE: while the key is held, quality wins over
-                // category, so a weapon and a key item stand out from the consumables.
+                // While the key is held quality wins over category, so a weapon and a
+                // key item stand out from the consumables.
                 sh.col = marker_color_q(cat, m.rarity, alpha, cfg.xray_rarity_colors_enabled,
                                         cfg.xray_rarity_colors);
                 sh.cat = m.cat;
@@ -1485,9 +1371,9 @@ namespace overlay
                     ++g_hl_debug.offscreen_no_arrow;
                     continue;
                 }
-                // Off screen (or behind): an arrow on the rim pointing the way to turn.
-                // proj::project() already handed us a direction rather than a mirrored
-                // position, so this is just a projection onto the border box.
+                // Off screen or behind: an arrow on the rim. proj::project() returns a
+                // direction rather than a mirrored position, so this is a projection
+                // onto the border box.
                 double nx = pr.ndc_x;
                 double ny = pr.ndc_y;
                 const double mag = (std::max)(std::fabs(nx), std::fabs(ny));
@@ -1531,16 +1417,15 @@ namespace overlay
             }
 
             //--------------------------------------------------------------------------
-            // LABELS (review-0.9.1 item 6)
+            // LABELS
             //--------------------------------------------------------------------------
             //
-            // Eight pickups in one room used to produce eight name+distance boxes on the
-            // same few pixels. Now: at most `highlight_labels_max` of them get a label
-            // at all - chosen NEAREST FIRST, and never two for glyphs within `r * 2` of
-            // each other, because two markers a few pixels apart are one thing to the
-            // player - and the survivors are laid out top to bottom by the pure
-            // lbl::Layout, which pushes each box down until it clears the ones already
-            // placed. A box that had to move gets a leader line back to its glyph.
+            // At most `highlight_labels_max` glyphs get a name+distance box, chosen
+            // nearest first and never two for glyphs within `r * 2` of each other -
+            // markers a few pixels apart are one thing to the player. The survivors are
+            // laid out top to bottom by the pure lbl::Layout, which pushes each box down
+            // until it clears the ones already placed; a box that moved gets a leader
+            // line back to its glyph.
             if (cfg.highlight_labels && !shown.empty())
             {
                 static std::vector<std::size_t> labelled; // render thread only
@@ -1562,8 +1447,8 @@ namespace overlay
                     layout.note_glyph(sh.sx, sh.sy);
                     labelled.push_back(i);
                 }
-                // Top to bottom, which is what makes pushing DOWN terminate and keeps
-                // the arrangement stable from frame to frame.
+                // Top to bottom, which makes pushing down terminate and keeps the
+                // arrangement stable from frame to frame.
                 std::sort(labelled.begin(), labelled.end(), [](std::size_t a, std::size_t b) {
                     return shown[a].sy < shown[b].sy;
                 });
@@ -1573,13 +1458,11 @@ namespace overlay
                 {
                     const Shown& sh = shown[i];
                     const mdb::Cat cat = static_cast<mdb::Cat>(sh.cat);
-                    // NEVER A CLASS NAME. `mdb::display_label` refuses a label that is
-                    // one (an enemy's dropped loot used to read `BP_PickupActor_C 1 m`)
-                    // and falls back to the category's plain singular word.
+                    // Never a class name: `mdb::display_label` refuses one and falls
+                    // back to the category's plain singular word.
                     const char* name = mdb::display_label(cat, sh.m->label);
-                    // A STACK BUFFER, not std::format (review B.18): this ran up to
-                    // twelve times per frame on the render thread, i.e. twelve heap
-                    // allocations inside Present for a string nobody keeps.
+                    // A stack buffer, not std::format: this runs up to twelve times per
+                    // frame inside Present for a string nobody keeps.
                     char text[128]{};
                     (void)std::snprintf(text, sizeof(text), "%s  %.0f m%s", name, sh.dist / 100.0,
                                         sh.found ? "  (found)" : "");
@@ -1602,16 +1485,11 @@ namespace overlay
                 }
             }
 
-            // THE X-RAY CENSUS IS A TRACE LINE, AND EVEN THEN ONLY WHEN IT CHANGES.
-            //
-            // Every gate has a number, so "the chest is on the minimap but not in the
-            // x-ray" is answered by reading the log rather than by another in-game
-            // session - but it is a per-Present line about a steady state, and at one
-            // line per second it was 1299 of run 5's 2600 lines, half the log saying the
-            // same thing. So: `trace` only, at most once per ten seconds, and only if
-            // one of the counters actually moved since the last time it was printed.
-            // The level check comes FIRST, so at `normal` this whole block is one
-            // relaxed atomic load per Present and nothing else.
+            // The x-ray census: every gate has a number, so "the chest is on the minimap
+            // but not in the x-ray" is answered from the log. It is a per-Present line
+            // about a steady state, so it is `trace` only, at most once per ten seconds,
+            // and only when a counter moved. The level check comes first, so at `normal`
+            // this block is one relaxed atomic load per Present.
             if (mm::log_enabled(mm::LogLv::Trace))
             {
                 static std::uint64_t last_log = 0;
@@ -1661,12 +1539,10 @@ namespace overlay
         // strip position, tick layout) is in src/compass.cpp, where markers_test can
         // reach it; this is the drawing and nothing else.
         //
-        // The heading is the CAMERA's yaw when a fresh pose exists, because that is what
+        // The heading is the camera's yaw when a fresh pose exists, because that is what
         // the player is looking along, and the pawn's yaw otherwise - so the compass
-        // still works with highlight_enabled = 0 and during the camera reader's warm-up.
-        // Which one is in use is printed in the F2 debug block.
-
-
+        // works with highlight_enabled = 0 and during the camera reader's warm-up. Which
+        // one is in use is printed in the F2 debug block.
 
         void draw_compass(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
         {
@@ -1704,19 +1580,12 @@ namespace overlay
             const float op = cfg.compass_opacity;
             const auto alpha = [op](float a) { return static_cast<int>((std::min)(1.0f, op * a) * 255.0f + 0.5f); };
 
-            // THE HUD DRAWS UNDER OUR OWN WINDOWS (review B.20). ImGui renders the
-            // background draw list first, then every window, then the foreground list -
-            // so a HUD on the FOREGROUND list painted over the centred F2 panel
-            // whatever order the calls were made in. The background list is still over
-            // the game (everything ImGui draws is), it is just under the panel, the full
-            // map and the tooltips. Suppressing the HUD while the panel is open was the
-            // other option and it is worse: the panel is where the minimap's own sliders
-            // live, and you cannot tune a picture you cannot see.
+            // The background draw list: over the game, under our own windows (the
+            // panel, the full map, the tooltips).
             ImDrawList* dl = ImGui::GetBackgroundDrawList();
-            // THE PLATE. `compass_plate = 0` leaves ticks and letters only, which is what
-            // the strip needs to sit lightly over the game's own top-centre HUD; with no
-            // plate every glyph gets a one-pixel shadow instead, or a bright scene
-            // swallows it.
+            // The plate. `compass_plate = 0` leaves ticks and letters only, so the strip
+            // sits lightly over the game's own top-centre HUD; with no plate every glyph
+            // gets a one-pixel shadow instead, or a bright scene swallows it.
             if (cfg.compass_plate)
             {
                 dl->AddRectFilled(ImVec2{x0, y0}, ImVec2{x0 + width, y1}, plate_color(alpha(0.72f)), 4.0f);
@@ -1781,9 +1650,8 @@ namespace overlay
                 return;
             }
 
-            // Marker pips. Nearest first so the cap keeps what matters, and only inside
-            // the strip's span - an off-strip pip clamped to the edge would pile up into
-            // a solid block at both ends.
+            // Marker pips, nearest first so the cap keeps what matters, and only inside
+            // the strip's span - clamped off-strip pips pile into a block at both ends.
             if (!g_frame_cands.empty())
             {
                 struct Pip
@@ -1797,8 +1665,8 @@ namespace overlay
                 };
                 static std::vector<Pip> pips; // render thread only
                 pips.clear();
-                // The one per-frame marker pass (build_frame_candidates) has already
-                // walked the buffer and computed the distances; this only filters.
+                // build_frame_candidates has already walked the buffer and computed the
+                // distances; this only filters.
                 const double max_d = static_cast<double>(cfg.compass_marker_distance);
                 const float max_d2 = static_cast<float>(max_d * max_d);
                 for (const FrameCand& fc : g_frame_cands)
@@ -1814,9 +1682,8 @@ namespace overlay
                     const markers::DrawMarker& m = *fc.m;
                     double px = 0.0;
                     double rel = 0.0;
-                    // Off-strip pips are dropped HERE rather than in the draw loop, so
-                    // the cap and the dedupe below both work on pips that will actually
-                    // be drawn.
+                    // Off-strip pips are dropped here rather than in the draw loop, so
+                    // the cap and the dedupe below work on pips that will be drawn.
                     if (!cmp::strip_x(strip, cmp::bearing_deg(snap.x, snap.y, m.x, m.y), px, rel))
                     {
                         continue;
@@ -1830,8 +1697,8 @@ namespace overlay
                     p.found = fc.found;
                     pips.push_back(p);
                 }
-                // One sort (nearest first), then drawn back to front so the nearest pip
-                // ends up on top - the same trick as draw_markers.
+                // One sort, nearest first; drawn back to front so the nearest pip ends
+                // up on top.
                 const std::size_t kMaxPips = static_cast<std::size_t>(cfg.compass_max_pips);
                 if (pips.size() > kMaxPips)
                 {
@@ -1843,11 +1710,10 @@ namespace overlay
                 {
                     std::sort(pips.begin(), pips.end(), [](const Pip& a, const Pip& b) { return a.d2 < b.d2; });
                 }
-                // DEDUPE. Six chests in one room are six pips within a pixel of each
-                // other: a solid smear that says "chests" less clearly than one glyph
-                // would. The list is sorted NEAREST FIRST, so keeping the first pip in
-                // each 3-px column keeps the nearest one of every cluster - and the
-                // walk is O(n x kept) over at most compass_max_pips entries.
+                // Dedupe: six chests in one room are six pips within a pixel of each
+                // other. The list is sorted nearest first, so keeping the first pip in
+                // each 3-px column keeps the nearest of every cluster; the walk is
+                // O(n x kept) over at most compass_max_pips entries.
                 constexpr double kDedupePx = 3.0;
                 std::size_t kept = 0;
                 for (std::size_t i = 0; i < pips.size(); ++i)
@@ -1870,8 +1736,7 @@ namespace overlay
                 pips.resize(kept);
                 g_compass_debug.deduped = static_cast<int>(pips.size());
 
-                // Drawn back to front, so the nearest pip of a cluster ends up on top -
-                // the same trick as draw_markers.
+                // Back to front, so the nearest pip of a cluster ends up on top.
                 for (std::size_t pi = pips.size(); pi-- > 0;)
                 {
                     const Pip& p = pips[pi];
@@ -1882,11 +1747,10 @@ namespace overlay
                     const float gr = height * 0.22f;
                     draw_marker_glyph(dl, static_cast<mdb::Cat>(p.cat), at, gr, col,
                                       IM_COL32(10, 12, 16, a), p.found);
-                    // ABOVE / BELOW. A bearing alone sends the player at a wall when the
+                    // Above / below: a bearing alone sends the player at a wall when the
                     // chest is on the floor over their head, so a marker further than
                     // compass_pip_height_uu off the player's own Z gets an arrow beside
-                    // its glyph. Within that band it is treated as "this floor" and
-                    // nothing is drawn - an arrow on every pip would say nothing.
+                    // its glyph. Within that band it counts as this floor and gets none.
                     const float thr = cfg.compass_pip_height_uu;
                     if (thr > 0.0f && (p.dz > thr || p.dz < -thr))
                     {
@@ -1901,11 +1765,10 @@ namespace overlay
                     ++g_compass_debug.pips;
                 }
 
-                // THE DISTANCE LABELS, nearest first so a crowded strip keeps the ones
-                // that matter. They sit OUTSIDE the strip (below it, or above it when
-                // the strip is anchored to the bottom edge), where they cannot collide
-                // with the ticks and the cardinal letters, and each one reserves its own
-                // x range so two labels never overlap.
+                // The distance labels, nearest first so a crowded strip keeps the ones
+                // that matter. They sit outside the strip (below it, or above it when the
+                // strip is anchored to the bottom edge), so they cannot collide with the
+                // ticks and the cardinal letters, and each reserves its own x range.
                 if (cfg.compass_pip_labels && !pips.empty())
                 {
                     const bool at_bottom = compass_at_bottom(cfg);

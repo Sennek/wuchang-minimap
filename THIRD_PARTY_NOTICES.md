@@ -1,9 +1,9 @@
 # Third-party notices
 
-WuchangMinimap itself is MIT-licensed (see `LICENSE`). The shipped `main.dll` also
-contains, in compiled form, the libraries listed below, and the shipped `maps\` and
-`markers\` assets are derived from the game's own data. This file is what satisfies
-their attribution requirements; it ships at the root of every release zip.
+WuchangMinimap is MIT-licensed (see `LICENSE`). The shipped `main.dll` contains, in
+compiled form, the libraries listed below, and the shipped `maps\` and `markers\`
+assets are derived from the game's own data. This file satisfies their attribution
+requirements and ships at the root of every release zip.
 
 | Component | Version | Licence | Redistributed in the zip |
 |---|---|---|---|
@@ -14,20 +14,15 @@ their attribution requirements; it ships at the root of every release zip.
 | Game map / marker data | n/a | see "Game data" | yes, as mod assets |
 
 Version provenance: Dear ImGui from `IMGUI_VERSION` in `third_party/imgui/imgui.h`;
-{fmt} from `FMT_VERSION` (110200) in `third_party/fmt/include/fmt/base.h`. MinHook's
-sources carry no version macro, so 1.3.3 is established from the copyright range
-(2009-2017), the absence of any ARM64 support (added upstream only after 1.3.3) and an
-exported API identical to that release; 1.3.3 is also the newest tagged MinHook release.
-The UE4SS build is the one the import library in `sdk/lib/UE4SS.lib` was synthesised
-from (`sdk/UE4SS.def`).
+{fmt} from `FMT_VERSION` (110200) in `third_party/fmt/include/fmt/base.h`; MinHook from
+its copyright range and exported API, its sources carrying no version macro. The UE4SS
+build is the one `sdk/lib/UE4SS.lib` was synthesised from (`sdk/UE4SS.def`).
 
-None of the three vendored libraries has been modified. The full provenance record -
-upstream URLs, tags, which files were copied and how to re-verify a tree against
-upstream - is in `third_party/VENDORING.md` in the repository.
+None of the three vendored libraries is modified. Upstream URLs, tags, the files copied
+and how to re-verify a tree against upstream: `third_party/VENDORING.md`.
 
-The mod's JSON reader (`src/json.hpp`) is **not** third-party: it is a small
-hand-written recursive-descent parser belonging to this project, not nlohmann/json or
-any other library, and is covered by `LICENSE`.
+The mod's JSON reader (`src/json.hpp`) is **not** third-party: it is a hand-written
+recursive-descent parser belonging to this project and covered by `LICENSE`.
 
 ---
 
@@ -109,8 +104,8 @@ same two-clause terms reproduced above and in full in
 Homepage: <https://github.com/fmtlib/fmt>. Vendored headers only, at
 `third_party/fmt/include/`; licence file `third_party/fmt/LICENSE`. It is compiled
 header-only (`FMT_HEADER_ONLY=1`) because UE4SS's `DynamicOutput/Output.hpp` includes
-it; 11.2.0 is the version UE4SS pins. The licence's exception means the embedded
-object code needs no notice at all - it is reproduced here anyway.
+it; 11.2.0 is the version UE4SS pins. The licence's exception exempts the embedded
+object code from notice; it is reproduced here anyway.
 
 ```
 Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors
@@ -149,22 +144,22 @@ without including the above copyright and permission notices.
 Homepage: <https://github.com/UE4SS-RE/RE-UE4SS>, MIT licence.
 
 UE4SS is **not redistributed** by this mod. The release zip contains no UE4SS file:
-the player installs UE4SS themselves, and `main.dll` merely imports from the
-`UE4SS.dll` already present in the game folder. The build links against an import
-library synthesised from that DLL's export table (`sdk/UE4SS.def`,
-`tools/gen_ue4ss_importlib.ps1`), and compiles against RE-UE4SS headers checked out
-at the same commit. The full MIT text is in the RE-UE4SS repository.
+the player installs UE4SS themselves and `main.dll` imports from the `UE4SS.dll`
+already in the game folder. The build links against an import library synthesised from
+that DLL's export table (`sdk/UE4SS.def`, `tools/gen_ue4ss_importlib.ps1`) and compiles
+against RE-UE4SS headers at the same commit. The full MIT text is in the RE-UE4SS
+repository.
 
 ---
 
 ## Game data
 
 `maps\maps.json`, `maps\chapter<N>\*.png` and `markers\*.json` are **derived from
-Wuchang: Fallen Feathers' own navigation and level data** - the navmesh tiles and
-placed-actor tables extracted offline from the shipped `.pak` files. The underlying
-game content is owned by its developers and publisher (Leenzee / 505 Games); it is
-not covered by this project's MIT licence and is distributed here only as a mod
-asset for owners of the game, in the way mods are customarily distributed.
+Wuchang: Fallen Feathers' own navigation and level data** - navmesh tiles and
+placed-actor tables extracted offline from the shipped `.pak` files. That game content
+is owned by its developers and publisher (Leenzee / 505 Games), is not covered by this
+project's MIT licence, and is distributed here only as a mod asset for owners of the
+game.
 
 WuchangMinimap is an unofficial, fan-made modification. It is not affiliated with,
 endorsed by or supported by Leenzee, 505 Games, Epic Games, or the RE-UE4SS project.

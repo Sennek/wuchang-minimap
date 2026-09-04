@@ -7,6 +7,7 @@
 #include "overlay_internal.hpp"
 
 #include "textmatch.hpp"
+#include "imgui_caret.hpp"
 
 namespace overlay
 {
@@ -798,7 +799,7 @@ namespace overlay
             // Every bare key below belongs to the text box while it has the caret. The
             // map already swallows the keyboard from the game, so this is only about who
             // inside the map gets the letter.
-            const bool typing = io.WantTextInput;
+            const bool typing = tgate::text_active();
             const auto down = [&typing](ImGuiKey a, ImGuiKey b) {
                 return !typing && (ImGui::IsKeyDown(a) || ImGui::IsKeyDown(b));
             };

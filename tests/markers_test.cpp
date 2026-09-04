@@ -34,6 +34,7 @@
 #include "markers_db.hpp"
 #include "exchange.hpp"
 #include "textmatch.hpp"
+#include "typing_gate.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
 #include "saveslot.hpp"
@@ -1417,6 +1418,48 @@ namespace
         CHECK_EQ(mv::nearest_waypoint(near_set, 0.0, 0.0), 1);
         CHECK_EQ(mv::nearest_waypoint(near_set, 900.0, 0.0), 0);
         CHECK_EQ(mv::nearest_waypoint(mv::WaypointSet{}, 0.0, 0.0), -1);
+    }
+
+    // The gate that keeps a letter typed into a text box out of the hotkey bindings.
+    // The loop thread samples the keyboard 60 times a second; the render thread tells it
+    // a caret is up once per frame it manages to draw.
+    void test_typing_gate()
+    {
+        section("hotkeys - the typing gate");
+
+        tgate::Latch l{};
+        // Nothing said yet: the bindings are live.
+        CHECK(!tgate::typing(l, false, 1000));
+        // The frame that reports a caret blocks the same pass it arrives on - the "M"
+        // of "Mercury" goes down in the frame the click activated the box.
+        CHECK(tgate::typing(l, true, 1000));
+        // ... and every 60 Hz pass in the gap before the next frame is published.
+        CHECK(tgate::typing(l, false, 1016));
+        CHECK(tgate::typing(l, false, 1000 + tgate::kTypingHoldMs - 1));
+        // The tail is finite: a caret that is never reported again gives the keys back.
+        CHECK(!tgate::typing(l, false, 1000 + tgate::kTypingHoldMs));
+        CHECK(!tgate::typing(l, false, 9999));
+
+        // A word typed across a stall - one report, then a long gap - never opens up.
+        tgate::Latch word{};
+        std::uint64_t t = 5000;
+        for (int i = 0; i < 8; ++i)
+        {
+            CHECK(tgate::typing(word, i % 4 == 0, t)); // a frame every 4th pass
+            t += 100;                                  // ... which is a 400 ms gap
+        }
+
+        // The hold is a duration, not a deadline: every fresh report pushes it out.
+        tgate::Latch push{};
+        CHECK(tgate::typing(push, true, 100));
+        CHECK(tgate::typing(push, true, 100 + tgate::kTypingHoldMs * 3));
+        CHECK(tgate::typing(push, false, 100 + tgate::kTypingHoldMs * 3 + 1));
+        CHECK(!tgate::typing(push, false, 100 + tgate::kTypingHoldMs * 4));
+
+        // GetTickCount64 is milliseconds since boot, so `now` is never 0 in the mod -
+        // but a zeroed latch must still read as "not typing" at any clock value.
+        tgate::Latch zero{};
+        CHECK(!tgate::typing(zero, false, 0));
     }
 
     void test_search_match()
@@ -4768,6 +4811,7 @@ int main(int argc, char** argv)
     test_mapview();
     test_waypoint_list();
     test_search_match();
+    test_typing_gate();
     test_exchange();
     test_scan_sched();
     test_sweep_sched();

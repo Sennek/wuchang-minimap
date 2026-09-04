@@ -28,6 +28,7 @@
 #include "atomicfile.hpp"
 #include "exchange.hpp"
 #include "saveslot.hpp"
+#include "typing_gate.hpp"
 
 namespace overlay
 {
@@ -1269,7 +1270,15 @@ namespace overlay
         // A letter typed into the map's search box or the panel's import path is the
         // text box's, not a binding's: this thread samples the keyboard directly, so the
         // one test that knows a caret is up is ImGui's, published by the render thread.
-        const bool imgui_typing = g_imgui_want_text.load(std::memory_order_relaxed);
+        //
+        // Latched, because that flag only crosses threads on a rendered frame: between
+        // two of them - a dropped frame, a stall, a Present that returned early - it is
+        // simply the last thing said, and a word typed across such a gap would hand its
+        // letters back to the bindings. tgate::kTypingHoldMs is how long the last "a box
+        // has the caret" is believed for.
+        static tgate::Latch typing_latch{};
+        const bool imgui_typing =
+            tgate::typing(typing_latch, g_imgui_want_text.load(std::memory_order_relaxed), now);
         const auto key_down = [&mod_held, imgui_typing](int binding) {
             const int vk = mm::key_vk(binding);
             if (vk == 0 || imgui_typing)

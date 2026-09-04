@@ -30,6 +30,8 @@
 
 #include "overlay_internal.hpp"
 
+#include "imgui_caret.hpp"
+
 namespace overlay
 {
     namespace ovl
@@ -1110,7 +1112,11 @@ namespace overlay
             ImGui::Render();
             // The game thread's swallow decision reads this instead of the context.
             g_imgui_want_keyboard.store(ImGui::GetIO().WantCaptureKeyboard, std::memory_order_relaxed);
-            g_imgui_want_text.store(ImGui::GetIO().WantTextInput, std::memory_order_relaxed);
+            // tgate::text_active() rather than io.WantTextInput: that flag is a frame
+            // behind the caret, and the frame a click into a text box lands in is
+            // exactly the frame the loop thread is reading while the first letter of
+            // the word goes down.
+            g_imgui_want_text.store(tgate::text_active(), std::memory_order_relaxed);
             mm::perf_record(g_pf_frame, frame_t0);
 
             if (FAILED(frame.allocator->Reset()) || FAILED(g_cmd_list->Reset(frame.allocator, nullptr)))

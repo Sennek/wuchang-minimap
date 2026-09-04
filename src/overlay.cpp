@@ -55,7 +55,7 @@ namespace overlay
         int g_pf_mslice = -1;   // the full map's cut (loop thread)
         int g_pf_input = -1;    // the hotkey block and the loop thread's file I/O
         int g_pf_pad = -1;      // XInput only, split out of the block above
-        Spinlock g_render_lock;
+        spin::Spinlock g_render_lock;
         ID3D12Device* g_device = nullptr;
         std::atomic<ID3D12CommandQueue*> g_queue{nullptr};
         ID3D12GraphicsCommandList* g_cmd_list = nullptr;
@@ -103,10 +103,10 @@ namespace overlay
         std::atomic<std::uint64_t> g_mslice_in_flight[kMapSliceBufs];
         std::atomic<int> g_slice_want_px{0};
         std::atomic<std::uint64_t> g_slice_want_ms{0}; // GetTickCount64 of the last request
-        Spinlock g_slice_req_lock;
+        spin::Spinlock g_slice_req_lock;
         MapSliceReq g_map_req;
         std::atomic<std::uint64_t> g_map_req_ms{0}; // GetTickCount64 of the last request
-        Spinlock g_slice_view_lock;
+        spin::Spinlock g_slice_view_lock;
         SliceView g_slice_view;
         MapSliceView g_mslice_view;
         SliceBuf g_mslice[kMapSliceBufs];
@@ -175,7 +175,7 @@ namespace overlay
         int g_imgui_frames_in_flight = 0;
         std::atomic<std::uint32_t> g_swallow_bits[8]{};
         std::atomic<std::uint64_t> g_swallow_stamp{0};
-        Spinlock g_msg_lock;
+        spin::Spinlock g_msg_lock;
         PendingMsg g_msg_ring[kMsgRing];
         int g_msg_head = 0;  // oldest unreplayed slot
         int g_msg_count = 0; // slots in use
@@ -204,11 +204,11 @@ namespace overlay
         clipimg::Fmt g_shot_fmt = clipimg::Fmt::Unknown;
         mv::Rect g_shot_canvas{};
         bool g_shot_canvas_valid = false;
-        Spinlock g_shot_lock;
+        spin::Spinlock g_shot_lock;
         std::vector<std::uint8_t> g_shot_dib;
         std::atomic<bool> g_shot_dib_ready{false};
         std::atomic<bool> g_shot_stage_done{false};
-        Spinlock g_toast_lock;
+        spin::Spinlock g_toast_lock;
         char g_toast_pending[160]{};
         unsigned g_toast_pending_ms = 2500;
         std::atomic<bool> g_toast_pending_ready{false};
@@ -535,12 +535,6 @@ namespace overlay
 
 
         //==============================================================================
-        // Spinlock (no std::mutex anywhere in this mod - see lessons.md)
-        //==============================================================================
-
-
-
-        //==============================================================================
         // Small helpers
         //==============================================================================
 
@@ -836,25 +830,25 @@ namespace overlay
 
         SliceView slice_view()
         {
-            SpinGuard guard(g_slice_view_lock);
+            spin::SpinGuard guard(g_slice_view_lock);
             return g_slice_view;
         }
 
         MapSliceView map_slice_view()
         {
-            SpinGuard guard(g_slice_view_lock);
+            spin::SpinGuard guard(g_slice_view_lock);
             return g_mslice_view;
         }
 
         void clear_slice_view()
         {
-            SpinGuard guard(g_slice_view_lock);
+            spin::SpinGuard guard(g_slice_view_lock);
             g_slice_view = SliceView{};
         }
 
         void clear_map_slice_view()
         {
-            SpinGuard guard(g_slice_view_lock);
+            spin::SpinGuard guard(g_slice_view_lock);
             g_mslice_view = MapSliceView{};
         }
 
@@ -1400,7 +1394,7 @@ namespace overlay
             {
                 return;
             }
-            SpinGuard guard(g_msg_lock);
+            spin::SpinGuard guard(g_msg_lock);
             if (g_msg_count >= kMsgRing)
             {
                 g_msg_dropped.fetch_add(1, std::memory_order_relaxed);
@@ -1417,14 +1411,14 @@ namespace overlay
         {
             int budget = 0;
             {
-                SpinGuard guard(g_msg_lock);
+                spin::SpinGuard guard(g_msg_lock);
                 budget = g_msg_count;
             }
             for (int i = 0; i < budget; ++i)
             {
                 PendingMsg m{};
                 {
-                    SpinGuard guard(g_msg_lock);
+                    spin::SpinGuard guard(g_msg_lock);
                     if (g_msg_count == 0)
                     {
                         break;
@@ -1675,7 +1669,7 @@ namespace overlay
             g_mslice_scratch.clear();
             g_slice_want_px.store(0, std::memory_order_relaxed);
             {
-                SpinGuard guard(g_slice_req_lock);
+                spin::SpinGuard guard(g_slice_req_lock);
                 g_map_req.wanted = false;
             }
         }
@@ -2503,7 +2497,7 @@ namespace overlay
 
             g_slice_copy_pending[g_slice_next].store(true, std::memory_order_release);
             {
-                SpinGuard guard(g_slice_view_lock);
+                spin::SpinGuard guard(g_slice_view_lock);
                 g_slice_view.shown = g_slice_next;
                 // The window's own world -> pixel mapping (see mapdata::HeightMaps::to_px):
                 //   px_local = px - x0 = (Y - (min_y + x0/s)) * s
@@ -3205,7 +3199,7 @@ namespace overlay
         void post_toast(const char* text, unsigned ms)
         {
             {
-                SpinGuard guard(g_toast_lock);
+                spin::SpinGuard guard(g_toast_lock);
                 ::strncpy_s(g_toast_pending, sizeof(g_toast_pending), text, _TRUNCATE);
                 g_toast_pending_ms = ms;
             }
@@ -3391,7 +3385,7 @@ namespace overlay
                 return;
             }
             {
-                SpinGuard guard(g_shot_lock);
+                spin::SpinGuard guard(g_shot_lock);
                 g_shot_dib = std::move(dib);
             }
             g_shot_dib_ready.store(true, std::memory_order_release);
@@ -5321,14 +5315,14 @@ namespace overlay
         {
             if (!ch.has_heights() || canvas.w() < 8.0f || canvas.h() < 8.0f)
             {
-                SpinGuard guard(g_slice_req_lock);
+                spin::SpinGuard guard(g_slice_req_lock);
                 g_map_req.wanted = false;
                 return false;
             }
             const mapdata::HeightMaps& hm = *ch.heights;
             if (hm.px_per_uu <= 0.0)
             {
-                SpinGuard guard(g_slice_req_lock);
+                spin::SpinGuard guard(g_slice_req_lock);
                 g_map_req.wanted = false;
                 return false;
             }
@@ -5377,7 +5371,7 @@ namespace overlay
             }
 
             {
-                SpinGuard guard(g_slice_req_lock);
+                spin::SpinGuard guard(g_slice_req_lock);
                 g_map_req.wanted = true;
                 g_map_req.cx = g_mv.cx;
                 g_map_req.cy = g_mv.cy;
@@ -5397,7 +5391,7 @@ namespace overlay
         {
             MapSliceReq req{};
             {
-                SpinGuard guard(g_slice_req_lock);
+                spin::SpinGuard guard(g_slice_req_lock);
                 req = g_map_req;
             }
             if (!req.wanted || now - g_map_req_ms.load(std::memory_order_relaxed) > 500)
@@ -5541,7 +5535,7 @@ namespace overlay
 
             g_mslice_copy_pending[g_mslice_next].store(true, std::memory_order_release);
             {
-                SpinGuard guard(g_slice_view_lock);
+                spin::SpinGuard guard(g_slice_view_lock);
                 g_mslice_view.shown = g_mslice_next;
                 g_mslice_view.valid = true;
                 g_mslice_view.x0 = g_mr_x0;
@@ -8775,7 +8769,7 @@ namespace overlay
                 char text[160]{};
                 unsigned ms = 2500;
                 {
-                    SpinGuard guard(g_toast_lock);
+                    spin::SpinGuard guard(g_toast_lock);
                     ::strncpy_s(text, sizeof(text), g_toast_pending, _TRUNCATE);
                     ms = g_toast_pending_ms;
                 }
@@ -9132,7 +9126,7 @@ namespace overlay
             {
                 if (!g_render_stopped.load(std::memory_order_acquire))
                 {
-                    SpinGuard guard(g_render_lock);
+                    spin::SpinGuard guard(g_render_lock);
                     shutdown_render();
                 }
                 return;
@@ -9147,7 +9141,7 @@ namespace overlay
             }
 
             g_render_stage.store("waiting for the render lock", std::memory_order_relaxed);
-            SpinGuard guard(g_render_lock);
+            spin::SpinGuard guard(g_render_lock);
             g_render_stage.store("holding the render lock", std::memory_order_relaxed);
 
             // RE-ADOPTION, and it happens here because this is the only thread that may
@@ -10216,7 +10210,7 @@ namespace overlay
         // at all - stop_complete() below answers for it.
         if (!g_hooks_installed.load(std::memory_order_acquire) || g_present_count.load() == 0)
         {
-            SpinGuard guard(g_render_lock);
+            spin::SpinGuard guard(g_render_lock);
             shutdown_render(); // nothing of ours is in flight; safe from this thread
         }
     }
@@ -10733,7 +10727,7 @@ namespace overlay
             const mm::PerfScope clip_scope(g_pf_clip);
             std::vector<std::uint8_t> dib;
             {
-                SpinGuard guard(g_shot_lock);
+                spin::SpinGuard guard(g_shot_lock);
                 dib.swap(g_shot_dib);
             }
             const char* why = nullptr;

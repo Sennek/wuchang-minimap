@@ -56,6 +56,7 @@
 #include "navmesh_dump.hpp"
 #include "recon.hpp"
 #include "shrines.hpp"
+#include "spinlock.hpp"
 #include "mmstate.hpp"
 #include "projection.hpp"
 #include "version.hpp"
@@ -89,73 +90,6 @@ namespace overlay
         // drawing helpers are handed geometry rather than the config, hence the global.
         constexpr int kCircleSegments = 72;
         extern int g_circle_segments;
-        class Spinlock
-        {
-          public:
-            void lock() noexcept
-            {
-                for (int spin = 0; flag_.test_and_set(std::memory_order_acquire); ++spin)
-                {
-                    if ((spin & 0x3F) == 0x3F)
-                    {
-                        ::SwitchToThread();
-                    }
-                    else
-                    {
-                        YieldProcessor();
-                    }
-                }
-            }
-            // A BOUNDED acquire, for the one caller that must never wait for ever.
-            // `hk_ResizeBuffers` can be called from a thread the render thread is
-            // itself waiting on (`ImGui_ImplWin32_NewFrame` touches the cursor and the
-            // client rect of a window owned by the game thread), and an unbounded spin
-            // there turns a stall into a deadlock. See its call site.
-            bool try_lock_ms(unsigned budget_ms) noexcept
-            {
-                const std::uint64_t deadline = ::GetTickCount64() + budget_ms;
-                for (int spin = 0; flag_.test_and_set(std::memory_order_acquire); ++spin)
-                {
-                    if ((spin & 0x3F) == 0x3F)
-                    {
-                        if (::GetTickCount64() > deadline)
-                        {
-                            return false;
-                        }
-                        ::SwitchToThread();
-                    }
-                    else
-                    {
-                        YieldProcessor();
-                    }
-                }
-                return true;
-            }
-            void unlock() noexcept
-            {
-                flag_.clear(std::memory_order_release);
-            }
-
-          private:
-            std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
-        };
-        class SpinGuard
-        {
-          public:
-            explicit SpinGuard(Spinlock& l) noexcept : lock_(l)
-            {
-                lock_.lock();
-            }
-            ~SpinGuard()
-            {
-                lock_.unlock();
-            }
-            SpinGuard(const SpinGuard&) = delete;
-            SpinGuard& operator=(const SpinGuard&) = delete;
-
-          private:
-            Spinlock& lock_;
-        };
         struct ModuleId
         {
             wchar_t name[64]{};      // file name only, lower case
@@ -345,7 +279,7 @@ namespace overlay
         extern int g_pf_mslice; // the full map's cut (loop thread)
         extern int g_pf_input; // the hotkey block and the loop thread's file I/O
         extern int g_pf_pad; // XInput only, split out of the block above
-        extern Spinlock g_render_lock;
+        extern spin::Spinlock g_render_lock;
         extern ID3D12Device* g_device;
         extern std::atomic<ID3D12CommandQueue*> g_queue;
         extern ID3D12GraphicsCommandList* g_cmd_list;
@@ -447,7 +381,7 @@ namespace overlay
             float feet = 0.0f;
             bool show_all_floors = false;
         };
-        extern Spinlock g_slice_req_lock;
+        extern spin::Spinlock g_slice_req_lock;
         extern MapSliceReq g_map_req;
         extern std::atomic<std::uint64_t> g_map_req_ms; // GetTickCount64 of the last request
         // loop -> render: which buffer to draw and the world mapping it covers. Copied
@@ -468,7 +402,7 @@ namespace overlay
             double y0 = 0.0; // west edge
             double y1 = 0.0; // east edge
         };
-        extern Spinlock g_slice_view_lock;
+        extern spin::Spinlock g_slice_view_lock;
         extern SliceView g_slice_view;
         extern MapSliceView g_mslice_view;
         extern SliceBuf g_mslice[kMapSliceBufs];
@@ -626,7 +560,7 @@ namespace overlay
         // logged rather than overwriting an unreplayed message - dropping the NEWEST
         // keeps the order of what does get through.
         constexpr int kMsgRing = 512;
-        extern Spinlock g_msg_lock;
+        extern spin::Spinlock g_msg_lock;
         extern PendingMsg g_msg_ring[kMsgRing];
         extern int g_msg_head; // oldest unreplayed slot
         extern int g_msg_count; // slots in use
@@ -772,7 +706,7 @@ namespace overlay
         extern bool g_shot_canvas_valid;
         // render -> loop: the finished DIB. A spinlock, not a queue: one screenshot can
         // be in flight and the payload is handed over exactly once.
-        extern Spinlock g_shot_lock;
+        extern spin::Spinlock g_shot_lock;
         extern std::vector<std::uint8_t> g_shot_dib;
         extern std::atomic<bool> g_shot_dib_ready;
         // loop -> render: the handover is complete, so the next request may be recorded.
@@ -782,7 +716,7 @@ namespace overlay
         // A toast may only be RAISED where toasts are drawn (the render thread owns
         // g_toast), so this is how the loop thread asks. Newest wins: a toast is a
         // notice, and a queue of stale notices is worse than the latest one.
-        extern Spinlock g_toast_lock;
+        extern spin::Spinlock g_toast_lock;
         extern char g_toast_pending[160];
         extern unsigned g_toast_pending_ms;
         extern std::atomic<bool> g_toast_pending_ready;

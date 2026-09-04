@@ -726,7 +726,7 @@ namespace overlay
         }
 
         void draw_markers(const mm::Config& cfg, const MiniGeom& g, bool round, float x0, float y0, float side,
-                          ImDrawList* dl)
+                          double player_z, ImDrawList* dl)
         {
             g_marker_draw = MarkerDrawStats{};
             if (!cfg.markers_enabled)
@@ -748,6 +748,7 @@ namespace overlay
                 float dx = 0.0f;
                 float dy = 0.0f;
                 float d2 = 0.0f;
+                float dz = 0.0f; // marker Z minus player Z, uu (signed)
                 std::uint8_t cat = 0;
                 std::uint8_t rarity = 0;
                 bool found = false;
@@ -790,6 +791,7 @@ namespace overlay
                 cand.dx = static_cast<float>(off.dx);
                 cand.dy = static_cast<float>(off.dy);
                 cand.d2 = fc.d2_xy;
+                cand.dz = static_cast<float>(m.z - player_z);
                 cand.cat = fc.cat;
                 cand.rarity = fc.rarity;
                 cand.found = found;
@@ -863,9 +865,27 @@ namespace overlay
                                                  cfg.markers_rarity_tint, cfg.xray_rarity_colors);
                 const ImU32 edge = IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f));
                 const ImVec2 p{g.center.x + cand.dx, g.center.y + cand.dy};
-                draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, cand.clamped ? r * 0.72f : r, col, edge,
-                                  hollow);
+                const float gr = cand.clamped ? r * 0.72f : r;
+                draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, gr, col, edge, hollow);
                 draw_count_badge(dl, p, r, cand.count, alpha);
+                // Above / below, the same rule the compass uses: a marker more than
+                // compass_pip_height_uu off the player's own Z gets an arrow beside its
+                // glyph, so a chest on the floor overhead is not walked into a wall.
+                // Within that band it counts as this floor and gets none. The arrow sits
+                // left of the glyph when a count badge already occupies the right.
+                const float thr = cfg.compass_pip_height_uu;
+                if (thr > 0.0f && (cand.dz > thr || cand.dz < -thr))
+                {
+                    const float ar = (std::max)(2.5f, gr * 0.62f);
+                    const float sgn = cand.count > 1 ? -1.0f : 1.0f;
+                    const float ax = p.x + sgn * (gr + ar * 0.9f);
+                    const float up = cand.dz > 0.0f ? -1.0f : 1.0f;
+                    const ImVec2 tip{ax, p.y + up * ar};
+                    const ImVec2 bl{ax - ar * 0.8f, p.y - up * ar * 0.55f};
+                    const ImVec2 br{ax + ar * 0.8f, p.y - up * ar * 0.55f};
+                    dl->AddTriangleFilled(tip, bl, br, IM_COL32(246, 246, 250, alpha));
+                    dl->AddTriangle(tip, bl, br, edge, 1.0f);
+                }
                 ++g_marker_draw.drawn;
                 g_marker_draw.clamped += cand.clamped ? 1 : 0;
             }
@@ -1016,7 +1036,7 @@ namespace overlay
 
             // Markers go over the map and under the frame ring and the player arrow, so
             // the arrow is never hidden by a glyph standing on it.
-            draw_markers(cfg, g, cfg.round, x0, y0, side, dl);
+            draw_markers(cfg, g, cfg.round, x0, y0, side, snap.z, dl);
 
             // A ring where something was just collected, so a pickup taken off screen
             // still registers on the minimap.
@@ -1662,7 +1682,9 @@ namespace overlay
 
             // Marker pips, nearest first so the cap keeps what matters, and only inside
             // the strip's span - clamped off-strip pips pile into a block at both ends.
-            if (!g_frame_cands.empty())
+            // markers_enabled is the master switch for every marker the mod draws, so it
+            // takes the pips and their distance labels off the strip too.
+            if (cfg.markers_enabled && !g_frame_cands.empty())
             {
                 struct Pip
                 {
@@ -1682,6 +1704,13 @@ namespace overlay
                 for (const FrameCand& fc : g_frame_cands)
                 {
                     if (!mdb::cat_enabled(cfg.compass_categories, static_cast<mdb::Cat>(fc.cat)))
+                    {
+                        continue;
+                    }
+                    // Same rule as the minimap: markers_hide_found takes a found marker
+                    // off the strip entirely. Landmarks stay, the helper exempts them.
+                    if (mdb::hidden_as_found(static_cast<mdb::Cat>(fc.cat), fc.found,
+                                             cfg.markers_hide_found))
                     {
                         continue;
                     }
@@ -1723,7 +1752,9 @@ namespace overlay
                 // Dedupe: six chests in one room are six pips within a pixel of each
                 // other. The list is sorted nearest first, so keeping the first pip in
                 // each 3-px column keeps the nearest of every cluster; the walk is
-                // O(n x kept) over at most compass_max_pips entries.
+                // O(n x kept) over at most compass_max_pips entries. Found state is part
+                // of the match, the way the minimap's merge has it, so a found pip never
+                // swallows an unfound one standing behind it.
                 constexpr double kDedupePx = 3.0;
                 std::size_t kept = 0;
                 for (std::size_t i = 0; i < pips.size(); ++i)
@@ -1731,7 +1762,7 @@ namespace overlay
                     bool crowded = false;
                     for (std::size_t j = 0; j < kept; ++j)
                     {
-                        if (pips[j].cat == pips[i].cat &&
+                        if (pips[j].cat == pips[i].cat && pips[j].found == pips[i].found &&
                             std::abs(pips[j].x - pips[i].x) < kDedupePx)
                         {
                             crowded = true;
@@ -1751,7 +1782,7 @@ namespace overlay
                 {
                     const Pip& p = pips[pi];
                     const bool hollow = mdb::drawn_as_found(static_cast<mdb::Cat>(p.cat), p.found);
-                    const int a = hollow ? alpha(0.35f) : alpha(1.0f);
+                    const int a = hollow ? alpha(cfg.markers_found_alpha) : alpha(1.0f);
                     const ImU32 col = marker_color_q(static_cast<mdb::Cat>(p.cat), p.rarity, a,
                                                      cfg.markers_rarity_tint, cfg.xray_rarity_colors);
                     const ImVec2 at{static_cast<float>(p.x), y1 - height * 0.30f};
@@ -1809,7 +1840,10 @@ namespace overlay
                             continue;
                         }
                         taken.emplace_back(lx, rx);
-                        const int la = p.found ? alpha(0.45f) : alpha(0.9f);
+                        // Dimmed on the same hollow value the pip uses, so a landmark's
+                        // label stays bright where its glyph does.
+                        const bool hollow = mdb::drawn_as_found(static_cast<mdb::Cat>(p.cat), p.found);
+                        const int la = hollow ? alpha(cfg.markers_found_alpha * 0.9f) : alpha(0.9f);
                         dl->AddText(ImVec2{lx + 1.0f, label_y + 1.0f}, IM_COL32(0, 0, 0, la), text);
                         dl->AddText(ImVec2{lx, label_y}, IM_COL32(226, 230, 236, la), text);
                     }
@@ -1829,7 +1863,8 @@ namespace overlay
                 const bool inside = cmp::strip_x(strip, cmp::bearing_deg(snap.x, snap.y, wp.x, wp.y), x, rel);
                 const float wx = static_cast<float>(x);
                 const ImVec2 at{wx, y1 - height * 0.30f};
-                draw_waypoint_glyph(dl, at, height * 0.24f, alpha(1.0f));
+                // waypoint_size_scale sizes the waypoint everywhere it is drawn.
+                draw_waypoint_glyph(dl, at, height * 0.24f * cfg.waypoint_size_scale, alpha(1.0f));
                 if (!inside)
                 {
                     add_edge_arrow(dl, ImVec2{wx + (rel < 0.0 ? -8.0f : 8.0f), at.y}, rel < 0.0 ? -1.0f : 1.0f,

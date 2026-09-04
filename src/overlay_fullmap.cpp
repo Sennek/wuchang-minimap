@@ -702,7 +702,8 @@ namespace overlay
             // `found / total` from markers::stats() - counted for the chapter in force
             // when the marker filter is on, so the total is not five chapters the player
             // cannot see. Clicking a row toggles that category in `markers_categories`,
-            // the mask the minimap, the compass and the F2 chips share.
+            // the mask this map, the minimap and the F2 chips share. The compass has its
+            // own `compass_categories`, so a row here does not move its pips.
             ImGui::SameLine();
             if (ImGui::BeginChild("##legend", ImVec2{legend_w, csize.y}, ImGuiChildFlags_None,
                                   ImGuiWindowFlags_NoSavedSettings))
@@ -1061,6 +1062,7 @@ namespace overlay
                     float sx = 0.0f;
                     float sy = 0.0f;
                     float cd2 = 0.0f; // squared distance from the canvas centre
+                    float dz = 0.0f;  // marker Z minus the player's Z, uu (signed)
                     const markers::DrawMarker* m = nullptr;
                     bool found = false;
                     int count = 1;
@@ -1102,6 +1104,11 @@ namespace overlay
                     const float cdx = sx - canvas.cx();
                     const float cdy = sy - canvas.cy();
                     c.cd2 = cdx * cdx + cdy * cdy;
+                    // Against the PLAYER, not against the storey the slicer shows: the
+                    // arrow answers "is this above or below me", so browsing floors with
+                    // Q / E (g_map_floor_off, map_show_all_floors) must not flip it. Same
+                    // reference the minimap and the compass use.
+                    c.dz = static_cast<float>(m.z - snap.z);
                     c.m = &m;
                     c.found = found;
                     cands.push_back(c);
@@ -1155,11 +1162,31 @@ namespace overlay
                     const bool hollow = mdb::drawn_as_found(cat, c.found);
                     const int alpha =
                         static_cast<int>((hollow ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
-                    draw_marker_glyph(dl, cat, ImVec2{c.sx, c.sy}, mr,
+                    const ImU32 edge = IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f));
+                    const ImVec2 p{c.sx, c.sy};
+                    draw_marker_glyph(dl, cat, p, mr,
                                       marker_color_q(cat, m.rarity, alpha, cfg.markers_rarity_tint,
                                                      cfg.xray_rarity_colors),
-                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)), hollow);
-                    draw_count_badge(dl, ImVec2{c.sx, c.sy}, mr, c.count, alpha);
+                                      edge, hollow);
+                    draw_count_badge(dl, p, mr, c.count, alpha);
+                    // Above / below, the same rule the minimap and the compass use: a
+                    // marker more than compass_pip_height_uu off the player's own Z gets
+                    // an arrow beside its glyph. Within that band it counts as this floor
+                    // and gets none. The arrow sits left of the glyph when a count badge
+                    // already occupies the right.
+                    const float thr = cfg.compass_pip_height_uu;
+                    if (thr > 0.0f && (c.dz > thr || c.dz < -thr))
+                    {
+                        const float ar = (std::max)(2.5f, mr * 0.62f);
+                        const float sgn = c.count > 1 ? -1.0f : 1.0f;
+                        const float ax = p.x + sgn * (mr + ar * 0.9f);
+                        const float up = c.dz > 0.0f ? -1.0f : 1.0f;
+                        const ImVec2 tip{ax, p.y + up * ar};
+                        const ImVec2 bl{ax - ar * 0.8f, p.y - up * ar * 0.55f};
+                        const ImVec2 br{ax + ar * 0.8f, p.y - up * ar * 0.55f};
+                        dl->AddTriangleFilled(tip, bl, br, IM_COL32(246, 246, 250, alpha));
+                        dl->AddTriangle(tip, bl, br, edge, 1.0f);
+                    }
                     ++g_map_markers_drawn;
 
                     const float mdx = c.sx - io.MousePos.x;
@@ -1195,7 +1222,8 @@ namespace overlay
                 mv::world_to_screen(g_mv, canvas, wps.items[wi].x, wps.items[wi].y, sx, sy);
                 if (canvas.contains(sx, sy))
                 {
-                    draw_waypoint_glyph(dl, ImVec2{sx, sy}, mr * 1.1f, 255);
+                    // waypoint_size_scale sizes the waypoint everywhere it is drawn.
+                    draw_waypoint_glyph(dl, ImVec2{sx, sy}, mr * 1.1f * cfg.waypoint_size_scale, 255);
                 }
             }
             {
@@ -1597,7 +1625,8 @@ namespace overlay
                 add(left, "Waypoints", "the waypoint list (remove one, or all)");
                 add(left, "left-click, F", "toggle found");
                 add(left, "click a legend row", "filter that category (remembered)");
-                add(left, key_name_ascii(cfg.screenshot_key), "copy the map to the clipboard");
+                add(left, key_name_ascii(cfg.screenshot_key),
+                    "copy the map to the clipboard (keyboard)");
                 add(left, "Shrines", "shrine list (click = waypoint, double-click = centre)");
                 add(left, "Stats", "collection statistics");
                 add(left, "F1 or H", "this legend");
@@ -1615,7 +1644,7 @@ namespace overlay
                     add(right, "B", "close the map");
                     add(right, "", "");
                 }
-                add(right, "outside the map", "");
+                add(right, "outside the map (keyboard)", "");
                 add(right, key_name_ascii(cfg.panel_key), "settings panel");
                 add(right, key_name_ascii(cfg.zoom_key), "cycle the minimap zoom");
                 add(right, key_name_ascii(cfg.reload_key), "reload config, maps and markers");

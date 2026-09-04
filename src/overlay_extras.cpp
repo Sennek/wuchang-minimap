@@ -441,16 +441,27 @@ namespace overlay
             const bool first = g_found_watch_round == 0;
             g_found_watch_round = round;
 
+            // The ring only makes sense for a marker the player can see, so the watch
+            // list carries the same filter the minimap and the full map draw with. One
+            // read per round, not per frame. A category switched back on rebuilds the
+            // list before it can fire: an id the previous round did not watch produces
+            // no event.
+            const mm::Config cfg = mm::config();
+
             FoundWatch next[kFoundWatch]{};
             int n = 0;
             const float radius2 = static_cast<float>(kFoundWatchUu * kFoundWatchUu);
             for (const FrameCand& fc : g_frame_cands)
             {
-                if (n >= kFoundWatch)
+                if (!cfg.markers_enabled || n >= kFoundWatch)
                 {
                     break;
                 }
                 if (fc.d2_xy > radius2 || fc.m->id[0] == '\0')
+                {
+                    continue;
+                }
+                if (!mdb::cat_enabled(cfg.markers_categories, static_cast<mdb::Cat>(fc.cat)))
                 {
                     continue;
                 }

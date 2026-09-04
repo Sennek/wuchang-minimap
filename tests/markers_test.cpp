@@ -3344,7 +3344,7 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
-        constexpr std::size_t kPaddingBytes = 75;
+        constexpr std::size_t kPaddingBytes = 73;
 
         mm::Config a{};
         mm::Config b{};
@@ -4786,6 +4786,12 @@ namespace
         CHECK_STR(slotid::found_filename("maingame0"), "wuchang_minimap_found_maingame0.txt");
         // The empty key is the ONLY thing that may produce the shared name.
         CHECK(slotid::found_filename("a") != slotid::found_filename(""));
+
+        // The waypoints follow the same slot key, into a file of their own.
+        CHECK_STR(slotid::waypoint_filename(""), "wuchang_minimap_waypoint.txt");
+        CHECK_STR(slotid::waypoint_filename("maingame0"), "wuchang_minimap_waypoint_maingame0.txt");
+        CHECK(slotid::waypoint_filename("a") != slotid::waypoint_filename(""));
+        CHECK(slotid::waypoint_filename("maingame0") != slotid::found_filename("maingame0"));
 
         const char* kReal =
             "C:\\Users\\me\\AppData\\Local\\Project_Plague\\Saved\\36053875\\GameSlots\\maingame0\\maingame0.sav";

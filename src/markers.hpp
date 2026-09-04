@@ -150,6 +150,13 @@ namespace markers
     // un-marking a chest the game reports as `Used` is undone on the next round.
     void request_toggle_found(const char* id, bool found);
 
+    // ANY THREAD (in practice the render thread, from the F2 panel): empty the found set
+    // of the save slot in force. Queued and applied by the loop thread, which clears the
+    // master set, republishes the empty set to the game thread and rewrites the found
+    // file. The live rules still own the truth: a lit shrine, a defeated boss and a chest
+    // the game has already removed come back as found within a few sweep rounds.
+    void request_clear_found();
+
     // Loop thread, every tick. Drains the game thread's newly-found outbox and writes
     // the found file once the debounce has elapsed.
     void on_update();

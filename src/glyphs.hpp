@@ -279,9 +279,10 @@ namespace gly
     // backdrop, the dark plate under every label, and the walkable fill the height
     // slicer paints.
     //
-    // Precedence: a theme only supplies a colour key the config file does not mention,
-    // so a file that spells out `minimap_frame_color` keeps its own value under every
-    // theme.
+    // Precedence: a theme supplies every colour the player has not personally picked - a
+    // key the config file does not mention, or one whose value is exactly what some
+    // built-in theme sets. A `minimap_frame_color` of the player's own choosing survives
+    // a theme change; one left at a theme's colour follows the theme.
     //
     //   neutral - cold blue-grey frame on a blue-black disc.
     //   ink     - bronze on near-black with a warmer parchment fill.

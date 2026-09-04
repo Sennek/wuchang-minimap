@@ -385,9 +385,11 @@ namespace overlay
 
             ImGui::Checkbox("Minimap", &cfg.show_minimap);
             ImGui::Indent();
-            ImGui::SliderFloat("Size (fraction of screen height)", &cfg.size_frac, 0.08f, 0.6f, "%.2f");
-            ImGui::SliderFloat("Zoom (uu per minimap pixel)", &cfg.zoom_uu_per_px, 4.0f, 200.0f, "%.0f");
-            ImGui::SliderFloat("Opacity", &cfg.opacity, 0.15f, 1.0f, "%.2f");
+            // Every range here is the loader's clamp, so the panel never shows a value
+            // the file will not keep.
+            ImGui::SliderFloat("Size (fraction of screen height)", &cfg.size_frac, 0.05f, 0.9f, "%.2f");
+            ImGui::SliderFloat("Zoom (uu per minimap pixel)", &cfg.zoom_uu_per_px, 2.0f, 400.0f, "%.0f");
+            ImGui::SliderFloat("Opacity", &cfg.opacity, 0.1f, 1.0f, "%.2f");
             bool round_shape = cfg.round;
             if (ImGui::Checkbox("Round (off = square)", &round_shape))
             {
@@ -425,7 +427,7 @@ namespace overlay
             }
             ImGui::SameLine();
             ImGui::Text("%s in-world", hold.c_str());
-            ImGui::SliderFloat("Radius (uu)", &cfg.highlight_radius, 200.0f, 20000.0f, "%.0f");
+            ImGui::SliderFloat("Radius (uu)", &cfg.highlight_radius, 200.0f, 50000.0f, "%.0f");
             ImGui::SameLine();
             ImGui::TextDisabled("= %.0f m", static_cast<double>(cfg.highlight_radius) / 100.0);
             ImGui::Checkbox("Names + distance", &cfg.highlight_labels);
@@ -463,9 +465,9 @@ namespace overlay
                 }
                 ImGui::Unindent();
             }
-            ImGui::DragFloat("Minimap offset X", &cfg.offset_x, 1.0f, 0.0f, 2000.0f, "%.0f px");
-            ImGui::DragFloat("Minimap offset Y", &cfg.offset_y, 1.0f, 0.0f, 2000.0f, "%.0f px");
-            ImGui::SliderFloat("Compass distance from its edge (px)", &cfg.compass_offset_y, 0.0f, 400.0f,
+            ImGui::DragFloat("Minimap offset X", &cfg.offset_x, 1.0f, 0.0f, 4000.0f, "%.0f px");
+            ImGui::DragFloat("Minimap offset Y", &cfg.offset_y, 1.0f, 0.0f, 4000.0f, "%.0f px");
+            ImGui::SliderFloat("Compass distance from its edge (px)", &cfg.compass_offset_y, 0.0f, 2000.0f,
                                "%.0f");
             ImGui::TextDisabled("in 1080p pixels");
 
@@ -491,7 +493,7 @@ namespace overlay
         // Overview: look
         //--------------------------------------------------------------------------
         //
-        // In the FILE a theme only fills in colours the file does not mention; in the
+        // In the FILE a theme recolours every colour key the player has not customised; in the
         // PANEL choosing one is explicit, so it writes the theme's colours into the five
         // colour keys there and then - otherwise the combo looks broken for a player
         // whose config spells one of those keys out.
@@ -664,12 +666,12 @@ namespace overlay
             ImGui::Separator();
 
             const float dial_w = 72.0f * g_ui_scale;
-            // One question, two surfaces. The key is phrased as "hide", the question a
-            // player asks is "show".
+            // One question, every surface that draws a marker. The key is phrased as
+            // "hide", the question a player asks is "show".
             ImGui::TextUnformatted("Show found");
             ImGui::SameLine();
             bool show_found = !cfg.markers_hide_found;
-            if (ImGui::Checkbox("map / minimap", &show_found))
+            if (ImGui::Checkbox("map / minimap / compass", &show_found))
             {
                 cfg.markers_hide_found = !show_found;
             }
@@ -681,13 +683,13 @@ namespace overlay
             ImGui::TextUnformatted("Glyph size");
             ImGui::SameLine();
             ImGui::SetNextItemWidth(dial_w);
-            ImGui::SliderFloat("minimap##glyph", &cfg.markers_size, 2.0f, 16.0f, "%.1f px");
+            ImGui::SliderFloat("minimap##glyph", &cfg.markers_size, 2.0f, 24.0f, "%.1f px");
             ImGui::SameLine();
             ImGui::SetNextItemWidth(dial_w);
-            ImGui::SliderFloat("map##glyph", &cfg.map_marker_size, 3.0f, 24.0f, "%.1f px");
+            ImGui::SliderFloat("map##glyph", &cfg.map_marker_size, 2.0f, 32.0f, "%.1f px");
             ImGui::SameLine();
             ImGui::SetNextItemWidth(dial_w);
-            ImGui::SliderFloat("x-ray##glyph", &cfg.highlight_size, 2.0f, 24.0f, "%.1f px");
+            ImGui::SliderFloat("x-ray##glyph", &cfg.highlight_size, 2.0f, 32.0f, "%.1f px");
 
             // Two booleans that only make sense together; both keys are still written.
             int quality = cfg.markers_rarity_tint ? 2 : (cfg.xray_rarity_colors_enabled ? 1 : 0);
@@ -813,6 +815,25 @@ namespace overlay
             }
         }
 
+        // The save-slot key inside a found filename, or "shared" for the file every save
+        // shares. Cheap enough to do per frame: one small string.
+        std::string slot_key_of(const char* found_file)
+        {
+            static constexpr char kPrefix[] = "wuchang_minimap_found_";
+            constexpr std::size_t kPrefixLen = sizeof(kPrefix) - 1;
+            constexpr std::size_t kSuffixLen = 4; // ".txt"
+            const std::string name = found_file != nullptr ? found_file : "";
+            if (name.empty())
+            {
+                return "unknown";
+            }
+            if (name.size() <= kPrefixLen + kSuffixLen || name.compare(0, kPrefixLen, kPrefix) != 0)
+            {
+                return "shared";
+            }
+            return name.substr(kPrefixLen, name.size() - kPrefixLen - kSuffixLen);
+        }
+
         void map_tracker(mm::Config& cfg)
         {
             ImGui::Checkbox("Remember what I have collected", &cfg.found_tracker);
@@ -833,6 +854,55 @@ namespace overlay
                                   "anything else = wuchang_minimap_found_<name>.txt\n"
                                   "It takes effect on Save or a reload - the loop thread owns the file.");
             }
+            //---- wiping this save's list ----------------------------------------------
+            //
+            // A stray click must not cost a playthrough, so the button arms on the first
+            // click and only acts on a second one within kClearArmMs; any other click in
+            // the panel disarms it. The loop thread owns the set and the file, so this
+            // only raises a flag.
+            constexpr std::uint64_t kClearArmMs = 3000;
+            static std::uint64_t clear_armed_ms = 0;
+            const std::uint64_t now_ms = ::GetTickCount64();
+            const bool armed = clear_armed_ms != 0 && now_ms - clear_armed_ms < kClearArmMs;
+            if (!armed)
+            {
+                clear_armed_ms = 0;
+            }
+            const bool clear_pressed =
+                ImGui::Button(armed ? "Click again to confirm" : "Clear this save's found list");
+            const bool clear_hovered = ImGui::IsItemHovered();
+            if (clear_pressed)
+            {
+                if (armed)
+                {
+                    markers::request_clear_found();
+                    // The map's optimistic per-marker overrides would keep drawing the old
+                    // state until the published buffer disagrees with each of them.
+                    g_found_override.clear();
+                    clear_armed_ms = 0;
+                }
+                else
+                {
+                    clear_armed_ms = now_ms;
+                }
+            }
+            else if (armed && !clear_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            {
+                clear_armed_ms = 0; // a click somewhere else means "no"
+            }
+            if (clear_hovered)
+            {
+                ImGui::SetTooltip("empties %s and forgets every marker you have collected in it\n"
+                                  "markers the game has already removed come back as found\n"
+                                  "within a few passes, and so do lit shrines and beaten bosses\n"
+                                  "NG+ keeps the save id, so this is how you start the list over",
+                                  st.found_file[0] != '\0' ? st.found_file : "the found file");
+            }
+            ImGui::SameLine();
+            // The save it would wipe, spelled out beside the button: the filename above is
+            // easy to read past, and this is the one thing worth being sure of.
+            ImGui::TextDisabled("save: %s", slot_key_of(st.found_file).c_str());
+
             //---- import / export ------------------------------------------------------
             //
             // The found list and the waypoints of this profile as one JSON file in the
@@ -1105,16 +1175,17 @@ namespace overlay
 
         void tune_fullmap(mm::Config& cfg)
         {
-            ImGui::SliderFloat("Zoom limit - closest", &cfg.map_zoom_min, 1.0f, 200.0f, "%.0f");
-            ImGui::SliderFloat("Zoom limit - furthest", &cfg.map_zoom_max, 100.0f, 4000.0f, "%.0f");
-            ImGui::SliderFloat("Zoom per wheel notch", &cfg.map_zoom_factor, 1.02f, 1.6f, "%.2f");
-            ImGui::SliderFloat("Pan speed (screen px per second)", &cfg.map_pan_speed, 100.0f, 4000.0f,
+            ImGui::SliderFloat("Zoom limit - closest", &cfg.map_zoom_min, 1.0f, 2000.0f, "%.0f");
+            ImGui::SliderFloat("Zoom limit - furthest", &cfg.map_zoom_max, cfg.map_zoom_min, 4000.0f,
+                               "%.0f");
+            ImGui::SliderFloat("Zoom per wheel notch", &cfg.map_zoom_factor, 1.01f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Pan speed (screen px per second)", &cfg.map_pan_speed, 50.0f, 6000.0f,
                                "%.0f");
             ImGui::SliderFloat("Margin (fraction of screen height)", &cfg.map_margin, 0.0f, 0.3f, "%.3f");
             ImGui::SliderFloat("Backdrop opacity##map", &cfg.map_backdrop, 0.0f, 1.0f, "%.2f");
             ImGui::SliderInt("Max markers drawn##map", &cfg.map_markers_max_draw, 0, 20000);
-            ImGui::SliderFloat("Floor step (uu)", &cfg.map_floor_step, 20.0f, 2000.0f, "%.0f");
-            ImGui::SliderInt("Slice texture width (px)", &cfg.map_slice_px, 256, 2048);
+            ImGui::SliderFloat("Floor step (uu)", &cfg.map_floor_step, 10.0f, 5000.0f, "%.0f");
+            ImGui::SliderInt("Slice texture width (px)", &cfg.map_slice_px, 128, 2048);
             ImGui::SliderInt("Slice rate cap (Hz)", &cfg.map_slice_hz, 1, 30);
             ImGui::SliderFloat("Gamepad deadzone", &cfg.map_gamepad_deadzone, 0.05f, 0.6f, "%.2f");
         }
@@ -1126,8 +1197,12 @@ namespace overlay
             ImGui::SliderInt("Max labelled (nearest first)", &cfg.highlight_labels_max, 0, 40);
             ImGui::SameLine();
             ImGui::TextDisabled("names only");
-            ImGui::SliderFloat("Alpha at the camera", &cfg.highlight_alpha_near, 0.1f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Alpha at the radius", &cfg.highlight_alpha_far, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Alpha at the camera", &cfg.highlight_alpha_near, 0.05f, 1.0f, "%.2f");
+            // The far alpha never rises above the near one - the loader clamps it there,
+            // so the slider stops there too rather than showing a value the file drops.
+            ImGui::SliderFloat("Alpha at the radius", &cfg.highlight_alpha_far, 0.0f,
+                               cfg.highlight_alpha_near, "%.2f");
+            cfg.highlight_alpha_far = (std::min)(cfg.highlight_alpha_far, cfg.highlight_alpha_near);
             ImGui::SliderInt("Camera read rate (Hz)", &cfg.highlight_camera_hz, 5, 240);
             ImGui::SeparatorText("Item quality palette");
             for (int i = 1; i < mdb::kRarityCount; ++i)
@@ -1161,14 +1236,10 @@ namespace overlay
             ImGui::Checkbox("Filled plate behind the strip", &cfg.compass_plate);
             ImGui::SameLine();
             ImGui::TextDisabled("off = ticks and letters with a shadow");
-            ImGui::SliderFloat("Marker bearing range (uu)", &cfg.compass_marker_distance, 500.0f, 60000.0f,
+            ImGui::SliderFloat("Marker bearing range (uu)", &cfg.compass_marker_distance, 500.0f, 200000.0f,
                                "%.0f");
             ImGui::SliderFloat("Minor tick spacing (deg)", &cfg.compass_tick_step_deg, 1.0f, 90.0f, "%.0f");
             ImGui::SliderInt("Max bearing pips", &cfg.compass_max_pips, 0, 256);
-            ImGui::SliderFloat("Above / below arrow from (uu)", &cfg.compass_pip_height_uu, 0.0f, 3000.0f,
-                               "%.0f");
-            ImGui::SameLine();
-            ImGui::TextDisabled("= %.1f m", static_cast<double>(cfg.compass_pip_height_uu) / 100.0);
             ImGui::Checkbox("Show the waypoint bearing", &cfg.compass_show_waypoint);
             ImGui::SameLine();
             ImGui::Checkbox("Distance in metres under each pip", &cfg.compass_pip_labels);
@@ -1177,13 +1248,14 @@ namespace overlay
         void tune_floors(mm::Config& cfg)
         {
             ImGui::Checkbox("Show the floor below / above (dimmed)", &cfg.show_adjacent_floors);
-            ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 20.0f, 800.0f, "%.0f");
-            ImGui::SliderFloat("Adjacent floor opacity", &cfg.adjacent_floor_opacity, 0.0f, 0.6f, "%.2f");
-            ImGui::SliderFloat("Fade range below (uu)", &cfg.floor_fade_uu, 100.0f, 4000.0f, "%.0f");
-            ImGui::SliderFloat("Fade range above (uu)", &cfg.floor_fade_above_uu, 0.0f, 4000.0f, "%.0f");
+            ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 10.0f, 2000.0f, "%.0f");
+            ImGui::SliderFloat("Adjacent floor opacity", &cfg.adjacent_floor_opacity, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Fade range below (uu)", &cfg.floor_fade_uu, cfg.floor_z_tolerance,
+                               20000.0f, "%.0f");
+            ImGui::SliderFloat("Fade range above (uu)", &cfg.floor_fade_above_uu, 0.0f, 20000.0f, "%.0f");
             ImGui::SameLine();
             ImGui::TextDisabled("0 = never draw a floor above you");
-            ImGui::SliderFloat("Height gradient strength", &cfg.floor_gradient_strength, 0.0f, 0.6f, "%.2f");
+            ImGui::SliderFloat("Height gradient strength", &cfg.floor_gradient_strength, 0.0f, 1.0f, "%.2f");
             float base[3] = {cfg.floor_base_r / 255.0f, cfg.floor_base_g / 255.0f, cfg.floor_base_b / 255.0f};
             if (ImGui::ColorEdit3("Walkable fill colour", base, ImGuiColorEditFlags_NoInputs))
             {
@@ -1192,8 +1264,8 @@ namespace overlay
                 cfg.floor_base_b = base[2] * 255.0f;
             }
             ImGui::SliderInt("Slice rate (Hz)", &cfg.slice_hz, 2, 30);
-            ImGui::SliderInt("Feet Z smoothing (ms)", &cfg.feet_z_smooth_ms, 1, 1000);
-            ImGui::SliderFloat("Player Z offset (uu, capsule -> feet)", &cfg.player_z_offset, -200.0f, 200.0f,
+            ImGui::SliderInt("Feet Z smoothing (ms)", &cfg.feet_z_smooth_ms, 1, 2000);
+            ImGui::SliderFloat("Player Z offset (uu, capsule -> feet)", &cfg.player_z_offset, -500.0f, 500.0f,
                                "%.0f");
         }
 
@@ -1232,7 +1304,19 @@ namespace overlay
                              scan::kPeriodMaxMs);
             ImGui::SliderFloat("Found marker opacity", &cfg.markers_found_alpha, 0.0f, 1.0f, "%.2f");
             ImGui::SliderInt("Max markers drawn per frame", &cfg.markers_max_draw, 0, 4000);
-            ImGui::SliderInt("Found file debounce (ms)", &cfg.found_save_debounce_ms, 200, 20000);
+            // One threshold, two surfaces: the minimap glyph and the compass pip both
+            // take their above / below arrow from it.
+            ImGui::SliderFloat("Above / below arrow from (uu)", &cfg.compass_pip_height_uu, 0.0f, 10000.0f,
+                               "%.0f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("A marker this far off the player's own Z gets an arrow beside its\n"
+                                  "glyph on the minimap and beside its pip on the compass. Within the\n"
+                                  "band it counts as this floor. 0 turns the arrows off.");
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("= %.1f m", static_cast<double>(cfg.compass_pip_height_uu) / 100.0);
+            ImGui::SliderInt("Found file debounce (ms)", &cfg.found_save_debounce_ms, 200, 60000);
             ImGui::Checkbox("Read boss defeats from the save", &cfg.boss_defeat_from_save);
             if (ImGui::IsItemHovered())
             {
@@ -1246,7 +1330,7 @@ namespace overlay
                                 mdb::format_category_mask(cfg.markers_absence_categories).c_str());
             // A rule, not a filter: it is not one of the three masks the Categories grid
             // owns and it is not saved by itself.
-            category_filter("Absence rule", "markers_absence_categories", cfg.markers_absence_categories,
+            category_filter("Absence rule (needs Save)", "markers_absence_categories", cfg.markers_absence_categories,
                             4000, wrap);
         }
 
@@ -1255,9 +1339,9 @@ namespace overlay
             ImGui::Checkbox("Only when the camera follows the pawn", &cfg.require_pawn_view);
             ImGui::SameLine();
             ImGui::Checkbox("Hide while a menu is open", &cfg.hide_in_menus);
-            ImGui::SliderInt("State stale after (ms)", &cfg.state_stale_ms, 100, 5000);
-            ImGui::SliderInt("Grace after a valid pawn (ms)", &cfg.min_visible_after_state_ok_ms, 0, 3000);
-            ImGui::SliderInt("Delay after a menu closes (ms)", &cfg.menu_close_show_delay_ms, 0, 1000);
+            ImGui::SliderInt("State stale after (ms)", &cfg.state_stale_ms, 100, 60000);
+            ImGui::SliderInt("Grace after a valid pawn (ms)", &cfg.min_visible_after_state_ok_ms, 0, 10000);
+            ImGui::SliderInt("Delay after a menu closes (ms)", &cfg.menu_close_show_delay_ms, 0, 3000);
         }
 
         void tune_diagnostics(mm::Config& cfg)
@@ -1710,6 +1794,33 @@ namespace overlay
             }
             ImGui::SameLine();
             ImGui::TextDisabled("opens the full map: in force %s", open_live.c_str());
+
+            // The settings panel's own chord, so a pad-only player can reach this panel.
+            // Buttons only, like the map's.
+            static char panel_chord[64]{};
+            static bool panel_primed = false;
+            const std::string panel_live =
+                wide_to_ascii(mm::pad_chord_name(cfg.panel_pad_open_chord, false, false));
+            if (!panel_primed)
+            {
+                ::strncpy_s(panel_chord, sizeof(panel_chord), panel_live.c_str(), _TRUNCATE);
+                panel_primed = true;
+            }
+            ImGui::SetNextItemWidth(180.0f * g_ui_scale);
+            if (ImGui::InputText("panel_pad_open_chord", panel_chord, sizeof(panel_chord),
+                                 ImGuiInputTextFlags_EnterReturnsTrue))
+            {
+                bool lt = false;
+                bool rt = false;
+                mm::set_pad_chord(panel_chord, cfg.panel_pad_open_chord, lt, rt);
+                ::strncpy_s(panel_chord, sizeof(panel_chord),
+                            wide_to_ascii(
+                                mm::pad_chord_name(cfg.panel_pad_open_chord, false, false))
+                                .c_str(),
+                            _TRUNCATE);
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("opens this panel: in force %s", panel_live.c_str());
             ImGui::TextDisabled("the full map's own gamepad controls are fixed (left stick pans, "
                                 "triggers zoom, LB / RB change floor)");
         }

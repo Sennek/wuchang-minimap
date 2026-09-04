@@ -10,7 +10,7 @@
 ; LSHIFT / RSHIFT / SHIFT / LCTRL / RCTRL / CTRL, or `none` for unbound. One modifier
 ; may prefix a key (`ctrl+m`). F6 and F9..F12 are rejected and fall back to the default:
 ; they belong to RenoDX/DLSS, the engine, the game console and Steam.
-; The F2 panel's Bindings tab rebinds every key by pressing the new one.
+; The F2 panel's Keys tab rebinds every key by pressing the new one.
 ;
 ; config_wuchang_minimap_dev.txt, when present, is read after this file and overrides it.
 
@@ -39,9 +39,7 @@ show_minimap = 1
 ; LOOK: THEME AND PALETTE
 ; ---------------------------------------------------------------------------------
 ; Chrome colours (frame, disc backdrop, label plates, walkable fill): neutral | ink.
-; A theme only supplies a colour this file does not mention, so an explicit
-; minimap_frame_color / minimap_frame_alpha / minimap_backdrop_color / minimap_backdrop
-; / floor_base_color always wins.
+; A theme recolours every colour key still at some theme's own value; one you changed wins.
 theme = neutral
 
 ; Marker hue set: default | colorblind (Okabe-Ito, plus colour-blind-safe item-quality
@@ -95,10 +93,10 @@ minimap_offset_y = 24
 ; 0 = north up (the arrow turns); 1 = the map turns with you.
 rotate_with_player = 0
 
-; Minimap opacity, 0 .. 1.
+; Minimap opacity, 0.1 .. 1.
 opacity = 0.92
 
-; Hide the minimap while any menu is open.
+; Hide the minimap, the compass and the x-ray while any menu is open.
 hide_in_menus = 1
 
 ; Also draw the surfaces below (dimmed) and above (dimmer).
@@ -143,7 +141,8 @@ markers_clamp_to_edge = 0
 ; marker on the full map. 0 switches the rule off.
 markers_absence_marks = 1
 
-; Write the collection file.
+; Write the collection file. The F2 panel's "Clear this save's found list" empties it
+; for the save in force - NG+ keeps the save id, so that is how you start it over.
 found_tracker = 1
 
 ; Which collection file: auto | shared | <name>. auto = one file per save slot,
@@ -167,11 +166,12 @@ map_marker_size = 8.0
 ; 1 = draw every walkable surface (the current storey stays opaque); 0 = height slice.
 map_show_all_floors = 0
 
-; Poll XInput while the map is open.
+; Poll XInput whenever this is on - the pad has to be able to OPEN the map.
 map_gamepad = 1
 
-; Remember the waypoint across sessions in wuchang_minimap_waypoint.txt, three plain
-; `key = value` lines next to this file.
+; Remember the waypoints across sessions in wuchang_minimap_waypoint_<save>.txt, up to 16
+; of them as plain `key = value` lines next to this file. One file per save slot, like the
+; collection tracker; a new slot starts from wuchang_minimap_waypoint.txt if that exists.
 map_waypoint_persist = 1
 
 ; ---------------------------------------------------------------------------------
@@ -189,7 +189,7 @@ highlight_key = TAB
 
 ; The controller route: 1 = accept the pad chord below. Buttons joined with `+`, from
 ; LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, RS, UP, DOWN, LEFT, RIGHT; `none`
-; disables it. XInput is polled only while a chord is configured.
+; disables it. XInput is polled whenever a chord is configured.
 highlight_gamepad = 1
 highlight_pad_chord = LB+RB
 
@@ -232,7 +232,7 @@ compass_offset_y = 18
 ; Degrees the whole strip covers; 360 makes it a full ring.
 compass_span_deg = 120
 
-; Strip opacity, 0 .. 1.
+; Strip opacity, 0.1 .. 1.
 compass_opacity = 0.90
 
 ; Categories that get a bearing pip. A filter: remembered automatically, no Save needed.
@@ -252,6 +252,10 @@ shrine_list = 1
 ; Needs map_gamepad = 1. The analogue triggers are not accepted.
 map_pad_open_chord = BACK+Y
 
+; Pad buttons that open and close the settings panel, spelled the same way; `none`
+; disables it. The panel takes the mouse, so this is the way in without a keyboard.
+panel_pad_open_chord = BACK+RS
+
 ; The settings panel, the full map, recentring the full map, and reloading the config,
 ; maps and markers. A key bound here is swallowed while the mod uses it.
 panel_key = F2
@@ -269,7 +273,7 @@ screenshot_key = C
 
 ; Sets a waypoint on the nearest marker you have not found yet, among the categories
 ; that are switched on. A toast names it and how far away it is. Unbound as shipped -
-; the game itself uses G, so pick a free key here or on the F2 panel Bindings tab.
+; the game itself uses G, so pick a free key here or on the F2 panel Keys tab.
 waypoint_nearest_key = none
 
 ; =================================================================================
@@ -281,8 +285,8 @@ waypoint_nearest_key = none
 ; ---------------------------------------------------------------------------------
 ; WHEN THE OVERLAY IS ALLOWED ON SCREEN
 ; ---------------------------------------------------------------------------------
-; Hide the minimap unless the camera's view target is the player pawn. This is what
-; keeps it off the main menu and out of cutscenes.
+; Hide the minimap, the compass and the x-ray unless the camera's view target is the
+; player pawn. This is what keeps them off the main menu and out of cutscenes.
 require_pawn_view = 1
 
 ; Hide the minimap if the game-thread reader has not published a position for this
@@ -432,8 +436,9 @@ map_gamepad_deadzone = 0.22
 ; ---------------------------------------------------------------------------------
 ; X-RAY TUNING
 ; ---------------------------------------------------------------------------------
-; 1 = also highlight collected loot, dimmed. Only chests, pickups and hidden items are
-; affected; shrines, bosses, NPCs, notes, doors and fog gates are always highlighted.
+; 1 = also highlight collected loot, dimmed. Only chests, pickups, hidden items and a
+; defeated boss are affected; shrines, NPCs, notes, doors and fog gates are always
+; highlighted.
 highlight_show_found = 0
 
 ; Hard cap on glyphs per frame, nearest first.
@@ -445,6 +450,7 @@ highlight_max_draw = 60
 highlight_labels_max = 12
 
 ; Alpha at the camera and at highlight_radius; the fade between them is linear.
+; highlight_alpha_far is never allowed above highlight_alpha_near.
 highlight_alpha_near = 1.00
 highlight_alpha_far = 0.25
 
@@ -488,8 +494,8 @@ compass_tick_step_deg = 15
 ; Hard cap on marker pips, nearest first.
 compass_max_pips = 32
 
-; A pip gets an up / down arrow once the marker is this far off your own height, in uu.
-; 0 turns the arrows off.
+; A minimap glyph and a compass pip get an up / down arrow once the marker is this far
+; off your own height, in uu. 0 turns the arrows off.
 compass_pip_height_uu = 300
 
 ; ---------------------------------------------------------------------------------

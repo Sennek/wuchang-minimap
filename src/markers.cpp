@@ -229,6 +229,10 @@ namespace markers
         std::vector<ToggleReq> g_toggle;
         std::atomic<bool> g_toggle_pending{false};
 
+        // render -> loop : "clear this save's found list". A flag, not a queue: the whole
+        // set goes, so two requests are one request.
+        std::atomic<bool> g_clear_pending{false};
+
         std::unordered_set<std::string> g_found_master; // loop thread only
         std::unordered_set<std::string> g_found_gt;     // game thread only
         bool g_found_dirty = false;                     // loop thread only
@@ -2638,6 +2642,11 @@ namespace markers
         g_toggle_pending.store(true, std::memory_order_release);
     }
 
+    void request_clear_found()
+    {
+        g_clear_pending.store(true, std::memory_order_release);
+    }
+
     std::vector<std::string> found_ids()
     {
         std::vector<std::string> ids;
@@ -2799,6 +2808,34 @@ namespace markers
                 MM_LOGV(L"markers: auto-marked {} new marker(s) as found ({} total)", added,
                         g_found_master.size());
                 recompute_stats();
+            }
+        }
+
+        // "Clear this save's found list", from the F2 panel. It runs after the outbox
+        // drain so marks queued in the same tick go too, and it writes at once rather
+        // than on the debounce: the file must reflect the wipe even with the tracker
+        // checkbox off.
+        if (g_clear_pending.exchange(false, std::memory_order_acquire))
+        {
+            if (g_found_unreadable)
+            {
+                mm::logf(L"markers: NOT clearing the found list - {} cannot be read, so nothing is "
+                         L"written over it",
+                         found_path());
+            }
+            else
+            {
+                const std::size_t before = g_found_master.size();
+                g_found_master.clear();
+                g_found_dirty = true;
+                g_found_dirty_ms = now;
+                g_stage_dirty = true;
+                g_marks_since_log = 0;
+                publish_inbox(std::vector<std::string>{}, true);
+                recompute_stats();
+                mm::logf(L"markers: cleared the found list of {} - {} id(s) dropped", found_path(),
+                         before);
+                save_found_file();
             }
         }
 

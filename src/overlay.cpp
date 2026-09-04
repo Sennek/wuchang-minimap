@@ -923,10 +923,11 @@ namespace overlay
             mm::g_panel_open = true;
             mm::log(L"debug_show_panel_on_start = 1: the F2 panel starts open (turn it off for normal play)");
         }
-        mm::logf(L"hotkeys: {} settings panel, {} full map ({} recentres it), {} reload "
+        mm::logf(L"hotkeys: {} (pad {}) settings panel, {} full map ({} recentres it), {} reload "
                  L"config + maps + markers, {} {} (pad {}) for the x-ray highlight [{}]; "
                  L"compass {}",
                  mm::key_name(cfg.panel_key),
+                 mm::pad_chord_name(cfg.panel_pad_open_chord, false, false),
                  mm::key_name(cfg.map_key),
                  mm::key_name(cfg.map_recenter_key),
                  mm::key_name(cfg.reload_key),
@@ -1318,7 +1319,9 @@ namespace overlay
         if (cfg.map_gamepad && cfg.map_pad_open_chord != 0)
         {
             const pad::State gp_open = pad::state();
-            const bool chord_now = gp_open.connected &&
+            // `foreground` for the same reason every key path has it: a chord pressed in
+            // another game's window must not open this one's map.
+            const bool chord_now = gp_open.connected && foreground &&
                                    (gp_open.held & cfg.map_pad_open_chord) == cfg.map_pad_open_chord;
             if (chord_now && !pad_chord_down)
             {
@@ -1332,6 +1335,30 @@ namespace overlay
         else
         {
             pad_chord_down = false;
+        }
+
+        // THE SETTINGS PANEL ON A GAMEPAD, read the same way and for the same reason: a
+        // pad-only player needs a route into the panel. `panel_pad_open_chord = none`
+        // disables it.
+        static bool panel_pad_down = false;
+        if (cfg.panel_pad_open_chord != 0)
+        {
+            const pad::State gp_panel = pad::state();
+            const bool chord_now = gp_panel.connected && foreground &&
+                                   (gp_panel.held & cfg.panel_pad_open_chord) ==
+                                       cfg.panel_pad_open_chord;
+            if (chord_now && !panel_pad_down)
+            {
+                const bool open = !mm::g_panel_open.load();
+                mm::g_panel_open = open;
+                mm::logf(L"settings panel {} (pad {})", open ? L"opened" : L"closed",
+                         mm::pad_chord_name(cfg.panel_pad_open_chord, false, false));
+            }
+            panel_pad_down = chord_now;
+        }
+        else
+        {
+            panel_pad_down = false;
         }
 
         // THE MINIMAP ZOOM LADDER. `zoom_key` is a press, the wheel gesture arrives as
@@ -1398,8 +1425,9 @@ namespace overlay
             if (::GetFileAttributesW(sentinel.c_str()) == INVALID_FILE_ATTRIBUTES)
             {
                 const std::string text =
-                    std::format("{} settings   {} map   hold {} to see items through walls",
+                    std::format("{} settings   {} map   {}{} to see items through walls",
                                 key_name_ascii(cfg.panel_key), key_name_ascii(cfg.map_key),
+                                cfg.highlight_mode == mm::HighlightMode::Hold ? "hold " : "press ",
                                 key_name_ascii(cfg.highlight_key));
                 post_toast(text.c_str(), 10000);
                 const HANDLE h = ::CreateFileW(sentinel.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
@@ -1510,7 +1538,7 @@ namespace overlay
         // the pad has to be able to OPEN the map. gamepad.cpp keeps that cheap - with no
         // pad found it probes the four slots once a second, and once a slot answers it
         // follows that one at whatever rate it is called.
-        const bool want_pad = cfg.map_gamepad ||
+        const bool want_pad = cfg.map_gamepad || cfg.panel_pad_open_chord != 0 ||
                               (cfg.highlight_enabled && cfg.highlight_gamepad &&
                                (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt));
         // Its own row: `XInputGetState` on an empty slot costs about a millisecond and
@@ -1577,6 +1605,10 @@ namespace overlay
         // change, the screenshot request) and this is where the flag turns into a write.
         // They share one perf row and declare a stall - a ~28 KB rewrite through CreateFile
         // can block on a virus scanner for as long as it likes.
+        // The waypoint file follows the save slot the found tracker does. This flushes the
+        // set to the file of the save it was made in before adopting the new one, so it
+        // runs before the dirty flag below is taken away from it.
+        mm::waypoint_slot_poll();
         const bool wp_dirty = mm::g_waypoint_dirty.exchange(false);
         const bool cfg_dirty = mm::g_save_config.load();
         // The category filters save themselves, debounced: every change pushes the deadline

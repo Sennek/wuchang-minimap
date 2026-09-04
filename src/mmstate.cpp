@@ -3,6 +3,7 @@
 #include "atomicfile.hpp"
 #include "config_keys.hpp"
 #include "config_rewrite.hpp"
+#include "saveslot.hpp"
 #include "spinlock.hpp"
 
 #include <Windows.h>
@@ -920,6 +921,17 @@ namespace mm
                     log(L"config: map_pad_open_chord - the triggers are not buttons; LT / RT ignored");
                 }
             }
+            else if (key == "panel_pad_open_chord")
+            {
+                // Buttons only, exactly like map_pad_open_chord.
+                bool ignored_lt = false;
+                bool ignored_rt = false;
+                parse_pad_chord(value, cfg.panel_pad_open_chord, ignored_lt, ignored_rt);
+                if (ignored_lt || ignored_rt)
+                {
+                    log(L"config: panel_pad_open_chord - the triggers are not buttons; LT / RT ignored");
+                }
+            }
             else if (key == "ui_font")
             {
                 // Free text: an absolute path to a .ttf / .otf; `none` or "" means the built-in bitmap font.
@@ -1689,6 +1701,31 @@ namespace mm
             }
         }
 
+        // Unknown key names already reported. Loop thread only, and capped: the names come from a file
+        // anyone can edit, and past the cap the remaining strangers go unreported rather than unbounded.
+        constexpr std::size_t kMaxUnknownWarned = 32;
+        std::string g_unknown_warned[kMaxUnknownWarned];
+        std::size_t g_unknown_count = 0;
+
+        void warn_unknown_once(const std::string& key)
+        {
+            for (std::size_t i = 0; i < g_unknown_count; ++i)
+            {
+                if (g_unknown_warned[i] == key)
+                {
+                    return;
+                }
+            }
+            if (g_unknown_count >= kMaxUnknownWarned)
+            {
+                return;
+            }
+            g_unknown_warned[g_unknown_count++] = key;
+            logf(L"config: `{}` is not a setting this build knows - the line has no effect, and Save "
+                 L"keeps it where it is",
+                 widen_ascii(key));
+        }
+
         // Applies one config file's text onto `cfg` and returns how many `key = value` lines it understood.
         // The line rules are mirrored exactly in cfgkeys::keys_in().
         int apply_text(Config& cfg, const std::string& text)
@@ -1742,6 +1779,10 @@ namespace mm
                                           widen_ascii(key),
                                           widen_ascii(to)));
                 }
+                else if (cfgkeys::find(key) == nullptr)
+                {
+                    warn_unknown_once(key);
+                }
 
                 ++lines;
                 apply_setting(cfg, key, value);
@@ -1749,10 +1790,15 @@ namespace mm
             return lines;
         }
 
-        // Theme precedence: a theme supplies a colour ONLY where the config file is silent. `seen` is every
-        // key name that appeared in either file, and this runs after both files are parsed.
+        // Theme precedence: a theme supplies every colour the player has not personally picked - a key
+        // the config files never mention, or one whose value is exactly what some built-in theme sets.
+        // The second half is what lets `theme` be edited by hand: Save writes all five colour keys out,
+        // so "the file is silent" alone would make the key inert. `seen` is every key name that appeared
+        // in either file, and this runs after both files are parsed.
         void apply_theme_defaults(Config& cfg, const std::vector<std::string>& seen)
         {
+            constexpr gly::Theme kThemes[] = {gly::Theme::Neutral, gly::Theme::Ink};
+
             const auto mentioned = [&seen](std::string_view k) {
                 for (const std::string& s : seen)
                 {
@@ -1763,29 +1809,60 @@ namespace mm
                 }
                 return false;
             };
+            // The file round-trips channels through "{:.0f}" and alphas through "{:.2f}", so the
+            // comparison is against the printed precision rather than the bit pattern.
+            const auto about_eq = [](float a, float b, float eps) {
+                return (a - b) < eps && (b - a) < eps;
+            };
+            const auto same_rgb = [&about_eq](float r, float g, float b, const mdb::Rgb& c) {
+                return about_eq(r, static_cast<float>(c.r), 0.5f) &&
+                       about_eq(g, static_cast<float>(c.g), 0.5f) &&
+                       about_eq(b, static_cast<float>(c.b), 0.5f);
+            };
+
+            bool frame_custom = mentioned("minimap_frame_color");
+            bool frame_alpha_custom = mentioned("minimap_frame_alpha");
+            bool backdrop_custom = mentioned("minimap_backdrop_color");
+            bool backdrop_alpha_custom = mentioned("minimap_backdrop");
+            bool floor_custom = mentioned("floor_base_color");
+            for (const gly::Theme t : kThemes)
+            {
+                const gly::ThemeColors c = gly::theme_colors(t);
+                frame_custom = frame_custom && !same_rgb(cfg.minimap_frame_r, cfg.minimap_frame_g,
+                                                         cfg.minimap_frame_b, c.frame);
+                frame_alpha_custom =
+                    frame_alpha_custom && !about_eq(cfg.minimap_frame_alpha, c.frame_alpha, 0.005f);
+                backdrop_custom = backdrop_custom && !same_rgb(cfg.minimap_backdrop_r,
+                                                               cfg.minimap_backdrop_g,
+                                                               cfg.minimap_backdrop_b, c.backdrop);
+                backdrop_alpha_custom =
+                    backdrop_alpha_custom && !about_eq(cfg.minimap_backdrop, c.backdrop_alpha, 0.005f);
+                floor_custom = floor_custom && !same_rgb(cfg.floor_base_r, cfg.floor_base_g,
+                                                         cfg.floor_base_b, c.floor_base);
+            }
 
             const gly::ThemeColors tc = gly::theme_colors(cfg.theme);
-            if (!mentioned("minimap_frame_color"))
+            if (!frame_custom)
             {
                 cfg.minimap_frame_r = static_cast<float>(tc.frame.r);
                 cfg.minimap_frame_g = static_cast<float>(tc.frame.g);
                 cfg.minimap_frame_b = static_cast<float>(tc.frame.b);
             }
-            if (!mentioned("minimap_frame_alpha"))
+            if (!frame_alpha_custom)
             {
                 cfg.minimap_frame_alpha = tc.frame_alpha;
             }
-            if (!mentioned("minimap_backdrop_color"))
+            if (!backdrop_custom)
             {
                 cfg.minimap_backdrop_r = static_cast<float>(tc.backdrop.r);
                 cfg.minimap_backdrop_g = static_cast<float>(tc.backdrop.g);
                 cfg.minimap_backdrop_b = static_cast<float>(tc.backdrop.b);
             }
-            if (!mentioned("minimap_backdrop"))
+            if (!backdrop_alpha_custom)
             {
                 cfg.minimap_backdrop = tc.backdrop_alpha;
             }
-            if (!mentioned("floor_base_color"))
+            if (!floor_custom)
             {
                 cfg.floor_base_r = static_cast<float>(tc.floor_base.r);
                 cfg.floor_base_g = static_cast<float>(tc.floor_base.g);
@@ -2054,6 +2131,16 @@ namespace mm
         add("compass_pip_labels", b(cfg.compass_pip_labels));
         add("map_pad_open_chord", [&cfg] {
             const std::wstring chord = pad_chord_name(cfg.map_pad_open_chord, false, false);
+            std::string narrow;
+            narrow.reserve(chord.size());
+            for (const wchar_t c : chord)
+            {
+                narrow.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
+            }
+            return narrow;
+        }());
+        add("panel_pad_open_chord", [&cfg] {
+            const std::wstring chord = pad_chord_name(cfg.panel_pad_open_chord, false, false);
             std::string narrow;
             narrow.reserve(chord.size());
             for (const wchar_t c : chord)
@@ -2442,13 +2529,137 @@ namespace mm
         g_waypoint_dirty.store(true, std::memory_order_release);
     }
 
+    namespace
+    {
+        std::string g_wp_key;        // "" = the shared file
+        bool g_wp_key_valid = false; // has a key ever been taken from slotid?
+
+        std::wstring waypoint_path_for(const std::string& key)
+        {
+            const std::string name = slotid::waypoint_filename(key);
+            std::wstring wide;
+            wide.reserve(name.size());
+            for (char c : name)
+            {
+                wide.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+            }
+            return mod_dir() + L"\\" + wide;
+        }
+
+        bool wp_file_exists(const std::wstring& path)
+        {
+            return ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+        }
+
+        // First sight of a slot with no waypoint file of its own: seed it from the shared
+        // one, as the found tracker does. The copy is itself the "already seeded" mark -
+        // once the file exists this is a no-op. With map_waypoint_persist off nothing may
+        // be written, so the seed is skipped and waypoint_path() reads the shared file.
+        void seed_waypoints_from_shared(const std::string& key)
+        {
+            if (key.empty() || !cfg_cached().map_waypoint_persist)
+            {
+                return;
+            }
+            const std::wstring dst = waypoint_path_for(key);
+            if (wp_file_exists(dst))
+            {
+                return;
+            }
+            const std::wstring src = waypoint_path_for(std::string{});
+            std::string text;
+            if (!wp_file_exists(src) || !read_whole_file(src, text) || text.empty())
+            {
+                return;
+            }
+            if (write_whole_file(dst, text))
+            {
+                logf(L"waypoint: first sight of save slot '{}' - copied the shared waypoints "
+                     L"({} bytes) into {}",
+                     std::wstring(key.begin(), key.end()), text.size(), dst);
+            }
+            else
+            {
+                logf(L"waypoint: could not seed {} from the shared file (error {})", dst,
+                     static_cast<unsigned>(::GetLastError()));
+            }
+        }
+
+        // Takes whatever key slotid has resolved. Loop thread. True when the file changed
+        // and the caller must reload it.
+        bool adopt_waypoint_key()
+        {
+            const slotid::Status st = slotid::status();
+            const std::string key{st.key};
+            if (g_wp_key_valid && key == g_wp_key)
+            {
+                return false;
+            }
+            const bool first = !g_wp_key_valid;
+            g_wp_key = key;
+            g_wp_key_valid = true;
+            seed_waypoints_from_shared(key);
+            logf(L"waypoint: profile {} '{}' -> {}", first ? L"=" : L"changed to",
+                 std::wstring(key.begin(), key.end()), waypoint_path_for(key));
+            return true;
+        }
+    } // namespace
+
+    // The file the waypoints are READ from: the slot's own, falling back to the shared one
+    // while the slot has none of its own.
     std::wstring waypoint_path()
     {
-        return mod_dir() + L"\\wuchang_minimap_waypoint.txt";
+        const std::wstring path = waypoint_path_for(g_wp_key);
+        if (!g_wp_key.empty() && !wp_file_exists(path))
+        {
+            const std::wstring shared = waypoint_path_for(std::string{});
+            if (wp_file_exists(shared))
+            {
+                return shared;
+            }
+        }
+        return path;
+    }
+
+    std::string waypoint_file_name()
+    {
+        return slotid::waypoint_filename(g_wp_key);
+    }
+
+    // The save-slot watch, mirroring the found tracker's: a pending write goes to the OLD
+    // file first, because those waypoints belong to the save that was loaded when they
+    // were dropped. Loop thread, 1 Hz.
+    void waypoint_slot_poll()
+    {
+        static std::uint64_t last_check = 0;
+        const std::uint64_t now = ::GetTickCount64();
+        if (now - last_check < 1000)
+        {
+            return;
+        }
+        last_check = now;
+        if (g_wp_key_valid && std::string{slotid::status().key} == g_wp_key)
+        {
+            return;
+        }
+        if (g_wp_key_valid && g_waypoint_dirty.load(std::memory_order_acquire) &&
+            cfg_cached().map_waypoint_persist)
+        {
+            save_waypoint_file();
+        }
+        if (adopt_waypoint_key())
+        {
+            // Clears the dirty flag: the pending set belonged to the previous file.
+            load_waypoint_file();
+        }
     }
 
     void load_waypoint_file()
     {
+        if (!g_wp_key_valid)
+        {
+            adopt_waypoint_key();
+        }
         const std::wstring path = waypoint_path();
         std::string text;
         mv::WaypointSet set{};
@@ -2475,7 +2686,8 @@ namespace mm
     void save_waypoint_file()
     {
         const mv::WaypointSet set = waypoints();
-        const std::wstring path = waypoint_path();
+        // The slot's own file, never the shared one waypoint_path() may fall back to.
+        const std::wstring path = waypoint_path_for(g_wp_key);
         if (!write_whole_file(path, mv::waypoints_serialize(set)))
         {
             logf(L"waypoint: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));

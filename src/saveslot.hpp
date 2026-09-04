@@ -1,8 +1,9 @@
 #pragma once
 
 //
-// saveslot - "which save game is this?", so the collection tracker is per-slot: one key
-// per save, one file per key (`wuchang_minimap_found_<key>.txt`).
+// saveslot - "which save game is this?", so the collection tracker and the full map's
+// waypoints are per-slot: one key per save, one file per key
+// (`wuchang_minimap_found_<key>.txt`, `wuchang_minimap_waypoint_<key>.txt`).
 //
 // The save is written by the native `GameSaverNative` plugin, not UGameplayStatics, to
 //
@@ -87,6 +88,16 @@ namespace slotid
             return "wuchang_minimap_found.txt";
         }
         return "wuchang_minimap_found_" + std::string{key} + ".txt";
+    }
+
+    // The full map's waypoint file, named after the same key. An empty key is the shared file.
+    inline std::string waypoint_filename(std::string_view key)
+    {
+        if (key.empty())
+        {
+            return "wuchang_minimap_waypoint.txt";
+        }
+        return "wuchang_minimap_waypoint_" + std::string{key} + ".txt";
     }
 
     //==================================================================================

@@ -12,8 +12,8 @@ asset, which is UE4SS build **`v3.0.1-1111-g97b7e501`**.
 
 > The build string belongs in the Requirements note as well as the description: any other
 > UE4SS build fails to load with no overlay and no in-game message. It must be identical
-> to the one in `BUILD_INFO.txt`, `README.md`, `THIRD_PARTY_NOTICES.md` and
-> `tools/INSTALL_GUIDE.html`; `tools/check_release.ps1` fails the release if they drift.
+> to the one in `BUILD_INFO.txt`, `README.md` and `THIRD_PARTY_NOTICES.md`;
+> `tools/check_release.ps1` fails the release if they drift.
 
 ---
 
@@ -59,8 +59,8 @@ To uninstall, delete [font=Courier New]ue4ss\Mods\WuchangMinimap\[/font]. That i
 
 [size=5]Hotkeys[/size]
 [list]
-[*][b]F2[/b] — settings panel (Overview / Categories / Map & tracker / Keys / Tuning tabs)
-[*][b]M[/b] — full map: drag or WASD to pan, wheel to zoom, Q/E for the floor, Home to fit, right-click a marker to waypoint it (or the ground to drop one), ? for the rest
+[*][b]F2[/b] — settings panel (Overview / Categories / Map & tracker / Keys / Tuning tabs). [b]Back+RS[/b] on a controller.
+[*][b]M[/b] — full map: drag or WASD to pan, wheel to zoom, Q/E for the floor, Home to fit, right-click a marker to waypoint it (or the ground to drop one), F1 or H for the rest
 [*][b]TAB[/b] — x-ray highlight through walls, with names and distances. A toggle. [b]LB+RB[/b] on a controller.
 [*][b]N[/b] — cycle the minimap zoom · [b]R[/b] — recentre the map · [b]F5[/b] — reload the config and data
 [/list]
@@ -71,7 +71,7 @@ None of these stops the mod working.
 [list]
 [*][b]ReShade / RenoDX[/b] (any [font=Courier New]dxgi.dll[/font] or [font=Courier New]d3d12.dll[/font] next to the game exe) — the mod draws [i]before[/i] ReShade's effects, so grading and sharpening are applied on top of the minimap and a strong LUT tints it. Cosmetic only. F6 is refused as a mod hotkey because it is RenoDX's default toggle.
 [*][b]Another UE4SS C++ mod that also hooks Present[/b] — the one combination that can lose an overlay: whichever installs second usually wins, and the loser is invisible. Test them one at a time before reporting a blank screen.
-[*][b]The Steam overlay[/b] — the first run of a new install creates and destroys a throwaway swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at nothing. The addresses are cached afterwards. Shift+Tab still works.
+[*][b]The Steam overlay[/b] — the first run of a new install creates and destroys a throwaway swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at nothing. Shift+Tab still works.
 [/list]
 
 [size=5]Reporting a bug[/size]

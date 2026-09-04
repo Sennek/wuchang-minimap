@@ -114,6 +114,15 @@ namespace crumb
         {
             ::memcpy(g_wd_path, dir, dn * sizeof(wchar_t));
             ::memcpy(g_wd_path + dn, kWatchdogName, (wn + 1) * sizeof(wchar_t));
+            // Per session, like the breadcrumb itself: watchdog() appends, so without this the file
+            // grows for the life of the install. TRUNCATE_EXISTING leaves no empty file behind on a
+            // launch that never stalls.
+            const HANDLE wd = ::CreateFileW(g_wd_path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                                            TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (wd != INVALID_HANDLE_VALUE)
+            {
+                ::CloseHandle(wd);
+            }
         }
         g_have_path = true;
         read_previous();

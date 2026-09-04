@@ -258,7 +258,6 @@ mirrors exactly what a player copies into `...\Project_Plague\Binaries\Win64\` �
 
 ```
 WuchangMinimap-1.0.0\
-  INSTALL_GUIDE.html                   from tools\INSTALL_GUIDE.html, @@VERSION@@/@@DATE@@ substituted
   CHANGELOG.md                         from tools\CHANGELOG.template.md
   README.md  LICENSE  THIRD_PARTY_NOTICES.md    copied from the repo root
   BUILD_INFO.txt                       version, commit, branch, mode, DLL size, UE4SS build
@@ -299,9 +298,9 @@ step and runnable on its own against the repo:
 
 * one version across `src\version.hpp`, `xmake.lua`'s `set_version`, the top `## x.y.z`
   changelog heading and the package folder name;
-* one UE4SS build string across `BUILD_INFO.txt`, `README.md`, `THIRD_PARTY_NOTICES.md`,
-  `INSTALL_GUIDE.html` and `docs\NEXUS.md` — a *different* `v3.0.x-...-g...` string anywhere
-  is a failure, not just a missing one;
+* one UE4SS build string across `BUILD_INFO.txt`, `README.md`, `THIRD_PARTY_NOTICES.md`
+  and `docs\NEXUS.md` — a *different* `v3.0.x-...-g...` string anywhere is a failure,
+  not just a missing one;
 * no unfilled placeholders: `@@...@@`, `<ALLCAPS>` template slots, `TODO`/`FIXME`;
 * every relative link in a shipped document resolves to a file in the package.
 
@@ -381,7 +380,6 @@ third_party/fmt/           fmt 11.2.0, headers only (FMT_HEADER_ONLY)
 tools/gen_ue4ss_importlib.ps1
 tools/package.ps1          the RELEASE packager: build + assemble + smoke check + zip
 tools/check_release.ps1    version, UE4SS build string, placeholder and link consistency
-tools/INSTALL_GUIDE.html   the player-facing guide; @@VERSION@@ / @@DATE@@ are substituted
 tools/CHANGELOG.template.md the changelog dropped at the package root
 tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
 tools/navmesh/build_map.py tile JSON -> composite + multi-surface height planes + maps/maps.json
@@ -862,7 +860,7 @@ on different tabs:
   clamp-to-rim.
 - **Map & tracker** — the full map, the waypoint list, and the collection tracker with its
   profile, export / import and statistics page.
-- **Keys** — every hotkey, rebound by clicking a row and pressing a key, plus the two gamepad
+- **Keys** — every hotkey, rebound by clicking a row and pressing a key, plus the three gamepad
   chords.
 - **Tuning** — the Advanced tier, grouped by the surface it tunes: minimap, full map, x-ray,
   compass, floors, sweep & tracker, the visibility gate and diagnostics.
@@ -1075,7 +1073,10 @@ one on the nearest marker not yet found among the categories switched on. They a
 the map and, edge-clamped, on the minimap and the compass; only the one **nearest the player**
 carries the distance readout.
 
-They persist in `wuchang_minimap_waypoint.txt` next to the config, one hand-editable line each:
+They persist in `wuchang_minimap_waypoint_<key>.txt` next to the config — one file per save slot,
+on the same `slotid` key and the same one-time seeding from the shared `wuchang_minimap_waypoint.txt`
+as the found tracker (`mm::waypoint_slot_poll`, loop thread, 1 Hz: flush to the old file, adopt the
+new key, reload) — one hand-editable line each:
 
 ```
 waypoint = <x> <y> <z>
@@ -1150,8 +1151,9 @@ test, no CustomDepth and no material. Anything off screen or behind the camera g
 on the screen edge (`highlight_edge_arrows`).
 
 `highlight_show_found = 0` (the default) hides **collected loot** — chests, pickups and hidden
-items, the three categories where finding a thing consumes it. Shrines, bosses, NPCs, notes,
-doors and fog gates are landmarks and are highlighted whatever their found state.
+items, the three categories where finding a thing consumes it — and a **defeated boss**, which
+is gone the same way. Shrines, NPCs, notes, doors and fog gates are landmarks and are
+highlighted whatever their found state.
 
 **Item quality colours.** Wuchang has **no rarity ladder**: no `E_ItemQuality` / `Rarity` /
 `Grade` enum anywhere in the paks, no quality word in `MMGame.locres`, and no such field on any
@@ -1230,7 +1232,7 @@ how much of the world the strip covers; 360 makes it a full ring.
 Each pip carries the **horizontal distance in metres** just outside the strip, nearest first,
 each label reserving its own x range so two never overlap (`compass_pip_labels = 0` turns them
 off). A marker more than `compass_pip_height_uu` off the player's own height also gets an up or
-down arrow beside its glyph.
+down arrow beside its glyph, on the compass pip and on the minimap glyph alike.
 
 The heading is the **camera's** yaw when a pose is fresh and the pawn's yaw otherwise, so the
 compass works with `highlight_enabled = 0` and during the camera reader's warm-up; the F2 panel

@@ -97,6 +97,7 @@ namespace cfgkeys
         {"compass_categories", Tier::Player},
         {"compass_pip_labels", Tier::Player},
         {"map_pad_open_chord", Tier::Player},
+        {"panel_pad_open_chord", Tier::Player},
         {"panel_key", Tier::Player},
         {"map_key", Tier::Player},
         {"map_recenter_key", Tier::Player},

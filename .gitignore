@@ -64,7 +64,7 @@ tools/navmesh/out_offline/*
 # folder back), but when they do they must never be committed: the collection tracker
 # and the waypoint are one player's save state, the rest are diagnostics.
 #   wuchang_minimap_found*.txt      collection tracker (per save slot)
-#   wuchang_minimap_waypoint.txt    full-map waypoint
+#   wuchang_minimap_waypoint*.txt   full-map waypoints (per save slot)
 #   wuchang_minimap.log*            the mod log (and its rotated copies)
 #   wuchang_minimap_firstrun.txt    first-run marker
 #   wuchang_minimap_hookaddr.txt    resolved hook addresses

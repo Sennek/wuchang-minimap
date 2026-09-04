@@ -42,30 +42,42 @@ HookInitGameState = 0
 ```
 
 **Without it the game crashes a third of a second into loading**, with or without this
-mod. It is a UE4SS-plus-Wuchang problem, not a bug here.
+mod: UE4SS locates `AGameModeBase::InitGameState` by a fixed vtable slot index, and in Wuchang's
+engine build that slot holds a different function, so the detour lands on the wrong virtual.
+Every other hook can stay on. It is a UE4SS-plus-Wuchang problem, not a bug here.
 
 ## Install
 
 1. Close the game.
 2. Copy the `ue4ss\` folder from the download into
    `<Steam>\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\`
-   and **merge** when Windows asks.
+   and **merge** when Windows asks. Everything lands under
+   `ue4ss\Mods\WuchangMinimap\`, so nothing of UE4SS's own is overwritten. Updating an
+   old install: keep your `config_wuchang_minimap.txt` when Windows offers to replace it.
 3. Launch the game, load a save (nothing shows on the main menu), press `F2`.
+
+There is no `mods.txt` to edit — the empty `enabled.txt` in the mod folder is the opt-in.
 
 ## Hotkeys
 
 | Key | Action |
 |---|---|
-| `F2` | Settings panel |
-| `M` | Full map |
+| `F2` | Settings panel: Overview, Categories, Map & tracker, Keys, Tuning |
+| `M` | Full map. Drag or `WASD` to pan, wheel to zoom, `Q`/`E` for the floor, `Home` to fit, right-click a marker to waypoint it or the ground to drop one, `C` to copy the map to the clipboard, `F1` for the rest, `Esc` to close |
 | `TAB` | X-ray highlight through walls — a toggle |
 | `LB`+`RB` | The same, on a controller |
+| `Back`+`RS` | Open / close the settings panel on a controller |
+| `Back`+`Y` | Open / close the full map on a controller. The map takes a gamepad throughout: left stick pans, triggers zoom, `LB`/`RB` change floor, `A` drops or removes a waypoint, `B` closes it |
 | `N` | Cycle the minimap zoom |
 | `R` | Recentre the full map |
 | unbound | Set a waypoint on the nearest marker you have not found — bind it in `F2` → **Keys** |
 | `F5` | Reload the config, maps and markers |
 
-Everything is rebindable in `F2` → **Keys**.
+Everything is rebindable in `F2` → **Keys**: click a row and press the new key, holding
+`Ctrl`, `Shift` or `Alt` for a combination. `F6` and `F9`–`F12` are refused — they belong
+to RenoDX/DLSS, the engine, the game console and Steam. A key bound to the mod is taken
+away from the game while the mod is using it; put a modifier in front to leave the bare
+key to the game.
 
 ## Known conflicts
 
@@ -90,10 +102,14 @@ None of these stops the mod working.
                                     category filters write themselves)
     wuchang_minimap.log             the mod's log, rotated .1 .2 .3 per launch
     wuchang_minimap_found*.txt      the collection tracker, one file per save slot
-    wuchang_minimap_waypoint.txt    the full map's waypoints
+                                    (NG+ keeps the save id, so start it over with the
+                                    F2 panel's "Clear this save's found list")
+    wuchang_minimap_waypoint*.txt   the full map's waypoints, one file per save slot
     wuchang_minimap_export_*.json   backups written by the F2 panel's Export button
     wuchang_minimap_last_stage.txt  crash breadcrumb: how far start-up got
-    wuchang_minimap_watchdog.txt    written only if the game froze
+    wuchang_minimap_watchdog.txt    stall report, rewritten each launch
+    wuchang_minimap_firstrun.txt    records that the first-run key tip has been shown
+    wuchang_minimap_panel.txt       which F2 panel sections are folded up
 ```
 
 **To uninstall**, delete that whole `WuchangMinimap\` folder. The mod modifies no game
@@ -103,12 +119,23 @@ your collection progress.
 To turn it off without uninstalling, set `mod_enabled = 0` in the config, or delete
 `enabled.txt` from the mod folder.
 
-## Bug reports
+## Something went wrong
 
-Attach `wuchang_minimap.log` from `ue4ss\Mods\WuchangMinimap\`. Set `log_level = verbose`
-in the config first if you are asked to reproduce something. Add
-`wuchang_minimap_last_stage.txt` if the game crashed and `wuchang_minimap_watchdog.txt`
-if it froze.
+- **The game crashes on start-up** — almost always `HookInitGameState`; see
+  [Requirements](#requirements).
+- **Nothing on screen** — press `F2`. If the panel opens, the mod is running and only the
+  minimap is suppressed: the **Overview** tab prints one orange `hidden because:` line
+  naming the reason. Screenshot it.
+- **Not even the F2 panel appears** — frame generation (DLSS-FG, FSR-FG) and other overlay
+  proxies can present the frame themselves, so the game's `Present` never reaches the mod
+  and it has nothing to draw into. Turn frame generation off to check.
+
+**Bug reports**: attach `wuchang_minimap.log` from `ue4ss\Mods\WuchangMinimap\` — its
+first six lines carry every version number a report needs. Add
+`wuchang_minimap_last_stage.txt` if the game crashed, `wuchang_minimap_watchdog.txt` if it
+froze, and your `config_wuchang_minimap.txt`. If you are asked to reproduce something,
+first set `log_level = verbose` in the config (or **Tuning** → Log detail in the panel,
+then Save), reproduce it, and send the log.
 
 ## More
 
@@ -118,3 +145,7 @@ if it froze.
 - **Building from source**: `docs/DEVELOPMENT.md` in the repository, not in this download.
 
 MIT — see [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+This mod is not affiliated with the developers or publisher of Wuchang: Fallen Feathers.
+It reads the game's memory and its packaged data; it never modifies game files or save
+data.

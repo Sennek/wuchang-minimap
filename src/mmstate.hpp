@@ -288,8 +288,9 @@ namespace mm
             mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup) |
             mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Boss) |
             mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note);
-        // Draw collected loot too. Only chests, pickups and hidden items are suppressed by this;
-        // shrines, bosses and NPCs are landmarks and show whatever their found state.
+        // Draw collected loot too. Only chests, pickups, hidden items and a defeated boss are
+        // suppressed by this; shrines, NPCs and notes are landmarks and show whatever their
+        // found state.
         bool highlight_show_found = false;
         int highlight_max_draw = 60;       // nearest first
         float highlight_alpha_near = 1.0f; // at the camera
@@ -341,7 +342,8 @@ namespace mm
         float compass_tick_step_deg = 15.0f;
         int compass_max_pips = 32;
         // Pip label: horizontal distance in metres plus an up/down arrow. Within
-        // compass_pip_height_uu the marker counts as being on this floor and no arrow is drawn.
+        // compass_pip_height_uu a marker counts as being on this floor and gets no arrow -
+        // the same threshold for the minimap glyphs and the compass pips.
         bool compass_pip_labels = true;
         float compass_pip_height_uu = 300.0f; // 3 m
 
@@ -430,6 +432,11 @@ namespace mm
         // On: `minimap_zoom` and `map_zoom` are scaled by ui_scale like every other pixel key, so
         // one config shows the same area of world at 1080p and 2160p. Off: uu/px is literal.
         bool zoom_dpi_scaled = true;
+
+        // Opens the settings panel from a controller, spelled like `map_pad_open_chord` and
+        // pressed the same way; `none` disables it. This is the pad-only player's way into the
+        // panel, so it stands on its own - no feature toggle gates it.
+        std::uint16_t panel_pad_open_chord = 0x00A0; // pad::kBack | pad::kRightThumb
     };
 
     // Config is a value: copied by value onto the render thread every frame, published under a
@@ -617,6 +624,7 @@ namespace mm
         a.map_pad_open_chord == b.map_pad_open_chord &&
         detail::eq(a.ui_font, b.ui_font) &&
         a.zoom_dpi_scaled == b.zoom_dpi_scaled &&
+        a.panel_pad_open_chord == b.panel_pad_open_chord &&
                true;
     }
 
@@ -782,7 +790,9 @@ namespace mm
     // Up to mv::kMaxWaypoints of them, set on the full map and drawn on the full map, the
     // minimap and the compass. They live in their own file so one set during play survives
     // without a Save. The render thread sets them; the loop thread writes the file, via
-    // the spinlocked-copy pattern.
+    // the spinlocked-copy pattern. The file is per save slot, exactly as the found tracker
+    // is: `wuchang_minimap_waypoint_<key>.txt`, seeded once from the shared
+    // `wuchang_minimap_waypoint.txt` the first time a slot is seen.
 
     mv::WaypointSet waypoints();
     void set_waypoints(const mv::WaypointSet& set); // any thread; marks the file dirty
@@ -792,7 +802,10 @@ namespace mm
     void clear_waypoints();
     void load_waypoint_file();                 // loop thread
     void save_waypoint_file();                 // loop thread
-    std::wstring waypoint_path();
+    // Loop thread, 1 Hz: notices a save-slot change, flushes to the old file, loads the new.
+    void waypoint_slot_poll();
+    std::wstring waypoint_path();               // the file the waypoints are read from
+    std::string waypoint_file_name();           // the slot's own file name, no directory
 
     //=== Cross-thread flags ========================================================
 

@@ -2,6 +2,18 @@
 
 ## 1.0.1
 
+- **The maps show only ground you can actually get to.** The map background is built from
+  the game's own navigation data, and the game walks things you cannot: wall tops, roof
+  ridges, cliff ledges, the outside faces of arena walls. Every surface is now marked with
+  whether a player can reach it, and unreachable ground is not drawn - a boss arena is the
+  arena and its entrance instead of a disc in a field of scraps. `map_unreachable` on the
+  `F2` panel's *Map & tracker* tab switches it between `hide`, `dim` (drawn faint) and
+  `show` (the old picture) while you play.
+- **Floors above you barely show now.** A gallery over your head is not ground you can walk
+  on, and at a boss arena it was a third of everything on the map. The new
+  `floor_fade_above_uu` (300 uu, on the *Tuning* tab) is how far above your feet a floor is
+  still drawn; `0` never draws one. `floor_fade_uu` now only controls how far **below** you
+  a floor is drawn, and is unchanged at 800 uu.
 - **Shrines never disappear from the maps** - `Hide found` no longer removes a lit shrine
   from the minimap or the full map: a shrine is a landmark, not loot. A lit one is drawn
   solid, an unlit one hollow.

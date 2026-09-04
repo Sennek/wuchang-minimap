@@ -385,7 +385,7 @@ tools/INSTALL_GUIDE.html   the player-facing guide; @@VERSION@@ / @@DATE@@ are s
 tools/CHANGELOG.template.md the changelog dropped at the package root
 tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
 tools/navmesh/build_map.py tile JSON -> composite + multi-surface height planes + maps/maps.json
-tools/navmesh/mapfmt.py    the ON-DISK format: schema, palette PNG, 12-bit height codes
+tools/navmesh/mapfmt.py    the ON-DISK format: schema, palette PNG, height codes
 tools/navmesh/repack_maps.py re-encode a shipped maps/ tree (no dumps needed)
 tools/navmesh/slice_preview.py the runtime's height-slicing rule, offline, for any (x, y, z)
 maps/                      the shipped map assets (deployed into the mod folder)
@@ -651,6 +651,14 @@ three things (schema `wuchang-minimap-maps/4`):
 
 `maps/` is **26.1 MiB** in total.
 
+**A height code is 12 bits of Z plus one flag.** Bits 0..11 are the Z code (1..4095, 0 = no
+surface), bit 12 is `reachable` — set by the marker-seeded walk-and-fall flood on every
+surface a player can actually get to — and bits 13..15 are zero. Every reader masks with
+`mapdata::z_code()` before decoding and asks `HeightMaps::reachable()` for the flag; a
+schema /4 asset has no bit 12, `has_reachability` is false and every surface counts as
+reachable. What the runtime does with an unreachable surface is the player's call
+(`map_unreachable`).
+
 **Why 12 bits.** The slicer's decision is `|Z - feetZ| <= floor_z_tolerance` with a 200 uu
 tolerance and an 800 uu fade, and the pipeline's own storey separator (`--floor-band-gap`) is
 250 uu. 12-bit codes give a 3.98..12.44 uu step, at worst 3.1 % of the tolerance and 2.5 % of
@@ -669,14 +677,15 @@ so there is no row pointer — gather a row with
 `HeightMaps::gather_row(k, sy, col_x, n, dst)`, which returns `false` for a row with no
 surface at all so the caller can skip it.
 
-**The version is enforced in both directions.** `mapmanifest::parse()` refuses any schema
-that is not exactly `kSchema`: a /3 plane read by a /4 decoder puts every surface sixteen
-times too low and looks like an empty map rather than like an error. In the other direction,
-/4 renamed the manifest key (`height_maps` -> `height_planes`) and the files
-(`_z<k>.png` -> `_h<k>.png`), so an older parser finds no list, guesses the `_z` names, finds
-nothing on disk and logs `NO height plane decoded ... build them with build_map.py`. Change
-the schema string in `tools/navmesh/mapfmt.py`, `src/mapmanifest.hpp` and
-`tools/package.ps1` together.
+**The version is enforced in both directions.** `mapmanifest::parse()` accepts exactly two
+schemas — `/5` (with bit 12) and `/4` (without) — and refuses every other, because a /3 plane
+read by a 12-bit decoder puts every surface sixteen times too low and looks like an empty map
+rather than like an error. In the other direction, /4 renamed the manifest key
+(`height_maps` -> `height_planes`) and the files (`_z<k>.png` -> `_h<k>.png`), so an older
+parser finds no list, guesses the `_z` names, finds nothing on disk and logs `NO height plane
+decoded ... build them with build_map.py`; a /4 build reading a /5 tree reads bit 12 as part
+of the Z and lands sixteen times off, which is why the two ship together. Change the schema
+string in `tools/navmesh/mapfmt.py`, `src/mapmanifest.hpp` and `tools/package.ps1` together.
 
 ### Re-encoding what already ships: `repack_maps.py`
 
@@ -987,10 +996,27 @@ draw, and the buffer being written is never one the GPU is still sampling (the s
 as the minimap; a busy buffer skips the update instead of stalling Present).
 
 **Height slicing at map scale** is the minimap's rule plus an offset:
-`|Z - (feetZ + floor offset)| <= floor_z_tolerance` is opaque, the nearest surface below /
-above within `floor_fade_uu` is dimmed, and the floor adjustment nudges the offset so you can
-look at the storey above or the dungeon below without walking there. `map_show_all_floors`
-widens the fade to infinity for a route-planning view.
+`|Z - (feetZ + floor offset)| <= floor_z_tolerance` is opaque, the nearest surface below
+within `floor_fade_uu` and the nearest above within `floor_fade_above_uu` are dimmed, and the
+floor adjustment nudges the offset so you can look at the storey above or the dungeon below
+without walking there. `map_show_all_floors` widens both fades to infinity for a
+route-planning view. The rule itself is pure C++ in `src/slicerule.hpp`, so the offline tests
+run the same code the two maps do:
+
+| key | tier | default | what it does |
+|---|---|---|---|
+| `floor_z_tolerance` | Advanced | 200 | uu: within this of your feet is *your* floor, opaque |
+| `adjacent_floor_opacity` | Advanced | 0.25 | opacity of the surface below; the one above uses 60 % of it |
+| `floor_fade_uu` | Advanced | 800 | uu: how far **below** your feet is still drawn |
+| `floor_fade_above_uu` | Advanced | 300 | uu: how far **above**; 0 = never draw a floor above you |
+| `map_unreachable` | Player | `hide` | a surface the flood never reached: `hide` \| `dim` \| `show` |
+
+`floor_fade_above_uu` is its own dial because ground overhead is never ground the player can
+walk on now: measured on the chapter-2 Ai Nengqi arena, the above class is 31 % of everything
+drawn, in 230 separate blobs. `map_unreachable` is a Player key and lives on the F2 panel's
+*Map & tracker* tab as a three-way control, disabled with `maps without reachability data`
+when the asset tree is /4. `dim` draws an unreachable surface one rung further down the same
+opacity ladder — no second colour ramp.
 
 **Markers** are the same published draw buffer, the same glyphs and the same category mask the
 minimap uses — the legend column toggles the *same* `markers_categories` setting the F2 chips

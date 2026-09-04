@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Builds a RELEASE package of WuchangMinimap: dist\WuchangMinimap-<version>\ plus the
     matching .zip.
@@ -364,8 +364,10 @@ try {
     $pngCount = 0
     if (Require-File $manifestPath 'maps.json') {
         $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-        if ($manifest.schema -ne 'wuchang-minimap-maps/4') {
-            $problems.Add("maps.json schema is '$($manifest.schema)', expected 'wuchang-minimap-maps/4'")
+        # /5 carries the reachability bit, /4 does not; src/mapmanifest.hpp reads both.
+        $mapSchemas = @('wuchang-minimap-maps/5', 'wuchang-minimap-maps/4')
+        if ($mapSchemas -notcontains $manifest.schema) {
+            $problems.Add("maps.json schema is '$($manifest.schema)', expected one of $($mapSchemas -join ', ')")
         }
         $chapters = @($manifest.chapters.PSObject.Properties)
         if ($chapters.Count -lt 5) { $problems.Add("maps.json lists $($chapters.Count) chapters, expected 5") }

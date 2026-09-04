@@ -354,7 +354,17 @@ this). Both `dist\` and `dist-test\` are gitignored.
 
 ```
 src/dllmain.cpp            RC::CppUserModBase subclass, start_mod/uninstall_mod
-src/overlay.{hpp,cpp}      DX12 hooks + ImGui + the minimap, the full map and the F2 panel
+src/overlay.hpp            the module's public surface: start/stop, on_update, selftest
+src/overlay_internal.hpp   the state and helpers the overlay_*.cpp units share (`overlay::ovl`)
+src/overlay.cpp            the shared state, UI scale, font, HUD placement, and the
+                           loop-thread side: start/stop, stall watchdog, hotkey debounce
+src/overlay_d3d12.cpp      device objects, the four swapchain hooks, the render entry point
+src/overlay_input.cpp      the WndProc hook and the game-thread message replay
+src/overlay_slice.cpp      map texture upload and the two height slicers
+src/overlay_hud.cpp        the minimap, its markers, the toasts, the x-ray, the compass
+src/overlay_extras.cpp     the shrine list and the collection statistics page
+src/overlay_fullmap.cpp    the pannable, zoomable full map
+src/overlay_panel.cpp      the F2 settings panel
 src/gamestate.{hpp,cpp}    game-thread reader (pawn, view target, widgets)
 src/mmstate.{hpp,cpp}      snapshot seqlock, config file, cross-thread log queue
 src/mapdata.{hpp,cpp}      chapter residency + the sparse height-plane store
@@ -775,7 +785,7 @@ python tools\navmesh\slice_preview.py --x 19537 --y 4587 --z 2505 --out temple.p
 Renders exactly what the overlay would draw at that world position, straight from the shipped height
 maps - so a "the floor looks wrong at X" report can be reproduced and fixed without launching the game.
 `slice_window()` + `shade()` are the reference implementation of the slicing rule; keep them and
-`overlay.cpp`'s `slice_window()` in step.
+`overlay_slice.cpp`'s `slice_window()` in step.
 
 `--px-per-uu` is a request - it is first scaled CONTINUOUSLY to fit `--max-ram-mb`, then halved until
 neither dimension exceeds `--max-dim` (8192). That order matters: clamping first charged chapter 5 a
@@ -785,7 +795,7 @@ full halving and then left it under budget.
 
 ## The overlay
 
-`src/overlay.cpp` installs four MinHook hooks whose addresses come from a throwaway
+`src/overlay_d3d12.cpp` installs four MinHook hooks whose addresses come from a throwaway
 device + queue + swapchain (the hudhook trick, since the game's swapchain and its command queue
 are not reachable from a UE4SS mod):
 
@@ -1181,7 +1191,7 @@ because the WndProc hook is swallowing every key while the map is up.
 
 ### Why the minimap is (not) on screen
 
-`overlay.cpp`'s `set_hide_reason()` is the single choke point for visibility, and every show condition
+`overlay_d3d12.cpp`'s `set_hide_reason()` is the single choke point for visibility, and every show condition
 is re-evaluated from the live snapshot on **every frame** - there is no latch anywhere in the path. The
 F2 debug block prints the current reason as `hidden because: <reason>` (or `minimap: visible`) together
 with how long that state has held, and every transition is written to `UE4SS.log` as
@@ -1247,7 +1257,7 @@ only while the key or the pad chord is physically down. The toggle is the one pi
 state in the mod, so it obeys the rule that goes with that: it is **cleared from live state, never
 remembered** - `hl::drop_caches()` (which `markers::drop_caches()` calls on every level transition and
 every dropped pawn) turns it off, and so does turning the feature off or switching to hold mode. The
-highlight itself is gated by exactly the same evaluation as the minimap (`hud_gate()` in `overlay.cpp` -
+highlight itself is gated by exactly the same evaluation as the minimap (`hud_gate()` in `overlay_internal.hpp` -
 one function, asked by the minimap, the compass and the highlight; the minimap keeps ownership of the
 `hidden because:` readout).
 

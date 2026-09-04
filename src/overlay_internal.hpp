@@ -41,6 +41,8 @@
 
 #include <MinHook.h>
 
+#include "overlay.hpp"
+
 #include "compass.hpp"
 #include "gamepad.hpp"
 #include "gamestate.hpp"
@@ -99,7 +101,7 @@ namespace overlay
             std::uint32_t rva = 0;   // the address's offset into the module
             HMODULE base = nullptr;
         };
-        const wchar_t* format_name(DXGI_FORMAT f)
+        inline const wchar_t* format_name(DXGI_FORMAT f)
         {
             switch (f)
             {
@@ -732,7 +734,7 @@ namespace overlay
         };
         extern StatsCache g_stats_cache;
         extern bool g_stats_page; // the full map's Stats panel
-        const StatsCache& stats_cached(std::uint64_t now)
+        inline const StatsCache& stats_cached(std::uint64_t now)
         {
             const std::uint64_t round = markers::rounds();
             if (!g_stats_cache.primed || round != g_stats_cache.round ||
@@ -887,8 +889,8 @@ namespace overlay
         // Nothing in here is remembered between frames. Every condition is recomputed
         // from the snapshot the game thread published, which is what makes hiding
         // immediate and makes "it got stuck hidden" impossible.
-        const wchar_t* hud_gate(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
-                                std::uint64_t now)
+        inline const wchar_t* hud_gate(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
+                                       std::uint64_t now)
         {
             if (!have_state)
             {
@@ -1024,7 +1026,7 @@ namespace overlay
             {VK_F12, "the Steam screenshot key"},
         };
         // nullptr = nothing known wants this binding.
-        const char* game_bind_clash(int binding)
+        inline const char* game_bind_clash(int binding)
         {
             if (mm::key_mod(binding) != mm::kKeyModNone)
             {

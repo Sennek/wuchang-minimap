@@ -18,6 +18,10 @@
                                        2 s and logs actors that vanished and props
                                        that changed - settles "collected" vs
                                        "destroyed" when you pick something up)
+      F5  / CTRL+F5  - input dump     (Enhanced Input: local player, player input,
+                                       applied mapping contexts and their priority,
+                                       every action/key mapping, remap storage
+                                       candidates, reflected struct layouts)
 
     NOT F10: UE4SS' ConsoleEnablerMod registers F10 as one of the game's console
     keys on this build, so F10 would open the UE console as well.
@@ -25,7 +29,7 @@
     fullscreen toggle - the CTRL variants avoid both.
     NOT F6 either: that is the WuchangMinimap C++ mod's navmesh-dump hotkey.
 
-    Output: <mod dir>\out\dump_<yyyymmdd_hhmmss>_<kind>.txt
+    Output: <mod dir>\out\dump_<yyyymmdd_hhmmss>_<kind>.txt   (kind: world / ui / input)
             <mod dir>\out\navprobe_<yyyymmdd_hhmmss>.csv
             <mod dir>\out\track.csv
             <mod dir>\out\pickupwatch_<yyyymmdd_hhmmss>.txt
@@ -1769,6 +1773,613 @@ local function do_ui_dump(kind)
 end
 
 --------------------------------------------------------------------------------
+-- F5: enhanced-input dump
+--------------------------------------------------------------------------------
+-- The game is on Enhanced Input (EnhancedInputComponent / K2Node_EnhancedInputActionEvent
+-- appear in the world dumps), so the real key bindings live in
+--   PlayerController -> Player (ULocalPlayer) -> EnhancedInputLocalPlayerSubsystem
+--   PlayerController -> PlayerInput (UEnhancedPlayerInput)
+--       .AppliedInputContexts  TMap<UInputMappingContext*, int32 priority>
+--       .EnhancedActionMappings TArray<FEnhancedActionKeyMapping>  <- post-remap truth
+--   UInputMappingContext.Mappings TArray<FEnhancedActionKeyMapping>  <- the asset defaults
+-- A player remap usually does NOT edit the asset context, so the flattened
+-- EnhancedActionMappings list and any user-settings object are dumped as well.
+-- Everything is probed by name and reported as absent when it is not there: the
+-- point of the dump is to learn which names this build actually has.
+
+-- Object classes worth a census. Enhanced Input moved names between engine
+-- versions, so both the 5.1 and the later spellings are probed.
+local INPUT_CLASSES = {
+    "EnhancedInputLocalPlayerSubsystem", "EnhancedInputWorldSubsystem",
+    "EnhancedInputUserSettings", "EnhancedPlayerMappableKeyProfile",
+    "PlayerMappableKeySettings", "PlayerMappableInputConfig",
+    "EnhancedInputDeveloperSettings", "EnhancedPlayerInput", "PlayerInput",
+    "EnhancedInputComponent", "InputComponent", "InputMappingContext",
+    "InputAction", "InputModifier", "InputTrigger", "InputSettings",
+    "LocalPlayer",
+}
+
+-- Classes whose first instance gets a full property dump (the rest are counted).
+local INPUT_DEEP_CLASSES = {
+    EnhancedInputLocalPlayerSubsystem = true, EnhancedInputUserSettings = true,
+    EnhancedPlayerMappableKeyProfile = true, PlayerMappableInputConfig = true,
+    EnhancedPlayerInput = true, LocalPlayer = true, InputSettings = true,
+}
+
+-- ScriptStruct / UClass paths dumped as layouts, so the C++ reader gets the exact
+-- property names reflection sees rather than the ones the engine source uses.
+local INPUT_STRUCT_PATHS = {
+    "/Script/EnhancedInput.EnhancedActionKeyMapping",
+    "/Script/EnhancedInput.PlayerMappableKeyOptions",
+    "/Script/EnhancedInput.PlayerKeyMapping",
+    "/Script/EnhancedInput.KeyMappingRow",
+    "/Script/InputCore.Key",
+    "/Script/Engine.InputActionKeyMapping",
+    "/Script/Engine.InputAxisKeyMapping",
+}
+local INPUT_CLASS_PATHS = {
+    "/Script/EnhancedInput.EnhancedInputLocalPlayerSubsystem",
+    "/Script/EnhancedInput.EnhancedPlayerInput",
+    "/Script/EnhancedInput.InputMappingContext",
+    "/Script/EnhancedInput.InputAction",
+    "/Script/EnhancedInput.EnhancedInputUserSettings",
+    "/Script/EnhancedInput.EnhancedPlayerMappableKeyProfile",
+    "/Script/EnhancedInput.PlayerMappableKeySettings",
+    "/Script/Engine.PlayerInput",
+    "/Script/Engine.LocalPlayer",
+}
+
+-- A remapped key is often stored in the game's own settings/save object rather
+-- than in the engine's. Class names matching these get listed; the narrow list
+-- below additionally gets an instance property dump.
+local INPUT_CLASS_KEYWORDS = {
+    "input", "keybind", "keymap", "keyboard", "binding", "remap", "mappable",
+    "control", "gamepad",
+}
+local INPUT_CLASS_KEYWORDS_DEEP = { "keybind", "keymap", "remap", "mappable" }
+
+-- The fields FEnhancedActionKeyMapping is read for. Names differ across engine
+-- versions (PlayerMappableOptions in 5.1, PlayerMappableKeySettings later), so
+-- every candidate is tried and the ones that answered are printed.
+local MAPPING_FIELDS = {
+    "Action", "Key", "bIsPlayerMappable", "PlayerMappableOptions",
+    "PlayerMappableKeySettings", "Settings", "Triggers", "Modifiers",
+    "bShouldBeIgnored",
+}
+
+-- Property names holding the mapping array on a context / player input object.
+local MAPPING_ARRAY_NAMES = { "Mappings", "EnhancedActionMappings" }
+
+local INPUT_MAX_MAPPINGS = 400 -- per array
+local INPUT_MAX_CONTEXTS = 60
+local INPUT_MAX_INSTANCES = 40  -- listed per class in the census
+local INPUT_MAX_SWEEP = 200     -- class names listed in the keyword sweep
+
+-- fmt_value renders "no such property" as one of these; treat them as absent.
+local OPAQUE_STR = { ["<userdata>"] = true, ["{}"] = true, ["nil"] = true, ["<?>"] = true }
+
+-- A TArray element or TMap key/value can arrive wrapped in a handle that has to be
+-- :get()'d before its fields are readable.
+local function unwrap(v)
+    if type(v) ~= "userdata" and type(v) ~= "table" then return v end
+    local ok, r = pcall(function() return v:get() end)
+    if ok and r ~= nil then return r end
+    return v
+end
+
+-- Iterate a TArray. UE4SS exposes ForEach on it, older builds only GetArrayNum plus
+-- indexing, and the index base is not the same everywhere. Returns the number of
+-- elements visited and the name of the route that worked - the C++ reader has to
+-- make the same choice, so which one answered is worth recording.
+local function array_each(arr, cb)
+    if arr == nil then return 0, "nil" end
+    local n = nil
+    pcall(function() n = arr:GetArrayNum() end)
+    local seen = 0
+    local ok = pcall(function()
+        arr:ForEach(function(i, e)
+            seen = seen + 1
+            cb(i, unwrap(e))
+        end)
+    end)
+    if ok and seen > 0 then return seen, "ForEach" end
+    if type(n) == "number" and n > 0 then
+        for base = 0, 1 do
+            local got = 0
+            pcall(function()
+                for i = base, n - 1 + base do
+                    local e = arr[i]
+                    if e == nil then break end
+                    got = got + 1
+                    cb(i, unwrap(e))
+                end
+            end)
+            if got > 0 then return got, string.format("index[%d..]", base) end
+        end
+    end
+    if type(n) == "number" then return 0, string.format("empty (GetArrayNum=%d)", n) end
+    return 0, "no route"
+end
+
+local function map_each(m, cb)
+    if m == nil then return 0, "nil" end
+    local seen = 0
+    local ok = pcall(function()
+        m:ForEach(function(k, v)
+            seen = seen + 1
+            cb(unwrap(k), unwrap(v))
+        end)
+    end)
+    if ok then return seen, "ForEach" end
+    return 0, "no route"
+end
+
+-- An FKey prints as its KeyName FName: "E", "SpaceBar", "Gamepad_FaceButton_Bottom".
+local function fkey_str(k)
+    if k == nil then return "<nil>" end
+    local n = safe(function() return fname_str(k.KeyName) end)
+    if type(n) == "string" and n ~= "" then return n end
+    local s = safe(function() return k:ToString() end)
+    if type(s) == "string" and s ~= "" then return s end
+    local v = fmt_value(k)
+    if OPAQUE_STR[v] then return "<unreadable>" end
+    return v
+end
+
+local function obj_label(o)
+    if o == nil then return "<nil>" end
+    local n = sname(o)
+    if n ~= "<?>" then return n end
+    local v = fmt_value(o)
+    if OPAQUE_STR[v] then return "<unreadable>" end
+    return v
+end
+
+-- reads obj[name] and formats it; nil when the field is absent or opaque
+local function field_str(obj, name)
+    local v = safe(function() return obj[name] end)
+    if v == nil then return nil end
+    local ok, s = pcall(fmt_value, v)
+    if not ok or s == nil or OPAQUE_STR[s] then return nil end
+    return s
+end
+
+-- A nested struct, TArray or TMap formats as opaque even when its own fields are
+-- perfectly readable, and UE4SS returns opaque userdata for a property that is not
+-- there at all - so "does this field exist?" is answered by probing it, never by
+-- how it formats.
+local function struct_like(v)
+    if type(v) ~= "userdata" and type(v) ~= "table" then return false end
+    for _, m in ipairs({ "ForEach", "GetArrayNum", "GetKeys" }) do
+        local ok, f = pcall(function() return v[m] end)
+        if ok and type(f) == "function" then return true end
+    end
+    for _, sub in ipairs({ "KeyName", "Name", "DisplayName", "Action", "Key", "Mappings" }) do
+        local ok, sv = pcall(function() return v[sub] end)
+        if ok and sv ~= nil then
+            local oks, ss = pcall(fmt_value, sv)
+            if oks and ss ~= nil and not OPAQUE_STR[ss] then return true end
+        end
+    end
+    return false
+end
+
+-- the value of obj[name], or nil when the field is absent
+local function field_raw(obj, name)
+    local v = safe(function() return obj[name] end)
+    if v == nil then return nil end
+    local ok, s = pcall(fmt_value, v)
+    if ok and s ~= nil and not OPAQUE_STR[s] then return v end
+    if struct_like(v) then return v end
+    return nil
+end
+
+-- One UInputAction, printed once per dump.
+local seen_actions = {}
+
+local function dump_action(w, act, indent)
+    if act == nil then return end
+    local key = addr_hex(act)
+    if key == "<?>" then key = fullname(act) end
+    if seen_actions[key] then return end
+    seen_actions[key] = true
+    w:line("%s>>> action %s", indent, obj_label(act))
+    w:line("%s    full        : %s", indent, fullname(act))
+    w:line("%s    class chain : %s", indent, class_chain(act))
+    for _, pn in ipairs({ "ValueType", "bConsumeInput", "bTriggerWhenPaused",
+                          "bReserveAllMappings", "ActionDescription",
+                          "PlayerMappableKeySettings", "bIsPlayerMappable" }) do
+        local v = read_prop_str(act, pn)
+        if v ~= nil then w:line("%s    %-22s = %s", indent, pn, v) end
+    end
+    local pmks = field_raw(act, "PlayerMappableKeySettings")
+    if pmks ~= nil then
+        for _, pn in ipairs({ "Name", "DisplayName", "DisplayCategory", "Metadata" }) do
+            local v = field_str(pmks, pn)
+            if v ~= nil then w:line("%s    PlayerMappableKeySettings.%-12s = %s", indent, pn, v) end
+        end
+    end
+end
+
+-- One FEnhancedActionKeyMapping.
+local function dump_mapping(w, idx, m, indent)
+    if m == nil then
+        w:line("%s[%3d] <nil element>", indent, idx)
+        return
+    end
+    local act = field_raw(m, "Action")
+    local k = field_raw(m, "Key")
+    local mappable = field_str(m, "bIsPlayerMappable")
+    local opts = field_raw(m, "PlayerMappableOptions")
+                 or field_raw(m, "PlayerMappableKeySettings")
+    local mapName = nil
+    if opts ~= nil then
+        mapName = field_str(opts, "Name") or field_str(opts, "DisplayName")
+    end
+    local trigN, modN = nil, nil
+    local trig = field_raw(m, "Triggers")
+    if trig ~= nil then trigN = safe(function() return trig:GetArrayNum() end) end
+    local mods = field_raw(m, "Modifiers")
+    if mods ~= nil then modN = safe(function() return mods:GetArrayNum() end) end
+
+    w:line("%s[%3d] action=%-34s key=%-28s mappable=%-6s name=%-24s triggers=%s modifiers=%s",
+           indent, idx, act and obj_label(act) or "<none>", fkey_str(k),
+           mappable or "-", mapName or "-",
+           tostring(trigN or "-"), tostring(modN or "-"))
+
+    -- once per dump, list which of the candidate field names actually answered
+    if idx == 0 or idx == 1 then
+        local present, absent = {}, {}
+        for _, fn in ipairs(MAPPING_FIELDS) do
+            if field_raw(m, fn) ~= nil then
+                present[#present + 1] = fn
+            else
+                absent[#absent + 1] = fn
+            end
+        end
+        w:line("%s      fields present: %s", indent, table.concat(present, ", "))
+        w:line("%s      fields absent : %s", indent, table.concat(absent, ", "))
+    end
+    if act ~= nil then dump_action(w, act, indent .. "      ") end
+end
+
+-- Dumps whichever of MAPPING_ARRAY_NAMES the object has.
+local function dump_mapping_arrays(w, obj, indent, label)
+    local any = false
+    for _, an in ipairs(MAPPING_ARRAY_NAMES) do
+        local arr = field_raw(obj, an)
+        if arr ~= nil then
+            any = true
+            local elems = {}
+            local n, route = array_each(arr, function(i, m)
+                elems[#elems + 1] = { i = i, m = m }
+            end)
+            w:line("%s%s.%s : %d element(s) via %s", indent, label, an, n, route)
+            for j, e in ipairs(elems) do
+                if j > INPUT_MAX_MAPPINGS then
+                    w:line("%s  ... mapping cap %d reached", indent, INPUT_MAX_MAPPINGS)
+                    break
+                end
+                dump_mapping(w, e.i, e.m, indent .. "  ")
+            end
+        end
+    end
+    if not any then
+        w:line("%s%s: none of %s is readable on this object",
+               indent, label, table.concat(MAPPING_ARRAY_NAMES, "/"))
+    end
+end
+
+local function dump_layout(w, path, kind)
+    local s = safe(function() return StaticFindObject(path) end)
+    if not s or not isvalid(s) then
+        w:line("  %-62s <not loaded>", path)
+        return
+    end
+    local props = {}
+    pcall(function()
+        s:ForEachProperty(function(p)
+            props[#props + 1] = string.format("%-44s %s", prop_name(p), prop_type(p))
+        end)
+    end)
+    local super = safe(function() return s:GetSuperStruct() end)
+    w:line("  %-62s %d %s propert%s%s", path, #props, kind or "own",
+           #props == 1 and "y" or "ies",
+           (super and isvalid(super)) and ("   super=" .. sname(super)) or "")
+    for _, p in ipairs(props) do w:line("      %s", p) end
+end
+
+local function sec_input_chain(w)
+    w:header("INPUT: CONTROLLER -> LOCAL PLAYER -> PLAYER INPUT")
+
+    local pc = get_pc()
+    if not pc then
+        w:line("no PlayerController -> the whole input chain is unavailable")
+        return nil, nil
+    end
+    w:line("PlayerController      : %s", fullname(pc))
+    w:line("  class chain         : %s", class_chain(pc))
+
+    local lp = field_raw(pc, "Player")
+    if lp ~= nil then
+        w:line("PC.Player (LocalPlayer): %s", fullname(lp))
+        w:line("  class chain         : %s", class_chain(lp))
+    else
+        w:line("PC.Player            : <not readable>")
+        lp = find_first("LocalPlayer")
+        if lp then w:line("  fallback FindFirstOf(\"LocalPlayer\") -> %s", fullname(lp)) end
+    end
+
+    local pi = field_raw(pc, "PlayerInput")
+    if pi == nil then
+        pi = find_first("EnhancedPlayerInput") or find_first("PlayerInput")
+        w:line("PC.PlayerInput       : <not readable>%s",
+               pi and ("  fallback FindFirstOf -> " .. fullname(pi)) or "")
+    else
+        w:line("PC.PlayerInput       : %s", fullname(pi))
+    end
+    if pi ~= nil then
+        w:line("  class chain         : %s", class_chain(pi))
+    end
+
+    local ic = field_raw(pc, "InputComponent")
+    w:line("PC.InputComponent    : %s", ic and fullname(ic) or "<not readable>")
+    if ic ~= nil then
+        w:line("  class chain         : %s", class_chain(ic))
+    end
+
+    if lp ~= nil then
+        w:blank()
+        w:line("-- all reflected properties of the LocalPlayer --")
+        dump_all_props(w, lp, "  ")
+    end
+    if pi ~= nil then
+        w:blank()
+        w:line("-- all reflected properties of the PlayerInput --")
+        dump_all_props(w, pi, "  ")
+    end
+    return pc, pi
+end
+
+local function sec_input_contexts(w, pi)
+    w:header("INPUT: APPLIED MAPPING CONTEXTS AND THEIR MAPPINGS")
+
+    if pi == nil then
+        w:line("no PlayerInput object -> applied contexts unavailable")
+    else
+        local applied = field_raw(pi, "AppliedInputContexts")
+        if applied == nil then
+            w:line("PlayerInput.AppliedInputContexts : <not readable>")
+        else
+            local rows = {}
+            local n, route = map_each(applied, function(k, v)
+                rows[#rows + 1] = { ctx = k, prio = v }
+            end)
+            w:line("PlayerInput.AppliedInputContexts : %d entr%s via %s",
+                   n, n == 1 and "y" or "ies", route)
+            for i, r in ipairs(rows) do
+                if i > INPUT_MAX_CONTEXTS then
+                    w:line("  ... context cap %d reached", INPUT_MAX_CONTEXTS)
+                    break
+                end
+                w:blank()
+                w:line("  >>> IMC %-40s priority=%s", obj_label(r.ctx), tostring(r.prio))
+                w:line("      full : %s", fullname(r.ctx))
+                dump_mapping_arrays(w, r.ctx, "      ", "IMC")
+            end
+        end
+
+        w:blank()
+        w:line("-- flattened, post-remap mappings the player input actually uses --")
+        dump_mapping_arrays(w, pi, "  ", "PlayerInput")
+
+        w:blank()
+        w:line("-- legacy UPlayerInput mappings (empty on a pure Enhanced Input game) --")
+        for _, an in ipairs({ "ActionMappings", "AxisMappings", "DebugExecBindings" }) do
+            local arr = field_raw(pi, an)
+            if arr == nil then
+                w:line("  PlayerInput.%-18s : <not readable>", an)
+            else
+                local lines = 0
+                local n, route = array_each(arr, function(i, m)
+                    lines = lines + 1
+                    if lines <= 60 then
+                        w:line("    [%3d] name=%-30s key=%-24s", i,
+                               field_str(m, "ActionName") or field_str(m, "AxisName")
+                                   or field_str(m, "Command") or "-",
+                               fkey_str(field_raw(m, "Key")))
+                    end
+                end)
+                w:line("  PlayerInput.%-18s : %d element(s) via %s", an, n, route)
+            end
+        end
+    end
+
+    -- Every loaded context asset, applied or not: a context the game swaps in for a
+    -- menu still holds bindings the player sees in the options screen.
+    w:blank()
+    w:line("-- every loaded UInputMappingContext --")
+    local list = find_all("InputMappingContext")
+    if not list then
+        w:line("  FindAllOf(\"InputMappingContext\") returned nothing")
+        return
+    end
+    local n = 0
+    for _, c in pairs(list) do
+        if isvalid(c) and not is_cdo(c) then
+            n = n + 1
+            if n <= INPUT_MAX_CONTEXTS then
+                w:blank()
+                w:line("  >>> %s", fullname(c))
+                w:line("      class chain: %s", class_chain(c))
+                dump_mapping_arrays(w, c, "      ", "IMC")
+            end
+        end
+    end
+    w:line("  contexts seen: %d%s", n,
+           n > INPUT_MAX_CONTEXTS and string.format("  (capped at %d)", INPUT_MAX_CONTEXTS) or "")
+end
+
+local function sec_input_objects(w)
+    w:header("INPUT: SUBSYSTEM / USER SETTINGS / OBJECT CENSUS")
+
+    for _, cn in ipairs(INPUT_CLASSES) do
+        local list = find_all(cn)
+        local objs = {}
+        if list then
+            for _, o in pairs(list) do
+                if isvalid(o) and not is_cdo(o) then objs[#objs + 1] = o end
+            end
+        end
+        w:line("%-38s : %d instance(s)", cn, #objs)
+        for i, o in ipairs(objs) do
+            if i > INPUT_MAX_INSTANCES then
+                w:line("    ... instance cap %d reached", INPUT_MAX_INSTANCES)
+                break
+            end
+            w:line("    %s", fullname(o))
+        end
+        if #objs > 0 and INPUT_DEEP_CLASSES[cn] then
+            w:line("    class chain: %s", class_chain(objs[1]))
+            w:line("    -- all reflected properties of the first instance --")
+            dump_all_props(w, objs[1], "    ")
+        end
+        w:blank()
+    end
+end
+
+local function sec_input_remap_storage(w)
+    w:header("INPUT: REMAP STORAGE CANDIDATES (class-name sweep)")
+    w:line("A player-remapped key usually lives outside the asset contexts. Anything")
+    w:line("here whose instance holds a key name is the object the C++ reader wants.")
+    w:blank()
+
+    local ok, list = pcall(function()
+        return FindObjects(0, "Class", nil, 0, 0, false)
+    end)
+    if not ok or type(list) ~= "table" then
+        w:line("FindObjects(0,\"Class\") failed: %s", tostring(list))
+        return
+    end
+
+    local hits = {}
+    for _, c in pairs(list) do
+        if isvalid(c) then
+            local n = sname(c)
+            local ln = n:lower()
+            for _, k in ipairs(INPUT_CLASS_KEYWORDS) do
+                if ln:find(k, 1, true) then hits[#hits + 1] = n break end
+            end
+        end
+    end
+    table.sort(hits)
+    w:line("classes matching %s: %d", table.concat(INPUT_CLASS_KEYWORDS, "/"), #hits)
+    for i, h in ipairs(hits) do
+        if i > INPUT_MAX_SWEEP then
+            w:line("  ... sweep cap %d reached", INPUT_MAX_SWEEP)
+            break
+        end
+        w:line("  %s", h)
+    end
+
+    w:blank()
+    w:line("-- instances of the narrow matches (%s) --",
+           table.concat(INPUT_CLASS_KEYWORDS_DEEP, "/"))
+    local dumped, seenCls = 0, {}
+    for _, h in ipairs(hits) do
+        local lh = h:lower()
+        local narrow = false
+        for _, k in ipairs(INPUT_CLASS_KEYWORDS_DEEP) do
+            if lh:find(k, 1, true) then narrow = true break end
+        end
+        if narrow and not seenCls[h] and dumped < 8 then
+            seenCls[h] = true
+            local objs = find_all(h)
+            local first = nil
+            local n = 0
+            if objs then
+                for _, o in pairs(objs) do
+                    if isvalid(o) and not is_cdo(o) then
+                        n = n + 1
+                        if first == nil then first = o end
+                    end
+                end
+            end
+            w:line("  %-46s %d instance(s)", h, n)
+            if first ~= nil then
+                dumped = dumped + 1
+                w:line("      %s", fullname(first))
+                w:line("      class chain: %s", class_chain(first))
+                dump_all_props(w, first, "      ")
+            end
+        end
+    end
+end
+
+local function sec_input_layouts(w)
+    w:header("INPUT: REFLECTED STRUCT / CLASS LAYOUTS")
+    w:line("The exact names the C++ reader must walk by. A path listed <not loaded>")
+    w:line("does not exist on this build under that name.")
+    w:blank()
+    w:line("-- ScriptStructs --")
+    for _, p in ipairs(INPUT_STRUCT_PATHS) do dump_layout(w, p, "own") end
+    w:blank()
+    w:line("-- UClasses --")
+    for _, p in ipairs(INPUT_CLASS_PATHS) do dump_layout(w, p, "own") end
+end
+
+local function do_input_dump(kind)
+    if busy then log("dump already running, ignored"); return end
+    busy = true
+    seen_actions = {}
+    local w, err = new_writer(kind or "input")
+    if not w then
+        log("cannot create dump file: %s", tostring(err))
+        busy = false
+        return
+    end
+    w:line("WuchangRecon input dump")
+    w:line("kind      : %s", tostring(kind or "input"))
+    w:line("time      : %s", tostring(safe(os.date, "%Y-%m-%d %H:%M:%S")))
+    w:line("level     : %s", current_level_name())
+    w:line("out dir   : %s", tostring(OUT_DIR))
+
+    local pi = nil
+    local ok, e = pcall(function()
+        local _, playerInput = sec_input_chain(w)
+        pi = playerInput
+    end)
+    if not ok then
+        w:header("SECTION chain FAILED")
+        w:line("%s", tostring(e))
+        log("input section chain failed: %s", tostring(e))
+    end
+
+    local sections = {
+        { "contexts", function(ww) sec_input_contexts(ww, pi) end },
+        { "objects", sec_input_objects },
+        { "remap", sec_input_remap_storage },
+        { "layouts", sec_input_layouts },
+    }
+    for _, s in ipairs(sections) do
+        local okS, eS = pcall(s[2], w)
+        if not okS then
+            w:header("SECTION " .. s[1] .. " FAILED")
+            w:line("%s", tostring(eS))
+            log("input section %s failed: %s", s[1], tostring(eS))
+        end
+    end
+
+    local path, werr = w:close()
+    busy = false
+    if path then
+        log("input dump written: %s (%d lines)", path, w.n)
+    else
+        log("input dump FAILED to write: %s", tostring(werr))
+    end
+end
+
+--------------------------------------------------------------------------------
 -- F10: periodic tracker
 --------------------------------------------------------------------------------
 local track_on = false
@@ -2143,6 +2754,7 @@ local function init()
         { Key.F7,  "tracker",        coalesced("tracker",       track_toggle) },
         { Key.F11, "navmesh probe",  coalesced("navmesh probe", do_navprobe) },
         { Key.F12, "pickup watch",   coalesced("pickup watch",  watch_toggle) },
+        { Key.F5,  "input dump",     coalesced("input dump",    function() do_input_dump("input") end) },
     }
     local plain, ctrl = 0, 0
     for _, b in ipairs(binds) do
@@ -2160,7 +2772,7 @@ local function init()
 
     pcall(start_auto_dump)
 
-    log("WuchangRecon loaded: F8 world, F9 UI, F7 track, F11 navprobe, F12 pickup watch"
+    log("WuchangRecon loaded: F8 world, F9 UI, F5 input, F7 track, F11 navprobe, F12 pickup watch"
         .. " (CTRL+key also works; F10 avoided - it is a console key;"
         .. " F6 belongs to the WuchangMinimap C++ mod)")
 end

@@ -214,7 +214,12 @@ local C_Controller = { name = "Controller", super = C_Actor, props = {}, fns = {
 local C_PC = {
     name = "PlayerController",
     super = C_Controller,
-    props = { { name = "AcknowledgedPawn", type = "ObjectProperty", value = nil } },
+    props = {
+        { name = "AcknowledgedPawn", type = "ObjectProperty", value = nil },
+        { name = "Player", type = "ObjectProperty", value = nil },
+        { name = "PlayerInput", type = "ObjectProperty", value = nil },
+        { name = "InputComponent", type = "ObjectProperty", value = nil },
+    },
     fns = {
         { name = "GetViewTarget", params = { { name = "ReturnValue", type = "ObjectProperty" } } },
         { name = "SetViewTargetWithBlend", params = { { name = "NewViewTarget", type = "ObjectProperty" } } },
@@ -281,11 +286,14 @@ local pcm = new_obj({
         },
     },
 })
+-- Consulted live, so the Enhanced Input objects built further down can be hung
+-- off the controller after it exists.
+PC_VALUES = { PlayerCameraManager = pcm, MyHUD = nil }
 local pc = new_obj({
     name = "DCSPlayerController_C_0",
     cls = C_DCSPC,
     loc = { X = 0, Y = 0, Z = 0 },
-    values = { PlayerCameraManager = pcm, MyHUD = nil },
+    values = PC_VALUES,
     view_target = player,
 })
 
@@ -325,6 +333,202 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- the fake Enhanced Input stack
+--------------------------------------------------------------------------------
+-- A TArray answers GetArrayNum and ForEach, and hands each element over inside a
+-- handle that has to be :get()'d - the shape UE4SS actually uses.
+local function new_array(items)
+    local o = {}
+    o.GetArrayNum = function() if HOSTILE then boom() end return #items end
+    o.ForEach = function(_, cb)
+        if HOSTILE then boom() end
+        for i, v in ipairs(items) do cb(i, { get = function() return v end }) end
+    end
+    return setmetatable({}, { __index = o })
+end
+
+-- entries = { {k = <key>, v = <value>}, ... }
+local function new_map(entries)
+    local o = {}
+    o.ForEach = function(_, cb)
+        if HOSTILE then boom() end
+        for _, e in ipairs(entries) do
+            cb({ get = function() return e.k end }, { get = function() return e.v end })
+        end
+    end
+    return setmetatable({}, { __index = o })
+end
+
+-- A struct value: named fields, and opaque userdata-alike for anything absent.
+local function new_struct(fields)
+    return setmetatable({}, {
+        __index = function(_, key)
+            if HOSTILE then boom() end
+            local v = fields[key]
+            if v ~= nil then return v end
+            return setmetatable({}, { __index = function() return nil end })
+        end,
+    })
+end
+
+local C_InputAction = {
+    name = "InputAction",
+    super = C_Object,
+    props = {
+        { name = "ValueType", type = "EnumProperty", value = "Digital" },
+        { name = "bConsumeInput", type = "BoolProperty", value = true },
+        { name = "ActionDescription", type = "TextProperty", value = "" },
+    },
+    fns = {},
+}
+local C_IMC = {
+    name = "InputMappingContext",
+    super = C_Object,
+    props = { { name = "Mappings", type = "ArrayProperty", value = nil } },
+    fns = {},
+}
+local C_PlayerInput = { name = "PlayerInput", super = C_Object, props = {}, fns = {} }
+local C_EnhancedPlayerInput = {
+    name = "EnhancedPlayerInput",
+    super = C_PlayerInput,
+    props = {
+        { name = "AppliedInputContexts", type = "MapProperty", value = nil },
+        { name = "EnhancedActionMappings", type = "ArrayProperty", value = nil },
+    },
+    fns = {},
+}
+local C_LocalPlayer = {
+    name = "LocalPlayer",
+    super = C_Object,
+    props = { { name = "PlayerController", type = "ObjectProperty", value = nil } },
+    fns = {},
+}
+local C_EISubsystem = {
+    name = "EnhancedInputLocalPlayerSubsystem",
+    super = C_Object,
+    props = { { name = "UserSettings", type = "ObjectProperty", value = nil } },
+    fns = {},
+}
+local C_UserSettings = {
+    name = "EnhancedInputUserSettings",
+    super = C_Object,
+    props = { { name = "CurrentProfileIdentifier", type = "NameProperty", value = "Default" } },
+    fns = {},
+}
+local C_KeyBindSave = {
+    name = "BP_KeyBindSettings_C",
+    super = C_Object,
+    props = { { name = "SavedKey", type = "NameProperty", value = "F" } },
+    fns = {},
+}
+
+local function new_action(name)
+    return new_obj({ name = name, cls = C_InputAction })
+end
+
+local ACT_Interact = new_action("IA_Interact")
+local ACT_Inventory = new_action("IP_Inventory")
+local ACT_Jump = new_action("IA_Jump")
+
+local function new_mapping(action, keyName, mappableName)
+    return new_struct({
+        Action = action,
+        Key = new_struct({ KeyName = new_fname(keyName) }),
+        bIsPlayerMappable = true,
+        PlayerMappableOptions = new_struct({
+            Name = new_fname(mappableName),
+            DisplayName = mappableName,
+        }),
+        Triggers = new_array({}),
+        Modifiers = new_array({}),
+    })
+end
+
+local imc_default = new_obj({
+    name = "IMC_Default",
+    cls = C_IMC,
+    values = {
+        Mappings = new_array({
+            new_mapping(ACT_Interact, "E", "Interact"),
+            new_mapping(ACT_Jump, "SpaceBar", "Jump"),
+        }),
+    },
+})
+local imc_menu = new_obj({
+    name = "IMC_Menu",
+    cls = C_IMC,
+    values = {
+        Mappings = new_array({ new_mapping(ACT_Inventory, "Tab", "Inventory") }),
+    },
+})
+
+local player_input = new_obj({
+    name = "EnhancedPlayerInput_0",
+    cls = C_EnhancedPlayerInput,
+    values = {
+        AppliedInputContexts = new_map({ { k = imc_default, v = 0 }, { k = imc_menu, v = 10 } }),
+        -- the post-remap list: Interact has been moved off E onto G
+        EnhancedActionMappings = new_array({
+            new_mapping(ACT_Interact, "G", "Interact"),
+            new_mapping(ACT_Jump, "SpaceBar", "Jump"),
+            new_mapping(ACT_Inventory, "Tab", "Inventory"),
+        }),
+        ActionMappings = new_array({}),
+        AxisMappings = new_array({}),
+    },
+})
+
+local local_player = new_obj({ name = "LocalPlayer_0", cls = C_LocalPlayer, values = { PlayerController = pc } })
+local ei_subsystem = new_obj({ name = "EnhancedInputLocalPlayerSubsystem_0", cls = C_EISubsystem })
+local user_settings = new_obj({ name = "EnhancedInputUserSettings_0", cls = C_UserSettings })
+local keybind_save = new_obj({ name = "BP_KeyBindSettings_C_0", cls = C_KeyBindSave })
+
+PC_VALUES.Player = local_player
+PC_VALUES.PlayerInput = player_input
+PC_VALUES.InputComponent = new_obj({
+    name = "EnhancedInputComponent_0",
+    cls = { name = "EnhancedInputComponent", super = C_Object, props = {}, fns = {} },
+})
+
+-- Added AFTER the Actor aggregation above on purpose: none of these is an actor.
+instances["InputMappingContext"] = { imc_default, imc_menu }
+instances["InputAction"] = { ACT_Interact, ACT_Inventory, ACT_Jump }
+instances["EnhancedPlayerInput"] = { player_input }
+instances["PlayerInput"] = { player_input }
+instances["LocalPlayer"] = { local_player }
+instances["EnhancedInputLocalPlayerSubsystem"] = { ei_subsystem }
+instances["EnhancedInputUserSettings"] = { user_settings }
+instances["EnhancedInputComponent"] = { PC_VALUES.InputComponent }
+instances["BP_KeyBindSettings_C"] = { keybind_save }
+
+-- What FindObjects(0, "Class", ...) hands back: UClass objects, not instances.
+local CLASS_OBJECTS = {
+    C_IMC, C_InputAction, C_EnhancedPlayerInput, C_EISubsystem, C_UserSettings,
+    C_KeyBindSave, C_Recast, C_Player,
+}
+
+-- StaticFindObject answers for the ScriptStruct / UClass layout probes.
+local OBJECT_PATHS = {
+    ["/Script/EnhancedInput.EnhancedActionKeyMapping"] = {
+        name = "EnhancedActionKeyMapping",
+        props = {
+            { name = "Action", type = "ObjectProperty" },
+            { name = "Key", type = "StructProperty" },
+            { name = "bIsPlayerMappable", type = "BoolProperty" },
+            { name = "PlayerMappableOptions", type = "StructProperty" },
+            { name = "Triggers", type = "ArrayProperty" },
+            { name = "Modifiers", type = "ArrayProperty" },
+        },
+    },
+    ["/Script/InputCore.Key"] = {
+        name = "Key",
+        props = { { name = "KeyName", type = "NameProperty" } },
+    },
+    ["/Script/EnhancedInput.EnhancedPlayerInput"] = C_EnhancedPlayerInput,
+    ["/Script/EnhancedInput.InputMappingContext"] = C_IMC,
+}
+
+--------------------------------------------------------------------------------
 -- the fake UE4SS API
 --------------------------------------------------------------------------------
 
@@ -345,11 +549,15 @@ end
 
 function FindObjects()
     if HOSTILE then boom() end
-    return {}
+    local out = {}
+    for i, c in ipairs(CLASS_OBJECTS) do out[i] = new_class(c) end
+    return out
 end
 
-function StaticFindObject()
+function StaticFindObject(path)
     if HOSTILE then boom() end
+    local spec = OBJECT_PATHS[path]
+    if spec then return new_class(spec) end
     return nil
 end
 
@@ -414,6 +622,25 @@ end
 
 print("== harness mode: " .. MODE .. " ==")
 
+-- Watch the mod's own log for the pickup-watch state. How many presses it takes to
+-- get the watch ON depends on how many keybinds were fired above and on the mod's
+-- press coalescing, which the pickup-watch phase must not have to know about.
+local watch_is_on = false
+do
+    local realprint = print
+    print = function(...)
+        local parts = {}
+        for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+        local line = table.concat(parts, " ")
+        if line:find("pickup watch ON", 1, true) then
+            watch_is_on = true
+        elseif line:find("pickup watch OFF", 1, true) then
+            watch_is_on = false
+        end
+        realprint(...)
+    end
+end
+
 local chunk, err = loadfile(TMP .. "\\WuchangRecon\\Scripts\\main.lua")
 if not chunk then
     print("LOAD FAILED: " .. tostring(err))
@@ -477,6 +704,12 @@ for _, b in ipairs(BINDS) do
 end
 if f12 then
     print("-- pickup watch phase --")
+    -- Get past the coalescing window, then make sure the watch starts from OFF.
+    pump(20)
+    if watch_is_on then
+        pcall(f12.cb)
+        pump(20)
+    end
     local okt, ee = pcall(f12.cb)
     if not okt then
         print("F12 RAISED: " .. tostring(ee))

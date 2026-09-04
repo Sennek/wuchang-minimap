@@ -54,6 +54,31 @@ EXPECTED_WORLD_STRINGS = [
     "ClientCheatFly(",
 ]
 
+# The input dump (F5). Enhanced Input hands most of these back as opaque userdata,
+# so these strings are the proof that the nested structs were read, not skipped.
+EXPECTED_INPUT_SECTIONS = [
+    "INPUT: CONTROLLER -> LOCAL PLAYER -> PLAYER INPUT",
+    "INPUT: APPLIED MAPPING CONTEXTS AND THEIR MAPPINGS",
+    "INPUT: SUBSYSTEM / USER SETTINGS / OBJECT CENSUS",
+    "INPUT: REMAP STORAGE CANDIDATES (class-name sweep)",
+    "INPUT: REFLECTED STRUCT / CLASS LAYOUTS",
+]
+EXPECTED_INPUT_STRINGS = [
+    "PC.PlayerInput       : EnhancedPlayerInput",
+    "priority=0",                     # the TMap value came through
+    "priority=10",
+    "key=E",                          # FKey.KeyName out of a nested struct
+    "key=SpaceBar",
+    "name=Interact",                  # PlayerMappableOptions.Name
+    "fields present: Action, Key",    # the field probe, not the formatter
+    "action=IA_Interact",
+    "key=G",                          # the remapped key, only in EnhancedActionMappings
+    "EnhancedInputLocalPlayerSubsystem      : 1 instance(s)",
+    "BP_KeyBindSettings_C",           # the game-side remap-storage candidate
+    "/Script/EnhancedInput.EnhancedActionKeyMapping",
+    "KeyName                                      NameProperty",
+]
+
 
 def run_mode(mode: str, keep: bool) -> bool:
     tmp = Path(tempfile.mkdtemp(prefix=f"wrmock_{mode}_"))
@@ -125,6 +150,18 @@ def run_mode(mode: str, keep: bool) -> bool:
                     print(f"[friendly] FAIL: pickup watch never logged {needle!r}\n{wbody}", file=sys.stderr)
                     return False
             print("[friendly] pickup watch OK: baseline + DESTROYED + CHANGED all reported")
+
+            inp = [d for d in dumps if "_input" in d.name]
+            if not inp:
+                print("[friendly] FAIL: no input dump was written", file=sys.stderr)
+                return False
+            ibody = inp[-1].read_text(encoding="utf-8", errors="replace")
+            imissing = [s for s in EXPECTED_INPUT_SECTIONS + EXPECTED_INPUT_STRINGS if s not in ibody]
+            if imissing:
+                print(f"[friendly] FAIL: input dump is missing {imissing}", file=sys.stderr)
+                return False
+            print(f"[friendly] input dump OK: {len(ibody.splitlines())} lines, "
+                  "contexts + priorities + key names + layouts all present")
 
         print(f"[{mode}] PASS")
         return True

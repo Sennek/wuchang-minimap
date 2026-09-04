@@ -28,6 +28,10 @@ of the plain F-keys. `CTRL+O` stays UE4SS's own GUI toggle.
 | `F7` | `CTRL+F7` | tracker on/off (1 Hz) | `out\track.csv` |
 | `F11` | `CTRL+F11` | navmesh probe grid | `out\navprobe_<ts>.csv` |
 | `F12` | `CTRL+F12` | pickup watch on/off (2 s diff) | `out\pickupwatch_<ts>.txt` |
+| `F5` | `CTRL+F5` | Enhanced Input / key bindings dump | `out\dump_<ts>_input.txt` |
+
+`F5` is the only F-key left over: `F6` belongs to the C++ mod, `F9` and `F11` are engine binds, `F10`
+is the console and `F12` is Steam's screenshot key.
 
 **F10 is deliberately unused**: `ConsoleEnablerMod` maps it to the game's console on this build.
 Plain `F9` may also trigger the engine screenshot bind and plain `F11` the engine fullscreen toggle —
@@ -98,6 +102,55 @@ real navmesh render uses, so the two images can be overlaid to check alignment.
 actor destroyed or does it survive with a flag flipped? Auto-marking "found" items depends on the
 answer. Procedure: stand next to a pickup, press `F12`, collect it, press `F12` again.
 
+**F5 — input dump** — everything needed to read the player's *actual* key bindings at runtime. Press
+it **in gameplay**, not at the title screen: the player controller and its `PlayerInput` only exist
+once a save is loaded. Press it again after remapping a key in the game's own options screen — the
+diff between the two dumps is what proves where a remap is stored.
+
+1. *chain* — `PlayerController` -> `Player` (`ULocalPlayer`) -> `PlayerInput`
+   (`UEnhancedPlayerInput`) -> `InputComponent`, each with its class chain, plus every reflected
+   property of the local player and of the player input.
+2. *applied mapping contexts* — `PlayerInput.AppliedInputContexts`, the
+   `TMap<UInputMappingContext*, int32>` the subsystem fills in, listed as context + **priority**,
+   each followed by every entry of its `Mappings` array: action, key name, `bIsPlayerMappable`, the
+   mappable name out of `PlayerMappableOptions` / `PlayerMappableKeySettings`, and the
+   trigger/modifier counts. Then the flattened `PlayerInput.EnhancedActionMappings` — the post-remap
+   list the engine actually consumes, and where a remapped key shows up when the asset context still
+   holds the default — then the legacy `ActionMappings` / `AxisMappings`, then every loaded
+   `UInputMappingContext` whether applied or not.
+3. *object census* — instance counts and full names for every Enhanced Input class
+   (`UEnhancedInputLocalPlayerSubsystem`, `UEnhancedInputUserSettings`,
+   `UEnhancedPlayerMappableKeyProfile`, `UPlayerMappableInputConfig`, contexts, actions, modifiers,
+   triggers, `ULocalPlayer`, …), with a full property dump of the first instance of each class that
+   can hold bindings.
+4. *remap storage candidates* — a sweep of every loaded `UClass` whose name contains
+   `input`/`keybind`/`keymap`/`binding`/`remap`/`mappable`/`control`/`gamepad`, plus a property dump
+   of an instance of the narrow matches. A game that keeps remaps in its own settings or save object
+   instead of the engine's shows up here.
+5. *reflected layouts* — the property list of `FEnhancedActionKeyMapping`, `FKey`,
+   `FPlayerMappableKeyOptions`, `FPlayerKeyMapping` and the Enhanced Input `UClass`es, read off the
+   `UScriptStruct` / `UClass` itself. These are the exact names the C++ reader has to walk by; a path
+   printed `<not loaded>` does not exist under that name on this build.
+
+Every field is probed by name and reported present or absent rather than assumed: Enhanced Input
+renamed several of them between engine versions, and a nested struct reads back opaque whether it is
+missing or merely unformattable.
+
+### Getting a key-bindings dump
+
+```powershell
+.\deploy-recon.ps1                 # install the updated main.lua
+# start the game (or, with it already running, use UE4SS' own GUI - CTRL+O -
+# and its "Restart All Mods" button, which reloads Lua mods in place)
+# load a save, so a PlayerController and its PlayerInput exist
+#   -> press F5 (or CTRL+F5)
+# remap something in the game's options screen, then press F5 again
+.\deploy-recon.ps1 -Pull           # copy the dumps back into out\
+```
+
+`ue4ss\UE4SS.log` gets one confirmation line per press:
+`[Lua] [WuchangRecon] input dump written: ...\out\dump_<ts>_input.txt (<n> lines)`.
+
 ## Automatic menu-time dump
 
 On load the mod polls for a valid `UWorld` (first attempt at 20 s, then every 5 s, giving up at 180 s)
@@ -132,9 +185,14 @@ python mock\run.py         # both modes
 python mock\run.py --mode friendly --keep    # leave the temp dir to inspect the dumps
 ```
 
-`mock\harness.lua` fakes `FindAllOf` / `FindFirstOf` / `StaticFindObject` / `RegisterKeyBind` /
-`LoopAsync` / `ExecuteInGameThread` / `Key` / `ModifierKey` / `UEHelpers` plus a small object model
-with classes, super-struct chains, typed properties *with values* and `UFunction`s with parameters.
+`mock\harness.lua` fakes `FindAllOf` / `FindFirstOf` / `FindObjects` / `StaticFindObject` /
+`RegisterKeyBind` / `LoopAsync` / `ExecuteInGameThread` / `Key` / `ModifierKey` / `UEHelpers` plus a
+small object model with classes, super-struct chains, typed properties *with values* and `UFunction`s
+with parameters. For the input dump it also fakes a whole Enhanced Input stack: `TArray` and `TMap`
+values that answer `GetArrayNum` / `ForEach` and hand each element over inside a `:get()` handle,
+nested struct values, two mapping contexts at different priorities, a player input whose flattened
+`EnhancedActionMappings` has one action remapped off its asset key, a subsystem, a user-settings
+object and a game-side `BP_KeyBindSettings_C`.
 `mock\run.py` lays the mod out the way UE4SS does (so `resolve_out_dir()` finds a temp `out\`) and
 runs it twice:
 
@@ -142,6 +200,9 @@ runs it twice:
   and the specific strings that prove the fixes landed (`PC:GetViewTarget()`, `POV location`,
   `BP_Wumen_C`, `Used=false`, `dist `, `DebugSetCellLoad(`), and the pickup watch is asserted to have
   logged a baseline plus a `DESTROYED` and a `CHANGED` line after the harness fakes a collection.
+  The input dump is asserted to carry both context priorities, key names read out of nested `FKey`
+  structs, the mappable name, the remapped key that exists only in `EnhancedActionMappings`, and the
+  reflected `FEnhancedActionKeyMapping` layout.
 * **hostile** — *every* reflection call raises. Nothing may escape `pcall`, the keybinds must still
   register and the mod must still write its files.
 

@@ -8,12 +8,13 @@ textures plus a `maps.json` manifest the C++ mod reads at start-up.
 
     maps/
       maps.json                {"chapters": {"chapter1": {...}}}
-      maps.json                schema `wuchang-minimap-maps/4` (see mapfmt.py)
+      maps.json                schema `wuchang-minimap-maps/5` (see mapfmt.py)
       chapter1/small.png       256-COLOUR PALETTE PNG, transparent background,
                                Z-shaded composite of every floor (the fallback /
                                full-map asset; `fallback_use_composite = 0`)
       chapter1/small_h0.png    16-bit GRAYSCALE HEIGHT MAP of walkable surface 0,
-                               12-BIT codes 1..4095 (0 = no surface)
+                               12-BIT codes 1..4095 (0 = no surface),
+                               bit 12 = the surface is REACHABLE
       chapter1/small_h1.png    ... surface 1 (the next one up), and so on to h7
 
 The two ENCODINGS - the palette composite and the 12-bit height codes - and the
@@ -72,16 +73,32 @@ Rasterisation rules (both matter to how the map *looks*)
 * Slots are finally **sorted ascending by Z** per pixel, so `z0 <= z1 <= z2 <= z3` is
   guaranteed regardless of the order the polygons happened to be drawn in.
 
+Reachability
+------------
+A pixel's surface carries **bit 12** when a player can get to it. The pass runs on the
+rasterised height planes: the surfaces are the nodes of a directed 8-neighbour graph with
+an edge from surface *s* to a neighbouring surface *t* when `Z_t <= Z_s + --reach-step-up`
+(a walk, a small step up, or a fall of any depth), and it is flooded from every marker in
+`markers/<chapter>.json` that has a surface within 400 uu of its own Z. What the flood does
+not reach is wall tops, roof ridges, cliff ledges and the outside faces of arena walls -
+geometry Recast walks and the player cannot. It is 34..63 % of the walkable area and 98 % of
+the visually separate blobs on the map.
+
+NOTHING IS DELETED. The unreached surfaces stay in the asset with the bit clear and the
+runtime decides (`map_unreachable = hide | dim | show`), so the judgement is the player's
+and the rollback is a config line. `--no-reach` flags every surface instead.
+
 Z quantisation
 --------------
-    code = 1 + round((Z - z_min) / (z_max - z_min) * 65534)   clamped to 1..65535
+    code = 1 + round((Z - z_min) / (z_max - z_min) * 4094)   clamped to 1..4095
     code 0  =  NO SURFACE at this pixel/slot
+    bit 12  =  the surface is REACHABLE (see above); bits 13..15 are zero
 
 `z_min` / `z_max` are the chapter's own walkable Z range (over the polygon vertices
 that survive the flat-plane filter) and ship in the manifest, together with the
 resulting step in uu.
 
-Manifest (schema `wuchang-minimap-maps/3`), per chapter:
+Manifest (schema `wuchang-minimap-maps/5`), per chapter:
 
     image        composite PNG, relative to maps/            "chapter1/small.png"
     image_width  / image_height   pixels (== width / height)
@@ -90,10 +107,11 @@ Manifest (schema `wuchang-minimap-maps/3`), per chapter:
     px_per_uu    scale, one for the composite and every height map
     mapping      the formula, spelled out, so the C++ side can be checked against it
     z_min z_max  walkable Z range the height codes are quantised over
-    z_step_uu    (z_max - z_min) / 65534
-    max_surfaces number of height maps (8)
-    height_maps  ["chapter1/small_z0.png", ... ] - index IS the surface slot,
+    z_step_uu    (z_max - z_min) / 4094
+    max_surfaces number of height planes (8)
+    height_planes ["chapter1/small_h0.png", ... ] - index IS the surface slot,
                  lowest Z first; 16-bit grayscale, code 0 = no surface
+    reachability seeds, reached area, blob counts and every unreached blob >= 400 m2
     height_map_bytes  PNG file sizes, same order
     surface_hist number of pixels with exactly 0/1/2/3/4 surfaces
 
@@ -172,6 +190,18 @@ LAYER_EDGE = 176  # coverage on the polygon outline         (legacy ordinal laye
 LAYER_MARGIN_PX = 8  # transparent border so CLAMP sampling smears nothing
 
 Z_CODE_MAX = mapfmt.Z_CODE_MAX  # 1..4095 are heights; 0 means "no surface" (schema /4)
+
+# Reachability (see the module docstring). The step-up is the only geometric knob and it
+# is deliberately insensitive: 60 -> 300 uu moves a chapter's reached area by 0.8 pp,
+# because what the flood can and cannot enter is decided by the seeds, not by the climb.
+REACH_STEP_UP_UU = 60.0
+# A marker seeds the surface within this much of its own Z - marker_coverage.py's own
+# criterion, so "the pass strands no marker" is measured the way the audit measures it.
+REACH_SEED_Z_TOL_UU = 400.0
+# Unreached blobs at least this big are listed in the manifest, so "why is there a hole
+# here" starts from a table instead of from a screenshot.
+REACH_BIG_UNREACHED_M2 = 400.0
+REACH_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
 
 # The tile size src/mapdata.cpp's sparse height store uses. Only reported here (the
 # PNGs stay whole images); it is what turns "26 % of the pixels are lit" into a
@@ -431,6 +461,194 @@ def rasterize_heights(
     for k in range(max_surfaces + 1):
         hist[k] = int(np.count_nonzero(filled == k))
     return zbuf, hist
+
+
+def load_extra_seeds(path: Path) -> list[dict]:
+    """
+    Extra seed positions from a JSON file - a recorded player track, or hand-picked spots.
+
+    Accepts `[[x, y, z], ...]`, `[{"x":, "y":, "z":}, ...]` or either of those under a
+    `"points"` / `"markers"` key, which is every shape the track writer and the marker
+    files can produce.
+    """
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(doc, dict):
+        for key in ("points", "markers", "seeds", "track"):
+            if isinstance(doc.get(key), list):
+                doc = doc[key]
+                break
+        else:
+            raise SystemExit(f"{path}: no list of points (tried points/markers/seeds/track)")
+    out: list[dict] = []
+    for it in doc:
+        if isinstance(it, dict) and all(k in it for k in ("x", "y", "z")):
+            out.append({"x": float(it["x"]), "y": float(it["y"]), "z": float(it["z"]), "cat": "track"})
+        elif isinstance(it, (list, tuple)) and len(it) >= 3:
+            out.append({"x": float(it[0]), "y": float(it[1]), "z": float(it[2]), "cat": "track"})
+        else:
+            raise SystemExit(f"{path}: {it!r} is not a point")
+    return out
+
+
+def flood_reachable(
+    zbuf: "np.ndarray",
+    bounds: render.Bounds,
+    seeds: list[dict],
+    step_up: float = REACH_STEP_UP_UU,
+    seed_z_tol: float = REACH_SEED_Z_TOL_UU,
+    big_m2: float = REACH_BIG_UNREACHED_M2,
+) -> tuple["np.ndarray", dict]:
+    """
+    Which of the rasterised surfaces a player can get to. Returns `(reach, stats)`.
+
+    `reach` is a boolean array shaped like `zbuf`; it is true only where `zbuf` holds a
+    surface. The graph is the pixel stack itself: node = one surface cell `(k, v, u)`,
+    directed edge to every surface at an 8-neighbour pixel whose Z is at most
+    `step_up` above it - so a walk and a fall are edges and a climb is not. Every marker
+    with a surface within `seed_z_tol` of its own Z is a seed, and the flood is one BFS
+    from a virtual super-source over all of them.
+
+    The stats dict is what lands in `maps.json` under `reachability`.
+    """
+    try:
+        from scipy.sparse import csr_matrix
+        from scipy.sparse.csgraph import breadth_first_order
+        from scipy import ndimage
+    except ImportError:  # pragma: no cover
+        raise SystemExit("the reachability pass needs scipy:  pip install scipy  (or --no-reach)")
+
+    k_n, h, w = zbuf.shape
+    ok = ~np.isnan(zbuf)
+    n = int(ok.sum())
+    if n == 0:
+        return np.zeros_like(ok), {"seeds": 0, "surface_cells": 0}
+    cid = np.full(ok.shape, -1, dtype=np.int32)
+    cid[ok] = np.arange(n, dtype=np.int32)
+    # +inf where there is no surface, so every comparison against it is False.
+    z = np.where(ok, zbuf, np.inf).astype(np.float32)
+
+    rows: list["np.ndarray"] = []
+    cols: list["np.ndarray"] = []
+    for dv, du in REACH_OFFSETS:
+        sv = slice(max(0, -dv), h - max(0, dv))
+        dvs = slice(max(0, dv), h - max(0, -dv))
+        su = slice(max(0, -du), w - max(0, du))
+        dus = slice(max(0, du), w - max(0, -du))
+        for ka in range(k_n):
+            src_ok = ok[ka][sv, su]
+            if not src_ok.any():
+                continue
+            za = z[ka][sv, su]
+            ia = cid[ka][sv, su]
+            for kb in range(k_n):
+                dst_ok = ok[kb][dvs, dus]
+                if not dst_ok.any():
+                    continue
+                m = src_ok & dst_ok & (z[kb][dvs, dus] <= za + step_up)
+                if m.any():
+                    rows.append(ia[m])
+                    cols.append(cid[kb][dvs, dus][m])
+
+    r = np.concatenate(rows).astype(np.int32) if rows else np.zeros(0, np.int32)
+    c = np.concatenate(cols).astype(np.int32) if cols else np.zeros(0, np.int32)
+    del rows, cols
+
+    seed_cells: list[int] = []
+    stranded = 0
+    covered = 0
+    for sd in seeds:
+        fu, fv = bounds.to_px(sd["x"], sd["y"])
+        u = int(round(fu))
+        v = int(round(fv))
+        if not (0 <= u < w and 0 <= v < h):
+            continue
+        col = zbuf[:, v, u]
+        if not np.isfinite(col).any():
+            continue
+        k = int(np.nanargmin(np.abs(col - sd["z"])))
+        if abs(col[k] - sd["z"]) > seed_z_tol:
+            continue
+        covered += 1
+        seed_cells.append(int(cid[k, v, u]))
+    if not seed_cells:
+        raise SystemExit("no marker seeded a surface - the flood would delete the whole map")
+
+    src = np.full(len(seed_cells), n, np.int32)
+    r = np.concatenate([r, src])
+    c = np.concatenate([c, np.asarray(seed_cells, np.int32)])
+    graph = csr_matrix((np.ones(len(r), np.uint8), (r, c)), shape=(n + 1, n + 1))
+    del r, c
+    order = breadth_first_order(graph, n, directed=True, return_predecessors=False)
+    del graph
+    hit = np.zeros(n + 1, dtype=bool)
+    hit[order] = True
+    reach = np.zeros(ok.shape, dtype=bool)
+    reach[ok] = hit[cid[ok]]
+    del cid, hit, order
+
+    # A seeded surface that the BFS did not mark is impossible; a seeded MARKER whose
+    # surface is unreached is not - it is the number the audit cares about.
+    for sd in seeds:
+        fu, fv = bounds.to_px(sd["x"], sd["y"])
+        u, v = int(round(fu)), int(round(fv))
+        if not (0 <= u < w and 0 <= v < h):
+            continue
+        col = zbuf[:, v, u]
+        near = np.isfinite(col) & (np.abs(col - sd["z"]) <= seed_z_tol)
+        if near.any() and not reach[near, v, u].any():
+            stranded += 1
+
+    occ = ok.any(axis=0)
+    occ_r = reach.any(axis=0)
+    px_m2 = (1.0 / bounds.px_per_uu) ** 2 / 10000.0  # 1 uu = 1 cm
+    struct = np.ones((3, 3), dtype=bool)  # 8-connected
+    _, blobs_before = ndimage.label(occ, structure=struct)
+    _, blobs_after = ndimage.label(occ_r, structure=struct)
+
+    lost = occ & ~occ_r
+    big: list[dict] = []
+    if lost.any():
+        lab, count = ndimage.label(lost, structure=struct)
+        areas = np.bincount(lab.ravel(), minlength=count + 1)
+        areas[0] = 0
+        ids = np.nonzero(areas * px_m2 >= big_m2)[0]
+        if ids.size:
+            # +inf, not NaN, for "nothing unreached in this column": a whole-column NaN
+            # is a warning and a NaN out of np.nanmin, and every such column is masked
+            # away by `lost` anyway.
+            zlow = np.where(reach | np.isnan(zbuf), np.inf, zbuf).min(axis=0)
+            zlow = np.where(lost, zlow, np.nan)
+            centres = ndimage.center_of_mass(lost, lab, ids)
+            zs = ndimage.median(zlow, lab, ids)
+            for (cv_, cu_), zc, i in zip(centres, np.atleast_1d(zs), ids):
+                big.append({
+                    "x": round(bounds.max_x - float(cv_) / bounds.px_per_uu, 1),
+                    "y": round(bounds.min_y + float(cu_) / bounds.px_per_uu, 1),
+                    "z": round(float(zc), 1),
+                    "area_m2": round(float(areas[i]) * px_m2, 1),
+                })
+            big.sort(key=lambda b: -b["area_m2"])
+
+    stats = {
+        "step_up_uu": float(step_up),
+        "seed_z_tol_uu": float(seed_z_tol),
+        "seeds": len(seed_cells),
+        "seeds_total_markers": len(seeds),
+        "markers_covered": covered,
+        "markers_stranded": stranded,
+        "surface_cells": n,
+        "reached_cells": int(reach.sum()),
+        "lit_px": int(occ.sum()),
+        "reached_px": int(occ_r.sum()),
+        "area_m2": round(float(occ.sum()) * px_m2, 1),
+        "reached_area_m2": round(float(occ_r.sum()) * px_m2, 1),
+        "reached_area_pct": round(100.0 * float(occ_r.sum()) / max(1, int(occ.sum())), 2),
+        "blobs_before": int(blobs_before),
+        "blobs_after": int(blobs_after),
+        "big_unreached_min_m2": float(big_m2),
+        "big_unreached": big,
+    }
+    return reach, stats
 
 
 def quantize_heights(z: "np.ndarray", z_min: float, z_max: float) -> "np.ndarray":
@@ -768,11 +986,15 @@ def build_chapter(args: argparse.Namespace) -> dict:
     if not polys:
         sys.exit("every polygon was filtered out")
 
+    seed_files = [Path(p) for pat in (args.markers or default_marker_globs(args.chapter))
+                  for p in sorted(glob.glob(str(pat)))]
+    # Every marker in the chapter, every category: the island filter's seeds and the
+    # reachability flood's are the same set.
+    marker_seeds = render.load_marker_seeds(seed_files)
+
     islands = {}
     if args.drop_islands:
-        seed_files = [Path(p) for pat in (args.markers or default_marker_globs(args.chapter))
-                      for p in sorted(glob.glob(str(pat)))]
-        seeds = render.load_marker_seeds(seed_files)
+        seeds = marker_seeds
         if not seeds:
             print(f"  ! no marker seeds found ({', '.join(str(p) for p in seed_files) or 'no files'}); "
                   f"the island filter falls back to the area threshold alone", file=sys.stderr)
@@ -851,6 +1073,44 @@ def build_chapter(args: argparse.Namespace) -> dict:
         + f"  ({lit} lit px, {100.0 * lit / (bounds.width * bounds.height):.1f} % of the image)"
     )
 
+    # ---- reachability: bit 12 of every surface the player can get to ------------
+    if args.no_reach:
+        reach = ~np.isnan(zbuf)
+        reachability = {
+            "enabled": False,
+            "note": "--no-reach: every surface carries the reachable flag",
+        }
+        print(f"[{args.chapter}] reachability pass OFF (--no-reach): every surface is flagged")
+    else:
+        reach_seeds = list(marker_seeds)
+        for extra in args.reach_seeds_extra or []:
+            more = load_extra_seeds(Path(extra))
+            reach_seeds += more
+            print(f"[{args.chapter}] {len(more)} extra seed(s) from {extra}")
+        if not reach_seeds:
+            sys.exit("the reachability pass needs marker seeds; pass --markers or --no-reach")
+        print(
+            f"[{args.chapter}] flooding reachability from {len(reach_seeds)} marker(s), "
+            f"step-up {args.reach_step_up:g} uu, 8-neighbour..."
+        )
+        t0 = time.time()
+        reach, reachability = flood_reachable(
+            zbuf, bounds, reach_seeds, step_up=args.reach_step_up
+        )
+        reachability["enabled"] = True
+        print(
+            f"[{args.chapter}] reached {reachability['reached_area_pct']:.1f} % of the lit area "
+            f"({reachability['reached_area_m2']:.0f} of {reachability['area_m2']:.0f} m2) from "
+            f"{reachability['seeds']} of {reachability['seeds_total_markers']} markers; "
+            f"blobs {reachability['blobs_before']} -> {reachability['blobs_after']}; "
+            f"{reachability['markers_stranded']} marker(s) stranded; "
+            f"{len(reachability['big_unreached'])} unreached blob(s) >= "
+            f"{reachability['big_unreached_min_m2']:.0f} m2 "
+            f"({time.time() - t0:.0f}s)"
+        )
+        for b in reachability["big_unreached"][:10]:
+            print(f"    unreached {b['area_m2']:9.0f} m2 at ({b['x']:.0f}, {b['y']:.0f}, {b['z']:.0f})")
+
     # Trailing planes that no pixel ever reached cost RAM at runtime for nothing (the
     # slicer walks `count` planes), so they are not shipped. `hist[k]` counts pixels
     # with EXACTLY k surfaces, so plane k is lit iff some pixel has more than k.
@@ -868,16 +1128,18 @@ def build_chapter(args: argparse.Namespace) -> dict:
     height_codes: list["np.ndarray"] = []  # kept for the tile-occupancy count below
     for k in range(used):
         rel = mapfmt.height_plane_name(args.chapter, stem, k)
-        code = quantize_heights(zbuf[k], z_min, z_max)
+        code = mapfmt.apply_reach_bit(quantize_heights(zbuf[k], z_min, z_max), reach[k])
         nb = write_height_png(code, out_root / rel)
         height_codes.append(code)
         height_maps.append(rel)
         height_bytes.append(nb)
-        nz = int(np.count_nonzero(code))
+        nz = int(np.count_nonzero(mapfmt.z_codes(code)))
+        nr = int(np.count_nonzero(mapfmt.reach_mask(code)))
         zs = zbuf[k][~np.isnan(zbuf[k])]
         rng = f"Z {zs.min():8.0f}..{zs.max():8.0f}" if zs.size else "Z (empty)"
         print(
-            f"  z{k}: {nz:9d} px  {rng}   {nb / (1024 * 1024):5.2f} MB PNG  (round-trip verified)"
+            f"  z{k}: {nz:9d} px ({nr:9d} reachable)  {rng}   "
+            f"{nb / (1024 * 1024):5.2f} MB PNG  (round-trip verified)"
         )
     raw = bounds.width * bounds.height * 2 * used
     print(
@@ -916,6 +1178,7 @@ def build_chapter(args: argparse.Namespace) -> dict:
                            "seeds", "seeded_components", "grid_uu", "z_tol_uu", "min_area_uu2",
                            "cluster_area_uu2", "cover_z_uu", "bridge_xy_uu", "bridge_z_uu",
                            "seed_radius_uu", "require_seed") if k in islands},
+        "reachability": reachability,
         mapfmt.HEIGHT_KEY: height_maps,
         "height_map_bytes": height_bytes,
         "height_map_raw_bytes": raw,
@@ -997,6 +1260,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-mb", type=float, default=10.0, help="warn if the composite PNG exceeds this (MB)")
     ap.add_argument("--margin", type=float, default=256.0, help="world-space margin around the geometry, uu")
     ap.add_argument("--no-edges", action="store_true", help="do not draw polygon edges in the composite")
+    ap.add_argument(
+        "--reach-step-up",
+        type=float,
+        default=REACH_STEP_UP_UU,
+        help="a neighbouring surface this much higher is still walkable (uu, default 60); "
+        "a fall of any depth always is",
+    )
+    ap.add_argument(
+        "--reach-seeds-extra",
+        action="append",
+        default=None,
+        help="JSON file of extra xyz seed points (a recorded player track); repeatable",
+    )
+    ap.add_argument(
+        "--no-reach",
+        action="store_true",
+        help="skip the reachability flood and flag every surface as reachable",
+    )
     render.add_plane_args(ap)
     render.add_island_args(ap, default_on=True)
     # ---- superseded schema-2 path ------------------------------------------------

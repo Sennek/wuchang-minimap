@@ -113,21 +113,18 @@ PATTERNS = [
     (re.compile(r"NPC", re.I), "npc"),
 ]
 
-# `*_AI` sublevels are where the game places spawned characters. This used to be
-# the PRIMARY enemy rule; `categories.json`'s `BP_BaseAI_C` root is now, and
-# this is the fallback for a class the graph does not know.
+# `*_AI` sublevels are where the game places spawned characters. The primary
+# enemy rule is `categories.json`'s `BP_BaseAI_C` root; this is the fallback for
+# a class the graph does not know.
 AI_LEVEL = re.compile(r"_AI$")
 
 # Engine and level plumbing: actors that exist in every package and are never a
 # marker anywhere. Applied AFTER the class table, which is what makes it safe to
 # be this broad - `\w*Box_C` would otherwise swallow `BP_ItemRedBox_C` (a chest)
 # and `BP_ElevatorBox_C` (a lift), and both are claimed by the table first.
-#
-# It used to be applied only inside `_AI` packages, which left `Model`,
-# `LevelBounds`, `DCSWorldSettings`, `StaticMeshActor` and `LevelSequenceActor`
-# in the "matched no category" residue of every `_logic` level - 30 actors of
-# noise in the DLC alone, which is exactly the kind of thing that makes a
-# coverage report not worth reading.
+# It applies in every package, so `Model`, `LevelBounds`, `DCSWorldSettings`,
+# `StaticMeshActor` and `LevelSequenceActor` stay out of the "matched no
+# category" residue that a coverage report has to be read through.
 LEVEL_NOISE = re.compile(
     r"^(StaticMeshActor|SkeletalMeshActor|Actor|Model|LevelBounds|"
     r"DecalActor|NiagaraActor|Emitter|InstancedFoliageActor|Landscape\w*|"
@@ -149,10 +146,10 @@ NEVER = re.compile(
     r"LightTriggerBox_C|BP_OptimizedLayerBox_C|BP_CVarOptimizedBox_C|"
     r"BP_TopSlowTickBox_C|PlayerCamerExternController_Box_C|"
     r"BP_TerrainTrap_C|BP_DiCiCombine_C|BP_DiCiTrigger_C|BP_ArrowShooter_C|"
-    # Boss-arena plumbing. Both used to be typed `boss` by the old heuristic:
-    # `BP_BossPool_C` is a `Derivative_Negative_C` spawner (one instance in the
-    # whole game) and `BossLightingEffectActor_C` is a light rig. Neither is a
-    # boss, and pinning either duplicates the real boss marker beside it.
+    # Boss-arena plumbing, and neither is a boss: `BP_BossPool_C` is a
+    # `Derivative_Negative_C` spawner (one instance in the whole game) and
+    # `BossLightingEffectActor_C` is a light rig. Typing either as a boss
+    # duplicates the real boss marker beside it.
     r"BP_BossPool_C|BossLightingEffectActor_C|"
     r"DI_\w*)$"
 )

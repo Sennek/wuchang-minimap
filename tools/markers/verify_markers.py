@@ -22,9 +22,8 @@ The default is the set committed to this repo -
 `tools/lua-recon/WuchangRecon/out/dump_*_world.txt`, kept by an explicit
 `.gitignore` exception because they are irreplaceable in-game evidence - so the
 tool runs on a fresh clone with no game installed and no environment set up.
-It used to default to one developer's Steam directory, which is why nothing
-ever called it.  `WUCHANG_RECON_DUMPS` or `--dumps` override the glob when you
-have a newer session's dumps.
+`WUCHANG_RECON_DUMPS` or `--dumps` override the glob when you have a newer
+session's dumps.
 
 The dumps only ever cover the areas that were loaded when F8 was pressed, so a
 chapter with no overlap is reported as "no live actors in common" and is not a

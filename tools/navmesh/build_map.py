@@ -56,8 +56,8 @@ Rasterisation rules (both matter to how the map *looks*)
 * **Fill only, no polygon edges, no seams.** The height maps are one continuous
   coverage per surface: adjacent polygons and adjacent 1280-uu navmesh tiles merge
   into one sheet. A pixel is covered when its sample point is inside the polygon
-  *or* within `--seam-px` (default 0.5 px) of its boundary, so the sub-pixel rounding
-  gaps that used to show up as a hairline grid are closed. The resulting ~1-px overlap
+  *or* within `--seam-px` (default 0.5 px) of its boundary, which closes the sub-pixel
+  rounding gaps that otherwise read as a hairline grid. The resulting ~1-px overlap
   between neighbours is absorbed by the surface-merge tolerance below, so it does not
   invent an extra surface along every edge.
 * **Z is interpolated per vertex** (barycentric over the polygon's fan triangles,
@@ -275,9 +275,9 @@ def _poly_coverage(
     Coverage is fill-only (no outline) and deliberately generous: a pixel counts as
     covered when its sample point is inside the polygon **or** within `seam_px` of its
     boundary. That closes the sub-pixel gaps between neighbouring polygons and between
-    navmesh tiles - the hairline grid that made the old layers look like a mesh instead
-    of a floor - at the price of a ~1-px overlap between neighbours, which the caller's
-    Z-merge tolerance absorbs.
+    navmesh tiles - which otherwise read as a hairline grid over the floor - at the
+    price of a ~1-px overlap between neighbours, which the caller's Z-merge tolerance
+    absorbs.
 
     Z is barycentric over the polygon's fan triangles (Recast polygons are convex, so a
     fan is a valid triangulation). Each pixel takes the value of the triangle whose

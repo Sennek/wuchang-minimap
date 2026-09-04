@@ -1,21 +1,12 @@
 #pragma once
 
 //
-// uereflect - the small slice of UE reflection the minimap needs, on top of ue_min.hpp.
-//
-// Property offsets are read through the FField child-property chain (exactly as
-// navmesh_dump.cpp does it) and cached per UClass*, because the game-thread pump runs
-// at 10 Hz and must not walk 30 super-structs every time.
-//
-// Function calls go through UObject::GetFunctionByNameInChain + UObject::ProcessEvent.
-// Two rules:
-//   * a null UFunction means "the function does not exist on this class" - never treat
-//     a nil/empty answer as evidence about the game state;
-//   * ProcessEvent from inside UE4SS's ProcessEvent pre-callback re-enters the
-//     callback, so the caller MUST hold a re-entrancy guard.
-//
-// EVERYTHING in here is game-thread only.
-//
+// uereflect - the slice of UE reflection the minimap needs, on top of ue_min.hpp.
+// Game-thread only. Property offsets come from the FField child-property chain, cached per
+// UClass*. Calls go through GetFunctionByNameInChain + ProcessEvent: a null UFunction means
+// the function does not exist on this class (never evidence about game state), and a
+// ProcessEvent from inside UE4SS's ProcessEvent pre-callback re-enters that callback, so the
+// caller MUST hold a re-entrancy guard.
 
 #include <Windows.h>
 
@@ -47,19 +38,14 @@ namespace uer
     {
         std::size_t offset = 0;
         int size = 0;
-        // The reflected FProperty itself, kept for a read that needs more than the offset
-        // and the size - today only the bool BITFIELD decode (see bool_info). UClasses and
-        // their FProperties are never moved or freed while instances exist.
+        // The reflected FProperty, for a read needing more than offset and size - today only
+        // the bool BITFIELD decode (bool_info). Never moved or freed while instances exist.
         FProperty* field = nullptr;
     };
 
-    // `std::unordered_map<std::wstring, T>::find(const wchar_t*)` CONSTRUCTS a
-    // std::wstring for the lookup, and MSVC's small-string buffer holds seven wchars - so
-    // L"Visibility", L"RootComponent" and L"K2_GetActorLocation" each take a heap
-    // allocation on the GAME THREAD on every call (the widget round asks for `Visibility`
-    // ~900 times). A transparent hash plus std::equal_to<> lets a lookup take a
-    // std::wstring_view and allocate nothing; only a MISS - once per class per level -
-    // builds the owned key.
+    // Transparent hash: a lookup takes a std::wstring_view and allocates nothing. MSVC's
+    // small-string buffer holds seven wchars, so L"RootComponent" would otherwise heap-allocate
+    // on the GAME THREAD on every call. Only a MISS builds the owned key.
     struct WStrHash
     {
         using is_transparent = void;
@@ -82,8 +68,7 @@ namespace uer
         int walked = 0;
     };
 
-    // Walks the class and every super struct. A pure-native class simply yields
-    // nothing; that is not an error.
+    // Walks the class and every super struct. A pure-native class yields nothing, not an error.
     inline ClassLayout walk_class(UClass* cls)
     {
         ClassLayout out{};
@@ -117,8 +102,7 @@ namespace uer
         return out;
     }
 
-    // Per-UClass layout cache. Keyed on the UClass pointer: classes are never moved and
-    // never freed while instances exist.
+    // Per-UClass layout cache. Classes are never moved or freed while instances exist.
     class LayoutCache
     {
       public:
@@ -138,10 +122,8 @@ namespace uer
             {
                 return &it->second;
             }
-            // Never clear this cache: that would invalidate every `const ClassLayout*` a
-            // caller still holds (the pump keeps one across a whole read_location / widget
-            // test). unordered_map never moves the nodes it already has, so growing is free
-            // of that hazard and the cap is only VISIBLE.
+            // Never clear this cache: it would dangle every `const ClassLayout*` a caller still
+            // holds. Growing is safe - unordered_map never moves the nodes it already has.
             if (cache_.size() == kCacheCap && !capped_logged_)
             {
                 capped_logged_ = true;
@@ -175,23 +157,12 @@ namespace uer
         return it == layout->props.end() ? nullptr : &it->second;
     }
 
-    // ---- a reflected BOOL is a bitfield -------------------------------------------
-    //
-    // `uint8 bHidden : 1` on AActor shares its byte with a dozen other flags, so reading
-    // the byte at the property offset and testing it for non-zero answers a different
-    // question ("is any flag in this byte set?"). The bit is named by
-    // `FBoolProperty::ByteOffset` + `FieldMask`.
-    //
-    // Whether an FProperty IS an FBoolProperty cannot be asked without guessing an engine
-    // struct's layout (see the note on the class in ue_min.hpp), so the answer is validated
-    // instead. All four constraints hold for a genuine bool:
-    //
-    //   * the property's element size is 1 (a bitfield's storage is one byte);
-    //   * FieldSize is 1 for the same reason;
-    //   * ByteOffset is small (it indexes a byte inside the bitfield's storage);
-    //   * FieldMask is a single set bit, or 0xFF for a native `bool` member.
-    //
-    // `ok == false` means "this is not a bool I can read", never "false".
+    // A reflected BOOL is a bitfield: `uint8 bHidden : 1` shares its byte with a dozen flags,
+    // and the bit is named by `FBoolProperty::ByteOffset` + `FieldMask`. Whether an FProperty IS
+    // an FBoolProperty cannot be asked without guessing an engine struct's layout, so it is
+    // validated instead: element size 1, FieldSize 1, ByteOffset < 8, and FieldMask a single set
+    // bit (or 0xFF for a native `bool` member). `ok == false` means "not a bool I can read",
+    // never "false".
     struct BoolInfo
     {
         bool ok = false;
@@ -227,8 +198,7 @@ namespace uer
         return bi;
     }
 
-    // Reads a reflected bool (bitfield or native). Returns false when the property is
-    // absent, is not a readable bool, or the memory read faulted - `out` is untouched.
+    // Reads a reflected bool (bitfield or native). `out` is untouched on failure.
     inline bool read_bool_prop(const ClassLayout* layout, const void* obj, const wchar_t* name,
                                bool& out)
     {
@@ -268,18 +238,10 @@ namespace uer
         return mem::read_at(obj, p->offset, out);
     }
 
-    // A reflected NUMERIC UPROPERTY, read as a double whatever width this build declares
-    // it with, and reporting the width it found.
-    //
-    // **In UE5 a Blueprint "float" is a `double`.** Since 5.0's Large World Coordinates the
-    // engine's `float` pin type is backed by `FDoubleProperty` (8 bytes) unless the
-    // property was declared in C++ as a real `float`, so every value authored in a
-    // blueprint - such as an `ExtendedStatComponent_C`'s `CurrentValue` / `MaxValue` - is
-    // eight bytes wide. Reading it with a 4-byte `expect_size` returns FALSE, and the
-    // failure looks exactly like "the property is not there".
-    //
-    // Any reflected number whose declaration cannot be read offline must be read through
-    // this, and any diagnostic listing "the numbers on this class" must list both widths.
+    // A reflected NUMERIC UPROPERTY read as a double whatever width this build declares it with,
+    // reporting the width found. **In UE5 a Blueprint "float" is a `double`**: since Large World
+    // Coordinates the `float` pin type is backed by `FDoubleProperty` (8 bytes) unless declared
+    // in C++ as a real `float`, so a 4-byte `expect_size` returns FALSE and looks like "absent".
     inline bool read_numeric_prop(const ClassLayout* layout, const void* obj, const wchar_t* name,
                                   double& out, int* width = nullptr)
     {
@@ -319,16 +281,14 @@ namespace uer
         return false; // not a 4- or 8-byte scalar: not a number we can read
     }
 
-    // Is this property one of the two widths read_numeric_prop understands? Used by the
-    // failure diagnostics, which must list every number on a class and not just the width
-    // the failing read happened to ask for.
+    // Is this property one of the two widths read_numeric_prop understands? Used by the failure
+    // diagnostics, which must list every number on a class.
     inline bool prop_is_numeric_width(const Prop& p)
     {
         return p.size == static_cast<int>(sizeof(float)) || p.size == static_cast<int>(sizeof(double));
     }
 
-    // A TObjectPtr<T> / T* UPROPERTY. Rejects the obviously-bogus values a wrong offset
-    // produces so the caller never dereferences garbage.
+    // A TObjectPtr<T> / T* UPROPERTY. Rejects the bogus values a wrong offset produces.
     inline UObject* read_object_prop(const ClassLayout* layout, const void* obj, const wchar_t* name)
     {
         void* raw = nullptr;
@@ -345,8 +305,7 @@ namespace uer
 
     // ---- function calls ------------------------------------------------------------
 
-    // UE5 FVector / FRotator are three doubles (LWC). These are the parameter blocks for
-    // the zero-argument getters: the whole block IS the return value.
+    // UE5 FVector / FRotator are three doubles (LWC); the whole param block IS the return value.
     struct FVec3
     {
         double x = 0.0;
@@ -361,17 +320,12 @@ namespace uer
         double roll = 0.0;
     };
 
-    // Declared here, defined with the other signature helpers below: the cache keeps the
-    // reflected parameter-block size next to the UFunction*.
+    // Defined below with the other signature helpers.
     inline int func_param_size(UFunction* fn);
 
-        // Per-object function lookup is cheap (a name hash on the class chain) but it runs
-        // at 10 Hz for the same three names, so cache per class.
-        //
-        //   * `parm_size` is what the reflection system says ProcessEvent's parameter block
-        //     is, cached so the SIGNATURE can be checked without a second walk;
-        //   * `rejected` remembers that the check refused it, so a bad signature costs one
-        //     log line per (class, function) and nothing after that.
+    // Cached per class: lookup runs at 10 Hz for the same three names. `parm_size` is the
+    // reflected parameter-block size, so the SIGNATURE can be checked without a second walk;
+    // `rejected` remembers a refusal, so a bad signature costs one log line per (class, name).
     class FuncCache
     {
       public:
@@ -382,8 +336,7 @@ namespace uer
             bool rejected = false;
         };
 
-        // The raw lookup. References into an unordered_map are stable across rehashing, so
-        // the returned pointer stays valid until clear().
+        // References into an unordered_map are stable across rehashing: valid until clear().
         Entry* lookup(UObject* obj, const wchar_t* name)
         {
             if (obj == nullptr)
@@ -416,9 +369,7 @@ namespace uer
             Entry* stored = &cache_.emplace(Key{cls, std::wstring{name}}, e).first->second;
             if (e.fn == nullptr)
             {
-                // A function renamed on a new game build otherwise degrades in silence -
-                // no `IsInViewport` means the minimap never hides again. One line per
-                // (class, name), at the normal level, in the log players attach.
+                // One line per (class, name): a rename on a new build otherwise degrades quietly.
                 log_once(cls, name,
                          L"does not exist on this class - whatever needs it is off "
                          L"(renamed on this game build?)");
@@ -432,12 +383,9 @@ namespace uer
             return (e != nullptr && !e->rejected) ? e->fn : nullptr;
         }
 
-        // The SIGNATURE GATE for a caller that hands ProcessEvent a fixed-size parameter
-        // block. ProcessEvent copies the function's own parameter block size out of - and
-        // the out-parameters back into - that buffer, so a function whose reflected block
-        // is not exactly `bytes` long reads or writes past it: a stack smash on the game
-        // thread. On a mismatch the function is treated as MISSING (the caller degrades as
-        // it does for a renamed one) and one line names both sizes.
+        // SIGNATURE GATE for a caller handing ProcessEvent a fixed-size parameter block.
+        // ProcessEvent copies the function's own block size in and out of that buffer, so a
+        // mismatched length smashes the game thread's stack. A mismatch is treated as MISSING.
         UFunction* get_checked(UObject* obj, const wchar_t* name, std::size_t bytes)
         {
             Entry* e = lookup(obj, name);
@@ -462,8 +410,7 @@ namespace uer
         void clear()
         {
             cache_.clear();
-            // `logged_` is deliberately NOT cleared: it is what makes "once per session"
-            // true, and this cache is dropped on every level transition.
+            // `logged_` is deliberately NOT cleared: it is what makes "once per session" true.
         }
 
       private:
@@ -481,9 +428,7 @@ namespace uer
             std::wstring_view name;
         };
 
-        // Heterogeneous key, for the same reason find_prop has one: a lookup must not
-        // build a std::wstring, because MSVC's small-string buffer is seven wchars and
-        // L"K2_GetActorLocation" would allocate on every 10 Hz call.
+        // Heterogeneous key: a lookup must not build a std::wstring (it would allocate at 10 Hz).
         struct KeyHash
         {
             using is_transparent = void;
@@ -552,19 +497,15 @@ namespace uer
         bool capped_logged_ = false;
     };
 
-    // POD trampoline for mem::guarded_call: issues the ProcessEvent inside the SEH frame.
-    // Plain function, no C++ objects, so the __try in mem.cpp is legal.
+    // POD trampoline for mem::guarded_call, so the __try in mem.cpp is legal.
     inline void process_event_trampoline(void* obj, void* fn, void* params)
     {
         static_cast<UObject*>(obj)->ProcessEvent(static_cast<UFunction*>(fn), params);
     }
 
-    // Calls a zero-argument getter whose whole parameter block is the return value.
-    //
-    // Every ProcessEvent is a call into game code through a cached pointer, so it is issued
-    // inside an SEH guard: if the object died between the validation and the call (a level
-    // transition can free it inside the same frame), the access violation becomes `false`
-    // instead of a crash dump.
+    // Calls a zero-argument getter whose whole parameter block is the return value. The
+    // ProcessEvent goes inside an SEH guard: an object freed by a level transition mid-frame
+    // becomes `false` instead of a crash dump.
     template <typename Ret>
     inline bool call_getter(FuncCache& funcs, UObject* obj, const wchar_t* name, Ret& out)
     {
@@ -572,8 +513,7 @@ namespace uer
         {
             return false;
         }
-        // The reflected parameter block must be exactly the block being handed over - see
-        // FuncCache::get_checked.
+        // The reflected parameter block must be exactly the block handed over - see get_checked.
         UFunction* fn = funcs.get_checked(obj, name, sizeof(Ret));
         if (fn == nullptr)
         {
@@ -588,12 +528,9 @@ namespace uer
         return true;
     }
 
-    // ---- FString / TArray<FString> -------------------------------------------------
-    //
-    // An FString is { TCHAR* Data; int32 ArrayNum; int32 ArrayMax } = 16 bytes, and a
-    // TArray<T> is the same shape with T* Data. Neither is reflected beyond the property
-    // offset, so both are read raw - guarded, and with a sanity cap on the count so a
-    // wrong offset yields false instead of a multi-megabyte allocation.
+    // An FString is { TCHAR* Data; int32 ArrayNum; int32 ArrayMax } = 16 bytes, and a TArray<T>
+    // is the same shape with T* Data. Neither is reflected beyond the property offset, so both
+    // are read raw - guarded, with a sanity cap on the count.
 
     struct FStringRaw
     {
@@ -614,8 +551,7 @@ namespace uer
         }
         if (raw.num <= 0 || raw.num > kMaxFStringChars || raw.max < raw.num)
         {
-            // num == 0 with a null pointer is a legitimately EMPTY FString, not a bad
-            // read - the caller wants to know the difference.
+            // num == 0 with a null pointer is a legitimately EMPTY FString, not a bad read.
             if (raw.num == 0 && raw.data == nullptr)
             {
                 out.clear();
@@ -695,11 +631,8 @@ namespace uer
         return true;
     }
 
-    // ---- reflected function signatures ---------------------------------------------
-    //
-    // Never call a UFunction with a guessed signature. A UFunction is a UStruct whose child
-    // properties ARE its parameters, in declaration order, so the real signature is one
-    // walk away.
+    // A UFunction is a UStruct whose child properties ARE its parameters, in declaration order,
+    // so the real signature is one walk away. Never call one with a guessed signature.
 
     struct ParamInfo
     {
@@ -729,8 +662,7 @@ namespace uer
         return out;
     }
 
-    // The size of the parameter block ProcessEvent expects, i.e. what must be zeroed and
-    // handed over. 0 for a function with no parameters and no return value.
+    // The parameter-block size ProcessEvent expects; 0 for no parameters and no return value.
     inline int func_param_size(UFunction* fn)
     {
         if (fn == nullptr || !mem::readable(fn, 0x40))
@@ -740,8 +672,7 @@ namespace uer
         return static_cast<UStruct*>(fn)->GetPropertiesSize();
     }
 
-    // Wide -> narrow, ASCII only. `std::string(w.begin(), w.end())` emits C4244 and this
-    // repo is warning-free by policy.
+    // Wide -> narrow, ASCII only. `std::string(w.begin(), w.end())` emits C4244.
     inline std::string narrow_ascii(std::wstring_view w)
     {
         std::string out;
@@ -753,18 +684,11 @@ namespace uer
         return out;
     }
 
-    // ---- object liveness -----------------------------------------------------------
-    //
-    // A cached UObject* does NOT survive a level transition: the GC frees the object and
-    // the pointer (plus every UFunction / property offset cached off its class) is dead.
-    // Comparing GetClassPrivate() against a remembered UClass* is not enough, because
-    // freed memory usually still holds the old bytes.
-    //
-    // The only structure that is authoritative *and* safe to read after the object died is
-    // GUObjectArray: its FUObjectItem slots live in UE's permanently committed object
-    // array. So the reference remembers the object's internal index (captured while it was
-    // known good) and every check goes index -> FUObjectItem -> flags and back-pointer,
-    // and only then touches the object itself.
+    // Object liveness: a cached UObject* does NOT survive a level transition, and comparing
+    // GetClassPrivate() against a remembered UClass* is not enough because freed memory usually
+    // still holds the old bytes. GUObjectArray's FUObjectItem slots live in UE's permanently
+    // committed object array and stay safe to read after the object died, so ObjRef keeps the
+    // internal index and checks index -> FUObjectItem -> flags and back-pointer first.
 
     struct ObjRef
     {
@@ -833,8 +757,7 @@ namespace uer
             {
                 return;
             }
-            // Read the slot first: safe even if the object's own allocation has already
-            // been handed back to the allocator.
+            // Read the slot first: safe even after the object's allocation was handed back.
             if (item->GetUObject() != args->obj)
             {
                 return; // slot recycled for a different object
@@ -874,7 +797,7 @@ namespace uer
     } // namespace detail
 
     // Remembers an object by pointer + GUObjectArray index (+ serial). Rejects CDOs,
-    // archetypes and objects already being destroyed.
+    // archetypes and dying objects.
     inline bool capture(UObject* obj, ObjRef& out)
     {
         out.reset();
@@ -917,8 +840,7 @@ namespace uer
         return args.ok;
     }
 
-    // The object's UWorld*, used purely as an identity token for "did the level change".
-    // nullptr means "unknown" - never treat it as a change on its own.
+    // The object's UWorld*, an identity token for "did the level change". nullptr is "unknown".
     inline const void* world_of(const ObjRef& ref)
     {
         if (!alive(ref))
@@ -934,8 +856,7 @@ namespace uer
         return args.world;
     }
 
-    // The class's short name, e.g. `BP_CombatCharacter_Player_Final_C`. Allocates, so
-    // call it when the class changes, not per pump.
+    // The class's short name, e.g. `BP_CombatCharacter_Player_Final_C`. Allocates.
     inline std::wstring class_name(const ObjRef& ref)
     {
         if (ref.cls == nullptr)

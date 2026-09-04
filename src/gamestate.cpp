@@ -29,48 +29,27 @@ namespace gamestate
 {
     namespace
     {
-        //==============================================================================
-        // Tuning
-        //==============================================================================
 
-        // Defaults for the `reader_*` config keys. Live values are in `g_tune`,
-        // refreshed from the config twice a second; these apply before the first
-        // refresh.
+        // Defaults for the `reader_*` config keys; the live values are in `g_tune`.
         constexpr std::uint64_t kPositionPeriodMs = 100; // 10 Hz: pawn location + yaw
         constexpr std::uint64_t kResolvePeriodMs = 500;  // 2 Hz: FindAllOf for pawn / controller
-        // The menu test runs at two rates:
-        //   * EVERY pump (10 Hz): re-read the reflected Visibility byte of the root
-        //     widgets already seen in the viewport - a few GUObjectArray checks and byte
-        //     reads, no FindAllOf, no allocation, no ProcessEvent.
-        //   * every kWidgetFullPeriodMs AT MOST: one round of the DISCOVERY walk, the
-        //     only thing that can find a root the first time a menu is opened in a
-        //     session.
-        //
-        // This value is the fast cadence of the discovery walk's adaptive schedule
-        // (scan::SweepSched): the period doubles up to
-        // reader_widget_sweep_max_period_ms while nothing new is discovered; a
-        // menu-state flip / teleport / world change / view-target change resets it to
-        // fast. Latency is bounded instead by the per-pump pass over every root ever
-        // seen - see menu_from_cached_roots().
+        // Fast cadence of the discovery walk's adaptive schedule (scan::SweepSched): the
+        // period doubles up to reader_widget_sweep_max_period_ms while nothing new is
+        // discovered; a menu flip / teleport / world change / view-target change resets it.
         constexpr std::uint64_t kWidgetFullPeriodMs = 250;
-        // Sanity cap on one FindAllOf pass - the fallback path only (the sliced walk is
-        // bounded by the object array itself and by scan::kWidgetCandidateMax).
+        // Sanity cap on one FindAllOf pass - the fallback path only.
         constexpr std::size_t kMaxWidgets = 6000;
         constexpr std::size_t kMaxMenuRoots = 32;  // cache cap; the game only ever has 5-6
 
-        // After ANY pawn / world change, no UFunction is called for this long. A level
-        // transition destroys the old pawn, its world and everything cached off them;
-        // calling a blueprint getter mid-LoadMap faults.
+        // After ANY pawn / world change, no UFunction is called for this long: a blueprint
+        // getter issued mid-LoadMap faults.
         constexpr std::uint64_t kTransitionCooldownMs = 2000;
 
         constexpr std::uint64_t kLogThrottleMs = 5000;
-        // Floor for the "this class is not a gameplay pawn" line when the class NAME
-        // changes from one rejection to the next - see resolve_pawn.
+        // Floor for the "not a gameplay pawn" line when the class name changes.
         constexpr std::uint64_t kRejectFlipThrottleMs = 1000;
 
-        // How often the streamed level set is walked to name the chapter. Slow on
-        // purpose: ~50 GetFullName() calls, and a chapter can only change across a
-        // loading screen.
+        // How often the streamed level set is walked to name the chapter.
         constexpr std::uint64_t kChapterPeriodMs = 1000;
         constexpr int kMaxLevelsScanned = 4096;
 
@@ -78,28 +57,20 @@ namespace gamestate
         constexpr const wchar_t* kPlayerPawnClass = L"BP_CombatCharacter_Player_Final_C";
         constexpr const wchar_t* kControllerClass = L"DCSPlayerController_C";
 
-        // CLASS GATE. Only a pawn whose class name contains this is ever read. The
-        // Lobby / main menu pawn is a `DefaultPawn` and spectators are `SpectatorPawn`;
-        // both sit inside Chapter 1's bounds.
+        // CLASS GATE. Only a pawn whose class name contains this is ever read: the Lobby
+        // `DefaultPawn` and `SpectatorPawn` both sit inside Chapter 1's bounds.
         constexpr const wchar_t* kGameplayPawnSubstr = L"BP_CombatCharacter_Player";
 
-        //==============================================================================
         // State (game thread only, except the atomics)
-        //==============================================================================
 
         std::atomic<bool> g_registered{false};
         std::atomic<std::uint64_t> g_pump_calls{0};
-        // THE GAME-THREAD LATCH. The engine issues ProcessEvent from async-loading,
-        // audio and worker threads too, all of which enter with re-entrancy depth 0;
-        // without this they mutate g_pawn, g_menu_watch, g_wcursor and the unordered_maps
-        // concurrently with the game thread. The id is latched by the first call past the
-        // re-entrancy guard: the pump is registered from the game thread's own init, so
-        // the next ProcessEvent is the game thread's.
+        // THE GAME-THREAD LATCH. ProcessEvent also arrives from async-loading, audio and
+        // worker threads; only the latched thread may touch the state below.
         std::atomic<unsigned long> g_pump_thread{0};
         std::atomic<bool> g_wrong_thread_logged{false};
         // What the game thread is doing, for the loop thread's stall watchdog. A relaxed
-        // store of a pointer to a string literal: no allocation, no lock, nothing that
-        // can itself stall. Coarse on purpose - it names the STEP, it does not profile.
+        // store of a string literal: no allocation, no lock. It names the STEP only.
         std::atomic<const char*> g_pump_stage{"start"};
 
         struct StageMark
@@ -119,17 +90,13 @@ namespace gamestate
         uer::ObjRef g_controller{};
         bool g_pawn_is_gameplay = false;
         const void* g_world = nullptr; // the pawn's UWorld*, as a transition token
-        // The last world ever seen, which drop_pawn does NOT clear. `g_world` must go to
-        // nullptr on a drop (it is the level-transition token), but
-        // controller_from_game_instance() starts from a world, so it needs a surviving
-        // one to reach UWorld -> OwningGameInstance -> LocalPlayers[0] after a drop.
+        // The last world ever seen; drop_pawn does NOT clear it, so
+        // controller_from_game_instance() still has a starting point after a drop.
         const void* g_world_token = nullptr;
 
         std::uint64_t g_last_position = 0;
-        // ONE BUDGET PER THING RESOLVED. The controller step runs first; a shared
-        // timestamp would let it starve the pawn step whenever the controller cannot be
-        // re-captured. `FindAllOf(BP_CombatCharacter_Player_Final_C)` is the primary
-        // pawn route and needs no controller at all.
+        // ONE BUDGET PER THING RESOLVED: a shared timestamp would let the controller step
+        // starve the pawn step.
         std::uint64_t g_last_resolve_pawn = 0;
         std::uint64_t g_last_resolve_ctrl = 0;
         std::uint64_t g_cooldown_until = 0;
@@ -142,10 +109,8 @@ namespace gamestate
         std::uint64_t g_log_no_controller = 0;
         std::uint64_t g_no_pawn_since = 0;
         std::wstring g_rejected_class;
-        // How long the reader tolerates having no gameplay pawn before it drops its
-        // cached PlayerController and re-resolves it (a fast travel can leave an
-        // alive-but-wrong controller whose `Pawn` is null forever), and before the
-        // one-shot diagnosis is printed.
+        // How long the reader tolerates having no gameplay pawn before it drops its cached
+        // PlayerController and re-resolves it, and before the one-shot diagnosis prints.
         constexpr std::uint64_t kNoPawnCtrlDropMs = 3000;
         constexpr std::uint64_t kNoPawnDiagnoseMs = 5000;
         std::uint64_t g_last_ctrl_drop = 0;
@@ -161,35 +126,18 @@ namespace gamestate
         std::vector<uer::ObjRef> g_menu_roots;
 
         // Every widget that has ever confirmed as an in-viewport `Visible` root this
-        // session. Wuchang constructs widgets lazily then parks them forever (instance
-        // counts only grow), so the object that held a menu open IS the object the next
-        // time that menu opens. Re-testing this handful every pump is what lets the
-        // discovery sweep back off - see scan::SweepSched.
-        //
-        // A CANDIDATE list, never an answer: `g_menu_roots` is rebuilt from live tests
-        // every pump. Entries leave only when the object dies or the world changes.
+        // session. A CANDIDATE list, never an answer: `g_menu_roots` is rebuilt from live
+        // tests every pump. Entries leave only when the object dies or the world changes.
         std::vector<uer::ObjRef> g_menu_watch;
 
         // Adaptive cadence of the discovery sweep (pure arithmetic in scan_sched.hpp).
         scan::SweepSched g_sweep{};
 
-        //------------------------------------------------------------------------------
-        // The SLICED discovery walk
-        //------------------------------------------------------------------------------
-        //
-        // GUObjectArray is walked in slices; one wrap is a ROUND. Two halves, split by
-        // what is safe where:
-        //   * the SLICE (`widget_scan_pump`) does raw reads only - FUObjectItem validity,
-        //     the class pointer, a memoised "is this a UUserWidget descendant?" and the
-        //     reflected Visibility byte - so it can ride the between-position-pumps fast
-        //     path next to the marker slice, hundreds of times a second, at ~0.3-0.7 ms.
-        //     It issues no ProcessEvent.
-        //   * the COMMIT (`commit_widget_round`) runs on the 10 Hz pump, where the pawn
-        //     has just been validated in the same call, and is the only place that calls
-        //     `IsInViewport()` - over the byte-`Visible` candidates the round collected,
-        //     5-6 widgets out of ~900.
-        //
-        // The answer is REBUILT from the commit, never merged, so nothing can latch.
+        // The SLICED discovery walk over GUObjectArray; one wrap is a ROUND.
+        //   * the SLICE (`widget_scan_pump`) does raw reads only and issues no
+        //     ProcessEvent, so it can ride the fast path between position pumps.
+        //   * the COMMIT (`commit_widget_round`) runs on the 10 Hz pump and is the only
+        //     place that calls `IsInViewport()`. The answer is REBUILT, never merged.
         scan::Cursor g_wcursor{};
         bool g_wround_active = false;      // a round is walking right now
         bool g_wround_ready = false;       // a round has wrapped and awaits the commit
@@ -197,40 +145,27 @@ namespace gamestate
         std::uint32_t g_wseen_round = 0;   // UserWidget instances this round has seen
         std::uint32_t g_wcand_dropped = 0; // candidates the cap refused this round
         std::uint32_t g_wcand_round = 0;   // byte-Visible candidates this round produced
-        // Candidates are ObjRefs, not raw pointers: one pump of delay is enough for a
-        // widget to die, and the commit issues a ProcessEvent at them.
-        //
-        // COMMITTED ON THE NEXT VALIDATED PUMP, NOT AT THE END OF THE ROUND. Waiting for
-        // the round puts up to ~350 ms (seconds, when only the 10 Hz pump is slicing)
-        // between reading a widget's Visibility byte and asking it `IsInViewport()`; a
-        // menu that opens and closes inside that window is never confirmed and never
-        // joins the watchlist. See scan::menu_open_from.
+        // Candidates are ObjRefs, not raw pointers: a widget can die in the pump of delay,
+        // and the commit issues a ProcessEvent at them. Committed on the next validated
+        // pump, not at the end of the round - see scan::menu_open_from.
         std::vector<uer::ObjRef> g_wpending;
-        // The same three numbers, published for the loop thread's 10 s state line. The
-        // vector and the counters above are game-thread-only, so the log reads copies.
+        // Published copies for the loop thread's state line; the originals are game-thread-only.
         std::atomic<std::uint32_t> g_wcand_round_pub{0};
         std::atomic<std::uint32_t> g_wpending_pub{0};
         std::atomic<std::uint32_t> g_wcand_dropped_pub{0};
-        // "Is this UClass* a UUserWidget descendant?" - one super-chain name walk per
-        // class per level, then a hash lookup per object. The cap must clear the whole
-        // GAME's class count, not the widget classes': the walk asks about every class
-        // that owns an object, and a cap hit mid-round throws away exactly the negative
-        // answers that make the walk cheap.
+        // "Is this UClass* a UUserWidget descendant?" - one super-chain name walk per class,
+        // then a hash lookup per object. The cap must clear the whole GAME's class count.
         std::unordered_map<RC::Unreal::UClass*, unsigned char> g_wclass;
         constexpr std::size_t kWidgetClassCacheMax = 262144;
-        // Class NAMES whose not-a-menu line has already been printed. Separate from
-        // g_wclass, which is a performance cache dropped on every level transition and
-        // pawn change; this set is never cleared, which is what makes the diagnostic
-        // once-per-session.
+        // Class NAMES whose not-a-menu line has been printed. Never cleared, which is what
+        // makes the diagnostic once-per-session.
         std::unordered_set<std::wstring> g_non_menu_logged;
-        // Set if `FUObjectArray::GetNumElements()` cannot answer, i.e. UE4SS did not
-        // resolve GUObjectArray on this build. The whole-array `FindAllOf` sweep is the
-        // fallback for that case.
+        // Set if `FUObjectArray::GetNumElements()` cannot answer (UE4SS did not resolve
+        // GUObjectArray on this build); the whole-array `FindAllOf` sweep is the fallback.
         bool g_wfallback = false;
 
-        // Perf counter ids (perf.hpp). Namespace-scope ints rather than function
-        // statics: a guarded static's first call would run the CRT's thread-safe-init
-        // path on the game thread.
+        // Perf counter ids (perf.hpp). Namespace-scope rather than function statics: a
+        // guarded static's first call would run the CRT thread-safe-init path here.
         int g_pf_position = -1;
         int g_pf_sweep = -1;
         int g_pf_wslice = -1;
@@ -238,28 +173,22 @@ namespace gamestate
         int g_pf_retest = -1;
         int g_pf_chapter = -1;
 
-        // The level set last handed to markers::set_loaded_levels(). Cleared whenever
-        // the marker module's caches are dropped, so the next enumeration republishes
-        // into an empty g_levels.
+        // The level set last handed to markers::set_loaded_levels(). Cleared with the
+        // marker module's caches, so the next enumeration republishes.
         std::vector<std::string> g_last_levels;
 
-        // The root currently holding "a menu is open" true, for the F2 debug block and
-        // the log. Empty when no root is visible.
+        // The root currently holding "a menu is open" true. Empty when no root is visible.
         std::wstring g_menu_holder;
 
         // Set whenever the menu state flips, a root leaves the viewport or the pawn
-        // teleports: the next pump runs the full sweep instead of waiting up to
-        // kWidgetFullPeriodMs.
+        // teleports: the next pump runs the full sweep.
         bool g_force_widget_sweep = true;
 
-        // The previous pump's "is the view target the pawn?" answer; a change arms the
-        // discovery walk.
+        // Previous pump's "is the view target the pawn?" answer; a change arms discovery.
         bool g_last_pawn_view = true;
 
-        // Teleport detection. A shrine fast-travel keeps the same pawn object and the
-        // same UWorld, so no transition test fires - but every position-derived cache
-        // (the height-slice window, the smoothed feet Z) must be re-armed, and the widget
-        // set changes as the fast-travel menu tears down.
+        // Teleport detection. A shrine fast-travel keeps the same pawn object and UWorld, so
+        // no transition test fires, yet every position-derived cache must be re-armed.
         double g_last_x = 0.0;
         double g_last_y = 0.0;
         double g_last_z = 0.0;
@@ -269,14 +198,8 @@ namespace gamestate
         // sprints at ~700 uu/s, i.e. ~70 uu per pump.
         constexpr double kTeleportJumpUu = 3000.0;
 
-        //==============================================================================
-        // The live copies of the constants above (game thread)
-        //==============================================================================
-        //
-        // mm::config() copies the whole Config under a spinlock, too much for a callback
-        // the engine fires thousands of times a second, so it is read at most every
-        // kTunePeriodMs and unpacked into these scalars. Everything below uses `g_tune`,
-        // never the constants.
+        // mm::config() copies the whole Config under a spinlock, too much for a callback the
+        // engine fires thousands of times a second. Everything below uses `g_tune`.
 
         struct Tunables
         {
@@ -329,10 +252,8 @@ namespace gamestate
         // 2 = UWorld::StreamingLevels -> ULevelStreaming::LoadedLevel, 3 = FindAllOf.
         int g_chapter_route = 0;
 
-        // "SAY IT ONCE, THEN RARELY" throttle, for a condition that persists for minutes
-        // rather than flickering. The FIRST occurrence always prints, then at most one
-        // line per kPersistentLogMs carrying how many were suppressed. `rare_reset` on
-        // the condition clearing makes the next occurrence a first occurrence again.
+        // "SAY IT ONCE, THEN RARELY" throttle. The FIRST occurrence always prints, then at
+        // most one line per kPersistentLogMs carrying how many were suppressed.
         constexpr std::uint64_t kPersistentLogMs = 30000;
 
         struct Rare
@@ -403,14 +324,8 @@ namespace gamestate
             dst[n] = L'\0';
         }
 
-        //==============================================================================
-        // Dropping everything that is keyed to the pawn
-        //==============================================================================
-        //
-        // Called whenever the pawn pointer, its class or its world stops matching what
-        // was captured. Every cached UFunction* and property offset was looked up on the
-        // dead object's class, so all of it goes, and no UFunction is issued for
-        // kTransitionCooldownMs.
+        // Called whenever the pawn pointer, its class or its world stops matching what was
+        // captured: every cached UFunction* and property offset came from the dead class.
 
         void drop_pawn(std::uint64_t now, const wchar_t* why)
         {
@@ -422,19 +337,14 @@ namespace gamestate
             g_pawn_full_name.clear();
             g_pawn_short_name.clear();
             g_state_ok_since = 0;
-            // THE MENU STATE MUST NOT OUTLIVE ITS EVIDENCE. A menu is open because a
-            // widget says so; the watchlist and root cache are emptied on the lines
-            // below, so with zero widgets the only answer that cannot latch is CLOSED.
-            // The pawn gate and the grace timer are what keep the overlay off at the
-            // main menu and across a load.
+            // THE MENU STATE MUST NOT OUTLIVE ITS EVIDENCE. With the watchlist and the root
+            // cache emptied below, the only answer that cannot latch is CLOSED.
             g_menu_open = false;
             g_menu_change_ms = now;
-            g_menu_roots.clear(); // the widgets belonged to the world that just went
+            g_menu_roots.clear();
             g_menu_watch.clear();
-            // The sliced discovery walk is keyed to that world too: candidate ObjRefs,
-            // the round's counts and the UClass* memo (classes are unloaded with their
-            // packages, and a recycled UClass* address would answer from the wrong
-            // entry). The cursor restarts rather than resuming mid-array.
+            // The sliced discovery walk is keyed to that world too, and a recycled UClass*
+            // address would answer from the wrong memo entry. The cursor restarts.
             g_wpending.clear();
             g_wclass.clear();
             g_wcursor = scan::Cursor{};
@@ -445,8 +355,6 @@ namespace gamestate
             g_wcand_round = 0;
             g_widgets_seen = 0;
             g_widgets_visible = 0;
-            // The controller belonged to that world too; resetting it here rather than
-            // waiting for uer::alive() re-arms its own resolve.
             g_controller.reset();
             g_menu_holder.clear();
             g_force_widget_sweep = true;
@@ -454,8 +362,6 @@ namespace gamestate
             g_last_chapter = 0; // re-detect the chapter as soon as a pawn is back
             g_funcs.clear();
             g_layouts.clear();
-            // The marker sweep's class layouts, classifications, per-object ids and live
-            // actors are all keyed to the world that just went.
             markers::drop_caches();
             g_last_levels.clear();
             if (had_pawn)
@@ -467,13 +373,8 @@ namespace gamestate
             }
         }
 
-        //==============================================================================
-        // Resolving the controller and the pawn
-        //==============================================================================
-
-        // Raw property reads only - no ProcessEvent, no allocation. The cheap per-pump
-        // cross-check: a controller Pawn pointer that no longer equals the cached object
-        // means the cached one is stale even if GUObjectArray has not caught up.
+        // Raw property reads only - no ProcessEvent, no allocation. A controller Pawn
+        // pointer that no longer equals the cached object means the cached one is stale.
         UObject* pawn_from_controller()
         {
             if (!uer::alive(g_controller))
@@ -482,10 +383,7 @@ namespace gamestate
             }
             const uer::ClassLayout* layout = g_layouts.get(g_controller.obj);
             // Three names, in order of how directly they mean "the pawn this controller
-            // drives right now". `AcknowledgedPawn` survives a re-possession the client
-            // has not been told about; `Character` is where an ACharacter subclass often
-            // keeps its own pointer. A shrine fast travel can leave `Pawn` null for
-            // minutes while the controller stays alive.
+            // drives right now". A shrine fast travel can leave `Pawn` null for minutes.
             UObject* pawn = uer::read_object_prop(layout, g_controller.obj, L"Pawn");
             if (pawn == nullptr)
             {
@@ -500,16 +398,10 @@ namespace gamestate
 
         // The world's own idea of the player controller: UWorld -> OwningGameInstance ->
         // LocalPlayers[0] -> PlayerController. All raw property reads, no ProcessEvent.
-        //
-        // Preferred over `FindFirstOf(L"DCSPlayerController_C")`, which returns whichever
-        // instance the object array holds first - after a travel that can be one from a
-        // world being torn down: it passes every liveness test and then reports a null
-        // `Pawn` forever. This chain answers "the controller driving THIS world".
+        // Preferred over `FindFirstOf`, which can hand back one from a dying world.
         UObject* controller_from_game_instance(bool& from_stale_world)
         {
-            // The live world if there is one, otherwise the last one seen: after a drop
-            // that is the only route that can name the controller the game is driving.
-            // Every read below is guarded.
+            // The live world if there is one, otherwise the last one seen.
             from_stale_world = false;
             const void* start = g_world;
             if (start == nullptr)
@@ -558,8 +450,7 @@ namespace gamestate
             }
             UObject* local_player = static_cast<UObject*>(raw);
             // g_layouts.get() dereferences immediately (GetClassPrivate) outside any SEH
-            // guard, and LocalPlayers[0] came from a raw read validated only by
-            // plausible_ptr.
+            // guard, so LocalPlayers[0] is validated first.
             if (!mem::readable(local_player, 0x40))
             {
                 return nullptr;
@@ -570,8 +461,6 @@ namespace gamestate
 
         void resolve_controller()
         {
-            // The world's own answer first; FindFirstOf is the fallback, since it can
-            // hand back a controller from a world that has already gone.
             bool stale_world = false;
             const wchar_t* route = L"UWorld -> OwningGameInstance -> LocalPlayers[0]";
             UObject* controller = controller_from_game_instance(stale_world);
@@ -617,9 +506,8 @@ namespace gamestate
             }
         }
 
-        // One-shot diagnostic for "no gameplay pawn, forever": prints the controller and
-        // what its three pawn properties hold, every instance of the player class with
-        // its outer chain, and the world.
+        // One-shot diagnostic for "no gameplay pawn, forever": the controller and its three
+        // pawn properties, every instance of the player class, and the world.
         void log_pawnless_diagnosis()
         {
             const bool ctrl_alive = uer::alive(g_controller);
@@ -682,12 +570,9 @@ namespace gamestate
 
         void resolve_pawn(std::uint64_t now)
         {
-            // EVERY ROUTE IS TRIED, AND THE FIRST CANDIDATE THAT PASSES THE CLASS GATE
-            // WINS - not the first candidate that exists. The controller's own pointers
-            // come first (they name the pawn it is actually driving, whereas FindAllOf
-            // can return one from a world being torn down), but the controller is also
-            // the route that hands out the Lobby `DefaultPawn`, so a wrong class must
-            // fall through to the next route rather than return.
+            // EVERY ROUTE IS TRIED, AND THE FIRST CANDIDATE THAT PASSES THE CLASS GATE WINS -
+            // not the first candidate that exists. The controller's own pointers come first,
+            // but they also hand out the Lobby `DefaultPawn`, so a wrong class falls through.
             UObject* candidates[3] = {nullptr, nullptr, nullptr};
             candidates[0] = pawn_from_controller();
             {
@@ -702,8 +587,7 @@ namespace gamestate
                     }
                 }
             }
-            // Last resort: the substring gate, in case the exact class name moved on this
-            // build. `FindAllOf` matches subclasses, so the base name is enough.
+            // Last resort: the substring gate; `FindAllOf` matches subclasses.
             if (candidates[0] == nullptr && candidates[1] == nullptr)
             {
                 std::vector<UObject*> found;
@@ -718,11 +602,8 @@ namespace gamestate
                 }
             }
 
-            // THE WORLD CROSS-CHECK. The controller is resolved independently
-            // (preferentially from the world's own GameInstance chain), so its world is
-            // the reference: a pawn from a world being torn down is rejected, and
-            // `g_world` comes from the controller. A token taken from the pawn itself
-            // would be compared against that same pawn's world and could never fire.
+            // THE WORLD CROSS-CHECK. The controller is resolved independently, so its world is
+            // the reference; a token taken from the pawn itself could never fire.
             const void* ref_world = uer::alive(g_controller) ? uer::world_of(g_controller) : nullptr;
 
             uer::ObjRef ref{};
@@ -747,9 +628,7 @@ namespace gamestate
                 const std::wstring c = uer::class_name(r);
                 if (c.find(kGameplayPawnSubstr) == std::wstring::npos)
                 {
-                    // A changed class name is not a licence to log every pump: a loading
-                    // screen alternates the Lobby DefaultPawn and a spectator. A new
-                    // class reports promptly, floored at kRejectFlipThrottleMs.
+                    // A new class name reports promptly, floored at kRejectFlipThrottleMs.
                     const bool changed = c != g_rejected_class;
                     if (now - g_log_rejected >= (changed ? kRejectFlipThrottleMs
                                                          : g_tune.log_throttle_ms))
@@ -803,8 +682,7 @@ namespace gamestate
             }
             if (!have)
             {
-                // Every candidate was rejected by the class gate or by the world check;
-                // both log their own line.
+                // Every candidate was rejected by the class gate or the world check; both log.
                 return;
             }
 
@@ -813,8 +691,6 @@ namespace gamestate
             g_pawn_class_name = cls;
             g_pawn_short_name = ref.obj->GetName();
             g_pawn_full_name = ref.obj->GetFullName();
-            // The controller's world when there is one: a token taken from the pawn
-            // itself cannot detect that the pawn's world changed.
             g_world = ref_world != nullptr ? ref_world : cand_world;
             if (g_world != nullptr)
             {
@@ -829,13 +705,8 @@ namespace gamestate
                      g_pawn.index);
         }
 
-        //==============================================================================
-        // Location / rotation
-        //==============================================================================
-        //
         // Both routes are only reached with a pawn that passed uer::alive() in this same
-        // pump, outside the transition cooldown; every ProcessEvent inside
-        // uer::call_getter runs in an SEH guard.
+        // pump, outside the cooldown; every ProcessEvent runs in an SEH guard.
 
         bool read_location(UObject* pawn, double& x, double& y, double& z, float& yaw, bool& via_function)
         {
@@ -885,13 +756,8 @@ namespace gamestate
             return true;
         }
 
-        //==============================================================================
-        // View target
-        //==============================================================================
-        //
         // APlayerCameraManager has NO GetViewTarget(); the view target lives on the
-        // PlayerController. The camera manager does expose a readable `ViewTarget` struct
-        // property whose first field is the AActor*, which is the fallback here.
+        // PlayerController. The camera manager's `ViewTarget` struct starts with the AActor*.
 
         UObject* read_view_target()
         {
@@ -929,22 +795,11 @@ namespace gamestate
             return static_cast<UObject*>(target);
         }
 
-        //==============================================================================
-        // The menu test
-        //==============================================================================
-        //
-        // Only *root* widgets are ever IsInViewport() (5-6 of ~1700 instances), the
-        // gameplay HUD roots are all HitTestInvisible / SelfHitTestInvisible, and every
-        // menu adds exactly one root whose visibility is ESlateVisibility::Visible. So
-        // "a menu is open" == "some in-viewport widget is Visible".
-        //
-        // Cost control: UWidget::Visibility is a reflected TEnumAsByte, so the byte is
-        // read straight out of every instance and only the handful that say Visible pay
-        // for a ProcessEvent call to IsInViewport(). ESlateVisibility::Visible == 0.
-        //
-        // Only called with a validated gameplay pawn and outside the cooldown: the
-        // ProcessEvent calls in here are as dangerous during a level transition as the
-        // location read.
+        // Only *root* widgets are ever IsInViewport() (5-6 of ~1700 instances), and every
+        // menu adds exactly one root whose visibility is ESlateVisibility::Visible, so "a
+        // menu is open" == "some in-viewport widget is Visible".
+        // UWidget::Visibility is a reflected TEnumAsByte and Visible == 0, so the byte is
+        // the prefilter. Only called with a validated gameplay pawn, outside the cooldown.
 
         void set_menu_open(bool open, std::uint64_t now, const wchar_t* why)
         {
@@ -952,14 +807,9 @@ namespace gamestate
             {
                 g_menu_open = open;
                 g_menu_change_ms = now;
-                // A flip in either direction invalidates the root cache: opening a menu
-                // may have added an unseen root, and closing one leaves a root behind
-                // that must be re-confirmed against the live viewport.
-                //
-                // The schedule is armed here as well as the flag: set_menu_open runs at
-                // the END of the pump and the flag is consumed near its START, so the
-                // flag alone reaches the discovery walk one pump late. Arming twice is
-                // idempotent.
+                // A flip in either direction invalidates the root cache. The schedule is armed
+                // here as well as the flag: set_menu_open runs at the END of the pump and the
+                // flag is consumed near its START. Arming twice is idempotent.
                 g_force_widget_sweep = true;
                 scan::sweep_arm(g_sweep, now);
                 MM_LOGV(L"menu state -> {} ({}); a full widget sweep is queued",
@@ -968,13 +818,11 @@ namespace gamestate
             }
         }
 
-        // The deny-list gate and its class memo live with the SLICED walk further down;
-        // the FindAllOf fallback needs the same gate.
+        // Defined with the SLICED walk below; the FindAllOf fallback needs the same gate.
         unsigned char widget_class_kind(UObject* obj);
         bool widget_may_be_menu(UObject* obj);
 
-        // Is this widget's reflected Visibility byte ESlateVisibility::Visible (0)?
-        // Raw read at a cached offset, no ProcessEvent.
+        // Is this widget's reflected Visibility byte ESlateVisibility::Visible (0)? Raw read.
         bool widget_is_visible_byte(UObject* w, bool& has_byte)
         {
             const uer::ClassLayout* layout = g_layouts.get(w);
@@ -984,8 +832,7 @@ namespace gamestate
         }
 
         // Put a confirmed in-viewport root on the watchlist. Returns true when it was not
-        // already there: the "sweep discovered something" signal that keeps the discovery
-        // cadence fast (scan::sweep_done).
+        // already there: the "discovery found something" signal (scan::sweep_done).
         bool watch_menu_root(UObject* w)
         {
             for (const uer::ObjRef& ref : g_menu_watch)
@@ -997,9 +844,8 @@ namespace gamestate
             }
             if (g_menu_watch.size() >= g_tune.max_menu_roots)
             {
-                // THE CAP IS NOT "NOTHING NEW": a root was discovered and could not be
-                // recorded, so discovery must stay fast - hence true, not false. The game
-                // only ever has 5-6 roots, so a full watchlist is a bug.
+                // THE CAP IS NOT "NOTHING NEW": a root was discovered and could not be recorded,
+                // so discovery must stay fast - hence true. The game only ever has 5-6 roots.
                 if (rare(g_rare_rootcap, ::GetTickCount64()))
                 {
                     mm::logf(L"menu watchlist is full at {} root(s) - a newly confirmed root "
@@ -1025,9 +871,8 @@ namespace gamestate
             return false;
         }
 
-        // ESlateVisibility::Visible, by the reflected byte where the class has one and by
-        // the getter where it does not. Shared by the FindAllOf sweep and the sliced
-        // walk's commit; the two must agree on this test.
+        // ESlateVisibility::Visible, by the reflected byte where the class has one and by the
+        // getter where it does not. The FindAllOf sweep and the commit must agree on this.
         bool widget_says_visible(UObject* w)
         {
             bool has_byte = false;
@@ -1044,8 +889,8 @@ namespace gamestate
             return uer::call_getter(g_funcs, w, L"GetVisibility", ret) && ret.v == 0;
         }
 
-        // One ProcessEvent, SEH-guarded inside uer::call_getter. Asked only of the
-        // handful of widgets that already said Visible.
+        // One ProcessEvent, SEH-guarded in uer::call_getter. Asked only of widgets that
+        // already said Visible.
         bool widget_in_viewport(UObject* w)
         {
             struct RetBool
@@ -1056,15 +901,9 @@ namespace gamestate
         }
 
         // THE PER-PUMP TEST (10 Hz), over the watchlist only.
-        //
-        // The `Visibility` byte is a PREFILTER, never the answer: when the inventory
-        // closes, Wuchang takes `WB_MenuMain_C` out of the viewport but leaves its
-        // Visibility at ESlateVisibility::Visible, so the byte alone latches "menu open"
-        // forever. `IsInViewport()` is the answer.
-        //
-        // It runs over the WATCHLIST (every root ever seen), not only the roots open last
-        // pump, so re-opening a menu is caught here - which is what lets the discovery
-        // sweep back off. `g_menu_roots` is REBUILT from this pass, so it cannot latch.
+        // The `Visibility` byte is a PREFILTER, never the answer: Wuchang takes
+        // `WB_MenuMain_C` out of the viewport but leaves its Visibility at Visible, so the
+        // byte alone latches "menu open" forever. `g_menu_roots` is REBUILT from this pass.
         bool menu_from_cached_roots(std::uint32_t& visible_count, std::wstring& holder)
         {
             bool menu = false;
@@ -1090,9 +929,8 @@ namespace gamestate
                 }
                 if (!widget_in_viewport(w))
                 {
-                    // Visible but not in the viewport = that menu is closed. The widget
-                    // STAYS on the watchlist - Wuchang never destroys it, and it is how
-                    // the next open is caught in one pump.
+                    // Visible but not in the viewport = that menu is closed. The widget STAYS on
+                    // the watchlist: it is how the next open is caught in one pump.
                     ++i;
                     continue;
                 }
@@ -1107,21 +945,15 @@ namespace gamestate
             }
             if (was_open != g_menu_roots.size())
             {
-                // A root opening or closing is a state change: whatever the player did
-                // may also have built an unseen menu root.
+                // A root opening or closing may also have built an unseen menu root.
                 g_force_widget_sweep = true;
             }
             return menu;
         }
 
-        // THE FULL SWEEP, IN ONE CALL - the FALLBACK path, for a UE4SS build where
-        // `FUObjectArray::GetNumElements()` cannot answer (`g_wfallback`). `FindAllOf`
-        // walks the whole object array in a single call, ~25 ms on the game thread, so
-        // no chunk size or rate makes the burst acceptable; the sliced walk is the normal
-        // path.
-        //
-        // Returns "a menu is up" and REBUILDS the root cache from scratch: a root that
-        // does not confirm in this pass is gone.
+        // THE FULL SWEEP IN ONE CALL - the FALLBACK path for a build where
+        // `FUObjectArray::GetNumElements()` cannot answer. `FindAllOf` walks the whole
+        // object array, ~25 ms on the game thread. REBUILDS the root cache from scratch.
         bool update_widgets(std::wstring& holder, bool& discovered_new)
         {
             discovered_new = false;
@@ -1158,8 +990,7 @@ namespace gamestate
                         holder = w->GetName();
                     }
                     menu = true;
-                    // Watched from now on: re-tested every pump, so the next opening of
-                    // this menu hides the minimap within ~100 ms.
+                    // Watched from now on: re-tested every pump.
                     discovered_new = watch_menu_root(w) || discovered_new;
                     uer::ObjRef ref{};
                     if (uer::capture(w, ref))
@@ -1183,22 +1014,13 @@ namespace gamestate
             return menu;
         }
 
-        //==============================================================================
-        // THE SLICED DISCOVERY WALK
-        //==============================================================================
-
-        // Is this object's class a `UUserWidget` descendant? Walk the super chain
-        // comparing NAMES and memoise per `UClass*`. Names rather than a `UClass*`
-        // compare because there is no `UUserWidget::StaticClass()` to compare against -
-        // `ue_min.hpp` declares only what UE4SS exports.
+        // Is this object's class a `UUserWidget` descendant? Walk the super chain comparing
+        // NAMES - there is no `UUserWidget::StaticClass()` to compare against - and memoise
+        // per `UClass*`.
         //   0 = not a UUserWidget at all
         //   1 = a widget that MAY hold a menu
-        //   2 = a widget whose class is on the not-a-menu deny-list
-        //
-        // The deny-list answer shares the map, so it costs one `GetName()` per CLASS per
-        // session rather than one per instance per round. The list matches on the CLASS
-        // name: an object name is index-suffixed (`WB_ZiMu_C_2147458145` is an instance
-        // of `WB_ZiMu_C`). See scan_sched.hpp.
+        //   2 = a widget whose class is on the not-a-menu deny-list, matched on the CLASS
+        //       name (an object name is index-suffixed). See scan_sched.hpp.
         unsigned char widget_class_kind(UObject* obj)
         {
             RC::Unreal::UClass* cls = obj->GetClassPrivate();
@@ -1234,8 +1056,7 @@ namespace gamestate
                 if (why != nullptr)
                 {
                     kind = 2;
-                    // Once per class per session, naming the reason, so a minimap that
-                    // stops hiding on a real menu traces to an over-broad entry.
+                    // Once per class per session, naming the reason.
                     if (g_non_menu_logged.insert(cname).second)
                     {
                         mm::logf(L"menu detector: '{}' is on the not-a-menu list ({}) - it can never "
@@ -1258,22 +1079,17 @@ namespace gamestate
             return widget_class_kind(obj) != 0;
         }
 
-        // Could this widget hold a menu? A widget on the deny-list is still walked and
-        // still counted, so the state line's `widgets N/M` numbers do not change - it
-        // simply never becomes a candidate.
+        // Could this widget hold a menu? A deny-listed widget is still walked and counted,
+        // so the state line's `widgets N/M` numbers do not change.
         bool widget_may_be_menu(UObject* obj)
         {
             return widget_class_kind(obj) == 1;
         }
 
         // ONE SLICE. Raw reads only - no ProcessEvent - so it is safe on the fast path
-        // between position pumps, where it gets the hundreds of calls a second that keep
-        // a round short.
-        //
-        // Rejects cheapest first: FUObjectItem validity flags, read through the object
-        // ARRAY rather than the object, so a freed allocation is safe to look at; the
-        // memoised class test, which is the overwhelming case; IsValidObjectForFindXOf,
-        // which excludes CDOs and archetypes; and only then the Visibility byte.
+        // between position pumps. Rejects cheapest first: FUObjectItem validity read through
+        // the object ARRAY (safe on a freed allocation), the memoised class test,
+        // IsValidObjectForFindXOf, then the Visibility byte.
         void widget_scan_slice(const scan::Slice& slice)
         {
             for (int i = slice.begin; i < slice.end; ++i)
@@ -1302,9 +1118,8 @@ namespace gamestate
                     continue; // subtitles, damage numbers, toasts, the HUD - see scan_sched.hpp
                 }
                 // THE PREFILTER. `UWidget::Visibility` is a reflected TEnumAsByte and
-                // ESlateVisibility::Visible == 0, so ~900 widget instances cost one
-                // guarded byte read each. A class with no reflected Visibility is kept as
-                // a candidate so the commit can ask `GetVisibility()` instead.
+                // ESlateVisibility::Visible == 0. A class with no reflected Visibility stays a
+                // candidate so the commit can ask `GetVisibility()` instead.
                 bool has_byte = false;
                 const bool byte_visible = widget_is_visible_byte(obj, has_byte);
                 if (has_byte && !byte_visible)
@@ -1325,9 +1140,8 @@ namespace gamestate
             }
         }
 
-        // Drive the walk: start a round when the schedule says a sweep is due, then take
-        // one slice per `kWidgetSlicePeriodMs`. Called from the fast path AND once at the
-        // end of the 10 Hz pump, so the slice rate is set here, never by the caller.
+        // Drive the walk: start a round when the schedule says a sweep is due, then take one
+        // slice per `kWidgetSlicePeriodMs`. The slice rate is set here, never by the caller.
         void widget_scan_pump(std::uint64_t now, std::uint64_t now_us)
         {
             if (g_wfallback || g_wround_ready)
@@ -1350,8 +1164,7 @@ namespace gamestate
                 }
                 g_wround_active = true;
                 g_wcursor = scan::Cursor{};
-                // `g_wpending` is deliberately NOT cleared: a candidate the previous
-                // round found in its last slice is still waiting for its commit.
+                // `g_wpending` is NOT cleared: a candidate from the previous round awaits commit.
                 g_wseen_round = 0;
                 g_wcand_dropped = 0;
                 g_wcand_round = 0;
@@ -1361,8 +1174,7 @@ namespace gamestate
                 return;
             }
             g_wslice_us = now_us;
-            // Re-read every slice: the array grows as levels stream in and can shrink
-            // after a GC compaction, so the cursor is clamped against the current size.
+            // Re-read every slice: the array grows and can shrink, so the cursor is clamped.
             const int total = RC::Unreal::FUObjectArray::GetNumElements();
             const scan::Slice s = scan::next_slice(g_wcursor, total, scan::kWidgetChunkDefault);
             if (g_pf_wslice < 0)
@@ -1382,21 +1194,10 @@ namespace gamestate
             }
         }
 
-        // THE COMMIT, ON EVERY VALIDATED PUMP.
-        //
-        // The byte-`Visible` candidates the slices collected since the last pump are the
-        // only widgets that pay for an `IsInViewport()` ProcessEvent. Runs on the 10 Hz
-        // pump where the pawn was validated in the same call: these ProcessEvent calls
-        // are as dangerous during a level transition as the location read.
-        //
-        // Per pump, not per round: a round takes ~350 ms on the fast path and seconds
-        // when only the 10 Hz pump is slicing, so a menu that opens and closes inside one
-        // round would never be confirmed and never join the watchlist.
-        //
-        // IT CAN ONLY ADD. A confirmed root goes on the watchlist and into
-        // `g_menu_roots`; menu_from_cached_roots rebuilds `g_menu_roots` from live
-        // `IsInViewport()` calls every pump and remains the complete answer for
-        // everything already known. See scan::menu_open_from.
+        // THE COMMIT, ON EVERY VALIDATED PUMP - not per round, so a menu that opens and
+        // closes inside one round is still confirmed.
+        // The byte-`Visible` candidates the slices collected are the only widgets that pay
+        // for an `IsInViewport()` ProcessEvent. IT CAN ONLY ADD (scan::menu_open_from).
         bool commit_widget_candidates(std::wstring& holder, bool& discovered_new)
         {
             discovered_new = false;
@@ -1433,8 +1234,7 @@ namespace gamestate
                     holder = w->GetName();
                 }
                 menu = true;
-                // Watched from now on: re-tested every pump, so the next opening of this
-                // menu hides the minimap within ~100 ms.
+                // Watched from now on: re-tested every pump.
                 discovered_new = watch_menu_root(w) || discovered_new;
                 // Open NOW: `g_menu_roots` is the set of roots open this pump.
                 bool already = false;
@@ -1452,17 +1252,13 @@ namespace gamestate
             return menu;
         }
 
-        // End-of-round bookkeeping: the counts the state line reports, and the one place
-        // an over-full candidate list is reported. The answer comes from
-        // commit_widget_candidates, not from here.
+        // End-of-round bookkeeping: the counts the state line reports, and the one place an
+        // over-full candidate list is reported.
         void finish_widget_round()
         {
             g_widgets_seen = g_wseen_round;
             if (g_wcand_dropped != 0)
             {
-                // Never silently truncate the answer: a hit here means the cap is wrong
-                // for this game, and it is wrong for the whole session - hence rare()
-                // rather than once per round.
                 if (rare(g_rare_wcap, ::GetTickCount64()))
                 {
                     mm::logf(L"widget scan: {} byte-Visible widget(s) exceeded the {}-candidate "
@@ -1476,27 +1272,13 @@ namespace gamestate
             }
         }
 
-        //==============================================================================
-        // Which chapter is the player in?
-        //==============================================================================
-        //
         // From the STREAMED LEVEL SET, never from the position: the five chapters' world
-        // bounds overlap (chapter 4 covers nearly all of chapter 1). chapterid.hpp holds
-        // the string logic and the tiered vote; this is only the enumeration - raw reads
-        // plus one GetFullName() per LOADED level.
-        //
-        // Three routes, tried in order, so a property name that is wrong on this build
-        // degrades rather than fails:
-        //
-        //   1. `UWorld::Levels`         - TArray<ULevel*> of the levels currently in
-        //                                 the world. Exactly the question, ~50 entries.
-        //   2. `UWorld::StreamingLevels`- TArray<ULevelStreaming*>, ~834 entries, of
-        //                                 which the loaded ones have a `LoadedLevel`.
-        //   3. `FindAllOf(L"Level")`    - a whole GUObjectArray walk (28-51 ms), so it is
-        //                                 the last resort and still only runs at
-        //                                 kChapterPeriodMs.
-        //
-        // The route that worked is remembered and logged once.
+        // bounds overlap. chapterid.hpp holds the string logic and the tiered vote.
+        // Three routes, tried in order, and the one that worked is logged once:
+        //   1. `UWorld::Levels`          - TArray<ULevel*>, ~50 entries.
+        //   2. `UWorld::StreamingLevels` - TArray<ULevelStreaming*>, ~834 entries, of
+        //                                  which the loaded ones have a `LoadedLevel`.
+        //   3. `FindAllOf(L"Level")`     - a whole GUObjectArray walk, 28-51 ms.
 
         // TArray<T> is { T* Data; int32 Num; int32 Max; } - 16 bytes, which is also what
         // FArrayProperty reports as its element size, so the read is size-checked.
@@ -1526,11 +1308,9 @@ namespace gamestate
             return true;
         }
 
-        // Validates `obj` as a live UObject and feeds its full name to the vote. The
-        // capture() call is the same GUObjectArray liveness test the pawn uses, so a
-        // level being torn down mid-walk cannot be dereferenced. Also collects the SHORT
-        // name ("Chapter1_DGong_logic") for markers::set_loaded_levels(), which is what
-        // lets the marker sweep treat absence as evidence of a collect. Names are ASCII.
+        // Validates `obj` as a live UObject and feeds its full name to the vote. Also
+        // collects the SHORT name ("Chapter1_DGong_logic") for
+        // markers::set_loaded_levels(). Names are ASCII.
         void vote_on_object(UObject* obj, chid::Vote& vote, int& counted, std::vector<std::string>* levels)
         {
             if (obj == nullptr || !mem::plausible_ptr(obj))
@@ -1590,8 +1370,7 @@ namespace gamestate
                 UObject* level = static_cast<UObject*>(raw);
                 if (via_loaded_level)
                 {
-                    // ULevelStreaming::LoadedLevel is null for the ~780 sublevels that
-                    // are not streamed in - the filter this route wants.
+                    // ULevelStreaming::LoadedLevel is null for a sublevel that is not streamed in.
                     const uer::ClassLayout* sl = g_layouts.get(level);
                     level = uer::read_object_prop(sl, level, L"LoadedLevel");
                     if (level == nullptr)
@@ -1604,11 +1383,9 @@ namespace gamestate
             return counted > 0;
         }
 
-        // ENUMERATE THE STREAMED LEVELS, by whichever of the three routes works: the
-        // world's own Levels array, its StreamingLevels -> LoadedLevel, or - only when
-        // neither array could be read at all - a full GUObjectArray walk. Returns the
-        // route it used (0 = none named a level), and fills the chapter vote and the
-        // short names of every level it saw.
+        // ENUMERATE THE STREAMED LEVELS by whichever of the three routes works. Returns the
+        // route used (0 = none named a level) and fills the chapter vote and the short
+        // names of every level it saw.
         int enumerate_levels(UObject* world,
                              chid::Vote& vote,
                              int& counted,
@@ -1626,8 +1403,6 @@ namespace gamestate
             }
             else
             {
-                // Last resort: a full GUObjectArray walk, only when neither UWorld array
-                // could be read at all.
                 std::vector<UObject*> found;
                 UObjectGlobals::FindAllOf(L"Level", found);
                 for (UObject* level : found)
@@ -1657,9 +1432,8 @@ namespace gamestate
 
             chid::Vote vote{};
             int counted = 0;
-            // The short names of every level this walk sees, for the marker sweep's
-            // absence rule (markers.hpp). Built here, the one place already paying for
-            // the enumeration and the GetFullName() calls.
+            // The short names of every level this walk sees, for the marker sweep's absence
+            // rule (markers.hpp).
             std::vector<std::string> levels;
             const int route = enumerate_levels(world, vote, counted, levels);
 
@@ -1675,13 +1449,8 @@ namespace gamestate
             }
 
             // Published even when the chapter vote is undecided: the two answers are
-            // independent, and the absence rule must not go blind.
-            //
-            // Only on an actual change. The streamed set is stable for minutes and
-            // set_loaded_levels rebuilds an unordered_map<string,uint64> of ~50 entries.
-            // The enumeration order is the world's own level order, stable while the set
-            // is, so an element-wise compare is exact enough: a false "changed" costs one
-            // rebuild, and a false "unchanged" cannot happen.
+            // independent. Only on an actual change - the enumeration order is the world's
+            // own level order, so an element-wise compare is exact enough.
             if (levels != g_last_levels)
             {
                 g_last_levels = levels;
@@ -1710,10 +1479,6 @@ namespace gamestate
             (void)now;
         }
 
-        //==============================================================================
-        // The pump
-        //==============================================================================
-
         struct DepthGuard
         {
             int& d;
@@ -1734,9 +1499,8 @@ namespace gamestate
             snap.transition = transition;
             snap.widgets_seen = g_widgets_seen;
             snap.menu_change_ms = g_menu_change_ms;
-            // Diagnostics describe the reader, not the struct's defaults, so the state
-            // line does not blame the widget code for a pawn-less reader. has_pawn stays
-            // false, so nothing is shown on the strength of them.
+            // Diagnostics describe the reader, not the struct's defaults. has_pawn stays false,
+            // so nothing is shown on the strength of them.
             snap.menu_open = g_menu_open;
             snap.menu_roots_cached = static_cast<std::uint32_t>(g_menu_roots.size());
             snap.menu_watch_count = static_cast<std::uint32_t>(g_menu_watch.size());
@@ -1747,40 +1511,29 @@ namespace gamestate
             g_report_pending.store(true, std::memory_order_relaxed);
         }
 
-        //==============================================================================
         // The pump, one named step per stage. Same order, same early returns, same
         // g_pump_stage labels - the stall watchdog reports the step it froze in.
-        //==============================================================================
 
         void pump_fast_slice(std::uint64_t now, int& depth)
         {
-            // BETWEEN position pumps: the sliced GUObjectArray walks, nothing else.
-            //
-            // The marker sweep needs many small slices per second to keep a full pass
-            // inside ~1 s. It is self-throttled on QueryPerformanceCounter, so calling it
-            // from every ProcessEvent costs one QPC read and a compare when it is not its
-            // turn.
-            //
-            // It runs on the LAST validated state: same re-entrancy guard, same
-            // transition cooldown, and only while a gameplay pawn was standing as of the
-            // most recent position pump (at most 100 ms ago).
+            // BETWEEN position pumps: the sliced GUObjectArray walks, nothing else. Both are
+            // self-throttled on QueryPerformanceCounter, so a call out of turn costs one QPC
+            // read and a compare. They run on the LAST validated state: same re-entrancy
+            // guard, same cooldown, and only with a pawn standing as of the last position pump.
             if (g_state_ok_since != 0 && now >= g_cooldown_until)
             {
                 const DepthGuard slice_guard{depth};
                 const StageMark mark{"fast slice: markers"};
                 markers::game_thread_pump(now, g_world);
-                // The menu-discovery walk rides here for the same reason, also
-                // self-throttled on QPC. Raw reads only - its ProcessEvent half is the
-                // commit, on the validated 10 Hz pump below.
+                // The menu-discovery walk rides here too. Raw reads only - its ProcessEvent
+                // half is the commit, on the validated 10 Hz pump below.
                 const StageMark wmark{"fast slice: widgets"};
                 widget_scan_pump(now, mm::qpc_us());
             }
-            // The stage is a breadcrumb for the stall watchdog: it must not be left
-            // naming work that has already finished.
+            // The stage breadcrumb must not be left naming work that has already finished.
             g_pump_stage.store("between pumps", std::memory_order_relaxed);
         }
 
-        // ---- 1. the controller ---------------------------------------------------
         void pump_controller(std::uint64_t now)
         {
             g_pump_stage.store("controller", std::memory_order_relaxed);
@@ -1795,8 +1548,6 @@ namespace gamestate
             }
         }
 
-        // ---- 2. validate the pawn EVERY pump ------------------------------------
-        //
         // Three independent tests, cheapest first:
         //   a) GUObjectArray liveness (index -> FUObjectItem -> flags + back
         //      pointer), which is safe to read even after the object was freed;
@@ -1842,11 +1593,8 @@ namespace gamestate
             return pawn_ok;
         }
 
-        // ---- 3. (re-)acquire a gameplay pawn ------------------------------------
-        //
-        // NEVER gated on the controller, the menu state or the widget sweep. Everything
-        // else hangs off the pawn, so its 2 Hz budget is its own (g_last_resolve_pawn);
-        // the controller is only a fallback route for finding it.
+        // NEVER gated on the controller, the menu state or the widget sweep: the pawn owns
+        // its 2 Hz budget (g_last_resolve_pawn), and the controller is only a fallback.
         bool pump_resolve_pawn(std::uint64_t now, bool pawn_ok)
         {
             if (!pawn_ok && now - g_last_resolve_pawn >= g_tune.resolve_ms)
@@ -1862,11 +1610,8 @@ namespace gamestate
                 {
                     g_no_pawn_since = now;
                 }
-                // RE-RESOLVE THE CONTROLLER TOO, not just the pawn. A shrine fast travel
-                // can leave the cached controller alive-but-wrong: it passes every
-                // liveness test and reports a null `Pawn` for the rest of the session.
-                // The pawn resolve above only ever asks that controller, so a stale
-                // controller can never recover on its own.
+                // RE-RESOLVE THE CONTROLLER TOO. A fast travel can leave it alive-but-wrong,
+                // reporting a null `Pawn` forever, and the pawn resolve only ever asks it.
                 if (now - g_no_pawn_since >= kNoPawnCtrlDropMs &&
                     now - g_last_ctrl_drop >= kNoPawnCtrlDropMs)
                 {
@@ -1905,8 +1650,7 @@ namespace gamestate
                 return false;
             }
             g_no_pawn_since = 0;
-            // A pawn is standing again: the next stall gets its own diagnosis and its own
-            // first-occurrence log lines.
+            // A pawn is standing again: the next stall gets its own first-occurrence lines.
             g_pawnless_diag_done = false;
             rare_reset(g_rare_ctrl_drop);
             rare_reset(g_rare_stuck);
@@ -1914,17 +1658,12 @@ namespace gamestate
             return true;
         }
 
-        // ---- 4. from here on the pawn is validated: UFunctions are allowed -------
-        //
+        // From here on the pawn is validated: UFunctions are allowed.
         // THE MENU TEST HAS TWO HALVES AND BOTH RUN ON EVERY PUMP.
-        //   a) the WATCHLIST re-test: `IsInViewport()` over every root ever confirmed
-        //      this session, which is the complete authoritative answer for everything
-        //      already known and rebuilds `g_menu_roots` from scratch;
-        //   b) the COMMIT of whatever the sliced discovery walk has newly seen as
-        //      byte-`Visible`, which can only ADD a root - and adds it to the
-        //      watchlist at the same time, so (a) owns it from the next pump on.
-        // Both are live `IsInViewport()` calls made in THIS pump, so OR-ing them cannot
-        // latch a cached answer over a fresh one (scan::menu_open_from).
+        //   a) the WATCHLIST re-test: `IsInViewport()` over every root ever confirmed,
+        //      which rebuilds `g_menu_roots` from scratch;
+        //   b) the COMMIT of what the sliced walk newly saw as byte-`Visible`, which can
+        //      only ADD a root, and puts it on the watchlist at the same time.
         void pump_widgets(std::uint64_t now)
         {
             std::uint32_t roots_visible = 0;
@@ -1940,11 +1679,8 @@ namespace gamestate
             }
             g_widgets_visible = roots_visible;
 
-            // The discovery walk's cadence. Any event that can have created an unseen
-            // menu root re-arms the fast cadence and makes a round due now; a quiet, warm
-            // reader lets the period double up to reader_widget_sweep_max_period_ms. This
-            // schedule bounds ONLY the latency of "a menu whose root has never been seen
-            // this session opened"; everything else is the watchlist pass above.
+            // The discovery walk's cadence. This schedule bounds ONLY the latency of "a menu
+            // whose root has never been seen this session opened".
             if (g_force_widget_sweep)
             {
                 g_force_widget_sweep = false;
@@ -1957,8 +1693,7 @@ namespace gamestate
             if (g_wfallback)
             {
                 // No GUObjectArray on this build: the whole-array FindAllOf is the only
-                // discovery route, scheduled rather than per pump - it costs ~25 ms of
-                // game thread per run.
+                // discovery route, ~25 ms of game thread per run.
                 if (scan::sweep_due(g_sweep, now))
                 {
                     if (g_pf_sweep < 0)
@@ -1989,8 +1724,7 @@ namespace gamestate
                 g_wcand_dropped_pub.store(g_wcand_dropped, std::memory_order_relaxed);
                 if (g_wround_ready)
                 {
-                    // The round has wrapped: report its counts and let the schedule back
-                    // off. The answer did not wait for this.
+                    // The round has wrapped: report its counts and let the schedule back off.
                     g_wround_ready = false;
                     finish_widget_round();
                     scan::sweep_done(g_sweep, now, discovered_new, g_menu_watch.empty());
@@ -2010,8 +1744,7 @@ namespace gamestate
                                : L"no root is in the viewport and Visible");
         }
 
-        // Which chapter's map asset should be resident. Slow (1 Hz) and cheap, and
-        // it runs on the same validated state the rest of the pump uses.
+        // Which chapter's map asset should be resident. 1 Hz, on the validated state.
         void pump_chapter(std::uint64_t now)
         {
             if (now - g_last_chapter >= g_tune.chapter_ms)
@@ -2068,11 +1801,9 @@ namespace gamestate
             copy_to(snap.pawn_name, std::size(snap.pawn_name), g_pawn_short_name);
             copy_to(snap.level_name, std::size(snap.level_name), g_pawn_full_name);
 
-            // TELEPORT / RE-POSSESSION. A shrine fast-travel keeps the same pawn object
-            // in the same UWorld, so no transition test above fires. Detect it from the
-            // position itself, re-run the widget sweep (the fast-travel menu is tearing
-            // down on landing), confirm the world still names the same pawn, and publish
-            // the event so the render side drops its position-derived caches.
+            // TELEPORT / RE-POSSESSION. A shrine fast-travel keeps the same pawn object in the
+            // same UWorld, so no transition test above fires. Detect it from the position,
+            // re-sweep the widgets, and publish the event so the render side drops its caches.
             if (snap.has_pawn)
             {
                 if (g_have_last_pos)
@@ -2092,9 +1823,8 @@ namespace gamestate
                                  snap.x,
                                  snap.y,
                                  snap.z);
-                        // Re-resolve rather than trust the cached pointer: a re-possession
-                        // during the fade is named by FindAllOf. Caches keyed to the class
-                        // are kept only when the object is unchanged.
+                        // Re-resolve rather than trust the cached pointer: a re-possession during
+                        // the fade is named by FindAllOf.
                         UObject* before = g_pawn.obj;
                         resolve_pawn(now);
                         if (g_pawn.obj != before)
@@ -2119,10 +1849,8 @@ namespace gamestate
             UObject* view = read_view_target();
             snap.is_pawn_view = (view != nullptr && view == pawn);
 
-            // A free discovery trigger: the view target leaving or returning to the pawn
-            // is the game switching to a menu / cutscene camera, and it is the earliest
-            // signal that a never-seen menu root may have just been built (~1 s ahead of
-            // the walk finding it). Only an ARM - no menu state is derived from it.
+            // The view target leaving or returning to the pawn is the earliest signal that a
+            // never-seen menu root may have been built. Only an ARM - no menu state from it.
             if (snap.is_pawn_view != g_last_pawn_view)
             {
                 g_last_pawn_view = snap.is_pawn_view;
@@ -2153,28 +1881,23 @@ namespace gamestate
 
         void pump()
         {
-            // THE MASTER SWITCH, first statement (modswitch.hpp). UE4SS exports a
-            // Register for the ProcessEvent pre-callback and no Unregister, so a disabled
-            // mod cannot leave the engine's path; it costs one relaxed atomic load and
-            // nothing else - no config copy (a spinlock), no allocation, no reflection,
-            // no read of engine memory.
+            // THE MASTER SWITCH, first statement (modswitch.hpp). UE4SS exports no Unregister
+            // for the ProcessEvent callback, so a disabled mod bails here: one relaxed load.
             if (!mm::mod_active())
             {
                 return;
             }
 
-            // ProcessEvent fires thousands of times a second, and every ProcessEvent WE
-            // issue fires it again - so the re-entrancy guard comes first, before any
-            // work at all. thread_local, because the guard has to be per-thread: the
-            // engine calls ProcessEvent from more than one thread.
+            // ProcessEvent fires thousands of times a second and every ProcessEvent WE issue
+            // fires it again, so the re-entrancy guard comes first. thread_local: the engine
+            // calls ProcessEvent from more than one thread.
             static thread_local int depth = 0;
             if (depth != 0)
             {
                 return;
             }
 
-            // ...and then the THREAD guard. Everything below this line touches
-            // game-thread-only state.
+            // The THREAD guard: everything below touches game-thread-only state.
             const unsigned long tid = ::GetCurrentThreadId();
             unsigned long owner = g_pump_thread.load(std::memory_order_relaxed);
             if (owner == 0)
@@ -2184,8 +1907,7 @@ namespace gamestate
             }
             if (owner != tid)
             {
-                // Once, at verbose: a permanent property of the process, not an event,
-                // and it must not flood the log from a worker thread.
+                // Once, at verbose: a permanent property of the process, not an event.
                 if (!g_wrong_thread_logged.exchange(true, std::memory_order_relaxed))
                 {
                     MM_LOGV(L"ProcessEvent reached the reader on thread {} as well; the reader "
@@ -2209,7 +1931,7 @@ namespace gamestate
             const DepthGuard guard{depth};
             g_pump_calls.fetch_add(1, std::memory_order_relaxed);
 
-            // ---- 0. a transition is in progress: do nothing at all ------------------
+            // A transition is in progress: do nothing at all.
             if (now < g_cooldown_until)
             {
                 g_state_ok_since = 0;
@@ -2240,9 +1962,7 @@ namespace gamestate
             }
 
             // The marker sweep runs LAST, on the same validated state and inside the same
-            // re-entrancy guard: one slice of the chunked GUObjectArray walk. After the
-            // publish, so a slow slice cannot delay the position the overlay draws with.
-            // Most slices are taken by the fast path above, between position pumps.
+            // re-entrancy guard, after the publish so a slow slice cannot delay the position.
             markers::game_thread_pump(now, g_world);
         }
     } // namespace
@@ -2264,8 +1984,8 @@ namespace gamestate
         {
             return;
         }
-        // The marker/map data is dumped from ONE game build; on a patched game actor ids
-        // and world coordinates can have moved, and the symptom is misplaced markers.
+        // The marker/map data is dumped from ONE game build; a patch can move actor ids and
+        // world coordinates, and the symptom is misplaced markers.
         mm::check_game_build();
         RC::Unreal::Hook::RegisterProcessEventPreCallback(
             [](UObject*, RC::Unreal::UFunction*, void*) { pump(); });
@@ -2279,9 +1999,7 @@ namespace gamestate
     void on_update()
     {
         // Loop thread, two cadences. The "is the pump alive?" check keeps its 10-second
-        // window whatever the log level - it is the only thing that notices the
-        // game-thread reader has stopped, and it is silent unless something is wrong. The
-        // `state:` line is 10 s at `verbose` and once a minute at `normal`.
+        // window whatever the log level; the `state:` line is 10 s at verbose, 60 s at normal.
         static std::uint64_t last_report = 0;
         static std::uint64_t last_state = 0;
         const std::uint64_t now = ::GetTickCount64();
@@ -2333,8 +2051,7 @@ namespace gamestate
                  snap.widgets_seen,
                  snap.widget_sweep_period_ms,
                  snap.menu_watch_count,
-                 // `byte-Visible` is the population the candidate cap applies to, NOT the
-                 // 5-6 in-viewport roots; `over the cap` is how many were never tested.
+                 // `byte-Visible` is the population the candidate cap applies to, not the roots.
                  g_wcand_round_pub.load(std::memory_order_relaxed),
                  g_wpending_pub.load(std::memory_order_relaxed),
                  g_wcand_dropped_pub.load(std::memory_order_relaxed),

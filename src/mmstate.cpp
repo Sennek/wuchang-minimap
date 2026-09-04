@@ -21,50 +21,27 @@ namespace mm
 {
     namespace
     {
-
-        //==============================================================================
-        // Snapshot seqlock
-        //==============================================================================
-
         std::atomic<std::uint32_t> g_seq{0};
         Snapshot g_snapshot{};
-
-        //==============================================================================
-        // Config
-        //==============================================================================
 
         spin::Spinlock g_cfg_lock;
         Config g_cfg{};
 
-        //==============================================================================
-        // Waypoint
-        //==============================================================================
-
         spin::Spinlock g_wp_lock;
         mv::Waypoint g_wp{};
-
-        //==============================================================================
-        // Log queue
-        //==============================================================================
 
         spin::Spinlock g_log_lock;
         std::vector<std::wstring> g_log_queue;
         DWORD g_loop_thread = 0;
-        // Lines the full queue refused. Dropped, never blocked and never grown: the game
-        // thread must not wait on the loop thread. The next drain reports and resets it.
+        // Dropped, never blocked and never grown: the game thread must not wait on the loop thread.
         constexpr std::size_t kLogQueueMax = 4096;
         std::size_t g_log_dropped = 0;
-
-        //==============================================================================
-        // Paths
-        //==============================================================================
 
         std::wstring g_mod_dir;
 
         std::wstring resolve_mod_dir()
         {
-            // main.dll lives in ...\ue4ss\Mods\WuchangMinimap\dlls, so the mod folder is
-            // one level up.
+            // main.dll lives in ...\ue4ss\Mods\WuchangMinimap\dlls, so the mod folder is one level up.
             HMODULE self = nullptr;
             if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                      reinterpret_cast<LPCWSTR>(&resolve_mod_dir),
@@ -94,12 +71,8 @@ namespace mm
             return L".";
         }
 
-        //==============================================================================
-        // Plain Win32 text file I/O - no iostreams anywhere in this mod
-        //==============================================================================
+        // Text file I/O: plain Win32, no iostreams anywhere in this mod.
 
-        // A bool for the callers, plus a normal-level log line whenever data was dropped:
-        // a read that fails on a file which EXISTS is not a missing file.
         bool read_whole_file(const std::wstring& path, std::string& out)
         {
             const mmfile::ReadInfo info = mmfile::read_whole_file(path, out, 64ull << 20);
@@ -124,8 +97,7 @@ namespace mm
             return false;
         }
 
-        // Atomic: temp file, flush, rename (atomicfile.hpp). No backup - the config and
-        // the waypoint are cheap to recreate.
+        // Atomic: temp file, flush, rename (atomicfile.hpp). No backup.
         bool write_whole_file(const std::wstring& path, const std::string& data)
         {
             unsigned err = 0;
@@ -205,8 +177,7 @@ namespace mm
             }
         }
 
-        // Named keys beyond the F-keys / letters / digits. Both the side-specific codes
-        // and the "either side" ones are offered - GetAsyncKeyState answers for either
+        // Named keys beyond the F-keys / letters / digits. GetAsyncKeyState answers for either side
         // with VK_MENU / VK_SHIFT / VK_CONTROL.
         struct NamedKey
         {
@@ -229,8 +200,7 @@ namespace mm
             {"NUM6", VK_NUMPAD6},     {"NUM7", VK_NUMPAD7},       {"NUM8", VK_NUMPAD8},
             {"NUM9", VK_NUMPAD9},     {"NUMPLUS", VK_ADD},        {"NUMMINUS", VK_SUBTRACT},
             {"NUMMUL", VK_MULTIPLY},  {"NUMDIV", VK_DIVIDE},      {"NUMDOT", VK_DECIMAL},
-            // Mouse buttons 3-5 only: left and right belong to the game and to the
-            // overlay's own clicks.
+            // Mouse buttons 3-5 only: left and right belong to the game and to the overlay.
             {"MOUSE3", VK_MBUTTON},   {"MOUSE4", VK_XBUTTON1},    {"MOUSE5", VK_XBUTTON2},
         };
 
@@ -245,9 +215,8 @@ namespace mm
             return out;
         }
 
-        // Strips ONE modifier prefix (`ctrl+m`, `shift+F1`, `alt+n`) before the key itself
-        // is parsed: returns the modifier and advances `name` past the `+`. Two prefixes
-        // (`ctrl+shift+m`) leave a non-key-name behind and the key parser rejects it.
+        // Strips ONE modifier prefix (`ctrl+m`) and advances `name` past the `+`. Two prefixes leave
+        // a non-key-name behind and the key parser rejects it.
         int take_key_modifier(std::string& name)
         {
             const std::size_t plus = name.find('+');
@@ -282,9 +251,8 @@ namespace mm
             return mod;
         }
 
-        // Hotkey name -> virtual key. Accepted: F1..F5, F7, F8; one letter A..Z or digit
-        // 0..9; the named keys above. F6 (the RenoDX DLSS5 toggle), F9/F11 (engine binds),
-        // F10 (the game console) and F12 (Steam screenshot) are rejected.
+        // Hotkey name -> virtual key. Accepted: F1..F5, F7, F8; one letter A..Z or digit 0..9; the named
+        // keys above. F6 (RenoDX DLSS5), F9/F11 (engine binds), F10 (console) and F12 (Steam) are rejected.
         int vk_from_name(const std::string& raw_name, int fallback, const char* key_label)
         {
             std::string name = raw_name;
@@ -364,8 +332,7 @@ namespace mm
         // The key half on its own ("F2", "M", "TAB"); vk_name() adds the modifier.
         std::string vk_name_plain(int vk);
 
-        // The inverse of vk_from_name, modifier prefix included, so a binding Save writes
-        // out is one the loader reads back unchanged.
+        // The inverse of vk_from_name, modifier prefix included: what Save writes, the loader reads back unchanged.
         std::string vk_name(int binding)
         {
             const int vk = key_vk(binding);
@@ -405,9 +372,8 @@ namespace mm
             return "none";
         }
 
-        // The gamepad chord: "LB+RB", "A", "LT+RT", "none". Face / shoulder / dpad buttons
-        // are bits in the XInput mask; the two triggers are analogue and carried as flags.
-        // The names are the ones on the pad, not XInput's XINPUT_GAMEPAD_* spelling.
+        // The gamepad chord: "LB+RB", "A", "LT+RT", "none". Face / shoulder / dpad buttons are bits in the
+        // XInput mask; the two triggers are analogue and carried as flags. The names are the ones on the pad.
 
         struct PadButton
         {
@@ -422,9 +388,7 @@ namespace mm
             {"LEFT", 0x0004},  {"RIGHT", 0x0008},
         };
 
-        // One parser for every `*_categories` key. Unknown names are ignored with a log
-        // line naming the known set; a renamed name (`merchant` -> `note`) is honoured and
-        // the next Save writes the current spelling.
+        // One parser for every `*_categories` key. Unknown names are ignored with a log line; a renamed name is honoured.
         std::uint32_t parse_cats(std::string_view key, const std::string& value, std::uint32_t current)
         {
             std::string rejected;
@@ -622,7 +586,6 @@ namespace mm
             return fallback;
         }
 
-        // Returns true when `key` belonged to this group.
         bool apply_core(Config& cfg, const std::string& key, const std::string& value)
         {
             if (key == "mod_enabled")
@@ -640,8 +603,7 @@ namespace mm
             }
             else if (key == "ui_scale")
             {
-                // `auto` derives the factor from the back buffer height on the render
-                // thread; a number pins it.
+                // `auto` derives the factor from the back buffer height on the render thread; a number pins it.
                 if (value == "auto" || value.empty())
                 {
                     cfg.ui_scale_auto = true;
@@ -764,7 +726,6 @@ namespace mm
             return true;
         }
 
-        // Returns true when `key` belonged to this group.
         bool apply_floors(Config& cfg, const std::string& key, const std::string& value)
         {
             if (key == "show_adjacent_floors")
@@ -834,7 +795,6 @@ namespace mm
             return true;
         }
 
-        // Returns true when `key` belonged to this group.
         bool apply_markers(Config& cfg, const std::string& key, const std::string& value)
         {
             if (key == "markers_enabled")
@@ -887,8 +847,7 @@ namespace mm
             }
             else if (key == "found_profile")
             {
-                // Free text: `auto`, `shared`, or any name. It reaches a FILENAME and is
-                // sanitised by slotid::sanitise_key before use; only "" is rejected here.
+                // Free text: `auto`, `shared`, or any name. It reaches a FILENAME and is sanitised by slotid::sanitise_key.
                 const std::string v = trim(value);
                 if (v.empty())
                 {
@@ -906,8 +865,7 @@ namespace mm
             }
             else if (key == "menu_ignore_roots")
             {
-                // Free text, unvalidated: a list of widget class-name prefixes that may
-                // name a class this build has never seen. "" means the built-in table only.
+                // Free text: widget class-name prefixes, possibly naming a class this build has never seen.
                 ::strncpy_s(cfg.menu_ignore_roots, sizeof(cfg.menu_ignore_roots), trim(value).c_str(),
                             _TRUNCATE);
             }
@@ -940,8 +898,7 @@ namespace mm
             }
             else if (key == "map_pad_open_chord")
             {
-                // The same spelling as highlight_pad_chord, minus the triggers: a chord of
-                // BUTTONS only, so LT / RT are parsed and then dropped.
+                // Same spelling as highlight_pad_chord, minus the triggers: LT / RT are parsed and then dropped.
                 bool ignored_lt = false;
                 bool ignored_rt = false;
                 parse_pad_chord(value, cfg.map_pad_open_chord, ignored_lt, ignored_rt);
@@ -952,9 +909,8 @@ namespace mm
             }
             else if (key == "ui_font")
             {
-                // Free text: an absolute path to a .ttf / .otf; `none` or "" means the
-                // built-in bitmap font. Only the render thread can open it, so it
-                // validates and logs.
+                // Free text: an absolute path to a .ttf / .otf; `none` or "" means the built-in bitmap font.
+                // Only the render thread can open it.
                 ::strncpy_s(cfg.ui_font, sizeof(cfg.ui_font), trim(value).c_str(), _TRUNCATE);
             }
             else if (key == "zoom_dpi_scaled")
@@ -976,7 +932,6 @@ namespace mm
             return true;
         }
 
-        // Returns true when `key` belonged to this group.
         bool apply_map(Config& cfg, const std::string& key, const std::string& value)
         {
             if (key == "map_zoom")
@@ -1050,7 +1005,6 @@ namespace mm
             return true;
         }
 
-        // Returns true when `key` belonged to this group.
         bool apply_highlight(Config& cfg, const std::string& key, const std::string& value)
         {
             if (key == "highlight_enabled")
@@ -1158,7 +1112,6 @@ namespace mm
             return true;
         }
 
-        // Returns true when `key` belonged to this group.
         bool apply_compass_and_keys(Config& cfg, const std::string& key, const std::string& value)
         {
             if (key == "compass_enabled")
@@ -1236,7 +1189,6 @@ namespace mm
             return true;
         }
 
-        // Returns true when `key` belonged to this group.
         bool apply_tuning(Config& cfg, const std::string& key, const std::string& value)
         {
             if (key == "minimap_backdrop")
@@ -1371,10 +1323,9 @@ namespace mm
             return true;
         }
 
-        // The whole key table, split into groups because MSVC refuses one if/else-if
-        // chain past ~123 arms (C1061, "blocks nested too deeply"). Each group answers
-        // "was this key mine?". tests/markers_test.cpp scrapes the key literals out of
-        // this file, so a key that lands in no group is caught on the build machine.
+        // The whole key table, split into groups because MSVC refuses one if/else-if chain past ~123 arms
+        // (C1061). tests/markers_test.cpp scrapes the key literals out of this file, so a key that lands
+        // in no group is caught on the build machine.
         void apply_setting(Config& cfg, const std::string& key, const std::string& value)
         {
             if (apply_core(cfg, key, value))
@@ -1405,27 +1356,21 @@ namespace mm
             {
                 return;
             }
-            // An unknown key is ignored: a config from a NEWER build must not stop an
-            // older one from starting.
+            // An unknown key is ignored: a config from a NEWER build must not stop an older one from starting.
         }
     } // namespace
 
-    // The master switch. Written only by modswitch (loop thread); read by the game and
-    // render threads on their first statement. Starts TRUE so ProcessEvent and Present
-    // behave normally between the DLL loading and the config being read.
+    // The master switch. Written only by modswitch (loop thread); read by the game and render threads.
+    // Starts TRUE so ProcessEvent and Present behave normally before the config is read.
     std::atomic<bool> g_mod_active{true};
 
-    // Bumped by every set_config; read by cfg_cached() on each thread. Starts at 1 so a
-    // thread-local generation of 0 always means "never loaded".
+    // Bumped by every set_config; read by cfg_cached(). Starts at 1 so a thread-local generation of 0 means "never loaded".
     std::atomic<std::uint32_t> g_cfg_gen{1};
 
-    // The per-activity counter table (perf.hpp). Plain storage: every counter has exactly
-    // one writing thread, and the F2 panel can live with a row one update stale.
+    // The per-activity counter table (perf.hpp). Every counter has exactly one writing thread.
     perf::Table g_perf{};
 
-    // "config refresh" - the generation-cached config's slow path. Registered from
-    // load_config_file (loop thread, at start-up) so no call site needs a guarded static
-    // on a hot path.
+    // "config refresh" - the generation-cached config's slow path. Registered from load_config_file (loop thread).
     int g_pf_config = -1;
 
     std::atomic<bool> g_panel_open{false};
@@ -1436,10 +1381,6 @@ namespace mm
     std::atomic<bool> g_key_capture{false};
     std::atomic<bool> g_panel_drew_frame{false};
     std::atomic<bool> g_waypoint_dirty{false};
-
-    //==================================================================================
-    // Snapshot seqlock
-    //==================================================================================
 
     void publish(const Snapshot& snap)
     {
@@ -1472,10 +1413,6 @@ namespace mm
         return false;
     }
 
-    //==================================================================================
-    // Config
-    //==================================================================================
-
     Config config()
     {
         spin::SpinGuard guard(g_cfg_lock);
@@ -1488,19 +1425,11 @@ namespace mm
             spin::SpinGuard guard(g_cfg_lock);
             g_cfg = cfg;
         }
-        // The log macros read this atomic instead of taking the config lock, so a
-        // suppressed line costs one relaxed load. Every config change goes through here,
-        // so a reload, F5 or Save changes the level immediately.
+        // The log macros read this atomic instead of taking the config lock, so a suppressed line costs one relaxed load.
         g_log_level.store(static_cast<int>(cfg.log_level), std::memory_order_relaxed);
-        // Bump AFTER the store so a reader that sees the new generation copies the new
-        // value. A reader that reads the generation first may pick up an even newer struct
-        // under the older generation and simply refreshes once more next call.
+        // Bump AFTER the store so a reader that sees the new generation copies the new value.
         g_cfg_gen.fetch_add(1, std::memory_order_release);
     }
-
-    //==================================================================================
-    // Per-activity performance counters
-    //==================================================================================
 
     std::uint64_t qpc_us()
     {
@@ -1516,18 +1445,15 @@ namespace mm
 
     namespace
     {
-        // GetTickCount64() until which the process counts as stalled, and what said so.
-        // Only ever moved FORWARD. The string is a pointer to a literal.
+        // GetTickCount64() until which the process counts as stalled, and a literal naming what did it.
+        // Only ever moved FORWARD.
         std::atomic<std::uint64_t> g_perf_stall_until{0};
         std::atomic<const wchar_t*> g_perf_stall_why{nullptr};
     } // namespace
 
     int perf_register(const char* name, perf::Thread thread)
     {
-        // Registration happens once per call site, from that call site's own thread.
-        // Two threads registering at the same instant could take the same slot; every
-        // registration is a `static const int` on a periodic activity's first call, and
-        // those activities start seconds apart.
+        // Each registration is a `static const int` on a periodic activity's first call, from that activity's own thread.
         return perf::register_counter(g_perf, name, thread);
     }
 
@@ -1580,12 +1506,9 @@ namespace mm
         perf::reset_peaks(g_perf);
     }
 
-    // The per-thread cache slot, at NAMESPACE scope: a guarded function-local static is
-    // forbidden on this game's game thread, because MSVC implements one with the host
-    // vcruntime's `_Init_thread_header` machinery - the host-CRT dependency class that
-    // makes std::mutex fault. Config is a trivially copyable POD whose every default
-    // member initialiser is a constant expression, so this slot is constant-initialised
-    // into the TLS image and no initialiser code runs on any thread.
+    // The per-thread cache slot, at NAMESPACE scope: a guarded function-local static is forbidden on this
+    // game's game thread, because MSVC implements one with the host vcruntime's `_Init_thread_header`
+    // machinery - the host-CRT dependency class that makes std::mutex fault.
     static_assert(std::is_trivially_copyable_v<Config> && std::is_trivially_destructible_v<Config>,
                   "Config must stay a POD: cfg_cached() keeps a thread_local copy of it and a "
                   "non-trivial member would make MSVC emit CRT TLS-init code on the game thread");
@@ -1594,8 +1517,7 @@ namespace mm
 
     const Config& cfg_cached()
     {
-        // Generation 0 is never published (g_cfg_gen starts at 1), so a thread that has
-        // never asked before always takes the slow path exactly once.
+        // Generation 0 is never published (g_cfg_gen starts at 1), so a new thread takes the slow path exactly once.
         Config& tls_cfg = g_tls_cfg;
         std::uint32_t& tls_gen = g_tls_cfg_gen;
 
@@ -1605,8 +1527,7 @@ namespace mm
             const std::uint64_t t0 = qpc_us();
             tls_cfg = config();
             tls_gen = gen;
-            // Counts and times the SLOW path only: how often a thread had to take the
-            // spinlock and copy.
+            // Counts and times the SLOW path only.
             perf_record(g_pf_config, t0);
         }
         return tls_cfg;
@@ -1627,8 +1548,7 @@ namespace mm
         return std::wstring(n.begin(), n.end());
     }
 
-    // The accepted set, mirroring vk_from_name exactly: F1..F5 / F7 / F8, a letter or a
-    // digit, and every entry of kNamedKeys.
+    // The accepted set, mirroring vk_from_name exactly: F1..F5 / F7 / F8, a letter or a digit, and every entry of kNamedKeys.
     bool vk_bindable(int vk)
     {
         if (vk == 0)
@@ -1724,8 +1644,7 @@ namespace mm
 
     namespace
     {
-        // Written by load_config_file() / save_config_file() (loop thread), read by the F2
-        // panel (render thread), so the panel never stat()s a file inside Present.
+        // Written by load_config_file() / save_config_file() (loop thread), read by the F2 panel (render thread).
         std::atomic<bool> g_dev_config_active{false};
     } // namespace
 
@@ -1736,8 +1655,7 @@ namespace mm
 
     namespace
     {
-        // One warning per key per process: every F5 and every 1 Hz mtime reload re-parses
-        // the file, and a removed or renamed key would be re-reported each time.
+        // One warning per key per process: every F5 and every 1 Hz mtime reload re-parses the file.
         bool g_warned[cfgkeys::kKeyCount] = {};
 
         void warn_once(std::string_view key, const std::wstring& text)
@@ -1756,14 +1674,13 @@ namespace mm
             }
         }
 
-        // Applies one config file's text onto `cfg` and returns how many `key = value`
-        // lines it understood. The line rules are mirrored exactly in cfgkeys::keys_in().
+        // Applies one config file's text onto `cfg` and returns how many `key = value` lines it understood.
+        // The line rules are mirrored exactly in cfgkeys::keys_in().
         int apply_text(Config& cfg, const std::string& text)
         {
             int lines = 0;
             std::size_t pos = 0;
-            // A UTF-8 BOM (PowerShell's Set-Content -Encoding utf8 writes one) would
-            // otherwise glue itself to the first key's name.
+            // A UTF-8 BOM would otherwise glue itself to the first key's name.
             if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
                 static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
             {
@@ -1793,8 +1710,7 @@ namespace mm
                     continue;
                 }
 
-                // A key that is a hard-coded constant now: named rather than ignored in
-                // silence.
+                // A key that is a hard-coded constant now: named rather than ignored in silence.
                 if (cfgkeys::is_removed(key))
                 {
                     warn_once(key,
@@ -1818,9 +1734,8 @@ namespace mm
             return lines;
         }
 
-        // Theme precedence: a theme supplies a colour ONLY where the config file is
-        // silent. `seen` is every key name that appeared in either file, and this runs
-        // after both are parsed, so the `theme` line's position does not matter.
+        // Theme precedence: a theme supplies a colour ONLY where the config file is silent. `seen` is every
+        // key name that appeared in either file, and this runs after both files are parsed.
         void apply_theme_defaults(Config& cfg, const std::vector<std::string>& seen)
         {
             const auto mentioned = [&seen](std::string_view k) {
@@ -1874,8 +1789,7 @@ namespace mm
 
         void clamp_config(Config& cfg)
         {
-            // A hand-edited file must not be able to divide by zero, allocate unboundedly
-            // or stall the game thread, so every numeric key is clamped.
+            // Every numeric key is clamped: a hand-edited file must not divide by zero, allocate unboundedly or stall the game thread.
             cfg.size_frac = (std::max)(0.05f, (std::min)(0.9f, cfg.size_frac));
             cfg.zoom_uu_per_px = (std::max)(2.0f, (std::min)(400.0f, cfg.zoom_uu_per_px));
             cfg.opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.opacity));
@@ -1903,8 +1817,7 @@ namespace mm
             cfg.found_save_debounce_ms = (std::max)(200, (std::min)(60000, cfg.found_save_debounce_ms));
             cfg.markers_absence_rounds = (std::max)(1, (std::min)(30, cfg.markers_absence_rounds));
             cfg.markers_absence_categories &= mdb::kAllCats;
-            // 40 is lbl::Layout::kMaxRects; past it the overlap pass has nowhere to put a
-            // box and the caller draws the glyph alone.
+            // 40 is lbl::Layout::kMaxRects; past it the overlap pass has nowhere to put a box and the caller draws the glyph alone.
             cfg.highlight_labels_max = (std::max)(0, (std::min)(40, cfg.highlight_labels_max));
             cfg.map_zoom_min = (std::max)(1.0f, (std::min)(2000.0f, cfg.map_zoom_min));
             cfg.map_zoom_max = (std::max)(cfg.map_zoom_min, (std::min)(4000.0f, cfg.map_zoom_max));
@@ -2010,7 +1923,6 @@ namespace mm
             }
         }
 
-        // The theme fills in the colour keys neither file mentioned, after both are read.
         apply_theme_defaults(cfg, seen);
         clamp_config(cfg);
         set_config(cfg);
@@ -2029,14 +1941,9 @@ namespace mm
         }
     }
 
-    //==================================================================================
-    // Writing: the config as key -> value
-    //==================================================================================
-    //
-    // The one place the text form of every setting is produced; cfgkeys decides which
-    // file each belongs in and config_rewrite.hpp owns the layout. Every key in
-    // cfgkeys::kKeys of tier Player / Advanced / Dev must appear here exactly once - one
-    // that does not is never saved.
+    // Writing: the config as key -> value. cfgkeys decides which file each key belongs in and
+    // config_rewrite.hpp owns the layout. Every key in cfgkeys::kKeys of tier Player / Advanced / Dev
+    // must appear here exactly once - one that does not is never saved.
 
     std::vector<std::pair<std::string, std::string>> config_kv(const Config& cfg)
     {
@@ -2053,7 +1960,6 @@ namespace mm
         };
         const auto vk = [](int v) { return vk_name(v); };
 
-        // ---- Player -----------------------------------------------------------------
         add("mod_enabled", b(cfg.mod_enabled));
         add("overlay_enabled", b(cfg.overlay_enabled));
         add("show_minimap", b(cfg.show_minimap));
@@ -2145,7 +2051,6 @@ namespace mm
         add("reload_key", vk(cfg.reload_key));
         add("screenshot_key", vk(cfg.screenshot_key));
 
-        // ---- Advanced ---------------------------------------------------------------
         add("require_pawn_view", b(cfg.require_pawn_view));
         add("state_stale_ms", std::to_string(cfg.state_stale_ms));
         add("min_visible_after_state_ok_ms", std::to_string(cfg.min_visible_after_state_ok_ms));
@@ -2209,7 +2114,6 @@ namespace mm
         add("ui_font", std::string{cfg.ui_font});
         add("zoom_dpi_scaled", b(cfg.zoom_dpi_scaled));
 
-        // ---- Dev --------------------------------------------------------------------
         add("debug_readout", b(cfg.debug_readout));
         add("debug_show_panel_on_start", b(cfg.debug_show_panel_on_start));
         add("fallback_use_composite", b(cfg.fallback_use_composite));
@@ -2240,8 +2144,7 @@ namespace mm
 
     namespace
     {
-        // The values of one tier as plain `key = value` lines. Used only when the file
-        // does not exist yet; an existing file is rewritten in place.
+        // The values of one tier as plain `key = value` lines. Used only when the file does not exist yet.
         std::string tier_block(const std::vector<std::pair<std::string, std::string>>& kv,
                                cfgkeys::Tier tier)
         {
@@ -2258,9 +2161,8 @@ namespace mm
 
         constexpr const char* kAppendedBanner = "; ---- added by the settings panel ----";
 
-        // Writes `mine` into `path`. On an existing file only the VALUES of its
-        // `key = value` lines change and anything missing is appended once under
-        // kAppendedBanner; otherwise `fresh` is written verbatim.
+        // Writes `mine` into `path`. On an existing file only the VALUES of its `key = value` lines change and
+        // anything missing is appended once under kAppendedBanner; otherwise `fresh` is written verbatim.
         void write_config(const std::wstring& path, const std::vector<cfgrw::Pair>& mine,
                           const std::string& fresh)
         {
@@ -2291,8 +2193,7 @@ namespace mm
             }
         }
 
-        // Does any Dev key differ from its built-in default? The test for "somebody wanted
-        // a dev file".
+        // Does any Dev key differ from its built-in default?
         bool dev_values_differ(const std::vector<std::pair<std::string, std::string>>& kv)
         {
             const Config defaults{};
@@ -2318,7 +2219,6 @@ namespace mm
         const Config cfg = config();
         const std::vector<std::pair<std::string, std::string>> kv = config_kv(cfg);
 
-        // ---- the player file: Player + Advanced -------------------------------------
         {
             const std::vector<cfgrw::Pair> mine = cfgrw::filter(kv, [](const std::string& k) {
                 return cfgkeys::tier_is(k, cfgkeys::Tier::Player) ||
@@ -2338,15 +2238,11 @@ namespace mm
             write_config(config_path(), mine, fresh);
         }
 
-        // ---- the dev file: Dev only, and never created for nothing -------------------
-        //
-        // Written when it already exists, or when some Dev key has been moved off its
-        // built-in default. An all-defaults Dev set with no file writes nothing. Dev keys
-        // never leak into the player file - the filter above cannot see them.
+        // The dev file: written when it already exists, or when some Dev key has been moved off its built-in
+        // default. Dev keys never leak into the player file - the filter above cannot see them.
         std::string dev_existing;
         const bool have_dev = read_whole_file(dev_config_path(), dev_existing);
-        // What the F2 Save button's label promises. Set BEFORE the write, so the label is
-        // right from the first Save that creates the file.
+        // What the F2 Save button's label promises. Set BEFORE the write.
         g_dev_config_active.store(have_dev || dev_values_differ(kv), std::memory_order_relaxed);
         if (have_dev || dev_values_differ(kv))
         {
@@ -2361,9 +2257,8 @@ namespace mm
         }
     }
 
-    // The master switch, read straight off disk. NOT load_config_file(): no other key is
-    // applied on the way back in. `modswitch` calls load_config_file() itself once it has
-    // decided to turn the mod on.
+    // The master switch, read straight off disk. NOT load_config_file(): no other key is applied on the way
+    // back in. `modswitch` calls load_config_file() itself once it has decided to turn the mod on.
 
     bool peek_mod_enabled(bool& out)
     {
@@ -2420,8 +2315,7 @@ namespace mm
         }
     } // namespace
 
-    // BOTH files, mixed into one number, so the 1 Hz watcher in modswitch reloads both
-    // when either the shipped config or the dev overlay is edited.
+    // BOTH files, mixed into one number, so the 1 Hz watcher in modswitch reloads both when either is edited.
     std::uint64_t config_mtime()
     {
         const std::uint64_t main_ft = file_mtime(config_path());
@@ -2432,10 +2326,6 @@ namespace mm
         }
         return main_ft ^ (dev_ft * 0x9E3779B97F4A7C15ull);
     }
-
-    //==================================================================================
-    // The waypoint file
-    //==================================================================================
 
     mv::Waypoint waypoint()
     {
@@ -2501,10 +2391,6 @@ namespace mm
         }
     }
 
-    //==================================================================================
-    // Logging
-    //==================================================================================
-
     std::atomic<int> g_log_level{static_cast<int>(LogLv::Normal)};
 
     const char* log_level_name(LogLv lv) noexcept
@@ -2546,41 +2432,27 @@ namespace mm
         g_loop_thread = ::GetCurrentThreadId();
     }
 
-    //==================================================================================
-    // The mod's own rolling log - wuchang_minimap.log
-    //==================================================================================
-    //
-    // UE4SS truncates `UE4SS.log` on every launch, so this file keeps the last four
-    // sessions through its own `.1` / `.2` / `.3` rotation.
-    //
-    // The game thread must never touch C++ iostreams or the C++ locale in this process,
-    // so this is flat `CreateFileW` / `WriteFile` over a hand-built UTF-8 buffer. Writing
-    // is BUFFERED (8 KB) and flushed when the buffer fills, on every crash breadcrumb
-    // write, and every few seconds from the loop thread.
-    //
-    // `modlog_line()` is only reached from the loop thread (mm::log's direct path and
-    // drain_log), but `modlog_flush()` is called from the breadcrumb and the stall
-    // watchdog, i.e. from any thread. So the buffer and the handle sit behind a spinlock
-    // of their OWN (g_modlog_lock), never the log queue's: everything under it is a
-    // blocking file syscall and the queue is what the game thread touches. Nothing in
-    // here allocates while holding it.
+    // The mod's own rolling log - wuchang_minimap.log, keeping the last four sessions through its own
+    // `.1` / `.2` / `.3` rotation, because UE4SS truncates `UE4SS.log` on every launch.
+    // Flat `CreateFileW` / `WriteFile` over a hand-built UTF-8 buffer: the game thread must never touch
+    // C++ iostreams or the C++ locale. Writing is BUFFERED (8 KB) and flushed when the buffer fills, on
+    // every crash breadcrumb write, and every few seconds from the loop thread.
+    // `modlog_line()` runs on the loop thread only, but `modlog_flush()` is called from any thread, so the
+    // buffer and the handle sit behind a spinlock of their OWN (g_modlog_lock), never the log queue's.
+    // Nothing in here allocates while holding it.
 
     namespace
     {
         constexpr std::size_t kModLogFlushAt = 8192;
-        // The longest line written verbatim. The buffer flushes at kModLogFlushAt and is
-        // reserved at twice that, so buffer (< 8192) + line (<= 4096 + a short suffix) +
-        // the cap notice never reach the reserve - `append` cannot reallocate under the
-        // lock.
+        // The longest line written verbatim. The buffer flushes at kModLogFlushAt and is reserved at twice that,
+        // so buffer + line + cap notice never reach the reserve - `append` cannot reallocate under the lock.
         constexpr std::size_t kModLogMaxLine = 4096;
-        // Per-session cap. At the cap one line says so and writing stops; the .1 / .2 / .3
-        // rotation is untouched.
+        // Per-session cap. At the cap one line says so and writing stops; the rotation is untouched.
         constexpr std::uint64_t kModLogMaxBytes = 20ull * 1024ull * 1024ull;
         constexpr const wchar_t* kModLogName = L"\\wuchang_minimap.log";
 
-        // A lock of its own, not the log QUEUE's, so enqueueing a line from the game
-        // thread never waits on a file syscall. No path holds one while taking the other:
-        // `drain_log` swaps the queue out under `g_log_lock`, releases it, then writes.
+        // A lock of its own, not the log QUEUE's, so enqueueing a line from the game thread never waits on a file
+        // syscall. `drain_log` swaps the queue out under `g_log_lock`, releases it, then writes.
         spin::Spinlock g_modlog_lock;
         HANDLE g_modlog = INVALID_HANDLE_VALUE;
         std::string g_modlog_buf;
@@ -2608,8 +2480,7 @@ namespace mm
             return out;
         }
 
-        // Rotate, then create: `.3` is dropped, everything else shifts up one, and the
-        // live file is always `wuchang_minimap.log`.
+        // Rotate, then create: `.3` is dropped, everything else shifts up one, and the live file is always `wuchang_minimap.log`.
         void modlog_rotate(const std::wstring& base)
         {
             const std::wstring p1 = base + L".1";
@@ -2621,8 +2492,7 @@ namespace mm
             ::MoveFileExW(base.c_str(), p1.c_str(), MOVEFILE_REPLACE_EXISTING);
         }
 
-        // Loop thread, lazily on the first line. FILE_SHARE_READ so the file can be read
-        // (and pasted into a bug report) while the game is still running.
+        // Loop thread, lazily on the first line. FILE_SHARE_READ so the file can be read while the game is still running.
         void modlog_open_locked()
         {
             if (g_modlog_opened)
@@ -2663,11 +2533,9 @@ namespace mm
                            static_cast<unsigned>(st.wHour), static_cast<unsigned>(st.wMinute),
                            static_cast<unsigned>(st.wSecond), static_cast<unsigned>(st.wMilliseconds));
             std::string text = utf8_of(std::wstring{stamp} + line);
-            // The buffer must not reallocate under g_modlog_lock: modlog_flush() takes
-            // that lock from the crash breadcrumb and the stall watchdog, i.e. from a
-            // thread that may be reporting a corrupted heap. Truncating on a UTF-8
-            // character boundary keeps buffer + line + cap notice inside the
-            // 2 x kModLogFlushAt bytes reserved once at open time.
+            // The buffer must not reallocate under g_modlog_lock: modlog_flush() takes that lock from the crash
+            // breadcrumb and the stall watchdog. Truncating on a UTF-8 character boundary keeps buffer + line +
+            // cap notice inside the 2 x kModLogFlushAt bytes reserved once at open time.
             if (text.size() > kModLogMaxLine)
             {
                 std::size_t cut = kModLogMaxLine;
@@ -2725,22 +2593,15 @@ namespace mm
         modlog_flush();
     }
 
-    //==================================================================================
-    // The game build the shipped data was dumped from
-    //==================================================================================
-    //
-    // Every marker coordinate and map picture came out of ONE cooked build of the game,
-    // and a patch can move, rename or add actors. The data files may carry a top-level
-    // `"game_build"` string (the offline extractor stamps it), compared here against the
-    // running executable's FILEVERSION. A missing stamp is a verbose line; only a stamp
-    // that disagrees is a warning.
+    // The game build the shipped data was dumped from: every marker coordinate and map picture came out of
+    // ONE cooked build. The data files may carry a top-level `"game_build"` string, compared here against
+    // the running executable's FILEVERSION. A missing stamp is verbose; a disagreeing one is a warning.
 
     namespace
     {
         bool g_game_build_checked = false;
 
-        // The running executable's FILEVERSION as "a.b.c.d", or an empty string. No engine
-        // call, nothing that can fault.
+        // The running executable's FILEVERSION as "a.b.c.d", or an empty string. No engine call.
         std::wstring exe_file_version()
         {
             wchar_t path[MAX_PATH]{};
@@ -2771,10 +2632,8 @@ namespace mm
                                LOWORD(info->dwFileVersionLS));
         }
 
-        // The value of a top-level `"key": "..."` string, searched inside the first
-        // `kHeadBytes` only - these files put their scalar header keys before the big
-        // arrays, so that is what "top-level" means without a JSON parser. No escape
-        // handling: a build string is digits and dots.
+        // The value of a top-level `"key": "..."` string, searched inside the first `kHeadBytes` only - these
+        // files put their scalar header keys before the big arrays. No escape handling.
         bool json_head_string(const std::string& text, const char* key, std::string& out)
         {
             constexpr std::size_t kHeadBytes = 2048;
@@ -2818,8 +2677,7 @@ namespace mm
         }
         g_game_build_checked = true;
 
-        // The two shipped manifests, in the order a mismatch matters: marker positions
-        // first, then the map pictures.
+        // The two shipped manifests, in the order a mismatch matters: marker positions first, then the map pictures.
         const std::wstring files[2] = {mod_dir() + L"\\markers\\chapter1.json",
                                        mod_dir() + L"\\maps\\maps.json"};
         std::string stamped;

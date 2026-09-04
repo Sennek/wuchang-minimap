@@ -622,7 +622,7 @@ namespace overlay
                     const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
                     if (static_cast<int>(m.cat) >= mdb::kCatCount ||
                         !mdb::cat_enabled(cfg.markers_categories, cat) ||
-                        (marker_found_now(m) && cfg.markers_hide_found) ||
+                        mdb::hidden_as_found(cat, marker_found_now(m), cfg.markers_hide_found) ||
                         !txt::contains_ci(mdb::display_label(cat, m.label), g_map_search))
                     {
                         continue;
@@ -1080,7 +1080,7 @@ namespace overlay
                         continue;
                     }
                     const bool found = marker_found_now(m);
-                    if (found && cfg.markers_hide_found)
+                    if (mdb::hidden_as_found(cat, found, cfg.markers_hide_found))
                     {
                         continue;
                     }
@@ -1151,12 +1151,13 @@ namespace overlay
                     const MapCand& c = cands[ci];
                     const markers::DrawMarker& m = *c.m;
                     const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
+                    const bool hollow = mdb::drawn_as_found(cat, c.found);
                     const int alpha =
-                        static_cast<int>((c.found ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
+                        static_cast<int>((hollow ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
                     draw_marker_glyph(dl, cat, ImVec2{c.sx, c.sy}, mr,
                                       marker_color_q(cat, m.rarity, alpha, cfg.markers_rarity_tint,
                                                      cfg.xray_rarity_colors),
-                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)), c.found);
+                                      IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f)), hollow);
                     draw_count_badge(dl, ImVec2{c.sx, c.sy}, mr, c.count, alpha);
                     ++g_map_markers_drawn;
 

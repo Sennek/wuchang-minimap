@@ -158,7 +158,6 @@ namespace overlay
         int g_pf_save = -1;     // config / waypoint file writes
         int g_pf_reload = -1;   // F5: config + maps + markers
         std::wstring g_hook_report = L"not installed";
-        bool g_hooks_from_cache = false;
         wchar_t g_reason_logged[96] = L"";
         std::uint64_t g_reason_log_ms = 0;
         std::uint64_t g_reason_since_ms = 0;
@@ -548,9 +547,9 @@ namespace overlay
         // chain is intact, and hk_Present / hk_ResizeBuffers / hk_Present1 call the
         // original unconditionally, for every swapchain, ours or not.
 
-        // The three PE fields that identify a BUILD of a DLL. All are baked into the
-        // file and identical on every launch, which is what makes an RVA captured in one
-        // session safe to reuse in the next.
+        // The three PE fields that identify a BUILD of a DLL, logged for every graphics
+        // module in the process: they are what tells a ReShade, driver or Windows update
+        // apart from the version a bug report was written against.
         bool module_identity(HMODULE mod, ModuleId& out)
         {
             if (mod == nullptr)
@@ -568,47 +567,9 @@ namespace overlay
             {
                 return false;
             }
-            out.base = mod;
             out.size = nt->OptionalHeader.SizeOfImage;
             out.stamp = nt->FileHeader.TimeDateStamp;
             out.sum = nt->OptionalHeader.CheckSum;
-
-            wchar_t path[MAX_PATH * 2]{};
-            if (::GetModuleFileNameW(mod, path, static_cast<DWORD>(std::size(path))) == 0)
-            {
-                return false;
-            }
-            std::wstring p{path};
-            const auto slash = p.find_last_of(L'\\');
-            std::wstring name = slash == std::wstring::npos ? p : p.substr(slash + 1);
-            for (wchar_t& c : name)
-            {
-                if (c >= L'A' && c <= L'Z')
-                {
-                    c = static_cast<wchar_t>(c + 32);
-                }
-            }
-            if (name.size() + 1 >= std::size(out.name))
-            {
-                return false;
-            }
-            std::memcpy(out.name, name.c_str(), (name.size() + 1) * sizeof(wchar_t));
-            return true;
-        }
-
-        bool module_id_of(const void* addr, ModuleId& out)
-        {
-            HMODULE mod = nullptr;
-            if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                     reinterpret_cast<LPCWSTR>(addr),
-                                     &mod) == 0 ||
-                !module_identity(mod, out))
-            {
-                return false;
-            }
-            out.rva = static_cast<std::uint32_t>(reinterpret_cast<const std::uint8_t*>(addr) -
-                                                 reinterpret_cast<const std::uint8_t*>(mod));
             return true;
         }
 
@@ -1716,10 +1677,6 @@ namespace overlay
             now - g_hook_install_ms > 8000 && g_present_count.load() == 0)
         {
             g_watchdog_reported = true;
-            if (g_hooks_from_cache)
-            {
-                delete_hook_cache(L"8 s with the cached addresses and no Present at all");
-            }
             mm::log(L"WATCHDOG: 8 s after installing the hooks not a single Present has arrived. The game's "
                     L"swapchain is behind a proxy we did not create ours through (a DLSS frame-generation wrapper "
                     L"is the likely candidate). Loaded graphics modules follow:");

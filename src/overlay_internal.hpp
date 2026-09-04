@@ -93,12 +93,9 @@ namespace overlay
         extern int g_circle_segments;
         struct ModuleId
         {
-            wchar_t name[64]{};      // file name only, lower case
             std::uint32_t size = 0;  // SizeOfImage
             std::uint32_t stamp = 0; // TimeDateStamp
             std::uint32_t sum = 0;   // CheckSum
-            std::uint32_t rva = 0;   // the address's offset into the module
-            HMODULE base = nullptr;
         };
         inline const wchar_t* format_name(DXGI_FORMAT f)
         {
@@ -486,11 +483,6 @@ namespace overlay
         extern int g_pf_save; // config / waypoint file writes
         extern int g_pf_reload; // F5: config + maps + markers
         extern std::wstring g_hook_report;
-        // True when this launch hooked the addresses out of wuchang_minimap_hookaddr.txt
-        // instead of discovering them with a dummy device + queue + swapchain. The
-        // watchdog reads it: no Present with cached addresses means the cache is stale
-        // and deleting it makes the next launch rediscover them.
-        extern bool g_hooks_from_cache;
         // The hide-reason log. Rate-limited: an unchanged reason is never logged again,
         // and a changing one at most once per kReasonLogMs, so a flapping condition
         // cannot flood the log.
@@ -1062,7 +1054,6 @@ namespace overlay
         bool compass_at_bottom(const mm::Config& cfg);
         std::wstring module_of(const void* addr);
         bool module_identity(HMODULE mod, ModuleId& out);
-        bool module_id_of(const void* addr, ModuleId& out);
         std::wstring detour_report(const void* addr);
         void log_overlay_modules();
         void srv_alloc_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu);
@@ -1228,14 +1219,8 @@ namespace overlay
                                                    UINT flags);
         void STDMETHODCALLTYPE hk_ExecuteCommandLists(ID3D12CommandQueue* queue, UINT count,
                                                       ID3D12CommandList* const* lists);
-        std::wstring hook_cache_path();
-        bool write_hook_cache(const ModuleId* ids);
-        bool parse_hex_field(std::string_view t, std::uint64_t& out);
-        bool read_hook_cache(void** addr);
-        void delete_hook_cache(const wchar_t* why);
+        void remove_stale_hook_cache();
         bool create_and_enable(void** addr, const wchar_t* how);
-        bool install_hooks_from_cache();
-        bool install_hooks_by_discovery();
         bool install_hooks();
         auto widen(std::string_view narrow) -> RC::StringType;
     } // namespace ovl

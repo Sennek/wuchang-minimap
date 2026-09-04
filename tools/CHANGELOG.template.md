@@ -2,6 +2,10 @@
 
 ## 1.0.1
 
+- **No more black screen on some launches** - the DX12 hook addresses are found fresh every
+  launch instead of being reused from `wuchang_minimap_hookaddr.txt`, which is now deleted on
+  sight. Reusing them hooked the frame before ReShade, Streamline and the Steam overlay had
+  been through their own start-up, and the game came up black.
 - **The settings panel is rebuilt** - Overview, Categories, Map & tracker, Keys and Tuning.
   Every category filter is now one grid with a column per surface, the presets and the three
   HUD surfaces share one first screen, and `Reset to defaults` sits beside Save.

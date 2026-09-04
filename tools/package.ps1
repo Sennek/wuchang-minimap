@@ -423,7 +423,7 @@ try {
 
     # Nothing that must never ship. Every file the MOD ITSELF writes at runtime is
     # named wuchang_minimap*  (the log, the collection tracker and its per-save
-    # variants, the waypoint, firstrun/hookaddr/last_stage/watchdog breadcrumbs and the
+    # variants, the waypoint, firstrun/last_stage/watchdog breadcrumbs and the
     # recon dumps) - none of them is ever a shipped file, so the whole prefix is
     # forbidden in one rule. The two configs the release DOES carry are named
     # config_wuchang_minimap*.txt and do not match it. This matters because the same

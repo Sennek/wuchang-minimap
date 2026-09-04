@@ -758,15 +758,17 @@ foreign swapchain is ignored for *drawing* only: `hk_Present`, `hk_Present1` and
 `hk_ResizeBuffers` call the original unconditionally, for every swapchain, so nothing else in
 the process loses a frame to us.
 
-**The hook-address cache.** Discovery creates a throwaway device, queue and swapchain and
-destroys them again; Steam's `GameOverlayRenderer64.dll` hooks the same creation entry points
-and re-targets its overlay onto what it sees created, which is how a Steam FPS counter ends up
-pointing at nothing. The addresses are a property of the DLL, not of the session, so the first
-launch writes them to `wuchang_minimap_hookaddr.txt` next to the config as `module + RVA` and
-**every launch after that hooks them directly and creates nothing**. The cache is keyed to the
-module's `SizeOfImage`, `TimeDateStamp` and `CheckSum`, so a ReShade, driver or Windows update
-invalidates it and discovery runs once more; if cached addresses produce no Present, the 8 s
-watchdog deletes the file and the next launch rediscovers them.
+**Discovery runs on every launch**, ~60 ms of it, and creating those throwaway objects is the
+point rather than a cost: the `D3D12CreateDevice` / `CreateDXGIFactory1` /
+`CreateSwapChainForHwnd` calls drive ReShade's `dxgi` proxy, its addons, Streamline's
+interposer and the Steam overlay through their own creation interposers before MinHook writes
+a byte. The addresses themselves are a property of the DLLs and could be cached in a file
+(older builds cached them in `wuchang_minimap_hookaddr.txt`, which is deleted on sight now) -
+but a launch that hooks them out of a file skips that ordering and **intermittently black-
+screens from the first frame**, with the mod presenting normally and nothing in any log. What
+this costs is Steam's `GameOverlayRenderer64.dll`, which hooks the same creation entry points
+and re-targets its overlay onto what it sees created, so a Steam FPS counter can end up
+pointing at the objects we destroyed again.
 
 The log also answers *who else is on this function*: before a byte is written, the first 8
 bytes at each address are read and, if a `jmp` is already there, its target is resolved to

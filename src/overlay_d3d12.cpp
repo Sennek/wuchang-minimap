@@ -1420,253 +1420,38 @@ namespace overlay
         }
 
         //==============================================================================
-        // Hook installation via a throwaway device + swapchain
-        //==============================================================================
-
-        //==============================================================================
-        // THE HOOK-ADDRESS CACHE (and why the Steam overlay wants it)
+        // Hook installation via a throwaway device + swapchain, on every launch
         //==============================================================================
         //
         // Discovery creates a throwaway D3D12 device, a DIRECT command queue and a 64x64
-        // swapchain on a hidden window, reads four vtable slots and destroys all three.
-        // Steam's GameOverlayRenderer64 hooks the device-, queue- and swapchain-creating
-        // entry points and re-targets its overlay onto what it sees created, so creating
-        // and destroying objects after the game's own RHI init leaves the Steam overlay
-        // pointed at a dead object - "the Steam FPS counter stopped rendering".
+        // swapchain on a hidden window through our own import table, reads four vtable
+        // slots and destroys all three. The addresses it finds are a property of the
+        // DLLs, so they could be written down and reused - and reusing them is what makes
+        // such a launch a different launch. On a machine stacking ReShade's dxgi proxy,
+        // an addon, Streamline's interposer and the Steam overlay, these creation calls
+        // are what drives every one of those layers through its own interposer before
+        // MinHook writes a byte; hooking the addresses straight out of a file skips that
+        // and intermittently costs the frame - a black screen from launch, with this mod
+        // presenting happily and nothing in any log. Discovery costs ~60 ms once per
+        // launch, which is not worth a file to skip.
         //
-        // The addresses are a property of the DLL, not of the session: the first launch
-        // writes them down as module + RVA and every launch after that hooks them
-        // directly and creates nothing. The cache is keyed to the module's SizeOfImage,
-        // TimeDateStamp and CheckSum, so a ReShade, driver or Windows update invalidates
-        // it and discovery runs once more. Cached addresses that produce no Present make
-        // the watchdog delete the file, so a stale cache costs one launch.
+        // The price is that Steam's GameOverlayRenderer64 hooks the same creation entry
+        // points and re-targets its overlay onto what it sees created, so its FPS counter
+        // can end up pointing at objects we destroyed again.
 
-        std::wstring hook_cache_path()
+        // wuchang_minimap_hookaddr.txt is where older builds cached the addresses.
+        void remove_stale_hook_cache()
         {
-            return mm::mod_dir() + L"\\wuchang_minimap_hookaddr.txt";
-        }
-
-        bool write_hook_cache(const ModuleId* ids)
-        {
-            std::wstring text = L"; WuchangMinimap - the DX12 hook addresses found on a previous launch.\n"
-                                L"; Deleting this file forces a fresh discovery; it is rewritten by itself\n"
-                                L"; whenever one of these modules changes. schema 1\n"
-                                L"; <what> = <module> <rva> <SizeOfImage> <TimeDateStamp> <CheckSum>\n";
-            for (int i = 0; i < kHookCount; ++i)
+            const std::wstring path = mm::mod_dir() + L"\\wuchang_minimap_hookaddr.txt";
+            if (::DeleteFileW(path.c_str()) != 0)
             {
-                if (ids[i].name[0] == L'\0' || ids[i].rva == 0)
-                {
-                    return false;
-                }
-                text += std::format(L"{} = {} 0x{:X} 0x{:X} 0x{:08X} 0x{:08X}\n",
-                                    kHookNames[i],
-                                    ids[i].name,
-                                    ids[i].rva,
-                                    ids[i].size,
-                                    ids[i].stamp,
-                                    ids[i].sum);
-            }
-            HANDLE h = ::CreateFileW(hook_cache_path().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                     FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h == INVALID_HANDLE_VALUE)
-            {
-                return false;
-            }
-            std::string narrow;
-            narrow.reserve(text.size());
-            for (const wchar_t c : text)
-            {
-                narrow.push_back((c > 0 && c < 128) ? static_cast<char>(c) : '?');
-            }
-            DWORD wrote = 0;
-            const bool ok =
-                ::WriteFile(h, narrow.data(), static_cast<DWORD>(narrow.size()), &wrote, nullptr) != 0;
-            ::CloseHandle(h);
-            return ok;
-        }
-
-        // A hex field ("0x1F" or "1F"). False on anything else, so a hand-edited or
-        // truncated file is refused rather than half-read.
-        bool parse_hex_field(std::string_view t, std::uint64_t& out)
-        {
-            if (t.size() > 2 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X'))
-            {
-                t.remove_prefix(2);
-            }
-            if (t.empty() || t.size() > 16)
-            {
-                return false;
-            }
-            std::uint64_t v = 0;
-            for (const char c : t)
-            {
-                int d = -1;
-                if (c >= '0' && c <= '9')
-                {
-                    d = c - '0';
-                }
-                else if (c >= 'a' && c <= 'f')
-                {
-                    d = c - 'a' + 10;
-                }
-                else if (c >= 'A' && c <= 'F')
-                {
-                    d = c - 'A' + 10;
-                }
-                if (d < 0)
-                {
-                    return false;
-                }
-                v = v * 16 + static_cast<std::uint64_t>(d);
-            }
-            out = v;
-            return true;
-        }
-
-        // Resolves every entry against the module loaded right now. Any mismatch refuses
-        // the whole cache: a half-valid one hooks an address inside the wrong DLL, which
-        // is a crash rather than a missing overlay.
-        bool read_hook_cache(void** addr)
-        {
-            HANDLE h = ::CreateFileW(hook_cache_path().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h == INVALID_HANDLE_VALUE)
-            {
-                return false;
-            }
-            char buf[4096]{};
-            DWORD got = 0;
-            const bool read_ok = ::ReadFile(h, buf, sizeof(buf) - 1, &got, nullptr) != 0;
-            ::CloseHandle(h);
-            if (!read_ok || got == 0)
-            {
-                return false;
-            }
-            const std::string text{buf, buf + got};
-
-            for (int i = 0; i < kHookCount; ++i)
-            {
-                addr[i] = nullptr;
-            }
-            int found = 0;
-            std::size_t at = 0;
-            while (at < text.size())
-            {
-                std::size_t nl = text.find('\n', at);
-                if (nl == std::string::npos)
-                {
-                    nl = text.size();
-                }
-                std::string_view line{text.data() + at, nl - at};
-                at = nl + 1;
-                while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
-                {
-                    line.remove_suffix(1);
-                }
-                if (line.empty() || line.front() == ';')
-                {
-                    continue;
-                }
-                const std::size_t eq = line.find(" = ");
-                if (eq == std::string_view::npos)
-                {
-                    continue;
-                }
-                const std::string_view key = line.substr(0, eq);
-                std::string_view rest = line.substr(eq + 3);
-
-                int slot = -1;
-                for (int i = 0; i < kHookCount; ++i)
-                {
-                    std::string want;
-                    for (const wchar_t* p = kHookNames[i]; *p != L'\0'; ++p)
-                    {
-                        want.push_back(static_cast<char>(*p));
-                    }
-                    if (key == want)
-                    {
-                        slot = i;
-                        break;
-                    }
-                }
-                if (slot < 0)
-                {
-                    continue;
-                }
-
-                std::string_view field[5];
-                int n = 0;
-                while (n < 5 && !rest.empty())
-                {
-                    const std::size_t sp = rest.find(' ');
-                    field[n++] = rest.substr(0, sp);
-                    rest = sp == std::string_view::npos ? std::string_view{} : rest.substr(sp + 1);
-                }
-                std::uint64_t rva = 0;
-                std::uint64_t size = 0;
-                std::uint64_t stamp = 0;
-                std::uint64_t sum = 0;
-                if (n != 5 || field[0].empty() || field[0].size() + 1 >= 64 ||
-                    !parse_hex_field(field[1], rva) || !parse_hex_field(field[2], size) ||
-                    !parse_hex_field(field[3], stamp) || !parse_hex_field(field[4], sum))
-                {
-                    mm::log(L"hook cache: a malformed line - falling back to discovery");
-                    return false;
-                }
-
-                wchar_t wname[64]{};
-                for (std::size_t k = 0; k < field[0].size(); ++k)
-                {
-                    wname[k] = static_cast<wchar_t>(field[0][k]);
-                }
-                const HMODULE mod = ::GetModuleHandleW(wname);
-                ModuleId live{};
-                if (mod == nullptr || !module_identity(mod, live))
-                {
-                    mm::logf(L"hook cache: '{}' is not loaded - falling back to discovery", wname);
-                    return false;
-                }
-                if (live.size != static_cast<std::uint32_t>(size) ||
-                    live.stamp != static_cast<std::uint32_t>(stamp) ||
-                    live.sum != static_cast<std::uint32_t>(sum))
-                {
-                    mm::logf(L"hook cache: {} is a different build now (size 0x{:X} vs 0x{:X}, stamp "
-                             L"0x{:08X} vs 0x{:08X}, sum 0x{:08X} vs 0x{:08X}) - falling back to discovery",
-                             wname,
-                             live.size,
-                             static_cast<std::uint32_t>(size),
-                             live.stamp,
-                             static_cast<std::uint32_t>(stamp),
-                             live.sum,
-                             static_cast<std::uint32_t>(sum));
-                    return false;
-                }
-                if (rva == 0 || rva >= live.size)
-                {
-                    return false;
-                }
-                addr[slot] = reinterpret_cast<std::uint8_t*>(mod) + rva;
-                ++found;
-            }
-            if (found != kHookCount)
-            {
-                mm::logf(L"hook cache: {} of {} entries resolved - falling back to discovery",
-                         found,
-                         kHookCount);
-                return false;
-            }
-            return true;
-        }
-
-        void delete_hook_cache(const wchar_t* why)
-        {
-            if (::DeleteFileW(hook_cache_path().c_str()) != 0)
-            {
-                mm::logf(L"hook cache: deleted ({}). The next launch rediscovers the addresses.", why);
+                mm::logf(L"deleted {} - an older build's address cache. The addresses are discovered "
+                         L"fresh on every launch.",
+                         path);
             }
         }
 
-        // Both routes end here: four MH_CreateHook calls, one MH_EnableHook, one report.
+        // Four MH_CreateHook calls, one MH_EnableHook, one report.
         bool create_and_enable(void** addr, const wchar_t* how)
         {
             const MH_STATUS s1 = MH_CreateHook(addr[0], reinterpret_cast<void*>(&hk_Present),
@@ -1731,28 +1516,10 @@ namespace overlay
             return ok;
         }
 
-        bool install_hooks_from_cache()
+        bool install_hooks()
         {
-            void* addr[kHookCount]{};
-            if (!read_hook_cache(addr))
-            {
-                return false;
-            }
-            // Who was already there, read before a byte is written.
-            for (int i = 0; i < kHookCount; ++i)
-            {
-                mm::logf(L"hook cache: {} -> {} {}", kHookNames[i], module_of(addr[i]),
-                         detour_report(addr[i]));
-            }
-            mm::log(L"hook cache: the addresses came out of wuchang_minimap_hookaddr.txt, so NO dummy "
-                    L"device, queue, swapchain or window was created this launch - the Steam overlay has "
-                    L"nothing of ours to re-target onto");
-            g_hooks_from_cache = true;
-            return create_and_enable(addr, L"from the address cache");
-        }
-
-        bool install_hooks_by_discovery()
-        {
+            remove_stale_hook_cache();
+            const std::uint64_t began = ::GetTickCount64();
             const MH_STATUS init = MH_Initialize();
             if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
             {
@@ -1823,28 +1590,15 @@ namespace overlay
                 // Who was already there, read before a byte is written: a jmp in front of
                 // Present names the module that installed it, and MinHook relocates
                 // those bytes into our trampoline, so that overlay stays in the chain.
-                ModuleId ids[kHookCount]{};
-                bool all_identified = true;
                 for (int i = 0; i < kHookCount; ++i)
                 {
                     mm::logf(L"hook discovery: {} -> {} {}",
                              kHookNames[i],
                              module_of(addr[i]),
                              detour_report(addr[i]));
-                    all_identified = module_id_of(addr[i], ids[i]) && all_identified;
                 }
 
                 ok = create_and_enable(addr, L"by dummy-swapchain discovery");
-
-                // The addresses belong to the DLLs, so the next launch hooks them without
-                // creating (and destroying) a device, a queue and a swapchain that
-                // Steam's overlay may re-target itself onto.
-                if (ok && all_identified && write_hook_cache(ids))
-                {
-                    mm::logf(L"hook cache: written to {} - the next launch hooks these addresses directly "
-                             L"and creates no dummy objects at all",
-                             hook_cache_path());
-                }
             }
             else
             {
@@ -1861,27 +1615,13 @@ namespace overlay
 
             g_hooks_installed = ok;
             g_hook_install_ms = ::GetTickCount64();
+            // What the throwaway objects cost, and the window in which Steam's overlay
+            // could have re-targeted itself onto them.
+            mm::logf(L"hook discovery: {} ms from the dummy window to the four hooks; the dummy device, "
+                     L"queue, swapchain and window are destroyed again",
+                     g_hook_install_ms - began);
             return ok;
         }
 
-        // The one entry point: the cache first (it creates nothing), the dummy-swapchain
-        // discovery as the fallback that also refreshes the cache.
-        bool install_hooks()
-        {
-            const MH_STATUS init = MH_Initialize();
-            if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
-            {
-                mm::logf(L"MH_Initialize failed: {}", static_cast<int>(init));
-                return false;
-            }
-            if (install_hooks_from_cache())
-            {
-                g_hooks_installed = true;
-                g_hook_install_ms = ::GetTickCount64();
-                return true;
-            }
-            g_hooks_from_cache = false;
-            return install_hooks_by_discovery();
-        }
     } // namespace ovl
 } // namespace overlay

@@ -78,10 +78,9 @@ None of these stops the mod working.
 - **Another UE4SS C++ mod that hooks `Present`.** Two overlays on one swapchain is the
   one combination that can lose an overlay: whichever installs second usually wins.
   Test them one at a time before reporting a blank screen.
-- **The Steam overlay.** The first run of a new install creates and destroys a throwaway
-  swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at
-  nothing. The addresses are cached in `wuchang_minimap_hookaddr.txt` afterwards.
-  Shift+Tab still works.
+- **The Steam overlay.** Every launch creates and destroys a throwaway swapchain to find
+  the addresses to hook, and Steam's overlay follows it, so its FPS counter can end up
+  pointing at nothing. Shift+Tab still works.
 
 ## Files it writes, and uninstalling
 
@@ -93,7 +92,6 @@ None of these stops the mod working.
     wuchang_minimap_found*.txt      the collection tracker, one file per save slot
     wuchang_minimap_waypoint.txt    the full map's waypoints
     wuchang_minimap_export_*.json   backups written by the F2 panel's Export button
-    wuchang_minimap_hookaddr.txt    cached hook addresses (delete to re-discover)
     wuchang_minimap_last_stage.txt  crash breadcrumb: how far start-up got
     wuchang_minimap_watchdog.txt    written only if the game froze
 ```

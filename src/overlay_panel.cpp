@@ -530,14 +530,12 @@ namespace overlay
                 ImGui::SetTooltip("writes wuchang_minimap_export_<date>_<time>.json next to the DLL");
             }
             static char import_path[512]{};
-            static bool import_primed = false;
-            // The newest export the loop thread found, offered once so a typed path is
-            // never overwritten under the cursor.
-            if (!import_primed && g_latest_export_ready.load(std::memory_order_acquire))
+            // The newest export the loop thread found, offered whenever the box is
+            // empty, so a typed path is never overwritten under the cursor.
+            if (import_path[0] == '\0' && g_latest_export_ready.load(std::memory_order_acquire))
             {
                 spin::SpinGuard guard(g_exchange_lock);
                 ::strncpy_s(import_path, sizeof(import_path), g_latest_export, _TRUNCATE);
-                import_primed = true;
             }
             ImGui::SameLine();
             if (ImGui::Button("Import"))

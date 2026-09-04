@@ -1,5 +1,5 @@
 {
- "schema": "wuchang-minimap-maps/4",
+ "schema": "wuchang-minimap-maps/5",
  "chapters": {
   "chapter1": {
    "image": "chapter1/small.png",
@@ -19,9 +19,6 @@
    "png_bytes": 1578863,
    "z_min": -11649.0,
    "z_max": 38871.0,
-   "z_step_uu": 12.340009770395701,
-   "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 1,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -64,15 +61,178 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
+   "reachability": {
+    "step_up_uu": 60.0,
+    "seed_z_tol_uu": 400.0,
+    "seeds": 728,
+    "seeds_total_markers": 916,
+    "markers_covered": 728,
+    "markers_stranded": 0,
+    "surface_cells": 12802578,
+    "reached_cells": 8046245,
+    "lit_px": 8014603,
+    "reached_px": 5263671,
+    "area_m2": 222627.9,
+    "reached_area_m2": 146213.1,
+    "reached_area_pct": 65.68,
+    "blobs_before": 763,
+    "blobs_after": 13,
+    "big_unreached_min_m2": 400.0,
+    "big_unreached": [
+     {
+      "x": 46590.2,
+      "y": -3837.4,
+      "z": -385.3,
+      "area_m2": 16856.6
+     },
+     {
+      "x": 31970.3,
+      "y": 38396.9,
+      "z": -8609.0,
+      "area_m2": 8120.9
+     },
+     {
+      "x": -4700.0,
+      "y": -2623.7,
+      "z": 2227.8,
+      "area_m2": 3433.0
+     },
+     {
+      "x": 50418.7,
+      "y": -1474.6,
+      "z": -4283.1,
+      "area_m2": 1501.3
+     },
+     {
+      "x": 16280.3,
+      "y": -26585.8,
+      "z": 1603.4,
+      "area_m2": 1327.5
+     },
+     {
+      "x": 7945.2,
+      "y": 18635.7,
+      "z": 5114.1,
+      "area_m2": 1319.8
+     },
+     {
+      "x": 22292.7,
+      "y": 29513.4,
+      "z": 3522.6,
+      "area_m2": 1091.8
+     },
+     {
+      "x": -17259.5,
+      "y": -19843.2,
+      "z": -2856.1,
+      "area_m2": 919.0
+     },
+     {
+      "x": 15717.0,
+      "y": -37388.5,
+      "z": 13736.4,
+      "area_m2": 887.3
+     },
+     {
+      "x": 18540.2,
+      "y": -37375.6,
+      "z": 12408.9,
+      "area_m2": 839.6
+     },
+     {
+      "x": 25475.8,
+      "y": -19264.2,
+      "z": -476.4,
+      "area_m2": 700.7
+     },
+     {
+      "x": 21191.9,
+      "y": 36043.3,
+      "z": -5326.2,
+      "area_m2": 645.2
+     },
+     {
+      "x": 16175.3,
+      "y": 12044.6,
+      "z": 4144.0,
+      "area_m2": 617.5
+     },
+     {
+      "x": -1254.0,
+      "y": -6322.1,
+      "z": 2207.0,
+      "area_m2": 591.9
+     },
+     {
+      "x": 37649.0,
+      "y": -23256.9,
+      "z": 4113.3,
+      "area_m2": 586.8
+     },
+     {
+      "x": 42119.9,
+      "y": -8474.8,
+      "z": -569.0,
+      "area_m2": 582.2
+     },
+     {
+      "x": 49514.5,
+      "y": 18953.1,
+      "z": 523.0,
+      "area_m2": 565.4
+     },
+     {
+      "x": 1291.6,
+      "y": 16040.4,
+      "z": 2722.5,
+      "area_m2": 557.5
+     },
+     {
+      "x": 33368.9,
+      "y": -3301.6,
+      "z": -548.2,
+      "area_m2": 507.2
+     },
+     {
+      "x": 37069.3,
+      "y": 19211.7,
+      "z": 2831.0,
+      "area_m2": 474.4
+     },
+     {
+      "x": -5350.7,
+      "y": 11125.4,
+      "z": 2166.4,
+      "area_m2": 433.0
+     },
+     {
+      "x": 28732.1,
+      "y": -17842.1,
+      "z": -1472.0,
+      "area_m2": 407.5
+     }
+    ],
+    "enabled": true
+   },
+   "height_planes": [
+    "chapter1/small_h0.png",
+    "chapter1/small_h1.png",
+    "chapter1/small_h2.png",
+    "chapter1/small_h3.png",
+    "chapter1/small_h4.png",
+    "chapter1/small_h5.png",
+    "chapter1/small_h6.png",
+    "chapter1/small_h7.png"
+   ],
    "height_map_bytes": [
-    2257022,
-    1423300,
-    796689,
-    431893,
-    232640,
-    129664,
-    78060,
-    54243
+    2287251,
+    1442617,
+    809305,
+    439309,
+    235942,
+    131216,
+    78767,
+    54367
    ],
    "height_map_raw_bytes": 342965616,
    "surface_hist": [
@@ -86,30 +246,19 @@
     17921,
     10741
    ],
-   "composite_format": "png8-palette-trns",
-   "composite_quantisation": {
-    "unique_rgba_before": 649,
-    "palette_colours": 256,
-    "max_channel_delta": 3,
-    "mean_channel_delta": 0.1849
-   },
    "z_bits": 12,
    "z_code_max": 4095,
-   "height_planes": [
-    "chapter1/small_h0.png",
-    "chapter1/small_h1.png",
-    "chapter1/small_h2.png",
-    "chapter1/small_h3.png",
-    "chapter1/small_h4.png",
-    "chapter1/small_h5.png",
-    "chapter1/small_h6.png",
-    "chapter1/small_h7.png"
-   ],
+   "z_code_mask": 4095,
+   "z_code_no_surface": 0,
+   "reach_bit": 4096,
+   "z_step_uu": 12.340009770395701,
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
+   "reach_flag": "bit 12 of the height code = the surface is reachable",
+   "composite_format": "png8-palette-trns",
    "height_tile_px": 128,
    "height_tiles_128": 2766,
    "height_tiles_128_total": 10608,
-   "height_tile_ram_bytes": 90636288,
-   "z_requantise_worst_uu": 6.17
+   "height_tile_ram_bytes": 90636288
   },
   "chapter2": {
    "image": "chapter2/small.png",
@@ -129,9 +278,6 @@
    "png_bytes": 1297346,
    "z_min": -11209.0,
    "z_max": 38871.0,
-   "z_step_uu": 12.232535417684415,
-   "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 2,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -162,8 +308,8 @@
     "dropped": 26647,
     "polys_dropped": 57286,
     "area_dropped": 219275400.0,
-    "seeds": 893,
-    "seeded_components": 1473,
+    "seeds": 905,
+    "seeded_components": 1484,
     "grid_uu": 64.0,
     "z_tol_uu": 150.0,
     "min_area_uu2": 40000.0,
@@ -174,15 +320,190 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
+   "reachability": {
+    "step_up_uu": 60.0,
+    "seed_z_tol_uu": 400.0,
+    "seeds": 707,
+    "seeds_total_markers": 905,
+    "markers_covered": 707,
+    "markers_stranded": 0,
+    "surface_cells": 8708171,
+    "reached_cells": 4317180,
+    "lit_px": 5744028,
+    "reached_px": 3114476,
+    "area_m2": 187924.2,
+    "reached_area_m2": 101894.6,
+    "reached_area_pct": 54.22,
+    "blobs_before": 931,
+    "blobs_after": 10,
+    "big_unreached_min_m2": 400.0,
+    "big_unreached": [
+     {
+      "x": 43052.9,
+      "y": -6662.2,
+      "z": -596.1,
+      "area_m2": 13735.4
+     },
+     {
+      "x": 4973.9,
+      "y": 5254.9,
+      "z": 122.9,
+      "area_m2": 9208.0
+     },
+     {
+      "x": 2404.3,
+      "y": -69076.9,
+      "z": 11076.3,
+      "area_m2": 3464.8
+     },
+     {
+      "x": 5452.6,
+      "y": -57456.5,
+      "z": 11455.8,
+      "area_m2": 3446.5
+     },
+     {
+      "x": 57609.1,
+      "y": -5995.1,
+      "z": 542.4,
+      "area_m2": 2947.4
+     },
+     {
+      "x": 37781.2,
+      "y": -33976.9,
+      "z": 6567.3,
+      "area_m2": 2565.5
+     },
+     {
+      "x": 55433.7,
+      "y": -48759.4,
+      "z": 18235.2,
+      "area_m2": 1756.2
+     },
+     {
+      "x": 64572.8,
+      "y": -49722.3,
+      "z": 20714.5,
+      "area_m2": 1439.9
+     },
+     {
+      "x": 70008.0,
+      "y": -49306.7,
+      "z": 17413.8,
+      "area_m2": 1350.3
+     },
+     {
+      "x": 58389.0,
+      "y": -43054.9,
+      "z": 18641.3,
+      "area_m2": 1320.3
+     },
+     {
+      "x": 11652.3,
+      "y": -41057.0,
+      "z": 14539.7,
+      "area_m2": 1284.1
+     },
+     {
+      "x": 14960.1,
+      "y": -63086.2,
+      "z": 10550.3,
+      "area_m2": 1227.7
+     },
+     {
+      "x": 26137.9,
+      "y": -34839.8,
+      "z": 12039.1,
+      "area_m2": 1029.3
+     },
+     {
+      "x": 41506.0,
+      "y": -23370.8,
+      "z": 7521.9,
+      "area_m2": 1015.9
+     },
+     {
+      "x": 15732.3,
+      "y": -37455.3,
+      "z": 13742.2,
+      "area_m2": 903.2
+     },
+     {
+      "x": 57926.7,
+      "y": -65696.5,
+      "z": 14732.3,
+      "area_m2": 681.5
+     },
+     {
+      "x": 16964.8,
+      "y": -30209.1,
+      "z": 1426.0,
+      "area_m2": 678.5
+     },
+     {
+      "x": 49316.6,
+      "y": -65826.6,
+      "z": 11559.7,
+      "area_m2": 576.2
+     },
+     {
+      "x": -2528.1,
+      "y": -64552.8,
+      "z": 11903.9,
+      "area_m2": 558.8
+     },
+     {
+      "x": 14065.1,
+      "y": -66354.8,
+      "z": 11704.5,
+      "area_m2": 529.2
+     },
+     {
+      "x": 50078.3,
+      "y": 2020.4,
+      "z": -6769.0,
+      "area_m2": 491.6
+     },
+     {
+      "x": 41784.5,
+      "y": -47906.5,
+      "z": 6992.8,
+      "area_m2": 462.1
+     },
+     {
+      "x": 36675.4,
+      "y": -30730.0,
+      "z": 13835.8,
+      "area_m2": 448.7
+     },
+     {
+      "x": 26513.6,
+      "y": -31622.1,
+      "z": 12633.2,
+      "area_m2": 406.9
+     }
+    ],
+    "enabled": true
+   },
+   "height_planes": [
+    "chapter2/small_h0.png",
+    "chapter2/small_h1.png",
+    "chapter2/small_h2.png",
+    "chapter2/small_h3.png",
+    "chapter2/small_h4.png",
+    "chapter2/small_h5.png",
+    "chapter2/small_h6.png",
+    "chapter2/small_h7.png"
+   ],
    "height_map_bytes": [
-    1980476,
-    1136817,
-    542415,
-    268293,
-    147188,
-    90549,
-    61612,
-    48307
+    2006487,
+    1151477,
+    548731,
+    270843,
+    148449,
+    91156,
+    61806,
+    48322
    ],
    "height_map_raw_bytes": 355828368,
    "surface_hist": [
@@ -196,30 +517,19 @@
     11178,
     3459
    ],
-   "composite_format": "png8-palette-trns",
-   "composite_quantisation": {
-    "unique_rgba_before": 649,
-    "palette_colours": 256,
-    "max_channel_delta": 3,
-    "mean_channel_delta": 0.2047
-   },
    "z_bits": 12,
    "z_code_max": 4095,
-   "height_planes": [
-    "chapter2/small_h0.png",
-    "chapter2/small_h1.png",
-    "chapter2/small_h2.png",
-    "chapter2/small_h3.png",
-    "chapter2/small_h4.png",
-    "chapter2/small_h5.png",
-    "chapter2/small_h6.png",
-    "chapter2/small_h7.png"
-   ],
+   "z_code_mask": 4095,
+   "z_code_no_surface": 0,
+   "reach_bit": 4096,
+   "z_step_uu": 12.232535417684415,
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
+   "reach_flag": "bit 12 of the height code = the surface is reachable",
+   "composite_format": "png8-palette-trns",
    "height_tile_px": 128,
    "height_tiles_128": 2215,
    "height_tiles_128_total": 11248,
-   "height_tile_ram_bytes": 72581120,
-   "z_requantise_worst_uu": 6.116
+   "height_tile_ram_bytes": 72581120
   },
   "chapter3": {
    "image": "chapter3/small.png",
@@ -239,9 +549,6 @@
    "png_bytes": 1417234,
    "z_min": -12054.117918570008,
    "z_max": 38871.0,
-   "z_step_uu": 12.438963829645825,
-   "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 3,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -272,8 +579,8 @@
     "dropped": 33870,
     "polys_dropped": 69335,
     "area_dropped": 286007900.0,
-    "seeds": 730,
-    "seeded_components": 1462,
+    "seeds": 740,
+    "seeded_components": 1471,
     "grid_uu": 64.0,
     "z_tol_uu": 150.0,
     "min_area_uu2": 40000.0,
@@ -284,15 +591,328 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
+   "reachability": {
+    "step_up_uu": 60.0,
+    "seed_z_tol_uu": 400.0,
+    "seeds": 565,
+    "seeds_total_markers": 740,
+    "markers_covered": 565,
+    "markers_stranded": 0,
+    "surface_cells": 9780824,
+    "reached_cells": 4255995,
+    "lit_px": 6763795,
+    "reached_px": 3001276,
+    "area_m2": 289554.0,
+    "reached_area_m2": 128482.8,
+    "reached_area_pct": 44.37,
+    "blobs_before": 931,
+    "blobs_after": 22,
+    "big_unreached_min_m2": 400.0,
+    "big_unreached": [
+     {
+      "x": 84661.7,
+      "y": 25343.2,
+      "z": -5884.7,
+      "area_m2": 25314.0
+     },
+     {
+      "x": 37856.2,
+      "y": 17714.3,
+      "z": 1751.0,
+      "area_m2": 18747.4
+     },
+     {
+      "x": 44741.8,
+      "y": -5302.9,
+      "z": -2004.0,
+      "area_m2": 9082.8
+     },
+     {
+      "x": 79771.4,
+      "y": -6939.9,
+      "z": -6168.1,
+      "area_m2": 7149.7
+     },
+     {
+      "x": 67586.1,
+      "y": 41759.5,
+      "z": -3914.9,
+      "area_m2": 6339.4
+     },
+     {
+      "x": 115428.1,
+      "y": -2428.5,
+      "z": -6026.2,
+      "area_m2": 6130.4
+     },
+     {
+      "x": 7225.9,
+      "y": 5070.3,
+      "z": 1679.5,
+      "area_m2": 5183.0
+     },
+     {
+      "x": 15457.9,
+      "y": 55087.2,
+      "z": -4689.4,
+      "area_m2": 5055.9
+     },
+     {
+      "x": 22513.0,
+      "y": 46004.7,
+      "z": -5435.2,
+      "area_m2": 4807.7
+     },
+     {
+      "x": 34170.0,
+      "y": 36996.6,
+      "z": -7117.6,
+      "area_m2": 3222.8
+     },
+     {
+      "x": 87065.9,
+      "y": 37121.8,
+      "z": -6135.8,
+      "area_m2": 3091.7
+     },
+     {
+      "x": 105353.0,
+      "y": 11328.2,
+      "z": -6139.7,
+      "area_m2": 2348.9
+     },
+     {
+      "x": 48139.4,
+      "y": 33386.1,
+      "z": -5195.6,
+      "area_m2": 1820.1
+     },
+     {
+      "x": 64668.3,
+      "y": -8069.0,
+      "z": 587.6,
+      "area_m2": 1606.0
+     },
+     {
+      "x": 60767.3,
+      "y": 7722.7,
+      "z": -2106.9,
+      "area_m2": 1592.4
+     },
+     {
+      "x": 57261.4,
+      "y": -7732.2,
+      "z": 674.6,
+      "area_m2": 1465.1
+     },
+     {
+      "x": 45730.9,
+      "y": 54428.1,
+      "z": -6909.2,
+      "area_m2": 1446.2
+     },
+     {
+      "x": 50622.4,
+      "y": 20469.0,
+      "z": 1082.3,
+      "area_m2": 1410.7
+     },
+     {
+      "x": 97501.3,
+      "y": -14729.7,
+      "z": -9946.5,
+      "area_m2": 1234.4
+     },
+     {
+      "x": 61659.7,
+      "y": -6555.5,
+      "z": 427.6,
+      "area_m2": 1195.2
+     },
+     {
+      "x": 75632.3,
+      "y": 11525.0,
+      "z": -5359.1,
+      "area_m2": 1087.8
+     },
+     {
+      "x": 46508.0,
+      "y": 46683.3,
+      "z": -6910.9,
+      "area_m2": 1066.4
+     },
+     {
+      "x": 66254.0,
+      "y": -5081.1,
+      "z": 539.6,
+      "area_m2": 983.2
+     },
+     {
+      "x": 45535.8,
+      "y": 41735.8,
+      "z": -6247.9,
+      "area_m2": 877.3
+     },
+     {
+      "x": 114662.0,
+      "y": -7203.6,
+      "z": -6092.4,
+      "area_m2": 826.8
+     },
+     {
+      "x": 42792.7,
+      "y": 26400.3,
+      "z": -684.7,
+      "area_m2": 771.2
+     },
+     {
+      "x": 59724.3,
+      "y": 31618.9,
+      "z": -3622.0,
+      "area_m2": 724.7
+     },
+     {
+      "x": 22694.0,
+      "y": 30850.3,
+      "z": 3511.0,
+      "area_m2": 667.2
+     },
+     {
+      "x": 107266.0,
+      "y": -101.6,
+      "z": -5576.8,
+      "area_m2": 657.7
+     },
+     {
+      "x": 21186.1,
+      "y": 36047.2,
+      "z": -5329.0,
+      "area_m2": 655.2
+     },
+     {
+      "x": 94484.6,
+      "y": 10050.7,
+      "z": -6322.7,
+      "area_m2": 647.2
+     },
+     {
+      "x": 66659.6,
+      "y": 960.5,
+      "z": -5684.0,
+      "area_m2": 641.4
+     },
+     {
+      "x": 44341.4,
+      "y": 21917.5,
+      "z": -604.7,
+      "area_m2": 596.2
+     },
+     {
+      "x": 14264.1,
+      "y": 45579.7,
+      "z": -3492.9,
+      "area_m2": 573.5
+     },
+     {
+      "x": 29396.6,
+      "y": 47132.3,
+      "z": -5513.0,
+      "area_m2": 562.0
+     },
+     {
+      "x": 97501.5,
+      "y": 1579.3,
+      "z": -8775.2,
+      "area_m2": 556.4
+     },
+     {
+      "x": 76200.9,
+      "y": 32158.3,
+      "z": -5659.5,
+      "area_m2": 521.5
+     },
+     {
+      "x": 45501.1,
+      "y": 27371.0,
+      "z": -5264.3,
+      "area_m2": 520.5
+     },
+     {
+      "x": 84925.1,
+      "y": -5439.6,
+      "z": -7245.3,
+      "area_m2": 512.1
+     },
+     {
+      "x": 85312.7,
+      "y": 1323.6,
+      "z": -6195.5,
+      "area_m2": 506.5
+     },
+     {
+      "x": 66663.7,
+      "y": 37138.1,
+      "z": -3679.7,
+      "area_m2": 497.0
+     },
+     {
+      "x": 55904.7,
+      "y": 10576.5,
+      "z": -1100.1,
+      "area_m2": 459.7
+     },
+     {
+      "x": 71798.2,
+      "y": 18987.5,
+      "z": -4012.2,
+      "area_m2": 435.4
+     },
+     {
+      "x": 104562.2,
+      "y": 5826.3,
+      "z": -5633.3,
+      "area_m2": 412.1
+     },
+     {
+      "x": 88424.6,
+      "y": 11559.7,
+      "z": -5736.9,
+      "area_m2": 411.8
+     },
+     {
+      "x": 105291.2,
+      "y": 16227.3,
+      "z": -6184.8,
+      "area_m2": 409.9
+     },
+     {
+      "x": 58302.7,
+      "y": 21313.7,
+      "z": 2355.7,
+      "area_m2": 402.2
+     }
+    ],
+    "enabled": true
+   },
+   "height_planes": [
+    "chapter3/small_h0.png",
+    "chapter3/small_h1.png",
+    "chapter3/small_h2.png",
+    "chapter3/small_h3.png",
+    "chapter3/small_h4.png",
+    "chapter3/small_h5.png",
+    "chapter3/small_h6.png",
+    "chapter3/small_h7.png"
+   ],
    "height_map_bytes": [
-    2009214,
-    1171367,
-    551008,
-    265684,
-    139146,
-    89279,
-    63668,
-    51406
+    2038366,
+    1184580,
+    556412,
+    267290,
+    139599,
+    89415,
+    63700,
+    51481
    ],
    "height_map_raw_bytes": 355888320,
    "surface_hist": [
@@ -306,30 +926,19 @@
     13489,
     7612
    ],
-   "composite_format": "png8-palette-trns",
-   "composite_quantisation": {
-    "unique_rgba_before": 651,
-    "palette_colours": 256,
-    "max_channel_delta": 2,
-    "mean_channel_delta": 0.1935
-   },
    "z_bits": 12,
    "z_code_max": 4095,
-   "height_planes": [
-    "chapter3/small_h0.png",
-    "chapter3/small_h1.png",
-    "chapter3/small_h2.png",
-    "chapter3/small_h3.png",
-    "chapter3/small_h4.png",
-    "chapter3/small_h5.png",
-    "chapter3/small_h6.png",
-    "chapter3/small_h7.png"
-   ],
+   "z_code_mask": 4095,
+   "z_code_no_surface": 0,
+   "reach_bit": 4096,
+   "z_step_uu": 12.438963829645825,
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
+   "reach_flag": "bit 12 of the height code = the surface is reachable",
+   "composite_format": "png8-palette-trns",
    "height_tile_px": 128,
    "height_tiles_128": 2366,
    "height_tiles_128_total": 11040,
-   "height_tile_ram_bytes": 77529088,
-   "z_requantise_worst_uu": 6.219
+   "height_tile_ram_bytes": 77529088
   },
   "chapter4": {
    "image": "chapter4/small.png",
@@ -349,9 +958,6 @@
    "png_bytes": 1049479,
    "z_min": -8809.0,
    "z_max": 20911.0,
-   "z_step_uu": 7.259404005862238,
-   "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 4,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -394,14 +1000,231 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
+   "reachability": {
+    "step_up_uu": 60.0,
+    "seed_z_tol_uu": 400.0,
+    "seeds": 289,
+    "seeds_total_markers": 341,
+    "markers_covered": 289,
+    "markers_stranded": 0,
+    "surface_cells": 7505797,
+    "reached_cells": 2674494,
+    "lit_px": 5514127,
+    "reached_px": 2200056,
+    "area_m2": 201343.8,
+    "reached_area_m2": 80333.2,
+    "reached_area_pct": 39.9,
+    "blobs_before": 670,
+    "blobs_after": 16,
+    "big_unreached_min_m2": 400.0,
+    "big_unreached": [
+     {
+      "x": 19187.0,
+      "y": -15461.3,
+      "z": -875.6,
+      "area_m2": 24020.7
+     },
+     {
+      "x": 55845.9,
+      "y": -53722.6,
+      "z": 14437.0,
+      "area_m2": 12119.7
+     },
+     {
+      "x": 39916.0,
+      "y": 3927.0,
+      "z": -538.6,
+      "area_m2": 12071.6
+     },
+     {
+      "x": -4683.5,
+      "y": -3828.4,
+      "z": 2303.2,
+      "area_m2": 4969.5
+     },
+     {
+      "x": 63017.4,
+      "y": -34737.0,
+      "z": 3430.5,
+      "area_m2": 4720.4
+     },
+     {
+      "x": -4715.2,
+      "y": -25851.2,
+      "z": -4641.4,
+      "area_m2": 4443.3
+     },
+     {
+      "x": 7773.9,
+      "y": -24445.1,
+      "z": 374.3,
+      "area_m2": 3795.7
+     },
+     {
+      "x": 3467.5,
+      "y": -28068.3,
+      "z": -3058.2,
+      "area_m2": 2797.7
+     },
+     {
+      "x": 33686.9,
+      "y": -3749.0,
+      "z": -572.5,
+      "area_m2": 2162.2
+     },
+     {
+      "x": 15827.2,
+      "y": 12004.4,
+      "z": 4234.1,
+      "area_m2": 1791.0
+     },
+     {
+      "x": 24100.4,
+      "y": 567.8,
+      "z": 289.3,
+      "area_m2": 1706.6
+     },
+     {
+      "x": 4393.3,
+      "y": -7557.4,
+      "z": 1715.1,
+      "area_m2": 1688.9
+     },
+     {
+      "x": 32097.7,
+      "y": -16621.8,
+      "z": -975.8,
+      "area_m2": 1570.3
+     },
+     {
+      "x": 7925.3,
+      "y": 18539.5,
+      "z": 5131.7,
+      "area_m2": 1280.0
+     },
+     {
+      "x": 65972.5,
+      "y": -47630.3,
+      "z": 3604.0,
+      "area_m2": 1146.9
+     },
+     {
+      "x": 42863.0,
+      "y": -17543.1,
+      "z": 6204.3,
+      "area_m2": 1133.2
+     },
+     {
+      "x": 35100.7,
+      "y": 21265.8,
+      "z": 491.3,
+      "area_m2": 1094.3
+     },
+     {
+      "x": -4477.6,
+      "y": -28924.2,
+      "z": -3575.3,
+      "area_m2": 920.6
+     },
+     {
+      "x": 26776.2,
+      "y": 12850.6,
+      "z": 3363.6,
+      "area_m2": 908.4
+     },
+     {
+      "x": -3810.6,
+      "y": 18277.7,
+      "z": 3508.8,
+      "area_m2": 893.7
+     },
+     {
+      "x": 1146.9,
+      "y": 12243.0,
+      "z": 2429.0,
+      "area_m2": 850.5
+     },
+     {
+      "x": 22193.7,
+      "y": 30295.6,
+      "z": 3522.6,
+      "area_m2": 796.0
+     },
+     {
+      "x": 17760.4,
+      "y": -28524.5,
+      "z": 277.2,
+      "area_m2": 666.0
+     },
+     {
+      "x": -2229.5,
+      "y": 1243.2,
+      "z": 2415.0,
+      "area_m2": 595.8
+     },
+     {
+      "x": 984.0,
+      "y": -31702.1,
+      "z": -2314.6,
+      "area_m2": 543.9
+     },
+     {
+      "x": 28556.5,
+      "y": -1249.7,
+      "z": -356.6,
+      "area_m2": 536.2
+     },
+     {
+      "x": 38920.7,
+      "y": -2014.4,
+      "z": -432.1,
+      "area_m2": 524.0
+     },
+     {
+      "x": -4801.9,
+      "y": 11260.7,
+      "z": 2191.0,
+      "area_m2": 498.7
+     },
+     {
+      "x": 39786.9,
+      "y": -29031.7,
+      "z": 4125.5,
+      "area_m2": 496.6
+     },
+     {
+      "x": -2616.1,
+      "y": -22803.7,
+      "z": -2913.5,
+      "area_m2": 491.3
+     },
+     {
+      "x": 6200.2,
+      "y": -19942.6,
+      "z": -765.6,
+      "area_m2": 466.4
+     }
+    ],
+    "enabled": true
+   },
+   "height_planes": [
+    "chapter4/small_h0.png",
+    "chapter4/small_h1.png",
+    "chapter4/small_h2.png",
+    "chapter4/small_h3.png",
+    "chapter4/small_h4.png",
+    "chapter4/small_h5.png",
+    "chapter4/small_h6.png",
+    "chapter4/small_h7.png"
+   ],
    "height_map_bytes": [
-    1716530,
-    758335,
-    361987,
-    173018,
-    85865,
-    52804,
-    44394,
+    1734223,
+    764933,
+    363757,
+    173626,
+    85920,
+    52785,
+    44390,
     43405
    ],
    "height_map_raw_bytes": 355869088,
@@ -416,30 +1239,19 @@
     391,
     67
    ],
-   "composite_format": "png8-palette-trns",
-   "composite_quantisation": {
-    "unique_rgba_before": 644,
-    "palette_colours": 256,
-    "max_channel_delta": 3,
-    "mean_channel_delta": 0.189
-   },
    "z_bits": 12,
    "z_code_max": 4095,
-   "height_planes": [
-    "chapter4/small_h0.png",
-    "chapter4/small_h1.png",
-    "chapter4/small_h2.png",
-    "chapter4/small_h3.png",
-    "chapter4/small_h4.png",
-    "chapter4/small_h5.png",
-    "chapter4/small_h6.png",
-    "chapter4/small_h7.png"
-   ],
+   "z_code_mask": 4095,
+   "z_code_no_surface": 0,
+   "reach_bit": 4096,
+   "z_step_uu": 7.259404005862238,
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
+   "reach_flag": "bit 12 of the height code = the surface is reachable",
+   "composite_format": "png8-palette-trns",
    "height_tile_px": 128,
    "height_tiles_128": 1644,
    "height_tiles_128_total": 11232,
-   "height_tile_ram_bytes": 53870592,
-   "z_requantise_worst_uu": 3.63
+   "height_tile_ram_bytes": 53870592
   },
   "chapter5": {
    "image": "chapter5/small.png",
@@ -459,9 +1271,6 @@
    "png_bytes": 828992,
    "z_min": -2521.65241364577,
    "z_max": 13752.367487815143,
-   "z_step_uu": 3.9750903520910876,
-   "z_code_no_surface": 0,
-   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
    "chapter": 5,
    "max_surfaces": 8,
    "max_surfaces_requested": 8,
@@ -492,8 +1301,8 @@
     "dropped": 38442,
     "polys_dropped": 73705,
     "area_dropped": 332684200.0,
-    "seeds": 354,
-    "seeded_components": 413,
+    "seeds": 359,
+    "seeded_components": 436,
     "grid_uu": 64.0,
     "z_tol_uu": 150.0,
     "min_area_uu2": 40000.0,
@@ -504,15 +1313,232 @@
     "seed_radius_uu": 300.0,
     "require_seed": false
    },
+   "reachability": {
+    "step_up_uu": 60.0,
+    "seed_z_tol_uu": 400.0,
+    "seeds": 324,
+    "seeds_total_markers": 359,
+    "markers_covered": 324,
+    "markers_stranded": 0,
+    "surface_cells": 5064802,
+    "reached_cells": 1706708,
+    "lit_px": 3175089,
+    "reached_px": 1166537,
+    "area_m2": 309592.2,
+    "reached_area_m2": 113745.1,
+    "reached_area_pct": 36.74,
+    "blobs_before": 771,
+    "blobs_after": 8,
+    "big_unreached_min_m2": 400.0,
+    "big_unreached": [
+     {
+      "x": -82782.4,
+      "y": -53480.3,
+      "z": 2085.4,
+      "area_m2": 53799.6
+     },
+     {
+      "x": -102326.2,
+      "y": -6435.3,
+      "z": -991.9,
+      "area_m2": 23870.2
+     },
+     {
+      "x": -173996.0,
+      "y": -15024.3,
+      "z": 2034.5,
+      "area_m2": 9943.7
+     },
+     {
+      "x": -124200.8,
+      "y": -22592.3,
+      "z": 1285.9,
+      "area_m2": 8903.3
+     },
+     {
+      "x": -67113.5,
+      "y": -24554.8,
+      "z": 3033.5,
+      "area_m2": 7941.6
+     },
+     {
+      "x": -98839.2,
+      "y": -30945.4,
+      "z": 3818.2,
+      "area_m2": 7005.8
+     },
+     {
+      "x": -117470.4,
+      "y": 17136.0,
+      "z": 9139.2,
+      "area_m2": 6273.6
+     },
+     {
+      "x": -186692.8,
+      "y": -14477.1,
+      "z": 2697.0,
+      "area_m2": 4714.8
+     },
+     {
+      "x": -129545.6,
+      "y": 17506.8,
+      "z": 11008.2,
+      "area_m2": 4177.8
+     },
+     {
+      "x": -137557.3,
+      "y": -13885.7,
+      "z": -255.1,
+      "area_m2": 3700.3
+     },
+     {
+      "x": -127707.6,
+      "y": -4499.4,
+      "z": 1342.7,
+      "area_m2": 3689.7
+     },
+     {
+      "x": -80120.5,
+      "y": -11924.1,
+      "z": 9373.8,
+      "area_m2": 3660.4
+     },
+     {
+      "x": -127975.5,
+      "y": -27888.9,
+      "z": 3725.9,
+      "area_m2": 2880.6
+     },
+     {
+      "x": -102865.1,
+      "y": 17897.4,
+      "z": 10195.5,
+      "area_m2": 2710.0
+     },
+     {
+      "x": -128462.7,
+      "y": -12307.5,
+      "z": -522.1,
+      "area_m2": 2706.1
+     },
+     {
+      "x": -115694.4,
+      "y": -56728.9,
+      "z": 1975.7,
+      "area_m2": 2062.0
+     },
+     {
+      "x": -115536.5,
+      "y": -17484.9,
+      "z": -1885.0,
+      "area_m2": 1440.7
+     },
+     {
+      "x": -135145.5,
+      "y": 16984.7,
+      "z": 11161.8,
+      "area_m2": 1433.0
+     },
+     {
+      "x": -76887.4,
+      "y": -22947.6,
+      "z": 4603.1,
+      "area_m2": 1283.8
+     },
+     {
+      "x": -65234.0,
+      "y": -32454.4,
+      "z": 2392.5,
+      "area_m2": 1246.3
+     },
+     {
+      "x": -102557.8,
+      "y": -22112.7,
+      "z": -1921.0,
+      "area_m2": 1116.2
+     },
+     {
+      "x": -101472.9,
+      "y": 13703.2,
+      "z": 9992.1,
+      "area_m2": 881.6
+     },
+     {
+      "x": -111893.2,
+      "y": -52471.9,
+      "z": 1961.6,
+      "area_m2": 878.4
+     },
+     {
+      "x": -105200.8,
+      "y": 13756.1,
+      "z": 10001.7,
+      "area_m2": 877.9
+     },
+     {
+      "x": -60269.9,
+      "y": -66489.9,
+      "z": 2387.7,
+      "area_m2": 851.9
+     },
+     {
+      "x": -66150.2,
+      "y": -37497.1,
+      "z": 2583.4,
+      "area_m2": 779.7
+     },
+     {
+      "x": -100963.5,
+      "y": 10532.2,
+      "z": 9927.5,
+      "area_m2": 734.3
+     },
+     {
+      "x": -84758.8,
+      "y": -59351.9,
+      "z": 2372.7,
+      "area_m2": 682.7
+     },
+     {
+      "x": -70687.4,
+      "y": -35071.0,
+      "z": 2023.4,
+      "area_m2": 537.1
+     },
+     {
+      "x": -123595.4,
+      "y": -12754.9,
+      "z": -892.7,
+      "area_m2": 493.0
+     },
+     {
+      "x": -114624.6,
+      "y": 16317.9,
+      "z": 9151.6,
+      "area_m2": 417.4
+     }
+    ],
+    "enabled": true
+   },
+   "height_planes": [
+    "chapter5/small_h0.png",
+    "chapter5/small_h1.png",
+    "chapter5/small_h2.png",
+    "chapter5/small_h3.png",
+    "chapter5/small_h4.png",
+    "chapter5/small_h5.png",
+    "chapter5/small_h6.png",
+    "chapter5/small_h7.png"
+   ],
    "height_map_bytes": [
-    1475244,
-    1016712,
-    592381,
-    355761,
-    220357,
-    143641,
-    99563,
-    67400
+    1489866,
+    1026822,
+    598547,
+    358948,
+    221745,
+    144437,
+    100074,
+    67591
    ],
    "height_map_raw_bytes": 355822688,
    "surface_hist": [
@@ -526,30 +1552,19 @@
     13368,
     14119
    ],
-   "composite_format": "png8-palette-trns",
-   "composite_quantisation": {
-    "unique_rgba_before": 651,
-    "palette_colours": 256,
-    "max_channel_delta": 2,
-    "mean_channel_delta": 0.1996
-   },
    "z_bits": 12,
    "z_code_max": 4095,
-   "height_planes": [
-    "chapter5/small_h0.png",
-    "chapter5/small_h1.png",
-    "chapter5/small_h2.png",
-    "chapter5/small_h3.png",
-    "chapter5/small_h4.png",
-    "chapter5/small_h5.png",
-    "chapter5/small_h6.png",
-    "chapter5/small_h7.png"
-   ],
+   "z_code_mask": 4095,
+   "z_code_no_surface": 0,
+   "reach_bit": 4096,
+   "z_step_uu": 3.9750903520910876,
+   "z_quantisation": "code = 1 + round((Z - z_min) / (z_max - z_min) * 4094) ; 0 = no surface",
+   "reach_flag": "bit 12 of the height code = the surface is reachable",
+   "composite_format": "png8-palette-trns",
    "height_tile_px": 128,
    "height_tiles_128": 1515,
    "height_tiles_128_total": 11136,
-   "height_tile_ram_bytes": 49643520,
-   "z_requantise_worst_uu": 1.987
+   "height_tile_ram_bytes": 49643520
   }
  }
 }

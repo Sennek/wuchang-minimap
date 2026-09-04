@@ -40,6 +40,7 @@
 #include "saveslot.hpp"
 #include "scan_sched.hpp"
 #include "shrines_db.hpp"
+#include "slicerule.hpp"
 #include "spinlock.hpp"
 
 
@@ -2367,7 +2368,7 @@ namespace
 
     void test_map_manifest(const std::string& markers_dir)
     {
-        std::printf("mapmanifest: schema /4, five chapters, and the ways it can be wrong\n");
+        std::printf("mapmanifest: schema /5 and /4, five chapters, and the ways it can be wrong\n");
 
         {
             const char* text = R"({
@@ -2390,7 +2391,9 @@ namespace
             std::vector<std::string> problems;
             CHECK(mapmanifest::parse(text, m, problems));
             CHECK_EQ(static_cast<long long>(problems.size()), 0);
-            CHECK_STR(m.schema, std::string(mapmanifest::kSchema));
+            CHECK_STR(m.schema, std::string(mapmanifest::kSchemaNoReach));
+            CHECK(!m.has_reachability());
+            CHECK(!m.chapters[0].has_reachability);
             CHECK_EQ(static_cast<long long>(m.chapters.size()), 2);
             CHECK_STR(m.chapters[0].key, std::string("chapter1"));
             CHECK_EQ(m.chapters[0].chapter, 1);
@@ -2410,6 +2413,35 @@ namespace
             CHECK_EQ(m.index_of_key("chapter9"), -1);
             // The DLC is not a numbered chapter, so it is never the start-up default.
             CHECK_EQ(m.default_index(), 0);
+        }
+
+        // --- schema /5: the same document, with reachability in bit 12 ---------------
+        {
+            const char* text = R"({
+              "schema": "wuchang-minimap-maps/5",
+              "chapters": {
+                "chapter1": { "chapter": 1, "image": "chapter1/small.png",
+                              "image_width": 100, "image_height": 200,
+                              "min_x": -10, "min_y": -20, "max_x": 30, "max_y": 40,
+                              "px_per_uu": 0.06, "z_min": -5, "z_max": 15,
+                              "z_bits": 12, "z_code_max": 4095,
+                              "max_surfaces": 1,
+                              "height_planes": ["chapter1/small_h0.png"] }
+              } })";
+            mapmanifest::Manifest m{};
+            std::vector<std::string> problems;
+            CHECK(mapmanifest::parse(text, m, problems));
+            CHECK_EQ(static_cast<long long>(problems.size()), 0);
+            CHECK(m.schema_ok());
+            CHECK_STR(m.schema, std::string(mapmanifest::kSchema));
+            CHECK(m.has_reachability());
+            CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
+            CHECK(m.chapters[0].has_reachability);
+            // /5 changed nothing else: same geometry, same 12-bit Z.
+            CHECK_EQ(m.chapters[0].z_bits, 12);
+            CHECK_EQ(m.chapters[0].z_code_max, 4095);
+            CHECK(m.chapters[0].geometry_ok());
+            CHECK(m.chapters[0].heights_ok());
         }
 
         // --- a chapter that states max_surfaces but no plane list --------------------
@@ -2459,6 +2491,7 @@ namespace
             CHECK(!m.schema_ok());
             CHECK(m.chapters.empty()); // nothing is drawn from a file we cannot read
             CHECK(problems[0].find("wuchang-minimap-maps/3") != std::string::npos);
+            CHECK(problems[0].find("wuchang-minimap-maps/5") != std::string::npos);
             CHECK(problems[0].find("wuchang-minimap-maps/4") != std::string::npos);
             CHECK(problems[0].find("build_map.py") != std::string::npos);
 
@@ -2554,7 +2587,7 @@ namespace
                 std::vector<std::string> problems;
                 CHECK(mapmanifest::parse(text, m, problems));
                 CHECK_EQ(static_cast<long long>(problems.size()), 0);
-                CHECK_STR(m.schema, std::string(mapmanifest::kSchema));
+                CHECK(m.schema_ok());
                 CHECK_EQ(static_cast<long long>(m.chapters.size()), 5);
                 CHECK_EQ(m.default_index(), m.index_of_number(1));
                 std::size_t total_ram = 0;
@@ -2573,7 +2606,9 @@ namespace
                     CHECK(!e.height_maps_guessed);
                     CHECK_EQ(static_cast<long long>(e.height_maps.size()), 8);
                     CHECK(e.px_per_uu > 0.02 && e.px_per_uu <= 0.06);
-                    // Every shipped chapter is 12-bit and every plane is named the /4 way.
+                    // Every shipped chapter is 12-bit, every plane is named the `_h` way,
+                    // and reachability is a property of the whole tree.
+                    CHECK_EQ(e.has_reachability, m.has_reachability());
                     CHECK_EQ(e.z_bits, mapmanifest::kZBits);
                     CHECK_EQ(e.z_code_max, mapmanifest::kZCodeMax);
                     CHECK(e.height_maps[0].find("_h0.png") != std::string::npos);
@@ -2598,6 +2633,163 @@ namespace
     // The SPARSE height-plane store (src/mapdata.hpp: build_plane + gather_row)
     // The planes are 128-px blocks with an index, and an absent block reads as code 0. The test
     // is differential against a dense reference over patterns hitting every indexing edge.
+
+    // The height code's two fields, and the slicer's per-pixel rule (src/slicerule.hpp).
+
+    void test_slice_rule()
+    {
+        std::printf("height codes and the slice rule: masking, reachability, fade above\n");
+
+        section("bit 12 never reaches the Z");
+        {
+            mapdata::HeightMaps hm{};
+            hm.count = 1;
+            hm.width = 8;
+            hm.height = 8;
+            hm.z_min = 0.0f;
+            hm.z_max = 4094.0f;
+            hm.z_code_max = 4095; // one uu per step
+            const std::uint16_t codes[] = {1, 2, 1234, 4095};
+            for (const std::uint16_t c : codes)
+            {
+                const std::uint16_t marked = static_cast<std::uint16_t>(c | mapdata::kReachableBit);
+                CHECK_EQ(mapdata::z_code(marked), c);
+                CHECK_EQ(mapdata::z_code(c), c);
+                CHECK_NEAR(static_cast<double>(hm.decode(marked)), static_cast<double>(hm.decode(c)), 1e-6);
+            }
+            // 0 is "no surface" whatever bit 12 says, and nothing sets bits 13..15.
+            CHECK_EQ(mapdata::z_code(mapdata::kReachableBit), 0);
+            CHECK_EQ(mapdata::kReachableBit, 0x1000);
+            CHECK_EQ(mapdata::kZCodeMask, 0x0FFF);
+            CHECK_EQ(mapdata::kZCodeMask | mapdata::kReachableBit, 0x1FFF);
+
+            // A /4 asset has no bit 12, so everything in it is reachable.
+            hm.has_reachability = false;
+            CHECK(hm.reachable(1234));
+            CHECK(hm.reachable(static_cast<std::uint16_t>(1234 | mapdata::kReachableBit)));
+            hm.has_reachability = true;
+            CHECK(!hm.reachable(1234));
+            CHECK(hm.reachable(static_cast<std::uint16_t>(1234 | mapdata::kReachableBit)));
+        }
+
+        section("map_unreachable = hide | dim | show, on a two-surface column");
+        {
+            srule::Unreachable u = srule::Unreachable::Show;
+            CHECK(srule::unreachable_from_name("Hide", u));
+            CHECK(u == srule::Unreachable::Hide);
+            CHECK(srule::unreachable_from_name(" d i m ", u));
+            CHECK(u == srule::Unreachable::Dim);
+            CHECK(srule::unreachable_from_name("SHOW", u));
+            CHECK(u == srule::Unreachable::Show);
+            CHECK(!srule::unreachable_from_name("maybe", u));
+            CHECK(u == srule::Unreachable::Show); // a bad value keeps what is in force
+            CHECK_STR(std::string(srule::unreachable_name(srule::Unreachable::Hide)), std::string("hide"));
+            CHECK_STR(std::string(srule::unreachable_name(srule::Unreachable::Dim)), std::string("dim"));
+            CHECK_STR(std::string(srule::unreachable_name(srule::Unreachable::Show)), std::string("show"));
+
+            // The player stands at Z 1000. Under their feet: an UNREACHABLE surface at
+            // their own level (a wall top the flood never reached) and a REACHABLE floor
+            // 500 uu below it.
+            srule::SliceStyle st{};
+            st.tol = 200.0f;
+            st.fade = 800.0f;
+            st.fade_above = 300.0f;
+            st.a_dim = 0.25f;
+            st.a_faint = 0.15f;
+
+            const auto column = [&st](srule::Unreachable mode, std::uint8_t& cls, bool& reach, float& alpha) {
+                st.unreachable = mode;
+                std::uint8_t rank = 0;
+                float ad = 0.0f;
+                float d = 0.0f;
+                srule::accumulate(rank, ad, d, 0.0f, false, st);     // my level, unreachable
+                srule::accumulate(rank, ad, d, -500.0f, true, st);   // 500 uu below, reachable
+                cls = srule::rank_class(rank);
+                reach = srule::rank_reachable(rank);
+                alpha = srule::alpha_for(cls, reach, st);
+            };
+
+            std::uint8_t cls = 0;
+            bool reach = false;
+            float alpha = 0.0f;
+
+            // hide: the wall top is not a surface at all, so the floor below wins.
+            column(srule::Unreachable::Hide, cls, reach, alpha);
+            CHECK_EQ(cls, srule::kClassBelow);
+            CHECK(reach);
+            CHECK_NEAR(static_cast<double>(alpha), 0.25, 1e-6);
+
+            // dim: it is drawn, one rung down the same ladder - never at full opacity.
+            column(srule::Unreachable::Dim, cls, reach, alpha);
+            CHECK_EQ(cls, srule::kClassFloor);
+            CHECK(!reach);
+            CHECK_NEAR(static_cast<double>(alpha), 0.25, 1e-6);
+
+            // show: indistinguishable from a reachable floor - 1.0.0's picture.
+            column(srule::Unreachable::Show, cls, reach, alpha);
+            CHECK_EQ(cls, srule::kClassFloor);
+            CHECK(reach);
+            CHECK_NEAR(static_cast<double>(alpha), 1.0, 1e-6);
+
+            // Within one class a REACHABLE surface beats an unreachable one even when the
+            // unreachable one is nearer.
+            st.unreachable = srule::Unreachable::Dim;
+            std::uint8_t rank = 0;
+            float ad = 0.0f;
+            float d = 0.0f;
+            srule::accumulate(rank, ad, d, 10.0f, false, st);
+            srule::accumulate(rank, ad, d, -150.0f, true, st);
+            CHECK_EQ(srule::rank_class(rank), srule::kClassFloor);
+            CHECK(srule::rank_reachable(rank));
+            CHECK_NEAR(static_cast<double>(d), -150.0, 1e-6);
+            // ... and within one rank, the nearest wins.
+            rank = 0;
+            ad = 0.0f;
+            d = 0.0f;
+            srule::accumulate(rank, ad, d, -150.0f, true, st);
+            srule::accumulate(rank, ad, d, 20.0f, true, st);
+            CHECK_NEAR(static_cast<double>(d), 20.0, 1e-6);
+        }
+
+        section("floor_fade_above_uu splits the above case off floor_fade_uu");
+        {
+            srule::SliceStyle st{};
+            st.tol = 200.0f;
+            st.fade = 800.0f;
+            st.unreachable = srule::Unreachable::Show;
+
+            const auto one = [&st](float d) {
+                std::uint8_t rank = 0;
+                float ad = 0.0f;
+                float dd = 0.0f;
+                srule::accumulate(rank, ad, dd, d, true, st);
+                return srule::rank_class(rank);
+            };
+
+            // At the shipped default a floor 250 uu up is drawn and one 500 uu up is not,
+            // while the same distances BELOW are both drawn - fade is 800 either way in
+            // 1.0.0 and the two dials are now independent.
+            st.fade_above = 300.0f;
+            CHECK_EQ(one(250.0f), srule::kClassAbove);
+            CHECK_EQ(one(500.0f), srule::kClassNone);
+            CHECK_EQ(one(-250.0f), srule::kClassBelow);
+            CHECK_EQ(one(-500.0f), srule::kClassBelow);
+            CHECK_EQ(one(-900.0f), srule::kClassNone);
+
+            // 0 = never draw a floor above the player; below is untouched.
+            st.fade_above = 0.0f;
+            CHECK_EQ(one(250.0f), srule::kClassNone);
+            CHECK_EQ(one(201.0f), srule::kClassNone);
+            CHECK_EQ(one(1.0f), srule::kClassFloor); // still inside the tolerance
+            CHECK_EQ(one(-250.0f), srule::kClassBelow);
+
+            // The gradient span follows the class it belongs to.
+            st.fade_above = 300.0f;
+            CHECK_NEAR(static_cast<double>(srule::span_for(srule::kClassFloor, st)), 200.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::span_for(srule::kClassBelow, st)), 800.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::span_for(srule::kClassAbove, st)), 300.0, 1e-6);
+        }
+    }
 
     void test_height_planes()
     {
@@ -3137,7 +3329,7 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
-        constexpr std::size_t kPaddingBytes = 72;
+        constexpr std::size_t kPaddingBytes = 75;
 
         mm::Config a{};
         mm::Config b{};
@@ -4872,6 +5064,7 @@ int main(int argc, char** argv)
     test_chapter_id();
     test_marker_chapter_filter();
     test_map_manifest(markers_dir);
+    test_slice_rule();
     test_height_planes();
     test_map_assets(markers_dir);
     test_config_keys(markers_dir);

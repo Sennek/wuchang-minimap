@@ -21,6 +21,12 @@ namespace overlay
             char g_map_search[64]{};   // the marker-name filter; empty = no filter
             int g_map_search_hits = 0; // markers the filter kept, over the whole buffer
             bool g_search_panel = false;
+            // The search box owns the caret: true from the frame the player clicks into
+            // it until a click lands outside it and outside the results dropdown. While
+            // it holds, a frame that finds no widget active hands the caret back - that
+            // is what survives a click on a result row, which focuses the dropdown's
+            // window and clears the active id.
+            bool g_search_focus = false;
             bool g_wp_panel = false;
         } // namespace
 
@@ -403,6 +409,7 @@ namespace overlay
             g_stats_page = false;
             g_shrine_panel = false;
             g_search_panel = false;
+            g_search_focus = false;
             g_wp_panel = false;
             g_shot_canvas_valid = false;
             g_map_search[0] = '\0';
@@ -503,7 +510,12 @@ namespace overlay
             constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                                                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                                                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                                                ImGuiWindowFlags_NoSavedSettings;
+                                                ImGuiWindowFlags_NoSavedSettings |
+                                                // It fills the screen, so it is the map mode's backdrop and
+                                                // stays behind its own panels: without this, focusing it -
+                                                // a click on the canvas, or the search box taking the caret
+                                                // back - would draw it over the search dropdown.
+                                                ImGuiWindowFlags_NoBringToFrontOnFocus;
             if (!ImGui::Begin("##wuchang_full_map", nullptr, kFlags))
             {
                 ImGui::End();
@@ -553,12 +565,36 @@ namespace overlay
 
             // THE NAME FILTER. Optional by design: everything on this map still works
             // with the box empty, which is what keeps a gamepad-only player whole.
+            // Nothing else may hold the caret while a search is up. The results
+            // dropdown never takes it on its own (NoFocusOnAppearing), and a click on
+            // one of its rows gives it back here, on the next frame.
+            const bool refocus = g_search_focus && !ImGui::IsAnyItemActive();
+            if (refocus)
+            {
+                ImGui::SetKeyboardFocusHere();
+            }
             ImGui::SetNextItemWidth(240.0f * ui_scale);
             if (ImGui::InputTextWithHint("##mapsearch", "search marker names...", g_map_search,
                                          sizeof(g_map_search)))
             {
                 g_search_panel = g_map_search[0] != '\0';
             }
+            if (ImGui::IsItemActivated())
+            {
+                g_search_focus = true;
+            }
+            // Focus taken by code selects the whole box, and the next letter typed would
+            // replace the query instead of extending it. The caret belongs at the end.
+            if (refocus)
+            {
+                if (ImGuiInputTextState* st = ImGui::GetInputTextState(ImGui::GetItemID()))
+                {
+                    st->SetSelection(st->TextLen, st->TextLen);
+                }
+            }
+            // The dropdown hangs off this rect: same left edge, right under the box.
+            const ImVec2 search_min = ImGui::GetItemRectMin();
+            const ImVec2 search_max = ImGui::GetItemRectMax();
             const bool searching = g_map_search[0] != '\0';
             g_map_search_active.store(searching, std::memory_order_relaxed);
 
@@ -616,6 +652,7 @@ namespace overlay
             {
                 g_map_search[0] = '\0';
                 g_search_panel = false;
+                g_search_focus = false;
             }
             ImGui::EndDisabled();
             if (searching)
@@ -842,6 +879,7 @@ namespace overlay
                 {
                     g_map_search[0] = '\0';
                     g_search_panel = false;
+                    g_search_focus = false;
                 }
                 else
                 {
@@ -1262,18 +1300,30 @@ namespace overlay
             //--------------------------------------------------------------------------
             // Search results (while the box is not empty) - the rows collected above,
             // nearest first; clicking one waypoints it.
+            //
+            // A dropdown, not a window: it hangs under the search box, has no title bar
+            // and no close button (Esc empties the box, which takes it away), and it
+            // never takes the caret - NoFocusOnAppearing, or the first letter typed
+            // would end the typing. It grows with its rows up to 40 % of the screen and
+            // scrolls past that.
             //--------------------------------------------------------------------------
             {
+                bool dropdown_hovered = false;
                 if (searching && g_search_panel)
                 {
                     const ImVec2 vpsz = ImGui::GetMainViewport()->Size;
-                    ImGui::SetNextWindowPos(ImVec2(vpsz.x * 0.5f, vpsz.y * 0.5f), ImGuiCond_Appearing,
-                                            ImVec2(0.5f, 0.5f));
-                    ImGui::SetNextWindowSize(ImVec2(520.0f * ui_scale, 380.0f * ui_scale),
-                                             ImGuiCond_Appearing);
-                    if (ImGui::Begin("Search results", &g_search_panel,
-                                     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+                    const float drop_w = (std::max)(search_max.x - search_min.x, 420.0f * ui_scale);
+                    ImGui::SetNextWindowPos(ImVec2(search_min.x, search_max.y + 2.0f * ui_scale));
+                    ImGui::SetNextWindowSizeConstraints(ImVec2(drop_w, 0.0f), ImVec2(drop_w, vpsz.y * 0.40f));
+                    constexpr ImGuiWindowFlags kDropFlags =
+                        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+                        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing |
+                        ImGuiWindowFlags_NoNavFocus;
+                    if (ImGui::Begin("##mapsearch_results", nullptr, kDropFlags))
                     {
+                        dropdown_hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem |
+                                                                  ImGuiHoveredFlags_ChildWindows);
                         ImGui::TextDisabled("%d marker(s) match \"%s\" - click one to waypoint it",
                                             g_map_search_hits, g_map_search);
                         constexpr std::size_t kMaxRows = 200;
@@ -1307,6 +1357,17 @@ namespace overlay
                         }
                     }
                     ImGui::End();
+                }
+                // The caret stays in the box until the player takes it somewhere else:
+                // a click on the box or on a result row keeps it, anything else - the
+                // canvas, the legend, a header button - gives it up.
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+                    ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+                {
+                    const ImVec2 mp = ImGui::GetMousePos();
+                    const bool on_box = mp.x >= search_min.x && mp.x <= search_max.x &&
+                                        mp.y >= search_min.y && mp.y <= search_max.y;
+                    g_search_focus = on_box || dropdown_hovered;
                 }
             }
 

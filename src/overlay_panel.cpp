@@ -598,9 +598,18 @@ namespace overlay
             const mv::WaypointSet wps = mm::waypoints();
             if (wps.count == 0)
             {
-                ImGui::TextDisabled("no waypoints - right-click on the full map to drop one, or press "
-                                    "%s in-world for the nearest unfound marker",
-                                    key_name_ascii(cfg.waypoint_nearest_key).c_str());
+                if (mm::key_vk(cfg.waypoint_nearest_key) != 0)
+                {
+                    ImGui::TextDisabled("no waypoints - right-click on the full map to drop one, or press "
+                                        "%s in-world for the nearest unfound marker",
+                                        key_name_ascii(cfg.waypoint_nearest_key).c_str());
+                }
+                else
+                {
+                    ImGui::TextDisabled("no waypoints - right-click on the full map to drop one, or bind "
+                                        "waypoint_nearest_key on the Bindings tab for the nearest "
+                                        "unfound marker");
+                }
             }
             else
             {
@@ -1388,6 +1397,13 @@ namespace overlay
                 {
                     pending_mod_only = 0;
                     arm_capture(-1);
+                }
+                else if (ImGui::GetIO().WantTextInput)
+                {
+                    // A text field has the caret (the settings filter, the import path):
+                    // the letters are its, not the capture's. Re-arming the release wait
+                    // means the key that leaves the field is not the one bound either.
+                    g_capture_wait_release = true;
                 }
                 else if (g_capture_wait_release)
                 {

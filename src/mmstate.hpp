@@ -393,7 +393,9 @@ namespace mm
         int map_recenter_key = 0x52;            // 'R' - recentre the full map on the player
         int zoom_key = 0x4E;                    // 'N' - cycle the minimap zoom
         int screenshot_key = 0x43;              // 'C' - full map -> clipboard
-        int waypoint_nearest_key = 0x47;        // 'G' - waypoint the nearest unfound marker
+        int waypoint_nearest_key = 0;           // unbound - waypoint the nearest unfound marker.
+                                                // The game itself uses G, so this one is the
+                                                // player's to bind on the Bindings tab.
 
         // wuchang_minimap_last_stage.txt, rewritten at every overlay stage transition. The UE4SS
         // log buffer can be lost when the process dies; a file closed after each write cannot be.

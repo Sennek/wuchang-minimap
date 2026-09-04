@@ -990,7 +990,7 @@ save, not the mod.
 
 **Waypoints** — up to `mv::kMaxWaypoints` (16) of them. A right-click (or `Space`, or gamepad
 A) drops one, and the same gesture on one already there removes it; the map's `Waypoints`
-window lists them with a per-row `X` and a `Clear all`, and `waypoint_nearest_key` (`G`) sets
+window lists them with a per-row `X` and a `Clear all`, and `waypoint_nearest_key` (unbound as shipped — `G` is the game's) sets
 one on the nearest marker not yet found among the categories switched on. They are drawn on
 the map and, edge-clamped, on the minimap and the compass; only the one **nearest the player**
 carries the distance readout.

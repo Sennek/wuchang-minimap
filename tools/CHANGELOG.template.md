@@ -5,6 +5,10 @@
 - **The x-ray key is now `TAB`** - Alt is a key the game itself uses.
 - **The marker filters remember themselves** - a legend click survives a restart, with no Save.
 - **The shrine list's Travel button is gone** - the game only travels at a shrine.
+- **The nearest-unfound key ships unbound** - `G` is a key the game itself uses. Bind it on
+  the `F2` panel's Bindings tab.
+- **Typing in a search box no longer fires the hotkeys** - the map's marker search and the
+  panel's boxes keep every letter, and a binding capture waits for the caret to leave.
 
 ## 1.0.0
 
@@ -14,7 +18,7 @@ What the mod does:
 - **The map is the game's own navigation data**, sliced by height: ground you can stand on.
 - **Markers with the game's own names** for all five chapters and the DLC.
 - **A name search on the full map**, with a nearest-first list you can waypoint straight from.
-- **Up to 16 waypoints at once**; `G` sets one on the nearest marker you have not found.
+- **Up to 16 waypoints at once**; a key you bind sets one on the nearest marker you have not found.
 - **Export / import** of the found list and waypoints as one JSON file - a merge, never a wipe.
 - **An x-ray key** (`TAB`, or `LB`+`RB`) drawing markers through walls, tinted by item quality.
 - **A collection tracker per save slot**: per-chapter progress, shrines, bosses from the save.

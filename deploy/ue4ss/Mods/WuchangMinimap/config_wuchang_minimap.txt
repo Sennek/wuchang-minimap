@@ -255,8 +255,9 @@ zoom_key = N
 screenshot_key = C
 
 ; Sets a waypoint on the nearest marker you have not found yet, among the categories
-; that are switched on. A toast names it and how far away it is.
-waypoint_nearest_key = G
+; that are switched on. A toast names it and how far away it is. Unbound as shipped -
+; the game itself uses G, so pick a free key here or on the F2 panel Bindings tab.
+waypoint_nearest_key = none
 
 ; =================================================================================
 ; ---- ADVANCED ----

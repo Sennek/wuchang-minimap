@@ -1504,7 +1504,13 @@ namespace overlay
                 add(right, key_name_ascii(cfg.panel_key), "settings panel");
                 add(right, key_name_ascii(cfg.zoom_key), "cycle the minimap zoom");
                 add(right, key_name_ascii(cfg.reload_key), "reload config, maps and markers");
-                add(right, key_name_ascii(cfg.waypoint_nearest_key), "waypoint the nearest unfound marker");
+                // Unbound by default (the game owns G), so the row is there only once
+                // the player has bound it.
+                if (mm::key_vk(cfg.waypoint_nearest_key) != 0)
+                {
+                    add(right, key_name_ascii(cfg.waypoint_nearest_key),
+                        "waypoint the nearest unfound marker");
+                }
                 if (cfg.highlight_enabled)
                 {
                     add(right,

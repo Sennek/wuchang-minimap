@@ -7,8 +7,8 @@ with the map built from the game's own navmesh.
 - **Markers with the game's own names** for every chapter and the DLC, filtered by
   category — the filters are remembered between sessions on their own — and a **name
   search** on the full map.
-- **Up to 16 waypoints** at once, on the map, the minimap and the compass; `G` drops one
-  on the nearest thing you have not collected.
+- **Up to 16 waypoints** at once, on the map, the minimap and the compass; a key you bind
+  drops one on the nearest thing you have not collected.
 - **A collection tracker per save slot**, with **export / import** of your found list and
   waypoints as one JSON file.
 - **An x-ray key** that draws nearby markers through walls.
@@ -62,7 +62,7 @@ mod. It is a UE4SS-plus-Wuchang problem, not a bug here.
 | `LB`+`RB` | The same, on a controller |
 | `N` | Cycle the minimap zoom |
 | `R` | Recentre the full map |
-| `G` | Set a waypoint on the nearest marker you have not found |
+| unbound | Set a waypoint on the nearest marker you have not found — bind it in `F2` → **Bindings** |
 | `F5` | Reload the config, maps and markers |
 
 Everything is rebindable in `F2` → **Bindings**.

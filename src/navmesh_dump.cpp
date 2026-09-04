@@ -1,34 +1,13 @@
 //
-// navmesh_dump.cpp - find the game's Recast/Detour navmesh in memory and write the
+// navmesh_dump.cpp - locates the game's Recast/Detour navmesh in memory and writes the
 // live tiles out as JSON.
 //
-// Every struct layout this module believes in is a guess. Nothing is hardcoded that
-// can be derived, every derived value is validated against a measured one (TileSizeUU
-// 1280, AgentRadius 34/60/90/120, the DNAV tile magic, tile bounds vs tile index), and
-// every raw read goes through mem::read (VirtualQuery + SEH). A wrong guess produces a
-// log line, never a crash.
+// Struct layouts are discovered, not hardcoded: every candidate is validated against a
+// measured value (TileSizeUU 1280, AgentRadius, the DNAV tile magic, tile bounds vs tile
+// index), and every raw read goes through mem::read (VirtualQuery + SEH).
 //
-// Discovery chain, all of it logged:
-//
-//   ARecastNavMesh actor            FindAllOf("RecastNavMesh")
-//     +-> FPImplRecastNavMesh*      scan the actor past its reflected properties for a
-//     |                             pointer whose target's 2nd field is the actor
-//     |                             itself (that is FPImplRecastNavMesh::NavMeshOwner)
-//     +-> dtNavMesh*                first field of FPImplRecastNavMesh; validated by
-//     |                             dtNavMeshParams (tileWidth == tileHeight ==
-//     |                             TileSizeUU, sane maxTiles/maxPolys), float AND
-//     |                             double layouts tried
-//     +-> dtMeshTile[]              scan the pointer slots after m_params for an array
-//     |                             holding pointers to DNAV headers; the gcd of the
-//     |                             hit spacing recovers sizeof(dtMeshTile), which UE
-//     |                             changes by adding fields
-//     +-> dtMeshHeader              magic checked; bmin/bmax found by searching for six
-//     |                             consecutive dtReal that form a <= one-tile box,
-//     |                             scored against origin + index * tileWidth and
-//     |                             against walkableRadius == AgentRadius
-//     +-> polyCount/vertCount       searched in the int block and accepted only if
-//                                   EVERY poly has 3..6 in-range indices and EVERY
-//                                   vertex lies inside bmin..bmax
+// Chain: ARecastNavMesh actor -> FPImplRecastNavMesh* -> dtNavMesh* -> dtMeshTile[] ->
+// dtMeshHeader -> polyCount/vertCount.
 //
 
 #include "navmesh_dump.hpp"
@@ -70,24 +49,17 @@ namespace navmesh
 {
     namespace
     {
-        //==============================================================================
-        // Configuration
-        //==============================================================================
-
-        // The agent whose navmesh becomes the minimap background. AgentRadius 34 is the
-        // smallest of the four, so its mesh reaches furthest into narrow geometry.
+        // Agent whose navmesh becomes the minimap background; radius 34 reaches furthest.
         constexpr std::wstring_view kPrimaryAgent = L"Small";
 
-        // ARecastNavMesh::TileSizeUU on this game. Used to validate dtNavMeshParams; the
-        // value actually read off the actor by reflection wins whenever it is available.
+        // ARecastNavMesh::TileSizeUU fallback; the value read off the actor by reflection wins.
         constexpr double kExpectedTileSizeUU = 1280.0;
 
         constexpr std::uint64_t kActorPollMs = 2000;  // FindAllOf + tile-set poll throttle
         constexpr std::uint64_t kDebounceMs = 3000;   // tile set changed -> auto dump
         constexpr std::uint64_t kDiscoveryRetryMs = 10000; // re-scan for the dtNavMesh at most this often
 
-        // Where the blind scan for RecastNavMeshImpl starts / stops when reflection could
-        // not tell us where the reflected properties end.
+        // Blind-scan bounds for RecastNavMeshImpl when reflection gives no property extent.
         constexpr std::size_t kScanStartFallback = 0x300;
         constexpr std::size_t kScanEndFallback = 0x1200;
 
@@ -100,33 +72,17 @@ namespace navmesh
         constexpr int kMaxVertsPerTile = 262144;
         constexpr double kBoundsSlackUU = 8.0;
 
-        // Retry floor for the tile-array scan after a failure. The scan is 24 KiB of
-        // guarded pointer reads per candidate slot and stays hopeless for as long as the
-        // mesh holds no live tiles, so it must not run on every poll.
+        // Retry floor for the tile-array scan: 24 KiB of guarded pointer reads per candidate slot.
         constexpr std::uint64_t kTileScanRetryMs = 15000;
 
-        // A candidate impl / dtNavMesh is a private RW heap block. Anything outside this
-        // envelope is an image section, a mapped pak, a thread stack or a huge reservation
-        // and must not be chased at depth 2.
+        // A candidate impl / dtNavMesh is a private RW heap block inside this size envelope.
         constexpr std::size_t kCandMinRegion = 0x40;
         constexpr std::size_t kCandMaxRegion = 64u * 1024u * 1024u;
         // Hard cap on how many depth-1 targets the depth-2 chase will look inside.
         constexpr int kMaxDeepHops = 4096;
 
-        //==============================================================================
-        // Config: the runtime dumper is OFF unless the user turns it on
-        //==============================================================================
-        //
-        // The map background comes from the offline pak extraction
-        // (tools/navmesh/offline); this module covers DLC cells missing from the paks and
-        // runtime-carved tiles. It scans engine memory, so it ships disabled and is
-        // enabled per-session from
-        //     ue4ss\Mods\WuchangMinimap\config.ini
-        //         [navmesh]
-        //         navmesh_dump = 1
-        //
-        // With it on, the dump is forced from the F2 panel's Debug tab - no hotkey, so a
-        // key press cannot start a file-writing memory scan by accident.
+        // The runtime dumper is OFF unless ue4ss\Mods\WuchangMinimap\config.ini carries
+        // [navmesh] navmesh_dump = 1. With it on, the F2 panel's Debug tab forces a dump.
         struct Config
         {
             bool enabled = false;
@@ -134,19 +90,10 @@ namespace navmesh
 
         Config g_cfg;
 
-        //==============================================================================
-        // Crash breadcrumb
-        //==============================================================================
-        //
-        // navmesh/last_stage.txt. Every stage writes its name here before doing anything;
-        // the file is closed after each write, so it survives a crash that loses the log
-        // buffer.
+        // navmesh/last_stage.txt: every stage writes its name here, closing the file each time.
         std::filesystem::path g_stage_path;
 
-        // Win32 only: no iostreams, no std::locale, no allocation beyond a stack buffer.
-        // Called from the game thread, where the C++ locale is not safe to touch (see
-        // emit()), and it must survive being the last thing before the process dies - so
-        // the handle is opened, written and closed on every call.
+        // Win32 only - no iostreams, no locale, no allocation; opened, written and closed per call.
         void set_stage(const wchar_t* stage, const wchar_t* detail = nullptr) noexcept
         {
             if (g_stage_path.empty() || stage == nullptr)
@@ -209,22 +156,10 @@ namespace navmesh
             ::CloseHandle(h);
         }
 
-        //==============================================================================
-        // Logging
-        //==============================================================================
-
-        // LOGGING IS QUEUED. UE4SS's Output goes through C++ iostreams, and the C++
-        // locale machinery is not safe to touch from this game's game thread: the game
-        // links the dynamic UCRT, is localised, and its game thread runs with a
-        // per-thread locale, so `operator<<` from there faults inside MSVCP140's
-        // basic_ios/num_put block. The game-thread pump only ever QUEUES text; on_update,
-        // on UE4SS's event-loop thread, drains it. Same rule for file writes: set_stage()
-        // is Win32 only, and flush_pending() writes JSON on the loop thread.
-        //
-        // NO std::mutex ANYWHERE IN THIS FILE. `std::mutex::try_lock` compiled against
-        // MSVC 14.40's STL faults (access violation reading 0x8) when called from this
-        // game's game thread against the already-loaded MSVCP140. Everything here is
-        // header-only <atomic>, which compiles to plain interlocked instructions.
+        // LOGGING IS QUEUED. UE4SS's Output goes through iostreams, and the C++ locale faults when
+        // touched from this game's game thread. The game-thread pump only queues text; drain_log(),
+        // on the event-loop thread, emits it. Same rule for file writes. NO std::mutex ANYWHERE IN
+        // THIS FILE: MSVC 14.40's std::mutex::try_lock faults on that thread. <atomic> only.
         class Spinlock
         {
           public:
@@ -319,10 +254,6 @@ namespace navmesh
             return v ? std::format(L"{}", *v) : std::wstring{L"?"};
         }
 
-        //==============================================================================
-        // Reflection: property offsets of a UClass
-        //==============================================================================
-
         struct PropInfo
         {
             std::size_t offset = 0;
@@ -332,8 +263,7 @@ namespace navmesh
         struct ClassProps
         {
             std::unordered_map<std::wstring, PropInfo> by_name;
-            // max(offset + element_size) across the whole super-struct chain: where the
-            // reflected part of the object ends and the C++-only members begin.
+            // max(offset + element_size) over the super-struct chain: end of the reflected part.
             std::size_t reflected_end = 0;
             int structure_size = 0;
             int properties_size = 0;
@@ -341,7 +271,6 @@ namespace navmesh
         };
 
         // Walks the FField child-property list of the class and of every super struct.
-        // A null head (a pure-native class) yields nothing, not an error.
         ClassProps collect_props(UClass* cls)
         {
             ClassProps out{};
@@ -410,13 +339,7 @@ namespace navmesh
             return v;
         }
 
-        //==============================================================================
-        // dtNavMeshParams
-        //==============================================================================
-
-        // UE 5 compiles Detour with dtReal = double (large-world coordinates), but a
-        // project can flip that back to float, so both layouts are tried and the one
-        // that validates is logged.
+        // UE 5 compiles Detour with dtReal = double (LWC), but a project can flip it back to float.
         struct NavParams
         {
             double orig[3]{};
@@ -481,10 +404,6 @@ namespace navmesh
             return p.max_polys >= 1;
         }
 
-        //==============================================================================
-        // Discovered layouts
-        //==============================================================================
-
         // "no offset" sentinel for the discovered layout fields below.
         constexpr std::size_t kNoOffset = static_cast<std::size_t>(-1);
 
@@ -530,29 +449,11 @@ namespace navmesh
             return mem::plausible_ptr(p) && mem::read<std::uint32_t>(p, magic) && magic == kDtNavMeshMagic;
         }
 
-        //==============================================================================
-        // Step 1: actor -> dtNavMesh
-        //==============================================================================
-        //
-        // Nothing about the FPImplRecastNavMesh layout is assumed: on this build it is
-        // neither `{ dtNavMesh*; ARecastNavMesh*; ... }` nor any other fixed shape.
-        //
-        // The acceptance test is dtNavMeshParams, which is unmistakable: three finite
-        // reals of origin, then tileWidth == tileHeight == TileSizeUU (1280.0, read off
-        // the actor by reflection), then two sane int counts. The search takes whatever
-        // indirection reaches it:
-        //
-        //   depth 0   actor + off               -> dtNavMesh   (impl_is_detour)
-        //   depth 1   actor + off -> impl + i   -> dtNavMesh   (the expected case)
-        //
-        // The ARecastNavMesh back-pointer inside the candidate struct only scores
-        // candidates and documents the build's field order; it is not required. Every
-        // read goes through mem::readable + SEH. On failure the scan keeps a pointer
-        // table (target address, first three qwords, where the back-pointer was, whether
-        // TileSizeUU echoes in the target) and writes it into the probe JSON.
+        // Nothing about the FPImplRecastNavMesh layout is assumed. The acceptance test is
+        // dtNavMeshParams: three finite origin reals, tileWidth == tileHeight == TileSizeUU, two sane
+        // counts. Depth 0 is actor + off -> dtNavMesh; depth 1 is actor + off -> impl + i -> dtNavMesh.
 
-        // Copies up to `want` bytes, halving on failure so a struct at the end of a
-        // committed region still yields its head. Returns the byte count actually copied.
+        // Copies up to `want` bytes, halving on failure. Returns the byte count actually copied.
         std::size_t snapshot(const void* p, std::uint8_t* dst, std::size_t want) noexcept
         {
             if (!mem::plausible_ptr(p))
@@ -604,8 +505,8 @@ namespace navmesh
             return true;
         }
 
-        // Stock Detour's dtNavMesh has no virtual functions, so m_params sits at +0; the
-        // sweep absorbs a vtable or any UE-added leading member.
+        // Stock Detour's dtNavMesh has no virtual functions, so m_params sits at +0; the sweep
+        // absorbs a vtable or any UE-added leading member.
         constexpr std::size_t kParamsSweepEnd = 0x40;
         constexpr std::size_t kImplSnapBytes = 0x200; // inner scan window inside a candidate
         constexpr std::size_t kMeshSnapBytes = 0x100; // dtNavMeshParams plus slack
@@ -629,10 +530,7 @@ namespace navmesh
             return std::nullopt;
         }
 
-        // Diagnostic only: does this buffer hold two adjacent reals both equal to
-        // TileSizeUU? A hit means the dtNavMesh is here and only the surrounding layout
-        // is unexpected; no hit anywhere in the actor's pointer graph means the mesh is
-        // not reachable in two hops at all.
+        // Diagnostic: does this buffer hold two adjacent reals both equal to TileSizeUU?
         std::wstring tile_size_echo(const std::uint8_t* buf, std::size_t n, double expected)
         {
             for (std::size_t off = 0; off + 16 <= n; off += 4)
@@ -662,9 +560,6 @@ namespace navmesh
         //     impl  + 0x000 -> ARecastNavMesh (the owner back-pointer)
         //     impl  + 0x008 -> dtNavMesh
         //     dtNavMesh + 0x20 -> dtNavMeshParams, dtReal = double (UE5 LWC)
-        // Trying them first makes discovery three guarded reads instead of a ~16 000-read
-        // blind scan. The blind scan is the fallback, so a game patch that moves a field
-        // costs performance, not correctness.
         constexpr std::size_t kPinImplInActor = 0x5E8;
         constexpr std::size_t kPinDetourInImpl = 0x8;
         constexpr std::size_t kPinOwnerInImpl = 0x0;
@@ -736,9 +631,6 @@ namespace navmesh
             {
                 scan_end = kScanEndFallback;
             }
-            // The whole object is scanned, not just the native tail past the reflected
-            // properties: the impl pointer need not be the last member, and an obviously
-            // wrong slot (UClass, Outer, components) costs one guarded read.
             const std::size_t scan_begin = 0x28;
             scan_end = (std::min)(scan_end + 0x100, static_cast<std::size_t>(0x4000));
 
@@ -801,8 +693,8 @@ namespace navmesh
                     cands.push_back(Cand{off, 0, true, kNoOffset, impl, impl, *direct});
                 }
 
-                // depth 1: some pointer inside the struct is the dtNavMesh, and somewhere
-                // in the same struct there may be a back-pointer to the actor.
+                // depth 1: a pointer inside the struct may be the dtNavMesh, and the same struct may
+                // hold a back-pointer to the actor.
                 std::size_t owner_in_impl = kNoOffset;
                 for (std::size_t i = 0; i + 8 <= impl_n; i += 8)
                 {
@@ -820,10 +712,7 @@ namespace navmesh
                     {
                         continue;
                     }
-                    // Bounded depth-2 chase: unbounded, this follows every pointer-shaped
-                    // qword inside ~250 candidate structs, mostly into loaded images,
-                    // mapped paks or thread stacks. A dtNavMesh is always a private RW
-                    // heap block of a sane size; anything else is skipped undereferenced.
+                    // A dtNavMesh is always a private RW heap block of a sane size; skip anything else.
                     if (deep_hops >= kMaxDeepHops)
                     {
                         break;
@@ -877,9 +766,8 @@ namespace navmesh
                 }
             }
 
-            // Prefer a candidate whose struct also carries the actor back-pointer: that is
-            // a genuine FPImplRecastNavMesh rather than some unrelated cache holding the
-            // same mesh pointer. Among equals, prefer the indirect (impl -> mesh) form.
+        // Prefer a candidate whose struct also carries the actor back-pointer; among equals, prefer
+        // the indirect (impl -> mesh) form.
             const Cand* best = nullptr;
             int best_score = -1;
             for (const Cand& c : cands)
@@ -931,11 +819,8 @@ namespace navmesh
                 return out;
             }
 
-            // Last resort: the struct that back-points to the actor IS
-            // FPImplRecastNavMesh, so if the mesh is not one hop away from it, try two.
-            // Only run for that one confirmed struct. Covers the impl holding the mesh
-            // behind a wrapper (a TUniquePtr member struct, a per-resolution holder, a
-            // cached query object).
+        // The struct that back-points to the actor IS FPImplRecastNavMesh, so if the mesh is not one
+        // hop away from it, try two. Only run for that one confirmed struct.
             if (impl_by_backptr != kNoOffset)
             {
                 void* impl = nullptr;
@@ -970,9 +855,7 @@ namespace navmesh
                             {
                                 continue;
                             }
-                            // Pin the middle struct as "the impl": actor+impl_by_backptr
-                            // -> impl + i is a stable pointer slot, so re-reading it later
-                            // is as valid as the one-hop case.
+                            // actor+impl_by_backptr -> impl + i is a stable pointer slot.
                             out.impl_found = true;
                             out.detour_found = true;
                             out.impl_offset = impl_by_backptr;
@@ -1058,23 +941,14 @@ namespace navmesh
             return out;
         }
 
-        //==============================================================================
-        // Step 2: dtNavMesh -> dtMeshTile array (base pointer and stride)
-        //==============================================================================
-        //
-        // UE adds fields to dtMeshTile (off-mesh segments, clusters, dynamic links), so
-        // sizeof(dtMeshTile) cannot be assumed. What IS stable is the head of the struct:
+        // dtMeshTile head, stable across the fields UE adds:
         //     unsigned int  salt;
         //     unsigned int  linksFreeList;
-        //     dtMeshHeader* header;      <- always at +8
+        //     dtMeshHeader* header;      <- +8
         //     dtPoly*       polys;       <- +16
         //     dtReal*       verts;       <- +24
-        //
-        // dtNavMesh::init() builds the free list back to front, so tiles are handed out
-        // from index 0 upwards and the live ones cluster at the start of the array.
-        // Scanning the array for pointers-to-DNAV therefore yields several hits spaced
-        // exactly sizeof(dtMeshTile) apart; the gcd of the deltas recovers the stride even
-        // when some tiles in between are free.
+        // dtNavMesh::init() builds the free list back to front, so live tiles cluster at the start of
+        // the array and the gcd of the DNAV-hit spacing recovers sizeof(dtMeshTile).
 
         struct TileArray
         {
@@ -1105,8 +979,7 @@ namespace navmesh
                     continue;
                 }
 
-                // Byte offsets inside the candidate array that hold a pointer to a DNAV
-                // header.
+                // Byte offsets inside the candidate array that hold a pointer to a DNAV header.
                 std::vector<std::size_t> finds;
                 const auto* bytes = static_cast<const std::uint8_t*>(candidate);
                 constexpr std::size_t kScanBytes = 24 * 1024;
@@ -1131,8 +1004,7 @@ namespace navmesh
                     {
                         g = std::gcd(g, finds[i] - finds[0]);
                     }
-                    // A dtMeshTile is at least ~15 pointers plus ints, and never a kilobyte.
-                    // The header must sit at +8 within every tile, hence finds[0] % g == 8.
+                    // A dtMeshTile spans ~96..1024 bytes and its header sits at +8 within every tile.
                     if (g >= 96 && g <= 1024 && (g % 8) == 0 && (finds[0] % g) == 8)
                     {
                         stride = g;
@@ -1178,16 +1050,9 @@ namespace navmesh
             return best;
         }
 
-        //==============================================================================
-        // Step 3: dtMeshHeader field discovery
-        //==============================================================================
-        //
-        // dtMeshHeader is { magic, version, x, y, layer, userId, polyCount, vertCount,
-        // ...more counts..., walkableHeight, walkableRadius, walkableClimb, bmin[3],
-        // bmax[3], bvQuantFactor } and UE inserts extra count fields, so the byte offsets
-        // of bmin and of polyCount both move. Both are found by search + validation.
-        // magic/version/x/y are the only offsets taken on faith (0/4/8/12); x and y are
-        // then cross-checked against origin + index * tileWidth.
+        // UE inserts extra count fields into dtMeshHeader, so the byte offsets of bmin and of
+        // polyCount both move; both are found by search + validation. Only magic/version/x/y are
+        // taken on faith (0/4/8/12), with x/y cross-checked against origin + index * tileWidth.
 
         struct BoundsCandidate
         {
@@ -1277,8 +1142,7 @@ namespace navmesh
                         c.score += 4;
                     }
 
-                    // walkableHeight / walkableRadius / walkableClimb sit right before bmin
-                    // and must equal the actor's AgentHeight / AgentRadius.
+                    // walkableHeight/Radius/Climb sit right before bmin and equal the actor's agent values.
                     if (off >= 3 * rs)
                     {
                         double walk[3]{};
@@ -1306,11 +1170,7 @@ namespace navmesh
             return best;
         }
 
-        //==============================================================================
-        // dtPoly
-        //==============================================================================
-        //
-        // { unsigned int firstLink; unsigned short verts[VPP]; unsigned short neis[VPP];
+        // dtPoly: { unsigned int firstLink; unsigned short verts[VPP]; unsigned short neis[VPP];
         //   unsigned short flags; unsigned char vertCount; unsigned char areaAndtype; }
         // VPP is DT_VERTS_PER_POLYGON (6 in UE), so sizeof(dtPoly) = 8 + 4 * VPP.
 
@@ -1338,10 +1198,6 @@ namespace navmesh
             return mem::read_at(base, tail, out.flags) && mem::read_at(base, tail + 2, out.vert_count) &&
                    mem::read_at(base, tail + 3, out.area_and_type);
         }
-
-        //==============================================================================
-        // Extracted tile data
-        //==============================================================================
 
         struct Poly
         {
@@ -1389,10 +1245,6 @@ namespace navmesh
             return inside;
         }
 
-        //==============================================================================
-        // Per-agent state
-        //==============================================================================
-
         struct AgentState
         {
             std::wstring agent;      // Small / Big / BitFat / Giant
@@ -1421,17 +1273,14 @@ namespace navmesh
             bool signature_seen = false;
             bool dumped_current_signature = false;
 
-            // Discovery throttling (see reach_mesh).
             int discovery_attempts = 0;
             std::uint64_t last_discovery = 0;
 
-            // Tile-array scan throttling (see reach_mesh): the 24 KiB-per-slot scan is
-            // pointless until tiles actually stream in, so a failure backs it off.
+            // Tile-array scan throttling: the 24 KiB-per-slot scan is pointless until tiles stream in.
             std::uint64_t last_tile_scan = 0;
             int tile_scan_attempts = 0;
 
-            // Handoff from the game thread (which reads the tiles) to the event-loop
-            // thread (which writes the JSON) - see the comment on emit().
+            // Handoff from the game thread (reads tiles) to the event-loop thread (writes JSON).
             bool dump_pending = false;
             std::vector<Tile> pending_tiles;
             std::wstring pending_reason;
@@ -1444,30 +1293,20 @@ namespace navmesh
         int g_last_actor_count = -1;
         std::filesystem::path g_out_root;
 
-        //==============================================================================
-        // Threading
-        //==============================================================================
-        //
-        // `g_agents` and every byte it points at are touched ONLY from the game thread
-        // (the ProcessEvent pre-callback). `on_update`, on UE4SS's event-loop thread, may
-        // do exactly two things: sample the keyboard and raise g_force_requested.
+        // `g_agents` and every byte it points at are touched ONLY from the game thread (the
+        // ProcessEvent pre-callback). `on_update`, on UE4SS's event-loop thread, may do exactly two
+        // things: sample the keyboard and raise g_force_requested.
         std::atomic<bool> g_force_requested{false};
         std::atomic<bool> g_pump_registered{false};
         std::atomic<bool> g_dump_ready{false};
-        // Single-flight, non-blocking: whoever wins the exchange owns g_agents until it
-        // clears the flag; a loser never waits, it comes back next tick. Makes a forced
-        // dump and an automatic dump mutually exclusive.
+        // Single-flight, non-blocking: the winner of the exchange owns g_agents until it clears the
+        // flag. Makes a forced dump and an automatic dump mutually exclusive.
         std::atomic<bool> g_busy{false};
         std::uint64_t g_last_pump = 0;
 
-        //==============================================================================
-        // Output directory
-        //==============================================================================
-
         std::filesystem::path resolve_out_root()
         {
-            // main.dll lives in ...\ue4ss\Mods\WuchangMinimap\dlls, so the mod folder is
-            // one level up. Fall back to the known install path, then to the cwd.
+            // main.dll lives in ...\WuchangMinimap\dlls, so the mod folder is one level up.
             HMODULE self = nullptr;
             if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                      reinterpret_cast<LPCWSTR>(&resolve_out_root),
@@ -1506,10 +1345,6 @@ namespace navmesh
             ::GetLocalTime(&st);
             return std::format(L"{:04}{:02}{:02}_{:02}{:02}{:02}", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
         }
-
-        //==============================================================================
-        // JSON writing
-        //==============================================================================
 
         std::string to_utf8(std::wstring_view w)
         {
@@ -1651,8 +1486,6 @@ namespace navmesh
                              total_polys,
                              total_verts);
 
-            // The pointer table from a failed discovery scan: what identifies the real
-            // FPImplRecastNavMesh layout on the next iteration.
             f << "  \"discovery_diagnostics\": [\n";
             for (std::size_t di = 0; di < st.mesh.diag.size(); ++di)
             {
@@ -1717,12 +1550,7 @@ namespace navmesh
             return f.good();
         }
 
-        //==============================================================================
-        // Tile reading
-        //==============================================================================
-
-        // Learns the dtMeshHeader layout from one live tile. Logs every decision plus a
-        // one-line "PIN LINE" summary of the offsets.
+        // Learns the dtMeshHeader layout from one live tile; logs a "PIN LINE" offset summary.
         bool learn_header_layout(const void* header, const void* polys, const void* verts, AgentState& st,
                                  std::int32_t tx, std::int32_t ty, std::int32_t tlayer)
         {
@@ -1984,10 +1812,6 @@ namespace navmesh
             return true;
         }
 
-        //==============================================================================
-        // Reaching the mesh (cached) and enumerating tiles
-        //==============================================================================
-
         struct MeshHandle
         {
             bool ok = false;
@@ -1997,9 +1821,8 @@ namespace navmesh
             std::wstring reason;
         };
 
-        // Re-validates (or re-discovers) the whole chain. Two pointer reads plus one
-        // dtNavMeshParams check on the happy path; the tile array is re-scanned only when
-        // the cached offset stops working.
+        // Re-validates (or re-discovers) the whole chain; the tile array is re-scanned only when the
+        // cached offset stops working.
         MeshHandle reach_mesh(AgentState& st, bool force_discovery)
         {
             MeshHandle h{};
@@ -2007,10 +1830,8 @@ namespace navmesh
 
             if (!st.mesh.detour_found)
             {
-                // Discovery is the expensive path (a two-level guarded pointer scan) and
-                // stays hopeless until navmesh data streams in, so after the first few
-                // tries it is throttled to kDiscoveryRetryMs and goes quiet in the log.
-                // A forced dump always retries, verbosely.
+                // Discovery is a two-level guarded pointer scan and stays hopeless until navmesh
+                // data streams in, so it is throttled. A forced dump always retries, verbosely.
                 const std::uint64_t now = ::GetTickCount64();
                 const bool due = force_discovery || st.discovery_attempts < 3 ||
                                  now - st.last_discovery >= kDiscoveryRetryMs;
@@ -2073,7 +1894,6 @@ namespace navmesh
             }
             st.params = p;
 
-            // Cached tile array: verify the pointer slot still holds a usable array.
             if (st.mesh.tiles_found)
             {
                 void* cached = nullptr;
@@ -2089,8 +1909,7 @@ namespace navmesh
                 st.mesh.tiles_found = false;
             }
 
-            // The scan below is the expensive one, and it is hopeless while the mesh holds
-            // zero live tiles, so a few failures back it off.
+            // The scan below is hopeless while the mesh holds zero live tiles, so failures back it off.
             {
                 const std::uint64_t tnow = ::GetTickCount64();
                 if (!force_discovery && st.tile_scan_attempts >= 3 &&
@@ -2140,8 +1959,8 @@ namespace navmesh
             return h;
         }
 
-        // Cheap pass: only counts live tiles and hashes their identity. Used every poll so
-        // the expensive geometry extraction happens only when a dump is actually due.
+        // Cheap pass: counts live tiles and hashes their identity, so geometry extraction runs only
+        // when a dump is due.
         std::uint64_t tile_set_signature(const MeshHandle& h, int& live_out)
         {
             std::uint64_t hash = 1469598103934665603ull;
@@ -2208,10 +2027,6 @@ namespace navmesh
             return tiles;
         }
 
-        //==============================================================================
-        // One dump
-        //==============================================================================
-
         void read_settings(AgentState& st)
         {
             st.agent_radius = prop_float(st.props, st.actor, L"AgentRadius");
@@ -2238,8 +2053,8 @@ namespace navmesh
                  opt_i(st.poly_ref_salt_bits));
         }
 
-        // GAME THREAD. Reads the mesh and the tiles - raw memory only, no iostreams and
-        // no file I/O - and parks the result on the AgentState for the loop thread.
+        // GAME THREAD. Raw memory only - no iostreams, no file I/O; parks the result on the
+        // AgentState for the loop thread.
         void collect_for_dump(AgentState& st, bool forced)
         {
             const MeshHandle h = reach_mesh(st, forced);
@@ -2265,7 +2080,6 @@ namespace navmesh
 
             if (tiles.empty() && !forced)
             {
-                // Nothing to write and nobody asked; the log above already says why.
                 return;
             }
 
@@ -2317,10 +2131,6 @@ namespace navmesh
                 logf(L"DUMP {}: FAILED to write {}", st.agent, path.wstring());
             }
         }
-
-        //==============================================================================
-        // Actor discovery
-        //==============================================================================
 
         std::wstring agent_from_actor_name(const std::wstring& name)
         {
@@ -2409,10 +2219,6 @@ namespace navmesh
             }
         }
 
-        //==============================================================================
-        // Config file
-        //==============================================================================
-
         Config load_config()
         {
             Config cfg{};
@@ -2456,23 +2262,16 @@ namespace navmesh
             return cfg;
         }
 
-        //==============================================================================
-        // The game-thread pump
-        //==============================================================================
-        //
-        // Called from UE4SS's ProcessEvent pre-callback, i.e. on whatever thread runs the
-        // script VM - the game thread for all gameplay. The ONLY place that touches
-        // g_agents, walks UObjects or reads engine allocations. ProcessEvent fires
-        // thousands of times a second, so it throttles first; the non-blocking
-        // single-flight flag g_busy keeps forced and automatic dumps exclusive.
+        // Called from UE4SS's ProcessEvent pre-callback, i.e. the game thread. The ONLY place that
+        // touches g_agents, walks UObjects or reads engine allocations. ProcessEvent fires thousands
+        // of times a second, so it throttles first.
 
         void run_forced_dump();
         void run_poll(std::uint64_t now);
 
         void game_thread_pump()
         {
-            // The master switch, first statement - this callback cannot be unregistered
-            // (see modswitch.hpp), so being switched off has to cost one atomic load.
+            // Master switch first: this callback cannot be unregistered (see modswitch.hpp).
             if (!mm::mod_active() || !g_initialised)
             {
                 return;
@@ -2485,8 +2284,7 @@ namespace navmesh
                 return;
             }
 
-            // Never block: this runs inside the engine's own call stack. A missed pump
-            // costs at most kActorPollMs.
+            // Never block: this runs inside the engine's own call stack.
             if (g_busy.exchange(true))
             {
                 if (forced)
@@ -2573,10 +2371,6 @@ namespace navmesh
         }
     } // namespace
 
-    //==================================================================================
-    // Public API
-    //==================================================================================
-
     void on_unreal_init()
     {
         if (g_initialised)
@@ -2606,9 +2400,7 @@ namespace navmesh
              static_cast<int>(kDebounceMs),
              kPrimaryAgent);
 
-        // Everything that touches UObjects or engine allocations runs from here, on the
-        // game thread: CppUserModBase::on_update runs on UE4SS's event-loop thread, where
-        // FindAllOf / pointer chasing races level streaming and the GC.
+        // Runs on the game thread: on_update's event-loop thread races level streaming and GC.
         RC::Unreal::Hook::RegisterProcessEventPreCallback(
             [](RC::Unreal::UObject*, RC::Unreal::UFunction*, void*) { game_thread_pump(); });
         g_pump_registered = true;
@@ -2620,8 +2412,7 @@ namespace navmesh
         return g_cfg.enabled && g_initialised;
     }
 
-    // ANY THREAD (the F2 Debug tab's button). The game-thread pump picks the flag up on
-    // its next call; nothing here touches a UObject.
+    // ANY THREAD (the F2 Debug tab's button); the game-thread pump picks the flag up.
     void request_dump()
     {
         if (g_initialised)
@@ -2632,8 +2423,7 @@ namespace navmesh
 
     void on_update()
     {
-        // UE4SS EVENT-LOOP THREAD. Nothing here may touch g_agents, UObjects or engine
-        // memory - it only samples the keyboard and raises a flag for the game thread.
+        // UE4SS EVENT-LOOP THREAD. Must not touch g_agents, UObjects or engine memory.
         if (!mm::mod_active())
         {
             return; // the master switch

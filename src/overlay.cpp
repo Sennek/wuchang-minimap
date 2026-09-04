@@ -1253,7 +1253,7 @@ namespace overlay
         //
         // A binding with no modifier does not require the modifiers to be up: a bare
         // `tab` has to fire with Shift held down, or sprinting would cost the player the
-        // x-ray. The Bindings tab names such overlaps.
+        // x-ray. The Keys tab names such overlaps.
         const auto mod_held = [](int mod) {
             switch (mod)
             {

@@ -1289,10 +1289,20 @@ namespace overlay
                 const double ddx = hover->x - snap.x;
                 const double ddy = hover->y - snap.y;
                 const double ddz = hover->z - snap.z;
-                ImGui::Text("%s   %.0f m away, %+0.0f m up",
-                            marker_found_now(*hover) ? "FOUND" : "not found",
-                            std::sqrt(ddx * ddx + ddy * ddy) / 100.0,
-                            ddz / 100.0);
+                const double dz_m = ddz / 100.0;
+                if (std::fabs(dz_m) < 0.5)
+                {
+                    ImGui::Text("%s   %.0f m away, same level",
+                                marker_found_now(*hover) ? "FOUND" : "not found",
+                                std::sqrt(ddx * ddx + ddy * ddy) / 100.0);
+                }
+                else
+                {
+                    ImGui::Text("%s   %.0f m away, %.0f m %s",
+                                marker_found_now(*hover) ? "FOUND" : "not found",
+                                std::sqrt(ddx * ddx + ddy * ddy) / 100.0, std::fabs(dz_m),
+                                dz_m > 0.0 ? "above" : "below");
+                }
                 ImGui::TextDisabled("left-click toggles found");
                 ImGui::EndTooltip();
             }

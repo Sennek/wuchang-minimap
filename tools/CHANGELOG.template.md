@@ -1,7 +1,8 @@
-# WuchangMinimap - changelog
+﻿# WuchangMinimap - changelog
 
 ## 1.0.1
 
+- Full-map marker tooltip says `12 m above` / `8 m below` / `same level` instead of `-20 m up`.
 - **No more black screen on some launches** - the DX12 hook addresses are found fresh every
   launch instead of being reused from `wuchang_minimap_hookaddr.txt`, which is now deleted on
   sight. Reusing them hooked the frame before ReShade, Streamline and the Steam overlay had

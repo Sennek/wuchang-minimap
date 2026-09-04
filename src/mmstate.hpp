@@ -395,7 +395,7 @@ namespace mm
         int screenshot_key = 0x43;              // 'C' - full map -> clipboard
         int waypoint_nearest_key = 0;           // unbound - waypoint the nearest unfound marker.
                                                 // The game itself uses G, so this one is the
-                                                // player's to bind on the Bindings tab.
+                                                // player's to bind on the Keys tab.
 
         // wuchang_minimap_last_stage.txt, rewritten at every overlay stage transition. The UE4SS
         // log buffer can be lost when the process dies; a file closed after each write cannot be.
@@ -795,7 +795,7 @@ namespace mm
     // filter keys ~750 ms after the last change, so a run of legend clicks costs one write.
     extern std::atomic<bool> g_save_filters;
     extern std::atomic<bool> g_panel_drew_frame; // set by the render thread, for the log
-    // The Bindings tab is waiting for a key press. While it is set the WndProc hook swallows
+    // The Keys tab is waiting for a key press. While it is set the WndProc hook swallows
     // the whole keyboard. Set and cleared by the render thread; read by the WndProc hook.
     extern std::atomic<bool> g_key_capture;
     extern std::atomic<bool> g_waypoint_dirty;   // render -> loop: write the waypoint file

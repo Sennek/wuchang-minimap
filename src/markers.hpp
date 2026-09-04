@@ -126,7 +126,7 @@ namespace markers
         bool db_loaded = false;
 
         // Which found file is in force, and which rung of the save-slot ladder chose it
-        // (src/saveslot.hpp). Shown on the F2 Player tab.
+        // (src/saveslot.hpp). Shown on the F2 Map & tracker tab.
         char found_file[80]{};
         char found_route[24]{};
     };

@@ -59,12 +59,12 @@ To uninstall, delete [font=Courier New]ue4ss\Mods\WuchangMinimap\[/font]. That i
 
 [size=5]Hotkeys[/size]
 [list]
-[*][b]F2[/b] — settings panel (Player / Advanced / Bindings tabs)
+[*][b]F2[/b] — settings panel (Overview / Categories / Map & tracker / Keys / Tuning tabs)
 [*][b]M[/b] — full map: drag or WASD to pan, wheel to zoom, Q/E for the floor, Home to fit, right-click for a waypoint, ? for the rest
 [*][b]TAB[/b] — x-ray highlight through walls, with names and distances. A toggle. [b]LB+RB[/b] on a controller.
 [*][b]N[/b] — cycle the minimap zoom · [b]R[/b] — recentre the map · [b]F5[/b] — reload the config and data
 [/list]
-Everything is rebindable in F2 → Bindings.
+Everything is rebindable in F2 → Keys.
 
 [size=5]Known conflicts[/size]
 None of these stops the mod working.
@@ -77,7 +77,7 @@ None of these stops the mod working.
 [size=5]Reporting a bug[/size]
 Attach [font=Courier New]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first six lines carry every version number a report needs. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font].
 
-If the minimap simply is not on screen, press F2 and screenshot the orange [font=Courier New]hidden because:[/font] line at the top of the Player tab — it names the exact reason. If I ask you to reproduce something, set [font=Courier New]log_level = verbose[/font] in the config first (or pick it under Advanced → Diagnostics → Log detail).
+If the minimap simply is not on screen, press F2 and screenshot the orange [font=Courier New]hidden because:[/font] line at the top of the Overview tab — it names the exact reason. If I ask you to reproduce something, set [font=Courier New]log_level = verbose[/font] in the config first (or pick it under Tuning → Diagnostics → Log detail).
 
 [size=5]Permissions and credits[/size]
 [b]MIT licensed[/b] — fork it, reuse it, translate it; the licence has to travel with it. Credit appreciated, not required. Third-party components: Dear ImGui (MIT), MinHook (BSD-2-Clause), fmt (MIT), RE-UE4SS (MIT); full notices ship in [font=Courier New]THIRD_PARTY_NOTICES.md[/font].
@@ -99,10 +99,10 @@ not cropped.
   column visible, a waypoint placed, the floor offset showing. Chapter 1 or 3.
 - [ ] **3 — The x-ray highlight.** In front of a wall with loot behind it, highlight on,
   several labelled markers through the wall, an edge arrow if one is showing.
-- [ ] **4 — The F2 panel, Player tab**, on the category-filter block so the coloured
-  chips and glyphs are visible, a couple of sections expanded.
+- [ ] **4 — The F2 panel, Categories tab**, so the grid's coloured glyphs, the per-surface
+  columns and the live found / known counts are visible.
 - [ ] **5 — The collection statistics page**, from a save with shrines lit, chests opened
   and at least one boss beaten.
 - [ ] **6 — The shrine list on the full map**, with the game's own shrine names and
   distances.
-- [ ] *(optional)* **7 — The Bindings tab**, mid-rebind.
+- [ ] *(optional)* **7 — The Keys tab**, mid-rebind.

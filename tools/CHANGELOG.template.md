@@ -2,11 +2,14 @@
 
 ## 1.0.1
 
+- **The settings panel is rebuilt** - Overview, Categories, Map & tracker, Keys and Tuning.
+  Every category filter is now one grid with a column per surface, the presets and the three
+  HUD surfaces share one first screen, and `Reset to defaults` sits beside Save.
 - **The x-ray key is now `TAB`** - Alt is a key the game itself uses.
 - **The marker filters remember themselves** - a legend click survives a restart, with no Save.
 - **The shrine list's Travel button is gone** - the game only travels at a shrine.
 - **The nearest-unfound key ships unbound** - `G` is a key the game itself uses. Bind it on
-  the `F2` panel's Bindings tab.
+  the `F2` panel's Keys tab.
 - **Typing in a search box no longer fires the hotkeys** - the map's marker search and the
   panel's boxes keep every letter, and a binding capture waits for the caret to leave.
 

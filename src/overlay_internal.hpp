@@ -966,7 +966,7 @@ namespace overlay
             int deduped = 0; // pips left after the 3-px dedupe
         };
         extern CompassDebug g_compass_debug;
-        // One-click Player presets. They touch nothing on the Advanced tab, no hotkey,
+        // One-click presets. They touch nothing on the Tuning tab, no hotkey,
         // not the master switch and not the UI scale - a preset must never undo a
         // machine-specific setting.
         enum class Preset
@@ -982,15 +982,6 @@ namespace overlay
         extern std::atomic<std::uint32_t> g_panel_sections;
         extern std::atomic<bool> g_panel_state_dirty;
         extern std::atomic<bool> g_panel_state_loaded;
-        // One collapsible section of the settings panel.
-        struct PanelSection
-        {
-            const char* title;
-            // The words a player would type looking for something in here. The section's
-            // own setting names, in lower case; matched as substrings both ways.
-            const char* words;
-            void (*draw)(mm::Config&, float);
-        };
         // Keys the game or another injected DLL already uses, warned about when a
         // binding lands on one. A binding with a modifier is not flagged: `ctrl+e` is
         // the escape hatch this table points at.
@@ -1188,27 +1179,35 @@ namespace overlay
         void category_filter(const char* title, const char* key, std::uint32_t& mask, int base_id,
                              float wrap_width);
         void apply_preset(mm::Config& cfg, Preset which);
-        void player_presets(mm::Config& cfg);
-        void player_look(mm::Config& cfg);
-        void player_minimap(mm::Config& cfg);
-        void player_placement(mm::Config& cfg);
-        void player_markers(mm::Config& cfg, float wrap);
-        void player_tracker(mm::Config& cfg);
-        void player_fullmap(mm::Config& cfg);
-        void player_xray(mm::Config& cfg, float wrap);
-        void player_compass(mm::Config& cfg, float wrap);
-        void player_keys(mm::Config& cfg);
+        bool panel_section(const char* title, int bit);
+        void overview_what_is_on(mm::Config& cfg);
+        void overview_placement(mm::Config& cfg);
+        void overview_look(mm::Config& cfg);
+        void mask_column_header(const char* name, std::uint32_t& mask);
+        void category_grid(mm::Config& cfg);
+        void panel_categories(mm::Config& cfg);
+        void map_fullmap(mm::Config& cfg);
+        void map_waypoints(mm::Config& cfg);
+        void map_tracker(mm::Config& cfg);
         std::wstring panel_state_path();
         void panel_state_load();
         void panel_state_save();
-        bool section_matches(const PanelSection& s, const char* needle);
-        void panel_player(mm::Config& cfg);
-        void panel_advanced(mm::Config& cfg);
+        void panel_overview(mm::Config& cfg);
+        void panel_map_tracker(mm::Config& cfg);
+        void tune_minimap(mm::Config& cfg);
+        void tune_fullmap(mm::Config& cfg);
+        void tune_xray(mm::Config& cfg);
+        void tune_compass(mm::Config& cfg);
+        void tune_floors(mm::Config& cfg);
+        void tune_sweep(mm::Config& cfg, float wrap);
+        void tune_gate(mm::Config& cfg);
+        void tune_diagnostics(mm::Config& cfg);
+        void panel_tuning(mm::Config& cfg);
         void panel_dev_keys(mm::Config& cfg);
         bool is_modifier_vk(int vk);
         int held_modifier();
         void arm_capture(int row);
-        void panel_bindings(mm::Config& cfg);
+        void panel_keys(mm::Config& cfg);
         void panel_debug(mm::Config& cfg, const mm::Snapshot& snap, bool have_state);
         void draw_panel(mm::Config cfg, const mm::Snapshot& snap, bool have_state);
         void build_ui();

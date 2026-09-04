@@ -795,23 +795,35 @@ a seqlock; the render thread never touches a UObject.
 
 ### The F2 panel
 
-Three tabs, the config's tiers made visible:
+Five tabs, one home per concept — a surface's on/off, its size and its categories are never
+on different tabs:
 
-- **Player** — presets (*Minimal HUD* / *Loot hunting* / *Exploration*, each setting several
-  Player keys at once and touching no hotkey, no UI scale and nothing on the Advanced tab),
-  minimap, placement and scale, markers, the collection tracker, the full map, the x-ray
-  highlight, the compass, and the key legend.
-- **Advanced** — collapsing headers over the Advanced tier.
+- **Overview** — the three presets (*Minimal HUD* / *Loot hunting* / *Exploration*, each
+  setting several Player keys at once and touching no hotkey, no UI scale and nothing on
+  Tuning), then *What is on* (minimap, compass, x-ray with their own dials and the
+  `hidden because: <reason>` line), *Placement* (`hud_preset`, with the anchors revealed under
+  `custom`) and *Look* (theme, palette, `overlay_enabled`).
+- **Categories** — the fourteen categories as rows against the three masks as columns
+  (`markers_categories` / `highlight_categories` / `compass_categories`), each row carrying the
+  category's glyph, colour and live found / known count, each column header an *all* / *none*
+  pair, a click on a row label toggling it everywhere. Under it the rules that are about every
+  surface at once: show found, the three glyph sizes, the item-quality combo, show markers and
+  clamp-to-rim.
+- **Map & tracker** — the full map, the waypoint list, and the collection tracker with its
+  profile, export / import and statistics page.
+- **Keys** — every hotkey, rebound by clicking a row and pressing a key, plus the two gamepad
+  chords.
+- **Tuning** — the Advanced tier, grouped by the surface it tunes: minimap, full map, x-ray,
+  compass, floors, sweep & tracker, the visibility gate and diagnostics.
 - **Debug** — present only while `debug_readout = 1`, a Dev key in a file a player does not
-  have. It carries the Dev keys, the per-activity performance table, every read-only
-  diagnostic (marker sweep, gamepad, map slice, x-ray camera, game state) and the
-  `hidden because: <reason>` line.
-- **Bindings** — every hotkey, rebound by clicking a row and pressing a key.
+  have. It carries the Dev keys, the per-activity performance table and every read-only
+  diagnostic (marker sweep, gamepad, map slice, x-ray camera, game state).
 
-Category filters are coloured chips, each filled with the colour that category is drawn in, so
-the filter row is also the legend. The Save / **Revert** / Reload row and the master switch
-live outside the tabs, at the bottom, and never scroll away. Save writes the file named on the
-button and rewrites *only the values*; Debug-tab settings go to the dev file.
+Section folds are one bit each in `wuchang_minimap_panel.txt` (`sections2 = 0x...`; the bits
+are positional, so the enum in `overlay_panel.cpp` is the file format). The
+Save / **Revert** / Reload / **Reset to defaults** row and the master switch live outside the
+tabs, at the bottom, and never scroll away. Save writes the file named on the button and
+rewrites *only the values*; Debug-tab settings go to the dev file.
 
 #### The category filters save themselves
 
@@ -819,8 +831,8 @@ Four keys — `markers_categories`, `markers_hide_found`, `highlight_categories`
 `compass_categories` — are what `mm::filters_differ()` compares and `mm::kFilterKeys` names, the
 one definition of "a filter". Both places that publish a UI-edited config (the full map and the
 F2 panel, each doing `if (before != cfg) mm::set_config(cfg)`) also raise `mm::g_save_filters`
-when a filter moved, which covers the legend rows, the F2 chips, the `found` checkbox and the
-player presets.
+when a filter moved, which covers the legend rows, the Categories grid, the `found` checkbox
+and the player presets.
 
 The loop thread consumes it in the same file-writes block as the waypoint and Save writes:
 raising the flag stamps a deadline 750 ms out, so a run of legend clicks costs one write, and a
@@ -1024,7 +1036,7 @@ published as `g_imgui_want_text`. Deliberately not `WantCaptureKeyboard` (what t
 swallow uses): keyboard navigation raises that too, and `M` has to keep closing a map the arrow
 keys have just panned.
 
-**Export / import** — the F2 panel's Tracker section writes the found list and the waypoints of
+**Export / import** — the F2 panel's Collection tracker section writes the found list and the waypoints of
 the profile in force to `wuchang_minimap_export_<date>_<time>.json` (`src/exchange.hpp`; a
 counter is appended when that name is taken), and reads one back as a **merge**: found ids are
 unioned and nothing is ever removed. Waypoints are appended by `xch::merge_waypoints`, which
@@ -1047,7 +1059,7 @@ precisely because the WndProc hook is swallowing every key while the map is up.
 
 `overlay_d3d12.cpp`'s `set_hide_reason()` is the single choke point for visibility, and every show
 condition is re-evaluated from the live snapshot on **every frame** — there is no latch
-anywhere in the path. The F2 Player tab prints the current reason as
+anywhere in the path. The F2 Overview tab prints the current reason as
 `hidden because: <reason>` (or `minimap: visible`) with how long that state has held, and
 every transition goes to the log as `minimap HIDDEN: <reason> (previous state held N ms)`,
 rate-limited to one line per 2 s. When the reason is a menu, the readout names the in-viewport

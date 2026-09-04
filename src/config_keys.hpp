@@ -8,8 +8,8 @@
 // and that no Removed or Legacy key appears in a shipped file.
 //
 // Tiers
-//   Player    - shipped config under `; ---- PLAYER SETTINGS ----`, F2 Player tab.
-//   Advanced  - shipped config under `; ---- ADVANCED ----`, F2 Advanced tab.
+//   Player    - shipped config under `; ---- PLAYER SETTINGS ----`.
+//   Advanced  - shipped config under `; ---- ADVANCED ----`; mostly the F2 Tuning tab.
 //   Dev       - config_wuchang_minimap_dev.txt, not shipped, parsed only when present.
 //   Removed   - a hard-coded constant or a dropped feature now; recognised only to warn
 //               instead of ignoring.

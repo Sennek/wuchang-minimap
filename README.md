@@ -62,10 +62,10 @@ mod. It is a UE4SS-plus-Wuchang problem, not a bug here.
 | `LB`+`RB` | The same, on a controller |
 | `N` | Cycle the minimap zoom |
 | `R` | Recentre the full map |
-| unbound | Set a waypoint on the nearest marker you have not found — bind it in `F2` → **Bindings** |
+| unbound | Set a waypoint on the nearest marker you have not found — bind it in `F2` → **Keys** |
 | `F5` | Reload the config, maps and markers |
 
-Everything is rebindable in `F2` → **Bindings**.
+Everything is rebindable in `F2` → **Keys**.
 
 ## Known conflicts
 

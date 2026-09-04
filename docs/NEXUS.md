@@ -60,7 +60,7 @@ To uninstall, delete [font=Courier New]ue4ss\Mods\WuchangMinimap\[/font]. That i
 [size=5]Hotkeys[/size]
 [list]
 [*][b]F2[/b] — settings panel (Overview / Categories / Map & tracker / Keys / Tuning tabs)
-[*][b]M[/b] — full map: drag or WASD to pan, wheel to zoom, Q/E for the floor, Home to fit, right-click for a waypoint, ? for the rest
+[*][b]M[/b] — full map: drag or WASD to pan, wheel to zoom, Q/E for the floor, Home to fit, right-click a marker to waypoint it (or the ground to drop one), ? for the rest
 [*][b]TAB[/b] — x-ray highlight through walls, with names and distances. A toggle. [b]LB+RB[/b] on a controller.
 [*][b]N[/b] — cycle the minimap zoom · [b]R[/b] — recentre the map · [b]F5[/b] — reload the config and data
 [/list]

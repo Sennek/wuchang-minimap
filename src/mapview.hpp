@@ -149,4 +149,27 @@ namespace mv
 
     // The member of `set` nearest (x, y) horizontally, or -1 when the set is empty.
     int nearest_waypoint(const WaypointSet& set, double x, double y);
+
+    // Two waypoints closer than this in every axis are the same place (uu). The z axis
+    // is in it, so two markers stacked on different floors are two places.
+    inline constexpr double kWaypointSamePlace = 25.0;
+
+    // What right-clicking a full-map marker does to the set.
+    enum class WaypointToggle
+    {
+        Add,    // nothing stands on the spot and there is room
+        Remove, // `index` stands within `eps` of it in every axis
+        Full,   // nothing stands there, and the set is at kMaxWaypoints
+    };
+
+    struct WaypointToggleResult
+    {
+        WaypointToggle action = WaypointToggle::Add;
+        int index = -1; // the waypoint to remove, for Remove
+    };
+
+    // The lowest-indexed waypoint within `eps` of (x, y, z) in every axis wins, so
+    // repeated toggles on one spot peel a stack one at a time.
+    WaypointToggleResult waypoint_toggle_at(const WaypointSet& set, double x, double y, double z,
+                                            double eps);
 } // namespace mv

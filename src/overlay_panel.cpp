@@ -729,15 +729,15 @@ namespace overlay
             {
                 if (mm::key_vk(cfg.waypoint_nearest_key) != 0)
                 {
-                    ImGui::TextDisabled("no waypoints - right-click on the full map to drop one, or press "
-                                        "%s in-world for the nearest unfound marker",
+                    ImGui::TextDisabled("no waypoints - right-click a marker or the ground on the "
+                                        "full map, or press %s in-world for the nearest unfound marker",
                                         key_name_ascii(cfg.waypoint_nearest_key).c_str());
                 }
                 else
                 {
-                    ImGui::TextDisabled("no waypoints - right-click on the full map to drop one, or bind "
-                                        "waypoint_nearest_key on the Keys tab for the nearest unfound "
-                                        "marker");
+                    ImGui::TextDisabled("no waypoints - right-click a marker or the ground on the "
+                                        "full map, or bind waypoint_nearest_key on the Keys tab for "
+                                        "the nearest unfound marker");
                 }
                 return;
             }

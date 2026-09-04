@@ -1381,6 +1381,33 @@ namespace
         CHECK(old_back.items[0].x == one.x);
         CHECK(old_back.items[0].y == one.y);
         CHECK(old_back.items[0].z == one.z);
+        // RIGHT-CLICK ON A MARKER - add, remove, full.
+        mv::WaypointSet t{};
+        CHECK(mv::waypoint_toggle_at(t, 1.0, 2.0, 3.0, mv::kWaypointSamePlace).action ==
+              mv::WaypointToggle::Add);
+        t.count = 2;
+        t.items[0] = mv::Waypoint{true, 1000.0, 2000.0, 3000.0};
+        t.items[1] = mv::Waypoint{true, 1000.0, 2000.0, 9000.0}; // the floor above
+        const mv::WaypointToggleResult on = mv::waypoint_toggle_at(t, 1000.0 + mv::kWaypointSamePlace * 0.5,
+                                                                   2000.0, 3000.0, mv::kWaypointSamePlace);
+        CHECK(on.action == mv::WaypointToggle::Remove);
+        CHECK_EQ(on.index, 0);
+        // Same x/y, a different floor: a different place, and its own waypoint.
+        CHECK_EQ(mv::waypoint_toggle_at(t, 1000.0, 2000.0, 9000.0, mv::kWaypointSamePlace).index, 1);
+        CHECK(mv::waypoint_toggle_at(t, 1000.0, 2000.0, 6000.0, mv::kWaypointSamePlace).action ==
+              mv::WaypointToggle::Add);
+        // A full set still removes what it stands on, and only refuses to add.
+        mv::WaypointSet full{};
+        full.count = mv::kMaxWaypoints;
+        for (std::size_t i = 0; i < mv::kMaxWaypoints; ++i)
+        {
+            full.items[i] = mv::Waypoint{true, static_cast<double>(i) * 1000.0, 0.0, 0.0};
+        }
+        CHECK(mv::waypoint_toggle_at(full, 7000.0, 0.0, 0.0, mv::kWaypointSamePlace).action ==
+              mv::WaypointToggle::Remove);
+        CHECK(mv::waypoint_toggle_at(full, -5000.0, 0.0, 0.0, mv::kWaypointSamePlace).action ==
+              mv::WaypointToggle::Full);
+
         // An old file saying `set = 0` carries no waypoint at all.
         mv::WaypointSet cleared{};
         cleared.count = 1;

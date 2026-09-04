@@ -2,6 +2,8 @@
 
 ## 1.0.1
 
+- **Right-click a marker on the full map to waypoint it**, again to take the waypoint off - on
+  the map itself and on a search-result row. Right-clicking bare ground still drops one there.
 - Full-map marker tooltip says `12 m above` / `8 m below` / `same level` instead of `-20 m up`.
 - **No more black screen on some launches** - the DX12 hook addresses are found fresh every
   launch instead of being reused from `wuchang_minimap_hookaddr.txt`, which is now deleted on

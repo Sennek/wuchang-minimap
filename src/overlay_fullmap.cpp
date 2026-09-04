@@ -1253,12 +1253,43 @@ namespace overlay
                 set.z = static_cast<double>(feet);
                 toast(mm::add_waypoint(set) ? "waypoint set" : "no room for another waypoint");
             };
+            // Right-click on a marker: a waypoint on the marker's own spot, or off it.
+            // The marker's z comes along, so the waypoint sits on the marker's floor and
+            // the compass and the minimap bear on it exactly.
+            const auto toggle_marker_waypoint = [&](const markers::DrawMarker& m) {
+                const mv::WaypointToggleResult t =
+                    mv::waypoint_toggle_at(wps, m.x, m.y, m.z, mv::kWaypointSamePlace);
+                if (t.action == mv::WaypointToggle::Remove)
+                {
+                    mm::remove_waypoint(static_cast<std::size_t>(t.index));
+                    toast("waypoint removed");
+                    return;
+                }
+                if (t.action == mv::WaypointToggle::Full)
+                {
+                    toast("no room for another waypoint");
+                    return;
+                }
+                mv::Waypoint wp{};
+                wp.set = true;
+                wp.x = m.x;
+                wp.y = m.y;
+                wp.z = m.z;
+                toast(mm::add_waypoint(wp) ? "waypoint set" : "no room for another waypoint");
+            };
             if (canvas_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
             {
-                double wx = 0.0;
-                double wy = 0.0;
-                mv::screen_to_world(g_mv, canvas, io.MousePos.x, io.MousePos.y, wx, wy);
-                set_or_remove(wx, wy);
+                if (hover != nullptr)
+                {
+                    toggle_marker_waypoint(*hover);
+                }
+                else
+                {
+                    double wx = 0.0;
+                    double wy = 0.0;
+                    mv::screen_to_world(g_mv, canvas, io.MousePos.x, io.MousePos.y, wx, wy);
+                    set_or_remove(wx, wy);
+                }
             }
             if (pad_waypoint || key_waypoint)
             {
@@ -1303,7 +1334,11 @@ namespace overlay
                                 std::sqrt(ddx * ddx + ddy * ddy) / 100.0, std::fabs(dz_m),
                                 dz_m > 0.0 ? "above" : "below");
                 }
-                ImGui::TextDisabled("left-click toggles found");
+                const bool hover_wp =
+                    mv::waypoint_toggle_at(wps, hover->x, hover->y, hover->z, mv::kWaypointSamePlace)
+                        .action == mv::WaypointToggle::Remove;
+                ImGui::TextDisabled(hover_wp ? "left-click toggles found - right-click removes the waypoint"
+                                             : "left-click toggles found - right-click toggles waypoint");
                 ImGui::EndTooltip();
             }
 
@@ -1334,7 +1369,8 @@ namespace overlay
                     {
                         dropdown_hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem |
                                                                   ImGuiHoveredFlags_ChildWindows);
-                        ImGui::TextDisabled("%d marker(s) match \"%s\" - click one to waypoint it",
+                        ImGui::TextDisabled("%d marker(s) match \"%s\" - click one to waypoint it, "
+                                            "right-click to toggle",
                                             g_map_search_hits, g_map_search);
                         constexpr std::size_t kMaxRows = 200;
                         for (std::size_t i = 0; i < hits.size() && i < kMaxRows; ++i)
@@ -1358,6 +1394,10 @@ namespace overlay
                                 wp.z = m.z;
                                 toast(mm::add_waypoint(wp) ? "waypoint set"
                                                            : "no room for another waypoint");
+                            }
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+                            {
+                                toggle_marker_waypoint(m);
                             }
                             ImGui::PopID();
                         }
@@ -1394,8 +1434,8 @@ namespace overlay
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
                     const mv::WaypointSet& live = wps;
-                    ImGui::TextDisabled("%zu of %zu   -   right-click the map to drop one, again on it "
-                                        "to remove it",
+                    ImGui::TextDisabled("%zu of %zu   -   right-click a marker or the map to toggle "
+                                        "one",
                                         live.count, mv::kMaxWaypoints);
                     const int nearest = mv::nearest_waypoint(live, snap.x, snap.y);
                     for (std::size_t wi = 0; wi < live.count; ++wi)
@@ -1549,7 +1589,8 @@ namespace overlay
                 add(left, "ctrl+wheel, Q / E", "floor down / up");
                 add(left, "Home", "zoom to fit the chapter");
                 add(left, key_name_ascii(cfg.map_recenter_key), "recentre on the player");
-                add(left, "right-click, Space", "drop a waypoint (again on it removes it)");
+                add(left, "right-click a marker", "waypoint it (again on it removes it)");
+                add(left, "right-click, Space", "drop a waypoint on the spot (again removes it)");
                 add(left, "the search box", "show only markers whose name matches");
                 add(left, "Waypoints", "the waypoint list (remove one, or all)");
                 add(left, "left-click, F", "toggle found");

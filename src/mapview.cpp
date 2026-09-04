@@ -436,4 +436,20 @@ namespace mv
         }
         return best;
     }
+
+    WaypointToggleResult waypoint_toggle_at(const WaypointSet& set, double x, double y, double z,
+                                            double eps)
+    {
+        for (std::size_t i = 0; i < set.count && i < kMaxWaypoints; ++i)
+        {
+            const Waypoint& w = set.items[i];
+            if (std::fabs(w.x - x) <= eps && std::fabs(w.y - y) <= eps && std::fabs(w.z - z) <= eps)
+            {
+                return WaypointToggleResult{WaypointToggle::Remove, static_cast<int>(i)};
+            }
+        }
+        return WaypointToggleResult{set.count >= kMaxWaypoints ? WaypointToggle::Full
+                                                              : WaypointToggle::Add,
+                                    -1};
+    }
 } // namespace mv

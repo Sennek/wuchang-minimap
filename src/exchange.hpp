@@ -34,7 +34,7 @@ namespace xch
     };
 
     // Two waypoints closer than this in every axis are the same place (uu).
-    inline constexpr double kWaypointEpsilon = 25.0;
+    inline constexpr double kWaypointEpsilon = mv::kWaypointSamePlace;
 
     struct MergeResult
     {

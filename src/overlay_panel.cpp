@@ -216,7 +216,20 @@ namespace overlay
                 mask = 0u;
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("(%s)", key);
+            // The four masks the automatic filter save covers say so; `markers_absence_categories`
+            // is a rule, not a filter, and still needs a Save.
+            bool auto_saved = false;
+            for (const char* fk : mm::kFilterKeys)
+            {
+                auto_saved = auto_saved || std::strcmp(fk, key) == 0;
+            }
+            ImGui::TextDisabled(auto_saved ? "(%s, remembered by itself)" : "(%s)", key);
+            if (auto_saved && ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("`%s` in config_wuchang_minimap.txt. A change here is written to\n"
+                                  "the file on its own a moment later - no Save needed.",
+                                  key);
+            }
             ImGui::PopID();
             category_chips(mask, base_id + 1, wrap_width);
         }
@@ -849,7 +862,7 @@ namespace overlay
             {"Placement and scale", "anchor offset position ui scale dpi corner", &sec_placement},
             {"Markers", "markers categories glyph size found hide clamp edge rarity quality", &sec_markers},
             {"Collection tracker", "collection tracker found profile save slot absence", &sec_tracker},
-            {"Full map", "full map zoom gamepad waypoint shrine list travel", &sec_fullmap},
+            {"Full map", "full map zoom gamepad waypoint shrine list", &sec_fullmap},
             {"X-ray highlight", "x-ray xray highlight through walls hold toggle radius labels", &sec_xray},
             {"Compass", "compass strip heading pips width degrees plate", &sec_compass},
             {"Keys", "keys hotkeys bindings rebind", &sec_keys},
@@ -2022,6 +2035,12 @@ namespace overlay
             if (before != cfg)
             {
                 mm::set_config(cfg);
+            }
+            // The category filters save themselves: the loop thread rewrites those four keys
+            // shortly after the last change, so a filter is remembered without a Save.
+            if (mm::filters_differ(before, cfg))
+            {
+                mm::g_save_filters = true;
             }
             if (!open)
             {

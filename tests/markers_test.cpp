@@ -3067,7 +3067,7 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
-        constexpr std::size_t kPaddingBytes = 71;
+        constexpr std::size_t kPaddingBytes = 72;
 
         mm::Config a{};
         mm::Config b{};
@@ -3631,7 +3631,7 @@ namespace
     };
 
     constexpr CatFloor kCatFloors[] = {
-        // shrines: the fast-travel network. Losing one loses a travel point.
+        // shrines: the game's own rest-and-travel network. Losing one loses a travel point.
         {1, mdb::Cat::Shrine, 12}, {2, mdb::Cat::Shrine, 12},
         {3, mdb::Cat::Shrine, 12}, {4, mdb::Cat::Shrine, 9},
         {5, mdb::Cat::Shrine, 5},  {0, mdb::Cat::Shrine, 7},

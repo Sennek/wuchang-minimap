@@ -5,7 +5,7 @@ Toolchain, build, the navmesh and marker pipelines, and the runtime internals. F
 installing and using the mod, see the [user README](../README.md).
 
 The mod ships a minimap, a [full map](#the-full-map-m), [markers](#markers), a collection
-tracker, a [compass](#the-compass-strip) and an [x-ray highlight](#the-x-ray-highlight-lalt);
+tracker, a [compass](#the-compass-strip) and an [x-ray highlight](#the-x-ray-highlight-tab);
 the map background is built offline from the game's own navmesh. It also carries the opt-in
 [`navmesh_dump`](#navmesh-dumper) module, which locates the game's Recast/Detour navmesh in
 memory and writes the streamed-in tiles out as JSON.
@@ -813,6 +813,24 @@ the filter row is also the legend. The Save / **Revert** / Reload row and the ma
 live outside the tabs, at the bottom, and never scroll away. Save writes the file named on the
 button and rewrites *only the values*; Debug-tab settings go to the dev file.
 
+#### The category filters save themselves
+
+Four keys — `markers_categories`, `markers_hide_found`, `highlight_categories`,
+`compass_categories` — are what `mm::filters_differ()` compares and `mm::kFilterKeys` names, the
+one definition of "a filter". Both places that publish a UI-edited config (the full map and the
+F2 panel, each doing `if (before != cfg) mm::set_config(cfg)`) also raise `mm::g_save_filters`
+when a filter moved, which covers the legend rows, the F2 chips, the `found` checkbox and the
+player presets.
+
+The loop thread consumes it in the same file-writes block as the waypoint and Save writes:
+raising the flag stamps a deadline 750 ms out, so a run of legend clicks costs one write, and a
+change arriving while a save is pending re-stamps it and lands on the next pass. The write goes
+through `mm::save_config_keys()`, a `cfgrw::filter` over `config_kv()` down to just those keys,
+so every other key — including a panel edit the player has *not* saved — keeps whatever is on
+disk. Dev keys cannot leak in: the filter set only names Player keys and `save_config_keys`
+drops anything that is not Player or Advanced. With no config file on disk it defers to the full
+`save_config_file()`, which owns the pristine text a fresh file is made of.
+
 ### Settings
 
 `ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`, `;` or `#` starts
@@ -821,7 +839,7 @@ table that says which **tier** each key is in:
 
 | tier | where it lives | what it is |
 |---|---|---|
-| **Player** (58) | `config_wuchang_minimap.txt`, under `; ---- PLAYER SETTINGS ----`; F2 → *Player* | something a person tuning the HUD would plausibly change |
+| **Player** (59) | `config_wuchang_minimap.txt`, under `; ---- PLAYER SETTINGS ----`; F2 → *Player* | something a person tuning the HUD would plausibly change |
 | **Advanced** (63) | the same file, under `; ---- ADVANCED ----`; F2 → *Advanced* | correct as shipped; changed to answer a symptom |
 | **Dev** (24) | `config_wuchang_minimap_dev.txt`; F2 → *Debug* | a dial that exists because a developer needed one during bring-up |
 
@@ -903,21 +921,14 @@ On first sight of a slot with no file of its own the shared file is **copied** i
 and the copy is logged. A slot switch drops every cache, which re-arms the resolution, so the
 tracker swaps files with no restart; a pending write goes to the *old* file first.
 
-### Fast travel is guarded, not disabled (`src/shrines.*`)
+### The recon dump (`src/recon.cpp`)
 
-The route is the game's own: `PlayerModelLibrary_C::PlayerChuanSongFirePoint` on the library
-CDO, falling back to `BP_RebornFire_C::ChuanSong` on a resident shrine — **never
-`K2_TeleportTo`**, which moves the pawn without the pre-travel save, the reborn info or the
-`pmaps` level set, and lands the player in unstreamed geometry. The call is issued only after
-`uer::func_params()` has read the real parameter list and it matches the prediction (one to
-two 16-byte `FString` slots, the first at offset 0); a mismatch refuses and says so in the
-panel, and a shrine the save has not unlocked refuses too. `ue_min.hpp` declares `UFunction`
-as a `UStruct` subclass, which is what makes reading a signature possible.
-
-**Dump the fast-travel / save-slot recon** on the Debug tab (`src/recon.cpp`) writes the game
-mode's components, every property of `RebornManagerComponent_C` with the three firepoint
-arrays, the reflected parameter lists of the ten functions both routes name, and the save-slot
-fallback strings — calling nothing. When a name does not resolve it prints the names that did.
+**Dump the fast-travel / save-slot recon** on the Debug tab writes the game mode's
+components, every property of `RebornManagerComponent_C` with the three firepoint arrays, the
+reflected parameter lists of the ten functions the game's own fire-point and save-slot routes
+name, and the save-slot fallback strings — calling nothing. Reflection lookups and raw reads
+only, so the output file is the only side effect; when a name does not resolve it prints the
+names that did. This dump is how `markers/shrines.json` and the save-slot ladder were built.
 
 ### `markers/shrines.json` (schema `wuchang-minimap-shrines/1`)
 
@@ -969,7 +980,9 @@ widens the fade to infinity for a route-planning view.
 
 **Markers** are the same published draw buffer, the same glyphs and the same category mask the
 minimap uses — the legend column toggles the *same* `markers_categories` setting the F2 chips
-and the config file drive. Hovering a marker shows its class, category, found state and
+and the config file drive, and the click is
+[written back to the config on its own](#the-category-filters-save-themselves). Hovering a
+marker shows its class, category, found state and
 distance; a left-click toggles found by hand, which goes through the tracker mailbox to the
 loop thread and into the found file. The live sweep still owns the truth: un-marking a chest
 the game reports as `Used` is undone on the next sweep round, because the tracker follows the
@@ -1047,7 +1060,7 @@ operators, MOUSE3-MOUSE5, the L/R modifier keys and `none`, with one optional `c
 F12 (Steam) are rejected in code, not merely discouraged in a comment. The panel and the full
 map print the live binding list, built from the config, so a rebound key is what you are told.
 
-## The x-ray highlight (`LALT`)
+## The x-ray highlight (`TAB`)
 
 Arm the key (or the gamepad chord, `LB+RB` by default) and every marker of the enabled
 categories within `highlight_radius` of the player is drawn **at its position on screen** —

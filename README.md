@@ -5,7 +5,8 @@ with the map built from the game's own navmesh.
 
 - A **minimap**, a **compass strip** and a **full chapter map** on `M` to pan and zoom.
 - **Markers with the game's own names** for every chapter and the DLC, filtered by
-  category, and a **name search** on the full map.
+  category — the filters are remembered between sessions on their own — and a **name
+  search** on the full map.
 - **Up to 16 waypoints** at once, on the map, the minimap and the compass; `G` drops one
   on the nearest thing you have not collected.
 - **A collection tracker per save slot**, with **export / import** of your found list and
@@ -57,7 +58,7 @@ mod. It is a UE4SS-plus-Wuchang problem, not a bug here.
 |---|---|
 | `F2` | Settings panel |
 | `M` | Full map |
-| `LALT` | X-ray highlight through walls — a toggle |
+| `TAB` | X-ray highlight through walls — a toggle |
 | `LB`+`RB` | The same, on a controller |
 | `N` | Cycle the minimap zoom |
 | `R` | Recentre the full map |
@@ -86,7 +87,8 @@ None of these stops the mod working.
 
 ```
 <Game>\Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangMinimap\
-    config_wuchang_minimap.txt      your settings (the F2 panel's Save writes this)
+    config_wuchang_minimap.txt      your settings (the F2 panel's Save writes this; the
+                                    category filters write themselves)
     wuchang_minimap.log             the mod's log, rotated .1 .2 .3 per launch
     wuchang_minimap_found*.txt      the collection tracker, one file per save slot
     wuchang_minimap_waypoint.txt    the full map's waypoints

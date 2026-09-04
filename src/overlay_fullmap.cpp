@@ -1379,7 +1379,7 @@ namespace overlay
                 if (ImGui::Begin("Shrines", &g_shrine_panel,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
-                    draw_shrine_list(cfg, snap, have_state, markers::stats().filter_chapter);
+                    draw_shrine_list(snap, have_state, markers::stats().filter_chapter);
                     ImGui::Spacing();
                     if (ImGui::Button("Close"))
                     {
@@ -1481,7 +1481,7 @@ namespace overlay
                 add(left, "the search box", "show only markers whose name matches");
                 add(left, "Waypoints", "the waypoint list (remove one, or all)");
                 add(left, "left-click, F", "toggle found");
-                add(left, "click a legend row", "filter that category");
+                add(left, "click a legend row", "filter that category (remembered)");
                 add(left, key_name_ascii(cfg.screenshot_key), "copy the map to the clipboard");
                 add(left, "Shrines", "shrine list (click = waypoint, double-click = centre)");
                 add(left, "Stats", "collection statistics");
@@ -1593,6 +1593,12 @@ namespace overlay
             if (before != cfg)
             {
                 mm::set_config(cfg);
+            }
+            // The category filters save themselves: the loop thread rewrites those four keys
+            // shortly after the last change, so a filter is remembered without a Save.
+            if (mm::filters_differ(before, cfg))
+            {
+                mm::g_save_filters = true;
             }
         }
     } // namespace ovl

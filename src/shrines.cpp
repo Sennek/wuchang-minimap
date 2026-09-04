@@ -12,7 +12,6 @@
 #include <string>
 #include <vector>
 
-#include "mem.hpp"
 #include "mmstate.hpp"
 #include "shrines_db.hpp"
 #include "ue_min.hpp"
@@ -94,247 +93,19 @@ namespace shr
             return false;
         }
 
-        //==============================================================================
-        // The offline table
-        //==============================================================================
-
-        std::atomic<const std::vector<shdb::Shrine>*> g_table{nullptr};
-        TableInfo g_table_info; // guarded by g_lock
-
-        //==============================================================================
-        // Fast travel
-        //==============================================================================
-
-        TravelState g_travel; // guarded by g_lock
-        std::atomic<bool> g_travel_pending{false};
-
-        uer::FuncCache g_travel_funcs;
-        uer::ObjRef g_lib;    // PlayerModelLibrary_C (its CDO)
-        uer::ObjRef g_shrine; // any resident BP_RebornFire_C, the fallback receiver
-
-        void set_travel(Travel phase, const char* id, const std::string& note)
-        {
-            spin::SpinGuard guard(g_lock);
-            g_travel.phase = phase;
-            if (id != nullptr)
-            {
-                copy_into(g_travel.id, sizeof(g_travel.id), id);
-            }
-            copy_into(g_travel.note, sizeof(g_travel.note), note);
-        }
-
-        // A function-library static lives on the CDO, and uer::capture refuses a CDO
-        // (latching onto one reads an archetype instead of an instance). A CDO cannot die
-        // while its class is loaded, so it is held as a plain pointer plus its class,
-        // re-checked before every use.
-        UObject* g_lib_cdo = nullptr;
-        RC::Unreal::UClass* g_lib_cdo_class = nullptr;
-
-        bool find_library()
-        {
-            if (g_lib_cdo != nullptr && mem::readable(g_lib_cdo, 0x40) &&
-                g_lib_cdo->GetClassPrivate() == g_lib_cdo_class)
-            {
-                return true;
-            }
-            g_lib_cdo = nullptr;
-            g_lib_cdo_class = nullptr;
-            std::vector<UObject*> objs;
-            UObjectGlobals::FindAllOf(L"PlayerModelLibrary_C", objs);
-            for (UObject* obj : objs)
-            {
-                if (obj == nullptr || !mem::readable(obj, 0x40))
-                {
-                    continue;
-                }
-                RC::Unreal::UClass* cls = obj->GetClassPrivate();
-                if (cls == nullptr)
-                {
-                    continue;
-                }
-                g_lib_cdo = obj;
-                g_lib_cdo_class = cls;
-                return true;
-            }
-            return false;
-        }
-
-        // The FString parameter block handed to ProcessEvent. ProcessEvent destroys the
-        // frame's LOCALS but not its PARAMETERS
-        // (`if (!Destruct->HasAnyPropertyFlags(CPF_Parm))`), so the caller owns this
-        // memory. Static, so it outlives the call under any tail behaviour.
-        struct FStringParam
-        {
-            const wchar_t* data = nullptr;
-            std::int32_t num = 0;
-            std::int32_t max = 0;
-        };
-
-        wchar_t g_travel_id_w[shdb::kMaxIdLen + 1]{};
-
-        // Self-check: a single FString in means one or two 16-byte reflected parameters
-        // and a parameter block big enough to hold them. Anything else refuses the call -
-        // a UFunction is never called with a guessed signature.
-        struct Sig
-        {
-            bool ok = false;
-            int params = 0;
-            int block = 0;
-            std::string detail;
-        };
-
-        Sig check_travel_signature(UObject* obj, const wchar_t* fname)
-        {
-            Sig sig{};
-            RC::Unreal::UFunction* fn = g_travel_funcs.get(obj, fname);
-            if (fn == nullptr)
-            {
-                sig.detail = "no such UFunction";
-                return sig;
-            }
-            const std::vector<uer::ParamInfo> params = uer::func_params(fn);
-            sig.params = static_cast<int>(params.size());
-            sig.block = uer::func_param_size(fn);
-            bool all_16 = !params.empty();
-            for (const uer::ParamInfo& p : params)
-            {
-                if (!sig.detail.empty())
-                {
-                    sig.detail += ", ";
-                }
-                sig.detail += uer::narrow_ascii(p.name) + "@" + std::to_string(p.offset) + "/" +
-                              std::to_string(p.size);
-                if (p.size != 16)
-                {
-                    all_16 = false;
-                }
-            }
-            sig.ok = all_16 && sig.params >= 1 && sig.params <= 2 && sig.block >= 16 &&
-                     params[0].offset == 0;
-            return sig;
-        }
-
-        bool issue_travel_call(UObject* obj, const wchar_t* fname, const Sig& sig, const std::string& id,
-                               std::string& note)
-        {
-            RC::Unreal::UFunction* fn = g_travel_funcs.get(obj, fname);
-            if (fn == nullptr)
-            {
-                note = "the function went away";
-                return false;
-            }
-            const std::size_t n = id.size() < shdb::kMaxIdLen ? id.size() : shdb::kMaxIdLen;
-            for (std::size_t i = 0; i < n; ++i)
-            {
-                g_travel_id_w[i] = static_cast<wchar_t>(static_cast<unsigned char>(id[i]));
-            }
-            g_travel_id_w[n] = L'\0';
-            std::vector<std::uint8_t> block(static_cast<std::size_t>(sig.block) + 16u, 0u);
-            FStringParam p{};
-            p.data = g_travel_id_w;
-            p.num = static_cast<std::int32_t>(n + 1); // UE counts the terminating NUL
-            p.max = p.num;
-            std::memcpy(block.data(), &p, sizeof(p));
-            if (!mem::guarded_call(&uer::process_event_trampoline, obj, fn, block.data()))
-            {
-                note = "ProcessEvent faulted";
-                return false;
-            }
-            return true;
-        }
-
-        void run_travel(const std::string& id)
-        {
-            const mm::Config& cfg = mm::cfg_cached();
-            if (!cfg.fast_travel_enabled)
-            {
-                set_travel(Travel::Refused, id.c_str(),
-                           "fast_travel_enabled = 0 - turn it on in the Advanced settings");
-                return;
-            }
-            // Only an UNLOCKED id: a locked one can wedge the streaming state.
-            if (!is_unlocked(id.c_str()))
-            {
-                set_travel(Travel::Refused, id.c_str(),
-                           "that shrine is not in the save's unlocked list");
-                return;
-            }
-
-            struct Route
-            {
-                const wchar_t* fname;
-                bool library;
-            };
-            // The library facade first (it needs no shrine actor loaded, and only ~3 of
-            // the 57 shrines ever are), then the menu's own path.
-            const Route routes[] = {
-                {L"PlayerChuanSongFirePoint", true},
-                {L"ChuanSong", false},
-            };
-            std::string tried;
-            for (const Route& r : routes)
-            {
-                UObject* obj = nullptr;
-                if (r.library)
-                {
-                    if (!find_library())
-                    {
-                        tried += "PlayerModelLibrary_C not loaded; ";
-                        continue;
-                    }
-                    obj = g_lib_cdo;
-                }
-                else
-                {
-                    if (g_shrine.empty() || !uer::alive(g_shrine))
-                    {
-                        g_shrine.reset();
-                        std::vector<UObject*> objs;
-                        UObjectGlobals::FindAllOf(L"BP_RebornFire_C", objs);
-                        for (UObject* o : objs)
-                        {
-                            if (o != nullptr && uer::capture(o, g_shrine))
-                            {
-                                break;
-                            }
-                        }
-                    }
-                    if (g_shrine.empty())
-                    {
-                        tried += "no resident BP_RebornFire_C; ";
-                        continue;
-                    }
-                    obj = g_shrine.obj;
-                }
-                const Sig sig = check_travel_signature(obj, r.fname);
-                mm::logf(L"fast travel: '{}' - {} param(s), block {} B: {} => {}", r.fname, sig.params,
-                         sig.block, widen(sig.detail.empty() ? std::string{"(none)"} : sig.detail),
-                         sig.ok ? L"matches the predicted signature" : L"REFUSED");
-                if (!sig.ok)
-                {
-                    tried += uer::narrow_ascii(r.fname) + ": " + sig.detail + "; ";
-                    continue;
-                }
-                std::string note;
-                if (!issue_travel_call(obj, r.fname, sig, id, note))
-                {
-                    tried += uer::narrow_ascii(r.fname) + ": " + note + "; ";
-                    continue;
-                }
-                set_travel(Travel::Done, id.c_str(), "called " + uer::narrow_ascii(r.fname));
-                mm::logf(L"fast travel: called {}('{}')", r.fname, widen(id));
-                return;
-            }
-            set_travel(Travel::Refused, id.c_str(), tried.empty() ? "no route available" : tried);
-            mm::logf(L"fast travel to '{}' REFUSED: {}", widen(id), widen(tried));
-        }
-
         void set_unresolved(const char* why)
         {
             spin::SpinGuard guard(g_lock);
             g_state.valid = false;
             copy_into(g_state.route, sizeof(g_state.route), why);
         }
+
+        //==============================================================================
+        // The offline table
+        //==============================================================================
+
+        std::atomic<const std::vector<shdb::Shrine>*> g_table{nullptr};
+        TableInfo g_table_info; // guarded by g_lock
     } // namespace
 
     State state()
@@ -432,37 +203,10 @@ namespace shr
                  rep.named);
     }
 
-    void request_travel(const char* id)
-    {
-        if (id == nullptr || id[0] == '\0')
-        {
-            return;
-        }
-        set_travel(Travel::Requested, id, "queued for the game thread");
-        g_travel_pending.store(true, std::memory_order_release);
-    }
-
-    TravelState travel_state()
-    {
-        spin::SpinGuard guard(g_lock);
-        return g_travel;
-    }
-
-    void clear_travel()
-    {
-        spin::SpinGuard guard(g_lock);
-        g_travel = TravelState{};
-    }
-
     void drop_caches()
     {
         g_layouts.clear();
         g_manager.reset();
-        g_travel_funcs.clear();
-        g_lib.reset();
-        g_shrine.reset();
-        g_lib_cdo = nullptr;
-        g_lib_cdo_class = nullptr;
         g_last_poll = 0;
         g_last_find = 0;
         g_logged_props = false;
@@ -471,18 +215,6 @@ namespace shr
 
     void game_thread_pump(std::uint64_t now)
     {
-        // A travel request runs before the poll and outside its 1 Hz gate.
-        if (g_travel_pending.exchange(false, std::memory_order_acquire))
-        {
-            std::string id;
-            {
-                spin::SpinGuard guard(g_lock);
-                id = g_travel.id;
-                g_travel.phase = Travel::InFlight;
-            }
-            run_travel(id);
-        }
-
         // 1 Hz: the list changes only when the player lights a shrine.
         if (g_last_poll != 0 && now - g_last_poll < 1000)
         {

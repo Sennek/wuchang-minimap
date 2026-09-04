@@ -12,6 +12,7 @@
 //   * the render thread never touches a UObject, the game thread never touches D3D12.
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <string>
@@ -265,7 +266,7 @@ namespace mm
 
         bool highlight_enabled = true;
         HighlightMode highlight_mode = HighlightMode::Toggle;
-        int highlight_key = 0xA4; // VK_LMENU - left Alt
+        int highlight_key = 0x09; // VK_TAB
         bool highlight_gamepad = true;
         // XInput chord (pad::kLeftShoulder | pad::kRightShoulder). The triggers are analogue, so
         // they are their own flags rather than mask bits.
@@ -400,8 +401,6 @@ namespace mm
         // `normal` is what a bug report needs; `verbose` adds the running commentary; `trace` adds
         // the per-publish censuses. See the LOGGING block below.
         LogLv log_level = LogLv::Normal;
-        // Shrine fast travel. Off until the in-game reflection self-check confirms the call route.
-        bool fast_travel_enabled = false;
         // Route 1 of the save-slot ladder CALLS `Get Save Slot Value`. Off until a recon dump shows
         // the parameter is not engine-owned - see saveslot.cpp for the hazard.
         bool saveslot_uuid_call = false;
@@ -601,7 +600,6 @@ namespace mm
         a.waypoint_nearest_key == b.waypoint_nearest_key &&
         a.crash_breadcrumb == b.crash_breadcrumb &&
         a.log_level == b.log_level &&
-        a.fast_travel_enabled == b.fast_travel_enabled &&
         a.saveslot_uuid_call == b.saveslot_uuid_call &&
         a.map_pad_open_chord == b.map_pad_open_chord &&
         detail::eq(a.ui_font, b.ui_font) &&
@@ -613,6 +611,20 @@ namespace mm
     {
         return !(a == b);
     }
+
+    // The marker filters, the one definition of the set: what the full map's legend and the F2
+    // chips edit, and the only keys the automatic filter save writes. All four are Tier::Player.
+    inline bool filters_differ(const Config& a, const Config& b)
+    {
+        return a.markers_categories != b.markers_categories ||
+               a.markers_hide_found != b.markers_hide_found ||
+               a.highlight_categories != b.highlight_categories ||
+               a.compass_categories != b.compass_categories;
+    }
+
+    // The keys `filters_differ` compares, for save_config_keys().
+    inline const char* const kFilterKeys[] = {"markers_categories", "markers_hide_found",
+                                              "highlight_categories", "compass_categories"};
 
     // The config lives here and is copied under a spinlock. The loop thread writes it on load /
     // F5; the render thread writes it when the F2 panel is used.
@@ -693,6 +705,12 @@ namespace mm
     // Loop thread only (plain Win32 file I/O, no iostreams).
     void load_config_file();
     void save_config_file();
+    // A partial save: only the named keys get their live value written into
+    // config_wuchang_minimap.txt. Every other key, including a panel edit not yet saved, keeps
+    // whatever is on disk. `keys` must be Player or Advanced keys - a Dev key is dropped, since
+    // this only ever writes the player file. With no file to rewrite it falls back to
+    // save_config_file(), which owns the pristine text a fresh file is made of.
+    void save_config_keys(const char* const* keys, std::size_t count);
     std::wstring config_path();
     // config_wuchang_minimap_dev.txt - the Tier::Dev overlay, parsed after the main file.
     std::wstring dev_config_path();
@@ -771,6 +789,9 @@ namespace mm
     // Panel "Revert": re-read the config files only and publish them, dropping unsaved edits.
     extern std::atomic<bool> g_revert_config;
     extern std::atomic<bool> g_save_config;     // panel -> loop thread saves
+    // A category filter changed in the UI. Render thread -> loop thread, which writes the four
+    // filter keys ~750 ms after the last change, so a run of legend clicks costs one write.
+    extern std::atomic<bool> g_save_filters;
     extern std::atomic<bool> g_panel_drew_frame; // set by the render thread, for the log
     // The Bindings tab is waiting for a key press. While it is set the WndProc hook swallows
     // the whole keyboard. Set and cleared by the render thread; read by the WndProc hook.

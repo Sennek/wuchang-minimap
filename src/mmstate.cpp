@@ -897,10 +897,6 @@ namespace mm
             {
                 cfg.crash_breadcrumb = parse_bool(value, cfg.crash_breadcrumb);
             }
-            else if (key == "fast_travel_enabled")
-            {
-                cfg.fast_travel_enabled = parse_bool(value, cfg.fast_travel_enabled);
-            }
             else if (key == "map_pad_open_chord")
             {
                 // Same spelling as highlight_pad_chord, minus the triggers: LT / RT are parsed and then dropped.
@@ -1383,6 +1379,8 @@ namespace mm
     std::atomic<bool> g_reload_config{false};
     std::atomic<bool> g_revert_config{false};
     std::atomic<bool> g_save_config{false};
+    // Raised by the render thread when a category filter changes; consumed, debounced, by the loop thread.
+    std::atomic<bool> g_save_filters{false};
     std::atomic<bool> g_key_capture{false};
     std::atomic<bool> g_panel_drew_frame{false};
     std::atomic<bool> g_waypoint_dirty{false};
@@ -2116,7 +2114,6 @@ namespace mm
         add("compass_pip_height_uu", f0(cfg.compass_pip_height_uu));
         add("log_level", log_level_name(cfg.log_level));
         add("crash_breadcrumb", b(cfg.crash_breadcrumb));
-        add("fast_travel_enabled", b(cfg.fast_travel_enabled));
         add("ui_font", std::string{cfg.ui_font});
         add("zoom_dpi_scaled", b(cfg.zoom_dpi_scaled));
 
@@ -2167,29 +2164,9 @@ namespace mm
 
         constexpr const char* kAppendedBanner = "; ---- added by the settings panel ----";
 
-        // Writes `mine` into `path`. On an existing file only the VALUES of its `key = value` lines change and
-        // anything missing is appended once under kAppendedBanner; otherwise `fresh` is written verbatim.
-        void write_config(const std::wstring& path, const std::vector<cfgrw::Pair>& mine,
-                          const std::string& fresh)
+        void log_config_write(const std::wstring& path, bool ok, int changed, int appended)
         {
-            std::string existing;
-            std::string out;
-            int changed = 0;
-            int appended = 0;
-            if (read_whole_file(path, existing))
-            {
-                const cfgrw::Result r = cfgrw::rewrite(existing, mine, kAppendedBanner);
-                out = r.text;
-                changed = r.changed;
-                appended = r.appended;
-            }
-            else
-            {
-                out = fresh;
-                appended = static_cast<int>(mine.size());
-            }
-
-            if (write_whole_file(path, out))
+            if (ok)
             {
                 logf(L"config: saved -> {} ({} value(s) changed, {} key(s) appended)", path, changed, appended);
             }
@@ -2197,6 +2174,30 @@ namespace mm
             {
                 logf(L"config: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
             }
+        }
+
+        // The VALUES of `existing`'s `key = value` lines, with anything missing appended once under
+        // kAppendedBanner. `existing` is the caller's read of `path`, so a partial save never has to
+        // re-read a file that could be gone by now.
+        void rewrite_config(const std::wstring& path, const std::string& existing,
+                            const std::vector<cfgrw::Pair>& mine)
+        {
+            const cfgrw::Result r = cfgrw::rewrite(existing, mine, kAppendedBanner);
+            log_config_write(path, write_whole_file(path, r.text), r.changed, r.appended);
+        }
+
+        // Writes `mine` into `path`. On an existing file only the VALUES of its `key = value` lines change and
+        // anything missing is appended once under kAppendedBanner; otherwise `fresh` is written verbatim.
+        void write_config(const std::wstring& path, const std::vector<cfgrw::Pair>& mine,
+                          const std::string& fresh)
+        {
+            std::string existing;
+            if (read_whole_file(path, existing))
+            {
+                rewrite_config(path, existing, mine);
+                return;
+            }
+            log_config_write(path, write_whole_file(path, fresh), 0, static_cast<int>(mine.size()));
         }
 
         // Does any Dev key differ from its built-in default?
@@ -2261,6 +2262,36 @@ namespace mm
             fresh += tier_block(kv, cfgkeys::Tier::Dev);
             write_config(dev_config_path(), mine, fresh);
         }
+    }
+
+    void save_config_keys(const char* const* keys, std::size_t count)
+    {
+        const std::wstring path = config_path();
+        std::string existing;
+        if (!read_whole_file(path, existing))
+        {
+            // Nothing to rewrite in place, and the banners a fresh file needs are save_config_file()'s.
+            save_config_file();
+            return;
+        }
+
+        const std::vector<std::pair<std::string, std::string>> kv = config_kv(config());
+        const std::vector<cfgrw::Pair> mine = cfgrw::filter(kv, [keys, count](const std::string& k) {
+            if (!cfgkeys::tier_is(k, cfgkeys::Tier::Player) && !cfgkeys::tier_is(k, cfgkeys::Tier::Advanced))
+            {
+                return false;
+            }
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                if (k == keys[i])
+                {
+                    return true;
+                }
+            }
+            return false;
+        });
+        // Every key outside `mine` is invisible to the rewrite, so an unsaved panel edit survives.
+        rewrite_config(path, existing, mine);
     }
 
     // The master switch, read straight off disk. NOT load_config_file(): no other key is applied on the way

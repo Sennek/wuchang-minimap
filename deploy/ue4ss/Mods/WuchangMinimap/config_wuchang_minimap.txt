@@ -101,6 +101,11 @@ floor_z_tolerance = 200
 ; Draw markers at all.
 markers_enabled = 1
 
+; The four category filters - markers_categories, markers_hide_found,
+; highlight_categories and compass_categories - are REMEMBERED AUTOMATICALLY: change one
+; from the full map's legend or the F2 chips and it is written back here a moment later,
+; on its own, without pressing Save.
+;
 ; Categories to draw: a comma-separated list of
 ;   shrine, chest, pickup, boss, elite, enemy, npc, note, door, ladder, lift,
 ;   fog_gate, hidden, other
@@ -167,7 +172,7 @@ highlight_enabled = 1
 highlight_mode = toggle
 
 ; The key that arms the highlight. Any hotkey name from the list at the top.
-highlight_key = LALT
+highlight_key = TAB
 
 ; The controller route: 1 = accept the pad chord below. Buttons joined with `+`, from
 ; LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, RS, UP, DOWN, LEFT, RIGHT; `none`
@@ -179,6 +184,7 @@ highlight_pad_chord = LB+RB
 highlight_radius = 3000
 
 ; Categories to highlight; same names as markers_categories, or `all` / `none`.
+; A filter: remembered automatically, no Save needed.
 highlight_categories = chest,pickup,shrine,boss,npc,note
 
 ; Draw the name and distance next to each glyph.
@@ -216,15 +222,14 @@ compass_span_deg = 120
 ; Strip opacity, 0 .. 1.
 compass_opacity = 0.90
 
-; Categories that get a bearing pip.
+; Categories that get a bearing pip. A filter: remembered automatically, no Save needed.
 compass_categories = shrine,boss,elite,fog_gate
 
 ; Write the distance in metres under each pip.
 compass_pip_labels = 1
 
 ; Show the shrine list on the full map: name, chapter, distance and lit state. Click a
-; row to set a waypoint, double-click to centre the map. Travelling needs
-; fast_travel_enabled.
+; row to set a waypoint, double-click to centre the map.
 shrine_list = 1
 
 ; ---------------------------------------------------------------------------------
@@ -469,7 +474,7 @@ compass_max_pips = 32
 compass_pip_height_uu = 300
 
 ; ---------------------------------------------------------------------------------
-; DIAGNOSTICS AND FAST TRAVEL
+; DIAGNOSTICS
 ; ---------------------------------------------------------------------------------
 ; How much goes into wuchang_minimap.log and UE4SS.log:
 ;   normal   startup, what loaded, chapter and save-slot changes, warnings, errors,
@@ -483,11 +488,6 @@ log_level = normal
 ; swapchain chosen, ImGui up, first map slice, chapter swap, teardown, exit), so a
 ; crash leaves the stage it was in behind. One small file write per stage change.
 crash_breadcrumb = 1
-
-; 1 = let the shrine list travel, using the game's own fast-travel function. The call
-; is issued only after a reflection self-check of that function's parameters, and only
-; for an unlocked shrine; a mismatch refuses and says so in the log.
-fast_travel_enabled = 0
 
 ; ---------------------------------------------------------------------------------
 ; TEXT AND DPI

@@ -248,7 +248,7 @@ try {
 
     #     shrines.json (schema wuchang-minimap-shrines/1, from
     #     tools\markers\extract_shrines.py) is REQUIRED: it is what the full map's shrine
-    #     list shows (the localised names and the chapter) and what fast travel targets.
+    #     list shows: the localised names, the chapter and the position each row waypoints.
     #     A package that lacks it is a packaging bug, not a degraded build.
     $shrinesSrc = Join-Path $repo 'markers\shrines.json'
     if (-not (Test-Path $shrinesSrc)) {

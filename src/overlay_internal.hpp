@@ -1158,8 +1158,7 @@ namespace overlay
         void shot_reset();
         bool record_shot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* backbuffer, UINT index);
         void shot_collect();
-        void draw_shrine_list(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
-                              int filter_chapter);
+        void draw_shrine_list(const mm::Snapshot& snap, bool have_state, int filter_chapter);
         void draw_collection_stats(std::uint64_t now, bool compact);
         void draw_toast();
         void note_found_event(double x, double y, std::uint64_t now);

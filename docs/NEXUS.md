@@ -59,7 +59,7 @@ To uninstall, delete [code]ue4ss\Mods\WuchangMinimap\[/code]. That is the whole 
 [list]
 [*][b]F2[/b] — settings panel (Player / Advanced / Bindings tabs)
 [*][b]M[/b] — full map: drag or WASD to pan, wheel to zoom, Q/E for the floor, Home to fit, right-click for a waypoint, ? for the rest
-[*][b]LALT[/b] — x-ray highlight through walls, with names and distances. A toggle. [b]LB+RB[/b] on a controller.
+[*][b]TAB[/b] — x-ray highlight through walls, with names and distances. A toggle. [b]LB+RB[/b] on a controller.
 [*][b]N[/b] — cycle the minimap zoom · [b]R[/b] — recentre the map · [b]F5[/b] — reload the config and data
 [/list]
 Everything is rebindable in F2 → Bindings.

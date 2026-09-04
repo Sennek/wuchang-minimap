@@ -11,7 +11,8 @@
 //   Player    - shipped config under `; ---- PLAYER SETTINGS ----`, F2 Player tab.
 //   Advanced  - shipped config under `; ---- ADVANCED ----`, F2 Advanced tab.
 //   Dev       - config_wuchang_minimap_dev.txt, not shipped, parsed only when present.
-//   Removed   - hard-coded constant now; recognised only to warn instead of ignoring.
+//   Removed   - a hard-coded constant or a dropped feature now; recognised only to warn
+//               instead of ignoring.
 //   Legacy    - old name for a live key; accepted, warned once, mapped to the new name.
 //
 // No Windows, no UE4SS, no allocation beyond the strings the caller asks for.
@@ -164,7 +165,6 @@ namespace cfgkeys
         {"compass_pip_height_uu", Tier::Advanced},
         {"log_level", Tier::Advanced},
         {"crash_breadcrumb", Tier::Advanced},
-        {"fast_travel_enabled", Tier::Advanced},
         {"ui_font", Tier::Advanced},
         {"zoom_dpi_scaled", Tier::Advanced},
 
@@ -194,7 +194,8 @@ namespace cfgkeys
         {"highlight_pov_bad_reads", Tier::Dev},
         {"saveslot_uuid_call", Tier::Dev},
 
-        // REMOVED - hard-coded constants; listed so the key gets a named warning
+        // REMOVED - hard-coded constants and dropped features; listed so the key gets a
+        // named warning
         {"minimap_circle_segments", Tier::Removed},
         {"slice_min_px", Tier::Removed},
         {"slice_max_px", Tier::Removed},
@@ -206,6 +207,7 @@ namespace cfgkeys
         {"markers_id_cache_max", Tier::Removed},
         {"markers_class_cache_max", Tier::Removed},
         {"markers_fallback_max_per_class", Tier::Removed},
+        {"fast_travel_enabled", Tier::Removed}, // the game only travels at a shrine
 
         // LEGACY - old names, accepted with one warning
         {"recon_dump_key", Tier::Removed}, // recon dump is a Debug-tab button

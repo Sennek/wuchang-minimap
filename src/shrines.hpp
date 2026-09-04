@@ -83,40 +83,4 @@ namespace shr
     };
 
     TableInfo table_info();
-
-    //==================================================================================
-    // Fast travel
-    //==================================================================================
-    //
-    // Routes: `PlayerModelLibrary_C::PlayerChuanSongFirePoint(FirePointID)`, falling back
-    // to `BP_RebornFire_C::ChuanSong(FirePointID)` on a resident shrine actor - both run
-    // the game's own travel path; `K2_TeleportTo` must not be used.
-    //
-    // Off by default (`fast_travel_enabled`); the UFunction's parameter list is checked
-    // through reflection (one FString in, at most one out) or the call is refused.
-
-    enum class Travel
-    {
-        Idle = 0,
-        Requested,   // the render thread asked; the game thread has not run yet
-        InFlight,    // the call has been issued
-        Done,        // it returned without faulting
-        Refused,     // the self-check said no, or the feature is off
-    };
-
-    struct TravelState
-    {
-        Travel phase = Travel::Idle;
-        char id[shdb::kMaxIdLen]{};
-        char note[160]{}; // the route that answered, or why it refused
-    };
-
-    // ANY THREAD.
-    void request_travel(const char* id);
-
-    // ANY THREAD.
-    TravelState travel_state();
-
-    // ANY THREAD. Clears a finished/refused request so the button is live again.
-    void clear_travel();
 } // namespace shr

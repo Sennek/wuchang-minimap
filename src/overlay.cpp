@@ -1250,9 +1250,9 @@ namespace overlay
         // virtual key in the low byte and one modifier in bits 8..9 (mm::key_vk /
         // mm::key_mod), so `map_key = ctrl+m` is one int and one sample.
         //
-        // A binding with no modifier does not require the modifiers to be up: the x-ray
-        // hold key is Alt by default, and demanding a clean Alt would kill every other
-        // hotkey while the x-ray is held. The Bindings tab names such overlaps.
+        // A binding with no modifier does not require the modifiers to be up: a bare
+        // `tab` has to fire with Shift held down, or sprinting would cost the player the
+        // x-ray. The Bindings tab names such overlaps.
         const auto mod_held = [](int mod) {
             switch (mod)
             {
@@ -1602,13 +1602,21 @@ namespace overlay
         hl::set_demand(held, cfg.overlay_enabled && cfg.compass_enabled);
 
         // THE FILE WRITES, all on this thread and none near Present: the render thread
-        // only raises a flag (a waypoint drag, the panel's Save button, the screenshot
-        // request) and this is where the flag turns into a write. They share one perf
-        // row and declare a stall - a ~28 KB rewrite through CreateFile can block on a
-        // virus scanner for as long as it likes.
+        // only raises a flag (a waypoint drag, the panel's Save button, a category filter
+        // change, the screenshot request) and this is where the flag turns into a write.
+        // They share one perf row and declare a stall - a ~28 KB rewrite through CreateFile
+        // can block on a virus scanner for as long as it likes.
         const bool wp_dirty = mm::g_waypoint_dirty.exchange(false);
         const bool cfg_dirty = mm::g_save_config.load();
-        if (wp_dirty || cfg_dirty)
+        // The category filters save themselves, debounced: every change pushes the deadline
+        // out, so a run of legend clicks costs one write. 0 is "nothing pending".
+        static std::uint64_t filter_save_due = 0;
+        if (mm::g_save_filters.exchange(false))
+        {
+            filter_save_due = now + 750;
+        }
+        const bool filters_due = filter_save_due != 0 && now >= filter_save_due && !cfg_dirty;
+        if (wp_dirty || cfg_dirty || filters_due)
         {
             if (g_pf_save < 0)
             {
@@ -1664,6 +1672,14 @@ namespace overlay
         {
             const mm::PerfScope save_scope(g_pf_save);
             mm::save_config_file();
+            // A full save carries the filters, so there is nothing left to write.
+            filter_save_due = 0;
+        }
+        else if (filters_due)
+        {
+            filter_save_due = 0;
+            const mm::PerfScope save_scope(g_pf_save);
+            mm::save_config_keys(mm::kFilterKeys, std::size(mm::kFilterKeys));
         }
         // REVERT: re-read the config files and publish them, throwing away every unsaved
         // edit made in the panel. Not a maps / markers reload - an undo must not cost a

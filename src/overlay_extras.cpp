@@ -15,16 +15,14 @@ namespace overlay
         //==============================================================================
         //
         // Every shrine of the current chapter with its in-game name, its distance and
-        // whether the save has lit it - and, behind `fast_travel_enabled`, a Travel
-        // action per row. Sorted by distance; the chapter filter follows the marker
-        // filter.
+        // whether the save has lit it. Sorted by distance; the chapter filter follows
+        // the marker filter.
         //
         // Render thread only. Sources are published snapshots: shr::table()
         // (markers/shrines.json), shr::state() (the save's UnlockedFirepoints, read raw
         // at 1 Hz) and snap (the pawn position).
 
-        void draw_shrine_list(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
-                              int filter_chapter)
+        void draw_shrine_list(const mm::Snapshot& snap, bool have_state, int filter_chapter)
         {
             const std::vector<shdb::Shrine>* table = shr::table();
             if (table == nullptr || table->empty())
@@ -89,18 +87,8 @@ namespace overlay
                 ImGui::TextDisabled("unlocked state: n/a (%s)",
                                     st.route[0] != '\0' ? st.route : "not read yet");
             }
-            const shr::TravelState tv = shr::travel_state();
-            if (tv.phase == shr::Travel::Refused)
-            {
-                ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "travel refused: %s", tv.note);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("dismiss"))
-                {
-                    shr::clear_travel();
-                }
-            }
 
-            if (!ImGui::BeginTable("shrines", cfg.fast_travel_enabled ? 5 : 4,
+            if (!ImGui::BeginTable("shrines", 4,
                                    ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg |
                                        ImGuiTableFlags_ScrollY,
                                    ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 14.0f)))
@@ -112,10 +100,6 @@ namespace overlay
             ImGui::TableSetupColumn("Ch", ImGuiTableColumnFlags_WidthFixed);
             ImGui::TableSetupColumn("Distance", ImGuiTableColumnFlags_WidthFixed);
             ImGui::TableSetupColumn("Lit", ImGuiTableColumnFlags_WidthFixed);
-            if (cfg.fast_travel_enabled)
-            {
-                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed);
-            }
             ImGui::TableHeadersRow();
 
             for (std::size_t i = 0; i < rows.size(); ++i)
@@ -198,28 +182,9 @@ namespace overlay
                 {
                     ImGui::TextDisabled("no");
                 }
-                if (cfg.fast_travel_enabled)
-                {
-                    ImGui::TableNextColumn();
-                    // Only an id the save says is unlocked - travelling to a locked one
-                    // can wedge level streaming.
-                    const bool can = r.unlocked && tv.phase != shr::Travel::Requested &&
-                                     tv.phase != shr::Travel::InFlight;
-                    ImGui::BeginDisabled(!can);
-                    if (ImGui::SmallButton("Travel"))
-                    {
-                        shr::request_travel(r.s->id.c_str());
-                        toast("fast travel requested");
-                    }
-                    ImGui::EndDisabled();
-                }
                 ImGui::PopID();
             }
             ImGui::EndTable();
-            if (!cfg.fast_travel_enabled)
-            {
-                ImGui::TextDisabled("Fast travel is off (fast_travel_enabled, Advanced tab).");
-            }
         }
 
         //==============================================================================

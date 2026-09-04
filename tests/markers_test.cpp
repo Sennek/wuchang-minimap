@@ -3144,22 +3144,37 @@ namespace
             const std::uint16_t* code = reinterpret_cast<const std::uint16_t*>(raw.data());
             const std::size_t n = raw.size() / 2;
             long long lit = 0;
+            long long reached = 0;
             int code_hi = 0;
             int code_lo = 0x10000;
+            bool stray_bits = false;
             for (std::size_t i = 0; i < n; ++i)
             {
-                const int c = code[i];
+                const int c = mapdata::z_code(code[i]);
                 if (c == 0)
                 {
                     continue;
                 }
                 ++lit;
+                reached += (code[i] & mapdata::kReachableBit) != 0;
+                stray_bits |= (code[i] & ~(mapdata::kZCodeMask | mapdata::kReachableBit)) != 0;
                 code_hi = c > code_hi ? c : code_hi;
                 code_lo = c < code_lo ? c : code_lo;
             }
             CHECK(lit > 0);
             CHECK(code_hi <= z_code_max);
             CHECK(code_lo >= 1);
+            CHECK(!stray_bits);
+            // Bit 12 is set on a real subset of the lowest plane: the flood keeps the arenas
+            // and drops the wall tops, so neither "all" nor "none" is a plausible /5 plane.
+            if (e.has_reachability)
+            {
+                CHECK(reached > 0 && reached < lit);
+            }
+            else
+            {
+                CHECK_EQ(reached, 0LL);
+            }
             // And the manifest's own histogram has to predict that count exactly.
             const long long want_lit = sum_surface_hist_tail(e.key);
             if (want_lit >= 0)

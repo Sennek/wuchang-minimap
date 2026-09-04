@@ -159,6 +159,10 @@ namespace mapdata
         // Index of the resident chapter, published for chapter_ptr_for(). -1 = none.
         std::atomic<int> g_active{-1};
 
+        // The manifest's schema says the planes carry bit 12. Read by the render thread
+        // (the F2 control), written once per load on the loop thread.
+        std::atomic<bool> g_has_reach{false};
+
         // Written by the game thread (gamestate), read by the loop thread.
         std::atomic<int> g_detected{chid::kNone};
 
@@ -191,6 +195,7 @@ namespace mapdata
             hm->z_min = static_cast<float>(e.z_min);
             hm->z_max = static_cast<float>(e.z_max);
             hm->z_code_max = e.z_code_max;
+            hm->has_reachability = e.has_reachability;
 
             if (hm->z_max <= hm->z_min)
             {
@@ -292,7 +297,7 @@ namespace mapdata
                 const std::uint16_t* b = p0.data.data() + static_cast<std::size_t>(idx) * kTileCells;
                 for (int i = 0; i < kTileCells; ++i)
                 {
-                    const std::uint16_t code = b[i];
+                    const std::uint16_t code = z_code(b[i]);
                     if (code == 0)
                     {
                         continue;
@@ -408,9 +413,9 @@ namespace mapdata
             return;
         }
         // There is no "schema mismatch, read it anyway" branch: mapmanifest::parse()
-        // refuses a manifest whose schema is not exactly kSchema. The /3 and /4 height
-        // encodings differ by a factor of sixteen in one scale, so reading the wrong one
-        // draws a map that looks empty rather than reporting a version error.
+        // accepts /5 and /4 and refuses everything else. The /3 height encoding differs
+        // by a factor of sixteen in one scale, so reading it here would draw a map that
+        // looks empty rather than reporting a version error.
         if (parsed_manifest.chapters.empty())
         {
             mm::log(L"maps: no usable chapter in the manifest");
@@ -438,6 +443,7 @@ namespace mapdata
             ch.max_x = e.max_x;
             ch.max_y = e.max_y;
             ch.px_per_uu = e.px_per_uu;
+            ch.has_reachability = e.has_reachability;
             ch.height_files = e.height_maps;
             if (e.height_maps_guessed)
             {
@@ -472,6 +478,10 @@ namespace mapdata
             parsed.push_back(std::move(ch));
         }
 
+        g_has_reach.store(parsed_manifest.has_reachability(), std::memory_order_release);
+        mm::logf(L"maps: schema \"{}\" - the height planes {} reachability (bit 12)",
+                 widen(parsed_manifest.schema),
+                 parsed_manifest.has_reachability() ? L"carry" : L"do not carry");
         g_manifest = std::move(parsed_manifest);
         publish_chapters(std::move(parsed));
         g_chapters_mut = const_cast<std::vector<Chapter>*>(g_chapters.load(std::memory_order_acquire));
@@ -519,6 +529,11 @@ namespace mapdata
     int detected_chapter()
     {
         return g_detected.load(std::memory_order_relaxed);
+    }
+
+    bool reachability_available()
+    {
+        return g_has_reach.load(std::memory_order_acquire);
     }
 
     std::string active_chapter_key()

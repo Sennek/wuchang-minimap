@@ -4,10 +4,10 @@
 // mapmanifest - `maps/maps.json`, parsed. Pure: json.hpp and the standard library, no
 // Windows / WIC / UE4SS.
 //
-// SCHEMA `wuchang-minimap-maps/4`, produced by tools/navmesh/build_map.py (and by
+// SCHEMA `wuchang-minimap-maps/5`, produced by tools/navmesh/build_map.py (and by
 // tools/navmesh/repack_maps.py, which re-encodes an already-shipped tree):
 //
-//     { "schema": "wuchang-minimap-maps/4",
+//     { "schema": "wuchang-minimap-maps/5",
 //       "chapters": {
 //         "chapter1": { "chapter": 1, "image": "chapter1/small.png",
 //                       "image_width": ..., "image_height": ...,
@@ -18,12 +18,16 @@
 //                       "height_planes": ["chapter1/small_h0.png", ...] },
 //         "chapter2": { ... }, ... } }
 //
-// The version is enforced in both directions. /3 height codes are 16-bit (1..65535)
-// and /4's are 12-bit (1..4095); the encodings differ only by that scale, so a plane
-// read by the other decoder lands sixteen times off and looks like an empty map, not a
-// version error. Hence: a /4 build refuses any schema but "wuchang-minimap-maps/4", and
-// /4 moved the plane list from `height_maps` to `height_planes` and the files from
-// `<stem>_z<k>.png` to `<stem>_h<k>.png`, so a /3 build finds no planes and says so.
+// A HEIGHT CODE is one 16-bit sample of a height plane:
+//
+//     bits 0..11   the Z code, 1..4095 over [z_min, z_max]; 0 = no surface here
+//     bit  12      REACHABLE - a marker-seeded walk-and-fall flood reached this surface
+//     bits 13..15  zero
+//
+// Two schemas are accepted. /5 carries bit 12; /4 does not, and a /4 asset is read with
+// `has_reachability` false, which makes every surface reachable. /3 is refused: its
+// codes span the full 16 bits, so a /3 plane read here lands sixteen times off and looks
+// like an empty map rather than a version error.
 //
 // Fields worth naming:
 //
@@ -40,6 +44,7 @@
 //
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -49,12 +54,20 @@
 
 namespace mapmanifest
 {
-    // Must match tools/navmesh/mapfmt.py's SCHEMA. Compared for exact equality.
-    inline constexpr const char* kSchema = "wuchang-minimap-maps/4";
+    // Must match tools/navmesh/mapfmt.py's SCHEMA. Compared for exact equality, so a
+    // schema this build has never heard of is a stated version error and not a map that
+    // silently decodes wrong.
+    inline constexpr const char* kSchema = "wuchang-minimap-maps/5";
+    // Accepted too: the same geometry and the same 12-bit Z, without bit 12.
+    inline constexpr const char* kSchemaNoReach = "wuchang-minimap-maps/4";
 
-    // Height-quantisation fallbacks for a /4 file that omits them.
+    // Height-quantisation fallbacks for a file that omits them.
     inline constexpr int kZBits = 12;
     inline constexpr int kZCodeMax = (1 << kZBits) - 1; // 4095; 0 = "no surface"
+
+    // The height code's two fields (see the header comment).
+    inline constexpr std::uint16_t kZCodeMask = 0x0FFF;
+    inline constexpr std::uint16_t kReachableBit = 0x1000;
 
     // How many stacked walkable surfaces one pixel can carry. Must match
     // build_map.py's --max-surfaces (shipped: 8).
@@ -82,6 +95,9 @@ namespace mapmanifest
         // The file carried no `height_planes`; the names were guessed from the
         // composite's.
         bool height_maps_guessed = false;
+        // The planes carry bit 12 (schema /5). False for a /4 asset, where every
+        // surface counts as reachable.
+        bool has_reachability = false;
 
         // uu per height code - what HeightMaps::z_step() reproduces at runtime.
         double z_step_uu() const
@@ -107,6 +123,12 @@ namespace mapmanifest
         std::vector<Entry> chapters; // in the order the file lists them
 
         bool schema_ok() const
+        {
+            return schema == kSchema || schema == kSchemaNoReach;
+        }
+
+        // The planes carry bit 12. Mirrored onto every Entry.
+        bool has_reachability() const
         {
             return schema == kSchema;
         }
@@ -193,6 +215,7 @@ namespace mapmanifest
             problems.push_back("maps.json is schema \"" +
                                (out.schema.empty() ? std::string("(none)") : out.schema) +
                                "\" but this build reads \"" + std::string(kSchema) +
+                               "\" or \"" + std::string(kSchemaNoReach) +
                                "\" - re-run tools/navmesh/build_map.py (or "
                                "tools/navmesh/repack_maps.py) and deploy.ps1, or install the "
                                "matching mod version");
@@ -211,6 +234,7 @@ namespace mapmanifest
             const mjson::JValue& c = kv.second;
             Entry e{};
             e.key = kv.first;
+            e.has_reachability = out.has_reachability();
             const mjson::JValue* image = c.find("image");
             e.image = image != nullptr ? image->string_or("") : "";
             e.image_width = static_cast<int>(detail::number_or(c, "image_width", 0.0));

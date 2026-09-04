@@ -2,21 +2,23 @@
 
 //
 // mapdata - loads maps/maps.json and the chapter PNGs the offline pipeline produced
-// (tools/navmesh/build_map.py, schema `wuchang-minimap-maps/3`).
+// (tools/navmesh/build_map.py, schema `wuchang-minimap-maps/5`).
 //
 // THE ASSET
 // ---------
 // A chapter ships a MULTI-SURFACE HEIGHT MAP: `max_surfaces` (8) 16-bit grayscale PNGs of
-// identical size and bounds, where plane k at pixel (px, py) holds the Z of the k-th
-// walkable surface at that spot, lowest first, quantised over the chapter's [z_min, z_max]
-// into 1..`z_code_max`; 0 means "no surface here".
+// identical size and bounds, where plane k at pixel (px, py) holds the height CODE of the
+// k-th walkable surface at that spot, lowest first.
 //
-// Only 12 bits of the 16-bit sample are used (schema /4), for a Z step of 3.98..12.44 uu
-// depending on the chapter's span. The slicer's floor tolerance is 200 uu and its fade
-// 800 uu, so the worst error (+/- 6.22 uu) is 3 % of the decision it feeds. The divisor
-// comes from the manifest (`z_code_max`), and the schema string is checked for EXACT
-// equality: a /3 plane read here would put every surface sixteen times too low and look
-// like an empty map rather than a version error. See src/mapmanifest.hpp.
+// A code is bits 0..11 of Z, quantised over the chapter's [z_min, z_max] into
+// 1..`z_code_max` (0 = no surface), plus bit 12 = REACHABLE. Every reader masks with
+// `z_code()` before decoding and asks `reachable()` for the bit; a /4 asset carries no
+// bit 12 and `has_reachability` is then false, which makes every surface reachable.
+//
+// Twelve bits give a Z step of 3.98..12.44 uu depending on the chapter's span. The
+// slicer's floor tolerance is 200 uu, so the worst error (+/- 6.22 uu) is 3 % of the
+// decision it feeds. The divisor comes from the manifest (`z_code_max`). See
+// src/mapmanifest.hpp for the schemas that are accepted and why /3 is not.
 //
 // Eight slots, not four: four hold 93 % of a chapter's lit pixels but only 50 % of them in
 // the Digong-spiral / Hanguang-temple block, where a pixel can carry up to eleven
@@ -75,6 +77,15 @@ namespace mapdata
     // --max-surfaces (shipped: 8). Fewer planes in the manifest is fine -
     // `HeightMaps::count` is what the slicer reads.
     constexpr int kMaxSurfaces = mapmanifest::kMaxSurfaces;
+
+    // The height code's two fields. `z_code(0)` is "no surface" whatever bit 12 says.
+    constexpr std::uint16_t kZCodeMask = mapmanifest::kZCodeMask;
+    constexpr std::uint16_t kReachableBit = mapmanifest::kReachableBit;
+
+    constexpr std::uint16_t z_code(std::uint16_t code)
+    {
+        return static_cast<std::uint16_t>(code & kZCodeMask);
+    }
 
     // How long a retired chapter's height planes stay alive after the pointer to them is
     // cleared. A slice is ~4 ms; this is three orders of magnitude more.
@@ -149,9 +160,20 @@ namespace mapdata
         // Highest height code the asset uses; 0 always means "no surface". From
         // maps.json (`z_code_max`), 4095 since schema /4.
         int z_code_max = mapmanifest::kZCodeMax;
+        // The planes carry bit 12 (schema /5). False for a /4 asset, where `reachable()`
+        // answers true for every surface.
+        bool has_reachability = false;
 
-        // The sparse planes, lowest surface first. Read through gather_row().
+        // The sparse planes, lowest surface first. Read through gather_row(), which
+        // hands back the RAW code - `z_code()` for the Z, `reachable()` for the bit.
         HeightPlane layer[kMaxSurfaces];
+
+        // Did the flood reach this surface? A /4 asset has no such data, so everything
+        // it holds is reachable.
+        bool reachable(std::uint16_t code) const
+        {
+            return !has_reachability || (code & kReachableBit) != 0;
+        }
 
         // uu per quantisation step - reported once, so a "the gradient is banded"
         // report can be checked against the asset instead of the renderer.
@@ -164,7 +186,7 @@ namespace mapdata
 
         float decode(std::uint16_t code) const
         {
-            return z_min + (static_cast<float>(code) - 1.0f) * z_step();
+            return z_min + (static_cast<float>(z_code(code)) - 1.0f) * z_step();
         }
 
         // World -> source pixel, the north-up mapping build_map.py / render.py write:
@@ -234,7 +256,7 @@ namespace mapdata
                 {
                     const std::uint16_t code = src[col_x[i] & kTileMask];
                     dst[i] = code;
-                    any = any || code != 0;
+                    any = any || z_code(code) != 0;
                     ++i;
                 } while (i < n && col_x[i] >= 0 && (col_x[i] >> kTileShift) == tx);
             }
@@ -275,7 +297,7 @@ namespace mapdata
                     }
                     for (int i = 0; i < kTileCells; ++i)
                     {
-                        if (b[i] == 0)
+                        if (z_code(b[i]) == 0)
                         {
                             continue;
                         }
@@ -363,7 +385,7 @@ namespace mapdata
                     const std::uint16_t* row = src + static_cast<std::size_t>(y) * w;
                     for (int x = x0; x < x1; ++x)
                     {
-                        if (row[x] != 0)
+                        if (z_code(row[x]) != 0)
                         {
                             lit = true;
                             break;
@@ -422,6 +444,9 @@ namespace mapdata
         double max_x = 0.0;
         double max_y = 0.0;
         double px_per_uu = 0.0;
+        // The planes carry bit 12 (schema /5). The F2 control that decides what to do
+        // with an unreachable surface is disabled while this is false.
+        bool has_reachability = false;
 
         bool contains(double wx, double wy) const
         {
@@ -483,6 +508,10 @@ namespace mapdata
 
     // The chapter whose height planes are resident right now, or an empty string.
     std::string active_chapter_key();
+
+    // The loaded manifest is schema /5, so the height planes carry reachability. False
+    // until maps.json has been read, and for a /4 asset tree.
+    bool reachability_available();
 
     // Render thread: take ownership of one decoded image, if any is ready.
     std::unique_ptr<PendingImage> take_pending();

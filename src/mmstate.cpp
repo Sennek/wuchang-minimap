@@ -749,6 +749,18 @@ namespace mm
             {
                 cfg.floor_fade_uu = parse_float(value, cfg.floor_fade_uu);
             }
+            else if (key == "floor_fade_above_uu")
+            {
+                cfg.floor_fade_above_uu = parse_float(value, cfg.floor_fade_above_uu);
+            }
+            else if (key == "map_unreachable")
+            {
+                if (!srule::unreachable_from_name(value, cfg.map_unreachable))
+                {
+                    logf(L"config: map_unreachable = '{}' is not hide, dim or show - keeping {}",
+                         widen_ascii(value), widen_ascii(srule::unreachable_name(cfg.map_unreachable)));
+                }
+            }
             else if (key == "floor_gradient_strength")
             {
                 cfg.floor_gradient_strength = parse_float(value, cfg.floor_gradient_strength);
@@ -1804,6 +1816,8 @@ namespace mm
             cfg.adjacent_floor_opacity = (std::max)(0.0f, (std::min)(1.0f, cfg.adjacent_floor_opacity));
             cfg.floor_z_tolerance = (std::max)(10.0f, (std::min)(2000.0f, cfg.floor_z_tolerance));
             cfg.floor_fade_uu = (std::max)(cfg.floor_z_tolerance, (std::min)(20000.0f, cfg.floor_fade_uu));
+            // 0 is meaningful here: never draw a floor above the player.
+            cfg.floor_fade_above_uu = (std::max)(0.0f, (std::min)(20000.0f, cfg.floor_fade_above_uu));
             cfg.floor_gradient_strength = (std::max)(0.0f, (std::min)(1.0f, cfg.floor_gradient_strength));
             cfg.floor_base_r = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_r));
             cfg.floor_base_g = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_g));
@@ -1970,6 +1984,7 @@ namespace mm
         add("hud_preset", preset_name(cfg.hud_preset));
         add("theme", gly::theme_name(cfg.theme));
         add("palette", gly::palette_name(cfg.palette));
+        add("map_unreachable", srule::unreachable_name(cfg.map_unreachable));
         add("minimap_size", f3(cfg.size_frac));
         add("minimap_zoom", f1(cfg.zoom_uu_per_px));
         add("minimap_zoom_presets", [&cfg] {
@@ -2061,6 +2076,7 @@ namespace mm
         add("menu_close_show_delay_ms", std::to_string(cfg.menu_close_show_delay_ms));
         add("adjacent_floor_opacity", f2(cfg.adjacent_floor_opacity));
         add("floor_fade_uu", f0(cfg.floor_fade_uu));
+        add("floor_fade_above_uu", f0(cfg.floor_fade_above_uu));
         add("floor_gradient_strength", f2(cfg.floor_gradient_strength));
         add("floor_base_color", rgb(cfg.floor_base_r, cfg.floor_base_g, cfg.floor_base_b));
         add("slice_hz", std::to_string(cfg.slice_hz));

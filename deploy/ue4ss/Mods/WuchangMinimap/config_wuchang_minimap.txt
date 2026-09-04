@@ -49,6 +49,18 @@ theme = neutral
 palette = default
 
 ; ---------------------------------------------------------------------------------
+; MAP BACKGROUND
+; ---------------------------------------------------------------------------------
+; The map assets mark every surface the game's own navigation data says a player can
+; walk to. What to do with the rest - wall tops, roof ridges, ledges outside the arena:
+;   hide  the map draws only ground you can reach
+;   dim   it is drawn one step fainter than ground you can reach
+;   show  it is drawn like any other ground
+; Map assets built before this existed have no such marks, and everything in them is
+; treated as reachable whatever this says.
+map_unreachable = hide
+
+; ---------------------------------------------------------------------------------
 ; SCALE AND PLACEMENT
 ; ---------------------------------------------------------------------------------
 ; auto = clamp(back-buffer height / 1080, 1, 4); a number pins it (1.0 = 1080p sizing).
@@ -291,11 +303,16 @@ menu_close_show_delay_ms = 150
 ; it. 0 = draw only the floor you are on.
 adjacent_floor_opacity = 0.25
 
-; How far below / above your feet a surface is still drawn, in uu.
+; How far BELOW your feet a surface is still drawn, in uu.
 floor_fade_uu = 800
 
+; How far ABOVE your feet a surface is still drawn, in uu. Much shorter than the one
+; below on purpose: a gallery overhead is not ground you can walk on now, and at a boss
+; arena it is a third of everything on the map. 0 = never draw a floor above you.
+floor_fade_above_uu = 300
+
 ; Height shading: lum = 1 + strength * clamp((surfaceZ - feetZ) / span, -1, +1), with
-; span = floor_z_tolerance on your own floor and floor_fade_uu on the dimmed ones.
+; span = floor_z_tolerance on your own floor and the fade range on the dimmed ones.
 ; 0 = a flat fill.
 floor_gradient_strength = 0.18
 

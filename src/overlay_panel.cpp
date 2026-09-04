@@ -343,6 +343,7 @@ namespace overlay
             kSecTuneSweep,
             kSecTuneGate,
             kSecTuneDiag,
+            kSecMapBackground,
             kSecCount,
         };
         static_assert(kSecCount <= 32, "one bit per section in g_panel_sections");
@@ -708,6 +709,54 @@ namespace overlay
         // The Map & tracker tab
         //==============================================================================
 
+        // What the map draws where the game's navigation data says a player cannot get.
+        // Disabled on a map asset built before the flood existed - there is nothing
+        // marked, so every surface counts as reachable whatever this says.
+        void map_background(mm::Config& cfg)
+        {
+            const bool available = mapdata::reachability_available();
+            if (!available)
+            {
+                ImGui::BeginDisabled();
+            }
+            ImGui::TextUnformatted("Ground you cannot reach");
+            const struct
+            {
+                srule::Unreachable value;
+                const char* label;
+                const char* help;
+            } kChoices[] = {
+                {srule::Unreachable::Hide, "Hide", "draw only ground the game says you can walk to"},
+                {srule::Unreachable::Dim, "Dim", "draw it one step fainter than ground you can reach"},
+                {srule::Unreachable::Show, "Show", "draw it like any other ground"},
+            };
+            for (int i = 0; i < 3; ++i)
+            {
+                if (i != 0)
+                {
+                    ImGui::SameLine();
+                }
+                const bool on = cfg.map_unreachable == kChoices[i].value;
+                if (ImGui::RadioButton(kChoices[i].label, on))
+                {
+                    cfg.map_unreachable = kChoices[i].value;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("%s", kChoices[i].help);
+                }
+            }
+            if (!available)
+            {
+                ImGui::EndDisabled();
+                ImGui::TextDisabled("maps without reachability data");
+            }
+            else
+            {
+                ImGui::TextDisabled("wall tops, roof ridges and the ledges outside an arena");
+            }
+        }
+
         void map_fullmap(mm::Config& cfg)
         {
             ImGui::TextDisabled("Press %s in-world.", key_name_ascii(cfg.map_key).c_str());
@@ -990,6 +1039,10 @@ namespace overlay
 
         void panel_map_tracker(mm::Config& cfg)
         {
+            if (panel_section("Map background", kSecMapBackground))
+            {
+                map_background(cfg);
+            }
             if (panel_section("Full map", kSecFullMap))
             {
                 map_fullmap(cfg);
@@ -1126,7 +1179,10 @@ namespace overlay
             ImGui::Checkbox("Show the floor below / above (dimmed)", &cfg.show_adjacent_floors);
             ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 20.0f, 800.0f, "%.0f");
             ImGui::SliderFloat("Adjacent floor opacity", &cfg.adjacent_floor_opacity, 0.0f, 0.6f, "%.2f");
-            ImGui::SliderFloat("Below / above fade range (uu)", &cfg.floor_fade_uu, 100.0f, 4000.0f, "%.0f");
+            ImGui::SliderFloat("Fade range below (uu)", &cfg.floor_fade_uu, 100.0f, 4000.0f, "%.0f");
+            ImGui::SliderFloat("Fade range above (uu)", &cfg.floor_fade_above_uu, 0.0f, 4000.0f, "%.0f");
+            ImGui::SameLine();
+            ImGui::TextDisabled("0 = never draw a floor above you");
             ImGui::SliderFloat("Height gradient strength", &cfg.floor_gradient_strength, 0.0f, 0.6f, "%.2f");
             float base[3] = {cfg.floor_base_r / 255.0f, cfg.floor_base_g / 255.0f, cfg.floor_base_b / 255.0f};
             if (ImGui::ColorEdit3("Walkable fill colour", base, ImGuiColorEditFlags_NoInputs))
@@ -1924,16 +1980,21 @@ namespace overlay
                             g_slice_ms_peak,
                             static_cast<unsigned long long>(g_slice_updates),
                             static_cast<unsigned long long>(g_slice_skipped));
-                ImGui::Text("       feet Z %.0f (raw %.0f)   tol %.0f  fade %.0f  gradient %.2f   "
-                            "opaque %u / dim %u / faint %u",
+                ImGui::Text("       feet Z %.0f (raw %.0f)   tol %.0f  fade %.0f/%.0f  gradient %.2f   "
+                            "opaque %u / dim %u / faint %u   unreachable %s, %u px",
                             static_cast<double>(g_feet_z),
                             snap.z - static_cast<double>(cfg.player_z_offset),
                             static_cast<double>(cfg.floor_z_tolerance),
                             static_cast<double>(cfg.floor_fade_uu),
+                            static_cast<double>(cfg.floor_fade_above_uu),
                             static_cast<double>(cfg.floor_gradient_strength),
                             g_slice_opaque,
                             g_slice_dim,
-                            g_slice_faint);
+                            g_slice_faint,
+                            mapdata::reachability_available()
+                                ? srule::unreachable_name(cfg.map_unreachable)
+                                : "n/a (asset has no reachability)",
+                            g_slice_unreach);
                 ImGui::Text("pawn %s   pawn-view %s   menu %s   state age %llu ms",
                             snap.has_pawn ? "yes" : "no",
                             snap.is_pawn_view ? "yes" : "no",

@@ -58,6 +58,7 @@
 #include "navmesh_dump.hpp"
 #include "recon.hpp"
 #include "shrines.hpp"
+#include "slicerule.hpp"
 #include "spinlock.hpp"
 #include "mmstate.hpp"
 #include "projection.hpp"
@@ -261,6 +262,7 @@ namespace overlay
             std::uint32_t opaque = 0;
             std::uint32_t dim = 0;
             std::uint32_t faint = 0;
+            std::uint32_t unreachable = 0; // of the drawn pixels, how many are dimmed for it
             int surfaces = 0;
         };
         // Perf counter ids (perf.hpp). Namespace-scope, initialised on first use by
@@ -342,6 +344,7 @@ namespace overlay
         extern std::uint32_t g_slice_opaque;
         extern std::uint32_t g_slice_dim;
         extern std::uint32_t g_slice_faint;
+        extern std::uint32_t g_slice_unreach;
         extern int g_slice_surfaces; // height planes the slicer is reading
         extern SliceScratch g_slice_scratch;
         extern std::atomic<bool> g_slicer_pause;
@@ -594,22 +597,9 @@ namespace overlay
             float side = 0.0f;
         };
         extern MiniDebug g_last_mini;
-        // How the height slice is shaded. The same formula as the offline preview
-        // (tools/navmesh/slice_preview.py), so a reported spot reproduces without the
-        // game:
-        //     lum = 1 + gradient_strength * clamp((surfaceZ - feetZ) / span, -1, +1)
-        // with span = tolerance for the current floor and fade for the dim ones.
-        struct SliceStyle
-        {
-            float base_r = 214.0f;
-            float base_g = 208.0f;
-            float base_b = 196.0f;
-            float strength = 0.18f;
-            float tol = 200.0f;
-            float fade = 800.0f;
-            float a_dim = 0.25f;
-            float a_faint = 0.15f;
-        };
+        // The per-pixel rule and its dials live in the pure src/slicerule.hpp, where the
+        // offline tests reach them.
+        using srule::SliceStyle;
         // Minimap zoom steps the loop thread owes the config. The render thread may not
         // write the config file and the loop thread cannot see the cursor, so the
         // wheel-over-the-disc gesture and the zoom_key press both land here and are

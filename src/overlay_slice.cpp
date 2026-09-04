@@ -251,13 +251,17 @@ namespace overlay
         // The height slicer
         //==============================================================================
         //
-        // The asset carries the actual Z of up to four stacked surfaces per pixel
-        // (mapdata::HeightMaps) and this code answers, per pixel:
+        // The asset carries the actual Z of up to eight stacked surfaces per pixel plus
+        // a reachable bit (mapdata::HeightMaps); the per-pixel rule is
+        // srule::accumulate / alpha_for in src/slicerule.hpp:
         //
-        //     |Z - feetZ| <= floor_z_tolerance          -> the floor I am on, opaque
-        //     nearest surface below within floor_fade_uu -> dim  (adjacent_floor_opacity)
-        //     nearest surface above within floor_fade_uu -> faint (x 0.6)
-        //     nothing                                    -> transparent
+        //     |Z - feetZ| <= floor_z_tolerance                 -> the floor I am on, opaque
+        //     nearest below within floor_fade_uu               -> dim (adjacent_floor_opacity)
+        //     nearest above within floor_fade_above_uu         -> faint (x 0.6)
+        //     nothing                                          -> transparent
+        //
+        // and `map_unreachable` decides whether a surface the reachability flood never
+        // reached is dropped, drawn one rung dimmer, or drawn like any other.
         //
         // Each pixel is shaded by (surfaceZ - feetZ), so slopes and staircases inside
         // one storey read as a gradient rather than a flat silhouette. No floor ranks,
@@ -409,11 +413,9 @@ namespace overlay
             return size;
         }
 
-        // One pixel's colour, from the up-to-four surface Z values under it.
-        //
-        // `state` 3 = the floor the player is on, 2 = the nearest surface below,
-        // 1 = the nearest above, 0 = nothing. The gradient is the same rule the offline
-        // preview (tools/navmesh/slice_preview.py) uses.
+        // `state` holds srule's rank - class * 2 + reachable - so a reachable surface
+        // beats an unreachable one of the same class, and a nearer surface beats a
+        // farther one of the same rank.
 
         // Fills `dst` (size*size RGBA8, row pitch `pitch`) with the window whose
         // top-left source pixel is (x0, y0).
@@ -475,6 +477,8 @@ namespace overlay
 
             const float z0 = hm.z_min;
             const float step = hm.z_step();
+            // Hoisted: every code in the window shares this one asset-wide answer.
+            const bool has_reach = hm.has_reachability;
             const int planes = hm.count < mapdata::kMaxSurfaces ? hm.count : mapdata::kMaxSurfaces;
             counts.surfaces = planes;
 
@@ -504,42 +508,20 @@ namespace overlay
                     const std::size_t out_base = static_cast<std::size_t>(row) * static_cast<std::size_t>(w);
                     for (int col = 0; col < w; ++col)
                     {
-                        const std::uint16_t code = gathered[col];
+                        const std::uint16_t raw = gathered[col];
+                        const std::uint16_t code = mapdata::z_code(raw);
                         if (code == 0)
                         {
                             continue; // no surface in this slot here
                         }
+                        const bool reachable = !has_reach || (raw & mapdata::kReachableBit) != 0;
                         const float z = z0 + (static_cast<float>(code) - 1.0f) * step;
-                        const float d = z - feet;
-                        const float ad = d < 0.0f ? -d : d;
-                        std::uint8_t cand = 0;
-                        if (ad <= st.tol)
-                        {
-                            cand = 3; // the floor I am standing on
-                        }
-                        else if (ad <= st.fade)
-                        {
-                            cand = d < 0.0f ? 2 : 1; // below / above, dimmed
-                        }
-                        else
-                        {
-                            continue;
-                        }
                         const std::size_t i = out_base + static_cast<std::size_t>(col);
-                        // Class first, then nearest: the offline rule in
-                        // tools/navmesh/slice_preview.py (slice_window + shade).
-                        if (cand > state[i] || (cand == state[i] && ad < best_ad[i]))
-                        {
-                            state[i] = cand;
-                            best_ad[i] = ad;
-                            best_d[i] = d;
-                        }
+                        srule::accumulate(state[i], best_ad[i], best_d[i], z - feet, reachable, st);
                     }
                 }
             }
 
-            const std::uint8_t a_dim = static_cast<std::uint8_t>(st.a_dim * 255.0f + 0.5f);
-            const std::uint8_t a_faint = static_cast<std::uint8_t>(st.a_faint * 255.0f + 0.5f);
             for (int row = 0; row < h; ++row)
             {
                 std::uint8_t* out = dst + static_cast<std::size_t>(row) * pitch;
@@ -548,15 +530,15 @@ namespace overlay
                 {
                     std::uint8_t* px = out + static_cast<std::size_t>(col) * 4;
                     const std::size_t i = base + static_cast<std::size_t>(col);
-                    const std::uint8_t cls = state[i];
-                    if (cls == 0)
+                    const std::uint8_t cls = srule::rank_class(state[i]);
+                    if (cls == srule::kClassNone)
                     {
                         px[0] = px[1] = px[2] = px[3] = 0;
                         continue;
                     }
-                    // lum = 1 + strength * clamp(d / span, -1, +1), span = tol for the
-                    // player's own floor and fade for the dimmed ones.
-                    const float span = cls == 3 ? st.tol : st.fade;
+                    const bool reachable = srule::rank_reachable(state[i]);
+                    // lum = 1 + strength * clamp(d / span, -1, +1).
+                    const float span = srule::span_for(cls, st);
                     float t = span > 0.0f ? best_d[i] / span : 0.0f;
                     t = t < -1.0f ? -1.0f : (t > 1.0f ? 1.0f : t);
                     const float lum = 1.0f + st.strength * t;
@@ -567,20 +549,22 @@ namespace overlay
                     px[0] = ch(st.base_r);
                     px[1] = ch(st.base_g);
                     px[2] = ch(st.base_b);
-                    if (cls == 3)
+                    px[3] = static_cast<std::uint8_t>(srule::alpha_for(cls, reachable, st) * 255.0f + 0.5f);
+                    if (cls == srule::kClassFloor)
                     {
-                        px[3] = 255;
                         ++counts.opaque;
                     }
-                    else if (cls == 2)
+                    else if (cls == srule::kClassBelow)
                     {
-                        px[3] = a_dim;
                         ++counts.dim;
                     }
                     else
                     {
-                        px[3] = a_faint;
                         ++counts.faint;
+                    }
+                    if (!reachable)
+                    {
+                        ++counts.unreachable;
                     }
                 }
             }
@@ -596,6 +580,7 @@ namespace overlay
             g_slice_opaque = counts.opaque;
             g_slice_dim = counts.dim;
             g_slice_faint = counts.faint;
+            g_slice_unreach = counts.unreachable;
             g_slice_surfaces = counts.surfaces;
         }
 
@@ -610,8 +595,10 @@ namespace overlay
             st.strength = cfg.floor_gradient_strength;
             st.tol = cfg.floor_z_tolerance;
             st.fade = cfg.floor_fade_uu;
+            st.fade_above = cfg.floor_fade_above_uu;
             st.a_dim = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity : 0.0f;
             st.a_faint = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity * 0.6f : 0.0f;
+            st.unreachable = cfg.map_unreachable;
             return st;
         }
 
@@ -845,8 +832,10 @@ namespace overlay
             st.strength = cfg.floor_gradient_strength;
             st.tol = cfg.floor_z_tolerance;
             st.fade = cfg.floor_fade_uu;
+            st.fade_above = cfg.floor_fade_above_uu;
             st.a_dim = cfg.adjacent_floor_opacity;
             st.a_faint = cfg.adjacent_floor_opacity * 0.6f;
+            st.unreachable = cfg.map_unreachable;
 
             LARGE_INTEGER t0{};
             LARGE_INTEGER t1{};
@@ -896,6 +885,7 @@ namespace overlay
             g_slice_opaque = 0;
             g_slice_dim = 0;
             g_slice_faint = 0;
+            g_slice_unreach = 0;
         }
 
         // Render thread, inside a frame, after the command list has been reset: record

@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "glyphs.hpp"
+#include "slicerule.hpp"
 #include "mapview.hpp"
 #include "markers_db.hpp"
 #include "perf.hpp"
@@ -158,20 +159,28 @@ namespace mm
         int menu_close_show_delay_ms = 150; // min_visible_after_state_ok_ms. Hiding is immediate.
 
         //=== Height slicing (what the minimap actually draws) ======================
-        // Four 16-bit PNGs hold the Z of up to four stacked walkable surfaces per pixel. Every
-        // ~80 ms the overlay slices the window around the player on the CPU:
+        // Eight 16-bit PNGs hold the Z of up to eight stacked walkable surfaces per pixel plus a
+        // reachable bit. Every ~80 ms the overlay slices the window around the player on the CPU:
         //     |surfaceZ - feetZ| <= floor_z_tolerance -> opaque, shaded by the gradient
-        //     nearest below within floor_fade_uu      -> adjacent_floor_opacity
-        //     nearest above within floor_fade_uu      -> adjacent_floor_opacity x 0.6
-        //     nothing                                 -> transparent
-        // The only smoothing is feet_z_smooth_ms.
+        //     nearest below within floor_fade_uu       -> adjacent_floor_opacity
+        //     nearest above within floor_fade_above_uu -> adjacent_floor_opacity x 0.6
+        //     nothing                                  -> transparent
+        // and map_unreachable decides what a surface the flood never reached is worth.
+        // The only smoothing is feet_z_smooth_ms. The rule itself is src/slicerule.hpp.
 
         bool show_adjacent_floors = true;     // draw the surfaces below / above, dimmed
         float adjacent_floor_opacity = 0.25f; // below; above uses 0.6 x this
         float floor_z_tolerance = 200.0f;     // uu: |Z - feetZ| within this = my floor
-        float floor_fade_uu = 800.0f;         // uu: how far below / above is still shown
+        float floor_fade_uu = 800.0f;         // uu: how far BELOW is still shown
+        // Ground overhead is never ground you can walk on now, and at a boss arena it is a third
+        // of everything drawn, so it gets its own, much shorter range. 0 = never draw it.
+        float floor_fade_above_uu = 300.0f;
+        // What a surface the reachability flood never reached is worth: hide (not a surface at
+        // all), dim (one rung further down the opacity ladder), show (like any other).
+        srule::Unreachable map_unreachable = srule::Unreachable::Hide;
         // lum = 1 + strength * clamp((surfaceZ - feetZ) / span, -1, 1), span = tolerance (current
-        // floor) or fade (dimmed). The same formula runs offline in tools/navmesh/slice_preview.py.
+        // floor), fade below or fade_above over. The same formula runs offline in
+        // tools/navmesh/slice_preview.py.
         float floor_gradient_strength = 0.18f;
         float floor_base_r = 214.0f; // walkable fill colour, 0..255
         float floor_base_g = 208.0f;
@@ -478,6 +487,8 @@ namespace mm
         a.adjacent_floor_opacity == b.adjacent_floor_opacity &&
         a.floor_z_tolerance == b.floor_z_tolerance &&
         a.floor_fade_uu == b.floor_fade_uu &&
+        a.floor_fade_above_uu == b.floor_fade_above_uu &&
+        a.map_unreachable == b.map_unreachable &&
         a.floor_gradient_strength == b.floor_gradient_strength &&
         a.floor_base_r == b.floor_base_r &&
         a.floor_base_g == b.floor_base_g &&

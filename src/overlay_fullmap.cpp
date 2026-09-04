@@ -312,6 +312,7 @@ namespace overlay
                 // "Show everything": no surface is out of range, so the whole chapter's
                 // walkable area is drawn with the current storey still at full opacity.
                 st.fade = 1.0e9f;
+                st.fade_above = 1.0e9f;
                 st.a_dim = 0.34f;
                 st.a_faint = 0.24f;
             }

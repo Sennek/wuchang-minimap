@@ -2,12 +2,11 @@
 // navmesh_dump.cpp - find the game's Recast/Detour navmesh in memory and write the
 // live tiles out as JSON.
 //
-// The whole module is written on the assumption that every struct layout it believes
-// in is a guess. Nothing is hardcoded that can be derived, every derived value is
-// validated against something the recon pass measured (TileSizeUU 1280, AgentRadius
-// 34/60/90/120, the DNAV tile magic, tile bounds vs tile index), and every single raw
-// read goes through mem::read (VirtualQuery + SEH). A wrong guess produces a log line,
-// never a crash.
+// Every struct layout this module believes in is a guess. Nothing is hardcoded that
+// can be derived, every derived value is validated against a measured one (TileSizeUU
+// 1280, AgentRadius 34/60/90/120, the DNAV tile magic, tile bounds vs tile index), and
+// every raw read goes through mem::read (VirtualQuery + SEH). A wrong guess produces a
+// log line, never a crash.
 //
 // Discovery chain, all of it logged:
 //
@@ -101,11 +100,9 @@ namespace navmesh
         constexpr int kMaxVertsPerTile = 262144;
         constexpr double kBoundsSlackUU = 8.0;
 
-        // How long the tile-array scan is allowed to be re-attempted after it has
-        // failed. The scan is 24 KiB of guarded pointer reads per candidate slot and it
-        // stays hopeless for as long as the mesh holds no live tiles, so it must not run
-        // on every poll. (The 2026-09-02 CTRL+F6 session logged the same
-        // "dtMeshTile array NOT found" line 84 times in 50 s - 4 agents x 2 s forever.)
+        // Retry floor for the tile-array scan after a failure. The scan is 24 KiB of
+        // guarded pointer reads per candidate slot and stays hopeless for as long as the
+        // mesh holds no live tiles, so it must not run on every poll.
         constexpr std::uint64_t kTileScanRetryMs = 15000;
 
         // A candidate impl / dtNavMesh is a private RW heap block. Anything outside this
@@ -120,19 +117,16 @@ namespace navmesh
         // Config: the runtime dumper is OFF unless the user turns it on
         //==============================================================================
         //
-        // The map background now comes from the offline pak extraction
-        // (tools/navmesh/offline, see context/navmesh-offline.md), so this module is only
-        // needed for DLC cells missing from the paks and for checking runtime-carved
-        // tiles. It scans engine memory, which has no
-        // business happening during normal play - so it ships disabled and is enabled
-        // per-session from
+        // The map background comes from the offline pak extraction
+        // (tools/navmesh/offline); this module covers DLC cells missing from the paks and
+        // runtime-carved tiles. It scans engine memory, so it ships disabled and is
+        // enabled per-session from
         //     ue4ss\Mods\WuchangMinimap\config.ini
         //         [navmesh]
         //         navmesh_dump = 1
         //
-        // With it on, the dump is forced from the F2 panel's Debug tab. It used to be a
-        // hotkey; a memory scan that writes files is not something a key press should be
-        // able to start by accident.
+        // With it on, the dump is forced from the F2 panel's Debug tab - no hotkey, so a
+        // key press cannot start a file-writing memory scan by accident.
         struct Config
         {
             bool enabled = false;
@@ -144,16 +138,15 @@ namespace navmesh
         // Crash breadcrumb
         //==============================================================================
         //
-        // Every stage writes its name here before doing anything. If the process dies
-        // mid-scan the log buffer may be lost, but this one-line file is closed after
-        // each write and therefore always survives. navmesh/last_stage.txt.
+        // navmesh/last_stage.txt. Every stage writes its name here before doing anything;
+        // the file is closed after each write, so it survives a crash that loses the log
+        // buffer.
         std::filesystem::path g_stage_path;
 
-        // Deliberately Win32-only: no iostreams, no std::locale, no allocation beyond a
-        // stack buffer. This is called from the game thread, where the C++ locale is not
-        // safe to touch (see the comment on emit()), and it must also survive being the
-        // last thing that happens before the process dies - so the handle is opened,
-        // written and closed on every call.
+        // Win32 only: no iostreams, no std::locale, no allocation beyond a stack buffer.
+        // Called from the game thread, where the C++ locale is not safe to touch (see
+        // emit()), and it must survive being the last thing before the process dies - so
+        // the handle is opened, written and closed on every call.
         void set_stage(const wchar_t* stage, const wchar_t* detail = nullptr) noexcept
         {
             if (g_stage_path.empty() || stage == nullptr)
@@ -220,25 +213,17 @@ namespace navmesh
         // Logging
         //==============================================================================
 
-        // WHY LOGGING IS QUEUED
-        // ---------------------
-        // UE4SS's Output goes through C++ iostreams, and the C++ *locale* machinery is
-        // not safe to touch from the game thread of this game: the game links the
-        // dynamic UCRT, is localised, and its game thread runs with a per-thread locale,
-        // so a `std::wofstream` / `operator<<` issued from there faults inside
-        // MSVCP140's basic_ios/num_put block (EXCEPTION_ACCESS_VIOLATION reading 0x8,
-        // reproduced 2026-09-02 14:30 - the crash frame was our ProcessEvent callback
-        // calling straight into MSVCP140). So the game-thread pump only ever *queues*
-        // text; on_update, which runs on UE4SS's own event-loop thread where logging has
-        // always worked, drains the queue. Same rule for file writes: see set_stage()
-        // (Win32 only) and flush_pending() (JSON writing happens on the loop thread).
+        // LOGGING IS QUEUED. UE4SS's Output goes through C++ iostreams, and the C++
+        // locale machinery is not safe to touch from this game's game thread: the game
+        // links the dynamic UCRT, is localised, and its game thread runs with a
+        // per-thread locale, so `operator<<` from there faults inside MSVCP140's
+        // basic_ios/num_put block. The game-thread pump only ever QUEUES text; on_update,
+        // on UE4SS's event-loop thread, drains it. Same rule for file writes: set_stage()
+        // is Win32 only, and flush_pending() writes JSON on the loop thread.
+        //
         // NO std::mutex ANYWHERE IN THIS FILE. `std::mutex::try_lock` compiled against
-        // MSVC 14.40's STL faulted (EXCEPTION_ACCESS_VIOLATION reading 0x8) the instant it
-        // was called from this game's game thread, against the MSVCP140 that is already
-        // loaded in the process - symbolised to
-        // `std::_Mutex_base::try_lock <- std::unique_lock<std::mutex>::{ctor} <-
-        // game_thread_pump`. Whatever the exact mismatch, a mod DLL has no business
-        // depending on the host's C++ runtime for locking: everything here is
+        // MSVC 14.40's STL faults (access violation reading 0x8) when called from this
+        // game's game thread against the already-loaded MSVCP140. Everything here is
         // header-only <atomic>, which compiles to plain interlocked instructions.
         class Spinlock
         {
@@ -356,7 +341,7 @@ namespace navmesh
         };
 
         // Walks the FField child-property list of the class and of every super struct.
-        // A null head (a pure-native class) simply yields nothing - no error.
+        // A null head (a pure-native class) yields nothing, not an error.
         ClassProps collect_props(UClass* cls)
         {
             ClassProps out{};
@@ -549,29 +534,22 @@ namespace navmesh
         // Step 1: actor -> dtNavMesh
         //==============================================================================
         //
-        // The first in-game run (2026-09-02 11:39) failed here on all four agents with
-        // "no pointer inside the actor targeted a struct whose 2nd field is the actor
-        // itself". The old recogniser assumed
-        //     class FPImplRecastNavMesh { dtNavMesh* DetourNavMesh; ARecastNavMesh* Owner; ... };
-        // and that assumption does not hold on this build (a vtable, extra leading
-        // members, or a different declaration order). So nothing about the impl layout is
-        // assumed any more.
+        // Nothing about the FPImplRecastNavMesh layout is assumed: on this build it is
+        // neither `{ dtNavMesh*; ARecastNavMesh*; ... }` nor any other fixed shape.
         //
-        // What IS unmistakable is dtNavMeshParams: three finite reals of origin followed
-        // by tileWidth == tileHeight == TileSizeUU (1280.0 here, read off the actor by
-        // reflection) and two sane int counts. That pattern is the only acceptance test,
-        // and the search takes whatever indirection reaches it:
+        // The acceptance test is dtNavMeshParams, which is unmistakable: three finite
+        // reals of origin, then tileWidth == tileHeight == TileSizeUU (1280.0, read off
+        // the actor by reflection), then two sane int counts. The search takes whatever
+        // indirection reaches it:
         //
         //   depth 0   actor + off               -> dtNavMesh   (impl_is_detour)
         //   depth 1   actor + off -> impl + i   -> dtNavMesh   (the expected case)
         //
-        // The ARecastNavMesh back-pointer is still hunted for inside the candidate struct,
-        // but only to score candidates and to document the build's real field order - it
-        // is no longer required. Every read goes through mem::readable + SEH, so a wrong
-        // guess produces a log line, never a crash. On failure the scan keeps a pointer
-        // table (target address, first three qwords, where the back-pointer was, and
-        // whether TileSizeUU echoes anywhere in the target) which is written into the
-        // probe JSON - that is what identifies the layout for the next iteration.
+        // The ARecastNavMesh back-pointer inside the candidate struct only scores
+        // candidates and documents the build's field order; it is not required. Every
+        // read goes through mem::readable + SEH. On failure the scan keeps a pointer
+        // table (target address, first three qwords, where the back-pointer was, whether
+        // TileSizeUU echoes in the target) and writes it into the probe JSON.
 
         // Copies up to `want` bytes, halving on failure so a struct at the end of a
         // committed region still yields its head. Returns the byte count actually copied.
@@ -652,9 +630,9 @@ namespace navmesh
         }
 
         // Diagnostic only: does this buffer hold two adjacent reals both equal to
-        // TileSizeUU? A hit says the dtNavMesh is right here and only the surrounding
-        // layout surprised us; no hit anywhere in the actor's pointer graph says the mesh
-        // is not reachable in two hops at all, which is a different problem.
+        // TileSizeUU? A hit means the dtNavMesh is here and only the surrounding layout
+        // is unexpected; no hit anywhere in the actor's pointer graph means the mesh is
+        // not reachable in two hops at all.
         std::wstring tile_size_echo(const std::uint8_t* buf, std::size_t n, double expected)
         {
             for (std::size_t off = 0; off + 16 <= n; off += 4)
@@ -679,15 +657,14 @@ namespace navmesh
             return {};
         }
 
-        // Offsets pinned by the successful 2026-09-02 14:16 in-game discovery, identical
-        // on all four agents:
+        // Offsets pinned by in-game discovery, identical on all four agents:
         //     actor + 0x5E8 -> FPImplRecastNavMesh
         //     impl  + 0x000 -> ARecastNavMesh (the owner back-pointer)
         //     impl  + 0x008 -> dtNavMesh
         //     dtNavMesh + 0x20 -> dtNavMeshParams, dtReal = double (UE5 LWC)
-        // Trying them first turns discovery into three guarded reads instead of a
-        // ~16 000-read blind scan. The blind scan is still there as the fallback, so a
-        // game patch that moves the field costs performance, not correctness.
+        // Trying them first makes discovery three guarded reads instead of a ~16 000-read
+        // blind scan. The blind scan is the fallback, so a game patch that moves a field
+        // costs performance, not correctness.
         constexpr std::size_t kPinImplInActor = 0x5E8;
         constexpr std::size_t kPinDetourInImpl = 0x8;
         constexpr std::size_t kPinOwnerInImpl = 0x0;
@@ -759,9 +736,9 @@ namespace navmesh
             {
                 scan_end = kScanEndFallback;
             }
-            // The whole object is scanned now, not just the native tail past the reflected
-            // properties: the impl pointer need not be the last member, and slots that are
-            // obviously something else (UClass, Outer, components) cost one guarded read.
+            // The whole object is scanned, not just the native tail past the reflected
+            // properties: the impl pointer need not be the last member, and an obviously
+            // wrong slot (UClass, Outer, components) costs one guarded read.
             const std::size_t scan_begin = 0x28;
             scan_end = (std::min)(scan_end + 0x100, static_cast<std::size_t>(0x4000));
 
@@ -843,11 +820,10 @@ namespace navmesh
                     {
                         continue;
                     }
-                    // Bounded depth-2 chase. Without this the scan follows every
-                    // pointer-shaped qword inside ~250 candidate structs - thousands of
-                    // targets, most of them into loaded images, mapped paks or thread
-                    // stacks. A dtNavMesh is always a private RW heap block of a sane
-                    // size, so anything else is skipped before it is ever dereferenced.
+                    // Bounded depth-2 chase: unbounded, this follows every pointer-shaped
+                    // qword inside ~250 candidate structs, mostly into loaded images,
+                    // mapped paks or thread stacks. A dtNavMesh is always a private RW
+                    // heap block of a sane size; anything else is skipped undereferenced.
                     if (deep_hops >= kMaxDeepHops)
                     {
                         break;
@@ -955,11 +931,11 @@ namespace navmesh
                 return out;
             }
 
-            // Last resort: the struct that back-points to the actor IS FPImplRecastNavMesh,
-            // so if the mesh was not one hop away from it, try two. This is only run for
-            // that one confirmed struct, so it costs nothing on the happy path. It covers
-            // the impl holding the mesh behind a wrapper (a TUniquePtr member struct, a
-            // per-resolution holder, a cached query object).
+            // Last resort: the struct that back-points to the actor IS
+            // FPImplRecastNavMesh, so if the mesh is not one hop away from it, try two.
+            // Only run for that one confirmed struct. Covers the impl holding the mesh
+            // behind a wrapper (a TUniquePtr member struct, a per-resolution holder, a
+            // cached query object).
             if (impl_by_backptr != kNoOffset)
             {
                 void* impl = nullptr;
@@ -994,10 +970,9 @@ namespace navmesh
                             {
                                 continue;
                             }
-                            // Pin the middle struct as "the impl": the chain
-                            // actor+impl_by_backptr -> impl + i is a stable pointer slot,
-                            // so re-reading it later is exactly as valid as the one-hop
-                            // case, just with the mesh pointer one level further in.
+                            // Pin the middle struct as "the impl": actor+impl_by_backptr
+                            // -> impl + i is a stable pointer slot, so re-reading it later
+                            // is as valid as the one-hop case.
                             out.impl_found = true;
                             out.detour_found = true;
                             out.impl_offset = impl_by_backptr;
@@ -1474,17 +1449,14 @@ namespace navmesh
         //==============================================================================
         //
         // `g_agents` and every byte it points at are touched ONLY from the game thread
-        // (the ProcessEvent pre-callback, see ue_min.hpp). `on_update`, which UE4SS calls
-        // on its own event-loop thread, is allowed to do exactly two things: sample the
-        // keyboard and raise g_force_requested. `g_worker` then makes forced and automatic
-        // dumps mutually exclusive even if the pump were ever re-entered.
+        // (the ProcessEvent pre-callback). `on_update`, on UE4SS's event-loop thread, may
+        // do exactly two things: sample the keyboard and raise g_force_requested.
         std::atomic<bool> g_force_requested{false};
         std::atomic<bool> g_pump_registered{false};
         std::atomic<bool> g_dump_ready{false};
         // Single-flight, non-blocking: whoever wins the exchange owns g_agents until it
-        // clears the flag. A loser never waits - it just comes back next tick. That is
-        // exactly the behaviour wanted inside the engine's own call stack, and it is what
-        // makes a forced dump and an automatic dump mutually exclusive.
+        // clears the flag; a loser never waits, it comes back next tick. Makes a forced
+        // dump and an automatic dump mutually exclusive.
         std::atomic<bool> g_busy{false};
         std::uint64_t g_last_pump = 0;
 
@@ -1679,9 +1651,8 @@ namespace navmesh
                              total_polys,
                              total_verts);
 
-            // The pointer table from a failed discovery scan. This is what identifies the
-            // real FPImplRecastNavMesh layout on the next iteration, so it is the most
-            // valuable part of a probe_*.json.
+            // The pointer table from a failed discovery scan: what identifies the real
+            // FPImplRecastNavMesh layout on the next iteration.
             f << "  \"discovery_diagnostics\": [\n";
             for (std::size_t di = 0; di < st.mesh.diag.size(); ++di)
             {
@@ -1750,8 +1721,8 @@ namespace navmesh
         // Tile reading
         //==============================================================================
 
-        // Learns the dtMeshHeader layout from one live tile. Logs every decision and the
-        // one-line "PIN LINE" summary that lets us hardcode the offsets later if we want.
+        // Learns the dtMeshHeader layout from one live tile. Logs every decision plus a
+        // one-line "PIN LINE" summary of the offsets.
         bool learn_header_layout(const void* header, const void* polys, const void* verts, AgentState& st,
                                  std::int32_t tx, std::int32_t ty, std::int32_t tlayer)
         {
@@ -2026,9 +1997,9 @@ namespace navmesh
             std::wstring reason;
         };
 
-        // Re-validates (or re-discovers) the whole chain. Cheap on the happy path: two
-        // pointer reads plus one dtNavMeshParams check, and the tile array is only
-        // re-scanned when the cached offset stops working.
+        // Re-validates (or re-discovers) the whole chain. Two pointer reads plus one
+        // dtNavMeshParams check on the happy path; the tile array is re-scanned only when
+        // the cached offset stops working.
         MeshHandle reach_mesh(AgentState& st, bool force_discovery)
         {
             MeshHandle h{};
@@ -2036,10 +2007,10 @@ namespace navmesh
 
             if (!st.mesh.detour_found)
             {
-                // Discovery is the expensive path (a two-level guarded pointer scan) and it
+                // Discovery is the expensive path (a two-level guarded pointer scan) and
                 // stays hopeless until navmesh data streams in, so after the first few
-                // tries it is throttled to once every 10 s and goes quiet in the log.
-                // A forced dump (F6) always retries, verbosely.
+                // tries it is throttled to kDiscoveryRetryMs and goes quiet in the log.
+                // A forced dump always retries, verbosely.
                 const std::uint64_t now = ::GetTickCount64();
                 const bool due = force_discovery || st.discovery_attempts < 3 ||
                                  now - st.last_discovery >= kDiscoveryRetryMs;
@@ -2118,9 +2089,8 @@ namespace navmesh
                 st.mesh.tiles_found = false;
             }
 
-            // The scan below is the expensive one. Back it off after a few failures: an
-            // agent whose mesh currently holds zero live tiles would otherwise re-run it
-            // on every poll, forever, for every agent.
+            // The scan below is the expensive one, and it is hopeless while the mesh holds
+            // zero live tiles, so a few failures back it off.
             {
                 const std::uint64_t tnow = ::GetTickCount64();
                 if (!force_discovery && st.tile_scan_attempts >= 3 &&
@@ -2490,12 +2460,11 @@ namespace navmesh
         // The game-thread pump
         //==============================================================================
         //
-        // Called from UE4SS's ProcessEvent pre-callback, i.e. from whatever thread is
-        // running the script VM - the game thread for all gameplay. This is the ONLY
-        // place that touches g_agents, walks UObjects or reads engine allocations.
-        // ProcessEvent fires thousands of times a second, so the first thing it does is
-        // throttle; a non-blocking atomic single-flight flag (g_busy) makes a forced and an
-        // automatic dump mutually exclusive without ever waiting.
+        // Called from UE4SS's ProcessEvent pre-callback, i.e. on whatever thread runs the
+        // script VM - the game thread for all gameplay. The ONLY place that touches
+        // g_agents, walks UObjects or reads engine allocations. ProcessEvent fires
+        // thousands of times a second, so it throttles first; the non-blocking
+        // single-flight flag g_busy keeps forced and automatic dumps exclusive.
 
         void run_forced_dump();
         void run_poll(std::uint64_t now);
@@ -2638,9 +2607,8 @@ namespace navmesh
              kPrimaryAgent);
 
         // Everything that touches UObjects or engine allocations runs from here, on the
-        // game thread. See the comment on RegisterProcessEventPreCallback in ue_min.hpp:
-        // CppUserModBase::on_update is called on UE4SS's own event-loop thread, so doing
-        // FindAllOf / pointer chasing from there races level streaming and the GC.
+        // game thread: CppUserModBase::on_update runs on UE4SS's event-loop thread, where
+        // FindAllOf / pointer chasing races level streaming and the GC.
         RC::Unreal::Hook::RegisterProcessEventPreCallback(
             [](RC::Unreal::UObject*, RC::Unreal::UFunction*, void*) { game_thread_pump(); });
         g_pump_registered = true;

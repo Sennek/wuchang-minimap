@@ -41,23 +41,13 @@ namespace markers
         // The class table - what the live sweep looks for
         //==============================================================================
         //
-        // HOW THE SWEEP FINDS THESE (changed 2026-09-02, see lessons.md)
-        // --------------------------------------------------------------
-        // It used to be one `UObjectGlobals::FindAllOf` per game-thread pump, cycling
-        // through this table. FindAllOf walks the WHOLE GUObjectArray, so a round cost
-        // kClassCount full walks - measured in-game at 28.30 ms mean / 51.05 ms peak
-        // PER PUMP, i.e. two to three dropped frames ten times a second.
-        //
-        // Now the sweep walks the object array itself, ONCE per round, in slices of
+        // The sweep walks GUObjectArray once per round, in slices of
         // `markers_scan_chunk` slots per pump (src/scan_sched.hpp). Each slot costs a
         // validity check, a class-pointer load and one memoised lookup; the expensive
-        // per-object work only runs for the few slots whose class is in this table.
+        // per-object work only runs for slots whose class is in this table.
         //
-        // Classification is still by NAME up the super chain, so a subclass lands in
-        // the right category exactly as FindAllOf's subclass matching used to arrange -
-        // BP_PickupActor_C still brings in BP_DropItem_C, the runtime-spawned enemy
-        // loot drop whose collect was watched end-to-end in run 3. The difference is
-        // that the answer is memoised per UClass* and consulted, not recomputed.
+        // Classification is by NAME up the super chain, memoised per UClass*, so a
+        // subclass lands in its parent's category.
 
         enum class Rule : std::uint8_t
         {
@@ -71,21 +61,14 @@ namespace markers
             BossPawn       // boss character: defeated when its controller's Health.Current <= 0
         };
 
-        // "Met" radius for Rule::Proximity, in Unreal units (1 uu = 1 cm), i.e. 30 m.
-        // Deliberately NOT a config key: adding one means editing config_keys.hpp, the
-        // parser and the shipped config file, three files another workstream owns this
-        // session. The number is the same order as `highlight_radius`'s default (3000)
-        // and nothing about it is a taste decision - it only has to be "close enough
-        // that you have certainly seen this person".
+        // Rule::Proximity "met" radius, Unreal units (1 uu = 1 cm) = 30 m.
         constexpr double kMetRadius = 3000.0;
         constexpr double kMetRadiusSq = kMetRadius * kMetRadius;
 
-        // How many rounds a LIVE-ONLY entry (persist == false: enemies) may go
-        // unanswered before it is dropped. Persisted categories keep the configured
-        // `markers_live_grace_rounds` debounce, which exists so a marker does not
-        // flicker when a sweep races level streaming; an enemy has no static twin to
-        // fall back on, so a stale one is a corpse drawn as a threat. One round is the
-        // minimum that still means "the last completed sweep did not see it".
+        // Rounds a LIVE-ONLY entry (persist == false: enemies) may go unanswered before
+        // it is dropped. Persisted categories use `markers_live_grace_rounds` instead,
+        // which debounces a sweep racing level streaming; an enemy has no static twin,
+        // so a stale one is a corpse drawn as a threat.
         constexpr std::uint64_t kLiveOnlyGraceRounds = 1;
 
         struct ClassSpec
@@ -97,49 +80,32 @@ namespace markers
         };
 
         constexpr ClassSpec kClasses[] = {
-            // Shrines. `Open` / `DefaultEnable` / `InInteract` were identical on all
-            // three instances in run 3, so shrine ACTIVATION is still unidentified and
-            // the rule stays None; the id comes from the CJK-named property instead.
+            // Shrine activation flag unknown; the id comes from a CJK-named property.
             {L"BP_RebornFire_C", mdb::Cat::Shrine, Rule::None, true},
-            // Chests: `Used` confirmed with both states side by side in run 3.
             {L"BP_treasurebox_C", mdb::Cat::Chest, Rule::UsedBool, true},
             {L"BP_ItemRedBox_C", mdb::Cat::Chest, Rule::UsedBool, true},
-            // Pickups: `dying = false -> true`, then the actor is moved to (0,0,0) ~2 s
-            // later and lingers until a GC. Absence from FindAllOf is NOT evidence of
-            // a collect (an unloaded level looks identical), so it never auto-marks.
+            // Pickups: `dying = false -> true`, then the actor moves to (0,0,0) ~2 s
+            // later and lingers until a GC. Absence is not evidence of a collect (an
+            // unloaded level looks identical), so it never auto-marks.
             {L"BP_PickupActor_C", mdb::Cat::Pickup, Rule::PickupDying, true},
-            // Doors. BP_NewPuzzlesDoor_C is the one that also carries `GeemID` and
-            // `New Fire Point ID` - a ready-made shortcut edge for a later map graph.
+            // BP_NewPuzzlesDoor_C also carries `GeemID` and `New Fire Point ID`.
             {L"BP_NewPuzzlesDoor_C", mdb::Cat::Door, Rule::DoorOpenBool, true},
             {L"BP_DoorZhong_C", mdb::Cat::Door, Rule::UsedBool, true},
-            // Fog gates. Strong inference, not yet observed in the passed state.
+            // Fog gates. Inferred, not observed in the passed state.
             {L"BP_Wumen_C", mdb::Cat::FogGate, Rule::ActiveBool, true},
             {L"BP_LadderV2_C", mdb::Cat::Ladder, Rule::None, false},
             {L"BP_WoodenElevator_C", mdb::Cat::Lift, Rule::None, false},
-            // ---- NPCs and reading points (2026-09-03) ---------------------------
+            // `BP_NPC_C` is the interactable-character base and covers its 78
+            // descendants in one entry, since spec_for_class() walks the super chain by
+            // name. The five that are not people get exact entries below (an exact match
+            // at depth 0 beats the base class).
             //
-            // `BP_NPC_C` is the game's interactable-character base and it covers all
-            // ~50 `*_NPC_C` blueprints in one entry, because spec_for_class() walks the
-            // super chain by name. That is not a guess: `tools/markers/class_graph.py`
-            // reads the `super` field out of every cooked `.uasset`'s export map and
-            // lists 78 descendants of `BP_NPC_C` - every class the offline extractor
-            // ever put in the `npc` or `note` bucket, and nothing else that is a
-            // character.
+            // "Found" means MET: seen loaded within kMetRadius of the player. There is
+            // no per-NPC saved flag reachable from here. Persisted.
             //
-            // Five of those 78 are NOT people, so they get their own exact entries
-            // (an exact match at depth 0 always beats the base class): the shrine
-            // above, the reading point below, and the three after it. Anything else that
-            // ever derives from BP_NPC_C lands in `npc`, which is the right default.
-            //
-            // "Found" means MET: the actor was seen loaded within kMetRadius of the
-            // player. There is no per-NPC saved flag to read (and dialogue state is not
-            // reachable from here), so proximity is the honest definition - and it is
-            // persisted, because "I have been there" does not become false again.
-            // `DKDC_NPC_C` is NOT a merchant (it shipped as one up to 0.9.4): every
-            // placed instance carries a read-point id, the blueprint has no character
-            // mesh, its only interaction string is "Check" and it spawns the hint
-            // particle. It is one of the game's readable notes. The game's actual
-            // merchant, Tao Qing, is an ordinary `BP_NPC_C` descendant and stays `npc`.
+            // `DKDC_NPC_C` is a readable note, not a merchant: every placed instance
+            // carries a read-point id, the blueprint has no character mesh, its only
+            // interaction string is "Check" and it spawns the hint particle.
             {L"DKDC_NPC_C", mdb::Cat::Note, Rule::Proximity, true},
             {L"BP_NPC_C", mdb::Cat::Npc, Rule::Proximity, true},
             // Not people, despite deriving from BP_NPC_C. Categories match what
@@ -148,21 +114,13 @@ namespace markers
             {L"ItemCollectionBox_C", mdb::Cat::Pickup, Rule::PickupDying, true},
             {L"BP_KlesaCleaner_C", mdb::Cat::Other, Rule::None, false},
             {L"BP_PuzzlesDoor_C", mdb::Cat::Door, Rule::UsedBool, true},
-            // ---- Bosses (2026-09-03) -------------------------------------------
+            // `BP_PlacedBossAI_C` is the base of all 32 boss blueprints and of all 25
+            // placed boss instances.
             //
-            // `BP_PlacedBossAI_C` is the base of all 32 boss blueprints (class_graph.py
-            // again), and every one of the game's 25 placed boss instances is one of
-            // them - so this single entry replaces the offline `*_BOSS_AI`-sublevel
-            // heuristic at runtime as well as offline.
-            //
-            // "Found" means DEFEATED, read from the health the recon dumps already
-            // prove is there: a boss pawn's `Controller` is an
+            // "Found" means DEFEATED: a boss pawn's `Controller` is an
             // `Impl_BaseAIController_C` carrying a `Health` `ExtendedStatComponent_C`
-            // with reflected `Current` / `Max` floats, and a dead character reads
-            // `Current = 0` while its actor is still in the object array
-            // (`dump_20260902_102655_world.txt` line 33:
-            // `Impl_BaseAIController_C_2147479402.Health Current=0.0 Max=100.0`).
-            // It is persisted, so the mark survives leaving the arena.
+            // with reflected `Current` / `Max` floats; a dead character reads
+            // `Current = 0` while its actor is still in the object array. Persisted.
             {L"BP_PlacedBossAI_C", mdb::Cat::Boss, Rule::BossPawn, true},
             // Enemies are LIVE ONLY and never persisted: the count of
             // Impl_BaseAIController_C is the count of live enemies, and the marker is
@@ -172,16 +130,14 @@ namespace markers
 
         constexpr int kClassCount = static_cast<int>(std::size(kClasses));
 
-        // What a file in the markers directory must declare to be treated as a marker
-        // manifest. Anything else in there (items.json, whatever comes next) is skipped
-        // quietly rather than reported as broken.
+        // Schema a file in the markers directory must declare to count as a marker
+        // manifest. Anything else there is skipped quietly.
         constexpr std::string_view kMarkerSchemaPrefix = "wuchang-minimap-markers";
 
         // BP_RebornFire_C's game-authored shrine id - the CJK-named "sitting-Buddha
-        // point ID" property (U+5750 U+4F5B U+70B9 + "ID"), spelled with escapes so the
-        // symbol survives any source-encoding accident. It is the ONLY property that
-        // distinguishes sibling shrines (213 own properties, two of which differ), and
-        // object names are index-suffixed and unstable - so it is the marker id.
+        // point ID" property (U+5750 U+4F5B U+70B9 + "ID"), escaped so the symbol
+        // survives any source-encoding accident. The only property that distinguishes
+        // sibling shrines, and object names are index-suffixed and unstable.
         constexpr const wchar_t* kShrineIdProp = L"\u5750\u4F5B\u70B9ID";
 
         //==============================================================================
@@ -190,10 +146,6 @@ namespace markers
 
         constexpr unsigned long long kReadCapBytes = 32ull << 20;
 
-        // The marker manifests. NOTHING IS DROPPED SILENTLY: a file that exists and
-        // cannot be read, and a file over the cap, each get a line at the normal log
-        // level, because the symptom otherwise is "some of my markers are missing" with
-        // an empty log.
         mmfile::ReadInfo read_whole_file_ex(const std::wstring& path, std::string& out)
         {
             return mmfile::read_whole_file(path, out, kReadCapBytes);
@@ -222,8 +174,7 @@ namespace markers
             return false;
         }
 
-        // ATOMIC, with one generation of backup for the found tracker: see
-        // atomicfile.hpp. A crash mid-write used to truncate the player's collection.
+        // Atomic, with one generation of backup for the found tracker (atomicfile.hpp).
         bool write_whole_file(const std::wstring& path, const std::string& data, bool keep_backup, unsigned& err)
         {
             return mmfile::write_whole_file_atomic(path, data, keep_backup, &err);
@@ -234,9 +185,9 @@ namespace markers
             return std::wstring{narrow.begin(), narrow.end()};
         }
 
-        // The names this mod handles are ASCII (level names, object names, shrine ids).
-        // Anything else is replaced rather than silently truncated, so a surprise never
-        // produces two different ids for one actor.
+        // Names handled here are ASCII (level names, object names, shrine ids).
+        // Non-ASCII is replaced with '?' rather than truncated, so one actor never
+        // yields two different ids.
         std::string narrow_ascii(std::wstring_view wide)
         {
             std::string out;
@@ -263,26 +214,21 @@ namespace markers
         // The static database, published to the game thread
         //==============================================================================
         //
-        // Immutable once published. A reload builds a fresh one and swaps the pointer.
-        // The old one used to be leaked outright - several MB per F5 - because the game
-        // thread may be walking it and there is no mutex to be had here (std::mutex is
-        // unusable in this process, lessons.md). It is now RETIRED instead: the loop
-        // thread parks it with the publish round it was replaced in and frees it once
-        // the game thread has completed several more rounds AND a couple of seconds
-        // have passed. publish_round() re-reads `g_db` at the top of every round and
-        // rebuilds its index the moment the pointer differs, so a reader that has
-        // finished three rounds since the swap cannot still hold the old pointer.
+        // Immutable once published. A reload builds a fresh one and swaps the pointer;
+        // the game thread may be walking the old one and there is no mutex to be had
+        // here. The replaced db is RETIRED: the loop thread parks it with the publish
+        // round it was replaced in and frees it once the game thread has completed
+        // kRetireRounds more rounds AND kRetireMs have passed. publish_round() re-reads
+        // `g_db` at the top of every round and rebuilds its index when the pointer
+        // differs, so a reader three rounds past the swap cannot hold the old pointer.
 
         struct StaticDb
         {
             std::vector<mdb::StaticMarker> markers;
             std::unordered_map<std::string, int> by_id;
 
-            // INTERNING, done once at load. `publish_round` used to hash a
-            // std::string per marker per round (the found set, the live twins, the
-            // absence streak) and to build a lower-cased copy of every marker's level
-            // name; at 700-1500 markers a second that is the whole cost of the round.
-            // These turn all of it into array indexing:
+            // Interning, done once at load, so publish_round() indexes instead of
+            // hashing per marker per round:
             //   levels        - the unique lower-cased level short names
             //   marker_level  - per marker, its index into `levels` (-1 = no level)
             std::vector<std::string> levels;
@@ -313,8 +259,8 @@ namespace markers
         //   inbox  loop -> game : the whole set after a load / reload (clear + ids)
         //   outbox game -> loop : ids the live sweep has just auto-marked
         //
-        // Nothing is ever shared by pointer, so neither side can free memory the other
-        // is reading, and the file is only ever touched from the loop thread.
+        // Nothing is shared by pointer, so neither side can free memory the other is
+        // reading, and the file is only ever touched from the loop thread.
 
         spin::Spinlock g_inbox_lock;
         std::vector<std::string> g_inbox;
@@ -326,8 +272,7 @@ namespace markers
         std::atomic<bool> g_outbox_pending{false};
 
         // render -> loop : a manual found/not-found toggle from the full map's click
-        // handler. Same shape as the outbox, but it can UNSET as well as set, so it
-        // carries the wanted state alongside the id.
+        // handler. It can unset as well as set, so it carries the wanted state.
         struct ToggleReq
         {
             std::string id;
@@ -341,14 +286,11 @@ namespace markers
         std::unordered_set<std::string> g_found_gt;     // game thread only
         bool g_found_dirty = false;                     // loop thread only
         // Marks (auto or manual) added since the found-tracker save line was last
-        // printed. The save line reports and clears it, so at the default log level one
-        // line per half-minute says everything the fifty-odd suppressed ones would have.
+        // printed. The save line reports and clears it.
         std::uint32_t g_marks_since_log = 0;
         std::uint64_t g_found_dirty_ms = 0;
-        // The found file EXISTS and could not be read. Then the mod does not know what
-        // is in it, so it must not write over it - an anti-virus or a sync client
-        // holding it open for a second used to end with the real collection replaced by
-        // whatever this session had auto-marked. Cleared by a retry that succeeds.
+        // The found file exists and could not be read; its contents are unknown, so it
+        // must not be written over. Cleared by a retry that succeeds.
         bool g_found_unreadable = false;
         std::uint64_t g_found_retry_ms = 0;
         // A failed save keeps the dirty flag and retries with a doubling backoff on top
@@ -360,13 +302,11 @@ namespace markers
         // The shutdown snapshot (POD, staged ahead of time)
         //==============================================================================
         //
-        // ALT+F4 inside the save debounce used to lose the marks. The flush has to
-        // happen at DLL_PROCESS_DETACH, where the process may be dying abnormally and
-        // the heap may be the thing that is broken (lessons.md) - so nothing there may
-        // allocate, log or take a lock. The loop thread therefore keeps the exact bytes
-        // and the exact path of the pending write in plain static buffers, and the
-        // detach path is a CreateFileW / WriteFile / MoveFileExW over them and nothing
-        // else.
+        // The flush happens at DLL_PROCESS_DETACH, where the process may be dying
+        // abnormally and the heap may be broken - so nothing there may allocate, log or
+        // take a lock. The loop thread keeps the exact bytes and path of the pending
+        // write in plain static buffers; the detach path is CreateFileW / WriteFile /
+        // MoveFileExW over them and nothing else.
         constexpr std::size_t kStageTextMax = 256 * 1024;
         constexpr std::size_t kStagePathMax = 1024;
         char g_stage_text[kStageTextMax];
@@ -388,9 +328,7 @@ namespace markers
         std::atomic<std::uint64_t> g_rounds{0};
 
         // Scan diagnostics. Written by the game thread, read by the loop and render
-        // threads; every one of them is a lone scalar, so a relaxed atomic is the whole
-        // synchronisation story - a torn *set* of numbers on the F2 panel would be
-        // harmless anyway (they are refreshed 1 Hz).
+        // threads; each is a lone scalar, so a relaxed atomic suffices.
         std::atomic<double> g_scan_slice_ms{0.0};
         std::atomic<double> g_scan_slice_ms_avg{0.0};
         std::atomic<double> g_scan_slice_ms_peak{0.0};
@@ -422,24 +360,17 @@ namespace markers
         std::unordered_map<const void*, int> g_class_spec;
 
         // UObject* -> its stable id. GetFullName() allocates and parses, and the sweep
-        // sees the same few hundred actors every second, so this is worth caching.
+        // sees the same few hundred actors every second.
         //
-        // THE KEY IS NOT ENOUGH ON ITS OWN. A collected pickup is flagged and parked,
-        // not destroyed, and it lingers until a GC - so its allocation can be handed to
-        // a brand-new actor of the same class, at the same address, well inside one
-        // world. Keyed on the raw pointer alone the new actor then inherited the dead
-        // one's id and the next auto-mark marked the WRONG marker as collected, which
-        // is persisted and therefore permanent. Clearing on a world change (the old
-        // behaviour) does not cover it: the reuse happens mid-level.
-        //
-        // So every hit re-validates the identity, cheaply, in two independent ways:
+        // THE POINTER KEY IS NOT ENOUGH ON ITS OWN. A collected pickup is flagged and
+        // parked, not destroyed, and lingers until a GC - so its allocation can be
+        // handed to a new actor of the same class, at the same address, mid-level.
+        // Every hit therefore re-validates identity two independent ways:
         //   * the object's own NAME, which carries UE's process-unique numeric suffix
-        //     (`BP_PickupActor_C_2147479402`) - one GetName() per hit, which is still
-        //     far cheaper than the GetFullName() + level parse + id build it saves; and
+        //     (`BP_PickupActor_C_2147479402`) - one GetName() per hit; and
         //   * the GUObjectArray slot the object sat in when the id was taken
         //     (index + serial + class + destruction flags, via uer::alive) - read
-        //     through the object array, which is safe even for a freed object.
-        // An impostor would have to match the address, the name and the slot.
+        //     through the object array, safe even for a freed object.
         struct IdEntry
         {
             std::string id;
@@ -447,13 +378,12 @@ namespace markers
             uer::ObjRef ref;  // index + serial + class, for uer::alive()
         };
         std::unordered_map<const void*, IdEntry> g_id_cache;
-        // How many cached ids were thrown away because the identity no longer matched.
-        // A non-zero count here is the slot-reuse case actually happening.
+        // Cached ids thrown away because the identity no longer matched, i.e. slot
+        // reuse actually happening.
         std::uint32_t g_id_cache_stale = 0;
-        // The answer for an actor that cannot be re-validated, and therefore cannot be
-        // cached. Game thread only, like every other piece of state in this block - and
-        // deliberately NOT `static thread_local`, which would run the CRT's TLS
-        // initialiser on the game thread (lessons.md).
+        // The answer for an actor that cannot be re-validated and so cannot be cached.
+        // Game thread only, and deliberately NOT `static thread_local`, which would run
+        // the CRT's TLS initialiser on the game thread.
         std::string g_id_uncached;
 
         struct LiveEntry
@@ -467,34 +397,24 @@ namespace markers
             mdb::Cat cat = mdb::Cat::Other;
             bool found = false;
             bool persist = false;
-            // The position READ succeeded (whatever it returned), and separately: the
-            // position is usable, i.e. it is not the (0,0,0) parking spot.
-            //
-            // THESE ARE NOT THE SAME QUESTION, and conflating them is what made static
-            // loot disappear. `pos_valid == false` used to mean both "the actor is parked
-            // at the origin, so it has been collected" and "the read failed, so I have no
-            // idea" - and the pickup rule then marked a perfectly untouched pickup as
-            // COLLECTED (persisted to wuchang_minimap_found.txt, so permanently) purely
-            // because a RootComponent read did not come back. Same shape as the kFlagLive
-            // bug: "found the actor, cannot locate it" is its own answer and it is not
-            // evidence about game state.
+            // Two separate questions, never to be conflated: the position READ succeeded
+            // (whatever it returned), and the position is usable, i.e. not the (0,0,0)
+            // parking spot. "Found the actor, cannot locate it" is its own answer and is
+            // not evidence about game state.
             bool pos_read = false;
             bool pos_valid = false;
-            // The health read answered "zero". The entry is KEPT rather than erased,
-            // because erasing it only removes the live position - the enemy's authored
-            // spawn point is in the static DB too, and with the live entry gone the
-            // corpse's static twin was drawn again at the spawn point, which is exactly
-            // the "dead enemies do not disappear" the rule exists to fix. A dead entry
-            // suppresses both halves at the publish point.
+            // The health read answered "zero". The entry is KEPT rather than erased: the
+            // enemy's authored spawn point is in the static DB too, and erasing the live
+            // entry would let the corpse's static twin be drawn at the spawn point. A
+            // dead entry suppresses both halves at the publish point.
             bool dead = false;
             // The actor answered a visibility read this round, and what it said. Only
             // filled for the mobile ("walks away") categories - see actor_is_invisible.
             bool invisible_known = false;
             bool invisible = false;
             std::uint64_t round = 0;
-            // The display name, when one could be resolved for a LIVE-ONLY actor (an
-            // enemy's dropped loot). Empty means "nothing better than the category word
-            // is known" - and the category word is what gets drawn, never the class name.
+            // Display name resolved for a LIVE-ONLY actor (an enemy's dropped loot).
+            // Empty means the category word is drawn instead, never the class name.
             std::string label;
         };
 
@@ -504,30 +424,26 @@ namespace markers
         // loop thread, then read-only from the game thread.
         std::unordered_map<int, std::string> g_item_names;
         // UObject* -> the item name resolved for it (empty = "asked, and there is none").
-        // Memoised because the sweep sees the same drop every round and the answer cannot
-        // change: an actor's item id is set when it is spawned. Dropped with every other
-        // world-keyed cache.
+        // An actor's item id is set when it is spawned, so the answer cannot change.
+        // Dropped with every other world-keyed cache.
         std::unordered_map<const void*, std::string> g_drop_name;
-        // The property that reached the item id on a given class, so the walk happens
-        // once per class and the log says which route won.
+        // UClass* -> the property that reached the item id, so the walk happens once
+        // per class.
         std::unordered_map<const void*, int> g_item_prop;
 
         const void* g_world = nullptr;
         std::uint64_t g_round = 0;
 
         // The player's position, refreshed once per SLICE from the published snapshot
-        // (a seqlock read of a POD struct - no lock, no engine call). Rule::Proximity
-        // needs it per actor, and taking it per actor would be a read of ~600 bytes a
-        // few hundred times a round for a number that moves by centimetres in that
-        // time. `g_player_ok` is false whenever the reader has no validated gameplay
-        // pawn, and then nothing is ever marked "met".
+        // (a seqlock read of a POD struct - no lock, no engine call). `g_player_ok` is
+        // false whenever the reader has no validated gameplay pawn, and then nothing is
+        // ever marked "met".
         double g_player_x = 0.0;
         double g_player_y = 0.0;
         double g_player_z = 0.0;
         bool g_player_ok = false;
 
-        // Diagnostics for the two rules added on 2026-09-03, so an in-game session can
-        // tell "the rule never fired" from "the property is not there".
+        // Diagnostics that tell "the rule never fired" from "the property is not there".
         std::atomic<int> g_met_marks{0};      // NPC/note markers marked as met
         std::atomic<int> g_dead_dropped{0};   // live enemies dropped because health == 0
         std::atomic<int> g_boss_defeated{0};  // boss markers marked as defeated
@@ -539,35 +455,27 @@ namespace markers
 
         // ---- THE PER-ROUND CENSUSES ------------------------------------------------
         //
-        // Every one of these is a GAUGE - "how many right now" - not a running total.
-        // The distinction is the whole reason `shrines lit` read 0 for a session with
-        // nineteen lit shrines: a total of new marks is zero on every session after the
-        // one that discovered them. A gauge cannot lie that way.
+        // Each of these is a GAUGE - "how many right now" - not a running total. A total
+        // of new marks reads 0 in every session after the one that discovered them.
         std::atomic<int> g_shrine_lit_found{0}; // shrines in this chapter that are lit AND found
         std::atomic<int> g_shrine_total{0};     // shrines in this chapter's static DB
-        // The boss gauge. `g_boss_found` / `g_boss_total` is "how many of this
-        // chapter's bosses read as found right now" whichever rule said so;
-        // `g_boss_from_save` is how many of those came from the save's boss doors
-        // rather than from a health read this session. Gauges, for the reason above:
-        // `g_boss_defeated` is a count of NEW marks and reads 0 in every session after
-        // the one that saw the kill - the third time this project has been bitten by
-        // exactly that (shrines lit, met, and now this).
+        // `g_boss_found` / `g_boss_total`: this chapter's bosses that read as found now,
+        // by any rule. `g_boss_from_save`: how many of those came from the save's boss
+        // doors rather than a health read this session.
         std::atomic<int> g_boss_found{0};
         std::atomic<int> g_boss_total{0};
         std::atomic<int> g_boss_from_save{0};
-        // Bosses whose marker carries no `bossdoor_*` id at all, so the save can never
-        // speak for them (2 of 28 in the shipped manifests: the Realm of Madness Bai Kru
-        // variant and the DLC Honglan).
+        // Bosses whose marker carries no `bossdoor_*` id, so the save can never speak
+        // for them (2 of 28 in the shipped manifests).
         std::atomic<int> g_boss_no_door{0};
         std::atomic<int> g_mobile_static{0};      // npc static markers considered
         std::atomic<int> g_mobile_live{0};        // npc live entries held
         std::atomic<int> g_mobile_joined{0};      // static markers whose live twin answered
         std::atomic<int> g_mobile_superseded{0};  // ... and stands more than kMovedUu away
         std::atomic<int> g_mobile_walked{0};      // a live twin answered but is unlocatable
-        // A live twin standing at its authored spot that the game has made INVISIBLE -
-        // the mechanism run 4 proved is the real one - and how many twins could be asked
-        // the question at all. `invisible 0 of 0 asked` is a dead rule; `0 of 21` is a
-        // live rule saying the flags are false.
+        // Live twins standing at their authored spot that the game has made INVISIBLE,
+        // over how many could be asked at all. `invisible 0 of 0 asked` is a dead rule;
+        // `0 of 21` is a live rule saying the flags are false.
         std::atomic<int> g_mobile_invisible{0};
         std::atomic<int> g_mobile_vis_known{0};
         std::atomic<int> g_mobile_hidden_invis{0};  // ... and was hidden for it
@@ -575,15 +483,13 @@ namespace markers
         std::atomic<int> g_mobile_hidden_absent{0}; // hidden because nobody answered at all
         std::atomic<int> g_mobile_level_known{0}; // ... whose own level is resident
         // The "met" gauge: people and notes in this chapter that are in the found set,
-        // over how many there are. A GAUGE, because the state is persisted - see the
-        // g_met_marks comment.
+        // over how many there are.
         std::atomic<int> g_met_found{0};
         std::atomic<int> g_met_total{0};
         std::atomic<int> g_dead_hidden{0};        // markers suppressed because they are dead
 
-        // How far a live person has to stand from their authored position before the
-        // census calls the static hint superseded. 3 m: further than the metre or two
-        // of idle wander, closer than any relocation worth reporting.
+        // How far a live person must stand from their authored position before the
+        // census calls the static hint superseded. Unreal units; 300 uu = 3 m.
         constexpr double kMovedUu = 300.0;
         constexpr double kMovedUuSq = kMovedUu * kMovedUu;
 
@@ -591,11 +497,8 @@ namespace markers
         // Live copies of the sweep's caps (game thread)
         //==============================================================================
         //
-        // The config key `markers_live_grace_rounds`
-        // `markers_id_cache_max`, `markers_class_cache_max` and
-        // `markers_fallback_max_per_class`. They are unpacked from the Config the pump
-        // already copies, because process_marker() / publish_round() run per actor and
-        // must not each take the config spinlock.
+        // Unpacked from the Config the pump already copies: process_marker() /
+        // publish_round() run per actor and must not each take the config spinlock.
         std::uint64_t g_grace_rounds = 2;
         bool g_absence_on = true;
         int g_absence_rounds = 2;
@@ -604,17 +507,9 @@ namespace markers
         std::size_t g_live_max = 8192;
         std::size_t g_id_cache_max = 8192;
         std::size_t g_class_cache_max = 262144;
-        // FIRST OCCURRENCE MEANS ONCE PER SESSION.
-        //
-        // The four "route on <class> is <property>" diagnostics are exactly the lines a
-        // bug report needs - they say which reflected property answered for visibility,
-        // health and item names on this build - and each used to be printed once per
-        // entry in its UClass*-keyed cache. Those caches are performance caches: they are
-        // dropped on every level transition, so run 5 printed the same ~20 lines seven
-        // times over, ~120 lines of a 2600-line log.
-        //
-        // This set is keyed by the route plus the class NAME, is never cleared, and costs
-        // a few dozen short strings for the life of the session.
+        // Gates the "route on <class> is <property>" diagnostics to once per session.
+        // Keyed by route plus class NAME - the UClass*-keyed route caches are dropped on
+        // every level transition, so they cannot gate it. Never cleared.
         std::unordered_set<std::wstring> g_route_logged;
 
         bool first_time(const wchar_t* route, const std::wstring& cls)
@@ -627,15 +522,11 @@ namespace markers
         // Absence as evidence of a collect (game thread)
         //==============================================================================
         //
-        // `g_levels` maps a loaded level's short name (lower-cased, because the marker
-        // DB and UObject::GetFullName() need not agree on case) to the sweep round at
-        // which it was FIRST seen loaded. A marker may only be auto-marked once a full
-        // round has completed after that, so "not seen" cannot mean "its level had not
-        // finished streaming when I looked".
-        //
-        // `g_absent_streak` is the debounce: consecutive confirming rounds per marker
-        // id. An entry is erased the moment a round does not confirm, so the map only
-        // ever holds markers that are on their way to being marked.
+        // `g_levels` maps a loaded level's short name (lower-cased; the marker DB and
+        // UObject::GetFullName() need not agree on case) to the sweep round at which it
+        // was FIRST seen loaded. A marker may only be auto-marked once a full round has
+        // completed after that, so "not seen" cannot mean "its level had not finished
+        // streaming when I looked".
         std::unordered_map<std::string, std::uint64_t> g_levels;
         std::atomic<int> g_absence_marks{0};
         std::atomic<int> g_levels_loaded{0};
@@ -644,9 +535,8 @@ namespace markers
         // The per-round index over the static DB (game thread)
         //==============================================================================
         //
-        // All of these are sized to `g_idx_db->markers` (or to its `levels`) and are
-        // rebuilt whenever the database pointer changes. They exist so that a publish is
-        // array indexing rather than string hashing - see StaticDb above.
+        // Sized to `g_idx_db->markers` (or to its `levels`) and rebuilt whenever the
+        // database pointer changes, so a publish is array indexing, not string hashing.
         const StaticDb* g_idx_db = nullptr;
         std::vector<std::uint8_t> g_found_static;   // per marker: it is in the found set
         std::vector<int> g_absent_streak_idx;       // per marker: confirming rounds in a row
@@ -668,9 +558,8 @@ namespace markers
         double g_publish_ms_sum = 0.0;
         std::uint64_t g_publish_count = 0;
 
-        // One definition, in the tested pure layer: the marker DB's level names and
-        // UObject::GetFullName()'s need not agree on case, and both sides of that join
-        // must lower-case identically.
+        // Both sides of the level-name join must lower-case identically; one definition,
+        // in the tested pure layer.
         using mdb::lower_ascii;
 
         // The chunked object-array walk (game thread only).
@@ -680,10 +569,9 @@ namespace markers
         std::uint64_t g_round_start_us = 0;
         bool g_round_open = false; // false = waiting for the next round's turn
 
-        // Fallback path only: one FindAllOf per pump, cycling the class table. Used
-        // when FUObjectArray::GetNumElements() cannot answer (0 or negative), which
-        // would mean UE4SS has not resolved GUObjectArray - drawing nothing at all in
-        // that case would be worse than a slow sweep.
+        // Fallback path only: one FindAllOf per pump, cycling the class table. Used when
+        // FUObjectArray::GetNumElements() cannot answer (0 or negative), i.e. UE4SS has
+        // not resolved GUObjectArray.
         int g_next_class = 0;
         std::uint64_t g_last_class_ms = 0;
 
@@ -708,15 +596,11 @@ namespace markers
         // Raw reads on the game thread
         //==============================================================================
 
-        // A reflected bool. BITFIELD-AWARE: this used to read the byte at the property
-        // offset and test it for non-zero, which is right for a blueprint-authored bool
-        // (each gets its own byte with mask 0x01) and WRONG for a native engine
-        // bitfield - `uint8 bHidden : 1` on AActor shares its byte with `bNetTemporary`,
-        // `bTearOff` and a dozen others, so the old read answered "is any flag in this
-        // byte set?". `uer::read_bool_prop` asks `FBoolProperty` for the bit. The byte
-        // test survives only as the fallback for a property whose bool info does not
-        // validate, so the four blueprint flags this file has always read (`Used`,
-        // `DoorOpen`, `Active`, `dying`) cannot regress.
+        // A reflected bool, bitfield-aware: `uer::read_bool_prop` asks `FBoolProperty`
+        // for the bit, which a native bitfield needs (`uint8 bHidden : 1` on AActor
+        // shares its byte with `bNetTemporary`, `bTearOff` and others). The plain byte
+        // test is the fallback for a property whose bool info does not validate; a
+        // blueprint-authored bool gets its own byte with mask 0x01.
         bool read_bool_prop(UObject* obj, const wchar_t* name, bool& out)
         {
             const uer::ClassLayout* layout = g_layouts.get(obj);
@@ -737,40 +621,24 @@ namespace markers
         // IS THIS PERSON ACTUALLY THERE? (game thread)
         //==============================================================================
         //
-        // Run 4's census killed the theory the moved-NPC rules were built on:
+        // The game does not park or destroy a used-up NPC (the way it parks a collected
+        // pickup at the origin): the actor stays where it was placed and is made
+        // INVISIBLE, and the person you meet later is a different placed actor in
+        // another sublevel. Bosses use the same mechanism - `ST_LevelScriptBossData`
+        // carries a `隐藏击败过的尸体` ("hide the corpse of a defeated boss") flag.
         //
-        //   markers: people - static 53, live 24, joined 21, superseded 0,
-        //                     walked away 0, level resident 21, hidden 0
-        //
-        // while the user was still seeing an NPC drawn where one used to stand. Every
-        // one of the 21 joined twins answered WITH a usable position, and not one stood
-        // more than 3 m from where it was authored - so cases (b), (c) and (d) of
-        // `mdb::mobile_twin_is_stale` are all unreachable for them and case (a) drew the
-        // marker. In other words this game does NOT park or destroy a used-up NPC (the
-        // way it parks a collected pickup at the origin): the actor stays exactly where
-        // it was placed and is made INVISIBLE, and the person you meet later is a
-        // different placed actor in another sublevel. The same mechanism is authored for
-        // bosses - `ST_LevelScriptBossData` carries a `隐藏击败过的尸体` ("hide the
-        // corpse of a defeated boss") flag - so it is the game's idiom, not a guess.
-        //
-        // THE ROUTES, best first, and every one of them is a raw read:
-        //   1. `bHidden` - AActor's own flag, what `SetActorHiddenInGame` writes. It is a
-        //      native bitfield, which is why the bool read above had to learn about masks.
-        //   2. `bLocalHidden` - the game's own addition, listed in every F8 dump right
-        //      after `bHidden` and beside `DCSHiddenStateTypes`. A DCS-specific hide is
-        //      exactly the sort of thing a quest system would use.
+        // THE ROUTES, best first, all raw reads:
+        //   1. `bHidden` - AActor's own flag, what `SetActorHiddenInGame` writes. A
+        //      native bitfield, hence the masked bool read above.
+        //   2. `bLocalHidden` - the game's own addition, beside `DCSHiddenStateTypes`.
         //   3. the root component's `bHiddenInGame`, then `bVisible` (inverted) - if the
         //      game hides the mesh rather than the actor.
         //
-        // DELIBERATELY NOT `bPerformanceHidden`. It is on almost every actor in this game
-        // and it is the LOD / distance hide (it is the one property that differed between
-        // three lit shrines - `lessons.md`), so believing it would delete the marker for
-        // every NPC who is merely far away. Its value IS logged in the route line, so if
-        // the next run shows the other four flat and this one moving, that is the answer
-        // and it is one line of code away.
+        // DELIBERATELY NOT `bPerformanceHidden`: it is the LOD / distance hide, set on
+        // almost every actor, so believing it would delete the marker for every NPC who
+        // is merely far away. Its value is logged in the route line.
         //
-        // The winning route is cached per UClass* and logged once, the same shape as the
-        // health-component and item-name discoveries in this file.
+        // The winning route is cached per UClass* and logged once.
 
         // Defined below, next to the health diagnostic that first needed it.
         std::wstring safe_class_name(UObject* obj);
@@ -793,8 +661,8 @@ namespace markers
         constexpr int kHiddenRouteCompVisible = -3;
 
         // Is this actor invisible in the game right now? `answered` says whether any
-        // route could be read at all - and as everywhere else in this file, "could not
-        // read" is its own answer and never gets collapsed into a state.
+        // route could be read at all; "could not read" is its own answer and never
+        // collapses into a state.
         bool actor_is_invisible(UObject* actor, bool& answered)
         {
             answered = false;
@@ -897,76 +765,24 @@ namespace markers
 
         // Is this character dead? (game thread)
         //
-        // WHERE THE NUMBER LIVES. Wuchang keeps a character's health in an
-        // `ExtendedStatComponent_C` sub-object named `Health` on its AI CONTROLLER, not
-        // on the pawn - `context/wuchang-classes.md` section 3 and every F8 world dump
-        // list it as `Impl_BaseAIController_C_<n>.Health  Current=... Max=...`, with
-        // `Current` / `Max` reflected floats. A component sub-object is a reflected
-        // object property of the same name, so the whole read is
-        // `controller -> Health -> Current`: three cached-offset raw reads, no
-        // ProcessEvent, nothing that can re-enter the engine.
+        // Wuchang keeps a character's health in an `ExtendedStatComponent_C` sub-object
+        // on its AI CONTROLLER, not on the pawn. A component sub-object is a reflected
+        // object property, so the read is `controller -> <health prop> -> CurrentValue`:
+        // three cached-offset raw reads, no ProcessEvent. A dead character reads 0 while
+        // its actor is still in the object array.
         //
-        // WHY IT IS THE RIGHT SIGNAL. The dumps also contain the answer to "does a dead
-        // enemy stay in the object array?" - `dump_20260902_102655_world.txt` line 33
-        // has `Impl_BaseAIController_C_2147479402.Health Current=0.0 Max=100.0`
-        // alongside five live siblings, i.e. a corpse the sweep would happily keep
-        // drawing as a threat. That is the user's "dead enemies do not disappear".
+        // The component is DISCOVERED rather than named: try the obvious `Health`
+        // property, else walk the class' pointer-sized properties once, capture each
+        // value through GUObjectArray (SEH-guarded, proves the target is a live UObject)
+        // and accept the one whose class is an `ExtendedStatComponent`, preferring the
+        // one named `Health`. The winning property name is cached per UClass*.
+        //
+        // The reflected floats are `CurrentValue` / `MaxValue`, and in UE5 a blueprint
+        // "float" is an 8-byte `FDoubleProperty` (Large World Coordinates) - hence
+        // `uer::read_numeric_prop`, which accepts either width.
         //
         // Returns FALSE when the answer is unknown (no such property, an unreadable
-        // component, a nonsensical Max) - never "dead". A guess in that direction would
-        // hide living enemies, which is strictly worse than the bug it fixes.
-        //
-        // WHAT WENT WRONG THE FIRST TIME (run 1, 2026-09-03): `health unknown` climbed to
-        // 4 411 with `dead enemies dropped 0` and `bosses defeated 0` for a whole session
-        // of killing things - so the route never answered once. The reason is in the
-        // recon tool, not in the game: the dump line above was produced by
-        // `find_all("ExtendedStatComponent_C")` and printed the component's FULL NAME, so
-        // the `.Health` in `Impl_BaseAIController_C_<n>.Health` is the component's OBJECT
-        // NAME (its outer path), and nothing in any dump ever said that the owning class
-        // carries an `ObjectProperty` also called `Health`. `read_object_prop(controller,
-        // "Health")` therefore returned nullptr on stage one, every time - the same
-        // "a full name is not a property name" mistake as `APlayerCameraManager` having
-        // no `GetViewTarget()`.
-        //
-        // So the component is DISCOVERED rather than named: try the obvious property
-        // first, and when it is not there walk the class' own pointer-sized properties
-        // once, capture each value through GUObjectArray (which is SEH-guarded and proves
-        // the target is a live UObject before anything dereferences it) and accept the
-        // one whose class is an `ExtendedStatComponent` - preferring the one whose object
-        // name is `Health` when a character carries several stats. The winning property
-        // NAME is cached per UClass*, so the walk happens once per class per world and
-        // every read after that is the same three cached-offset raw reads as before.
-        //
-        // WHAT WENT WRONG THE SECOND TIME (run 2, 2026-09-03): stage one now SUCCEEDED -
-        // `health component route on 'Impl_BaseAIController_C' is property 'Health' ->
-        // Health (class ExtendedStatComponent_C)` - and the read failed one stage later,
-        // at `the component has no float 'Current' / 'Max'`. Same root cause as the first
-        // failure, one level down: `Current=` / `Max=` in the recon dump are the LUA
-        // SCRIPT'S OWN LABELS. `WuchangRecon/Scripts/main.lua` reads
-        // `read_prop_str(s, "CurrentValue")` and `read_prop_str(s, "MaxValue")` and prints
-        // them as `Current=%s Max=%s`, so the dump never named a property at all. The
-        // component's reflected floats are `CurrentValue` / `MaxValue`.
-        //
-        // Both spellings are tried, in that order, and the winning PAIR is cached per
-        // component class - so a build that renames them costs one extra pair of missed
-        // lookups per class instead of the whole feature.
-        //
-        // WHAT WENT WRONG THE THIRD TIME (run 3, 2026-09-03): the names were finally
-        // right - and the read still failed, at the same stage, with
-        // `health unknown 21624`. **The property is eight bytes wide.** In UE5 a
-        // blueprint "float" is backed by `FDoubleProperty` (Large World Coordinates), and
-        // `CurrentValue` / `MaxValue` on an `ExtendedStatComponent_C` are authored in a
-        // blueprint - so asking for them with `expect_size == sizeof(float)` returned
-        // FALSE, which is indistinguishable from "there is no such property".
-        //
-        // The diagnostic could not have caught it either, and that is the more important
-        // half: it listed the class' FOUR-BYTE properties, so the run-3 log's evidence
-        // table reads `StartIntervalTime`, `EndIntervalTime`, `UCSSerializationIndex` -
-        // three unrelated timers - and the two properties the table existed to find were
-        // invisible in it. Both halves are fixed here: the read goes through
-        // `uer::read_numeric_prop` (8-byte double preferred, 4-byte float accepted, and
-        // the width that answered is logged), and the failure table lists every 4- AND
-        // 8-byte property with the number it reads back.
+        // component, a nonsensical Max) - never "dead", which would hide living enemies.
 
         constexpr const wchar_t* kHealthProp = L"Health";
         constexpr const wchar_t* kStatComponentSubstr = L"ExtendedStatComponent";
@@ -978,14 +794,13 @@ namespace markers
             const wchar_t* max;
         };
         constexpr HealthFields kHealthFields[] = {
-            {L"CurrentValue", L"MaxValue"}, // the names main.lua actually reads
-            {L"Current", L"Max"},           // what the dump's labels looked like
+            {L"CurrentValue", L"MaxValue"},
+            {L"Current", L"Max"},
         };
         constexpr int kHealthFieldCount = static_cast<int>(std::size(kHealthFields));
 
         // UClass* -> the property name that reaches its health component; an empty
-        // string means "walked, and there is none". Keyed on the class, dropped with
-        // every other world-keyed cache in drop_caches().
+        // string means "walked, and there is none". Dropped in drop_caches().
         std::unordered_map<const void*, std::wstring> g_health_prop;
         // Component UClass* -> index into kHealthFields, or -1 for "no pair reads back".
         std::unordered_map<const void*, int> g_health_fields;
@@ -1004,11 +819,8 @@ namespace markers
             return uer::class_name(ref);
         }
 
-        // ONE-SHOT DIAGNOSTIC. Printed the first time a health read fails, and never
-        // again: which object, which class, which stage, and - because the next in-game
-        // run has to be able to fix this without a third one - every pointer-sized
-        // property on the class whose value is a live UObject, with its class and object
-        // name. That table is the answer to "what is this component actually called".
+        // ONE-SHOT DIAGNOSTIC, printed the first time a health read fails: which object,
+        // class and stage, plus a table of the class' candidate properties.
         void log_health_failure(UObject* owner, const uer::ClassLayout* layout, const wchar_t* stage,
                                 bool list_numbers = false)
         {
@@ -1028,17 +840,9 @@ namespace markers
                 mm::log(L"markers:   (the class has no readable property layout at all)");
                 return;
             }
-            // THE NUMBER TABLE. When the component is in hand and only the field names
-            // (or their WIDTH) are wrong, the answer is the list of its numeric
-            // properties and what each one reads back - a `MaxValue` of 269.1 beside a
-            // `CurrentValue` of 269.1 names the pair without another play session.
-            //
-            // BOTH widths, and the width is printed. Run 3's version of this table asked
-            // for four-byte properties only and therefore printed three unrelated timers
-            // while the two eight-byte doubles it existed to find were invisible in it -
-            // in UE5 a blueprint "float" is a double. An 8-byte entry may of course be a
-            // POINTER read as a double (~1e-317 or absurdly large); that is what the
-            // width column and the reader's judgement are for.
+            // The number table: every 4- and 8-byte property with the value it reads
+            // back and its width. An 8-byte entry may be a POINTER read as a double
+            // (~1e-317 or absurdly large).
             if (list_numbers)
             {
                 int listed = 0;
@@ -1112,8 +916,8 @@ namespace markers
             }
 
             // 1. The obvious name, accepted only if the target really is a stat
-            //    component - a same-named property of some other type would otherwise
-            //    pin the wrong route for the rest of the session.
+            //    component; a same-named property of another type must not pin the
+            //    route for the session.
             std::wstring winner;
             UObject* found = nullptr;
             UObject* direct = uer::read_object_prop(layout, owner, kHealthProp);
@@ -1176,8 +980,7 @@ namespace markers
         }
 
         // The component's current / max health, whichever pair of names this build
-        // spells them with. The winning pair is cached per component class, and the
-        // route is logged once so the next log says which spelling won.
+        // spells them with. The winning pair is cached per component class.
         bool read_health_pair(UObject* health, const uer::ClassLayout* hl, double& current, double& max)
         {
             if (health == nullptr || hl == nullptr)
@@ -1272,33 +1075,22 @@ namespace markers
         // The item name of a runtime-spawned pickup (game thread)
         //==============================================================================
         //
-        // WHY. An enemy drops a `BP_DropItem_C`. It is spawned while you play, so it has
-        // no entry in `markers/chapter*.json` and no name - and the x-ray labelled it
-        // `BP_PickupActor_C 1 m`, which is the CLASS SPEC's base class out of
-        // `kClasses[]`: not the actor's class, not a name, and not something a player
-        // should ever be shown.
+        // A `BP_DropItem_C` is spawned while you play, so it has no entry in
+        // `markers/chapter*.json` and no name of its own.
         //
-        // WHERE THE ID IS. The offline extractor already reads it out of the cooked
-        // package: `BP_PickupActor_C` and its descendants serialise an inline `Items`
-        // array of `int32 ID, int32 Amount` pairs, ids in the 10000..40000 band, and
-        // `ids[0]` of the FIRST array is the item (`context/item-names-research.md`; the
-        // designer labels embedded in the exports validate it 25/25 and 1046/1046 exports
-        // yield a real DataTable row). At runtime that same array is a reflected
-        // `TArray` UPROPERTY, so it is a 16-byte header read plus one int32.
+        // `BP_PickupActor_C` and its descendants carry an inline `Items` array of
+        // `int32 ID, int32 Amount` pairs, ids in the 10000..40000 band, `ids[0]` of the
+        // first array being the item. At runtime it is a reflected `TArray` UPROPERTY:
+        // a 16-byte header read plus one int32.
         //
-        // WHAT IS VALIDATED AND WHY IT HAS TO BE. Neither the element STRIDE nor the
-        // position of `ID` inside the element can be checked offline - the element is a
-        // blueprint struct and could carry more members - so the answer is accepted only
-        // when it is an id `markers/items.json` actually knows. That is the same
-        // self-validating-signature rule the navmesh dumper's `dtNavMeshParams` scan and
-        // the offline `ITEM_ARRAY_INDEX` table were both written under: never hard-code
-        // an ordinal that a witness in the data can confirm instead.
+        // Neither the element stride nor the position of `ID` inside the element can be
+        // known offline (the element is a blueprint struct), so an answer is accepted
+        // only when it is an id `markers/items.json` knows.
         //
-        // The candidate arrays, in the order the extractor found them meaningful. The
-        // first one whose leading int32 is a known item id wins, and the winning property
-        // is cached per class.
+        // Candidate arrays; the first whose leading int32 is a known item id wins, and
+        // the winning property is cached per class.
         constexpr const wchar_t* kItemArrayProps[] = {
-            L"Items",                    // the one BP_PickupActor_C writes (1044/1046)
+            L"Items",                    // what BP_PickupActor_C writes (1044/1046)
             L"首次拾取道具内容", // "first pickup contents"
             L"ItemResult",
             L"CustomedItems",
@@ -1357,7 +1149,7 @@ namespace markers
         }
 
         // The display name of a pickup-family actor, or an empty string. Memoised per
-        // actor; the class-level route is memoised too and logged once.
+        // actor and, for the property route, per class.
         const std::string& resolve_item_name(UObject* actor)
         {
             static const std::string kNone{};
@@ -1419,11 +1211,10 @@ namespace markers
 
         // Is this shrine marker's id in the save's UnlockedFirepoints list?
         //
-        // The offline extractor de-duplicates a shrine id that the game itself reuses
-        // by suffixing `@<level>/<obj>` (two ChapterDLC shrines genuinely share
-        // `LiuHKK01`), so the marker id is not always the game's id - everything up to
-        // the '@' is. shr::is_unlocked() is case-insensitive, which it has to be: the
-        // save spells ids as the designers typed them (`Task1` next to `digong01`).
+        // The offline extractor de-duplicates a shrine id the game itself reuses by
+        // suffixing `@<level>/<obj>`, so the game's id is everything up to the '@'.
+        // shr::is_unlocked() is case-insensitive: the save spells ids as the designers
+        // typed them (`Task1` next to `digong01`).
         bool shrine_is_lit(const std::string& marker_id)
         {
             const std::size_t at = marker_id.find('@');
@@ -1476,12 +1267,9 @@ namespace markers
             return true;
         }
 
-        // AActor has no reflected transform; the world transform of a world-placed
-        // actor is its root component's RelativeLocation (no attach parent, so relative
-        // IS world). That keeps the sweep to two guarded reads per actor - a
-        // K2_GetActorLocation ProcessEvent for 129 pickups plus 95 enemies would be
-        // orders of magnitude more expensive, and this runs inside the engine's own
-        // call stack.
+        // AActor has no reflected transform; the world transform of a world-placed actor
+        // is its root component's RelativeLocation (no attach parent, so relative IS
+        // world). Two guarded reads per actor, and no ProcessEvent.
         bool actor_location(UObject* actor, double& x, double& y, double& z)
         {
             const uer::ClassLayout* layout = g_layouts.get(actor);
@@ -1539,10 +1327,9 @@ namespace markers
                 }
                 current = current->GetSuperStruct();
             }
-            // The cap has to clear the WHOLE game's class count, not the marker
-            // classes': the chunked walk asks about every class that owns an object, so
-            // a cap of 8192 (what the FindAllOf sweep needed) would be hit mid-round and
-            // throw away exactly the negative answers that make the walk cheap.
+            // The cap must clear the WHOLE game's class count, not the marker classes':
+            // the chunked walk asks about every class that owns an object, and a cap hit
+            // mid-round throws away the negative answers that make the walk cheap.
             if (g_class_spec.size() > g_class_cache_max)
             {
                 g_class_spec.clear();
@@ -1578,9 +1365,7 @@ namespace markers
             if (!uer::capture(obj, ref))
             {
                 // Not capturable (a CDO, an archetype, or already being destroyed), so
-                // it cannot be re-validated later either. Answer, but do not cache: a
-                // wrong id must be impossible, and a handful of uncached actors per
-                // round is only a cost.
+                // it cannot be re-validated later. Answer, but do not cache.
                 g_id_uncached = std::move(id);
                 return g_id_uncached;
             }
@@ -1598,8 +1383,8 @@ namespace markers
                 return;
             }
             g_found_gt.insert(id);
-            // Keep the interned found flags in step. One hash lookup for a find that
-            // has just happened, instead of a lookup per marker per round.
+            // Keep the interned found flags in step: one hash lookup per find, instead
+            // of one per marker per round.
             if (g_idx_db != nullptr)
             {
                 const auto it = g_idx_db->by_id.find(id);
@@ -1651,10 +1436,8 @@ namespace markers
         //==============================================================================
         //
         // Everything expensive about a marker - the layout cache, the RootComponent
-        // location read, the state-flag read, the FullName-derived id - lives here, and
-        // it only ever runs for an object whose class IS in kClasses. The chunked walk
-        // steps over hundreds of thousands of slots per round and reaches this for a
-        // few hundred of them.
+        // location read, the state-flag read, the FullName-derived id - lives here and
+        // only runs for an object whose class IS in kClasses.
         void process_marker(UObject* obj, const ClassSpec& s)
         {
             // The marker actor. For an AI controller it is the pawn it possesses.
@@ -1667,38 +1450,31 @@ namespace markers
                 {
                     return;
                 }
-                // A BOSS is possessed by an ordinary Impl_BaseAIController_C too, so
-                // without this the same pawn would be written to g_live twice in one
-                // round - once as Cat::Enemy through the controller and once as
-                // Cat::Boss through its own class - and which one survived would depend
-                // on the order the object array happened to be walked in. Whenever the
-                // pawn is itself a marker class, its own entry is the authoritative one.
+                // A boss is possessed by an ordinary Impl_BaseAIController_C too, so the
+                // same pawn would otherwise land in g_live twice per round - as
+                // Cat::Enemy via the controller and as Cat::Boss via its own class.
+                // Whenever the pawn is itself a marker class, its own entry wins.
                 if (spec_for_class(actor) >= 0)
                 {
                     return;
                 }
                 // DEAD ENEMIES MUST NOT BE DRAWN. The corpse keeps its controller and
-                // its position until a GC (see controller_says_dead), so absence from
-                // the sweep is not the signal - health is. An entry already in g_live
-                // is erased outright rather than left to age out, so the marker is gone
-                // on the very next publish.
+                // its position until a GC, so absence from the sweep is not the signal -
+                // health is.
                 bool answered = false;
                 bool dead = controller_says_dead(obj, answered);
                 if (!answered)
                 {
-                    // The stat component was only ever SEEN on the controller; it is
-                    // asked of the pawn too so a build that hangs it off the character
-                    // still answers instead of counting into `health unknown` forever.
+                    // The pawn is asked too, so a build that hangs the stat component off
+                    // the character still answers.
                     dead = controller_says_dead(actor, answered);
                 }
                 if (answered && dead)
                 {
-                    // MARKED DEAD, NOT ERASED. See LiveEntry::dead: an enemy's spawn
-                    // point is a static marker, so erasing the live entry brings the
-                    // static one back at the spawn point instead of clearing the map.
-                    // The entry is refreshed every round the corpse is still in the
-                    // object array and ages out with everything else once a GC takes it
-                    // (at which point a respawned enemy's spawn hint is right again).
+                    // MARKED DEAD, NOT ERASED (see LiveEntry::dead): an enemy's spawn
+                    // point is a static marker, so erasing the live entry would bring
+                    // the static one back. The entry is refreshed while the corpse is in
+                    // the object array and ages out once a GC takes it.
                     const std::string& dead_id = id_for(actor);
                     const auto it = g_live.find(dead_id);
                     if (it != g_live.end())
@@ -1737,9 +1513,8 @@ namespace markers
             e.round = g_round;
             if (actor_location(actor, e.x, e.y, e.z))
             {
-                // (0,0,0) is not a position here: it is where the level saver parks
-                // a collected pickup. Keep the entry (its `found` still matters) but
-                // never draw it there.
+                // (0,0,0) is not a position: it is where the level saver parks a
+                // collected pickup. Keep the entry, never draw it there.
                 e.pos_read = true;
                 e.pos_valid = !(e.x == 0.0 && e.y == 0.0 && e.z == 0.0);
             }
@@ -1781,36 +1556,28 @@ namespace markers
                     e.found = true;
                 }
                 // PARKED AT THE ORIGIN = COLLECTED, but only when the read actually
-                // ANSWERED (0,0,0). Without the `pos_read` half, every pickup whose
-                // RootComponent read failed for any reason was marked collected - and
-                // the mark is PERSISTED, so it never came back. That is the user's
-                // "a pickup lying on the ground right in front of me is not in the
-                // x-ray": `highlight_show_found` hides collected loot, correctly, from
-                // something that was never collected.
+                // ANSWERED (0,0,0). The mark is persisted, so a failed read must never
+                // reach here.
                 if (e.pos_read && !e.pos_valid)
                 {
                     e.found = true;
                 }
-                // The item's own name, for the case that has none in the static DB: loot
-                // an enemy dropped. Memoised per actor, so this is one hash lookup per
-                // pickup per round after the first sight of it.
+                // The item's own name, for loot an enemy dropped, which has no entry in
+                // the static DB. Memoised per actor.
                 e.label = resolve_item_name(actor);
                 break;
             }
             case Rule::Proximity:
             {
-                // IS THE PERSON ACTUALLY THERE? A used-up NPC in this game keeps its
-                // actor, its position and its id and is simply made INVISIBLE (see
-                // actor_is_invisible - run 4's census is the proof). So the visibility
-                // read comes first, and it does two things: it hides the marker at the
-                // publish point (case (e) of mdb::mobile_twin_is_stale) and it stops
-                // `met` firing for somebody you cannot walk up to.
+                // A used-up NPC keeps its actor, position and id and is simply made
+                // INVISIBLE (actor_is_invisible), so the visibility read comes first: it
+                // hides the marker at the publish point (case (e) of
+                // mdb::mobile_twin_is_stale) and stops `met` firing for somebody you
+                // cannot walk up to.
                 //
-                // Only for the MOBILE categories, i.e. `npc`. A note (`DKDC_NPC_C`) is a
-                // thing on a wall whose blueprint references no character mesh at all, so
-                // whatever its visibility flags say is not evidence about a person, and
-                // believing them could silently un-meet all 76 of them. The one rule, one
-                // meaning: the same predicate decides drawing and meeting.
+                // MOBILE categories only, i.e. `npc`. A note (`DKDC_NPC_C`) is a thing on
+                // a wall whose blueprint references no character mesh, so its visibility
+                // flags are not evidence about a person.
                 if (mdb::is_mobile_category(e.cat))
                 {
                     bool answered = false;
@@ -1832,12 +1599,9 @@ namespace markers
             }
             case Rule::BossPawn:
             {
-                // Defeated = zero health. The dumps only ever showed the stat component
-                // on the AI CONTROLLER, so `APawn::Controller` is the first hop - but a
-                // dead boss can have been unpossessed by the time we look, and nothing
-                // proves the component cannot also hang off the character, so the pawn
-                // itself is asked as well. Both answers come from the same discovered
-                // route, so neither costs a second walk.
+                // Defeated = zero health. The stat component sits on the AI CONTROLLER,
+                // so `APawn::Controller` is the first hop; the pawn is asked too, since
+                // a dead boss may already be unpossessed.
                 const uer::ClassLayout* layout = g_layouts.get(actor);
                 UObject* controller = uer::read_object_prop(layout, actor, L"Controller");
                 bool answered = false;
@@ -1882,12 +1646,10 @@ namespace markers
             {
                 return;
             }
-            // NOTE: enemies are NOT namespaced. The offline extractor writes an
-            // enemy's spawn point into the static DB under the same
-            // <level>/<object name> id, and giving the live one a prefix of its own
-            // would draw the spawn point and the live pawn as two markers. What
-            // keeps enemies out of the collection tracker is `persist == false`,
-            // not the id.
+            // Enemies are NOT namespaced: the static DB holds an enemy's spawn point
+            // under the same <level>/<object name> id, so a prefix would draw the spawn
+            // point and the live pawn as two markers. `persist == false`, not the id,
+            // keeps enemies out of the collection tracker.
 
             if (e.found && e.persist)
             {
@@ -1927,10 +1689,9 @@ namespace markers
         //     Read through the object ARRAY, never through the object, so a slot whose
         //     allocation has already been freed is safe to look at.
         //   * spec_for_class() < 0        - not a marker class. The overwhelming case,
-        //     and memoised per UClass*, so the super-chain name walk (wstring compares)
-        //     runs once per class per level, not once per object per round.
-        //   * IsValidObjectForFindXOf()   - CDOs and archetypes: exactly what FindAllOf
-        //     used to filter out on our behalf.
+        //     memoised per UClass*, so the super-chain name walk (wstring compares) runs
+        //     once per class per level, not once per object per round.
+        //   * IsValidObjectForFindXOf()   - CDOs and archetypes.
         int scan_slice(const scan::Slice& slice)
         {
             int visited = 0;
@@ -1965,10 +1726,10 @@ namespace markers
         // Fallback: one FindAllOf per pump, cycling the class table (game thread)
         //==============================================================================
         //
-        // Only reached when FUObjectArray::GetNumElements() cannot answer. This is the
-        // old, slow path - 28.30 ms mean / 51.05 ms peak per pump when it was measured
-        // in-game - and it exists purely so a UE4SS build that fails to resolve
-        // GUObjectArray still draws markers instead of nothing.
+        // Only reached when FUObjectArray::GetNumElements() cannot answer. Each pump
+        // costs a whole-array walk per class, so this is far slower than the chunked
+        // path; it exists so a UE4SS build that cannot resolve GUObjectArray still draws
+        // markers.
         void sweep_class(int index)
         {
             const ClassSpec& spec = kClasses[index];
@@ -1998,9 +1759,8 @@ namespace markers
         //==============================================================================
 
         // The chapter the static DB is filtered to, or chid::kNone for "show
-        // everything". Recomputed on EVERY publish and deliberately NOT latched: a
-        // chapter change must switch the visible set on the next round, and
-        // `mapdata` already logs the switch itself.
+        // everything". Recomputed on EVERY publish, not latched: a chapter change must
+        // switch the visible set on the next round.
         int filter_chapter_now()
         {
             if (!mm::cfg_cached().markers_filter_chapter)
@@ -2014,9 +1774,8 @@ namespace markers
         // The per-round index (game thread)
         //==============================================================================
 
-        // Size every per-marker array to the database that is actually loaded. Called
-        // from publish_round when the pointer differs from the one the arrays describe,
-        // which happens once at start-up and once per F5 reload.
+        // Size every per-marker array to the loaded database. Called from publish_round
+        // when the pointer differs from the one the arrays describe.
         void rebuild_static_index(const StaticDb* db)
         {
             g_idx_db = db;
@@ -2054,9 +1813,8 @@ namespace markers
             }
         }
 
-        // The chapter-filtered subrange. The static DB holds all six chapters in one
-        // flat set and only one of them is ever drawn, so the filter is applied ONCE per
-        // chapter change instead of once per marker per round.
+        // The chapter-filtered subrange. The static DB holds all six chapters in one flat
+        // set, so the filter is applied once per chapter change, not per marker per round.
         void refresh_chapter_subset(const StaticDb* db, int filter_chapter)
         {
             g_subset_chapter = filter_chapter;
@@ -2076,9 +1834,9 @@ namespace markers
             }
         }
 
-        // Perf counters (see perf.hpp). Namespace-scope ints rather than function
-        // statics: a guarded static's first call would run the CRT's thread-safe-init
-        // path on the game thread, and this mod does not touch the host CRT there.
+        // Perf counters (perf.hpp). Namespace-scope ints rather than function statics: a
+        // guarded static's first call runs the CRT's thread-safe-init path, which must
+        // not happen on the game thread.
         int g_pf_publish = -1;
         int g_pf_scan = -1;
 
@@ -2095,11 +1853,6 @@ namespace markers
             // "collected" - only the state flags do that.
             for (auto it = g_live.begin(); it != g_live.end();)
             {
-                // A live-only entry (an enemy) gets the shortest possible debounce:
-                // it has no static twin to fall back on, so keeping a stale one draws
-                // a threat that is not there. Persisted categories keep the configured
-                // grace, which is what stops a chest flickering when a sweep races
-                // level streaming.
                 const std::uint64_t grace = it->second.persist ? g_grace_rounds : kLiveOnlyGraceRounds;
                 if (g_round >= grace && it->second.round + grace <= g_round)
                 {
@@ -2112,16 +1865,12 @@ namespace markers
             }
 
             std::vector<DrawMarker>& dst = g_slot[g_slot_next];
-            // clear() keeps the capacity, so after the first round this allocates
-            // nothing at all.
-            dst.clear();
+            dst.clear(); // keeps the capacity
 
-            // The static DB holds ALL six chapters' markers in one flat set, and the
-            // chapters' world bounds overlap (chapter 4 covers nearly all of chapter
-            // 1), so an unfiltered publish paints foreign markers over the current
-            // map. This is the single point where that is decided - the minimap, the
-            // full map, the compass pips and the x-ray highlight all read the buffer
-            // published here, so none of them needs a filter of its own.
+            // Chapters' world bounds overlap (chapter 4 covers nearly all of chapter 1),
+            // so an unfiltered publish paints foreign markers over the current map. This
+            // is the single point where that is decided: the minimap, the full map, the
+            // compass pips and the x-ray all read the buffer published here.
             const int filter_chapter = filter_chapter_now();
 
             const StaticDb* db = g_db.load(std::memory_order_acquire);
@@ -2141,7 +1890,7 @@ namespace markers
                 }
 
                 // The live twins, resolved the cheap way round: one hash lookup per LIVE
-                // actor (a few hundred) instead of one per STATIC marker (up to 3 601).
+                // actor instead of one per STATIC marker.
                 std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);
                 for (const auto& kv : g_live)
                 {
@@ -2153,9 +1902,8 @@ namespace markers
                     }
                 }
 
-                // The loaded-level state, resolved once per UNIQUE level name rather
-                // than once per marker (and with no lower_ascii() allocation per marker:
-                // the names were interned lower-cased at load).
+                // The loaded-level state, resolved once per UNIQUE level name rather than
+                // once per marker; the names are interned lower-cased at load.
                 for (std::size_t i = 0; i < g_level_known.size(); ++i)
                 {
                     const auto lit = g_levels.find(db->levels[i]);
@@ -2163,12 +1911,8 @@ namespace markers
                     g_level_round[i] = lit != g_levels.end() ? lit->second : 0;
                 }
 
-                // A gauge, not a total: it is "how many are hidden right now".
                 g_mobile_hidden.store(0, std::memory_order_relaxed);
-                // The per-round censuses, all gauges. `shrines lit` used to be a
-                // count of NEW marks, which reads as 0 for every session after the
-                // first - the shrines were already in the found set, so the else-if
-                // that increments it never ran. See the g_shrine_lit_marks comment.
+                // The per-round censuses, all gauges.
                 int lit_found = 0;
                 int lit_total = 0;
                 int mobile_static = 0;
@@ -2188,9 +1932,7 @@ namespace markers
                 int boss_found = 0;
                 int boss_from_save = 0;
                 int boss_no_door = 0;
-                // Read once per round rather than per marker: mm::cfg_cached() is a
-                // thread_local copy behind a generation counter, but this is one
-                // question and asking it 3 601 times is 3 601 branches.
+                // Read once per round rather than per marker.
                 const bool boss_save_on = mm::cfg_cached().boss_defeat_from_save;
                 dst.reserve(g_chapter_subset.size() + g_live.size());
                 for (const int mi : g_chapter_subset)
@@ -2210,34 +1952,20 @@ namespace markers
                     }
                     // ---- SHRINES ARE FOUND WHEN THEY ARE LIT ----------------------
                     //
-                    // A shrine has no per-actor activation flag (that backlog item is
-                    // closed - `context/saveslot-and-teleport-research.md` 2.3): the
-                    // state is the game mode's `UnlockedFirepoints` list of shrine ids,
-                    // which src/shrines.cpp already reads at 1 Hz. Before this the
-                    // stats page's "Shrines lit" line used it but the found SET never
-                    // did, so the per-category table said 0/12 with 18 shrines lit
-                    // in-game and every lit shrine still drew as un-found on the map.
-                    //
-                    // Pushing the ids into the found set (rather than deriving the flag
-                    // at draw time) is what makes the map glyph, the minimap styling,
-                    // the legend counts and the stats table agree - they all read the
-                    // one found set. It is idempotent: the same id is only ever added.
+                    // A shrine has no per-actor activation flag: the state is the game
+                    // mode's `UnlockedFirepoints` list of shrine ids, which
+                    // src/shrines.cpp reads at 1 Hz. The ids go into the found set rather
+                    // than deriving the flag at draw time, so the map glyph, the minimap
+                    // styling, the legend counts and the stats table all agree.
+                    // Idempotent: the same id is only ever added.
                     else if (sm.cat == mdb::Cat::Shrine && shrine_is_lit(sm.id))
                     {
                         d.flags |= kFlagFound;
                         g_found_static[idx] = 1;
                         note_found(sm.id);
                     }
-                    // ---- THE SHRINE CENSUS IS A GAUGE, NOT A COUNT OF NEW MARKS ----
-                    //
-                    // `shrines lit` was incremented inside the else-if above, i.e. only
-                    // when a shrine was marked for the FIRST time. The found file is
-                    // persistent, so on the second and every later session every lit
-                    // shrine is already in the found set, the else-if never runs, and
-                    // the diagnostic reads `shrines lit 0` beside `shrines: 19 unlocked`
-                    // in the same log - which is what a broken join looks like. Counted
-                    // here instead, over the chapter's shrines, whichever branch marked
-                    // them: `lit N of M` answers "did the join work" directly.
+                    // A gauge over the chapter's shrines, whichever branch marked them:
+                    // `lit N of M` answers "did the join work" directly.
                     if (sm.cat == mdb::Cat::Shrine)
                     {
                         ++lit_total;
@@ -2249,22 +1977,14 @@ namespace markers
 
                     // ---- A BOSS KILLED BEFORE THE MOD WAS INSTALLED ---------------
                     //
-                    // `Rule::BossPawn` needs the boss ACTOR to exist and to be dead, and
-                    // a boss the player has already killed never spawns again - so for
-                    // every boss cleared before the mod existed that rule can never
-                    // fire. The save can speak for them: the boss arena's own
-                    // `bossdoor_*` respawn point is in `UnlockedFirepoints`, and
-                    // `markers/chapter*.json` carries that id per boss marker
-                    // (tools/markers/build_bossdoors.py, out of the game's own level
-                    // scripts - the mapping is authored, not inferred).
+                    // `Rule::BossPawn` needs the boss ACTOR to exist and be dead, and a
+                    // killed boss never spawns again. The save speaks for those: the
+                    // arena's `bossdoor_*` respawn point is in `UnlockedFirepoints`, and
+                    // `markers/chapter*.json` carries that id per boss marker.
                     //
-                    // DERIVED, NEVER PERSISTED. Unlike the shrine rule this does NOT
-                    // push the id into the found set: it is not certain that the game
-                    // unlocks a boss door on the KILL rather than on the first attempt
-                    // (context/boss-defeat-from-save.md), and a persisted mark from an
-                    // uncertain signal survives fixing the rule - which is exactly the
-                    // mess H4 left in wuchang_minimap_found_<slot>.txt. Recomputing it
-                    // costs one 40-char list lookup per boss marker, nine per chapter.
+                    // DERIVED, NEVER PERSISTED: it is not certain the game unlocks a boss
+                    // door on the kill rather than on the first attempt, and a persisted
+                    // mark from an uncertain signal would survive fixing the rule.
                     if (sm.cat == mdb::Cat::Boss)
                     {
                         ++boss_total;
@@ -2281,12 +2001,9 @@ namespace markers
                     }
                     const LiveEntry* live = g_live_of_static[idx];
 
-                    // ---- A CORPSE HIDES ITS SPAWN POINT TOO -----------------------
-                    //
-                    // An enemy's authored position is in the static DB as well, so
-                    // dropping only the live entry redrew the dead enemy at its spawn
-                    // point. Whatever the health read declared dead is not on the map
-                    // at all until the corpse is collected and the entry ages out.
+                    // A corpse hides its spawn point too: an enemy's authored position is
+                    // in the static DB, so what the health read declared dead is off the
+                    // map entirely until the entry ages out.
                     if (mdb::static_twin_is_hidden_by_corpse(live != nullptr,
                                                              live != nullptr && live->dead))
                     {
@@ -2297,14 +2014,12 @@ namespace markers
                     // ---- "LIVE" MEANS AN ACTOR ANSWERED THIS ROUND, WITH A POSITION -
                     //
                     // For a category that does not move, a twin from a round or two ago
-                    // is as good as this round's - that debounce is what stops a chest
-                    // flickering when the sweep races level streaming. For a category
-                    // that DOES move it is not: a stale entry, or one whose position
-                    // read failed (`pos_valid == false` leaves the AUTHORED position in
-                    // place), used to be published with kFlagLive set - and kFlagLive is
-                    // exactly what the x-ray takes as permission to draw a person
-                    // through a wall. That is how "NPC 2 m (found)" survived at a spot
-                    // the NPC had left even after the static hint itself was dropped.
+                    // is as good as this round's, and that debounce is what stops a chest
+                    // flickering when the sweep races level streaming. For a MOBILE
+                    // category it is not: kFlagLive is the x-ray's permission to draw a
+                    // person through a wall, and a stale entry (or one whose position
+                    // read failed, leaving the AUTHORED position in place) must not carry
+                    // it.
                     const bool live_here = live != nullptr && live->pos_valid &&
                                            (live->round == g_round || !mdb::is_mobile_category(sm.cat));
                     if (live != nullptr)
@@ -2324,34 +2039,26 @@ namespace markers
 
                     // ---- A PERSON WHO HAS WALKED AWAY IS NOT DRAWN WHERE THEY WERE -
                     //
-                    // NPCs move: talk to a quest NPC and it relocates,
-                    // usually to a different placed actor in a different sublevel and so
-                    // under a different marker id. The authored position then has no live
-                    // twin and never will, and the x-ray happily labelled it "NPC 2 m
-                    // (found)" at a spot the NPC had left. When the marker's own level is
-                    // loaded and a full round has finished since it loaded, "no live actor
-                    // answered" is not "I have not looked yet" - it is proof, and the hint
-                    // is dropped from the published set (so the minimap, the full map, the
-                    // compass and the x-ray all agree in one place). The met state is
-                    // untouched: it lives in the found set, not in this entry.
+                    // Talk to a quest NPC and it relocates, usually to a different placed
+                    // actor in another sublevel and so under a different marker id; the
+                    // authored position then has no live twin and never will. When the
+                    // marker's own level is loaded and a full round has finished since it
+                    // loaded, "no live actor answered" is proof, and the hint is dropped
+                    // from the published set. The met state is untouched: it lives in the
+                    // found set, not in this entry.
                     const int mli = db->marker_level[idx];
                     mdb::MobileTwinFacts mob{};
                     mob.mobile = mdb::is_mobile_category(sm.cat);
-                    // A twin that answered but could not be located is NOT an answer -
-                    // it leaves the authored position on the entry, which is the thing
-                    // this rule exists to stop being drawn.
+                    // A twin that answered but could not be located is NOT an answer:
+                    // it leaves the authored position on the entry.
                     mob.live_twin_this_round = live != nullptr && live->round == g_round && live->pos_valid;
-                    // ...but it IS an answer of its own: an actor answering for this id
-                    // proves its level is loaded, and this game parks a used-up actor at
-                    // (0,0,0). So "answered, unlocatable" is the walked-away case, and it
-                    // does not need the level table - which is what made the rule fire at
-                    // all. Run 3 could only name 21 of 53 people's levels as resident, so
-                    // for the other 32 the level-based clause could never be reached.
+                    // It is an answer of its own, though: an actor answering for this id
+                    // proves its level is loaded, and the game parks a used-up actor at
+                    // (0,0,0). "Answered, unlocatable" is the walked-away case and needs
+                    // no level table.
                     mob.live_twin_unlocatable =
                         live != nullptr && live->round == g_round && !live->pos_valid;
-                    // Case (e): the actor is standing right there and is invisible. This
-                    // is the case run 4 proved is the real one - `joined 21, superseded 0,
-                    // walked away 0, hidden 0` with the user still seeing the marker.
+                    // Case (e): the actor is standing right there and is invisible.
                     mob.live_twin_invisible =
                         live != nullptr && live->round == g_round && live->invisible;
                     if (mli >= 0 && g_level_known[static_cast<std::size_t>(mli)] != 0)
@@ -2360,11 +2067,10 @@ namespace markers
                         mob.full_round_since_level_load =
                             g_round > g_level_round[static_cast<std::size_t>(mli)];
                     }
-                    // The per-round census behind the `people -` log line. It is what
-                    // tells the next in-game run WHICH half of the join is failing:
-                    // a static count with no joins means the ids do not match, joins
-                    // with no supersedes means nobody has moved, and level_known 0
-                    // means the hide rule can never fire whatever else is true.
+                    // The per-round census behind the `people -` log line, which says
+                    // which half of the join is failing: a static count with no joins
+                    // means the ids do not match, joins with no supersedes means nobody
+                    // has moved, and level_known 0 means the hide rule can never fire.
                     if (mob.mobile)
                     {
                         ++mobile_static;
@@ -2390,8 +2096,7 @@ namespace markers
                         // How many twins could be ASKED at all. `invisible 0` with
                         // `visibility known 0` means no route reads on this build and the
                         // rule is dead; `invisible 0` with `visibility known 21` means the
-                        // flags are genuinely all false and the mechanism is a different
-                        // one. That is the difference a single run has to be able to tell.
+                        // flags are genuinely all false.
                         if (live != nullptr && live->round == g_round && live->invisible_known)
                         {
                             ++mobile_vis_known;
@@ -2418,13 +2123,7 @@ namespace markers
                         }
                         continue;
                     }
-                    // ---- THE `met` GAUGE -------------------------------------------
-                    //
-                    // `met` used to be a count of NEW marks, which is zero on every
-                    // session after the one that discovered them - the same lie
-                    // `shrines lit 0` told, and it read `met 0` in run 3 after reading
-                    // 19 in run 1 with nothing broken in between. Counted here as a
-                    // gauge over the chapter's people and notes instead.
+                    // The `met` gauge, over the chapter's people and notes.
                     if (sm.cat == mdb::Cat::Npc || sm.cat == mdb::Cat::Note)
                     {
                         ++met_total;
@@ -2433,8 +2132,8 @@ namespace markers
                             ++met_found;
                         }
                     }
-                    // The boss gauge, counted HERE - after the found file, the save
-                    // door and this round's live health read have all had their say.
+                    // The boss gauge, counted after the found file, the save door and
+                    // this round's live health read have all had their say.
                     // `boss_total` is incremented earlier because a boss that a later
                     // `continue` drops from the buffer still exists on the map.
                     if (sm.cat == mdb::Cat::Boss && (d.flags & kFlagFound) != 0)
@@ -2444,24 +2143,20 @@ namespace markers
 
                     // ---- ABSENCE AS EVIDENCE OF A COLLECT -------------------------
                     //
-                    // Everything the pure predicate needs is here: this round has just
-                    // walked the whole object array, `live` is what it found for this
-                    // id, and the level table says whether the marker's level is loaded
-                    // and for how long. See mdb::absence_marks() for the rule and the
-                    // reason absence is normally NOT evidence.
+                    // This round has just walked the whole object array, `live` is what
+                    // it found for this id, and the level table says whether the marker's
+                    // level is loaded and for how long. mdb::absence_marks() holds the
+                    // rule.
                     mdb::AbsenceFacts facts{};
                     facts.feature_on = g_absence_on;
                     facts.cat_selected = mdb::cat_enabled(g_absence_cats, sm.cat);
                     facts.already_found = (d.flags & kFlagFound) != 0;
                     facts.level_known = mob.level_known;
                     facts.full_round_since_level_load = mob.full_round_since_level_load;
-                    // AN ACTOR THAT ANSWERED IS PRESENT, wherever it is standing. The
-                    // `pos_valid` requirement that used to be here meant a chest whose
-                    // position read failed looked ABSENT to the debounce, and the absence
-                    // rule then auto-marked it collected after two rounds - the second
-                    // half of "static loot silently disappears from the x-ray". An actor
-                    // parked at (0,0,0) does not reopen the hole: the pickup rule has
-                    // already set `found` on it, and `!live->found` covers that.
+                    // AN ACTOR THAT ANSWERED IS PRESENT, wherever it is standing -
+                    // requiring `pos_valid` here would make a chest whose position read
+                    // failed look absent and get auto-marked collected. An actor parked
+                    // at (0,0,0) is covered by `!live->found`, which the pickup rule set.
                     facts.twin_alive = live != nullptr && live->round == g_round && !live->found;
 
                     int& streak = g_absent_streak_idx[idx];
@@ -2484,13 +2179,10 @@ namespace markers
                         }
                     }
                     copy_id(d.id, sizeof(d.id), sm.id);
-                    // NAME FIRST. `cls` is always non-empty ("BP_PickupActor_C"), so the
-                    // old `cls.empty() ? name : cls` meant every pickup's tooltip read
-                    // "pickup_actor" while the DB carried a real display name for 1 050
-                    // of them. markers/chapter*.json now carries a name for every entry
-                    // (a real item name where the extractor could resolve one, the
-                    // category label otherwise), so preferring it never makes a label
-                    // worse. Longest shipped name is 31 ASCII chars; `label` is 40.
+                    // NAME FIRST: `cls` is always non-empty ("BP_PickupActor_C"), while
+                    // markers/chapter*.json carries a name for every entry (a real item
+                    // name where the extractor resolved one, the category label
+                    // otherwise). Longest shipped name is 31 ASCII chars; `label` is 40.
                     copy_id(d.label, sizeof(d.label), sm.name.empty() ? sm.cls : sm.name);
                     dst.push_back(d);
                 }
@@ -2531,10 +2223,10 @@ namespace markers
                 }
                 if (db != nullptr)
                 {
-                    // Only skip the live actor when its static twin was actually
-                    // drawn above. A live actor is by definition in the current
-                    // world, so it is never filtered out itself - but its static
-                    // entry may carry another chapter's number.
+                    // Only skip the live actor when its static twin was actually drawn
+                    // above. A live actor is in the current world by definition, so it is
+                    // never filtered out itself, but its static entry may carry another
+                    // chapter's number.
                     const auto sit = db->by_id.find(kv.first);
                     if (sit != db->by_id.end() && sit->second >= 0 &&
                         sit->second < static_cast<int>(db->markers.size()) &&
@@ -2555,13 +2247,10 @@ namespace markers
                     d.flags |= kFlagFound;
                 }
                 copy_id(d.id, sizeof(d.id), kv.first);
-                // THE LABEL OF A LIVE-ONLY MARKER IS NEVER ITS CLASS NAME. It used to be
-                // `narrow_ascii(kv.second.cls)`, i.e. the CLASS SPEC's name out of
-                // kClasses[] - so an enemy's dropped loot read `BP_PickupActor_C 1 m`
-                // through the wall (and that is not even its class: the actor is a
-                // `BP_DropItem_C`). A resolved item name is used when there is one;
-                // otherwise the label is left EMPTY and every drawing site turns that
-                // into the category's plain word through mdb::display_label().
+                // THE LABEL OF A LIVE-ONLY MARKER IS NEVER ITS CLASS NAME. A resolved
+                // item name is used when there is one; otherwise the label stays EMPTY
+                // and each drawing site turns that into the category's plain word
+                // through mdb::display_label().
                 if (!kv.second.label.empty())
                 {
                     copy_id(d.label, sizeof(d.label), kv.second.label);
@@ -2575,9 +2264,8 @@ namespace markers
             g_slot_published.store(g_slot_next, std::memory_order_release);
             g_slot_next = (g_slot_next + 1) % kSlots;
 
-            // What the publish cost. It was the one unsliced, unmeasured game-thread
-            // burst left; the F2 round line and the periodic log print all three
-            // numbers so a regression here is visible without a play session.
+            // What the publish cost. Unsliced game-thread work, so the F2 round line and
+            // the periodic log print all three numbers.
             const double ms = static_cast<double>(qpc_us() - t0) / 1000.0;
             g_publish_ms.store(ms, std::memory_order_relaxed);
             g_publish_ms_sum += ms;
@@ -2595,11 +2283,9 @@ namespace markers
         // The fallback pump (game thread)
         //==============================================================================
         //
-        // Byte-for-byte the pre-2026-09-02 behaviour: one FindAllOf per interval,
-        // cycling the class table. It is only reached when GUObjectArray reports no
-        // elements, i.e. when the chunked walk has nothing to walk. Its cost lands in
-        // the same F2 counters, flagged by `scan_fallback` so a 28 ms reading is never
-        // mistaken for the fast path.
+        // One FindAllOf per interval, cycling the class table. Reached only when
+        // GUObjectArray reports no elements, i.e. the chunked walk has nothing to walk.
+        // Its cost lands in the same F2 counters, flagged by `scan_fallback`.
         void legacy_pump(std::uint64_t now, const mm::Config& cfg)
         {
             g_scan_fallback.store(true, std::memory_order_relaxed);
@@ -2651,9 +2337,9 @@ namespace markers
         // WHICH found file (loop thread only)
         //------------------------------------------------------------------------------
         //
-        // `g_found_key` is the save-slot key the loop thread last acted on. It is a
-        // COPY, deliberately: the resolution runs on the game thread and the loop thread
-        // must not change the file it is reading from half way through a load.
+        // `g_found_key` is a COPY of the save-slot key the loop thread last acted on:
+        // resolution runs on the game thread, and the loop thread must not change the
+        // file it is reading half way through a load.
 
         std::string g_found_key;         // "" = the shared file
         std::string g_found_route = "unresolved";
@@ -2681,10 +2367,8 @@ namespace markers
             return ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
         }
 
-        // First sight of a slot that has no file of its own: seed it from the shared
-        // one, so upgrading from 0.9.3 does not read as "my whole collection is gone".
-        // Once, and logged - a silent file copy is exactly the kind of thing that is
-        // impossible to explain afterwards.
+        // First sight of a slot with no file of its own: seed it from the shared one.
+        // Once, and logged.
         void migrate_shared_into(const std::string& key)
         {
             if (key.empty())
@@ -2765,12 +2449,9 @@ namespace markers
                 s.db_loaded = true;
                 s.static_markers = static_cast<int>(db->markers.size());
                 std::unordered_set<int> chapters;
-                // EVERY DERIVED VIEW READS THE SAME RULES. The save-backed boss defeat
-                // is deliberately not in the found FILE (see the publish-time comment),
-                // so this table has to ask the same question the publish point does -
-                // otherwise the map draws a boss hollow while the statistics say 0 of 9,
-                // which is precisely the disagreement the shrine rule had to be fixed
-                // for (lessons.md: a state the mod reads is not a state the mod uses).
+                // EVERY DERIVED VIEW READS THE SAME RULES. The save-backed boss defeat is
+                // not in the found FILE, so this table asks the same question the publish
+                // point does; otherwise the map and the statistics disagree.
                 const bool boss_save_on = mm::cfg_cached().boss_defeat_from_save;
                 for (const mdb::StaticMarker& m : db->markers)
                 {
@@ -2788,8 +2469,7 @@ namespace markers
                     ++s.cat[ci].total;
                     s.cat[ci].found += found ? 1 : 0;
                     // Chapter 0 is the bucket for a manifest whose "chapter" is not a
-                    // number - the DLC one spells it "DLC". Those markers are counted,
-                    // not dropped.
+                    // number - the DLC one spells it "DLC".
                     if (m.chapter >= 0 && m.chapter <= 8)
                     {
                         chapters.insert(m.chapter);
@@ -2837,12 +2517,10 @@ namespace markers
             g_stats = s;
         }
 
-        // markers/items.json -> {item id -> display name}, for the loot an enemy DROPS.
-        // A runtime-spawned `BP_DropItem_C` has no static twin and therefore no name of
-        // its own; its item id is readable off the actor (see resolve_item_name), and this
-        // is the other half of the join. Missing file = no runtime item names, which is a
-        // worse label and not an error: the file is a toolchain artifact and package.ps1
-        // only ships it when it has been built.
+        // markers/items.json -> {item id -> display name}, the other half of the join
+        // resolve_item_name() makes for loot an enemy drops. A missing file is not an
+        // error: it is a toolchain artifact, and without it those drops fall back to
+        // their category label.
         void load_item_names(const std::wstring& dir)
         {
             g_item_names.clear();
@@ -2865,9 +2543,8 @@ namespace markers
             mm::logf(L"markers: {} -> {} item name(s) for runtime drops", path, g_item_names.size());
         }
 
-        // How many *.json the markers folder is read from. Six chapters plus items.json
-        // today; the cap exists so a folder somebody dumped a thousand files into cannot
-        // stall the load, and hitting it is logged rather than silently truncating.
+        // Cap on *.json files read from the markers folder, so a folder full of files
+        // cannot stall the load. Hitting it is logged.
         constexpr std::size_t kMaxManifestFiles = 64;
 
         void load_static_db()
@@ -2875,8 +2552,8 @@ namespace markers
             const std::wstring dir = markers_dir();
 
             // Enumerate the directory rather than probing chapter1..8: the offline
-            // extractor also emits chapterdlc.json, and it will emit whatever the game
-            // adds next. `*.sample.json` is documentation, not data, and is skipped.
+            // extractor also emits chapterdlc.json and whatever the game adds next.
+            // `*.sample.json` is documentation, not data.
             std::vector<std::wstring> files_found;
             WIN32_FIND_DATAW find{};
             const HANDLE h = ::FindFirstFileW((dir + L"\\*.json").c_str(), &find);
@@ -2897,8 +2574,6 @@ namespace markers
                 } while (::FindNextFileW(h, &find) != 0 && files_found.size() < kMaxManifestFiles);
                 ::FindClose(h);
             }
-            // NOT SILENT. A cap that drops a chapter file has to say so, or the symptom
-            // is "half my markers are missing" with an empty log (review C.7).
             if (files_found.size() >= kMaxManifestFiles)
             {
                 mm::logf(L"markers: there are more than {} *.json files in {} - only the first {} "
@@ -2912,8 +2587,8 @@ namespace markers
             std::sort(files_found.begin(), files_found.end());
 
             auto db = std::make_unique<StaticDb>();
-            // (one-past-last marker index, file name) in load order. Only used to name
-            // the file in a duplicate-id line, so a range list beats a name per marker.
+            // (one-past-last marker index, file name) in load order, to name the file in
+            // a duplicate-id line.
             std::vector<std::pair<std::size_t, std::wstring>> file_ranges;
             const auto file_of = [&file_ranges](std::size_t index) -> std::wstring {
                 for (const auto& [end, name] : file_ranges)
@@ -2941,12 +2616,9 @@ namespace markers
                 {
                     db->markers.resize(before);
                     // A sibling manifest of a DIFFERENT schema is not an error: the
-                    // offline extractor also writes markers/items.json (the item
-                    // display-name database, schema wuchang-minimap-items/1) into this
-                    // directory, and the enumeration above deliberately takes every
-                    // *.json so a chapter file the game adds later is picked up without
-                    // a code change. Only a file that claims to BE a marker manifest is
-                    // reported as broken.
+                    // enumeration takes every *.json, and markers/items.json lives here
+                    // too. Only a file claiming to BE a marker manifest is reported
+                    // broken.
                     if (!report.schema.empty() &&
                         report.schema.compare(0, kMarkerSchemaPrefix.size(), kMarkerSchemaPrefix) != 0)
                     {
@@ -2970,9 +2642,9 @@ namespace markers
                          report.skipped != 0 ? std::format(L", {} skipped", report.skipped) : std::wstring{},
                          report.unknown_cat != 0 ? std::format(L", {} unknown category", report.unknown_cat)
                                                  : std::wstring{});
-                // A manifest still spelling a renamed category the old way parses fine
-                // (mdb::cat_from_legacy_name), but it means the `markers/` folder is
-                // older than the DLL - which is worth saying ONCE, not once per file.
+                // A manifest spelling a renamed category the old way parses fine
+                // (mdb::cat_from_legacy_name) but means the `markers/` folder is older
+                // than the DLL.
                 if (report.legacy_cat != 0 && !warned_legacy_cat)
                 {
                     warned_legacy_cat = true;
@@ -2984,8 +2656,7 @@ namespace markers
                 }
             }
 
-            // DEDUPE, at load - see marker_dedupe.hpp for why a duplicate id was a
-            // marker that could never be marked found. The first copy wins and every
+            // Dedupe at load (marker_dedupe.hpp): the first copy of an id wins, and every
             // dropped copy is named with the file it came from.
             std::vector<mdb::DupDrop> drops;
             const int duplicates = mdb::dedupe_by_id(db->markers, db->by_id, drops);
@@ -3011,10 +2682,9 @@ namespace markers
                          logged);
             }
 
-            // Intern the level names. The absence rule asks "is this marker's level
-            // loaded, and since when" for every marker of every round; interning turns
-            // that from a lower_ascii() allocation plus a string hash per marker into one
-            // hash per UNIQUE level per round and an array index per marker.
+            // Intern the level names: the absence rule's "is this marker's level loaded,
+            // and since when" then costs one hash per UNIQUE level per round plus an
+            // array index per marker.
             mdb::intern_levels(db->markers, db->levels, db->marker_level);
 
             if (files == 0)
@@ -3069,8 +2739,7 @@ namespace markers
         }
 
         // Loop thread, from on_update. Frees the databases a reload replaced, once no
-        // reader can still be holding one. `recompute_stats()` reads g_db from THIS
-        // thread, so nothing here can be racing itself.
+        // reader can still hold one.
         void retire_databases(std::uint64_t now)
         {
             if (g_retired.empty())
@@ -3106,9 +2775,8 @@ namespace markers
             const mmfile::ReadInfo info = read_whole_file_ex(path, text);
             if (info.status == mmfile::ReadStatus::Failed || info.too_big)
             {
-                // NOT "it does not exist yet". The set in memory is left exactly as it
-                // was and every write is refused until a retry can read the file, so a
-                // transient lock cannot cost the player their collection.
+                // NOT "it does not exist yet". The set in memory is left as it is and
+                // every write is refused until a retry can read the file.
                 g_found_unreadable = true;
                 g_found_retry_ms = ::GetTickCount64();
                 mm::logf(L"markers: the found tracker {} EXISTS but could not be read ({}) - your "
@@ -3145,8 +2813,8 @@ namespace markers
             g_stage_dirty = true;
         }
 
-        // The retry for the case above. A read that works now is UNIONED with whatever
-        // was marked while the file was unreadable, so nothing found in between is lost.
+        // A read that works is UNIONED with whatever was marked while the file was
+        // unreadable, so nothing found in between is lost.
         void retry_found_load()
         {
             std::string text;
@@ -3193,19 +2861,16 @@ namespace markers
             const std::wstring path = found_path();
             if (g_found_unreadable)
             {
-                // Nothing to log here - load_found_file said it loudly once and the
-                // retry says it when it clears. The dirty flag stays set.
+                // load_found_file logs it once and the retry logs when it clears. The
+                // dirty flag stays set.
                 return;
             }
             const std::string text = serialize_found();
             unsigned err = 0;
             if (write_whole_file(path, text, true, err))
             {
-                // ONE LINE PER 30 s, NOT PER SAVE. The write is debounced already, but a
-                // player looting a room still triggers one every few seconds (52 lines in
-                // run 5). The line that survives carries everything the suppressed ones
-                // would have said: the total, how many marks were added since it was last
-                // printed, and how many saves it stands for.
+                // One line per 30 s, not per save; the line carries the total, the marks
+                // added since it was last printed, and how many saves it stands for.
                 static std::uint64_t last_log = 0;
                 static std::uint32_t coalesced = 0;
                 const std::uint64_t now = ::GetTickCount64();
@@ -3234,12 +2899,9 @@ namespace markers
             }
             else
             {
-                // THE MARKS STAY DIRTY. The write used to be reported and then
-                // forgotten, so one failed save (a full disk, a locked file) threw away
-                // every find made since the last successful one. Retry with a doubling
-                // backoff on top of the ordinary debounce, and say so - once per
-                // failure for the first three, then every eighth - because a player
-                // whose collection is not being saved needs to know.
+                // THE MARKS STAY DIRTY, and the write is retried with a doubling backoff
+                // on top of the ordinary debounce. Logged once per failure for the first
+                // three, then every eighth.
                 ++g_found_fail_streak;
                 g_found_backoff_ms = g_found_backoff_ms == 0 ? 1000 : g_found_backoff_ms * 2;
                 if (g_found_backoff_ms > 60000)
@@ -3337,9 +2999,8 @@ namespace markers
         recompute_stats();
     }
 
-    // The DEBOUNCED write, forced. Called from modswitch::finish_disable (the master
-    // switch turning the mod off) - an ordinary loop-thread save, so it may allocate
-    // and log like any other.
+    // The debounced write, forced. An ordinary loop-thread save, so it may allocate and
+    // log like any other.
     void flush_found_tracker()
     {
         if (g_found_dirty && !g_found_unreadable && mm::cfg_cached().found_tracker)
@@ -3349,11 +3010,10 @@ namespace markers
         }
     }
 
-    // DLL_PROCESS_DETACH. The process may be dying abnormally with a corrupted heap
-    // (lessons.md), and DllMain runs under the loader lock, so this allocates nothing,
-    // takes no lock and logs nothing: it writes the bytes the loop thread staged, to
-    // the path the loop thread staged, through the same temp-file-plus-rename the
-    // ordinary save uses. Idempotent.
+    // DLL_PROCESS_DETACH. The process may be dying abnormally with a corrupted heap and
+    // DllMain runs under the loader lock, so this allocates nothing, takes no lock and
+    // logs nothing: it writes the bytes the loop thread staged, to the path it staged,
+    // through the same temp-file-plus-rename the ordinary save uses. Idempotent.
     void flush_found_tracker_at_exit()
     {
         if (g_flushed_at_exit.exchange(true, std::memory_order_acq_rel))
@@ -3407,11 +3067,9 @@ namespace markers
     {
         const std::uint64_t now = ::GetTickCount64();
 
-        // The save-slot watch. A slot switch in Wuchang goes through the main menu and a
-        // full level reload, which drops every cache and re-arms the game-thread routes;
-        // this is where the loop thread notices the answer changed and swaps files. Any
-        // pending write goes to the OLD file first - the finds it holds belong to the
-        // save that was loaded when they happened.
+        // The save-slot watch: the loop thread notices the resolved key changed and
+        // swaps files. Any pending write goes to the OLD file first - the finds it holds
+        // belong to the save that was loaded when they happened.
         static std::uint64_t last_slot_check = 0;
         if (now - last_slot_check >= 1000)
         {
@@ -3450,11 +3108,8 @@ namespace markers
                 g_found_dirty = true;
                 g_found_dirty_ms = now;
                 g_stage_dirty = true;
-                // VERBOSE, and COUNTED. Auto-marks arrive in ones and twos as the
-                // player walks (55 lines in run 5) and every one of them is followed
-                // within a second by the save line below, which is the thing that
-                // actually changed persisted state - so the count rides on that line
-                // instead of getting one of its own.
+                // Counted, not logged per mark: the count rides on the save line, which
+                // is what actually changes persisted state.
                 g_marks_since_log += static_cast<std::uint32_t>(added);
                 MM_LOGV(L"markers: auto-marked {} new marker(s) as found ({} total)", added,
                         g_found_master.size());
@@ -3462,9 +3117,9 @@ namespace markers
             }
         }
 
-        // Manual toggles from the full map. They go through the same master set and
-        // the same debounced write as the auto-marks, and the whole set is republished
-        // to the game thread so the draw buffer agrees on the next round.
+        // Manual toggles from the full map go through the same master set and debounced
+        // write as the auto-marks, and the whole set is republished to the game thread
+        // so the draw buffer agrees on the next round.
         if (g_toggle_pending.exchange(false, std::memory_order_acquire))
         {
             std::vector<ToggleReq> reqs;
@@ -3512,7 +3167,7 @@ namespace markers
         const mm::Config& cfg = mm::cfg_cached();
 
         // The found file exists and could not be read: nothing is written over it, and
-        // the read is retried until it works (see load_found_file / retry_found_load).
+        // the read is retried until it works.
         if (g_found_unreadable && now - g_found_retry_ms >= 10000)
         {
             g_found_retry_ms = now;
@@ -3537,13 +3192,8 @@ namespace markers
             save_found_file();
         }
 
-        // One periodic line so the round's cost is in the log as well as in F2 - an
-        // in-game session reports a log file, not a screenshot of the panel.
-        // THE PERIODIC HEALTH SUMMARY. At `normal` this is once a minute and it is the
-        // only recurring thing the mod writes: the found-rule counters and the NPC census
-        // are what a bug report needs to see moving. The per-round TIMINGS below are the
-        // running commentary and are `verbose`. Run 5 wrote 240 lines here; at `normal`
-        // the same session writes 82.
+        // The periodic health summary: once a minute at `normal`, the found-rule
+        // counters and the NPC census. The per-round timings are `verbose`.
         static std::uint64_t last_round_log = 0;
         const std::uint64_t census_period = mm::log_enabled(mm::LogLv::Verbose) ? 30000 : 60000;
         if (now - last_round_log >= census_period)
@@ -3561,10 +3211,9 @@ namespace markers
                         g_publish_ms_peak.load(std::memory_order_relaxed),
                         g_published_count.load(std::memory_order_relaxed),
                         g_live_count.load(std::memory_order_relaxed));
-                // The 2026-09-03 found-rules, in the same log a session reports. All
-                // five together answer "which rule fired and which one cannot read its
-                // property": a climbing `health unknown` with zero dead/defeated means
-                // the Health component route is wrong on this build.
+                // Which rule fired and which cannot read its property: a climbing
+                // `health unknown` with zero dead/defeated means the Health component
+                // route is wrong on this build.
                 mm::logf(L"markers: rules - shrines lit {} of {} ({} marked this session), "
                          L"met {} of {} ({} marked this session), "
                          L"bosses defeated {} of {} ({} from save, {} with no door, "
@@ -3585,17 +3234,14 @@ namespace markers
                          g_dead_dropped.load(std::memory_order_relaxed),
                          g_health_unknown.load(std::memory_order_relaxed),
                          g_health_width);
-                // THE NPC CENSUS, one line, so the next run pins which half
-                // of the join fails. static = markers of that category in the
-                // chapter; live = live entries held; joined = static markers a live
-                // actor answered for THIS round with a usable position; superseded =
-                // those standing more than 3 m from where they were authored (i.e. the
-                // person has walked); level = static markers whose own sublevel is
-                // resident (the level-based clause cannot fire below that); walked away =
-                // a live actor answered for the id but could NOT be located, which is
-                // this game's normal state for a person who has moved on; and the two
-                // halves of `hidden` say which clause did it. `hidden walked` climbing
-                // while `level resident` stays low is the case run 3 could not express.
+                // THE NPC CENSUS, one line, naming which half of the join fails.
+                // static = markers of that category in the chapter; live = live entries
+                // held; joined = static markers a live actor answered for THIS round with
+                // a usable position; superseded = those standing more than kMovedUu from
+                // where they were authored; level resident = static markers whose own
+                // sublevel is loaded (the level-based clause cannot fire below that);
+                // walked away = a live actor answered for the id but could NOT be
+                // located; the three halves of `hidden` say which clause did it.
                 mm::logf(L"markers: people - static {}, live {}, joined {}, superseded {}, "
                          L"walked away {}, invisible {} of {} asked, level resident {}, "
                          L"hidden {} ({} invisible + {} walked + {} absent)",
@@ -3614,8 +3260,8 @@ namespace markers
             }
         }
 
-        // Cheap counters the panel shows; recomputing the whole per-chapter table is
-        // only worth it when the found set changed, which is handled above.
+        // Cheap counters the panel shows. The whole per-chapter table is recomputed only
+        // when the found set changes, above.
         static std::uint64_t last_light = 0;
         if (now - last_light >= 1000)
         {
@@ -3644,8 +3290,7 @@ namespace markers
 
     void set_loaded_levels(const std::vector<std::string>& short_names)
     {
-        // Replace the set, keeping the round each surviving level was first seen at -
-        // that timestamp is the whole point (see the block next to g_levels).
+        // Replace the set, keeping the round each surviving level was first seen at.
         std::unordered_map<std::string, std::uint64_t> next;
         next.reserve(short_names.size());
         for (const std::string& name : short_names)
@@ -3664,29 +3309,27 @@ namespace markers
 
     void drop_caches()
     {
-        // HOOK: the highlight's camera manager belonged to the world that just went, and
-        // gamestate calls this whenever it drops the pawn - so this is the one place
-        // that already means "everything keyed to that world is dead".
+        // Everything keyed to the world that just went.
         hl::drop_caches();
         slotid::drop_caches();
         shr::drop_caches();
         g_layouts.clear();
         g_class_spec.clear();
-        g_health_prop.clear();   // the discovered route is keyed to a UClass* of that world
-        g_health_fields.clear(); // ditto: the field spelling is cached per component class
-        g_hidden_route.clear();  // ditto for the visibility route (keyed per UClass*)
+        g_health_prop.clear();   // routes keyed to a UClass* of that world
+        g_health_fields.clear();
+        g_hidden_route.clear();
         g_drop_name.clear();     // keyed on the ACTOR: a recycled allocation must not
         g_item_prop.clear();     // hand a new drop the old one's item name
         g_id_cache.clear();
         g_live.clear();
-        // Both are keyed to the world that just went: a level name means nothing in the
-        // next one, and a half-finished absence streak must not survive a load.
+        // A level name means nothing in the next world, and a half-finished absence
+        // streak must not survive a load.
         g_levels.clear();
         std::fill(g_absent_streak_idx.begin(), g_absent_streak_idx.end(), 0);
         std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);
         std::fill(g_level_known.begin(), g_level_known.end(), static_cast<std::uint8_t>(0));
         g_subset_valid = false; // the chapter is re-detected in the next world
-        g_player_ok = false;    // the snapshot belongs to the world that just went
+        g_player_ok = false;
         g_levels_loaded.store(0, std::memory_order_relaxed);
         g_world = nullptr;
         g_next_class = 0;
@@ -3702,12 +3345,9 @@ namespace markers
     // The game-thread pump
     //======================================================================================
     //
-    // CALLED FROM EVERY ProcessEvent, not once per 100 ms. gamestate's own 10 Hz gate
-    // used to bound this, and that was the reason the sweep could never be cheap: ten
-    // pumps a second times a chunk small enough not to stall = a round that takes many
-    // seconds. Now gamestate calls it on every pre-callback while the last validated
-    // state still stands, and the throttling below - QPC, not GetTickCount64, whose
-    // ~15.6 ms granularity is coarser than the slice period - decides the scan rate.
+    // CALLED FROM EVERY ProcessEvent pre-callback while the last validated state stands.
+    // The throttling below decides the scan rate, on QPC rather than GetTickCount64,
+    // whose ~15.6 ms granularity is coarser than the slice period.
     //
     // Structure per call:
     //   1. a 1 kHz gate, so the thousands-per-second callback costs one QPC read;
@@ -3721,9 +3361,9 @@ namespace markers
     {
         const std::uint64_t now_us = qpc_us();
 
-        // 1. Hard ceiling on how often anything at all happens here. mm::config()
-        //    copies the config under a spinlock; at ProcessEvent rate that alone would
-        //    be thousands of lock round-trips a second for nothing.
+        // 1. Hard ceiling on how often anything at all happens here: mm::config() copies
+        //    the config under a spinlock, and at ProcessEvent rate that alone would be
+        //    thousands of lock round-trips a second.
         static std::uint64_t s_gate_us = 0;
         if (!scan::elapsed(now_us, s_gate_us, 1000))
         {
@@ -3739,33 +3379,20 @@ namespace markers
         g_absence_rounds = cfg.markers_absence_rounds;
         g_absence_cats = cfg.markers_absence_categories;
 
-        // ---- HOOK: the x-ray highlight's camera reader (src/highlight.cpp) ----------
+        // These hooks need the game thread and the validated state this pump runs on,
+        // and none of them touches anything this module owns.
         //
-        // It needs the game thread and the same validated state this pump already runs
-        // on, and `gamestate.cpp` is owned by another workstream this session - so it is
-        // driven from here rather than from a second call site of its own. It returns
-        // immediately (one atomic load) unless the highlight key is held or the compass
-        // is on, and it never touches anything this module owns.
+        // The x-ray highlight's camera reader: one atomic load unless the highlight key
+        // is held or the compass is on.
         hl::game_thread_pump(now, now_us, world, cfg);
-        // ---- HOOK: the save-slot resolver (src/saveslot.cpp) ------------------------
-        //
-        // Same reasoning as the highlight hook above: it needs the game thread and the
-        // validated state this pump already runs on. It returns after one atomic load
-        // once a route has answered, and it stops asking entirely unless the world
-        // changes (drop_caches re-arms it).
+        // The save-slot resolver: one atomic load once a route has answered, and it
+        // stops asking until the world changes (drop_caches re-arms it).
         slotid::game_thread_pump(now, world);
-        // ---- HOOK: the shrine unlock state (src/shrines.cpp) ------------------------
-        //
-        // Four raw property reads at 1 Hz once the component is found. It is what the
-        // stats page means by "shrines lit" and what the shrine list uses to decide
-        // whether travelling to a shrine may even be offered.
+        // The shrine unlock state: four raw property reads at 1 Hz once the component is
+        // found. Feeds "shrines lit" and the shrine list's travel offer.
         shr::game_thread_pump(now);
-        // ---- HOOK: the one-press recon dump (src/recon.cpp) -------------------------
-        //
-        // One atomic load unless the dump was asked for. It needs the game thread and
-        // the pawn's world, both of which this pump already has.
+        // The one-press recon dump: one atomic load unless a dump was asked for.
         recon::game_thread_pump(world);
-        // ---- end of hook ------------------------------------------------------------
 
         if (!cfg.markers_enabled || !cfg.markers_live)
         {
@@ -3787,8 +3414,7 @@ namespace markers
         }
         g_scan_fallback.store(false, std::memory_order_relaxed);
 
-        // 3. A round that finished early waits until its slot comes round again -
-        //    refreshing the marker set faster than markers_rounds_per_sec buys nothing.
+        // 3. A round that finished early waits until its slot comes round again.
         if (!g_round_open)
         {
             if (!scan::round_due(now_us, g_round_start_us, cfg.markers_rounds_per_sec))
@@ -3807,9 +3433,8 @@ namespace markers
         }
         g_last_slice_us = now_us;
 
-        // 4b. The player's position for Rule::Proximity, once per slice. A seqlock
-        //     read of a POD struct that the game thread itself published a few
-        //     milliseconds ago - not an engine call, and never per actor.
+        // 4b. The player's position for Rule::Proximity, once per slice: a seqlock read
+        //     of a POD struct, not an engine call, and never per actor.
         {
             mm::Snapshot snap{};
             if (mm::read_snapshot(snap) && snap.has_pawn && snap.pawn_is_gameplay && !snap.transition)

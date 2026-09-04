@@ -45,9 +45,7 @@ namespace mv
             return true;
         }
 
-        // std::format is available, but this file is deliberately dependency-light and
-        // is also linked into the test exe; snprintf with an explicit format is enough
-        // and round-trips a double exactly at 17 significant digits.
+        // 17 significant digits round-trips a double exactly.
         std::string num(double v)
         {
             char buf[64]{};
@@ -100,13 +98,9 @@ namespace mv
         {
             return z;
         }
-        // Positive notches zoom IN, i.e. fewer world units per pixel.
+        // Positive notches zoom in, i.e. fewer world units per pixel.
         return clamp_zoom(z * std::pow(factor, -notches), lo, hi);
     }
-
-    //==================================================================================
-    // Zoom to fit
-    //==================================================================================
 
     double fit_zoom(double span_x_uu, double span_y_uu, double canvas_w_px, double canvas_h_px,
                     double margin)
@@ -127,10 +121,6 @@ namespace mv
         return by_x > by_y ? by_x : by_y;  // the bigger uu/px is the one that fits both
     }
 
-    //==================================================================================
-    // Minimap zoom presets
-    //==================================================================================
-
     int parse_zoom_presets(std::string_view text, float out[kMaxZoomPresets], std::string* rejected)
     {
         float found[kMaxZoomPresets]{};
@@ -144,8 +134,7 @@ namespace mv
                 return;
             }
             double v = 0.0;
-            // The same clamps the zoom itself obeys (mmstate's clamp_config), so a
-            // ladder can never contain a rung the minimap would refuse to stand on.
+            // The same clamps the zoom itself obeys (mmstate's clamp_config).
             if (!parse_double(t, v) || v < 2.0 || v > 400.0)
             {
                 if (rejected != nullptr)
@@ -163,7 +152,7 @@ namespace mv
             {
                 if (found[i] == f)
                 {
-                    return; // a duplicate rung would make the key look stuck
+                    return; // duplicate rung
                 }
             }
             if (n < kMaxZoomPresets)
@@ -188,7 +177,7 @@ namespace mv
         {
             return 0;
         }
-        // Ascending, so next_zoom_preset() can walk the array and wrap at the end.
+        // Ascending, so next_zoom_preset() walks the array and wraps at the end.
         for (int i = 1; i < n; ++i)
         {
             const float key = found[i];
@@ -222,7 +211,7 @@ namespace mv
                     return presets[i];
                 }
             }
-            return presets[0]; // past the top rung: wrap to the most zoomed-in one
+            return presets[0]; // past the top rung: wrap to the most zoomed-in
         }
         for (int i = count; i-- > 0;)
         {
@@ -327,7 +316,7 @@ namespace mv
         }
         if (!have_set)
         {
-            wp.set = true; // a hand-written file with just x/y/z means "here"
+            wp.set = true; // just x/y/z means "here"
         }
         out = wp;
         return true;

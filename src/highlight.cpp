@@ -27,33 +27,22 @@ namespace hl
         constexpr std::uint64_t kResolvePeriodMs = 500; // re-find the camera manager
         constexpr std::uint64_t kCompassPeriodMs = 50;  // 20 Hz is plenty for a heading
         constexpr std::uint64_t kGetterPeriodMs = 33;   // the ProcessEvent fallback route
-        // How far into CameraCachePrivate the POV block is looked for. FCameraCacheEntry
-        // is a float timestamp plus FMinimalViewInfo, so the answer is single digits -
-        // 192 is pure paranoia and still only 48 candidate offsets.
+        // Bytes into CameraCachePrivate searched for the POV block.
         constexpr int kMaxPovOffset = 192;
-        // Consecutive insane reads before the pinned offset is thrown away. One is not
-        // enough: a torn read across a game-thread write is possible in principle.
+        // Consecutive insane reads before the pinned offset is thrown away; a single
+        // torn read across a game-thread write is possible.
         constexpr int kMaxBadReads = 8;
 
-        // All five of the constants above are config keys now (`highlight_camera_*`,
-        // `highlight_compass_period_ms`, `highlight_getter_period_ms`,
-        // `highlight_pov_*`). The two the discovery path needs are cached here from the
-        // Config the pump is handed, because find_pov_offset() and the sanity check run
-        // deep inside it and are not given the config themselves. Game thread only.
+        // Live values of the constants above, cached from the Config the pump is handed
+        // for the discovery path, which is not given the config itself. Game thread only.
         std::uint64_t g_resolve_ms = kResolvePeriodMs;
         std::uint64_t g_compass_ms = kCompassPeriodMs;
         std::uint64_t g_getter_ms = kGetterPeriodMs;
         int g_max_pov_offset = kMaxPovOffset;
         int g_max_bad_read_limit = kMaxBadReads;
 
-        //==============================================================================
-        // What the game thread reads out of the camera cache
-        //==============================================================================
-        //
         // FMinimalViewInfo's first fields in UE 5.1: FVector Location (3 doubles, LWC),
-        // FRotator Rotation (pitch, yaw, roll - 3 doubles), float FOV. Read as one POD
-        // so a single guarded copy covers the lot.
-
+        // FRotator Rotation (pitch, yaw, roll), float FOV. One POD, one guarded copy.
         struct PovRaw
         {
             double loc[3]{};
@@ -61,10 +50,7 @@ namespace hl
             float fov = 0.0f;
         };
 
-        //==============================================================================
-        // Published pose (seqlock, exactly like mm::Snapshot)
-        //==============================================================================
-
+        // Published pose (seqlock).
         std::atomic<std::uint32_t> g_seq{0};
         Pose g_pose{};
 
@@ -78,16 +64,11 @@ namespace hl
             g_seq.store(start + 2, std::memory_order_release);
         }
 
-        //==============================================================================
-        // Cross-thread flags and diagnostics
-        //==============================================================================
-
+        // Cross-thread flags and diagnostics.
         std::atomic<bool> g_held{false};
         std::atomic<bool> g_compass{false};
-        // The toggle mode's latch. It is the ONE piece of latched input state in this
-        // mod, so it obeys the rule that goes with that (lessons.md): it is cleared from
-        // live state - drop_caches() below, i.e. every level transition and every dropped
-        // pawn - and nothing anywhere may set it except the hotkey sampler.
+        // Toggle-mode latch: only the hotkey sampler sets it, and drop_caches() clears
+        // it on every level transition and dropped pawn.
         std::atomic<bool> g_xray_latch{false};
         std::atomic<int> g_route{static_cast<int>(Route::None)};
         std::atomic<int> g_pov_offset_pub{-1};
@@ -97,22 +78,19 @@ namespace hl
         std::atomic<std::uint64_t> g_last_ms{0};
         std::atomic<bool> g_have_manager{false};
 
-        //==============================================================================
-        // Game-thread state
-        //==============================================================================
-
+        // Game-thread state.
         uer::LayoutCache g_layouts;
         uer::FuncCache g_funcs;
         uer::ObjRef g_pcm{};
         const void* g_world = nullptr;
         std::uint64_t g_last_resolve = 0;
         std::uint64_t g_last_read = 0; // QPC MICROseconds, not tick count
-        int g_pf_pump = -1;            // perf counter id (see perf.hpp)
+        int g_pf_pump = -1;            // perf counter id
         int g_cache_offset = -1; // CameraCachePrivate inside APlayerCameraManager
         int g_cache_size = 0;
         int g_pov_offset = -1; // POV inside CameraCachePrivate
         int g_bad_reads = 0;
-        bool g_getter_route = false; // the cache was unusable; call the getters instead
+        bool g_getter_route = false; // the cache is unusable; call the getters instead
         bool g_logged_route = false;
 
         void reset_layout_knowledge()
@@ -128,14 +106,8 @@ namespace hl
             g_cache_offset_pub.store(-1, std::memory_order_relaxed);
         }
 
-        //==============================================================================
-        // Finding the camera manager
-        //==============================================================================
-        //
-        // Two routes, both from context/wuchang-classes.md 2: the manager is the plain
-        // engine `PlayerCameraManager` class here (no game subclass), and it also hangs
-        // off the PlayerController as a plain object property.
-
+        // The manager is the plain engine `PlayerCameraManager` class (no game subclass)
+        // and also hangs off the PlayerController as an object property.
         void resolve_manager()
         {
             UObject* pcm = UObjectGlobals::FindFirstOf(L"PlayerCameraManager");
@@ -170,9 +142,8 @@ namespace hl
             g_have_manager.store(true, std::memory_order_relaxed);
             if (changed)
             {
-                // A different manager object means a different world; everything learned
-                // about the old one's class is still valid, but the pinned offset is
-                // re-confirmed from scratch rather than trusted across the change.
+                // A different manager object means a different world: the pinned offset
+                // is re-confirmed from scratch.
                 reset_layout_knowledge();
                 mm::logf(L"highlight: camera manager acquired ({}, object index {})",
                          ref.obj->GetName(),
@@ -180,10 +151,7 @@ namespace hl
             }
         }
 
-        //==============================================================================
-        // The three blueprint getters (used ONCE for calibration, then never again)
-        //==============================================================================
-
+        // The three blueprint getters, used for calibration and as the fallback route.
         struct RetFloat
         {
             float v = 0.0f;
@@ -235,10 +203,7 @@ namespace hl
             return mem::read_at(pcm, off, out);
         }
 
-        //==============================================================================
-        // Calibration: WHERE inside the cache the POV block sits
-        //==============================================================================
-
+        // Calibration: where inside the cache the POV block sits.
         bool near_enough(double a, double b, double tol)
         {
             return std::isfinite(a) && std::isfinite(b) && std::fabs(a - b) <= tol;
@@ -268,10 +233,8 @@ namespace hl
                     // No getters: sanity alone. Weaker, and the F2 panel says so.
                     return off;
                 }
-                // The camera moves between the getter calls and this read only by a
-                // frame's worth at most, and usually not at all (both happen inside one
-                // ProcessEvent callback), so the tolerances can be tight enough that a
-                // coincidental match is not credible.
+                // Getters and this read happen within one callback, so the camera moves
+                // at most a frame's worth: tolerances stay tight.
                 if (near_enough(c.x, truth->x, 2.0) && near_enough(c.y, truth->y, 2.0) &&
                     near_enough(c.z, truth->z, 2.0) && near_enough(c.pitch, truth->pitch, 0.5) &&
                     near_enough(c.yaw, truth->yaw, 0.5) && near_enough(c.fov_deg, truth->fov_deg, 0.5))
@@ -304,8 +267,8 @@ namespace hl
             const int off = find_pov_offset(pcm, have_truth ? &truth : nullptr);
             if (off < 0)
             {
-                // The cache is there but nothing in it looks like a view. Fall back to
-                // the getters, which at least produced something above.
+                // Cache present but nothing in it looks like a view: fall back to the
+                // getters.
                 g_getter_route = have_truth;
                 if (!g_logged_route)
                 {
@@ -334,10 +297,6 @@ namespace hl
                                 : L"sanity ranges only (the getters were unavailable)");
         }
 
-        //==============================================================================
-        // One camera read
-        //==============================================================================
-
         void read_camera(std::uint64_t now)
         {
             UObject* pcm = g_pcm.obj;
@@ -358,9 +317,8 @@ namespace hl
                 }
                 if (!ok)
                 {
-                    // Never latch a pinned offset that has stopped working: after a few
-                    // consecutive rejects the discovery runs again (a patch could move
-                    // the field, and a re-possession could hand us a different manager).
+                    // A pinned offset is never latched: after a few consecutive rejects
+                    // discovery runs again.
                     if (++g_bad_reads >= g_max_bad_read_limit)
                     {
                         mm::logf(L"highlight: the pinned camera offset (+{}) produced {} insane reads in a "
@@ -408,10 +366,6 @@ namespace hl
             g_last_ms.store(now, std::memory_order_relaxed);
         }
     } // namespace
-
-    //==================================================================================
-    // Public API
-    //==================================================================================
 
     bool camera(Pose& out)
     {
@@ -468,8 +422,6 @@ namespace hl
     {
         const bool on = !g_xray_latch.load(std::memory_order_relaxed);
         g_xray_latch.store(on, std::memory_order_relaxed);
-        // VERBOSE: a hotkey the player may hit dozens of times an hour (81 lines in
-        // run 5), and the panel and the HUD both already say whether it is on.
         MM_LOGV(L"x-ray highlight toggled {}", on ? L"on" : L"off");
         return on;
     }
@@ -484,10 +436,8 @@ namespace hl
 
     void drop_caches()
     {
-        // THE LATCH GOES WITH THE WORLD. This function is called by
-        // markers::drop_caches(), which gamestate calls whenever it drops the pawn or the
-        // world changes - so a toggled-on x-ray never survives a level transition, a
-        // death or a fast travel that reloads.
+        // The latch goes with the world: a toggled-on x-ray never survives a level
+        // transition, a death or a reloading fast travel.
         xray_latch_clear(L"the pawn or the world went");
         g_pcm.reset();
         g_world = nullptr;
@@ -505,8 +455,6 @@ namespace hl
         const bool want_compass = g_compass.load(std::memory_order_relaxed) && cfg.compass_enabled;
         if (!want_held && !want_compass)
         {
-            // Nothing on screen needs a camera: the reader costs one atomic load per
-            // pump and touches no UObject at all.
             return;
         }
 
@@ -516,7 +464,6 @@ namespace hl
         }
         g_world = world;
 
-        // The live tunables (see the block next to their defaults).
         g_resolve_ms = static_cast<std::uint64_t>(cfg.highlight_camera_resolve_ms);
         g_compass_ms = static_cast<std::uint64_t>(cfg.highlight_compass_period_ms);
         g_getter_ms = static_cast<std::uint64_t>(cfg.highlight_getter_period_ms);
@@ -539,9 +486,8 @@ namespace hl
             }
         }
 
-        // The rate: the full configured rate while the key is held (the labels have to
-        // stay glued to the item while the camera swings), 20 Hz for the compass alone,
-        // and never faster than kGetterPeriodMs on the ProcessEvent fallback route.
+        // Full configured rate while held, 20 Hz for the compass alone, never faster
+        // than kGetterPeriodMs on the ProcessEvent fallback route.
         std::uint64_t period = g_compass_ms;
         if (want_held)
         {
@@ -552,8 +498,8 @@ namespace hl
         {
             period = g_getter_ms;
         }
-        // Paced in MICROseconds: GetTickCount64's 15.6 ms granularity made every
-        // highlight_camera_hz above ~64 identical and jittered the rest by a frame.
+        // Paced in microseconds; GetTickCount64's 15.6 ms granularity is too coarse
+        // above ~64 Hz.
         const std::uint64_t period_us = period * 1000;
         if (now_us - g_last_read < period_us)
         {

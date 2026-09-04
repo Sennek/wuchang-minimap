@@ -1,6 +1,5 @@
 //
-// shrines - the runtime unlock state. See shrines.hpp for why it is a list of strings
-// and not a per-actor flag.
+// shrines - the runtime unlock state. See shrines.hpp for the shape of the data.
 //
 
 #include "shrines.hpp"
@@ -52,10 +51,8 @@ namespace shr
             ::strncpy_s(dst, cap, src.c_str(), _TRUNCATE);
         }
 
-        // The property names the research read out of the cooked package. Both
-        // capitalisations of the leading letter are tried: a blueprint variable's
-        // reflected name is whatever the designer typed, and the document's rendering of
-        // it is not proof.
+        // Both capitalisations of the leading letter are tried: a blueprint variable's
+        // reflected name is whatever the designer typed.
         const wchar_t* const kUnlockedNames[] = {L"UnlockedFirepoints", L"unlockedFirepoints"};
         const wchar_t* const kEverNames[] = {L"FirepointsEverUnlocked", L"firepointsEverUnlocked",
                                              L"AllFirepointsEverUnlocked"};
@@ -98,7 +95,7 @@ namespace shr
         }
 
         //==============================================================================
-        // The offline table (loop thread loads, everyone reads)
+        // The offline table
         //==============================================================================
 
         std::atomic<const std::vector<shdb::Shrine>*> g_table{nullptr};
@@ -126,11 +123,10 @@ namespace shr
             copy_into(g_travel.note, sizeof(g_travel.note), note);
         }
 
-        // A function-library static lives on the CDO, and uer::capture deliberately
-        // REFUSES a CDO (latching onto one is how a reader ends up reading an archetype
-        // instead of an instance - lessons.md). A CDO is also the one object that cannot
-        // die while its class is loaded, so it is remembered as a plain pointer plus its
-        // class, re-checked before every use.
+        // A function-library static lives on the CDO, and uer::capture refuses a CDO
+        // (latching onto one reads an archetype instead of an instance). A CDO cannot die
+        // while its class is loaded, so it is held as a plain pointer plus its class,
+        // re-checked before every use.
         UObject* g_lib_cdo = nullptr;
         RC::Unreal::UClass* g_lib_cdo_class = nullptr;
 
@@ -163,11 +159,10 @@ namespace shr
             return false;
         }
 
-        // The FString parameter block we hand to ProcessEvent. UE's ProcessEvent
-        // destroys the frame's LOCALS after the call but explicitly not its PARAMETERS
+        // The FString parameter block handed to ProcessEvent. ProcessEvent destroys the
+        // frame's LOCALS but not its PARAMETERS
         // (`if (!Destruct->HasAnyPropertyFlags(CPF_Parm))`), so the caller owns this
-        // memory and the engine's allocator is never handed a pointer of ours. The
-        // buffer is static so it outlives the call under any tail behaviour.
+        // memory. Static, so it outlives the call under any tail behaviour.
         struct FStringParam
         {
             const wchar_t* data = nullptr;
@@ -177,11 +172,9 @@ namespace shr
 
         wchar_t g_travel_id_w[shdb::kMaxIdLen + 1]{};
 
-        // The self-check. Research section 2.2 predicts a single FString in, so the
-        // reflected parameter list must be one or two 16-byte properties and the
-        // parameter block must be big enough to hold them. Anything else means the
-        // offline reading of the call graph was wrong about this function and, per
-        // lessons.md, the call is NOT made.
+        // Self-check: a single FString in means one or two 16-byte reflected parameters
+        // and a parameter block big enough to hold them. Anything else refuses the call -
+        // a UFunction is never called with a guessed signature.
         struct Sig
         {
             bool ok = false;
@@ -259,8 +252,7 @@ namespace shr
                            "fast_travel_enabled = 0 - turn it on in the Advanced settings");
                 return;
             }
-            // Only an UNLOCKED id: travelling to a locked one is untested and is exactly
-            // the kind of call that can wedge the streaming state (research 2.2).
+            // Only an UNLOCKED id: a locked one can wedge the streaming state.
             if (!is_unlocked(id.c_str()))
             {
                 set_travel(Travel::Refused, id.c_str(),
@@ -273,8 +265,8 @@ namespace shr
                 const wchar_t* fname;
                 bool library;
             };
-            // The library facade first (it needs no shrine actor to be loaded, and only
-            // ~3 of the 57 shrines ever are), then the menu's own path as the fallback.
+            // The library facade first (it needs no shrine actor loaded, and only ~3 of
+            // the 57 shrines ever are), then the menu's own path.
             const Route routes[] = {
                 {L"PlayerChuanSongFirePoint", true},
                 {L"ChuanSong", false},
@@ -434,8 +426,7 @@ namespace shr
             spin::SpinGuard guard(g_lock);
             g_table_info = info;
         }
-        // Deliberately leaked on a reload, exactly like the marker DB: the render thread
-        // may be walking the old vector and there is no safe point at which to free it.
+        // Leaked on reload: the render thread may be walking the old vector.
         g_table.store(list.release(), std::memory_order_release);
         mm::logf(L"shrines: table loaded - {} row(s), {} shrine(s), {} named", rep.rows, rep.shrines,
                  rep.named);
@@ -480,8 +471,7 @@ namespace shr
 
     void game_thread_pump(std::uint64_t now)
     {
-        // A travel request runs before the poll and outside its 1 Hz gate: the player
-        // pressed a button and is waiting for a loading screen.
+        // A travel request runs before the poll and outside its 1 Hz gate.
         if (g_travel_pending.exchange(false, std::memory_order_acquire))
         {
             std::string id;
@@ -503,8 +493,8 @@ namespace shr
         if (g_manager.empty() || !uer::alive(g_manager))
         {
             g_manager.reset();
-            // FindAllOf is a whole-object-array walk, so it is throttled hard and only
-            // runs while we have no component at all.
+            // FindAllOf walks the whole object array, so it runs only while there is
+            // no component at all, throttled to 5 s.
             if (g_last_find != 0 && now - g_last_find < 5000)
             {
                 return;
@@ -531,8 +521,7 @@ namespace shr
             if (!g_logged_props)
             {
                 g_logged_props = true;
-                // Name what IS there: a wrong spelling is the likeliest cause and the
-                // panel cannot show a property list.
+                // Name what IS there: a wrong spelling is the likeliest cause.
                 std::string names;
                 if (layout != nullptr)
                 {
@@ -605,18 +594,8 @@ namespace shr
                      n_ever == nullptr ? L" - no ever-list" : L"",
                      n_deact == nullptr ? L" - no deactivated-list" : L"",
                      next.truncated ? L" - TRUNCATED" : L"");
-            // THE NON-SHRINE ENTRIES, SPELLED OUT.
-            //
-            // UnlockedFirepoints also carries the boss-door and task
-            // pseudo-points (`bossdoor_dyy`, `Task1`, `Task_Door_Tangw`) that
-            // markers/shrines.json lists with `"shrine": false` - 38 of its 88
-            // rows. Whether a `bossdoor_*` id appears when the arena is first
-            // ENTERED or only once the boss is DEFEATED cannot be settled from
-            // the cooked data, and if it is the latter it is a second,
-            // save-backed boss-defeat signal to sit beside the health read in
-            // markers.cpp. Printing them on every change is what lets one play
-            // session answer it: kill a boss and see whether its id appears
-            // here at that moment.
+            // UnlockedFirepoints also carries the `bossdoor_*` / `Task*` pseudo-points
+            // that markers/shrines.json marks `"shrine": false`.
             std::wstring pseudo;
             int pseudo_n = 0;
             for (int i = 0; i < next.id_count; ++i)

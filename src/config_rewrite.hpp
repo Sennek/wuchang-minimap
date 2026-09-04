@@ -3,30 +3,19 @@
 //
 // config_rewrite - rewrite the VALUES in a config file and change nothing else.
 //
-// WHY IT EXISTS
-// -------------
-// Until 0.9.2 the F2 panel's "Save" regenerated config_wuchang_minimap.txt from a thin
-// comment block inside mmstate.cpp. One click therefore destroyed the ~470 lines of
-// documentation the mod ships with, every comment the user had added, their ordering,
-// and any key a NEWER build would have understood. That is the opposite of what a
-// settings panel is for.
+// Each `key = value` line gets the new value in place of the old one; every byte that is
+// not the value stays put - comments (including a `; ...` after a value), blank lines,
+// key order, indentation, the UTF-8 BOM, line endings, and keys this build does not know.
+// A key absent from the file is appended once at the end under a banner.
 //
-// So Save now edits the file the way a person would: find each `key = value` line, put
-// the new value where the old one was, and leave every byte that is not the value
-// exactly where it was - comments (including a `; ...` after a value), blank lines,
-// key order, indentation, the UTF-8 BOM, the file's line endings, and keys this build
-// has never heard of. A key that is missing from the file entirely is appended once, at
-// the end, under a banner that says who put it there.
+// A pure function of (text, key -> value): no Windows, no UE4SS, no ImGui, no allocation
+// beyond the string it returns, so tests can round-trip the shipped file with the game
+// closed.
 //
-// It is a PURE function of (text, key -> value): no Windows, no UE4SS, no ImGui, no
-// allocation beyond the string it returns - the same rule as markers_db / mapview /
-// config_keys - which is what lets tests/markers_test.cpp round-trip the real shipped
-// file on the build machine with the game closed.
-//
-// THE LINE RULES are the loader's (mmstate.cpp apply_text / cfgkeys::keys_in): `;` and
-// `#` start a comment, the key is everything left of the first `=` in the uncommented
-// part, trimmed. A line whose first non-blank character is `;` or `#` is a comment and
-// is never a key line, even if it contains an `=`.
+// Line rules are the loader's (mmstate.cpp apply_text / cfgkeys::keys_in): `;` and `#`
+// start a comment, the key is everything left of the first `=` in the uncommented part,
+// trimmed. A line whose first non-blank character is `;` or `#` is a comment and never a
+// key line, even if it contains an `=`.
 //
 
 #include <cstddef>
@@ -156,10 +145,9 @@ namespace cfgrw
                 }
             }
 
-            // Split what follows the `=` into [whitespace][value][the rest]. "The rest"
-            // is the inline comment plus whatever trailing whitespace was in front of
-            // it, and it is copied verbatim - so `opacity = 0.9   ; was 1.0` keeps its
-            // note, and a save that changes nothing is byte-identical.
+            // Split what follows the `=` into [whitespace][value][the rest]; "the rest"
+            // is trailing whitespace plus any inline comment, copied verbatim, so a save
+            // that changes nothing is byte-identical.
             std::size_t vs = eq + 1;
             while (vs < uncommented.size() && detail::is_space(uncommented[vs]))
             {
@@ -184,9 +172,7 @@ namespace cfgrw
             }
         }
 
-        // Anything the file did not carry. It goes at the END, under one banner, so the
-        // documented body of the file keeps its shape and the new keys are obviously
-        // machine-written.
+        // Keys the file does not carry, appended at the end under one banner.
         std::string tail;
         for (std::size_t i = 0; i < kv.size(); ++i)
         {
@@ -215,8 +201,8 @@ namespace cfgrw
         return out;
     }
 
-    // The subset of `kv` whose keys satisfy `pred` - what splits one config_kv() into
-    // the player file's half and the dev file's half.
+    // The subset of `kv` whose keys satisfy `pred`; splits one config_kv() into the
+    // player file's half and the dev file's half.
     template <typename Pred>
     inline std::vector<Pair> filter(const std::vector<Pair>& kv, Pred pred)
     {

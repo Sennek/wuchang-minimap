@@ -4,69 +4,60 @@
 // mapdata - loads maps/maps.json and the chapter PNGs the offline pipeline produced
 // (tools/navmesh/build_map.py, schema `wuchang-minimap-maps/3`).
 //
-// WHAT THE ASSET IS (changed 2026-09-02, round 3 of the in-world feedback)
-// ------------------------------------------------------------------------
-// The chapter ships a MULTI-SURFACE HEIGHT MAP: `max_surfaces` (8) 16-bit grayscale
-// PNGs of identical size and bounds, where plane k at pixel (px, py) holds the Z of
-// the k-th walkable surface at that spot, lowest first, quantised over the chapter's
-// [z_min, z_max] into 1..`z_code_max` - and 0 means "no surface here".
+// THE ASSET
+// ---------
+// A chapter ships a MULTI-SURFACE HEIGHT MAP: `max_surfaces` (8) 16-bit grayscale PNGs of
+// identical size and bounds, where plane k at pixel (px, py) holds the Z of the k-th
+// walkable surface at that spot, lowest first, quantised over the chapter's [z_min, z_max]
+// into 1..`z_code_max`; 0 means "no surface here".
 //
-// TWELVE BITS, not sixteen (schema /4). Only 1..4095 of the 16-bit sample is used,
-// which is a third off the PNG (32.07 -> 21.23 MB over the five chapters) for a Z
-// step of 3.98..12.44 uu depending on the chapter's span. The slicer's floor
-// tolerance is 200 uu and its fade 800 uu, so the worst error (+/- 6.22 uu) is 3 %
-// of the decision it feeds; the pipeline's own storey separator is 250 uu. The
-// divisor comes from the manifest (`z_code_max`), so a wider asset needs no code
-// change - and the schema string is checked for EXACT equality, because a /3 plane
-// read here would put every surface sixteen times too low and look like an empty map
-// rather than like a version error. See src/mapmanifest.hpp.
+// Only 12 bits of the 16-bit sample are used (schema /4), for a Z step of 3.98..12.44 uu
+// depending on the chapter's span. The slicer's floor tolerance is 200 uu and its fade
+// 800 uu, so the worst error (+/- 6.22 uu) is 3 % of the decision it feeds. The divisor
+// comes from the manifest (`z_code_max`), and the schema string is checked for EXACT
+// equality: a /3 plane read here would put every surface sixteen times too low and look
+// like an empty map rather than a version error. See src/mapmanifest.hpp.
 //
-// EIGHT, not four: four slots hold 93 % of the chapter's lit pixels but only 50 % of
-// them in the Digong-spiral / Hanguang-temple block, where a pixel can carry up to
-// eleven surfaces. Sliced at the temple's feet Z, four slots left 5 655 opaque pixels
-// against 17 807 at eight - two thirds of the floor missing, which is the fragmented
-// look this whole rewrite exists to remove. Eight is within 2 % of sixteen. The top
-// slot is the OVERFLOW slot and holds the highest Z where a stack is deeper than
-// eight, so the top of a deep stack is never what gets dropped.
+// Eight slots, not four: four hold 93 % of a chapter's lit pixels but only 50 % of them in
+// the Digong-spiral / Hanguang-temple block, where a pixel can carry up to eleven
+// surfaces. Eight is within 2 % of sixteen. The top slot is the OVERFLOW slot and holds
+// the highest Z where a stack is deeper than eight, so the top of a deep stack is never
+// what gets dropped.
 //
-// Sampling must be POINT/nearest: interpolating a quantised height code across a
-// storey boundary invents a floor halfway between two real ones. (The RGBA slice the
-// runtime produces from it is a colour, so the GPU may filter that one freely.)
+// Sampling must be POINT/nearest: interpolating a quantised height code across a storey
+// boundary invents a floor halfway between two real ones. (The RGBA slice the runtime
+// produces from it is a colour, so the GPU may filter that one freely.)
 //
-// It replaces the per-pixel surface-ORDINAL layer scheme (8 R8 coverage masks + a
-// 640-uu band lookup grid). Ordinals were exactly separable but unreadable in-world:
-// the runtime could only guess which ordinal the player's storey was, so a temple
-// interior came out as several blended layers. With a height map the runtime knows
-// the actual Z of every pixel and slices `|Z - feetZ| <= tolerance` on the CPU, which
-// is the exact semantics the shader path would have given - without a custom PSO on
-// a ReShade-wrapped swapchain. See CURRENT.md for the full decision.
+// The runtime knows the actual Z of every pixel and slices `|Z - feetZ| <= tolerance` on
+// the CPU - the exact semantics a shader path would give, without a custom PSO on a
+// ReShade-wrapped swapchain.
 //
-// ONE CHAPTER AT A TIME (added with chapters 2-5, 2026-09-02)
-// -----------------------------------------------------------
+// ONE CHAPTER AT A TIME
+// ---------------------
 // Five chapters ship and each costs 320-340 MB of RAM, so only ONE is ever resident.
 // `gamestate` names the chapter the player is in from the streamed `B<N>EX0_...` cell
 // packages (chapterid.hpp) and calls `set_detected_chapter()` from the game thread;
-// `on_update()` runs the swap on the loop thread. The swap is deliberately
-// RETIRE-THEN-LOAD, never load-then-retire, so the peak is one chapter and not two:
+// `on_update()` runs the swap on the loop thread. The swap is RETIRE-THEN-LOAD, never
+// load-then-retire, so the peak is one chapter and not two:
 //
-//   1. the outgoing chapter's `heights` pointer is cleared (readers see "no height
-//      maps" from the very next frame),
-//   2. the planes are freed only after `kRetireGraceMs` - a render thread that had
-//      already dereferenced the pointer finishes its ~4 ms slice a hundred times over
-//      inside that window,
+//   1. the outgoing chapter's `heights` pointer is cleared (readers see "no height maps"
+//      from the very next frame),
+//   2. the planes are freed only after `kRetireGraceMs` - a render thread that had already
+//      dereferenced the pointer finishes its ~4 ms slice a hundred times over inside that
+//      window,
 //   3. only then are the incoming chapter's planes decoded (~1-3 s of WIC).
 //
-// A chapter change happens at a loading screen, where the overlay is hidden anyway by
-// the transition cooldown, so the seconds with no map are not seconds the player sees.
+// A chapter change happens at a loading screen, where the overlay is hidden by the
+// transition cooldown.
 //
-// Threading: everything here runs on the UE4SS event-loop thread - parsing, file
-// reads and the WIC PNG decode - except `set_detected_chapter()` (game thread, one
-// atomic store) and the two reader functions the render thread uses. The height planes
-// are published as a raw `const HeightMaps*` the render thread reads directly (no
-// per-frame copy and no shared_ptr refcount traffic in the frame path); the pointer is
-// a single aligned 8-byte slot, so a reader sees either the old planes or none, never
-// a torn value. The composite is handed over as a decoded RGBA buffer through an
-// atomic queue so Present never blocks on the decode.
+// Threading: everything here runs on the UE4SS event-loop thread - parsing, file reads and
+// the WIC PNG decode - except `set_detected_chapter()` (game thread, one atomic store) and
+// the two reader functions the render thread uses. The height planes are published as a
+// raw `const HeightMaps*` the render thread reads directly (no per-frame copy, no
+// shared_ptr refcount traffic in the frame path); the pointer is a single aligned 8-byte
+// slot, so a reader sees either the old planes or none, never a torn value. The composite
+// is handed over as a decoded RGBA buffer through an atomic queue so Present never blocks
+// on the decode.
 //
 
 #include <atomic>
@@ -80,42 +71,35 @@
 
 namespace mapdata
 {
-    // How many stacked walkable surfaces one pixel can carry. Must match
-    // build_map.py's --max-surfaces (shipped: 8). Fewer planes than this in the
-    // manifest is fine - `HeightMaps::count` is what the slicer reads.
+    // How many stacked walkable surfaces one pixel can carry. Must match build_map.py's
+    // --max-surfaces (shipped: 8). Fewer planes in the manifest is fine -
+    // `HeightMaps::count` is what the slicer reads.
     constexpr int kMaxSurfaces = mapmanifest::kMaxSurfaces;
 
-    // How long a retired chapter's height planes are kept alive after the pointer to
-    // them has been cleared. A slice is ~4 ms; this is three orders of magnitude more.
+    // How long a retired chapter's height planes stay alive after the pointer to them is
+    // cleared. A slice is ~4 ms; this is three orders of magnitude more.
     constexpr std::uint64_t kRetireGraceMs = 2000;
 
     //==================================================================================
     // The multi-surface height map
     //==================================================================================
 
-    // How big a block the sparse store allocates in. 128 px measured best of the
-    // sizes tried: chapter 1's eight planes light 2 766 of 10 608 blocks (26.1 %),
-    // and 512 px measured WORSE than dense cropping did (see lessons.md) because the
-    // lit pixels are scattered through every building on the map, not clustered.
+    // How big a block the sparse store allocates in. 128 px measured best of the sizes
+    // tried: chapter 1's eight planes light 2 766 of 10 608 blocks (26.1 %). The lit
+    // pixels are scattered through every building on the map, not clustered.
     constexpr int kTilePx = 128;
     constexpr int kTileShift = 7; // 1 << 7 == kTilePx
     constexpr int kTileMask = kTilePx - 1;
     constexpr int kTileCells = kTilePx * kTilePx;
 
-    // ONE SURFACE LAYER, STORED SPARSELY.
+    // ONE SURFACE LAYER, STORED SPARSELY. A chapter's walkable area is a quarter of its
+    // bounding box and the deeper surfaces are rarer still (plane 0 lights 62 % of the
+    // blocks, plane 7 lights 3 %), so only the non-empty blocks are allocated and `tile`
+    // is a block-resolution index into them: 86 MB for chapter 1, 47..74 MB for the rest.
     //
-    // The dense version resized eight `width * height` uint16 planes: 343 MB for
-    // chapter 1, of which 74 % was the code 0 - "no surface here" - because a
-    // chapter's walkable area is a quarter of its bounding box and the deeper
-    // surfaces are rarer still (plane 0 lights 62 % of the blocks, plane 7 lights
-    // 3 %). Only the non-empty blocks are allocated now, and `tile` is a
-    // block-resolution index into them: 86 MB for chapter 1, 47..74 MB for the rest.
-    //
-    // Nothing about the runtime's ANSWERS changes - an absent block reads as code 0,
-    // which is what a dense plane held there - so this is purely an allocation
-    // change. What does change is the ACCESS: a row of the picture crosses several
-    // blocks, so there is no `row pointer` to hand out any more and readers gather a
-    // row through `HeightMaps::gather_row()`.
+    // An absent block reads as code 0, the same answer a dense plane held there. A row of
+    // the picture crosses several blocks, so there is no row pointer to hand out and
+    // readers gather a row through `HeightMaps::gather_row()`.
     struct HeightPlane
     {
         static constexpr std::int32_t kEmpty = -1;
@@ -196,20 +180,17 @@ namespace mapdata
             return k < 0 || k >= kMaxSurfaces || layer[k].empty();
         }
 
-        // GATHER ONE DESTINATION ROW of surface `k`: `dst[i]` becomes the height code
-        // at source pixel (`col_x[i]`, `sy`), or 0 where `col_x[i]` is negative (the
-        // caller's "outside the asset" marker) or the block is absent.
+        // GATHER ONE DESTINATION ROW of surface `k`: `dst[i]` becomes the height code at
+        // source pixel (`col_x[i]`, `sy`), or 0 where `col_x[i]` is negative (the caller's
+        // "outside the asset" marker) or the block is absent.
         //
-        // This is the block store's answer to `plane + sy * width`, and it is the same
-        // amount of memory traffic: `n` codes read per plane per row, one index lookup
-        // per block crossed. `col_x` is monotonic in practice, but nothing here needs
-        // it to be - the inner run only requires that consecutive columns in the same
-        // block are consecutive in `col_x`, which is what makes the common case one
-        // index lookup per 128 columns.
+        // The block store's answer to `plane + sy * width`, at the same memory traffic:
+        // `n` codes per plane per row, one index lookup per block crossed. `col_x` need
+        // not be monotonic; the inner run only requires consecutive columns in the same
+        // block to be consecutive in `col_x`.
         //
-        // Returns false when the row contributed no surface at all (every code 0),
-        // which lets the caller skip the whole row: in the deeper planes that is the
-        // overwhelming majority of rows.
+        // Returns false when the row contributed no surface at all (every code 0), which
+        // lets the caller skip the whole row.
         bool gather_row(int k, int sy, const int* col_x, int n, std::uint16_t* dst) const
         {
             if (dst == nullptr || col_x == nullptr || n <= 0 || plane_empty(k) || sy < 0 ||
@@ -261,7 +242,7 @@ namespace mapdata
         }
 
         // One code, for the odd single lookup (diagnostics, the self-test). Not the
-        // path to use per pixel - gather_row() amortises the index lookup.
+        // per-pixel path - gather_row() amortises the index lookup.
         std::uint16_t code_at(int k, int px, int py) const
         {
             if (plane_empty(k) || px < 0 || py < 0 || px >= width || py >= height)
@@ -334,8 +315,7 @@ namespace mapdata
             return n;
         }
 
-        // What the dense planes WOULD have cost, for the log line that reports the
-        // saving. Nothing allocates this.
+        // What the dense planes would cost, for the log line. Nothing allocates this.
         std::size_t dense_bytes() const
         {
             return static_cast<std::size_t>(width) * static_cast<std::size_t>(height) *
@@ -351,13 +331,10 @@ namespace mapdata
     // Fills one sparse plane from a DENSE decoded buffer (`w * h` height codes,
     // row-major), allocating only the 128-px blocks that carry a surface.
     //
-    // Inline and here rather than inside mapdata.cpp because it is half of the
-    // format: tests/markers_test.cpp builds a plane with THIS function and then
-    // compares gather_row() against the dense buffer it came from, which is the only
-    // way to prove the block indexing without launching the game. The dense buffer is
-    // transient - the caller frees it per plane - so the peak cost of a chapter load
-    // is the sparse set so far plus one dense plane (~43 MB), not the ~340 MB the
-    // dense store used to hold for the whole session.
+    // Inline and here rather than in mapdata.cpp so tests/markers_test.cpp can build a
+    // plane with THIS function and compare gather_row() against the dense buffer it came
+    // from. The dense buffer is transient - the caller frees it per plane - so a chapter
+    // load peaks at the sparse set so far plus one dense plane (~43 MB).
     inline void build_plane(HeightPlane& out, const std::uint16_t* src, int w, int h)
     {
         out = HeightPlane{};
@@ -370,9 +347,8 @@ namespace mapdata
         out.tile.assign(static_cast<std::size_t>(out.ntx) * static_cast<std::size_t>(out.nty),
                         HeightPlane::kEmpty);
 
-        // Two passes: mark the non-empty blocks, then allocate exactly that many and
-        // copy. One pass with push_back would reallocate a ~50 MB vector repeatedly
-        // on the loop thread.
+        // Two passes: mark the non-empty blocks, then allocate exactly that many and copy.
+        // One pass with push_back would reallocate a ~50 MB vector on the loop thread.
         for (int ty = 0; ty < out.nty; ++ty)
         {
             const int y0 = ty << kTileShift;
@@ -405,7 +381,7 @@ namespace mapdata
             return;
         }
         // Zero-initialised, so the padding of an edge block - and any hole inside a
-        // block - reads as "no surface", exactly as the dense plane did.
+        // block - reads as "no surface".
         out.data.assign(static_cast<std::size_t>(out.tiles) * kTileCells, 0);
         for (int ty = 0; ty < out.nty; ++ty)
         {
@@ -435,9 +411,9 @@ namespace mapdata
     {
         std::string key;   // "chapter1"
         std::string image; // "chapter1/small.png", relative to the maps dir
-        // The chapter NUMBER this asset is for (chid::kDlc for the DLC, chid::kNone
-        // when the manifest neither states it nor spells it in the key). This is what
-        // the runtime's chapter detection matches against.
+        // The chapter NUMBER this asset is for (chid::kDlc for the DLC, chid::kNone when
+        // the manifest neither states it nor spells it in the key). The runtime's chapter
+        // detection matches against this.
         int chapter = chid::kNone;
         int image_width = 0;
         int image_height = 0;
@@ -464,11 +440,10 @@ namespace mapdata
         // The height-plane PNG paths from maps.json, lowest surface first.
         std::vector<std::string> height_files;
 
-        // The resident height planes, or nullptr when this chapter is not the active
-        // one. Owned by mapdata (see kRetireGraceMs); a raw pointer rather than a
-        // shared_ptr so the render thread's per-frame read is one aligned load with no
-        // refcount traffic, and so a chapter switch does not keep the old planes alive
-        // through a copy some reader happens to hold.
+        // The resident height planes, or nullptr when this chapter is not the active one.
+        // Owned by mapdata (see kRetireGraceMs); a raw pointer rather than a shared_ptr so
+        // the render thread's per-frame read is one aligned load with no refcount traffic,
+        // and so a chapter switch cannot be kept alive by a copy a reader holds.
         const HeightMaps* heights = nullptr;
 
         bool has_heights() const
@@ -478,7 +453,7 @@ namespace mapdata
     };
 
     // A decoded texture waiting to be uploaded by the render thread. Only the chapter
-    // composite goes through here now (the height planes stay on the CPU).
+    // composite goes through here (the height planes stay on the CPU).
     struct PendingImage
     {
         std::string chapter_key;
@@ -490,22 +465,19 @@ namespace mapdata
 
     // Loop thread: read maps.json and decode the DEFAULT chapter's height planes (the
     // lowest chapter number in the manifest) plus its composite, if
-    // `mm::Config::fallback_use_composite` is on. Safe to call repeatedly; a second
-    // call re-reads everything (that is what F5 does).
+    // `mm::Config::fallback_use_composite` is on. Safe to call repeatedly.
     void load(const std::wstring& mod_dir);
 
-    // Loop thread, master switch (see modswitch.hpp): free the resident chapter's
-    // height planes and every queued image immediately, and forget the detection. Only
-    // legal once the overlay's render side has stopped - it does NOT use the
-    // kRetireGraceMs delay, because there is no longer a render thread to protect.
+    // Loop thread, master switch (see modswitch.hpp): free the resident chapter's height
+    // planes and every queued image immediately, and forget the detection. Legal only once
+    // the overlay's render side has stopped - it skips the kRetireGraceMs delay.
     void unload();
 
     // Loop thread: drives the retire/decode state machine. Call it every tick.
     void on_update();
 
-    // GAME THREAD: the chapter the player is in, as a chapter NUMBER (chid::kDlc for
-    // the DLC, chid::kNone when it cannot be determined). One relaxed atomic store; all
-    // the work happens on the loop thread in on_update().
+    // GAME THREAD: the chapter the player is in, as a chapter NUMBER (chid::kDlc for the
+    // DLC, chid::kNone when it cannot be determined). One relaxed atomic store.
     void set_detected_chapter(int chapter);
     int detected_chapter();
 
@@ -522,14 +494,13 @@ namespace mapdata
     Chapter chapter_for(double wx, double wy);
 
     // THE MAP THE OVERLAY SHOULD DRAW at (wx, wy). A pointer into the published (and
-    // deliberately never freed) chapter list, so the render thread can read the height
-    // planes every frame without a copy. nullptr if nothing matches.
+    // never freed) chapter list, so the render thread reads the height planes every frame
+    // without a copy. nullptr if nothing matches.
     //
-    // Once a chapter is ACTIVE this answers with that chapter and no other, because
-    // the chapters' world bounds overlap (chapter 4 covers nearly all of chapter 1) and
-    // a bounds test would happily hand back the wrong map. Before anything is known -
-    // at the main menu, or if detection never lands - it falls back to the old
-    // "first chapter whose bounds contain the point" behaviour.
+    // Once a chapter is ACTIVE this answers with that chapter and no other: the chapters'
+    // world bounds overlap (chapter 4 covers nearly all of chapter 1), so a bounds test
+    // would hand back the wrong map. Before anything is known it falls back to "first
+    // chapter whose bounds contain the point".
     const Chapter* chapter_ptr_for(double wx, double wy);
 
     bool loaded();

@@ -1,5 +1,5 @@
 //
-// saveslot - the runtime half. See saveslot.hpp for the ladder and the reasoning.
+// saveslot - the runtime half. See saveslot.hpp for the ladder.
 //
 // THREADS
 //   loop thread   on_unreal_init(), rescan_files()  - filesystem only (route 3)
@@ -56,10 +56,9 @@ namespace slotid
         //==============================================================================
         //
         // %LOCALAPPDATA%\Project_Plague\Saved\<account>\GameSlots\<slot>\<slot>.sav.
-        // The newest one is the slot in play; the research records that this can lag one
-        // autosave behind an immediate slot switch, which is acceptable because a slot
-        // switch in Wuchang goes through the main menu and a full level reload - and the
-        // game-thread routes re-run on exactly that transition.
+        // The newest one is the slot in play, and can lag one autosave behind a slot
+        // switch; a slot switch goes through a full level reload, which re-runs the
+        // game-thread routes.
 
         std::wstring saved_root()
         {
@@ -72,7 +71,6 @@ namespace slotid
             return std::wstring{buf} + L"\\Project_Plague\\Saved";
         }
 
-        // Every subdirectory of `dir` (names only).
         std::vector<std::wstring> subdirs(const std::wstring& dir, std::size_t cap)
         {
             std::vector<std::wstring> out;
@@ -155,9 +153,8 @@ namespace slotid
         bool g_resolved_by_engine = false;
         std::uint64_t g_last_try_ms = 0;
 
-        // Finds the first live instance of `class_name` and captures it. FindAllOf is a
-        // whole-object-array walk (28-51 ms in this game, lessons.md), so this is only
-        // ever called from the throttled, stops-when-resolved path below.
+        // Captures the first live instance of `class_name`. FindAllOf is a whole-object-
+        // array walk (28-51 ms here), so callers must be throttled.
         bool find_one(const wchar_t* class_name, uer::ObjRef& out)
         {
             std::vector<UObject*> objs;
@@ -176,13 +173,10 @@ namespace slotid
             return false;
         }
 
-        // Route 1's signature self-check. The prediction from research §1.2 is a
-        // key -> value string accessor, i.e. either
-        //     (FString key, FString ReturnValue)                  2 params
+        // Route 1's signature self-check. The accepted shapes are
+        //     (FString key, FString ReturnValue)                   2 params
         //     (FString section, FString key, FString ReturnValue)  3 params
-        // every one of them a 16-byte FString. Anything else means the offline reading
-        // of the call graph was wrong about this function, and per lessons.md the call
-        // is then NOT made.
+        // every one a 16-byte FString. On anything else the call is not made.
         struct UuidSig
         {
             bool ok = false;
@@ -223,10 +217,8 @@ namespace slotid
             return sig;
         }
 
-        // The candidate spellings. `GameSaveExecutor` is native (/Script/GameSaverNative)
-        // so the C++ name has no spaces, but the blueprint call nodes name it with them -
-        // which spelling reaches the reflection system is exactly the thing an offline
-        // pass cannot answer, so both are tried and the one that resolves is logged.
+        // Candidate spellings: `GameSaveExecutor` is native (/Script/GameSaverNative),
+        // so its C++ name has no spaces while blueprint call nodes name it with them.
         const wchar_t* const kUuidFuncNames[] = {
             L"Get Save Slot Value",
             L"GetSaveSlotValue",
@@ -251,7 +243,7 @@ namespace slotid
                 const UuidSig sig = check_uuid_signature(g_save_exec.obj, fname);
                 if (sig.params == 0 && !sig.ok)
                 {
-                    continue; // this spelling does not exist; try the next
+                    continue; // no such spelling
                 }
                 if (!g_uuid_sig_logged)
                 {
@@ -264,13 +256,10 @@ namespace slotid
                     note_out = "signature mismatch: " + sig.detail;
                     return false;
                 }
-                // The signature matches the prediction, and the call is still NOT made
-                // unless the dev switch says the in-game recon has confirmed it. An
-                // FString passed BY VALUE into ProcessEvent is destroyed by the engine
-                // after the call, and the engine frees it with FMemory - which would be
-                // handed a pointer our CRT allocated. That is the one hazard the
-                // signature check cannot rule out, so it stays behind a switch until the
-                // recon dump (step 5) shows the parameter is a const-ref / out pair.
+                // Gated behind saveslot_uuid_call: an FString passed by value into
+                // ProcessEvent is destroyed by the engine with FMemory, which would be
+                // handed a CRT-allocated pointer. The signature check cannot rule that
+                // out; the recon dump has to show the parameter is a const-ref/out pair.
                 const mm::Config& cfg = mm::cfg_cached();
                 if (!cfg.saveslot_uuid_call)
                 {
@@ -278,9 +267,7 @@ namespace slotid
                     return false;
                 }
                 std::vector<std::uint8_t> block(static_cast<std::size_t>(sig.block) + 16u, 0u);
-                // Input key(s) as EMPTY FStrings is the only shape that is safe to have
-                // the engine free, so a real call needs the recon to say the parameter is
-                // not owned. Until then this path is unreachable by default.
+                // Empty input FStrings are the only shape safe for the engine to free.
                 RC::Unreal::UFunction* fn = g_funcs.get(g_save_exec.obj, fname);
                 if (fn == nullptr || !mem::guarded_call(&uer::process_event_trampoline, g_save_exec.obj,
                                                         fn, block.data()))
@@ -381,8 +368,7 @@ namespace slotid
     void rescan_files()
     {
         const mm::Config& cfg = mm::cfg_cached();
-        // An explicit profile wins over every route, and `shared` pins the old global
-        // file - both are recorded in the status so the panel can say which is in force.
+        // An explicit profile wins over every route; `shared` pins the global file.
         const std::string profile = cfg.found_profile;
         if (profile == "shared")
         {
@@ -397,7 +383,7 @@ namespace slotid
         }
         if (g_resolved_by_engine)
         {
-            return; // a game-thread route already answered; do not undo it
+            return; // a game-thread route already answered
         }
         std::wstring path;
         if (!newest_sav(path))
@@ -441,8 +427,8 @@ namespace slotid
         {
             return;
         }
-        // Once a route has answered, stop: FindAllOf is a whole-array walk and this
-        // question does not change until the world does (drop_caches re-arms it).
+        // Once a route has answered, stop: FindAllOf is a whole-array walk and the
+        // answer only changes with the world (drop_caches re-arms it).
         if (g_resolved_by_engine)
         {
             return;
@@ -472,8 +458,7 @@ namespace slotid
                      widen(note), widen(uuid_note));
             return;
         }
-        // Neither engine route answered. Route 3's answer (set on the loop thread) is
-        // already in force, so nothing is overwritten - but say why, once.
+        // Neither engine route answered; route 3's answer stays in force.
         static bool logged = false;
         if (!logged)
         {

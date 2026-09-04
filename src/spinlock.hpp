@@ -1,22 +1,16 @@
 //
-// spinlock.hpp - the mod's only lock.
-//
-// `std::mutex` is unusable here: compiled against MSVC 14.40's STL,
-// `std::unique_lock<std::mutex>::try_lock` faults with an access violation on the
-// first call from this game's game thread, against whichever MSVCP140 the process
-// already loaded (see lessons.md and context/crash-gamethread-mutex-CrashContext.xml).
-// So every critical section in the mod is held by this header-only spinlock instead.
+// spinlock.hpp - the mod's only lock. `std::mutex` is unusable in this process:
+// `std::unique_lock<std::mutex>::try_lock` faults on the game thread against whichever
+// MSVCP140 the game already loaded.
 //
 // Properties the call sites rely on:
 //   * header-only and allocation-free - no CRT, no heap, safe inside ProcessEvent;
-//   * constant-initialised - a `Spinlock g_lock;` at namespace scope needs no dynamic
-//     initialiser, so it is ready before any other translation unit runs;
-//   * `YieldProcessor()` for the first spins, `SwitchToThread()` every 64th, so a
-//     contended lock does not burn a core while the holder waits for a timeslice;
-//   * `try_lock_ms()` for callers that must never wait for ever.
+//   * constant-initialised, so a namespace-scope `Spinlock` is ready before any other
+//     translation unit runs;
+//   * `YieldProcessor()` for the first spins, `SwitchToThread()` every 64th.
 //
-// Critical sections under it must stay short and must not allocate: the render thread,
-// the UE4SS event-loop thread and the game thread all take these locks.
+// The render thread, the UE4SS event-loop thread and the game thread all take these
+// locks, so critical sections must stay short and must not allocate.
 //
 
 #pragma once
@@ -46,11 +40,8 @@ namespace spin
             }
         }
 
-        // A BOUNDED acquire, for callers that must never wait for ever - a render-thread
-        // path that can be entered from a thread the render thread is itself waiting on
-        // would turn a stall into a deadlock. Returns false without holding the lock when
-        // the budget runs out; the deadline is tested on every backoff, so the wait is
-        // bounded by `budget_ms` plus one timeslice.
+        // Bounded acquire: returns false without the lock once `budget_ms` runs out.
+        // The deadline is tested on every backoff, so the wait is budget + one timeslice.
         bool try_lock_ms(unsigned budget_ms) noexcept
         {
             const std::uint64_t deadline = ::GetTickCount64() + budget_ms;

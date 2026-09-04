@@ -1,25 +1,15 @@
 #pragma once
 
 //
-// pngdecode - the WIC PNG decode the map assets go through, on its own.
+// pngdecode - the WIC PNG decode the map assets go through. No UE4SS, no mod log, no
+// residency state machine, so tests decode a shipped PNG through exactly this code.
 //
-// Split out of mapdata.cpp for the same reason mapmanifest.hpp was: it is the half of
-// the loader that has no dependency on UE4SS, on the mod's log or on the residency
-// state machine, so tests/markers_test.cpp can decode a SHIPPED PNG through exactly
-// this code on the build machine. An in-game session is the scarce resource; "does
-// the asset we are about to ship decode to the numbers we think it does" must not
-// need one.
+// A schema-/4 composite is PNG colour type 3 (8-bit indexed) with a tRNS array, which
+// WIC presents as GUID_WICPixelFormat8bppIndexed with per-index alpha in the frame's
+// palette; IWICFormatConverter::Initialize(frame, 32bppRGBA) expands it. So the caller
+// asks for RGBA and gets RGBA whether the file is RGBA8 or indexed.
 //
-// WIC rather than a vendored stb_image: it is part of Windows, needs no new
-// third-party code, and it is what makes the palette composite free. A schema-/4
-// composite is PNG colour type 3 (8-bit indexed) with a tRNS ARRAY, which WIC's PNG
-// decoder presents as GUID_WICPixelFormat8bppIndexed with the frame's palette
-// carrying the per-index alpha; IWICFormatConverter::Initialize(frame, 32bppRGBA)
-// then expands it using that palette. So the caller asks for RGBA and gets RGBA
-// whether the file on disk is RGBA8 or indexed - one palette lookup per pixel more
-// than before, on the loop thread, once per chapter load.
-//
-// This runs on the UE4SS event-loop thread, never inside Present.
+// Runs on the UE4SS event-loop thread, never inside Present.
 //
 
 #include <Windows.h>
@@ -31,21 +21,19 @@
 
 namespace pngdec
 {
-    // The number of BYTES per pixel the caller wants back, which also picks the WIC
-    // target format:
-    //   4 -> GUID_WICPixelFormat32bppRGBA  (the Z-shaded composite; RGBA and not
-    //        BGRA because the ImGui DX12 backend's sampler and our
-    //        DXGI_FORMAT_R8G8B8A8_UNORM texture both want RGBA)
-    //   2 -> GUID_WICPixelFormat16bppGray  (one height plane; WIC hands 16-bit
-    //        samples back in native - little-endian - order, which is what the
-    //        height codes want. PNG itself stores them big-endian.)
+    // Bytes per pixel wanted back, which also picks the WIC target format:
+    //   4 -> GUID_WICPixelFormat32bppRGBA  (the Z-shaded composite; RGBA, since the
+    //        ImGui DX12 backend and the R8G8B8A8_UNORM texture both want RGBA)
+    //   2 -> GUID_WICPixelFormat16bppGray  (one height plane; WIC returns 16-bit
+    //        samples in native little-endian order, which is what the height codes
+    //        want. PNG itself stores them big-endian.)
     //   1 -> GUID_WICPixelFormat8bppGray
     constexpr int kRgba = 4;
     constexpr int kGray16 = 2;
     constexpr int kGray8 = 1;
 
-    // Refuse anything absurd before allocating for it. The biggest shipped asset is
-    // 3029x7342; a D3D12 texture cannot exceed 16384 either.
+    // Refused before allocating. The biggest shipped asset is 3029x7342 and a D3D12
+    // texture cannot exceed 16384.
     constexpr UINT kMaxDim = 16384;
 
     struct Result
@@ -60,12 +48,11 @@ namespace pngdec
     };
 
     // Decodes `path` into `out_pixels` (width * height * channels bytes, top-down,
-    // tightly packed). Never throws; the HRESULT in the result says what went wrong
-    // so the caller can log it in its own voice.
+    // tightly packed). Never throws; the result's HRESULT says what went wrong.
     //
-    // COM: the loop thread may or may not already have an apartment, and
-    // RPC_E_CHANGED_MODE just means someone else picked the other model - which is
-    // fine for WIC. Deliberately never uninitialised: we do not own this thread.
+    // COM: RPC_E_CHANGED_MODE means the thread already picked the other apartment
+    // model, which is fine for WIC. Never uninitialised - the mod does not own this
+    // thread.
     inline Result decode(const wchar_t* path, int channels, std::vector<std::uint8_t>& out_pixels)
     {
         Result r{};
@@ -117,9 +104,9 @@ namespace pngdec
             const WICPixelFormatGUID want = channels == kGray8    ? GUID_WICPixelFormat8bppGray
                                             : channels == kGray16 ? GUID_WICPixelFormat16bppGray
                                                                   : GUID_WICPixelFormat32bppRGBA;
-            // WICBitmapPaletteTypeCustom + a null palette: the palette argument is
-            // for the DESTINATION (RGB -> indexed), and we only ever go the other
-            // way, where the converter uses the SOURCE frame's own palette.
+            // WICBitmapPaletteTypeCustom + null palette: that argument is for a
+            // DESTINATION palette (RGB -> indexed). Going the other way, the converter
+            // uses the source frame's own palette.
             hr = converter->Initialize(frame, want, WICBitmapDitherTypeNone, nullptr, 0.0,
                                        WICBitmapPaletteTypeCustom);
         }

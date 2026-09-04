@@ -1,27 +1,15 @@
 //
-// atomicfile.hpp - whole-file reads and CRASH-SAFE whole-file writes.
-//
-// Every file this mod owns (the found tracker, the config files, the waypoint) used to
-// be written with CREATE_ALWAYS + WriteFile straight over the live file: the moment the
-// handle opens, the player's data is gone, and a crash or a power cut anywhere in the
-// next few milliseconds leaves a truncated file behind. The found tracker is the one
-// that hurts - it is the player's collection progress and nothing else in the game
-// carries it.
-//
-// So every write goes:
+// atomicfile.hpp - whole-file reads and crash-safe whole-file writes.
 //
 //     write <path>.tmp  ->  FlushFileBuffers  ->  keep <path> as <path>.bak
 //                       ->  MoveFileExW(<path>.tmp -> <path>,
 //                                       REPLACE_EXISTING | WRITE_THROUGH)
 //
-// The rename is the commit point: after it the file is either wholly the old contents
-// or wholly the new ones, never half of each. `.bak` is the previous generation, kept
-// for the found tracker only (a config file the player can retype; a 300-id collection
-// they cannot).
+// The rename is the commit point: afterwards the file is wholly old or wholly new,
+// never half of each. `.bak` is the previous generation, kept for the found tracker.
 //
-// Header-only and Win32-only on purpose: it is used by the DLL and by the offline test
-// exe, and neither may pull in iostreams (lessons.md - the game thread must not touch
-// MSVCP140's stream/locale code).
+// Header-only and Win32-only: shared by the DLL and the offline test exe, and the game
+// thread must not touch MSVCP140's stream/locale code.
 //
 #pragma once
 
@@ -33,10 +21,8 @@
 
 namespace mmfile
 {
-    // Why a read did not produce data. The distinction is load-bearing: "the file is
-    // not there" means a fresh install, and "I could not read the file that IS there"
-    // means something else has it open (a virus scanner, OneDrive, a text editor) and
-    // the mod must NOT then write an empty set over it.
+    // Why a read produced no data. NotFound is a fresh install; Failed means something
+    // else holds the file open, and the mod must not write an empty set over it.
     enum class ReadStatus
     {
         Ok,
@@ -52,7 +38,7 @@ namespace mmfile
         unsigned long long size = 0;        // the size the file reported
     };
 
-    // <path>.tmp / <path>.bak. Pure, so the naming is testable.
+    // <path>.tmp / <path>.bak.
     inline std::wstring tmp_path(std::wstring_view path)
     {
         return std::wstring{path} + L".tmp";
@@ -109,8 +95,7 @@ namespace mmfile
     }
 
     // The temp-file-plus-rename write described at the top of this file. `err` receives
-    // GetLastError() from whichever step failed, so the caller can say WHY in its log
-    // line. A failed write leaves `<path>` exactly as it was.
+    // GetLastError() from the failing step. A failed write leaves `<path>` untouched.
     inline bool write_whole_file_atomic(const std::wstring& path, std::string_view data, bool keep_backup,
                                         unsigned* err = nullptr)
     {
@@ -138,8 +123,8 @@ namespace mmfile
             ::CloseHandle(h);
             return fail(e);
         }
-        // The bytes have to be on the disk BEFORE the rename, or a power cut can commit
-        // a name pointing at nothing.
+        // The bytes must reach the disk before the rename, or a power cut commits a
+        // name pointing at nothing.
         if (::FlushFileBuffers(h) == 0)
         {
             const unsigned e = static_cast<unsigned>(::GetLastError());
@@ -150,16 +135,14 @@ namespace mmfile
 
         if (keep_backup)
         {
-            // A copy, not a move: a move would leave `<path>` missing for the width of
-            // the second rename. A failure here is not fatal - the backup is a courtesy,
-            // the commit below is the guarantee.
+            // A copy, not a move: a move leaves `<path>` missing across the second
+            // rename. Failure here is not fatal; the commit below is the guarantee.
             ::CopyFileW(path.c_str(), bak_path(path).c_str(), FALSE);
         }
 
         if (::MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0)
         {
-            // Deliberately NOT deleting the temp file: it holds the only copy of the
-            // data that was meant to be saved, and the caller logs the path.
+            // The temp file stays: it holds the only copy of the data to be saved.
             return fail(static_cast<unsigned>(::GetLastError()));
         }
         if (err != nullptr)

@@ -1,39 +1,23 @@
 #pragma once
 
 //
-// projection - world -> camera -> NDC -> screen, and nothing else.
+// projection - world -> camera -> NDC -> screen. No Windows, D3D12, ImGui, UE4SS or
+// mod state, so the arithmetic is tested offline.
 //
-// WHY IT IS A SEPARATE, PURE HEADER
-// ---------------------------------
-// The x-ray highlight stands or falls on this arithmetic: if the basis or the FOV
-// convention is wrong the labels sit next to the item instead of on it, and the only
-// way to notice would be an in-game session - the scarce resource in this project. So
-// the math has no dependency on Windows, D3D12, ImGui, UE4SS or the mod's own state,
-// and tests/markers_test.cpp checks it against hand-computed screen coordinates.
+// Unreal conventions, all load bearing:
+//   * left-handed world: +X forward/north, +Y right/east, +Z up;
+//   * FRotator is (pitch, yaw, roll) in DEGREES; the camera basis is UE's
+//     FRotationMatrix, spelled out in basis();
+//   * FMinimalViewInfo::FOV is HORIZONTAL in degrees when the viewport is wider than
+//     tall. UE then uses XAxisMultiplier = 1, YAxisMultiplier = w/h, so
+//     tan(vfov/2) = tan(hfov/2) / aspect. The portrait branch is implemented too;
+//   * reverse-Z is irrelevant: nothing here produces a depth value, only x/y.
 //
-// CONVENTIONS (Unreal, and they are all load bearing)
-//   * left-handed world: +X forward/north, +Y right/east, +Z up. The whole mod already
-//     draws maps with +X as "up on the image", so this is the same axis set;
-//   * FRotator is (pitch, yaw, roll) in DEGREES, and the camera basis is UE's
-//     FRotationMatrix - see basis() below for the exact rows;
-//   * FMinimalViewInfo::FOV is the HORIZONTAL field of view in degrees when the
-//     viewport is wider than it is tall, which is the only case this game ships in.
-//     UE builds the projection with XAxisMultiplier = 1 and YAxisMultiplier = w/h in
-//     that case, so tan(vfov/2) = tan(hfov/2) / aspect. The portrait branch (aspect
-//     < 1) is implemented too, because it is two lines and a wrong guess there would
-//     be invisible;
-//   * reverse-Z is irrelevant: nothing here produces a depth buffer value, only x/y.
-//
-// BEHIND THE CAMERA
-// -----------------
-// A point with camera-space depth <= near is never drawn at a screen position - a
-// naive divide would place it mirrored on the opposite side of the screen, which is
-// the classic "the marker for the chest behind me sits on the wall in front of me"
-// bug. project() flags it instead (`behind = true`, and `sx`/`sy` are left at their defaults) and still
-// returns a usable DIRECTION: the raw camera-space right/up components, FOV-scaled but
-// never divided by depth, normalised and pushed to NDC length 2 so the caller's edge
-// clamp puts the arrow on the rim. Exactly behind the camera (right == up == 0) is the
-// one special case and points straight down.
+// A point with camera-space depth <= near gets no screen position (a divide would
+// mirror it to the opposite side of the screen). project() sets `behind` and returns a
+// DIRECTION instead: camera-space right/up, FOV-scaled but not divided by depth,
+// normalised to NDC length 2 so the caller's edge clamp puts an arrow on the rim.
+// Exactly behind the camera points straight down.
 //
 
 #include <cmath>
@@ -41,8 +25,7 @@
 namespace proj
 {
     inline constexpr double kPi = 3.14159265358979323846;
-    // Anything closer than this to the camera plane is treated as "behind": at 1 uu the
-    // divide is already numerically meaningless and the item is inside the player's head.
+    // Closer than this to the camera plane counts as "behind".
     inline constexpr double kNearUu = 1.0;
 
     struct Camera
@@ -70,9 +53,7 @@ namespace proj
         Vec3 up;
     };
 
-    // UE's FRotationMatrix rows, spelled out. Getting one sign wrong here is a bug that
-    // only shows up when the player looks up or rolls, so the rows are written exactly
-    // as the engine has them rather than "derived".
+    // UE's FRotationMatrix rows, spelled out exactly as the engine has them.
     inline Basis basis(double pitch_deg, double yaw_deg, double roll_deg)
     {
         const double p = pitch_deg * kPi / 180.0;
@@ -112,9 +93,7 @@ namespace proj
         double sy = 0.0;
     };
 
-    // A camera pose that could not have come from a live game. Used as a hard gate
-    // before anything is drawn: a garbage read must produce "no highlight", never a
-    // screenful of labels in the wrong place.
+    // Hard gate before anything is drawn: a garbage read must produce no highlight.
     inline bool camera_sane(const Camera& c)
     {
         const auto finite = [](double v) { return std::isfinite(v); };
@@ -123,14 +102,14 @@ namespace proj
         {
             return false;
         }
-        // Wuchang's world fits in a few hundred thousand uu; 2e6 is generous and still
-        // rejects the 1e18 / 1e-300 values a wrong byte offset produces.
+        // Wuchang's world fits in a few hundred thousand uu; 2e6 still rejects the
+        // 1e18 / 1e-300 values a wrong byte offset produces.
         if (std::fabs(c.x) > 2.0e6 || std::fabs(c.y) > 2.0e6 || std::fabs(c.z) > 2.0e6)
         {
             return false;
         }
-        // UE clamps camera pitch to +-90 and does NOT wrap yaw on save (a real Chapter-1
-        // actor ships yaw 447), so yaw is only bounded loosely.
+        // UE clamps camera pitch to +-90 and does not wrap yaw on save (a Chapter-1
+        // actor ships yaw 447), so yaw is bounded only loosely.
         if (std::fabs(c.pitch) > 90.5 || std::fabs(c.roll) > 180.5 || std::fabs(c.yaw) > 1.0e4)
         {
             return false;
@@ -138,7 +117,7 @@ namespace proj
         return c.fov_deg >= 5.0 && c.fov_deg <= 170.0;
     }
 
-    // The one function. `screen_w` / `screen_h` are the swapchain's, in pixels.
+    // `screen_w` / `screen_h` are the swapchain's, in pixels.
     inline Result project(const Camera& c, double wx, double wy, double wz, double screen_w, double screen_h)
     {
         Result out{};
@@ -176,20 +155,15 @@ namespace proj
 
         if (fwd <= kNearUu)
         {
-            // Behind (or in) the camera plane. A divide by `fwd` here would mirror the
-            // point onto the opposite side of the screen - the classic "the chest behind
-            // me is labelled on the wall in front of me" bug - so no screen position is
-            // produced at all. What IS well defined is the direction the player has to
-            // turn: the camera-space right/up components, pushed outside the NDC box so
-            // the caller's edge clamp puts the arrow on the rim.
+            // Behind (or in) the camera plane: no screen position, only the direction to
+            // turn, pushed outside the NDC box for the caller's edge clamp.
             out.behind = true;
             double ax = rgt * mult_x / tan_half;
             double ay = up * mult_y / tan_half;
             double len = std::sqrt(ax * ax + ay * ay);
             if (!(len > 1e-9))
             {
-                // Exactly behind: no side is nearer. Point down, the usual "turn around"
-                // convention, rather than picking a side at random.
+                // Exactly behind: no side is nearer, so point down.
                 ax = 0.0;
                 ay = -1.0;
                 len = 1.0;
@@ -203,8 +177,7 @@ namespace proj
         out.ndc_y = (up / fwd) * mult_y / tan_half;
         out.sx = (out.ndc_x * 0.5 + 0.5) * screen_w;
         out.sy = (0.5 - out.ndc_y * 0.5) * screen_h;
-        // A point exactly on the rim counts as visible; the epsilon is there because
-        // "exactly" is a floating-point tan/divide away from 1.0.
+        // A point on the rim counts as visible; the epsilon absorbs the tan/divide.
         constexpr double kEdge = 1.0 + 1e-9;
         out.on_screen = out.ndc_x >= -kEdge && out.ndc_x <= kEdge && out.ndc_y >= -kEdge && out.ndc_y <= kEdge;
         return out;

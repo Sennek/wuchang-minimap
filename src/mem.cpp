@@ -6,9 +6,8 @@ namespace mem
 {
     namespace
     {
-        // Last region VirtualQuery said was fine. Single-threaded use (the UE4SS
-        // update thread), so no locking; a stale entry can only ever cause an
-        // extra VirtualQuery, never a wrong "readable" answer for a new region.
+        // Last region VirtualQuery accepted. Thread-local, so a stale entry can only
+        // cost an extra VirtualQuery, never a wrong answer.
         thread_local std::uintptr_t g_cache_begin = 0;
         thread_local std::uintptr_t g_cache_end = 0;
     } // namespace
@@ -124,8 +123,8 @@ namespace mem
             return false;
         }
 
-        // Read/write data only. Anything executable, no-access or guarded is either
-        // code or a page the allocator is using as a tripwire.
+        // Read/write data only: executable, no-access and guarded pages are code or
+        // allocator tripwires.
         constexpr DWORD writable = PAGE_READWRITE | PAGE_WRITECOPY;
         if ((mbi.Protect & writable) == 0)
         {

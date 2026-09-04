@@ -10,9 +10,8 @@ namespace cmp
         {
             return 0.0;
         }
-        // The half-open interval is (-180, 180]: due south must read as +180, not -180,
-        // so that a strip whose span is a full 360 degrees does not fold its right edge
-        // onto its left one.
+        // Half-open (-180, 180]: due south reads +180, so a full-360 strip does not fold
+        // its right edge onto its left one.
         double v = std::fmod(deg + 180.0, 360.0);
         if (v <= 0.0)
         {
@@ -55,8 +54,8 @@ namespace cmp
         const double centre = s.x0 + s.width * 0.5;
         if (rel < -half || rel > half)
         {
-            // Clamped to the edge on the side it is actually on, so an arrow drawn
-            // there points the way the player has to turn.
+            // Clamped to the edge on the side it is on, so an arrow there points the way
+            // to turn.
             x_out = rel < 0.0 ? s.x0 : s.x0 + s.width;
             return false;
         }
@@ -87,9 +86,8 @@ namespace cmp
         const double span = (s.span > 1.0 && s.span <= 360.0) ? s.span : 120.0;
         const double half = span * 0.5;
 
-        // Walk the ticks around the heading rather than 0..360: the strip never shows
-        // more than `span` degrees, so this is span/step iterations regardless of where
-        // the player is looking (and it cannot loop forever on a silly heading).
+        // Walking around the heading rather than 0..360 keeps this at span/step
+        // iterations whatever the heading.
         const double first = std::ceil((s.heading - half) / step) * step;
         int n = 0;
         for (int i = 0; i < 4096 && n < cap; ++i)
@@ -101,9 +99,8 @@ namespace cmp
             }
             Tick t{};
             t.bearing = wrap360(bearing);
-            // The walk itself already produced a relative angle inside the strip, so use
-            // it directly. Going back through strip_x() would re-wrap it, and at a full
-            // 360-degree span that maps both ends onto the same edge.
+            // The walk already produced a relative angle inside the strip. strip_x()
+            // would re-wrap it, folding both ends of a 360-degree span onto one edge.
             t.rel = bearing - s.heading;
             t.x = s.x0 + s.width * 0.5 + (t.rel / span) * s.width;
             const double from45 = std::fabs(wrap180(t.bearing - static_cast<double>(std::lround(t.bearing / 45.0)) * 45.0));

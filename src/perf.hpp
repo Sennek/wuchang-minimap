@@ -1,37 +1,19 @@
 #pragma once
 
 //
-// perf - one lock-free counter per periodic activity.
+// perf - one lock-free counter per periodic activity, printed by the F2 debug block
+// as name / rate / average / peak / last / thread.
 //
-// WHY
-// ---
-// This mod does periodic work on three threads (the UE4SS loop thread, the game
-// thread inside the ProcessEvent pre-callback, and whichever thread calls Present)
-// and the review of v0.9.1 found two costs that had been invisible for weeks: the
-// 4 Hz widget sweep at 28-51 ms a call, and `publish_round`, which was never timed
-// at all. Both were found by reading code, not by looking at a number.
+// Constraints:
+//   * no std::mutex (it faults against this process's MSVCP140 on the game thread) -
+//     plain relaxed atomics only;
+//   * no allocation and no blocking: the table is a fixed array of PODs and recording
+//     is a handful of relaxed loads and stores, no CAS loop, no retry;
+//   * no Windows, D3D12 or UE4SS here, so tests cover the arithmetic offline.
 //
-// So every periodic activity registers a counter here and records how long each
-// invocation took. The F2 debug block prints the table: name, rate, average, peak,
-// last, thread. One screenshot then answers "what is this mod costing".
-//
-// THE CONSTRAINTS, from lessons.md
-// --------------------------------
-//   * NO std::mutex anywhere - it faults against this process's MSVCP140 the first
-//     time the game thread touches it. This header uses plain relaxed atomics only.
-//   * The game thread must not allocate or block. Registration allocates nothing
-//     (the table is a fixed array of PODs) and recording is a handful of relaxed
-//     atomic reads and writes with no CAS loop and no retry.
-//   * The pure arithmetic lives here, in a header with no Windows, no D3D12 and no
-//     UE4SS, so tests/markers_test.cpp covers it with the game closed.
-//
-// ACCURACY
-// --------
-// Recording is deliberately racy in one specific way: two threads recording into
-// the SAME counter can interleave and lose a sample. That never happens in practice
-// because each counter is owned by exactly one thread (the `thread` field says
-// which), and even if it did, a diagnostic that loses one sample in a million is
-// still a diagnostic. Nothing here is ever used to make a decision.
+// Recording is racy: two threads writing the SAME counter can lose a sample. Each
+// counter has exactly one writer (the `thread` field), and nothing here feeds a
+// decision.
 //
 
 #include <atomic>
@@ -41,8 +23,7 @@
 
 namespace perf
 {
-    // Which thread an activity belongs to. Printed in the table, and the reason a
-    // counter needs no synchronisation: one writer each.
+    // Which thread owns an activity - the reason a counter needs no synchronisation.
     enum class Thread : int
     {
         Unknown = 0,
@@ -67,19 +48,15 @@ namespace perf
         }
     }
 
-    // The most counters the table can hold. Registration past this is dropped rather
-    // than growing the table - a fixed array is what keeps recording allocation-free.
+    // Table capacity. Registration past this is dropped; a fixed array is what keeps
+    // recording allocation-free.
     constexpr int kMaxCounters = 32;
 
-    // The window an average is taken over. A rolling reset (rather than a lifetime
-    // mean) is what makes the table respond when something gets slower.
+    // The rolling window an average and a rate are taken over.
     constexpr std::uint64_t kWindowMs = 2000;
 
-    // ONE COUNTER. It is a plain struct of scalars, not atomics, because the array
-    // that holds them is the only thing shared and every element has a single writer.
-    // The reader (the F2 panel, on the render thread) may see a half-updated row; the
-    // numbers are refreshed many times a second, so a stale field for one frame is
-    // not worth a lock.
+    // Plain scalars, not atomics: every element has a single writer. The F2 panel may
+    // read a half-updated row, which costs one frame of a stale field.
     struct Counter
     {
         const char* name = nullptr;
@@ -91,13 +68,10 @@ namespace perf
         double avg_ms = 0.0;        // mean over the last completed window
         double rate_hz = 0.0;       // invocations per second over the last window
 
-        // THE PEAK THAT MEANS SOMETHING. A sample taken while the process was loading a
-        // level, resizing the swapchain or doing a one-off blocking job (a reload, a
-        // clipboard copy) is wall-clock time spent waiting for the game, not the cost of
-        // this activity - and one such sample hides every later regression behind it,
-        // exactly the way the "reset peaks" button exists to work around. So a stalled
-        // sample still updates `peak_ms` and `last_ms` (nothing is hidden) but is counted
-        // separately instead of setting the peak the table shows.
+        // A sample taken during a stall (level load, swapchain resize, a one-off
+        // blocking job) is wall-clock time waiting for the game, not this activity's
+        // cost. It still updates `peak_ms` and `last_ms`, but is counted separately so
+        // it cannot hide later regressions behind it.
         double peak_calm_ms = 0.0;  // the worst sample taken outside a stall
         std::uint64_t stalls = 0;   // samples taken during one
         double peak_stall_ms = 0.0; // the worst of those
@@ -108,11 +82,9 @@ namespace perf
         double win_total_ms = 0.0;
     };
 
-    // The table. `count` only ever grows, and only at registration time. It is ATOMIC
-    // because it is the only thing that publishes a row to the reader: the F2 panel walks
-    // `[0, count)` on the render thread while a registration is running on the game
-    // thread (A.28). A plain store could become visible before the row's `name` pointer
-    // was written, and the panel would then print a null name.
+    // `count` only grows, at registration time, and is atomic because it publishes the
+    // row: the F2 panel walks `[0, count)` on the render thread while a registration
+    // can be running on the game thread.
     struct Table
     {
         Counter c[kMaxCounters]{};
@@ -128,12 +100,10 @@ namespace perf
             return -1;
         }
         const int have = t.count.load(std::memory_order_acquire);
-        // Registering the same name twice hands back the same counter, so a call site
-        // that re-registers after a reload cannot duplicate its row. COMPARED BY CONTENT:
-        // the same literal in two translation units is two different addresses, so a
-        // pointer compare silently made two rows for one activity (A.28). The lookup runs
-        // BEFORE the cap, so an already-registered activity keeps working even once the
-        // table is full.
+        // The same name hands back the same counter, so re-registering after a reload
+        // cannot duplicate a row. Compared by CONTENT: one literal in two translation
+        // units is two addresses. The lookup runs before the cap, so an already
+        // registered activity keeps working once the table is full.
         for (int i = 0; i < have; ++i)
         {
             if (t.c[i].name != nullptr && std::strcmp(t.c[i].name, name) == 0)
@@ -149,15 +119,14 @@ namespace perf
         t.c[id] = Counter{};
         t.c[id].name = name;
         t.c[id].thread = thread;
-        // RELEASE: everything above is visible to any reader that sees this count.
+        // Release: everything above is visible to any reader that sees this count.
         t.count.store(id + 1, std::memory_order_release);
         return id;
     }
 
-    // Records one invocation. `now_ms` is any monotonic millisecond clock; it only
-    // ever decides when a window closes. `calm` is false when the process was known to
-    // be stalled - loading, resizing, or doing a one-off blocking job - which routes the
-    // sample to the stall columns instead of to the peak the table shows.
+    // Records one invocation. `now_ms` is any monotonic millisecond clock and only
+    // decides when a window closes. `calm == false` routes the sample to the stall
+    // columns instead of the displayed peak.
     inline void record(Table& t, int id, double ms, std::uint64_t now_ms, bool calm = true)
     {
         if (id < 0 || id >= t.count.load(std::memory_order_acquire))
@@ -205,9 +174,8 @@ namespace perf
         }
     }
 
-    // An activity that has stopped being called keeps showing its last window's rate
-    // forever, which reads as "this is still running". Anything whose window is more
-    // than a couple of windows stale is idle, and the table says so instead.
+    // True once the current window is several windows stale, so a stopped activity
+    // does not keep showing its last rate.
     inline bool idle(const Counter& c, std::uint64_t now_ms)
     {
         if (c.calls == 0)
@@ -218,8 +186,7 @@ namespace perf
         return since > kWindowMs * 3;
     }
 
-    // The peak is the number that matters and it must be resettable, or one hitch
-    // during loading hides every later regression behind it.
+    // Clears every peak and the stall count.
     inline void reset_peaks(Table& t)
     {
         const int have = t.count.load(std::memory_order_acquire);

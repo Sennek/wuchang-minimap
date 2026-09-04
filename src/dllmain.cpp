@@ -1,17 +1,12 @@
 //
 // WuchangMinimap - a UE4SS C++ mod for Wuchang: Fallen Feathers (UE 5.1.1, DX12).
 //
-// This translation unit only contains the UE4SS mod skeleton: it hands both entry
-// points straight to modswitch, which owns the `mod_enabled` master switch and starts
-// or stops every other subsystem (modswitch.hpp). The rendering side (Dear ImGui + a
-// DX12 Present hook installed with MinHook) lives in overlay.cpp.
+// The UE4SS mod skeleton only: both entry points go straight to modswitch, which owns
+// the `mod_enabled` master switch and starts or stops every other subsystem. Rendering
+// (Dear ImGui + a MinHook'd DX12 Present) lives in overlay.cpp.
 //
-// The navmesh dumper (navmesh_dump.cpp) is present but OPT-IN and off by default:
-// the map background is built offline from the paks (tools/navmesh/offline), so the
-// runtime dumper only matters for cells the paks do not carry. Turn it on with
-//     ue4ss/Mods/WuchangMinimap/config.ini  ->  [navmesh] navmesh_dump = 1
-// and it then writes navmesh/<agent>/tiles_<timestamp>.json on F3 and automatically.
-// See navmesh_dump.hpp.
+// The navmesh dumper is opt-in and off by default; the map background is built offline
+// from the paks. `[navmesh] navmesh_dump = 1` in config.ini turns it on.
 //
 
 #include <Windows.h>
@@ -48,64 +43,54 @@ class WuchangMinimap : public CppUserModBase
 
     ~WuchangMinimap() override
     {
-        // The one stage that means "this session ended on purpose". Everything else in
-        // wuchang_minimap_last_stage.txt is read by the NEXT launch as a crash.
+        // The one stage that means "ended on purpose"; the next launch reads any other
+        // value as a crash.
         crumb::stage(crumb::kCleanExit);
     }
 
     // The 'Unreal' namespace is usable from here on.
     auto on_unreal_init() -> void override
     {
-        // Proves Dear ImGui and MinHook are linked in and callable. No hooks are
-        // installed and no ImGui context is created yet.
+        // Proves Dear ImGui and MinHook are linked and callable. Installs no hooks and
+        // creates no ImGui context.
         const auto report = overlay::selftest();
         Output::send<LogLevel::Verbose>(STR("WuchangMinimap: {}\n"), report);
 
-        // EVERYTHING else - the overlay and its DX12 hooks, the markers, the
-        // game-thread reader and the opt-in navmesh dumper - is started (or not) by
-        // modswitch, which owns the `mod_enabled` master switch. See modswitch.hpp.
+        // Everything else - overlay and DX12 hooks, markers, the game-thread reader,
+        // the opt-in navmesh dumper - starts under modswitch's `mod_enabled` switch.
         modswitch::on_unreal_init();
     }
 
     auto on_update() -> void override
     {
-        // NOTE: UE4SS calls this on its own EVENT-LOOP thread, not on the game thread
-        // (proven 2026-09-02: our poll kept logging while the game thread was blocked in
-        // WaitForSingleObject during a GPU crash dump). So nothing called from here may
-        // traverse UObjects or read engine allocations.
+        // UE4SS calls this on its own EVENT-LOOP thread, not the game thread, so
+        // nothing reached from here may traverse UObjects or read engine allocations.
         //
-        // With mod_enabled = 0 this is one GetTickCount64 and, once a second, one
-        // GetFileAttributesEx of the config file - that is the whole cost of a disabled
-        // mod, and it is what lets the switch be flipped back on without a restart.
+        // With mod_enabled = 0 the cost is one GetTickCount64 plus, once a second, one
+        // GetFileAttributesEx of the config file, which is what lets the switch be
+        // flipped back on without a restart.
         modswitch::on_update();
     }
 };
 
 #define WUCHANG_MINIMAP_API __declspec(dllexport)
 
-// ALT+F4 AND EVERY OTHER "THE PLAYER CLOSED THE GAME" ROUTE.
+// ALT+F4 and every other "the player closed the game" route. None of the mod's teardown
+// paths run when the window closes from outside: `~WuchangMinimap()` is not called and
+// neither is the render thread's ImGui teardown. DLL_PROCESS_DETACH is the last thing
+// this module hears about; the WndProc hook covers the window messages before it. Both
+// call the same idempotent `crumb::mark_closing()`.
 //
-// None of the mod's teardown paths run when the window is closed from the outside:
-// `~WuchangMinimap()` (the only writer of `crumb::kCleanExit`) is not called, and neither
-// is the render thread's ImGui teardown - so every ALT+F4 left a non-terminal stage in
-// wuchang_minimap_last_stage.txt and the next launch reported a crash that never
-// happened ("last session ended at 'first slice'"). DLL_PROCESS_DETACH is the last thing
-// this module is told about, and the WndProc hook (overlay.cpp) covers the window
-// messages that arrive before it. Both call the same idempotent `crumb::mark_closing()`.
-//
-// Nothing else may happen here: DllMain runs under the loader lock, so this is a
-// handful of flat Win32 calls and no allocation, no engine access and no thread
-// synchronisation.
+// DllMain runs under the loader lock, so this is flat Win32 calls only: no allocation,
+// no engine access, no thread synchronisation.
 BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_DETACH)
     {
         crumb::mark_closing();
-        // The found tracker's debounced write, forced. Same rules as the breadcrumb:
-        // the bytes and the path were staged by the loop thread, so this is a
-        // CreateFileW / WriteFile / MoveFileExW and nothing else - no allocation, no
-        // lock, no logging. Without it an ALT+F4 inside the save debounce threw away
-        // every mark made in the last couple of seconds.
+        // The found tracker's debounced write, forced, or an ALT+F4 inside the debounce
+        // window loses the last few seconds of marks. Bytes and path are staged by the
+        // loop thread, so this is CreateFileW / WriteFile / MoveFileExW and nothing else.
         markers::flush_found_tracker_at_exit();
     }
     return TRUE;

@@ -14,9 +14,8 @@
     Game__Shipping__Win64 (default) or Game__Debug__Win64.
 
 .PARAMETER Ue4ssRoot
-    The RE-UE4SS checkout the headers come from. Machine-specific: the default is where
-    it lives on the original dev box. Override with -Ue4ssRoot or by setting the
-    WUCHANG_UE4SS_ROOT environment variable.
+    The RE-UE4SS checkout the headers come from. Machine-specific; override with
+    -Ue4ssRoot or the WUCHANG_UE4SS_ROOT environment variable.
 
 .PARAMETER Xmake
     xmake.exe. Machine-specific like the above; override with -Xmake or WUCHANG_XMAKE
@@ -49,13 +48,13 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'tools\vs_detect.ps1')
 Push-Location $PSScriptRoot
 try {
-    # Which compiler. Explicit -Toolset > WUCHANG_MSVC_TOOLSET > the tested 14.40.33807
-    # when installed > newest installed (warned about). Throws if the box has no MSVC.
+    # Explicit -Toolset > WUCHANG_MSVC_TOOLSET > the tested 14.40.33807 when installed >
+    # newest installed (warned about). Throws when the box has no MSVC.
     $Toolset = Resolve-MsvcToolset -Requested $Toolset
     Write-Host "MSVC toolset: $Toolset" -ForegroundColor DarkGray
 
     if (-not (Test-Path $Xmake)) {
-        # Also accept a bare name that is on PATH, so -Xmake xmake.exe works.
+        # A bare name on PATH also works, so -Xmake xmake.exe is accepted.
         $onPath = Get-Command $Xmake -ErrorAction SilentlyContinue
         if (-not $onPath) { throw "xmake not found at '$Xmake' (set -Xmake or `$env:WUCHANG_XMAKE)" }
         $Xmake = $onPath.Source
@@ -67,9 +66,9 @@ try {
         throw "sdk\lib\UE4SS.lib is missing. Run tools\gen_ue4ss_importlib.ps1 first."
     }
 
-    # `xmake clean --all` drops the cached Visual Studio environment along with the
-    # intermediates, so it has to run BEFORE `xmake f`, not after - otherwise the next
-    # compile runs with an empty INCLUDE and fails on `#include <memory>`.
+    # `xmake clean --all` drops the cached Visual Studio environment with the
+    # intermediates, so it must run BEFORE `xmake f` or the next compile has an empty
+    # INCLUDE.
     if ($Rebuild) {
         & $Xmake clean --all
     }
@@ -80,9 +79,7 @@ try {
     & $Xmake -j $Jobs
     if ($LASTEXITCODE -ne 0) { throw "xmake build failed ($LASTEXITCODE)" }
 
-    # Offline tests. They link only src\markers_db.cpp (no UE4SS, no D3D12), so they
-    # run here on the build machine with the game closed - which is the only place
-    # anything about this mod can be verified without burning a play session.
+    # Offline tests: no UE4SS, no D3D12, so they run here with the game closed.
     if (-not $NoTests) {
         & $Xmake build markers_test
         if ($LASTEXITCODE -ne 0) { throw "xmake build markers_test failed ($LASTEXITCODE)" }

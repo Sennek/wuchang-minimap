@@ -1,27 +1,18 @@
 #pragma once
 
 //
-// label_layout - keeping the x-ray highlight's labels off each other, as pure C++.
+// label_layout - greedy non-overlap placement for the x-ray highlight's labels: keep
+// the rectangles already used, push each new label DOWN until it lands clear, give up
+// past a cap. No two placed labels ever overlap.
 //
-// WHAT IT FIXES
-// -------------
-// `draw_highlight` drew a name + distance box at every projected marker position with
-// no overlap test at all, so a room with eight pickups produced eight boxes stacked on
-// the same few pixels: unreadable, and the review of v0.9.1 called it out. The fix is
-// the classic greedy one - keep the rectangles already used, push each new label DOWN
-// until it lands clear, give up past a cap - and it is entirely arithmetic, so it lives
-// here where tests/markers_test.cpp can prove the property that matters: no two placed
-// labels overlap, ever.
+// The caller (overlay.cpp):
+//   1. picks who gets a label NEAREST FIRST, skipping any glyph within `min_glyph_dist`
+//      of one that already has one (note_glyph / near_labelled);
+//   2. sorts the survivors by screen Y and place()s them top to bottom, which is what
+//      makes pushing down terminate and the result stable frame to frame;
+//   3. draws a leader line whenever place() moved a label away from its glyph.
 //
-// HOW THE CALLER USES IT (overlay.cpp)
-//   1. pick who gets a label at all, NEAREST FIRST, skipping any glyph that sits within
-//      `min_glyph_dist` of one that already has one (note_glyph / near_labelled) - so
-//      the labels that survive the cap are the ones the player is walking towards;
-//   2. sort the survivors by screen Y and place() them top to bottom, which is what
-//      makes pushing DOWN terminate and makes the result stable frame to frame;
-//   3. draw a leader line whenever place() moved a label away from its glyph.
-//
-// No Windows, no ImGui, no allocation - the same rule as markers_db / mapview / glyphs.
+// No Windows, no ImGui, no allocation.
 //
 
 #include <cstddef>
@@ -37,17 +28,14 @@ namespace lbl
 
         bool intersects(const Rect& o) const
         {
-            // Touching edges do NOT count as an intersection: two labels flush against
-            // each other are readable, and treating them as a clash would push a whole
-            // column one pixel further down for nothing.
+            // Touching edges do not count: flush labels are readable.
             return x0 < o.x1 && o.x0 < x1 && y0 < o.y1 && o.y0 < y1;
         }
     };
 
-    // The occupied-rectangle list plus the labelled-glyph list. A fixed size on purpose:
-    // it lives on the render thread's stack, is reset every frame, and past ~40 labels
-    // the screen is full anyway - the caller then draws the glyph alone, which is the
-    // honest answer to "there are sixty items in this room".
+    // Occupied rectangles plus labelled glyphs. Fixed size: it lives on the render
+    // thread's stack and is reset every frame. Past the cap the caller draws the glyph
+    // alone.
     struct Layout
     {
         static constexpr int kMaxRects = 40;
@@ -80,9 +68,7 @@ namespace lbl
             }
         }
 
-        // Is there already a labelled glyph within `min_dist` of (x, y)? Two markers a
-        // few pixels apart on screen are one thing to the player, and labelling both
-        // just makes two boxes fight.
+        // True when a labelled glyph already sits within `min_dist` of (x, y).
         bool near_labelled(float x, float y, float min_dist) const
         {
             if (!(min_dist > 0.0f))
@@ -102,13 +88,9 @@ namespace lbl
             return false;
         }
 
-        // Place a `w` x `h` label whose preferred top-left is (x, y), pushing it DOWN
-        // until it clears every rectangle already placed. Returns false - and records
-        // nothing - when the cap is reached or when it would have to move more than
-        // `max_push` pixels; the caller then draws the glyph without a label.
-        //
-        // `out_y` receives the final top edge, which the caller compares against `y` to
-        // decide whether a leader line is needed.
+        // Places a `w` x `h` label preferring top-left (x, y), pushing it down until it
+        // clears every placed rectangle. False, recording nothing, at the cap or past
+        // `max_push` pixels of movement. `out_y` receives the final top edge.
         bool place(float x, float y, float w, float h, float max_push, float& out_y)
         {
             if (rect_count >= kMaxRects || !(w > 0.0f) || !(h > 0.0f))
@@ -117,9 +99,8 @@ namespace lbl
             }
             const float start = y;
             Rect r{x, y, x + w, y + h};
-            // Each iteration jumps below the DEEPEST rectangle currently hit, so this
-            // cannot loop more times than there are rectangles - it is not a scan in
-            // one-pixel steps.
+            // Each iteration jumps below the deepest rectangle hit, so the loop runs at
+            // most once per rectangle.
             for (int guard = 0; guard <= kMaxRects; ++guard)
             {
                 float lowest = r.y0;

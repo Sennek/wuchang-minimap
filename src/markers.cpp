@@ -24,6 +24,7 @@
 #include "recon.hpp"
 #include "shrines.hpp"
 #include "scan_sched.hpp"
+#include "spinlock.hpp"
 #include "ue_min.hpp"
 #include "uereflect.hpp"
 
@@ -259,54 +260,6 @@ namespace markers
         }
 
         //==============================================================================
-        // Spinlock (std::mutex is unusable here - lessons.md)
-        //==============================================================================
-
-        class Spin
-        {
-          public:
-            void lock() noexcept
-            {
-                for (int spin = 0; flag_.test_and_set(std::memory_order_acquire); ++spin)
-                {
-                    if ((spin & 0x3F) == 0x3F)
-                    {
-                        ::SwitchToThread();
-                    }
-                    else
-                    {
-                        YieldProcessor();
-                    }
-                }
-            }
-            void unlock() noexcept
-            {
-                flag_.clear(std::memory_order_release);
-            }
-
-          private:
-            std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
-        };
-
-        class Guard
-        {
-          public:
-            explicit Guard(Spin& s) noexcept : s_(s)
-            {
-                s_.lock();
-            }
-            ~Guard()
-            {
-                s_.unlock();
-            }
-            Guard(const Guard&) = delete;
-            Guard& operator=(const Guard&) = delete;
-
-          private:
-            Spin& s_;
-        };
-
-        //==============================================================================
         // The static database, published to the game thread
         //==============================================================================
         //
@@ -363,12 +316,12 @@ namespace markers
         // Nothing is ever shared by pointer, so neither side can free memory the other
         // is reading, and the file is only ever touched from the loop thread.
 
-        Spin g_inbox_lock;
+        spin::Spinlock g_inbox_lock;
         std::vector<std::string> g_inbox;
         bool g_inbox_clear = false;
         std::atomic<bool> g_inbox_pending{false};
 
-        Spin g_outbox_lock;
+        spin::Spinlock g_outbox_lock;
         std::vector<std::string> g_outbox;
         std::atomic<bool> g_outbox_pending{false};
 
@@ -380,7 +333,7 @@ namespace markers
             std::string id;
             bool found = false;
         };
-        Spin g_toggle_lock;
+        spin::Spinlock g_toggle_lock;
         std::vector<ToggleReq> g_toggle;
         std::atomic<bool> g_toggle_pending{false};
 
@@ -427,7 +380,7 @@ namespace markers
         // Stats
         //==============================================================================
 
-        Spin g_stats_lock;
+        spin::Spinlock g_stats_lock;
         Stats g_stats{};
 
         std::atomic<int> g_published_count{0};
@@ -1657,7 +1610,7 @@ namespace markers
                 }
             }
             {
-                Guard guard(g_outbox_lock);
+                spin::SpinGuard guard(g_outbox_lock);
                 if (g_outbox.size() < 8192)
                 {
                     g_outbox.push_back(id);
@@ -1675,7 +1628,7 @@ namespace markers
             std::vector<std::string> ids;
             bool clear = false;
             {
-                Guard guard(g_inbox_lock);
+                spin::SpinGuard guard(g_inbox_lock);
                 ids.swap(g_inbox);
                 clear = g_inbox_clear;
                 g_inbox_clear = false;
@@ -2790,7 +2743,7 @@ namespace markers
         void publish_inbox(std::vector<std::string> ids, bool clear)
         {
             {
-                Guard guard(g_inbox_lock);
+                spin::SpinGuard guard(g_inbox_lock);
                 g_inbox_clear = g_inbox_clear || clear;
                 for (std::string& id : ids)
                 {
@@ -2880,7 +2833,7 @@ namespace markers
             s.scan_total = g_scan_total.load(std::memory_order_relaxed);
             s.scan_chunk = g_scan_chunk.load(std::memory_order_relaxed);
             s.scan_fallback = g_scan_fallback.load(std::memory_order_relaxed);
-            Guard guard(g_stats_lock);
+            spin::SpinGuard guard(g_stats_lock);
             g_stats = s;
         }
 
@@ -3328,7 +3281,7 @@ namespace markers
 
     Stats stats()
     {
-        Guard guard(g_stats_lock);
+        spin::SpinGuard guard(g_stats_lock);
         return g_stats;
     }
 
@@ -3364,7 +3317,7 @@ namespace markers
             return;
         }
         {
-            Guard guard(g_toggle_lock);
+            spin::SpinGuard guard(g_toggle_lock);
             if (g_toggle.size() >= 256)
             {
                 return; // somebody is holding the mouse button down on a marker
@@ -3481,7 +3434,7 @@ namespace markers
         {
             std::vector<std::string> ids;
             {
-                Guard guard(g_outbox_lock);
+                spin::SpinGuard guard(g_outbox_lock);
                 ids.swap(g_outbox);
             }
             int added = 0;
@@ -3516,7 +3469,7 @@ namespace markers
         {
             std::vector<ToggleReq> reqs;
             {
-                Guard guard(g_toggle_lock);
+                spin::SpinGuard guard(g_toggle_lock);
                 reqs.swap(g_toggle);
             }
             int changed = 0;
@@ -3667,7 +3620,7 @@ namespace markers
         if (now - last_light >= 1000)
         {
             last_light = now;
-            Guard guard(g_stats_lock);
+            spin::SpinGuard guard(g_stats_lock);
             g_stats.published = g_published_count.load(std::memory_order_relaxed);
             g_stats.absence_marks = g_absence_marks.load(std::memory_order_relaxed);
             g_stats.levels_loaded = g_levels_loaded.load(std::memory_order_relaxed);

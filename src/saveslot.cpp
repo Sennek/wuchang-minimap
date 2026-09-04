@@ -19,6 +19,7 @@
 #include "mem.hpp"
 #include "mmstate.hpp"
 #include "ue_min.hpp"
+#include "spinlock.hpp"
 #include "uereflect.hpp"
 
 namespace slotid
@@ -28,49 +29,12 @@ namespace slotid
         using RC::Unreal::UObject;
         namespace UObjectGlobals = RC::Unreal::UObjectGlobals;
 
-        class Spin
-        {
-          public:
-            void lock() noexcept
-            {
-                while (flag_.test_and_set(std::memory_order_acquire))
-                {
-                    ::YieldProcessor();
-                }
-            }
-            void unlock() noexcept
-            {
-                flag_.clear(std::memory_order_release);
-            }
-
-          private:
-            std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
-        };
-
-        class Guard
-        {
-          public:
-            explicit Guard(Spin& s) noexcept : s_(s)
-            {
-                s_.lock();
-            }
-            ~Guard()
-            {
-                s_.unlock();
-            }
-            Guard(const Guard&) = delete;
-            Guard& operator=(const Guard&) = delete;
-
-          private:
-            Spin& s_;
-        };
-
-        Spin g_lock;
+        spin::Spinlock g_lock;
         Status g_status; // guarded by g_lock
 
         void set_status(const std::string& key, Route route, const std::string& note)
         {
-            Guard guard(g_lock);
+            spin::SpinGuard guard(g_lock);
             ::strncpy_s(g_status.key, sizeof(g_status.key), key.c_str(), _TRUNCATE);
             g_status.route = route;
             ::strncpy_s(g_status.note, sizeof(g_status.note), note.c_str(), _TRUNCATE);
@@ -410,7 +374,7 @@ namespace slotid
 
     Status status()
     {
-        Guard guard(g_lock);
+        spin::SpinGuard guard(g_lock);
         return g_status;
     }
 

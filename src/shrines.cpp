@@ -17,6 +17,7 @@
 #include "mmstate.hpp"
 #include "shrines_db.hpp"
 #include "ue_min.hpp"
+#include "spinlock.hpp"
 #include "uereflect.hpp"
 
 namespace shr
@@ -26,44 +27,7 @@ namespace shr
         using RC::Unreal::UObject;
         namespace UObjectGlobals = RC::Unreal::UObjectGlobals;
 
-        class Spin
-        {
-          public:
-            void lock() noexcept
-            {
-                while (flag_.test_and_set(std::memory_order_acquire))
-                {
-                    ::YieldProcessor();
-                }
-            }
-            void unlock() noexcept
-            {
-                flag_.clear(std::memory_order_release);
-            }
-
-          private:
-            std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
-        };
-
-        class Guard
-        {
-          public:
-            explicit Guard(Spin& s) noexcept : s_(s)
-            {
-                s_.lock();
-            }
-            ~Guard()
-            {
-                s_.unlock();
-            }
-            Guard(const Guard&) = delete;
-            Guard& operator=(const Guard&) = delete;
-
-          private:
-            Spin& s_;
-        };
-
-        Spin g_lock;
+        spin::Spinlock g_lock;
         State g_state; // guarded by g_lock
 
         uer::LayoutCache g_layouts;
@@ -153,7 +117,7 @@ namespace shr
 
         void set_travel(Travel phase, const char* id, const std::string& note)
         {
-            Guard guard(g_lock);
+            spin::SpinGuard guard(g_lock);
             g_travel.phase = phase;
             if (id != nullptr)
             {
@@ -375,7 +339,7 @@ namespace shr
 
         void set_unresolved(const char* why)
         {
-            Guard guard(g_lock);
+            spin::SpinGuard guard(g_lock);
             g_state.valid = false;
             copy_into(g_state.route, sizeof(g_state.route), why);
         }
@@ -383,7 +347,7 @@ namespace shr
 
     State state()
     {
-        Guard guard(g_lock);
+        spin::SpinGuard guard(g_lock);
         return g_state;
     }
 
@@ -393,7 +357,7 @@ namespace shr
         {
             return false;
         }
-        Guard guard(g_lock);
+        spin::SpinGuard guard(g_lock);
         if (!g_state.valid)
         {
             return false;
@@ -415,7 +379,7 @@ namespace shr
 
     TableInfo table_info()
     {
-        Guard guard(g_lock);
+        spin::SpinGuard guard(g_lock);
         return g_table_info;
     }
 
@@ -430,7 +394,7 @@ namespace shr
         {
             copy_into(info.error, sizeof(info.error), "markers\\shrines.json not found");
             {
-                Guard guard(g_lock);
+                spin::SpinGuard guard(g_lock);
                 g_table_info = info;
             }
             mm::logf(L"shrines: {} does not exist - the shrine list will be empty "
@@ -457,7 +421,7 @@ namespace shr
         {
             copy_into(info.error, sizeof(info.error), rep.error);
             {
-                Guard guard(g_lock);
+                spin::SpinGuard guard(g_lock);
                 g_table_info = info;
             }
             mm::logf(L"shrines: {} rejected - {}", path, widen(rep.error));
@@ -467,7 +431,7 @@ namespace shr
         info.shrines = rep.shrines;
         info.named = rep.named;
         {
-            Guard guard(g_lock);
+            spin::SpinGuard guard(g_lock);
             g_table_info = info;
         }
         // Deliberately leaked on a reload, exactly like the marker DB: the render thread
@@ -489,13 +453,13 @@ namespace shr
 
     TravelState travel_state()
     {
-        Guard guard(g_lock);
+        spin::SpinGuard guard(g_lock);
         return g_travel;
     }
 
     void clear_travel()
     {
-        Guard guard(g_lock);
+        spin::SpinGuard guard(g_lock);
         g_travel = TravelState{};
     }
 
@@ -522,7 +486,7 @@ namespace shr
         {
             std::string id;
             {
-                Guard guard(g_lock);
+                spin::SpinGuard guard(g_lock);
                 id = g_travel.id;
                 g_travel.phase = Travel::InFlight;
             }
@@ -627,7 +591,7 @@ namespace shr
 
         bool changed = false;
         {
-            Guard guard(g_lock);
+            spin::SpinGuard guard(g_lock);
             changed = !g_state.valid || g_state.unlocked != next.unlocked ||
                       g_state.deactivated != next.deactivated ||
                       ::strcmp(g_state.current, next.current) != 0;

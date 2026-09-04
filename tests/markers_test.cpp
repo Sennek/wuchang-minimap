@@ -37,6 +37,8 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <thread>
+#include <type_traits>
 
 #include "chapterid.hpp"
 #include "clipimg.hpp"
@@ -63,6 +65,7 @@
 #include "saveslot.hpp"
 #include "scan_sched.hpp"
 #include "shrines_db.hpp"
+#include "spinlock.hpp"
 
 
 namespace
@@ -4793,6 +4796,100 @@ namespace
     // half that decides a FILENAME - so a wrong answer either writes somewhere it should
     // not or reads a collection that belongs to a different character.
 
+    //=======================================================================================
+    // src/spinlock.hpp - the mod's only lock (std::mutex faults on the game thread).
+    //=======================================================================================
+
+    void test_spinlock()
+    {
+        section("spinlock");
+
+        // Constant-initialised: a namespace-scope Spinlock needs no dynamic initialiser.
+        static_assert(std::is_trivially_destructible_v<spin::Spinlock>);
+        static spin::Spinlock g_static_lock;
+        CHECK(g_static_lock.try_lock());
+        g_static_lock.unlock();
+
+        spin::Spinlock lock;
+
+        // Uncontended: acquire, re-acquire fails, release, acquire again.
+        CHECK(lock.try_lock());
+        CHECK(!lock.try_lock());
+        lock.unlock();
+        CHECK(lock.try_lock());
+        lock.unlock();
+
+        // The guard holds for its scope and releases on the way out.
+        {
+            spin::SpinGuard guard(lock);
+            CHECK(!lock.try_lock());
+        }
+        CHECK(lock.try_lock());
+        lock.unlock();
+
+        // Contention: two threads increment a plain int 20 000 times each under the
+        // lock. Without mutual exclusion the sum comes out short.
+        {
+            int counter = 0;
+            const int per_thread = 20000;
+            auto bump = [&]() {
+                for (int i = 0; i < per_thread; ++i)
+                {
+                    spin::SpinGuard guard(lock);
+                    ++counter;
+                }
+            };
+            std::thread t1(bump);
+            std::thread t2(bump);
+            t1.join();
+            t2.join();
+            CHECK_EQ(counter, 2 * per_thread);
+            // Both threads are gone, so the lock must be free.
+            CHECK(lock.try_lock());
+            lock.unlock();
+        }
+
+        // try_lock_ms honours its deadline: a held lock is not acquired, and the wait
+        // is bounded (a 50 ms budget must not become a hang, and must not return early
+        // before the budget - the whole point is that a stall does not become one).
+        {
+            spin::Spinlock held;
+            held.lock();
+            const std::uint64_t t0 = ::GetTickCount64();
+            CHECK(!held.try_lock_ms(50));
+            const std::uint64_t waited = ::GetTickCount64() - t0;
+            CHECK(waited >= 40);   // it really waited (GetTickCount64 granularity ~16 ms)
+            CHECK(waited < 2000);  // and it really gave up
+            held.unlock();
+            // Free now, so the same call succeeds immediately.
+            const std::uint64_t t1 = ::GetTickCount64();
+            CHECK(held.try_lock_ms(50));
+            CHECK(::GetTickCount64() - t1 < 50);
+            held.unlock();
+        }
+
+        // A zero budget still succeeds on a free lock and still fails on a held one.
+        {
+            spin::Spinlock l;
+            CHECK(l.try_lock_ms(0));
+            CHECK(!l.try_lock_ms(0));
+            l.unlock();
+        }
+
+        // try_lock_ms hands the lock over once the holder releases it.
+        {
+            spin::Spinlock l;
+            l.lock();
+            std::thread releaser([&]() {
+                ::Sleep(30);
+                l.unlock();
+            });
+            CHECK(l.try_lock_ms(3000));
+            releaser.join();
+            l.unlock();
+        }
+    }
+
     void test_saveslot()
     {
         std::printf("save-slot keys and found-file names\n");
@@ -5132,6 +5229,7 @@ int main(int argc, char** argv)
     test_dedupe();
     test_atomic_write();
     test_found_file();
+    test_spinlock();
     test_saveslot();
     test_clipimg();
     test_shrines_db(markers_dir);

@@ -3,6 +3,7 @@
 #include "atomicfile.hpp"
 #include "config_keys.hpp"
 #include "config_rewrite.hpp"
+#include "spinlock.hpp"
 
 #include <Windows.h>
 
@@ -20,53 +21,6 @@ namespace mm
 {
     namespace
     {
-        //==============================================================================
-        // Spinlock (std::mutex faults on this game's game thread - see lessons.md)
-        //==============================================================================
-
-        class Spinlock
-        {
-          public:
-            void lock() noexcept
-            {
-                for (int spin = 0; flag_.test_and_set(std::memory_order_acquire); ++spin)
-                {
-                    if ((spin & 0x3F) == 0x3F)
-                    {
-                        ::SwitchToThread();
-                    }
-                    else
-                    {
-                        YieldProcessor();
-                    }
-                }
-            }
-            void unlock() noexcept
-            {
-                flag_.clear(std::memory_order_release);
-            }
-
-          private:
-            std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
-        };
-
-        class SpinGuard
-        {
-          public:
-            explicit SpinGuard(Spinlock& l) noexcept : lock_(l)
-            {
-                lock_.lock();
-            }
-            ~SpinGuard()
-            {
-                lock_.unlock();
-            }
-            SpinGuard(const SpinGuard&) = delete;
-            SpinGuard& operator=(const SpinGuard&) = delete;
-
-          private:
-            Spinlock& lock_;
-        };
 
         //==============================================================================
         // Snapshot seqlock
@@ -79,21 +33,21 @@ namespace mm
         // Config
         //==============================================================================
 
-        Spinlock g_cfg_lock;
+        spin::Spinlock g_cfg_lock;
         Config g_cfg{};
 
         //==============================================================================
         // Waypoint
         //==============================================================================
 
-        Spinlock g_wp_lock;
+        spin::Spinlock g_wp_lock;
         mv::Waypoint g_wp{};
 
         //==============================================================================
         // Log queue
         //==============================================================================
 
-        Spinlock g_log_lock;
+        spin::Spinlock g_log_lock;
         std::vector<std::wstring> g_log_queue;
         DWORD g_loop_thread = 0;
         // Lines the queue refused because it was already full. DROPPED, never blocked
@@ -1564,14 +1518,14 @@ namespace mm
 
     Config config()
     {
-        SpinGuard guard(g_cfg_lock);
+        spin::SpinGuard guard(g_cfg_lock);
         return g_cfg;
     }
 
     void set_config(const Config& cfg)
     {
         {
-            SpinGuard guard(g_cfg_lock);
+            spin::SpinGuard guard(g_cfg_lock);
             g_cfg = cfg;
         }
         // The log macros read this one atomic instead of taking the config lock, so a
@@ -2578,14 +2532,14 @@ namespace mm
 
     mv::Waypoint waypoint()
     {
-        SpinGuard guard(g_wp_lock);
+        spin::SpinGuard guard(g_wp_lock);
         return g_wp;
     }
 
     void set_waypoint(const mv::Waypoint& wp)
     {
         {
-            SpinGuard guard(g_wp_lock);
+            spin::SpinGuard guard(g_wp_lock);
             g_wp = wp;
         }
         g_waypoint_dirty.store(true, std::memory_order_release);
@@ -2614,7 +2568,7 @@ namespace mm
             }
         }
         {
-            SpinGuard guard(g_wp_lock);
+            spin::SpinGuard guard(g_wp_lock);
             g_wp = wp;
         }
         // What was just read IS what the file says, so nothing is pending.
@@ -2737,7 +2691,7 @@ namespace mm
         // queue out under `g_log_lock`, releases it, and only then writes). So they are
         // separate, and enqueueing a line from the game thread can no longer wait on the
         // disk.
-        Spinlock g_modlog_lock;
+        spin::Spinlock g_modlog_lock;
         HANDLE g_modlog = INVALID_HANDLE_VALUE;
         std::string g_modlog_buf;
         bool g_modlog_opened = false;
@@ -2838,7 +2792,7 @@ namespace mm
                 text.resize(cut);
                 text += " [line truncated]";
             }
-            SpinGuard guard(g_modlog_lock);
+            spin::SpinGuard guard(g_modlog_lock);
             modlog_open_locked();
             if (g_modlog == INVALID_HANDLE_VALUE)
             {
@@ -2867,7 +2821,7 @@ namespace mm
 
     void modlog_flush()
     {
-        SpinGuard guard(g_modlog_lock);
+        spin::SpinGuard guard(g_modlog_lock);
         modlog_write_locked();
         if (g_modlog != INVALID_HANDLE_VALUE)
         {
@@ -3047,7 +3001,7 @@ namespace mm
     {
         if (g_loop_thread == 0 || ::GetCurrentThreadId() != g_loop_thread)
         {
-            SpinGuard guard(g_log_lock);
+            spin::SpinGuard guard(g_log_lock);
             if (g_log_queue.size() < kLogQueueMax)
             {
                 g_log_queue.push_back(line);
@@ -3067,7 +3021,7 @@ namespace mm
         std::vector<std::wstring> lines;
         std::size_t dropped = 0;
         {
-            SpinGuard guard(g_log_lock);
+            spin::SpinGuard guard(g_log_lock);
             if (g_log_queue.empty() && g_log_dropped == 0)
             {
                 return;

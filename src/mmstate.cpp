@@ -2551,6 +2551,103 @@ namespace mm
             return ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
         }
 
+        // The waypoint half of the found tracker's legacy reconcile: builds before the
+        // save key became the slot name alone also wrote `<steam account id>_<slot>`
+        // waypoint files. Each one's waypoints are added to the canonical set (places
+        // already in it are not duplicated, and the set stops at mv::kMaxWaypoints) and
+        // the legacy file is removed. Loop thread.
+        void reconcile_legacy_waypoints(const std::string& key)
+        {
+            if (key.empty() || !cfg_cached().map_waypoint_persist)
+            {
+                return;
+            }
+            const std::wstring dir = mod_dir();
+            std::wstring wpattern;
+            for (char c : std::string{slotid::kWaypointPrefix} + "*_" + key + ".txt")
+            {
+                wpattern.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+            }
+            std::vector<std::string> legacy_names;
+            WIN32_FIND_DATAW fd{};
+            HANDLE h = ::FindFirstFileW((dir + L"\\" + wpattern).c_str(), &fd);
+            if (h != INVALID_HANDLE_VALUE)
+            {
+                do
+                {
+                    if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                    {
+                        continue;
+                    }
+                    std::string name;
+                    for (const wchar_t* p = fd.cFileName; *p != 0; ++p)
+                    {
+                        name.push_back(*p < 128 ? static_cast<char>(*p) : '?');
+                    }
+                    const std::string cand = slotid::key_in_filename(name, slotid::kWaypointPrefix);
+                    if (slotid::is_legacy_account_key(key, cand))
+                    {
+                        legacy_names.push_back(name);
+                    }
+                } while (::FindNextFileW(h, &fd) != 0 && legacy_names.size() < 16);
+                ::FindClose(h);
+            }
+            if (legacy_names.empty())
+            {
+                return;
+            }
+            const std::wstring dst = waypoint_path_for(key);
+            mv::WaypointSet set{};
+            std::string text;
+            if (wp_file_exists(dst) && read_whole_file(dst, text))
+            {
+                mv::waypoints_parse(text, set);
+            }
+            for (const std::string& name : legacy_names)
+            {
+                std::wstring src = dir + L"\\";
+                for (char c : name)
+                {
+                    src.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+                }
+                std::string legacy_text;
+                mv::WaypointSet legacy{};
+                if (!read_whole_file(src, legacy_text) || !mv::waypoints_parse(legacy_text, legacy))
+                {
+                    logf(L"waypoint: the legacy file {} could not be read - it is LEFT in place", src);
+                    continue;
+                }
+                std::size_t added = 0;
+                for (std::size_t i = 0; i < legacy.count; ++i)
+                {
+                    const mv::Waypoint& w = legacy.items[i];
+                    if (set.count >= mv::kMaxWaypoints)
+                    {
+                        break;
+                    }
+                    const mv::WaypointToggleResult hit =
+                        mv::waypoint_toggle_at(set, w.x, w.y, w.z, mv::kWaypointSamePlace);
+                    if (hit.action != mv::WaypointToggle::Add)
+                    {
+                        continue;
+                    }
+                    set.items[set.count++] = w;
+                    ++added;
+                }
+                if (!write_whole_file(dst, mv::waypoints_serialize(set)))
+                {
+                    logf(L"waypoint: could not merge the legacy file {} into {} (error {}) - both files "
+                         L"are left alone",
+                         src, dst, static_cast<unsigned>(::GetLastError()));
+                    return;
+                }
+                logf(L"waypoint: merged the legacy file {} ({} waypoint(s), {} of them new) into {} and "
+                     L"removed it",
+                     src, legacy.count, added, dst);
+                ::DeleteFileW(src.c_str());
+            }
+        }
+
         // First sight of a slot with no waypoint file of its own: seed it from the shared
         // one, as the found tracker does. The copy is itself the "already seeded" mark -
         // once the file exists this is a no-op. With map_waypoint_persist off nothing may
@@ -2598,6 +2695,7 @@ namespace mm
             const bool first = !g_wp_key_valid;
             g_wp_key = key;
             g_wp_key_valid = true;
+            reconcile_legacy_waypoints(key);
             seed_waypoints_from_shared(key);
             logf(L"waypoint: profile {} '{}' -> {}", first ? L"=" : L"changed to",
                  std::wstring(key.begin(), key.end()), waypoint_path_for(key));

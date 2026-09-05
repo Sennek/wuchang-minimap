@@ -1109,6 +1109,12 @@ namespace overlay
 
         void panel_map_tracker(mm::Config& cfg)
         {
+            // The tracker leads: it is the section with the per-save buttons, and further
+            // down the tab they sit below the fold.
+            if (panel_section("Collection tracker", kSecTracker))
+            {
+                map_tracker(cfg);
+            }
             if (panel_section("Map background", kSecMapBackground))
             {
                 map_background(cfg);
@@ -1120,10 +1126,6 @@ namespace overlay
             if (panel_section("Waypoints", kSecWaypoints))
             {
                 map_waypoints(cfg);
-            }
-            if (panel_section("Collection tracker", kSecTracker))
-            {
-                map_tracker(cfg);
             }
         }
 
@@ -1531,15 +1533,47 @@ namespace overlay
 
         // THE KEYS SOMETHING ELSE ALREADY OWNS.
         //
-        // Advisory, and not read from the game - there is no API for that. Two sources:
+        // The hotkey swallow makes the GAME action the casualty of a clash, so the
+        // player has to be told. Two sources:
         //
-        //   * the movement / interaction set this genre binds by default (WASD, Space,
-        //     Shift, Ctrl, E, F, Q, R, Tab, Esc, 1..5) - the hotkey swallow makes the
-        //     GAME action the casualty of a clash, so the player has to be told;
-        //   * the keys other injected DLLs own here: F6 is RenoDX's DLSS 5 toggle (it
-        //     ignores modifiers and has caused a GPU crash), F10 is the UE4SS console,
-        //     F9 / F11 are engine binds and F12 is the Steam screenshot key. Those four
-        //     are refused by the config parser outright.
+        //   * the player's real bindings, read off the running game by src/gamebinds.cpp
+        //     (`gb::table`), which is exact - it follows a remap in the options menu;
+        //   * until that answers - at the main menu, or on a build whose input chain
+        //     stopped resolving - gb::kFallbackBinds, a guess about a default keyboard
+        //     layout.
+        //
+        // The keys other injected DLLs own are only ever in the fallback list, since no
+        // game-side table can know about them: F6 is RenoDX's DLSS 5 toggle (it ignores
+        // modifiers and has caused a GPU crash), F10 is the UE4SS console, F9 / F11 are
+        // engine binds and F12 is the Steam screenshot key. Those four are refused by
+        // the config parser outright.
+
+        // Render thread. The live table is ~9 KB, so it is copied only when the game
+        // thread says it changed.
+        const gb::Table& live_binds()
+        {
+            static gb::Table s_table;
+            static std::uint32_t s_gen = 0;
+            const std::uint32_t gen = gb::generation();
+            if (gen != s_gen)
+            {
+                s_table = gb::table();
+                s_gen = gen;
+            }
+            return s_table;
+        }
+
+        // "attack, weapon skill" - every game action this key is bound to, or "" for
+        // none. One key legitimately drives several actions, and one action several
+        // keys, so the same label is printed once.
+        std::string live_bind_clash(const gb::Table& live, int binding)
+        {
+            if (mm::key_mod(binding) != mm::kKeyModNone)
+            {
+                return {}; // a modifier is the way OUT of a clash
+            }
+            return gb::clash_text(live.row, live.rows, mm::key_vk(binding));
+        }
 
         void arm_capture(int row)
         {
@@ -1631,6 +1665,20 @@ namespace overlay
             ImGui::TextDisabled("Click a key to rebind it, then press the new key - hold Ctrl, Shift or "
                                 "Alt with it for a modified binding. Esc cancels.");
             ImGui::TextDisabled("A key bound here is taken away from the game while the mod is using it.");
+            const gb::Table& game_binds = live_binds();
+            if (game_binds.valid)
+            {
+                ImGui::TextDisabled("Game bindings: live - %d key(s) read from the game's own input "
+                                    "mappings, so a remap in the game's options is followed.",
+                                    game_binds.rows);
+            }
+            else
+            {
+                ImGui::TextDisabled("Game bindings: not read yet (%s) - clashes below come from a "
+                                    "built-in list of the usual binds.",
+                                    game_binds.status[0] != '\0' ? game_binds.status
+                                                                 : "no PlayerInput yet");
+            }
 
             if (ImGui::BeginTable("bindings", 4,
                                   ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
@@ -1667,7 +1715,13 @@ namespace overlay
                             twin = kKeyBinds[j].label;
                         }
                     }
-                    const char* game = game_bind_clash(vk);
+                    // The live table wins whole: once the game has answered, a key it
+                    // does NOT list is genuinely free, whatever the fallback guess says.
+                    const std::string live_clash =
+                        game_binds.valid ? live_bind_clash(game_binds, vk) : std::string{};
+                    const char* game = game_binds.valid
+                                           ? (live_clash.empty() ? nullptr : live_clash.c_str())
+                                           : game_bind_clash(vk);
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -1700,12 +1754,18 @@ namespace overlay
                     }
                     else if (game != nullptr)
                     {
-                        ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f}, "the game may use it for %s",
+                        ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f},
+                                           game_binds.valid ? "the game uses it for %s"
+                                                            : "the game may use it for %s",
                                            game);
                         if (ImGui::IsItemHovered())
                         {
-                            ImGui::SetTooltip("While the mod is using this key the game does not get it.\n"
-                                              "Add Ctrl, Shift or Alt to give it back.");
+                            ImGui::SetTooltip("%s\nWhile the mod is using this key the game does not "
+                                              "get it.\nAdd Ctrl, Shift or Alt to give it back.",
+                                              game_binds.valid
+                                                  ? "Read from the game's own input mappings."
+                                                  : "A guess: the game's bindings have not been "
+                                                    "read yet.");
                         }
                     }
                     else if (twin != nullptr)

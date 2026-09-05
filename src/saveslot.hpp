@@ -18,8 +18,13 @@
 //   2. `slot`   - `Impl_GameSettingsSaver_C::TickCountSavPath`, an FString containing
 //                 `...\GameSlots\<slot>\...`. Raw property read, no ProcessEvent.
 //   3. `file`   - newest `*.sav` under `%LOCALAPPDATA%\Project_Plague\Saved`, giving
-//                 `<accountid>_<slot>` from the path.
+//                 `<slot>` from the path.
 //   4. `shared` - nothing answered; the global file.
+//
+// Routes 2 and 3 are the same key for the same save: the slot name alone. Route 2's
+// `TickCountSavPath` is engine-relative (`GameSaved/GameSlots/<slot>`) and carries no
+// account id, so the account id is no part of the key - one save, one file, whichever
+// route answers first.
 //
 // `found_profile` (Player tier) overrides the ladder: `auto` runs it, `shared` pins the
 // global file, anything else is the key verbatim.
@@ -39,7 +44,7 @@ namespace slotid
     //==================================================================================
 
     // Longest key allowed in a filename. A uuid is 32 chars; a slot key like
-    // `36053875_maingame0` is 18.
+    // `maingame0` is 9.
     inline constexpr std::size_t kMaxKeyLen = 48;
 
     inline bool key_char_ok(char c)
@@ -80,6 +85,11 @@ namespace slotid
         return out;
     }
 
+    // The two per-key filename families: `<prefix><key>.txt`.
+    inline constexpr std::string_view kFoundPrefix = "wuchang_minimap_found_";
+    inline constexpr std::string_view kWaypointPrefix = "wuchang_minimap_waypoint_";
+    inline constexpr std::string_view kKeyedSuffix = ".txt";
+
     // The tracker file's name for a key. An empty key is the shared file.
     inline std::string found_filename(std::string_view key)
     {
@@ -87,7 +97,7 @@ namespace slotid
         {
             return "wuchang_minimap_found.txt";
         }
-        return "wuchang_minimap_found_" + std::string{key} + ".txt";
+        return std::string{kFoundPrefix} + std::string{key} + std::string{kKeyedSuffix};
     }
 
     // The full map's waypoint file, named after the same key. An empty key is the shared file.
@@ -97,7 +107,63 @@ namespace slotid
         {
             return "wuchang_minimap_waypoint.txt";
         }
-        return "wuchang_minimap_waypoint_" + std::string{key} + ".txt";
+        return std::string{kWaypointPrefix} + std::string{key} + std::string{kKeyedSuffix};
+    }
+
+    // The key inside `<prefix><key>.txt`, or "" when `name` is not that shape. The key
+    // itself must be a sanitised one, so `found.txt.bak` and a shared file are both "".
+    inline std::string key_in_filename(std::string_view name, std::string_view prefix)
+    {
+        if (name.size() <= prefix.size() + kKeyedSuffix.size())
+        {
+            return {};
+        }
+        if (name.compare(0, prefix.size(), prefix) != 0)
+        {
+            return {};
+        }
+        if (name.compare(name.size() - kKeyedSuffix.size(), kKeyedSuffix.size(), kKeyedSuffix) != 0)
+        {
+            return {};
+        }
+        const std::string_view key =
+            name.substr(prefix.size(), name.size() - prefix.size() - kKeyedSuffix.size());
+        if (key.size() > kMaxKeyLen)
+        {
+            return {};
+        }
+        for (char c : key)
+        {
+            if (!key_char_ok(c))
+            {
+                return {};
+            }
+        }
+        return std::string{key};
+    }
+
+    // True when `candidate` names the same save as `canonical` under the pre-canonical
+    // `<steam account id>_<slot>` spelling. The prefix is all digits, so a slot genuinely
+    // named `ng_maingame0` is not mistaken for one.
+    inline bool is_legacy_account_key(std::string_view canonical, std::string_view candidate)
+    {
+        if (canonical.empty() || candidate.size() <= canonical.size() + 1)
+        {
+            return false;
+        }
+        const std::size_t split = candidate.size() - canonical.size() - 1;
+        if (candidate[split] != '_' || candidate.substr(split + 1) != canonical)
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < split; ++i)
+        {
+            if (candidate[i] < '0' || candidate[i] > '9')
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     //==================================================================================
@@ -157,23 +223,12 @@ namespace slotid
         return detail::component_after(path, "GameSlots");
     }
 
-    // `...\Saved\36053875\GameSlots\...` -> `36053875`.
-    inline std::string account_from_path(std::string_view path)
-    {
-        return detail::component_after(path, "Saved");
-    }
-
-    // The full route-3 key: `<accountid>_<slot>`, or just the slot when the account
-    // component is not in the path, or "" when neither is.
+    // The key any path-shaped route produces: the slot name alone, or "" when the path
+    // has no `GameSlots` component. Route 2 sees an engine-relative path with no account
+    // id in it, so the account id is not part of the key.
     inline std::string key_from_sav_path(std::string_view path)
     {
-        const std::string slot = slot_from_path(path);
-        if (slot.empty())
-        {
-            return {};
-        }
-        const std::string acct = account_from_path(path);
-        return sanitise_key(acct.empty() ? slot : acct + "_" + slot);
+        return sanitise_key(slot_from_path(path));
     }
 
     //==================================================================================

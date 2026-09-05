@@ -18,6 +18,7 @@
 #include "config_keys.hpp"
 #include "config_rewrite.hpp"
 #include "compass.hpp"
+#include "gamebinds_map.hpp"
 #include "glyphs.hpp"
 #include "label_layout.hpp"
 #include "mapmanifest.hpp"
@@ -4796,15 +4797,44 @@ namespace
         const char* kReal =
             "C:\\Users\\me\\AppData\\Local\\Project_Plague\\Saved\\36053875\\GameSlots\\maingame0\\maingame0.sav";
         CHECK_STR(slotid::slot_from_path(kReal), "maingame0");
-        CHECK_STR(slotid::account_from_path(kReal), "36053875");
-        CHECK_STR(slotid::key_from_sav_path(kReal), "36053875_maingame0");
+        // One save, one key: the account id in the filesystem path is NOT part of it, or
+        // route 3 would disagree with route 2's account-less `GameSaved/GameSlots/<slot>`.
+        CHECK_STR(slotid::key_from_sav_path(kReal), "maingame0");
+        CHECK_STR(slotid::key_from_sav_path("GameSaved/GameSlots/maingame0"), "maingame0");
+        CHECK_STR(slotid::key_from_sav_path(kReal), slotid::key_from_sav_path("GameSaved/GameSlots/maingame0"));
         // Forward slashes and a different case of the anchor component both work.
-        CHECK_STR(slotid::key_from_sav_path("D:/x/saved/99/gameslots/ng2/ng2.sav"), "99_ng2");
+        CHECK_STR(slotid::key_from_sav_path("D:/x/saved/99/gameslots/ng2/ng2.sav"), "ng2");
         // No GameSlots component -> no key, so the caller falls back to the shared name.
         CHECK_STR(slotid::key_from_sav_path("C:\\nothing\\here.sav"), "");
         CHECK_STR(slotid::key_from_sav_path(""), "");
         CHECK_STR(slotid::slot_from_path("C:\\a\\GameSlots"), "");
         CHECK_STR(slotid::key_from_sav_path("GameSlots\\maingame1\\x.sav"), "maingame1");
+
+        // The key back out of a filename, for the legacy reconcile.
+        CHECK_STR(slotid::key_in_filename("wuchang_minimap_found_maingame0.txt", slotid::kFoundPrefix),
+                  "maingame0");
+        CHECK_STR(slotid::key_in_filename("wuchang_minimap_waypoint_36053875_maingame0.txt",
+                                          slotid::kWaypointPrefix),
+                  "36053875_maingame0");
+        // The shared file, the wrong family, a backup and a key with an illegal character
+        // are all "no key".
+        CHECK_STR(slotid::key_in_filename("wuchang_minimap_found.txt", slotid::kFoundPrefix), "");
+        CHECK_STR(slotid::key_in_filename("wuchang_minimap_waypoint_a.txt", slotid::kFoundPrefix), "");
+        CHECK_STR(slotid::key_in_filename("wuchang_minimap_found_a.txt.bak", slotid::kFoundPrefix), "");
+        CHECK_STR(slotid::key_in_filename("wuchang_minimap_found_a b.txt", slotid::kFoundPrefix), "");
+        CHECK_STR(slotid::key_in_filename("wuchang_minimap_found_.txt", slotid::kFoundPrefix), "");
+        CHECK_STR(slotid::key_in_filename(slotid::found_filename(std::string(slotid::kMaxKeyLen + 1, 'x')),
+                                          slotid::kFoundPrefix),
+                  "");
+
+        // `<account id>_<slot>` is the same save as `<slot>`; anything else is not.
+        CHECK(slotid::is_legacy_account_key("maingame0", "36053875_maingame0"));
+        CHECK(!slotid::is_legacy_account_key("maingame0", "maingame0"));
+        CHECK(!slotid::is_legacy_account_key("maingame0", "ng_maingame0"));   // prefix not numeric
+        CHECK(!slotid::is_legacy_account_key("maingame0", "36053875maingame0")); // no separator
+        CHECK(!slotid::is_legacy_account_key("maingame0", "36053875_maingame1"));
+        CHECK(!slotid::is_legacy_account_key("maingame0", "_maingame0"));     // empty account id
+        CHECK(!slotid::is_legacy_account_key("", "36053875_maingame0"));      // shared file
     }
 
     // Map -> clipboard: the pixel unpack and the DIB layout
@@ -5045,6 +5075,191 @@ namespace
         CHECK_EQ(dupes, 0);
     }
 
+
+    //======================================================================================
+    // The game's own key bindings (src/gamebinds_map.hpp)
+    //======================================================================================
+
+    struct SampleBind
+    {
+        const char* key;
+        const char* action;
+    };
+
+    // The 58 BOUND rows of the after-remap recon dump
+    // (tools/lua-recon/WuchangRecon/out/dump_20260905_130617_input.txt), in array order,
+    // with the 18 `key=None` rows dropped exactly as the reader drops them. The player had
+    // just moved the flash attack from `F` to `NumPadFour` in the game's own options, which
+    // is why `F` is free here and `IA_SwitchWeaponType` lost a key.
+    constexpr SampleBind kSampleBinds[] = {
+            {"LeftAlt", "IA_Alt"},
+            {"LeftMouseButton", "IP_WeaponSkill"},
+            {"RightMouseButton", "IP_WeaponStyleSkill"},
+            {"Gamepad_Right2D", "IP_Thumbstick_Right"},
+            {"LeftControl", "IA_Ctrl"},
+            {"LeftShift", "IA_Shift"},
+            {"LeftMouseButton", "IP_Attack"},
+            {"Gamepad_RightShoulder", "IP_Attack"},
+            {"RightMouseButton", "IP_HeavyAttack"},
+            {"Gamepad_RightTrigger", "IP_HeavyAttack"},
+            {"Gamepad_LeftShoulder", "IP_WeaponSkill"},
+            {"Gamepad_LeftTrigger", "IP_WeaponStyleSkill"},
+            {"Gamepad_LeftThumbstick", "IP_FlashAtk"},
+            {"NumPadFour", "IP_FlashAtk"},
+            {"Escape", "IP_Inventory"},
+            {"Gamepad_Special_Right", "IP_Inventory"},
+            {"Z", "IA_DrawWeapon"},
+            {"Q", "IA_ToggleTargeting"},
+            {"MiddleMouseButton", "IA_ToggleTargeting"},
+            {"Gamepad_RightThumbstick", "IA_ToggleTargeting"},
+            {"MouseScrollUp", "IA_SwitchWeaponType"},
+            {"Gamepad_DPad_Right", "IA_SwitchWeaponType"},
+            {"MouseScrollDown", "IA_SwitchSpellType"},
+            {"Gamepad_DPad_Left", "IA_SwitchSpellType"},
+            {"V", "IA_SwitchSpellType"},
+            {"Gamepad_DPad_Up", "IA_SwitchToolUp"},
+            {"Gamepad_DPad_Down", "IA_SwitchToolDown"},
+            {"Gamepad_FaceButton_Left", "IP_UseTool"},
+            {"R", "IP_UseTool"},
+            {"Gamepad_FaceButton_Top", "IP_UseSpell"},
+            {"G", "IP_UseSpell"},
+            {"Z", "IA_SwitchToolUp"},
+            {"C", "IA_SwitchToolDown"},
+            {"One", "IP_QuickUse1"},
+            {"Two", "IP_QuickUse2"},
+            {"Three", "IP_QuickUse3"},
+            {"Four", "IP_QuickUse4"},
+            {"F1", "IP_QuickUseSpell1"},
+            {"F2", "IP_QuickUseSpell2"},
+            {"F3", "IP_QuickUseSpell3"},
+            {"F4", "IP_QuickUseSpell4"},
+            {"Y", "IP_OpenPosePanel"},
+            {"Gamepad_Special_Left", "IP_OpenPosePanel"},
+            {"Gamepad_LeftY", "IP_PlayerMoveForward"},
+            {"W", "IP_PlayerMoveForwardW"},
+            {"S", "IP_PlayerMoveForwardS"},
+            {"Gamepad_LeftX", "IP_PlayerMoveRight"},
+            {"D", "IP_PlayerMoveRightD"},
+            {"A", "IP_PlayerMoveRightA"},
+            {"Gamepad_RightX", "IA_PlayerHLook"},
+            {"MouseX", "IA_PlayerHLook_Mouse"},
+            {"Gamepad_RightY", "IA_PlayerVLook"},
+            {"MouseY", "IA_PlayerVLook_Mouse"},
+            {"Gamepad_FaceButton_Right", "IP_Roll"},
+            {"SpaceBar", "IP_Roll"},
+            {"Gamepad_FaceButton_Bottom", "IP_Sprint"},
+            {"LeftShift", "IP_Sprint"},
+            {"LeftControl", "IP_Walking"},
+    };
+
+    void test_game_binds()
+    {
+        std::printf("game key bindings\n");
+
+        // ---- the FKey <-> virtual key dictionary round-trips ----------------------------
+        for (std::size_t i = 0; i < gb::kKeyMapCount; ++i)
+        {
+            const gb::KeyMap& e = gb::kKeyMap[i];
+            CHECK_EQ(gb::vk_for_key(e.fkey), e.vk);
+            // Every name prints as something: "" means "print the FKey name itself".
+            CHECK(gb::label_for_key(e.fkey)[0] != '\0');
+            if (e.vk != 0)
+            {
+                const char* back = gb::fkey_for_vk(e.vk);
+                CHECK(back != nullptr);
+                if (back != nullptr)
+                {
+                    CHECK_STR(back, e.fkey);
+                }
+            }
+            for (std::size_t j = i + 1; j < gb::kKeyMapCount; ++j)
+            {
+                // One name, one row; one virtual key, one name.
+                CHECK(std::strcmp(e.fkey, gb::kKeyMap[j].fkey) != 0);
+                CHECK(e.vk == 0 || e.vk != gb::kKeyMap[j].vk);
+            }
+        }
+        // A stick, an axis and the wheel are not keys, so they can never clash.
+        CHECK_EQ(gb::vk_for_key("Gamepad_FaceButton_Bottom"), 0);
+        CHECK_EQ(gb::vk_for_key("MouseScrollUp"), 0);
+        CHECK_EQ(gb::vk_for_key("NotAKeyOnThisBuild"), 0);
+        CHECK(gb::fkey_for_vk(0) == nullptr);
+        // An unknown name prints as it came, so a patch that adds a key is readable.
+        CHECK_STR(gb::label_for_key("NotAKeyOnThisBuild"), "NotAKeyOnThisBuild");
+        CHECK_STR(gb::action_label("IP_NewThing"), "IP_NewThing");
+        CHECK_STR(gb::action_label("IP_FlashAtk"), "flash attack");
+        CHECK_STR(gb::label_for_key("NumPadFour"), "Num 4");
+
+        // The config file's side-agnostic SHIFT / CTRL / ALT are the same press as the
+        // sided FKey names the game always reports.
+        CHECK(gb::vk_matches(VK_SHIFT, VK_LSHIFT));
+        CHECK(gb::vk_matches(VK_RSHIFT, VK_SHIFT));
+        CHECK(gb::vk_matches(VK_CONTROL, VK_RCONTROL));
+        CHECK(gb::vk_matches(VK_MENU, VK_LMENU));
+        CHECK(gb::vk_matches('W', 'W'));
+        CHECK(!gb::vk_matches(VK_SHIFT, VK_CONTROL));
+        CHECK(!gb::vk_matches(VK_LSHIFT, VK_RSHIFT));
+        CHECK(!gb::vk_matches(0, 0));
+
+        // ---- the static fallback list --------------------------------------------------
+        // Every key it warns about must be one the game can actually name, or the live
+        // table could never contradict it.
+        for (std::size_t i = 0; i < gb::kFallbackBindCount; ++i)
+        {
+            const gb::FallbackBind& fb = gb::kFallbackBinds[i];
+            bool nameable = false;
+            for (std::size_t j = 0; j < gb::kKeyMapCount; ++j)
+            {
+                nameable = nameable || (gb::kKeyMap[j].vk != 0 &&
+                                        gb::vk_matches(fb.vk, gb::kKeyMap[j].vk));
+            }
+            CHECK(nameable);
+            CHECK(gb::fallback_clash(fb.vk) != nullptr);
+        }
+        CHECK(gb::fallback_clash('M') == nullptr);
+        CHECK(gb::fallback_clash(0) == nullptr);
+
+        // ---- the clash line, over the real dump ----------------------------------------
+        const int n = static_cast<int>(std::size(kSampleBinds));
+        CHECK_EQ(n, 58);
+        const auto clash = [&](int vk) { return gb::clash_text(kSampleBinds, n, vk); };
+
+        // The remap the dump was taken for: F is free, Num 4 drives the flash attack.
+        CHECK_STR(clash('F'), "");
+        CHECK_STR(clash(VK_NUMPAD4), "flash attack");
+        // Keys the static list guesses wrong: this game binds neither.
+        CHECK_STR(clash('E'), "");
+        CHECK_STR(clash(VK_TAB), "");
+        // One key, several actions - in array order, each named once.
+        CHECK_STR(clash(VK_LBUTTON), "weapon skill, attack");
+        CHECK_STR(clash('Z'), "draw weapon, next tool");
+        CHECK_STR(clash(VK_LSHIFT), "the Shift modifier, sprint");
+        CHECK_STR(clash(VK_SHIFT), "the Shift modifier, sprint");
+        CHECK_STR(clash(VK_LCONTROL), "the Ctrl modifier, walk");
+        // The plain ones.
+        CHECK_STR(clash(VK_SPACE), "dodge");
+        CHECK_STR(clash('Q'), "lock on");
+        CHECK_STR(clash('W'), "move forward");
+        CHECK_STR(clash('1'), "item slot 1");
+        CHECK_STR(clash(VK_F1), "spell slot 1");
+        CHECK_STR(clash(VK_ESCAPE), "the pause menu");
+        CHECK_STR(clash(VK_MBUTTON), "lock on");
+        // Free keys, and the two the mod ships bound by default.
+        CHECK_STR(clash('M'), "");
+        CHECK_STR(clash(VK_F2), "spell slot 2"); // the panel key DOES clash on this build
+        CHECK_STR(clash(0), "");
+
+        // ---- the cap and the dedupe ----------------------------------------------------
+        constexpr SampleBind kCrowded[] = {
+            {"J", "IP_Attack"},       {"J", "IP_Attack"},    {"J", "IP_HeavyAttack"},
+            {"J", "IP_Roll"},         {"J", "IP_Sprint"},    {"J", "IP_Walking"},
+        };
+        CHECK_STR(gb::clash_text(kCrowded, static_cast<int>(std::size(kCrowded)), 'J'),
+                  "attack, heavy attack, dodge, sprint, ...");
+        CHECK_STR(gb::clash_text(kCrowded, static_cast<int>(std::size(kCrowded)), 'K'), "");
+        CHECK_STR(gb::clash_text<SampleBind>(nullptr, 0, 'J'), "");
+    }
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -5069,6 +5284,7 @@ int main(int argc, char** argv)
     test_saveslot();
     test_clipimg();
     test_shrines_db(markers_dir);
+    test_game_binds();
     test_config_equality();
     test_ids();
     test_intern_levels();

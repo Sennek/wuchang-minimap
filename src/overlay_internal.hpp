@@ -44,6 +44,8 @@
 #include "overlay.hpp"
 
 #include "compass.hpp"
+#include "gamebinds.hpp"
+#include "gamebinds_map.hpp"
 #include "gamepad.hpp"
 #include "gamestate.hpp"
 #include "glyphs.hpp"
@@ -964,29 +966,11 @@ namespace overlay
         extern std::atomic<std::uint32_t> g_panel_sections;
         extern std::atomic<bool> g_panel_state_dirty;
         extern std::atomic<bool> g_panel_state_loaded;
-        // Keys the game or another injected DLL already uses, warned about when a
-        // binding lands on one. A binding with a modifier is not flagged: `ctrl+e` is
-        // the escape hatch this table points at.
-        struct GameBind
-        {
-            int vk;
-            const char* what;
-        };
-        constexpr GameBind kGameBinds[] = {
-            {'W', "move forward"},   {'A', "move left"},      {'S', "move back"},
-            {'D', "move right"},     {VK_SPACE, "dodge"},     {VK_SHIFT, "sprint"},
-            {VK_LSHIFT, "sprint"},   {VK_CONTROL, "crouch"},  {VK_LCONTROL, "crouch"},
-            {'E', "interact"},       {'F', "an action bind"}, {'Q', "an action bind"},
-            {'R', "an action bind"}, {'G', "an action bind"}, {VK_TAB, "inventory"},
-            {VK_ESCAPE, "the pause menu"},
-            {'1', "an item slot"},   {'2', "an item slot"},   {'3', "an item slot"},
-            {'4', "an item slot"},   {'5', "an item slot"},
-            {VK_F6, "RenoDX / DLSS 5 (it ignores modifiers)"},
-            {VK_F9, "an engine screenshot bind"},
-            {VK_F10, "the UE4SS console"},
-            {VK_F11, "the engine fullscreen bind"},
-            {VK_F12, "the Steam screenshot key"},
-        };
+        // The guess used until src/gamebinds.cpp has read the player's real bindings off
+        // the running game: a default keyboard layout, plus the keys other injected
+        // software takes, which no game-side table can know about. The list itself lives
+        // in gb::kFallbackBinds, where the tests can reach it. A binding with a modifier
+        // is never flagged: `ctrl+e` is the escape hatch this points at.
         // nullptr = nothing known wants this binding.
         inline const char* game_bind_clash(int binding)
         {
@@ -994,15 +978,7 @@ namespace overlay
             {
                 return nullptr; // a modifier is the way OUT of a clash
             }
-            const int vk = mm::key_vk(binding);
-            for (const GameBind& g : kGameBinds)
-            {
-                if (g.vk == vk)
-                {
-                    return g.what;
-                }
-            }
-            return nullptr;
+            return gb::fallback_clash(mm::key_vk(binding));
         }
         struct KeyBind
         {

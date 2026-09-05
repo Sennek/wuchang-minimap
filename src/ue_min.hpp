@@ -161,6 +161,21 @@ namespace RC::Unreal
     {
     };
 
+    // The reflection object behind a USTRUCT. Its child-property chain and
+    // `GetPropertiesSize()` are the element layout and the stride of a
+    // `TArray<FSomeStruct>`, which is the only honest way to walk one.
+    class UScriptStruct : public UStruct
+    {
+    };
+
+    // UE5's pointer wrapper. Empty like every class here: it exists so the mangled name
+    // of `FStructProperty::GetStruct` matches, and the pointer it holds is read through
+    // mem::read, never by dereferencing this.
+    template <typename T>
+    class TObjectPtr
+    {
+    };
+
     // A UFunction IS a UStruct: its parameter list is its child-property chain, so
     // `GetChildProperties()` + `GetPropertiesSize()` recover the reflected signature
     // (parameter names, offsets, sizes) at runtime. Never call a UFunction with a
@@ -199,6 +214,38 @@ namespace RC::Unreal
 
         // ?GetElementSize@FProperty@Unreal@RC@@QEBAAEBHXZ
         const int& GetElementSize() const;
+    };
+
+    // The element property of a TArray UPROPERTY. As with FBoolProperty there is no
+    // cheap "is this FProperty an FArrayProperty?" test, so the ANSWER is validated
+    // instead: the returned pointer must be a readable FProperty whose owning struct
+    // then names itself. Taking the address of the returned reference does not
+    // dereference it; the read goes through mem::read.
+    class FArrayProperty : public FProperty
+    {
+      public:
+        // ?GetInner@FArrayProperty@Unreal@RC@@QEAAAEAPEAVFProperty@23@XZ
+        FProperty*& GetInner();
+    };
+
+    // The USTRUCT behind a struct UPROPERTY - the route from `TArray<FStruct>` to the
+    // struct's own reflected layout. Validated the same way: the UScriptStruct must
+    // capture as a live object and its name must be the expected one.
+    class FStructProperty : public FProperty
+    {
+      public:
+        // ?GetStruct@FStructProperty@Unreal@RC@@QEAAAEAV?$TObjectPtr@VUScriptStruct@Unreal@RC@@@23@XZ
+        TObjectPtr<UScriptStruct>& GetStruct();
+    };
+
+    // An FName is a pair of 32-bit indices into the global name table, not a string.
+    // EMPTY like the rest of this file: the only legal use is to call ToString() on a
+    // pointer to eight bytes copied out of the game's memory.
+    class FName
+    {
+      public:
+        // ?ToString@FName@Unreal@RC@@QEAA?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@XZ
+        std::wstring ToString();
     };
 
     // A reflected bool is a BITFIELD; its byte offset alone does not identify it.

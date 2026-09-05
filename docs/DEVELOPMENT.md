@@ -565,6 +565,12 @@ it must match. Two rules for extending it: mirror the real single, non-virtual, 
 inheritance chain so `this` needs no adjustment, and keep `FField::GetNext` **private** with
 a friend accessor, because it is private in UEPseudo and `A…` vs `Q…` is part of the symbol.
 
+`FArrayProperty::GetInner`, `FStructProperty::GetStruct` and `FName::ToString` are declared the
+same way, which is what lets `src/gamebinds.cpp` reach the `UScriptStruct` behind a
+`TArray<FStruct>` and turn an `FKey`'s name into text. `TObjectPtr<T>` is there only so
+`GetStruct`'s mangled name matches; like every class in the file it is empty, and the pointer
+it holds is read through `mem::read`.
+
 ## Rendering the dumps
 
 ```powershell
@@ -858,8 +864,9 @@ on different tabs:
   pair, a click on a row label toggling it everywhere. Under it the rules that are about every
   surface at once: show found, the three glyph sizes, the item-quality combo, show markers and
   clamp-to-rim.
-- **Map & tracker** — the full map, the waypoint list, and the collection tracker with its
-  profile, export / import and statistics page.
+- **Map & tracker** — the collection tracker first, with its profile, export / import,
+  clear-this-save button and statistics page, then the map background, the full map and the
+  waypoint list.
 - **Keys** — every hotkey, rebound by clicking a row and pressing a key, plus the three gamepad
   chords.
 - **Tuning** — the Advanced tier, grouped by the surface it tunes: minimap, full map, x-ray,
@@ -974,13 +981,63 @@ route that answered**:
 2. **slot path** — `Impl_GameSettingsSaver_C::TickCountSavPath`, a raw `FString` read with no
    `ProcessEvent`, parsed for its `GameSlots\<slot>` component.
 3. **sav file** — the newest `*.sav` under `%LOCALAPPDATA%\Project_Plague\Saved\*\GameSlots\*`,
-   giving `<accountid>_<slot>` from the path. It runs on the loop thread before the game thread
-   pumps, so the first load already has a key.
+   giving `<slot>` from the path. It runs on the loop thread before the game thread pumps, so
+   the first load already has a key.
 4. **shared** — the global `wuchang_minimap_found.txt`.
+
+Rungs 2 and 3 answer with the **same key for the same save** — the slot name alone. Rung 2 only
+ever sees an engine-relative `GameSaved/GameSlots/<slot>`, so the Steam account id the
+filesystem path carries is no part of the key; a key that varied by rung would split one
+playthrough across two files as rung 3's answer was replaced by rung 2's mid-session. Files
+left behind by a build that did key on the account id are reconciled on adoption: every
+`<digits>_<slot>` found tracker is unioned into `<slot>`'s and removed, and the waypoint files
+are merged the same way (`reconcile_legacy_found` / `reconcile_legacy_waypoints`).
 
 On first sight of a slot with no file of its own the shared file is **copied** into it once,
 and the copy is logged. A slot switch drops every cache, which re-arms the resolution, so the
 tracker swaps files with no restart; a pending write goes to the *old* file first.
+
+### The player's key bindings (`src/gamebinds.*`)
+
+The Keys tab warns when a mod hotkey lands on a key the game already wants. That warning is
+read out of the running game rather than guessed.
+
+This build is stock UE 5.1 Enhanced Input with **no** user-settings object
+(`EnhancedInputUserSettings`, `PlayerMappableKeySettings` and friends are all absent), so a
+remap made in the game's own options menu is visible in exactly one place: the flattened
+`UEnhancedPlayerInput::EnhancedActionMappings` array on the local player's `PlayerInput`. The
+shipped `UInputMappingContext` assets keep the *defaults* and are never read.
+
+`src/gamebinds.cpp` walks it on the **game thread** at 1 Hz, from `markers::game_thread_pump`
+next to `src/shrines.cpp`:
+
+1. `APlayerController.PlayerInput` (or `FindFirstOf(EnhancedPlayerInput)`), captured as a
+   `uer::ObjRef` so its death re-arms the whole resolution — the object is recreated with the
+   controller and the array is rebuilt on every remap, so nothing is cached by index.
+2. `EnhancedActionMappings`' offset from the class walk; the element **stride** from
+   `UScriptStruct::GetPropertiesSize()` of `FEnhancedActionKeyMapping`, never a hand-written
+   mirror; `Action`, `Key` and `Key.KeyName` from walking that struct
+   (`uer::walk_struct`). The route to the `UScriptStruct` is `FArrayProperty::GetInner()` then
+   `FStructProperty::GetStruct()`, and the answer is validated by making the struct capture as
+   a live object and name itself. The whole derived layout is logged once and every offset is
+   checked to fit inside the stride before a row is read.
+3. Per element: the `UInputAction*` for the identity of the binding (`IP_FlashAtk`) and the
+   `FName` inside the `FKey` for the key (`NumPadFour`). `FKey` is not eight bytes — it caches
+   a `TSharedPtr<FKeyDetails>` — so only that `FName` is touched, and `FName::ToString()` runs
+   on **our copy** of its eight bytes.
+
+`PlayerMappableOptions.Name` lies (`gamePadFlashAttack` sits on a keyboard row), so a binding
+is identified by the action object's name alone. Rows repeat in both directions — one action
+holds several keys, one key drives several actions — and 18 of the 76 rows are unbound
+`key=None` slots, which are dropped. The table is published under a spinlock with a generation
+counter; the panel copies its ~9 KB only when that moves.
+
+`src/gamebinds_map.hpp` is the PURE dictionary: FKey name ↔ virtual key ↔ label, the friendly
+action names, the clash line, and `gb::kFallbackBinds` — the guess the Keys tab shows until the
+live table answers, and the only place the keys *other injected DLLs* own can live. The Keys
+tab says which of the two it is using. `tests/markers_test.cpp` round-trips the dictionary,
+checks every fallback key is one the game can actually name, and runs the clash line over the
+58 bound rows of the recon dump.
 
 ### The recon dump (`src/recon.cpp`)
 

@@ -1,0 +1,1305 @@
+WuchangRecon input dump
+kind      : input
+time      : 2026-09-05 13:06:17
+level     : ProjectMain
+out dir   : E:/Program Files (x86)/Steam/steamapps/common/Wuchang Fallen Feathers/Project_Plague/Binaries/Win64/ue4ss/Mods/WuchangRecon\out
+
+================================================================================
+== INPUT: CONTROLLER -> LOCAL PLAYER -> PLAYER INPUT
+================================================================================
+PlayerController      : DCSPlayerController_C /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167
+  class chain         : DCSPlayerController_C -> DCSPlayerControllerBase_C -> WGIPlayerController -> PlayerController -> Controller -> Actor -> Object
+PC.Player (LocalPlayer): LocalPlayer /Engine/Transient.GameEngine_2147482621:LocalPlayer_2147482524
+  class chain         : LocalPlayer -> Player -> Object
+PC.PlayerInput       : EnhancedPlayerInput /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161
+  class chain         : EnhancedPlayerInput -> PlayerInput -> Object
+PC.InputComponent    : EnhancedInputComponent /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.PC_InputComponent0
+  class chain         : EnhancedInputComponent -> InputComponent -> ActorComponent -> Object
+
+-- all reflected properties of the LocalPlayer --
+  -- [LocalPlayer] 5 properties
+    ViewportClient                               ObjectProperty             = GameViewportClient /Engine/Transient.GameEngine_2147482621:GameViewportClient_2147482531
+    AspectRatioAxisConstraint                    ByteProperty               = 1
+    PendingLevelPlayerControllerClass            ClassProperty              = Class /Script/Engine.PlayerController
+    bSentSplitJoin                               BoolProperty               = false
+    ControllerId                                 IntProperty                = 0
+  -- [Player] 4 properties
+    PlayerController                             ObjectProperty             = DCSPlayerController_C /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167
+    CurrentNetSpeed                              IntProperty                = 0
+    ConfiguredInternetSpeed                      IntProperty                = 100000
+    ConfiguredLanSpeed                           IntProperty                = 100000
+
+-- all reflected properties of the PlayerInput --
+  -- [EnhancedPlayerInput] 7 properties
+    ChangeChordedActionMap                       MapProperty                = <TMap>
+    AppliedInputContexts                         MapProperty                = <TMap>
+    EnhancedActionMappings                       ArrayProperty              = TArray[76]
+    ActionInstanceData                           MapProperty                = <TMap>
+    KeysPressedThisTick                          MapProperty                = <TMap>
+    InputsInjectedThisTick                       MapProperty                = <TMap>
+    LastInjectedActions                          SetProperty                = <TSet>
+  -- [PlayerInput] 2 properties
+    DebugExecBindings                            ArrayProperty              = TArray[18]
+    InvertedAxis                                 ArrayProperty              = TArray[0]
+
+================================================================================
+== INPUT: APPLIED MAPPING CONTEXTS AND THEIR MAPPINGS
+================================================================================
+PlayerInput.AppliedInputContexts : 5 entries via ForEach
+
+  >>> IMC IPC_Thumbstick_Right                     priority=0
+      full : InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_Thumbstick_Right.IPC_Thumbstick_Right
+      IMC.Mappings : 1 element(s) via ForEach
+        [  1] action=IP_Thumbstick_Right                key=Gamepad_Right2D              mappable=false  name=None                     triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+              >>> action IP_Thumbstick_Right
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Thumbstick_Right.IP_Thumbstick_Right
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 2
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+
+  >>> IMC IPC_PlayerMove                           priority=1
+      full : InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove
+      IMC.Mappings : 22 element(s) via ForEach
+        [  1] action=IP_PlayerMoveForward               key=Gamepad_LeftY                mappable=false  name=gamepadMoveForward       triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+              >>> action IP_PlayerMoveForward
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveForward.IP_PlayerMoveForward
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  2] action=IP_PlayerMoveForwardW              key=W                            mappable=true   name=mouseMoveForwardW        triggers=0 modifiers=0
+              >>> action IP_PlayerMoveForwardW
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveForwardW.IP_PlayerMoveForwardW
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  3] action=IP_PlayerMoveForwardS              key=S                            mappable=true   name=mouseMoveForwardS        triggers=0 modifiers=1
+              >>> action IP_PlayerMoveForwardS
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveForwardS.IP_PlayerMoveForwardS
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  4] action=IP_PlayerMoveRight                 key=Gamepad_LeftX                mappable=false  name=gamepadMoveRight         triggers=0 modifiers=0
+              >>> action IP_PlayerMoveRight
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveRight.IP_PlayerMoveRight
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  5] action=IP_PlayerMoveRightD                key=D                            mappable=true   name=mouseMoveRightD          triggers=0 modifiers=0
+              >>> action IP_PlayerMoveRightD
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveRightD.IP_PlayerMoveRightD
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  6] action=IP_PlayerMoveRightA                key=A                            mappable=true   name=mouseMoveRightA          triggers=0 modifiers=1
+              >>> action IP_PlayerMoveRightA
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveRightA.IP_PlayerMoveRightA
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  7] action=IA_PlayerHLook                     key=Gamepad_RightX               mappable=false  name=IA_PlayerLook            triggers=0 modifiers=0
+              >>> action IA_PlayerHLook
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_PlayerHLook.IA_PlayerHLook
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  8] action=IA_PlayerHLook_Mouse               key=MouseX                       mappable=false  name=None                     triggers=0 modifiers=0
+              >>> action IA_PlayerHLook_Mouse
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_PlayerHLook_Mouse.IA_PlayerHLook_Mouse
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  9] action=IA_PlayerVLook                     key=Gamepad_RightY               mappable=false  name=IA_PlayerVLook           triggers=0 modifiers=0
+              >>> action IA_PlayerVLook
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_PlayerVLook.IA_PlayerVLook
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 10] action=IA_PlayerHLook                     key=None                         mappable=true   name=KeyBoardLookLeft         triggers=0 modifiers=1
+        [ 11] action=IA_PlayerHLook                     key=None                         mappable=true   name=KeyBoardLookRight        triggers=0 modifiers=1
+        [ 12] action=IA_PlayerVLook                     key=None                         mappable=true   name=KeyBoardLookUp           triggers=0 modifiers=1
+        [ 13] action=IA_PlayerVLook                     key=None                         mappable=true   name=KeyBoardLookDown         triggers=0 modifiers=1
+        [ 14] action=IA_PlayerVLook_Mouse               key=MouseY                       mappable=false  name=None                     triggers=0 modifiers=1
+              >>> action IA_PlayerVLook_Mouse
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_PlayerVLook_Mouse.IA_PlayerVLook_Mouse
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 1
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 15] action=IP_Roll                            key=Gamepad_FaceButton_Right     mappable=true   name=gamepadRoll              triggers=0 modifiers=0
+              >>> action IP_Roll
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Roll.IP_Roll
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 16] action=IP_Roll                            key=None                         mappable=true   name=mouseRoll                triggers=0 modifiers=0
+        [ 17] action=IP_Roll                            key=SpaceBar                     mappable=true   name=KeyBoardRoll             triggers=0 modifiers=0
+        [ 18] action=IP_Sprint                          key=Gamepad_FaceButton_Bottom    mappable=true   name=gamepadSprint            triggers=0 modifiers=0
+              >>> action IP_Sprint
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Sprint.IP_Sprint
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 19] action=IP_Sprint                          key=LeftShift                    mappable=true   name=KeyBoardSprint           triggers=0 modifiers=0
+        [ 20] action=IP_Sprint                          key=None                         mappable=true   name=MouseSprint              triggers=0 modifiers=0
+        [ 21] action=IP_Walking                         key=LeftControl                  mappable=true   name=keyboardWalking          triggers=0 modifiers=0
+              >>> action IP_Walking
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Walking.IP_Walking
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 22] action=IP_Walking                         key=None                         mappable=true   name=mouseWalking             triggers=0 modifiers=0
+
+  >>> IMC IPC_PlayerOperate                        priority=2
+      full : InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerOperate.IPC_PlayerOperate
+      IMC.Mappings : 35 element(s) via ForEach
+        [  1] action=IP_Inventory                       key=Escape                       mappable=false  name=mouseInventory           triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+              >>> action IP_Inventory
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Inventory.IP_Inventory
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  2] action=IP_Inventory                       key=Gamepad_Special_Right        mappable=false  name=gamepadInventory         triggers=0 modifiers=0
+        [  3] action=IA_DrawWeapon                      key=Z                            mappable=false  name=None                     triggers=0 modifiers=0
+              >>> action IA_DrawWeapon
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_DrawWeapon.IA_DrawWeapon
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  4] action=IA_ToggleTargeting                 key=Q                            mappable=true   name=KeyboardToggleTarget     triggers=0 modifiers=0
+              >>> action IA_ToggleTargeting
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_ToggleTargeting.IA_ToggleTargeting
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  5] action=IA_ToggleTargeting                 key=MiddleMouseButton            mappable=true   name=MouseToggleTarget        triggers=0 modifiers=0
+        [  6] action=IA_ToggleTargeting                 key=Gamepad_RightThumbstick      mappable=true   name=GamePadToggleTargeting   triggers=0 modifiers=0
+        [  7] action=IA_SwitchWeaponType                key=MouseScrollUp                mappable=true   name=MouseSwitchWeaponType    triggers=0 modifiers=0
+              >>> action IA_SwitchWeaponType
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_SwitchWeaponType.IA_SwitchWeaponType
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  8] action=IA_SwitchWeaponType                key=Gamepad_DPad_Right           mappable=true   name=GamePadSwitchWeaponType  triggers=0 modifiers=0
+        [  9] action=IA_SwitchSpellType                 key=MouseScrollDown              mappable=true   name=MouseSwitchSpellType     triggers=0 modifiers=0
+              >>> action IA_SwitchSpellType
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_SwitchSpellType.IA_SwitchSpellType
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 10] action=IA_SwitchSpellType                 key=Gamepad_DPad_Left            mappable=true   name=GamePadSwitchSpellType   triggers=0 modifiers=0
+        [ 11] action=IA_SwitchWeaponType                key=F                            mappable=true   name=KeyboardSwitchWeaponType triggers=0 modifiers=0
+        [ 12] action=IA_SwitchSpellType                 key=V                            mappable=true   name=KeyboardSwitchSpellType  triggers=0 modifiers=0
+        [ 13] action=IA_SwitchToolUp                    key=Gamepad_DPad_Up              mappable=true   name=GamePadSwitchToolUp      triggers=0 modifiers=0
+              >>> action IA_SwitchToolUp
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_SwitchToolUp.IA_SwitchToolUp
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 14] action=IA_SwitchToolDown                  key=Gamepad_DPad_Down            mappable=true   name=GamePadSwitchToolDown    triggers=0 modifiers=0
+              >>> action IA_SwitchToolDown
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_SwitchToolDown.IA_SwitchToolDown
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 15] action=IP_UseTool                         key=Gamepad_FaceButton_Left      mappable=true   name=gamepadUseTool           triggers=0 modifiers=0
+              >>> action IP_UseTool
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_UseTool.IP_UseTool
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 16] action=IP_UseTool                         key=R                            mappable=true   name=keyboradUseTool          triggers=0 modifiers=0
+        [ 17] action=IP_UseSpell                        key=Gamepad_FaceButton_Top       mappable=true   name=gamepadUseSpell          triggers=0 modifiers=0
+              >>> action IP_UseSpell
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_UseSpell.IP_UseSpell
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 18] action=IP_UseSpell                        key=G                            mappable=true   name=keyboradUseSpell         triggers=0 modifiers=0
+        [ 19] action=IP_UseTool                         key=None                         mappable=true   name=mouseUseTool             triggers=0 modifiers=0
+        [ 20] action=IP_UseSpell                        key=None                         mappable=true   name=mouseUseSpell            triggers=0 modifiers=0
+        [ 21] action=IA_SwitchToolUp                    key=Z                            mappable=true   name=KeyboardSwitchToolUp     triggers=0 modifiers=0
+        [ 22] action=IA_SwitchToolDown                  key=C                            mappable=true   name=KeyboardSwitchToolDown   triggers=0 modifiers=0
+        [ 23] action=IA_SwitchToolUp                    key=None                         mappable=true   name=MouseSwitchToolUp        triggers=0 modifiers=0
+        [ 24] action=IA_SwitchToolDown                  key=None                         mappable=true   name=MouseSwitchToolDown      triggers=0 modifiers=0
+        [ 25] action=IP_QuickUse1                       key=One                          mappable=true   name=gamepadQuickUse1         triggers=0 modifiers=0
+              >>> action IP_QuickUse1
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUse1.IP_QuickUse1
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 26] action=IP_QuickUse2                       key=Two                          mappable=true   name=gamepadQuickUse2         triggers=0 modifiers=0
+              >>> action IP_QuickUse2
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUse2.IP_QuickUse2
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 27] action=IP_QuickUse3                       key=Three                        mappable=true   name=gamepadQuickUse3         triggers=0 modifiers=0
+              >>> action IP_QuickUse3
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUse3.IP_QuickUse3
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 28] action=IP_QuickUse4                       key=Four                         mappable=true   name=gamepadQuickUse4         triggers=0 modifiers=0
+              >>> action IP_QuickUse4
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUse4.IP_QuickUse4
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 29] action=IP_QuickUseSpell1                  key=F1                           mappable=true   name=KeyboardQuickuseSpell1   triggers=0 modifiers=0
+              >>> action IP_QuickUseSpell1
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUseSpell1.IP_QuickUseSpell1
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 30] action=IP_QuickUseSpell2                  key=F2                           mappable=true   name=KeyboardQuickuseSpell2   triggers=0 modifiers=0
+              >>> action IP_QuickUseSpell2
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUseSpell2.IP_QuickUseSpell2
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 31] action=IP_QuickUseSpell3                  key=F3                           mappable=true   name=KeyboardQuickuseSpell3   triggers=0 modifiers=0
+              >>> action IP_QuickUseSpell3
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUseSpell3.IP_QuickUseSpell3
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 32] action=IP_QuickUseSpell4                  key=F4                           mappable=true   name=KeyboardQuickuseSpell4   triggers=0 modifiers=0
+              >>> action IP_QuickUseSpell4
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUseSpell4.IP_QuickUseSpell4
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 33] action=IP_OpenPosePanel                   key=Y                            mappable=true   name=KeyboradOpenPosePanel    triggers=0 modifiers=0
+              >>> action IP_OpenPosePanel
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_OpenPosePanel.IP_OpenPosePanel
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 34] action=IP_OpenPosePanel                   key=None                         mappable=true   name=mouseOpenPosePanel       triggers=0 modifiers=0
+        [ 35] action=IP_OpenPosePanel                   key=Gamepad_Special_Left         mappable=false  name=IP_OpenPosePanel         triggers=0 modifiers=0
+
+  >>> IMC IPC_Attack                               priority=3
+      full : InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_Attack.IPC_Attack
+      IMC.Mappings : 15 element(s) via ForEach
+        [  1] action=IP_Attack                          key=LeftMouseButton              mappable=true   name=mouseAttack              triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+              >>> action IP_Attack
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Attack.IP_Attack
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  2] action=IP_Attack                          key=Gamepad_RightShoulder        mappable=true   name=gamePadAttack            triggers=0 modifiers=0
+        [  3] action=IP_HeavyAttack                     key=RightMouseButton             mappable=true   name=mouseHeavyAttack         triggers=0 modifiers=0
+              >>> action IP_HeavyAttack
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_HeavyAttack.IP_HeavyAttack
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  4] action=IP_HeavyAttack                     key=Gamepad_RightTrigger         mappable=true   name=gamePadHeavyAttack       triggers=0 modifiers=0
+        [  5] action=IP_WeaponSkill                     key=LeftMouseButton              mappable=true   name=mouseWeaponSkill         triggers=0 modifiers=0
+              >>> action IP_WeaponSkill
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_WeaponSkill.IP_WeaponSkill
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  6] action=IP_WeaponSkill                     key=Gamepad_LeftShoulder         mappable=true   name=gamePadWeaponSkill       triggers=0 modifiers=0
+        [  7] action=IP_WeaponStyleSkill                key=RightMouseButton             mappable=true   name=mouseStyleskill          triggers=0 modifiers=0
+              >>> action IP_WeaponStyleSkill
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_WeaponStyleSkill.IP_WeaponStyleSkill
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  8] action=IP_WeaponStyleSkill                key=Gamepad_LeftTrigger          mappable=true   name=gamePadStyleSkill        triggers=0 modifiers=0
+        [  9] action=IP_FlashAtk                        key=T                            mappable=true   name=KeyBoardFlashAttack      triggers=0 modifiers=0
+              >>> action IP_FlashAtk
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_FlashAtk.IP_FlashAtk
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [ 10] action=IP_FlashAtk                        key=Gamepad_LeftThumbstick       mappable=true   name=gamePadFlashAttack       triggers=0 modifiers=0
+        [ 11] action=IP_Attack                          key=None                         mappable=true   name=KeyBoardAttack           triggers=0 modifiers=0
+        [ 12] action=IP_HeavyAttack                     key=None                         mappable=true   name=KeyboardHeavyAttack      triggers=0 modifiers=0
+        [ 13] action=IP_WeaponSkill                     key=None                         mappable=true   name=KeyboardWeaponSkill      triggers=0 modifiers=0
+        [ 14] action=IP_WeaponStyleSkill                key=None                         mappable=true   name=KeyBoardStyleSkill       triggers=0 modifiers=0
+        [ 15] action=IP_FlashAtk                        key=None                         mappable=true   name=mouseFlashAttack         triggers=0 modifiers=0
+
+  >>> IMC IMC_ModiKey                              priority=4
+      full : InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IMC_ModiKey.IMC_ModiKey
+      IMC.Mappings : 3 element(s) via ForEach
+        [  1] action=IA_Alt                             key=LeftAlt                      mappable=false  name=mouseAlt                 triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+              >>> action IA_Alt
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_Alt.IA_Alt
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  2] action=IA_Ctrl                            key=LeftControl                  mappable=false  name=mouseCtrl                triggers=0 modifiers=0
+              >>> action IA_Ctrl
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_Ctrl.IA_Ctrl
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  3] action=IA_Shift                           key=LeftShift                    mappable=false  name=mouseShift               triggers=0 modifiers=0
+              >>> action IA_Shift
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_Shift.IA_Shift
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = false
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+
+-- flattened, post-remap mappings the player input actually uses --
+  PlayerInput.EnhancedActionMappings : 76 element(s) via ForEach
+    [  1] action=IA_Alt                             key=LeftAlt                      mappable=false  name=mouseAlt                 triggers=0 modifiers=0
+          fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+          fields absent : PlayerMappableKeySettings, Settings
+    [  2] action=IP_WeaponSkill                     key=LeftMouseButton              mappable=true   name=mouseWeaponSkill         triggers=1 modifiers=0
+    [  3] action=IP_WeaponStyleSkill                key=RightMouseButton             mappable=true   name=mouseStyleskill          triggers=1 modifiers=0
+    [  4] action=IP_Thumbstick_Right                key=Gamepad_Right2D              mappable=false  name=None                     triggers=0 modifiers=0
+    [  5] action=IA_Ctrl                            key=LeftControl                  mappable=false  name=mouseCtrl                triggers=0 modifiers=0
+    [  6] action=IA_Shift                           key=LeftShift                    mappable=false  name=mouseShift               triggers=0 modifiers=0
+    [  7] action=IP_Attack                          key=LeftMouseButton              mappable=true   name=mouseAttack              triggers=2 modifiers=0
+    [  8] action=IP_Attack                          key=Gamepad_RightShoulder        mappable=true   name=gamePadAttack            triggers=0 modifiers=0
+    [  9] action=IP_HeavyAttack                     key=RightMouseButton             mappable=true   name=mouseHeavyAttack         triggers=2 modifiers=0
+    [ 10] action=IP_HeavyAttack                     key=Gamepad_RightTrigger         mappable=true   name=gamePadHeavyAttack       triggers=0 modifiers=0
+    [ 11] action=IP_WeaponSkill                     key=Gamepad_LeftShoulder         mappable=true   name=gamePadWeaponSkill       triggers=0 modifiers=0
+    [ 12] action=IP_WeaponStyleSkill                key=Gamepad_LeftTrigger          mappable=true   name=gamePadStyleSkill        triggers=0 modifiers=0
+    [ 13] action=IP_FlashAtk                        key=Gamepad_LeftThumbstick       mappable=true   name=gamePadFlashAttack       triggers=0 modifiers=0
+    [ 14] action=IP_FlashAtk                        key=NumPadFour                   mappable=true   name=gamePadFlashAttack       triggers=0 modifiers=0
+    [ 15] action=IP_Attack                          key=None                         mappable=true   name=KeyBoardAttack           triggers=0 modifiers=0
+    [ 16] action=IP_HeavyAttack                     key=None                         mappable=true   name=KeyboardHeavyAttack      triggers=0 modifiers=0
+    [ 17] action=IP_WeaponSkill                     key=None                         mappable=true   name=KeyboardWeaponSkill      triggers=0 modifiers=0
+    [ 18] action=IP_WeaponStyleSkill                key=None                         mappable=true   name=KeyBoardStyleSkill       triggers=0 modifiers=0
+    [ 19] action=IP_FlashAtk                        key=None                         mappable=true   name=mouseFlashAttack         triggers=0 modifiers=0
+    [ 20] action=IP_Inventory                       key=Escape                       mappable=false  name=mouseInventory           triggers=0 modifiers=0
+    [ 21] action=IP_Inventory                       key=Gamepad_Special_Right        mappable=false  name=gamepadInventory         triggers=0 modifiers=0
+    [ 22] action=IA_DrawWeapon                      key=Z                            mappable=false  name=None                     triggers=0 modifiers=0
+    [ 23] action=IA_ToggleTargeting                 key=Q                            mappable=true   name=KeyboardToggleTarget     triggers=0 modifiers=0
+    [ 24] action=IA_ToggleTargeting                 key=MiddleMouseButton            mappable=true   name=MouseToggleTarget        triggers=0 modifiers=0
+    [ 25] action=IA_ToggleTargeting                 key=Gamepad_RightThumbstick      mappable=true   name=GamePadToggleTargeting   triggers=0 modifiers=0
+    [ 26] action=IA_SwitchWeaponType                key=MouseScrollUp                mappable=true   name=MouseSwitchWeaponType    triggers=0 modifiers=0
+    [ 27] action=IA_SwitchWeaponType                key=Gamepad_DPad_Right           mappable=true   name=GamePadSwitchWeaponType  triggers=0 modifiers=0
+    [ 28] action=IA_SwitchSpellType                 key=MouseScrollDown              mappable=true   name=MouseSwitchSpellType     triggers=0 modifiers=0
+    [ 29] action=IA_SwitchSpellType                 key=Gamepad_DPad_Left            mappable=true   name=GamePadSwitchSpellType   triggers=0 modifiers=0
+    [ 30] action=IA_SwitchWeaponType                key=None                         mappable=true   name=KeyboardSwitchWeaponType triggers=0 modifiers=0
+    [ 31] action=IA_SwitchSpellType                 key=V                            mappable=true   name=KeyboardSwitchSpellType  triggers=0 modifiers=0
+    [ 32] action=IA_SwitchToolUp                    key=Gamepad_DPad_Up              mappable=true   name=GamePadSwitchToolUp      triggers=0 modifiers=0
+    [ 33] action=IA_SwitchToolDown                  key=Gamepad_DPad_Down            mappable=true   name=GamePadSwitchToolDown    triggers=0 modifiers=0
+    [ 34] action=IP_UseTool                         key=Gamepad_FaceButton_Left      mappable=true   name=gamepadUseTool           triggers=0 modifiers=0
+    [ 35] action=IP_UseTool                         key=R                            mappable=true   name=keyboradUseTool          triggers=0 modifiers=0
+    [ 36] action=IP_UseSpell                        key=Gamepad_FaceButton_Top       mappable=true   name=gamepadUseSpell          triggers=0 modifiers=0
+    [ 37] action=IP_UseSpell                        key=G                            mappable=true   name=keyboradUseSpell         triggers=0 modifiers=0
+    [ 38] action=IP_UseTool                         key=None                         mappable=true   name=mouseUseTool             triggers=0 modifiers=0
+    [ 39] action=IP_UseSpell                        key=None                         mappable=true   name=mouseUseSpell            triggers=0 modifiers=0
+    [ 40] action=IA_SwitchToolUp                    key=Z                            mappable=true   name=KeyboardSwitchToolUp     triggers=0 modifiers=0
+    [ 41] action=IA_SwitchToolDown                  key=C                            mappable=true   name=KeyboardSwitchToolDown   triggers=0 modifiers=0
+    [ 42] action=IA_SwitchToolUp                    key=None                         mappable=true   name=MouseSwitchToolUp        triggers=0 modifiers=0
+    [ 43] action=IA_SwitchToolDown                  key=None                         mappable=true   name=MouseSwitchToolDown      triggers=0 modifiers=0
+    [ 44] action=IP_QuickUse1                       key=One                          mappable=true   name=gamepadQuickUse1         triggers=0 modifiers=0
+    [ 45] action=IP_QuickUse2                       key=Two                          mappable=true   name=gamepadQuickUse2         triggers=0 modifiers=0
+    [ 46] action=IP_QuickUse3                       key=Three                        mappable=true   name=gamepadQuickUse3         triggers=0 modifiers=0
+    [ 47] action=IP_QuickUse4                       key=Four                         mappable=true   name=gamepadQuickUse4         triggers=0 modifiers=0
+    [ 48] action=IP_QuickUseSpell1                  key=F1                           mappable=true   name=KeyboardQuickuseSpell1   triggers=0 modifiers=0
+    [ 49] action=IP_QuickUseSpell2                  key=F2                           mappable=true   name=KeyboardQuickuseSpell2   triggers=0 modifiers=0
+    [ 50] action=IP_QuickUseSpell3                  key=F3                           mappable=true   name=KeyboardQuickuseSpell3   triggers=0 modifiers=0
+    [ 51] action=IP_QuickUseSpell4                  key=F4                           mappable=true   name=KeyboardQuickuseSpell4   triggers=0 modifiers=0
+    [ 52] action=IP_OpenPosePanel                   key=Y                            mappable=true   name=KeyboradOpenPosePanel    triggers=0 modifiers=0
+    [ 53] action=IP_OpenPosePanel                   key=None                         mappable=true   name=mouseOpenPosePanel       triggers=0 modifiers=0
+    [ 54] action=IP_OpenPosePanel                   key=Gamepad_Special_Left         mappable=false  name=IP_OpenPosePanel         triggers=0 modifiers=0
+    [ 55] action=IP_PlayerMoveForward               key=Gamepad_LeftY                mappable=false  name=gamepadMoveForward       triggers=0 modifiers=0
+    [ 56] action=IP_PlayerMoveForwardW              key=W                            mappable=true   name=mouseMoveForwardW        triggers=0 modifiers=0
+    [ 57] action=IP_PlayerMoveForwardS              key=S                            mappable=true   name=mouseMoveForwardS        triggers=0 modifiers=1
+    [ 58] action=IP_PlayerMoveRight                 key=Gamepad_LeftX                mappable=false  name=gamepadMoveRight         triggers=0 modifiers=0
+    [ 59] action=IP_PlayerMoveRightD                key=D                            mappable=true   name=mouseMoveRightD          triggers=0 modifiers=0
+    [ 60] action=IP_PlayerMoveRightA                key=A                            mappable=true   name=mouseMoveRightA          triggers=0 modifiers=1
+    [ 61] action=IA_PlayerHLook                     key=Gamepad_RightX               mappable=false  name=IA_PlayerLook            triggers=0 modifiers=0
+    [ 62] action=IA_PlayerHLook_Mouse               key=MouseX                       mappable=false  name=None                     triggers=0 modifiers=1
+    [ 63] action=IA_PlayerVLook                     key=Gamepad_RightY               mappable=false  name=IA_PlayerVLook           triggers=0 modifiers=0
+    [ 64] action=IA_PlayerHLook                     key=None                         mappable=true   name=KeyBoardLookLeft         triggers=0 modifiers=1
+    [ 65] action=IA_PlayerHLook                     key=None                         mappable=true   name=KeyBoardLookRight        triggers=0 modifiers=1
+    [ 66] action=IA_PlayerVLook                     key=None                         mappable=true   name=KeyBoardLookUp           triggers=0 modifiers=1
+    [ 67] action=IA_PlayerVLook                     key=None                         mappable=true   name=KeyBoardLookDown         triggers=0 modifiers=1
+    [ 68] action=IA_PlayerVLook_Mouse               key=MouseY                       mappable=false  name=None                     triggers=0 modifiers=2
+    [ 69] action=IP_Roll                            key=Gamepad_FaceButton_Right     mappable=true   name=gamepadRoll              triggers=0 modifiers=0
+    [ 70] action=IP_Roll                            key=None                         mappable=true   name=mouseRoll                triggers=0 modifiers=0
+    [ 71] action=IP_Roll                            key=SpaceBar                     mappable=true   name=KeyBoardRoll             triggers=0 modifiers=0
+    [ 72] action=IP_Sprint                          key=Gamepad_FaceButton_Bottom    mappable=true   name=gamepadSprint            triggers=0 modifiers=0
+    [ 73] action=IP_Sprint                          key=LeftShift                    mappable=true   name=KeyBoardSprint           triggers=0 modifiers=0
+    [ 74] action=IP_Sprint                          key=None                         mappable=true   name=MouseSprint              triggers=0 modifiers=0
+    [ 75] action=IP_Walking                         key=LeftControl                  mappable=true   name=keyboardWalking          triggers=0 modifiers=0
+    [ 76] action=IP_Walking                         key=None                         mappable=true   name=mouseWalking             triggers=0 modifiers=0
+
+-- legacy UPlayerInput mappings (empty on a pure Enhanced Input game) --
+  PlayerInput.ActionMappings     : <not readable>
+  PlayerInput.AxisMappings       : <not readable>
+    [  1] name=LevelEditor.ToggleImmersive    key=F11                     
+    [  2] name=MainFrame.ToggleFullscreen     key=F11                     
+    [  3] name=viewmode wireframe             key=F1                      
+    [  4] name=viewmode unlit                 key=F2                      
+    [  5] name=viewmode lit                   key=F3                      
+    [  6] name=viewmode lit_detaillighting    key=F4                      
+    [  7] name=viewmode shadercomplexity      key=F5                      
+    [  8] name=shot showui                    key=F9                      
+    [  9] name=RECOMPILESHADERS CHANGED       key=Period                  
+    [ 10] name=PROFILEGPU                     key=Comma                   
+    [ 11] name=DumpGPU                        key=Slash                   
+    [ 12] name=FocusNextPIEWindow             key=Tab                     
+    [ 13] name=FocusLastPIEWindow             key=Tab                     
+    [ 14] name=PreviousDebugTarget            key=PageDown                
+    [ 15] name=NextDebugTarget                key=PageUp                  
+    [ 16] name=EnableGDT                      key=Apostrophe              
+    [ 17] name=EnableGDT                      key=Quote                   
+    [ 18] name=ToggleDebugCamera              key=Semicolon               
+  PlayerInput.DebugExecBindings  : 18 element(s) via ForEach
+
+-- every loaded UInputMappingContext --
+
+  >>> InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_Thumbstick_Right.IPC_Thumbstick_Right
+      class chain: InputMappingContext -> DataAsset -> Object
+      IMC.Mappings : 1 element(s) via ForEach
+        [  1] action=IP_Thumbstick_Right                key=Gamepad_Right2D              mappable=false  name=None                     triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+
+  >>> InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerOperate.IPC_PlayerOperate
+      class chain: InputMappingContext -> DataAsset -> Object
+      IMC.Mappings : 35 element(s) via ForEach
+        [  1] action=IP_Inventory                       key=Escape                       mappable=false  name=mouseInventory           triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+        [  2] action=IP_Inventory                       key=Gamepad_Special_Right        mappable=false  name=gamepadInventory         triggers=0 modifiers=0
+        [  3] action=IA_DrawWeapon                      key=Z                            mappable=false  name=None                     triggers=0 modifiers=0
+        [  4] action=IA_ToggleTargeting                 key=Q                            mappable=true   name=KeyboardToggleTarget     triggers=0 modifiers=0
+        [  5] action=IA_ToggleTargeting                 key=MiddleMouseButton            mappable=true   name=MouseToggleTarget        triggers=0 modifiers=0
+        [  6] action=IA_ToggleTargeting                 key=Gamepad_RightThumbstick      mappable=true   name=GamePadToggleTargeting   triggers=0 modifiers=0
+        [  7] action=IA_SwitchWeaponType                key=MouseScrollUp                mappable=true   name=MouseSwitchWeaponType    triggers=0 modifiers=0
+        [  8] action=IA_SwitchWeaponType                key=Gamepad_DPad_Right           mappable=true   name=GamePadSwitchWeaponType  triggers=0 modifiers=0
+        [  9] action=IA_SwitchSpellType                 key=MouseScrollDown              mappable=true   name=MouseSwitchSpellType     triggers=0 modifiers=0
+        [ 10] action=IA_SwitchSpellType                 key=Gamepad_DPad_Left            mappable=true   name=GamePadSwitchSpellType   triggers=0 modifiers=0
+        [ 11] action=IA_SwitchWeaponType                key=F                            mappable=true   name=KeyboardSwitchWeaponType triggers=0 modifiers=0
+        [ 12] action=IA_SwitchSpellType                 key=V                            mappable=true   name=KeyboardSwitchSpellType  triggers=0 modifiers=0
+        [ 13] action=IA_SwitchToolUp                    key=Gamepad_DPad_Up              mappable=true   name=GamePadSwitchToolUp      triggers=0 modifiers=0
+        [ 14] action=IA_SwitchToolDown                  key=Gamepad_DPad_Down            mappable=true   name=GamePadSwitchToolDown    triggers=0 modifiers=0
+        [ 15] action=IP_UseTool                         key=Gamepad_FaceButton_Left      mappable=true   name=gamepadUseTool           triggers=0 modifiers=0
+        [ 16] action=IP_UseTool                         key=R                            mappable=true   name=keyboradUseTool          triggers=0 modifiers=0
+        [ 17] action=IP_UseSpell                        key=Gamepad_FaceButton_Top       mappable=true   name=gamepadUseSpell          triggers=0 modifiers=0
+        [ 18] action=IP_UseSpell                        key=G                            mappable=true   name=keyboradUseSpell         triggers=0 modifiers=0
+        [ 19] action=IP_UseTool                         key=None                         mappable=true   name=mouseUseTool             triggers=0 modifiers=0
+        [ 20] action=IP_UseSpell                        key=None                         mappable=true   name=mouseUseSpell            triggers=0 modifiers=0
+        [ 21] action=IA_SwitchToolUp                    key=Z                            mappable=true   name=KeyboardSwitchToolUp     triggers=0 modifiers=0
+        [ 22] action=IA_SwitchToolDown                  key=C                            mappable=true   name=KeyboardSwitchToolDown   triggers=0 modifiers=0
+        [ 23] action=IA_SwitchToolUp                    key=None                         mappable=true   name=MouseSwitchToolUp        triggers=0 modifiers=0
+        [ 24] action=IA_SwitchToolDown                  key=None                         mappable=true   name=MouseSwitchToolDown      triggers=0 modifiers=0
+        [ 25] action=IP_QuickUse1                       key=One                          mappable=true   name=gamepadQuickUse1         triggers=0 modifiers=0
+        [ 26] action=IP_QuickUse2                       key=Two                          mappable=true   name=gamepadQuickUse2         triggers=0 modifiers=0
+        [ 27] action=IP_QuickUse3                       key=Three                        mappable=true   name=gamepadQuickUse3         triggers=0 modifiers=0
+        [ 28] action=IP_QuickUse4                       key=Four                         mappable=true   name=gamepadQuickUse4         triggers=0 modifiers=0
+        [ 29] action=IP_QuickUseSpell1                  key=F1                           mappable=true   name=KeyboardQuickuseSpell1   triggers=0 modifiers=0
+        [ 30] action=IP_QuickUseSpell2                  key=F2                           mappable=true   name=KeyboardQuickuseSpell2   triggers=0 modifiers=0
+        [ 31] action=IP_QuickUseSpell3                  key=F3                           mappable=true   name=KeyboardQuickuseSpell3   triggers=0 modifiers=0
+        [ 32] action=IP_QuickUseSpell4                  key=F4                           mappable=true   name=KeyboardQuickuseSpell4   triggers=0 modifiers=0
+        [ 33] action=IP_OpenPosePanel                   key=Y                            mappable=true   name=KeyboradOpenPosePanel    triggers=0 modifiers=0
+        [ 34] action=IP_OpenPosePanel                   key=None                         mappable=true   name=mouseOpenPosePanel       triggers=0 modifiers=0
+        [ 35] action=IP_OpenPosePanel                   key=Gamepad_Special_Left         mappable=false  name=IP_OpenPosePanel         triggers=0 modifiers=0
+
+  >>> InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove
+      class chain: InputMappingContext -> DataAsset -> Object
+      IMC.Mappings : 22 element(s) via ForEach
+        [  1] action=IP_PlayerMoveForward               key=Gamepad_LeftY                mappable=false  name=gamepadMoveForward       triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+        [  2] action=IP_PlayerMoveForwardW              key=W                            mappable=true   name=mouseMoveForwardW        triggers=0 modifiers=0
+        [  3] action=IP_PlayerMoveForwardS              key=S                            mappable=true   name=mouseMoveForwardS        triggers=0 modifiers=1
+        [  4] action=IP_PlayerMoveRight                 key=Gamepad_LeftX                mappable=false  name=gamepadMoveRight         triggers=0 modifiers=0
+        [  5] action=IP_PlayerMoveRightD                key=D                            mappable=true   name=mouseMoveRightD          triggers=0 modifiers=0
+        [  6] action=IP_PlayerMoveRightA                key=A                            mappable=true   name=mouseMoveRightA          triggers=0 modifiers=1
+        [  7] action=IA_PlayerHLook                     key=Gamepad_RightX               mappable=false  name=IA_PlayerLook            triggers=0 modifiers=0
+        [  8] action=IA_PlayerHLook_Mouse               key=MouseX                       mappable=false  name=None                     triggers=0 modifiers=0
+        [  9] action=IA_PlayerVLook                     key=Gamepad_RightY               mappable=false  name=IA_PlayerVLook           triggers=0 modifiers=0
+        [ 10] action=IA_PlayerHLook                     key=None                         mappable=true   name=KeyBoardLookLeft         triggers=0 modifiers=1
+        [ 11] action=IA_PlayerHLook                     key=None                         mappable=true   name=KeyBoardLookRight        triggers=0 modifiers=1
+        [ 12] action=IA_PlayerVLook                     key=None                         mappable=true   name=KeyBoardLookUp           triggers=0 modifiers=1
+        [ 13] action=IA_PlayerVLook                     key=None                         mappable=true   name=KeyBoardLookDown         triggers=0 modifiers=1
+        [ 14] action=IA_PlayerVLook_Mouse               key=MouseY                       mappable=false  name=None                     triggers=0 modifiers=1
+        [ 15] action=IP_Roll                            key=Gamepad_FaceButton_Right     mappable=true   name=gamepadRoll              triggers=0 modifiers=0
+        [ 16] action=IP_Roll                            key=None                         mappable=true   name=mouseRoll                triggers=0 modifiers=0
+        [ 17] action=IP_Roll                            key=SpaceBar                     mappable=true   name=KeyBoardRoll             triggers=0 modifiers=0
+        [ 18] action=IP_Sprint                          key=Gamepad_FaceButton_Bottom    mappable=true   name=gamepadSprint            triggers=0 modifiers=0
+        [ 19] action=IP_Sprint                          key=LeftShift                    mappable=true   name=KeyBoardSprint           triggers=0 modifiers=0
+        [ 20] action=IP_Sprint                          key=None                         mappable=true   name=MouseSprint              triggers=0 modifiers=0
+        [ 21] action=IP_Walking                         key=LeftControl                  mappable=true   name=keyboardWalking          triggers=0 modifiers=0
+        [ 22] action=IP_Walking                         key=None                         mappable=true   name=mouseWalking             triggers=0 modifiers=0
+
+  >>> InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_DebugFly.IPC_DebugFly
+      class chain: InputMappingContext -> DataAsset -> Object
+      IMC.Mappings : 12 element(s) via ForEach
+        [  1] action=IP_AddSpeed                        key=LeftMouseButton              mappable=true   name=mouseAttack              triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+              >>> action IP_AddSpeed
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/DebugFlay/IP_AddSpeed.IP_AddSpeed
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  2] action=IP_AddSpeed                        key=Gamepad_RightShoulder        mappable=true   name=gamePadAttack            triggers=0 modifiers=0
+        [  3] action=IP_UpFly                           key=RightMouseButton             mappable=true   name=mouseHeavyAttack         triggers=0 modifiers=0
+              >>> action IP_UpFly
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/DebugFlay/IP_UpFly.IP_UpFly
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  4] action=IP_UpFly                           key=Gamepad_RightTrigger         mappable=true   name=gamePadHeavyAttack       triggers=0 modifiers=0
+        [  5] action=IP_SubSpeed                        key=LeftMouseButton              mappable=true   name=mouseWeaponSkill         triggers=0 modifiers=0
+              >>> action IP_SubSpeed
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/DebugFlay/IP_SubSpeed.IP_SubSpeed
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  6] action=IP_SubSpeed                        key=Gamepad_LeftShoulder         mappable=true   name=gamePadWeaponSkill       triggers=0 modifiers=0
+        [  7] action=IP_DownFly                         key=RightMouseButton             mappable=true   name=mouseStyleskill          triggers=0 modifiers=0
+              >>> action IP_DownFly
+                  full        : InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/DebugFlay/IP_DownFly.IP_DownFly
+                  class chain : InputAction -> DataAsset -> Object
+                  ValueType              = 0
+                  bConsumeInput          = true
+                  bTriggerWhenPaused     = false
+                  bReserveAllMappings    = false
+                  ActionDescription      = 
+        [  8] action=IP_DownFly                         key=Gamepad_LeftTrigger          mappable=true   name=gamePadStyleSkill        triggers=0 modifiers=0
+        [  9] action=IP_AddSpeed                        key=Two                          mappable=true   name=KeyBoardAttack           triggers=0 modifiers=0
+        [ 10] action=IP_UpFly                           key=Four                         mappable=true   name=KeyboardHeavyAttack      triggers=0 modifiers=0
+        [ 11] action=IP_SubSpeed                        key=One                          mappable=true   name=KeyboardWeaponSkill      triggers=0 modifiers=0
+        [ 12] action=IP_DownFly                         key=Three                        mappable=true   name=KeyboardWeaponStyleSkill triggers=0 modifiers=0
+
+  >>> InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_Attack.IPC_Attack
+      class chain: InputMappingContext -> DataAsset -> Object
+      IMC.Mappings : 15 element(s) via ForEach
+        [  1] action=IP_Attack                          key=LeftMouseButton              mappable=true   name=mouseAttack              triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+        [  2] action=IP_Attack                          key=Gamepad_RightShoulder        mappable=true   name=gamePadAttack            triggers=0 modifiers=0
+        [  3] action=IP_HeavyAttack                     key=RightMouseButton             mappable=true   name=mouseHeavyAttack         triggers=0 modifiers=0
+        [  4] action=IP_HeavyAttack                     key=Gamepad_RightTrigger         mappable=true   name=gamePadHeavyAttack       triggers=0 modifiers=0
+        [  5] action=IP_WeaponSkill                     key=LeftMouseButton              mappable=true   name=mouseWeaponSkill         triggers=0 modifiers=0
+        [  6] action=IP_WeaponSkill                     key=Gamepad_LeftShoulder         mappable=true   name=gamePadWeaponSkill       triggers=0 modifiers=0
+        [  7] action=IP_WeaponStyleSkill                key=RightMouseButton             mappable=true   name=mouseStyleskill          triggers=0 modifiers=0
+        [  8] action=IP_WeaponStyleSkill                key=Gamepad_LeftTrigger          mappable=true   name=gamePadStyleSkill        triggers=0 modifiers=0
+        [  9] action=IP_FlashAtk                        key=T                            mappable=true   name=KeyBoardFlashAttack      triggers=0 modifiers=0
+        [ 10] action=IP_FlashAtk                        key=Gamepad_LeftThumbstick       mappable=true   name=gamePadFlashAttack       triggers=0 modifiers=0
+        [ 11] action=IP_Attack                          key=None                         mappable=true   name=KeyBoardAttack           triggers=0 modifiers=0
+        [ 12] action=IP_HeavyAttack                     key=None                         mappable=true   name=KeyboardHeavyAttack      triggers=0 modifiers=0
+        [ 13] action=IP_WeaponSkill                     key=None                         mappable=true   name=KeyboardWeaponSkill      triggers=0 modifiers=0
+        [ 14] action=IP_WeaponStyleSkill                key=None                         mappable=true   name=KeyBoardStyleSkill       triggers=0 modifiers=0
+        [ 15] action=IP_FlashAtk                        key=None                         mappable=true   name=mouseFlashAttack         triggers=0 modifiers=0
+
+  >>> InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IMC_ModiKey.IMC_ModiKey
+      class chain: InputMappingContext -> DataAsset -> Object
+      IMC.Mappings : 3 element(s) via ForEach
+        [  1] action=IA_Alt                             key=LeftAlt                      mappable=false  name=mouseAlt                 triggers=0 modifiers=0
+              fields present: Action, Key, bIsPlayerMappable, PlayerMappableOptions, Triggers, Modifiers, bShouldBeIgnored
+              fields absent : PlayerMappableKeySettings, Settings
+        [  2] action=IA_Ctrl                            key=LeftControl                  mappable=false  name=mouseCtrl                triggers=0 modifiers=0
+        [  3] action=IA_Shift                           key=LeftShift                    mappable=false  name=mouseShift               triggers=0 modifiers=0
+  contexts seen: 6
+
+================================================================================
+== INPUT: SUBSYSTEM / USER SETTINGS / OBJECT CENSUS
+================================================================================
+EnhancedInputLocalPlayerSubsystem      : 1 instance(s)
+    EnhancedInputLocalPlayerSubsystem /Engine/Transient.GameEngine_2147482621:LocalPlayer_2147482524.EnhancedInputLocalPlayerSubsystem_2147482523
+    class chain: EnhancedInputLocalPlayerSubsystem -> LocalPlayerSubsystem -> Subsystem -> Object
+    -- all reflected properties of the first instance --
+    -- [EnhancedInputLocalPlayerSubsystem] 1 properties
+      ControlMappingsRebuiltDelegate               MulticastInlineDelegateProperty = MulticastInlineDelegateProperty /Script/EnhancedInput.EnhancedInputLocalPlayerSubsystem:ControlMappingsRebuiltDelegate
+
+EnhancedInputWorldSubsystem            : 0 instance(s)
+
+EnhancedInputUserSettings              : 0 instance(s)
+
+EnhancedPlayerMappableKeyProfile       : 0 instance(s)
+
+PlayerMappableKeySettings              : 0 instance(s)
+
+PlayerMappableInputConfig              : 0 instance(s)
+
+EnhancedInputDeveloperSettings         : 0 instance(s)
+
+EnhancedPlayerInput                    : 1 instance(s)
+    EnhancedPlayerInput /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161
+    class chain: EnhancedPlayerInput -> PlayerInput -> Object
+    -- all reflected properties of the first instance --
+    -- [EnhancedPlayerInput] 7 properties
+      ChangeChordedActionMap                       MapProperty                = <TMap>
+      AppliedInputContexts                         MapProperty                = <TMap>
+      EnhancedActionMappings                       ArrayProperty              = TArray[76]
+      ActionInstanceData                           MapProperty                = <TMap>
+      KeysPressedThisTick                          MapProperty                = <TMap>
+      InputsInjectedThisTick                       MapProperty                = <TMap>
+      LastInjectedActions                          SetProperty                = <TSet>
+    -- [PlayerInput] 2 properties
+      DebugExecBindings                            ArrayProperty              = TArray[18]
+      InvertedAxis                                 ArrayProperty              = TArray[0]
+
+PlayerInput                            : 1 instance(s)
+    EnhancedPlayerInput /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161
+
+EnhancedInputComponent                 : 10 instance(s)
+    EnhancedInputComponent /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.PC_InactiveStateInputComponent0
+    EnhancedInputComponent /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.PC_InputComponent0
+    EnhancedInputComponent /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.ProjectMain_C_0.EnhancedInputComponent_2147481172
+    EnhancedInputComponent /Game/Maps/program/Command.Command:PersistentLevel.Command_C_1.EnhancedInputComponent_2147481073
+    EnhancedInputComponent /Game/Maps/program/DebugCommand.DebugCommand:PersistentLevel.DebugCommand_C_0.EnhancedInputComponent_2147481046
+    EnhancedInputComponent /Game/Maps/Global_Light/Main_CPTLight.Main_CPTLight:PersistentLevel.Main_CPTLight_C_3.EnhancedInputComponent_2147480998
+    EnhancedInputComponent /Game/Maps/Chapter2/Props/Chapter2_XueBaoBoss_Props.Chapter2_XueBaoBoss_Props:PersistentLevel.Chapter2_XueBaoBoss_Props_C_0.EnhancedInputComponent_2147479611
+    EnhancedInputComponent /Game/Maps/Project_Landscape/Chapter2_Land/Chapter2_NeiCheng_Land.Chapter2_NeiCheng_Land:PersistentLevel.Chapter2_NeiCheng_Land_C_0.EnhancedInputComponent_2147478879
+    EnhancedInputComponent /Game/Maps/Chapter2/Chapter2_XueBao_Base.Chapter2_XueBao_Base:PersistentLevel.Chapter2_XueBao_Base_C_0.EnhancedInputComponent_2147478851
+    EnhancedInputComponent /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.BP_CombatCharacter_Player_Final_C_2147477084.PawnInputComponent0
+
+InputComponent                         : 10 instance(s)
+    EnhancedInputComponent /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.PC_InactiveStateInputComponent0
+    EnhancedInputComponent /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.PC_InputComponent0
+    EnhancedInputComponent /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.ProjectMain_C_0.EnhancedInputComponent_2147481172
+    EnhancedInputComponent /Game/Maps/program/Command.Command:PersistentLevel.Command_C_1.EnhancedInputComponent_2147481073
+    EnhancedInputComponent /Game/Maps/program/DebugCommand.DebugCommand:PersistentLevel.DebugCommand_C_0.EnhancedInputComponent_2147481046
+    EnhancedInputComponent /Game/Maps/Global_Light/Main_CPTLight.Main_CPTLight:PersistentLevel.Main_CPTLight_C_3.EnhancedInputComponent_2147480998
+    EnhancedInputComponent /Game/Maps/Chapter2/Props/Chapter2_XueBaoBoss_Props.Chapter2_XueBaoBoss_Props:PersistentLevel.Chapter2_XueBaoBoss_Props_C_0.EnhancedInputComponent_2147479611
+    EnhancedInputComponent /Game/Maps/Project_Landscape/Chapter2_Land/Chapter2_NeiCheng_Land.Chapter2_NeiCheng_Land:PersistentLevel.Chapter2_NeiCheng_Land_C_0.EnhancedInputComponent_2147478879
+    EnhancedInputComponent /Game/Maps/Chapter2/Chapter2_XueBao_Base.Chapter2_XueBao_Base:PersistentLevel.Chapter2_XueBao_Base_C_0.EnhancedInputComponent_2147478851
+    EnhancedInputComponent /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.BP_CombatCharacter_Player_Final_C_2147477084.PawnInputComponent0
+
+InputMappingContext                    : 6 instance(s)
+    InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_Thumbstick_Right.IPC_Thumbstick_Right
+    InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerOperate.IPC_PlayerOperate
+    InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove
+    InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_DebugFly.IPC_DebugFly
+    InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_Attack.IPC_Attack
+    InputMappingContext /Game/DynamicCombatSystem/EnhancedInPut/IPC/IMC_ModiKey.IMC_ModiKey
+
+InputAction                            : 44 instance(s)
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_Shift.IA_Shift
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_Ctrl.IA_Ctrl
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_Alt.IA_Alt
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_WeaponStyleSkill.IP_WeaponStyleSkill
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_WeaponSkill.IP_WeaponSkill
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_HeavyAttack.IP_HeavyAttack
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_FlashAtk.IP_FlashAtk
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Attack.IP_Attack
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/DebugFlay/IP_UpFly.IP_UpFly
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/DebugFlay/IP_SubSpeed.IP_SubSpeed
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/DebugFlay/IP_DownFly.IP_DownFly
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/DebugFlay/IP_AddSpeed.IP_AddSpeed
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Walking.IP_Walking
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Sprint.IP_Sprint
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Roll.IP_Roll
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveRightD.IP_PlayerMoveRightD
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveRightA.IP_PlayerMoveRightA
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveRight.IP_PlayerMoveRight
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveForwardW.IP_PlayerMoveForwardW
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveForwardS.IP_PlayerMoveForwardS
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_PlayerMoveForward.IP_PlayerMoveForward
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_PlayerVLook_Mouse.IA_PlayerVLook_Mouse
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_PlayerVLook.IA_PlayerVLook
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_PlayerHLook_Mouse.IA_PlayerHLook_Mouse
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_PlayerHLook.IA_PlayerHLook
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_UseTool.IP_UseTool
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_UseSpell.IP_UseSpell
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUseSpell4.IP_QuickUseSpell4
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUseSpell3.IP_QuickUseSpell3
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUseSpell2.IP_QuickUseSpell2
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUseSpell1.IP_QuickUseSpell1
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUse4.IP_QuickUse4
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUse3.IP_QuickUse3
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUse2.IP_QuickUse2
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_QuickUse1.IP_QuickUse1
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_OpenPosePanel.IP_OpenPosePanel
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Inventory.IP_Inventory
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_ToggleTargeting.IA_ToggleTargeting
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_SwitchWeaponType.IA_SwitchWeaponType
+    InputAction /Game/DynamicCombatSystem/EnhancedInPut/IP/IA_SwitchToolUp.IA_SwitchToolUp
+    ... instance cap 40 reached
+
+InputModifier                          : 54 instance(s)
+    InputModifierFOVScaling /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove:InputModifierFOVScaling_0
+    InputModifierNegate /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove:InputModifierNegate_2
+    InputModifierNegate /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove:InputModifierNegate_3
+    InputModifierScalar /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove:InputModifierScalar_1
+    InputModifierScalar /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove:InputModifierScalar_2
+    InputModifierScalar /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove:InputModifierScalar_3
+    InputModifierScalar /Game/DynamicCombatSystem/EnhancedInPut/IPC/IPC_PlayerMove.IPC_PlayerMove:InputModifierScalar_4
+    InputModify_Thumbstick_C /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Thumbstick_Right.IP_Thumbstick_Right:InputModify_Test_C_4
+    InputModify_Thumbstick_C /Engine/Transient.InputModify_Test_C_4
+    InputModifierNegate /Engine/Transient.InputModifierNegate_2147481041
+    InputModifierNegate /Engine/Transient.InputModifierNegate_2147481040
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147481039
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147481038
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147481037
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147481036
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147481035
+    InputModifierFOVScaling /Engine/Transient.InputModifierFOVScaling_2147481034
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147481033
+    InputModifierNegate /Engine/Transient.InputModifierNegate_2
+    InputModifierNegate /Engine/Transient.InputModifierNegate_3
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468575
+    InputModifierScalar /Engine/Transient.InputModifierScalar_4
+    InputModifierScalar /Engine/Transient.InputModifierScalar_1
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2
+    InputModifierScalar /Engine/Transient.InputModifierScalar_3
+    InputModifierFOVScaling /Engine/Transient.InputModifierFOVScaling_0
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468574
+    InputModifierNegate /Engine/Transient.InputModifierNegate_2147468560
+    InputModifierNegate /Engine/Transient.InputModifierNegate_2147468559
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468558
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468557
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468556
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468555
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468554
+    InputModifierFOVScaling /Engine/Transient.InputModifierFOVScaling_2147468553
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468552
+    InputModifierNegate /Engine/Transient.InputModifierNegate_2147468538
+    InputModifierNegate /Engine/Transient.InputModifierNegate_2147468537
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468536
+    InputModifierScalar /Engine/Transient.InputModifierScalar_2147468535
+    ... instance cap 40 reached
+
+InputTrigger                           : 50 instance(s)
+    InputTriggerHold /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_UseTool.IP_UseTool:InputTriggerHold_0
+    InputTriggerHold /Game/DynamicCombatSystem/EnhancedInPut/IP/TollAndSpell/IP_UseSpell.IP_UseSpell:InputTriggerHold_0
+    InputTrigger_Thumbstick_C /Game/DynamicCombatSystem/EnhancedInPut/IP/IP_Thumbstick_Right.IP_Thumbstick_Right:InputTrigger_Test_C_2
+    InputTrigger_Thumbstick_C /Engine/Transient.InputTrigger_Test_C_2
+    InputTriggerHold /Engine/Transient.InputTriggerHold_2147481122
+    InputTriggerHold /Engine/Transient.InputTriggerHold_0
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147481043
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147481042
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147481032
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147481031
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147481030
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147481029
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468579
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468578
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468577
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468576
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147468573
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147468572
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147468571
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147468570
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147468569
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147468568
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468564
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468563
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468562
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468561
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147468551
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147468550
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147468549
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147468548
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147468547
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147468546
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468542
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468541
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468540
+    InputTriggerChordAction /Engine/Transient.InputTriggerChordAction_2147468539
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147468529
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147468528
+    InputTriggerDown /Engine/Transient.InputTriggerDown_2147468527
+    InputTriggerChordBlocker /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167.EnhancedPlayerInput_2147481161.InputTriggerChordBlocker_2147468526
+    ... instance cap 40 reached
+
+InputSettings                          : 0 instance(s)
+
+LocalPlayer                            : 1 instance(s)
+    LocalPlayer /Engine/Transient.GameEngine_2147482621:LocalPlayer_2147482524
+    class chain: LocalPlayer -> Player -> Object
+    -- all reflected properties of the first instance --
+    -- [LocalPlayer] 5 properties
+      ViewportClient                               ObjectProperty             = GameViewportClient /Engine/Transient.GameEngine_2147482621:GameViewportClient_2147482531
+      AspectRatioAxisConstraint                    ByteProperty               = 1
+      PendingLevelPlayerControllerClass            ClassProperty              = Class /Script/Engine.PlayerController
+      bSentSplitJoin                               BoolProperty               = false
+      ControllerId                                 IntProperty                = 0
+    -- [Player] 4 properties
+      PlayerController                             ObjectProperty             = DCSPlayerController_C /Game/Maps/ProjectMain.ProjectMain:PersistentLevel.DCSPlayerController_C_2147481167
+      CurrentNetSpeed                              IntProperty                = 0
+      ConfiguredInternetSpeed                      IntProperty                = 100000
+      ConfiguredLanSpeed                           IntProperty                = 100000
+
+
+================================================================================
+== INPUT: REMAP STORAGE CANDIDATES (class-name sweep)
+================================================================================
+A player-remapped key usually lives outside the asset contexts. Anything
+here whose instance holds a key name is the object the C++ reader wants.
+
+classes matching input/keybind/keymap/keyboard/binding/remap/mappable/control/gamepad: 188
+  AC_CharacterStateControl_C
+  AC_DissolveControllComponent_C
+  AIController
+  ANS_FollowController_C
+  ANS_InputBuffer_C
+  AN_BreakInputBuffer_C
+  AN_EatInputBufferKey_C
+  ARSharedWorldPlayerController
+  AbilityTask_WaitInputPress
+  AbilityTask_WaitInputRelease
+  AdditiveControlRig
+  AkAudioInputComponent
+  AkSubmixInputComponent
+  AnimationDataController
+  AsyncPhysicsInputComponent
+  AtomModulationControlBus
+  AtomModulationControlBusMix
+  AudioParameterControllerInterface
+  BP_BaseAIController_C
+  BP_CharacterStateControl_Box_C
+  BP_OptimizedControlActor_C
+  BP_OptimizedControlBox_C
+  BP_SpecialTerrainController_C
+  BoolBinding
+  BrushBinding
+  CheckedStateBinding
+  ColorBinding
+  ComponentDelegateBinding
+  ControlChannel
+  ControlPointMeshActor
+  ControlPointMeshComponent
+  ControlRig
+  ControlRigAnimInstance
+  ControlRigBlueprintGeneratedClass
+  ControlRigComponent
+  ControlRigControlActor
+  ControlRigEditorSettings
+  ControlRigExtendBPLibrary
+  ControlRigLayerInstance
+  ControlRigNumericalValidationPass
+  ControlRigObjectHolder
+  ControlRigPoseAsset
+  ControlRigPoseMirrorSettings
+  ControlRigPoseProjectSettings
+  ControlRigSequence
+  ControlRigSettings
+  ControlRigShapeActor
+  ControlRigShapeLibrary
+  ControlRigSnapSettings
+  ControlRigTransformWorkflowOptions
+  ControlRigValidationPass
+  ControlRigValidator
+  ControlRigWorkflowOptions
+  Controller
+  DCSPlayerControllerBase_C
+  DCSPlayerControllerBase_Lobby_C
+  DCSPlayerController_C
+  DSCAIController
+  DebugCameraController
+  DebugCameraControllerSettings
+  Default__ControlRigBlueprintGeneratedClass
+  DetourCrowdAIController
+  DynamicBlueprintBinding
+  EnhanceInputDispatcher_C
+  EnhancedInputActionDelegateBinding
+  EnhancedInputActionValueBinding
+  EnhancedInputComponent
+  EnhancedInputDeveloperSettings
+  EnhancedInputLibrary
+  EnhancedInputLocalPlayerSubsystem
+  EnhancedInputPlatformData
+  EnhancedInputPlatformSettings
+  EnhancedInputSubsystemInterface
+  EnhancedPlayerInput
+  FKControlRig
+  FloatBinding
+  Functions_BaseAIController_C
+  GameEffectController_C
+  GridPathAIController
+  ImplEnhanceInputDispatcher_C
+  Impl_BaseAIController_C
+  InputAction
+  InputActionDelegateBinding
+  InputAxisDelegateBinding
+  InputAxisKeyDelegateBinding
+  InputBufferComponent_C
+  InputComponent
+  InputCoreTypes
+  InputDebugKeyDelegateBinding
+  InputDelegateBinding
+  InputKeyDelegateBinding
+  InputKeySelector
+  InputMappingContext
+  InputModifier
+  InputModifierDeadZone
+  InputModifierFOVScaling
+  InputModifierNegate
+  InputModifierResponseCurveExponential
+  InputModifierResponseCurveUser
+  InputModifierScalar
+  InputModifierScaleByDeltaTime
+  InputModifierSmooth
+  InputModifierSwizzleAxis
+  InputModifierToWorldSpace
+  InputModify_Thumbstick_C
+  InputSettings
+  InputTouchDelegateBinding
+  InputTrigger
+  InputTriggerChordAction
+  InputTriggerChordBlocker
+  InputTriggerCombo
+  InputTriggerDown
+  InputTriggerHold
+  InputTriggerHoldAndRelease
+  InputTriggerPressed
+  InputTriggerPulse
+  InputTriggerReleased
+  InputTriggerTap
+  InputTriggerTimedBase
+  InputTrigger_Thumbstick_C
+  InputVectorAxisDelegateBinding
+  Int32Binding
+  KismetInputLibrary
+  LandscapeSplineControlPoint
+  LevelSequenceMediaController
+  LightControllerRadius_C
+  LightController_C
+  LongInputComponent_C
+  MaterialExpressionFunctionInput
+  MaterialExpressionVolumetricAdvancedMaterialInput
+  MaterialExpressionVolumetricCloudEmptySpaceSkippingInput
+  MotionControllerComponent
+  MouseCursorBinding
+  MovieSceneBindingExtensions
+  MovieSceneBindingOverrides
+  MovieSceneBindingOwnerInterface
+  MovieSceneControlRigParameterSection
+  MovieSceneControlRigParameterTrack
+  NavControlBoxComponent
+  NavFilter_AIControllerDefault
+  NiagaraBaselineController
+  NiagaraBaselineController_Basic
+  PlatformInputDeviceMapperLibrary
+  PlayerCamerExternController_Box_C
+  PlayerCamerExternController_C
+  PlayerController
+  PlayerInput
+  PlayerMappableInputConfig
+  PropertyBinding
+  RawInputFunctionLibrary
+  RawInputSettings
+  RigHierarchyController
+  SkeletalControlLibrary
+  SoundNodeGroupControl
+  SoundParameterControllerInterface
+  TextBinding
+  TransformableControlHandle
+  VariantObjectBinding
+  VisibilityBinding
+  WB_KeyBoardInput_C
+  WB_KeybardInput_CloseInputSetPanel_C
+  WB_KeybardInput_Conflict_C
+  WB_KeybardInput_Popwindow_C
+  WB_KeybardInput_SetWrongKey_C
+  WB_KeyboardInput_Blank_C
+  WB_MouseInput_C
+  WB_SetControllerInputMouseButton_C
+  WB_SetGamepadInputButton_C
+  WB_SetInput_LightIcon_C
+  WB_SetKeyboardInputButton_C
+  WB_Set_InputTypeShowPanel_C
+  WB_Set_InputTypeShow_Button2_C
+  WB_Set_InputTypeShow_Button3_C
+  WB_Set_InputTypeShow_Button_C
+  WB_Set_InputTypeShow_Icon_C
+  WB_Set_KeyboardInput_Icon_C
+  WB_SpecialInputHelpVis_C
+  WB_Type_OptionKeyMap_C
+  WB_Type_PasswordInput_C
+  WGIPlayerController
+  WGI_InputHelp
+  WGI_InputHelpVis_C
+  WGI_InputHelpVis_ItemKey_C
+  WGI_InputHelpVis_Type1_C
+  WGI_InputHelpVis_Type2_C
+  WGI_InputHelpVis_TypeBase_C
+  WidgetAnimationDelegateBinding
+  WidgetBinding
+
+-- instances of the narrow matches (keybind/keymap/remap/mappable) --
+  PlayerMappableInputConfig                      0 instance(s)
+  WB_Type_OptionKeyMap_C                         1 instance(s)
+      WB_Type_OptionKeyMap_C /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_SetUp_C_2147474458.WidgetTree_2147474457.WB_Options.WidgetTree_2147474447.WB_SetOptionButton_C_2147470377.WidgetTree_2147470376.WB_Type_OptionKeyMap_C_2147470373
+      class chain: WB_Type_OptionKeyMap_C -> WB_Type_Option_C -> WB_TypeBase_C -> WGI_UserWidget -> UserWidget -> Widget -> Visual -> Object
+      -- [WB_Type_OptionKeyMap_C] 1 properties
+        Cache_SwitchTextContent                      MapProperty                = <TMap>
+      -- [WB_Type_Option_C] 18 properties
+        UberGraphFrame                               StructProperty             = ScriptStruct /Script/Engine.PointerToUberGraphFrame
+        RightHightLightAnimation                     ObjectProperty             = WidgetAnimation /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Type_Option.WB_Type_Option_C:RightHightLightAnimation_INST
+        LeftHightLightAnimation                      ObjectProperty             = WidgetAnimation /Game/Game/WidgetsNew/SettingSystem/SelectItem/SetType/WB_Type_Option.WB_Type_Option_C:LeftHightLightAnimation_INST
+        Image_Left                                   ObjectProperty             = Image /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_SetUp_C_2147474458.WidgetTree_2147474457.WB_Options.WidgetTree_2147474447.WB_SetOptionButton_C_2147470377.WidgetTree_2147470376.WB_Type_OptionKeyMap_C_2147470373.WidgetTree_2147470372.Image_Left
+        Image_LeftHightLight                         ObjectProperty             = Image /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_SetUp_C_2147474458.WidgetTree_2147474457.WB_Options.WidgetTree_2147474447.WB_SetOptionButton_C_2147470377.WidgetTree_2147470376.WB_Type_OptionKeyMap_C_2147470373.WidgetTree_2147470372.Image_LeftHightLight
+        Image_Right                                  ObjectProperty             = Image /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_SetUp_C_2147474458.WidgetTree_2147474457.WB_Options.WidgetTree_2147474447.WB_SetOptionButton_C_2147470377.WidgetTree_2147470376.WB_Type_OptionKeyMap_C_2147470373.WidgetTree_2147470372.Image_Right
+        Image_RightHightLight                        ObjectProperty             = Image /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_SetUp_C_2147474458.WidgetTree_2147474457.WB_Options.WidgetTree_2147474447.WB_SetOptionButton_C_2147470377.WidgetTree_2147470376.WB_Type_OptionKeyMap_C_2147470373.WidgetTree_2147470372.Image_RightHightLight
+        TextBlock                                    ObjectProperty             = CustomizationTextBlock /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_SetUp_C_2147474458.WidgetTree_2147474457.WB_Options.WidgetTree_2147474447.WB_SetOptionButton_C_2147470377.WidgetTree_2147470376.WB_Type_OptionKeyMap_C_2147470373.WidgetTree_2147470372.TextBlock
+        WGI_Button_Left                              ObjectProperty             = WGI_Button /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_SetUp_C_2147474458.WidgetTree_2147474457.WB_Options.WidgetTree_2147474447.WB_SetOptionButton_C_2147470377.WidgetTree_2147470376.WB_Type_OptionKeyMap_C_2147470373.WidgetTree_2147470372.WGI_Button_Left
+        WGI_Button_Right                             ObjectProperty             = WGI_Button /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_SetUp_C_2147474458.WidgetTree_2147474457.WB_Options.WidgetTree_2147474447.WB_SetOptionButton_C_2147470377.WidgetTree_2147470376.WB_Type_OptionKeyMap_C_2147470373.WidgetTree_2147470372.WGI_Button_Right
+        Index                                        IntProperty                = 0
+        Text                                         TextProperty               = 
+        MaxIndex                                     IntProperty                = 0
+        Timer                                        StructProperty             = ScriptStruct /Script/Engine.TimerHandle
+        LeftCantAdjust                               BoolProperty               = false
+        RightCantAdjust                              BoolProperty               = false
+        NextEnableTime                               DoubleProperty             = 0.0
+        RelevanetUpdateType                          StructProperty             = ScriptStruct /Script/GameplayTags.GameplayTagContainer
+      -- [WB_TypeBase_C] 4 properties
+        UberGraphFrame                               StructProperty             = ScriptStruct /Script/Engine.PointerToUberGraphFrame
+        Option Tag                                   StructProperty             = ScriptStruct /Script/GameplayTags.GameplayTag
+        Default Value                                StrProperty                = 0
+        Setting Type Chose                           StructProperty             = ScriptStruct /Script/CustomizationStyleStruct.SelectStructClass
+      -- [WGI_UserWidget] 4 properties
+        Extension                                    ObjectProperty             = <UObject>
+        DestructEvent                                MulticastInlineDelegateProperty = MulticastInlineDelegateProperty /Script/WidgetGroup.WGI_UserWidget:DestructEvent
+        MouseKeyToBackEvent                          BoolProperty               = false
+        MouseBackKey                                 StructProperty             = ScriptStruct /Script/InputCore.Key
+      -- [UserWidget] 19 properties
+        ColorAndOpacity                              StructProperty             = ScriptStruct /Script/CoreUObject.LinearColor
+        ColorAndOpacityDelegate                      DelegateProperty           = {FunctionName=FNameUserdata: 00000287A02FE508, Object=UObject: 00000287A02FE908}
+        ForegroundColor                              StructProperty             = ScriptStruct /Script/SlateCore.SlateColor
+        ForegroundColorDelegate                      DelegateProperty           = {FunctionName=FNameUserdata: 00000287A0304408, Object=UObject: 00000287A0304108}
+        OnVisibilityChanged                          MulticastInlineDelegateProperty = MulticastInlineDelegateProperty /Script/UMG.UserWidget:OnVisibilityChanged
+        Padding                                      StructProperty             = ScriptStruct /Script/SlateCore.Margin
+        ActiveSequencePlayers                        ArrayProperty              = TArray[0]
+        AnimationTickManager                         ObjectProperty             = <UObject>
+        StoppedSequencePlayers                       ArrayProperty              = TArray[0]
+        NamedSlotBindings                            ArrayProperty              = TArray[0]
+        Extensions                                   ArrayProperty              = TArray[0]
+        WidgetTree                                   ObjectProperty             = WidgetTree /Engine/Transient.GameEngine_2147482621:DCSGameInstance_C_2147482580.WB_SetUp_C_2147474458.WidgetTree_2147474457.WB_Options.WidgetTree_2147474447.WB_SetOptionButton_C_2147470377.WidgetTree_2147470376.WB_Type_OptionKeyMap_C_2147470373.WidgetTree_2147470372
+        Priority                                     IntProperty                = 0
+        bStopAction                                  BoolProperty               = false
+        bHasScriptImplementedTick                    BoolProperty               = false
+        bHasScriptImplementedPaint                   BoolProperty               = false
+        TickFrequency                                EnumProperty               = 1
+        InputComponent                               ObjectProperty             = <UObject>
+        AnimationCallbacks                           ArrayProperty              = TArray[0]
+      -- [Widget] 22 properties
+        Slot                                         ObjectProperty             = <UObject>
+        bIsEnabledDelegate                           DelegateProperty           = {FunctionName=FNameUserdata: 00000287A0308508, Object=UObject: 00000287A0307C08}
+        ToolTipText                                  TextProperty               = 
+        ToolTipTextDelegate                          DelegateProperty           = {FunctionName=FNameUserdata: 00000287A030D508, Object=UObject: 00000287A030B608}
+        ToolTipWidget                                ObjectProperty             = <UObject>
+        ToolTipWidgetDelegate                        DelegateProperty           = {FunctionName=FNameUserdata: 00000287A030D108, Object=UObject: 00000287A030B108}
+        VisibilityDelegate                           DelegateProperty           = {FunctionName=FNameUserdata: 00000287A030B508, Object=UObject: 00000287A030CC08}
+        RenderTransform                              StructProperty             = ScriptStruct /Script/UMG.WidgetTransform
+        RenderTransformPivot                         StructProperty             = ScriptStruct /Script/CoreUObject.Vector2D
+        FlowDirectionPreference                      EnumProperty               = 0
+        bIsVariable                                  BoolProperty               = true
+        bCreatedByConstructionScript                 BoolProperty               = false
+        bIsEnabled                                   BoolProperty               = true
+        bOverride_Cursor                             BoolProperty               = false
+        bIsVolatile                                  BoolProperty               = false
+        cursor                                       ByteProperty               = 1
+        Clipping                                     EnumProperty               = 0
+        Visibility                                   EnumProperty               = 4
+        RenderOpacity                                FloatProperty              = 1.0
+        AccessibleWidgetData                         ObjectProperty             = <UObject>
+        Navigation                                   ObjectProperty             = <UObject>
+        NativeBindings                               ArrayProperty              = TArray[0]
+
+================================================================================
+== INPUT: REFLECTED STRUCT / CLASS LAYOUTS
+================================================================================
+The exact names the C++ reader must walk by. A path listed <not loaded>
+does not exist on this build under that name.
+
+-- ScriptStructs --
+  /Script/EnhancedInput.EnhancedActionKeyMapping                 7 own properties
+      PlayerMappableOptions                        StructProperty
+      Triggers                                     ArrayProperty
+      Modifiers                                    ArrayProperty
+      Action                                       ObjectProperty
+      Key                                          StructProperty
+      bIsPlayerMappable                            BoolProperty
+      bShouldBeIgnored                             BoolProperty
+  /Script/EnhancedInput.PlayerMappableKeyOptions                 4 own properties
+      MetaData                                     ObjectProperty
+      Name                                         NameProperty
+      DisplayName                                  TextProperty
+      DisplayCategory                              TextProperty
+  /Script/EnhancedInput.PlayerKeyMapping                         <not loaded>
+  /Script/EnhancedInput.KeyMappingRow                            <not loaded>
+  /Script/InputCore.Key                                          1 own property
+      KeyName                                      NameProperty
+  /Script/Engine.InputActionKeyMapping                           6 own properties
+      ActionName                                   NameProperty
+      bShift                                       BoolProperty
+      bCtrl                                        BoolProperty
+      bAlt                                         BoolProperty
+      bCmd                                         BoolProperty
+      Key                                          StructProperty
+  /Script/Engine.InputAxisKeyMapping                             3 own properties
+      AxisName                                     NameProperty
+      Scale                                        FloatProperty
+      Key                                          StructProperty
+
+-- UClasses --
+  /Script/EnhancedInput.EnhancedInputLocalPlayerSubsystem        1 own property   super=LocalPlayerSubsystem
+      ControlMappingsRebuiltDelegate               MulticastInlineDelegateProperty
+  /Script/EnhancedInput.EnhancedPlayerInput                      7 own properties   super=PlayerInput
+      ChangeChordedActionMap                       MapProperty
+      AppliedInputContexts                         MapProperty
+      EnhancedActionMappings                       ArrayProperty
+      ActionInstanceData                           MapProperty
+      KeysPressedThisTick                          MapProperty
+      InputsInjectedThisTick                       MapProperty
+      LastInjectedActions                          SetProperty
+  /Script/EnhancedInput.InputMappingContext                      2 own properties   super=DataAsset
+      Mappings                                     ArrayProperty
+      ContextDescription                           TextProperty
+  /Script/EnhancedInput.InputAction                              7 own properties   super=DataAsset
+      ActionDescription                            TextProperty
+      bConsumeInput                                BoolProperty
+      bTriggerWhenPaused                           BoolProperty
+      bReserveAllMappings                          BoolProperty
+      ValueType                                    EnumProperty
+      Triggers                                     ArrayProperty
+      Modifiers                                    ArrayProperty
+  /Script/EnhancedInput.EnhancedInputUserSettings                <not loaded>
+  /Script/EnhancedInput.EnhancedPlayerMappableKeyProfile         <not loaded>
+  /Script/EnhancedInput.PlayerMappableKeySettings                <not loaded>
+  /Script/Engine.PlayerInput                                     2 own properties   super=Object
+      DebugExecBindings                            ArrayProperty
+      InvertedAxis                                 ArrayProperty
+  /Script/Engine.LocalPlayer                                     5 own properties   super=Player
+      ViewportClient                               ObjectProperty
+      AspectRatioAxisConstraint                    ByteProperty
+      PendingLevelPlayerControllerClass            ClassProperty
+      bSentSplitJoin                               BoolProperty
+      ControllerId                                 IntProperty

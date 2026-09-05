@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "atomicfile.hpp"
+#include "gamebinds.hpp"
 #include "highlight.hpp"
 #include "marker_dedupe.hpp"
 #include "mapdata.hpp"
@@ -2047,6 +2048,109 @@ namespace markers
             return ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
         }
 
+        // One save, one key. Builds before the key became the slot name alone wrote
+        // route 3's answer to `<steam account id>_<slot>` and route 2's to `<slot>`, so a
+        // single playthrough could split its ids across two files. Every account-prefixed
+        // file for this slot is unioned into the canonical one and then removed. Loop
+        // thread, and a no-op on a tree that has no such file.
+        void reconcile_legacy_found(const std::string& key)
+        {
+            if (key.empty())
+            {
+                return;
+            }
+            const std::wstring dir = mm::mod_dir();
+            const std::string pattern = std::string{slotid::kFoundPrefix} + "*_" + key + ".txt";
+            std::wstring wpattern;
+            for (char c : pattern)
+            {
+                wpattern.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+            }
+            std::vector<std::string> legacy_names;
+            WIN32_FIND_DATAW fd{};
+            HANDLE h = ::FindFirstFileW((dir + L"\\" + wpattern).c_str(), &fd);
+            if (h != INVALID_HANDLE_VALUE)
+            {
+                do
+                {
+                    if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                    {
+                        continue;
+                    }
+                    std::string name;
+                    for (const wchar_t* p = fd.cFileName; *p != 0; ++p)
+                    {
+                        name.push_back(*p < 128 ? static_cast<char>(*p) : '?');
+                    }
+                    const std::string cand = slotid::key_in_filename(name, slotid::kFoundPrefix);
+                    if (slotid::is_legacy_account_key(key, cand))
+                    {
+                        legacy_names.push_back(name);
+                    }
+                } while (::FindNextFileW(h, &fd) != 0 && legacy_names.size() < 16);
+                ::FindClose(h);
+            }
+            if (legacy_names.empty())
+            {
+                return;
+            }
+            const std::wstring dst = found_path_for(key);
+            std::unordered_set<std::string> ids;
+            std::string text;
+            if (file_exists(dst) && read_whole_file(dst, text))
+            {
+                std::vector<std::string> have;
+                mdb::found_parse(text, have);
+                for (std::string& id : have)
+                {
+                    ids.insert(std::move(id));
+                }
+            }
+            const std::size_t before = ids.size();
+            for (const std::string& name : legacy_names)
+            {
+                std::wstring wname;
+                for (char c : name)
+                {
+                    wname.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+                }
+                const std::wstring src = dir + L"\\" + wname;
+                std::string legacy_text;
+                if (!read_whole_file(src, legacy_text))
+                {
+                    mm::logf(L"markers: the legacy found tracker {} could not be read - it is LEFT in "
+                             L"place and its ids are not merged",
+                             src);
+                    continue;
+                }
+                std::vector<std::string> parsed;
+                mdb::found_parse(legacy_text, parsed);
+                const std::size_t was = ids.size();
+                for (std::string& id : parsed)
+                {
+                    ids.insert(std::move(id));
+                }
+                std::vector<std::string> all(ids.begin(), ids.end());
+                unsigned err = 0;
+                if (!write_whole_file(dst, mdb::found_serialize(std::move(all)), true, err))
+                {
+                    mm::logf(L"markers: could not merge the legacy found tracker {} into {} (error {}) "
+                             L"- both files are left alone",
+                             src, dst, err);
+                    return;
+                }
+                mm::logf(L"markers: merged the legacy found tracker {} ({} id(s), {} of them new) into "
+                         L"{} and removed it",
+                         src, parsed.size(), ids.size() - was, dst);
+                ::DeleteFileW(src.c_str());
+            }
+            if (ids.size() != before)
+            {
+                mm::logf(L"markers: the found tracker for save slot '{}' now holds {} id(s)",
+                         std::wstring(key.begin(), key.end()), ids.size());
+            }
+        }
+
         // First sight of a slot with no file of its own: seed it from the shared one.
         void migrate_shared_into(const std::string& key)
         {
@@ -2094,6 +2198,7 @@ namespace markers
             g_found_key = key;
             g_found_route = route;
             g_found_key_valid = true;
+            reconcile_legacy_found(key);
             migrate_shared_into(key);
             mm::logf(L"markers: found tracker profile {} '{}' via {} ({}) -> {}",
                      first ? L"=" : L"changed to", std::wstring(key.begin(), key.end()),
@@ -3023,6 +3128,7 @@ namespace markers
         hl::drop_caches();
         slotid::drop_caches();
         shr::drop_caches();
+        gb::drop_caches();
         g_layouts.clear();
         g_class_spec.clear();
         g_health_prop.clear();   // routes keyed to a UClass* of that world
@@ -3078,6 +3184,7 @@ namespace markers
         hl::game_thread_pump(now, now_us, world, cfg);
         slotid::game_thread_pump(now, world);
         shr::game_thread_pump(now);
+        gb::game_thread_pump(now);
         recon::game_thread_pump(world);
 
         if (!cfg.markers_enabled || !cfg.markers_live)

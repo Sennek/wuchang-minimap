@@ -79,6 +79,10 @@ to RenoDX/DLSS, the engine, the game console and Steam. A key bound to the mod i
 away from the game while the mod is using it; put a modifier in front to leave the bare
 key to the game.
 
+The tab reads **your** game bindings out of the running game, so it names the action a
+key would take away and follows a remap you made in the game's own options. Before a save
+is loaded it says so and falls back to a built-in list of the usual binds.
+
 ## Known conflicts
 
 None of these stops the mod working.

@@ -68,15 +68,17 @@ namespace uer
         int walked = 0;
     };
 
-    // Walks the class and every super struct. A pure-native class yields nothing, not an error.
-    inline ClassLayout walk_class(UClass* cls)
+    // Walks a UStruct and every super struct. A UClass, a UFunction and the UScriptStruct
+    // behind a USTRUCT are all UStructs, so one walk serves all three. A pure-native
+    // struct yields nothing, not an error.
+    inline ClassLayout walk_struct(UStruct* start)
     {
         ClassLayout out{};
-        if (cls == nullptr)
+        if (start == nullptr)
         {
             return out;
         }
-        auto* current = static_cast<UStruct*>(cls);
+        UStruct* current = start;
         for (int depth = 0; current != nullptr && depth < 48; ++depth)
         {
             ++out.walked;
@@ -100,6 +102,11 @@ namespace uer
             current = current->GetSuperStruct();
         }
         return out;
+    }
+
+    inline ClassLayout walk_class(UClass* cls)
+    {
+        return walk_struct(static_cast<UStruct*>(cls));
     }
 
     // Per-UClass layout cache. Classes are never moved or freed while instances exist.

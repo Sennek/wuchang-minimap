@@ -187,9 +187,10 @@ namespace scan
     // forever, so the object that held a menu open is the same object next time) and
     // re-tests that handful with the same authoritative test on every 10 Hz pump:
     //
-    //   * a menu CLOSING              -> <= 1 pump  (~100 ms), watchlist re-test
+    //   * a menu CLOSING              -> ~1 frame, the watchlist re-test a UI event on a
+    //                                    watchlisted root asks for; <= 1 pump without one
     //   * a menu opening whose root
-    //     is already on the watchlist -> <= 1 pump  (~100 ms), watchlist re-test
+    //     is already on the watchlist -> the same
     //   * a menu opening whose root
     //     has never been seen         -> <= one sweep period + one round's walk time
     //
@@ -218,6 +219,7 @@ namespace scan
 
         // State.
         std::uint64_t armed_until = 0; // fast cadence while now < armed_until
+        std::uint64_t last_arm = 0;    // when the last arm happened, for the rate limit
         std::uint64_t next_at = 0;     // the sweep is due when now >= next_at
         int backoff = 0;               // doublings of fast_ms, 0 = none
         bool started = false;          // false until the first arm/complete
@@ -235,8 +237,30 @@ namespace scan
     {
         s.armed_until = now + s.warm_ms;
         s.next_at = now;
+        s.last_arm = now;
         s.backoff = 0;
         s.started = true;
+    }
+
+    // The shortest gap between two arms on the UI-EVENT path. That path sees thousands of
+    // calls a second, and an arm pins the walk to `fast_ms`: rounds then run back to back
+    // and refill the candidate list faster than the per-pump commit drains it, which is how
+    // an event storm turns into "no menu is ever confirmed".
+    constexpr std::uint64_t kSweepArmMinGapMs = 250;
+
+    // Arm unless one happened less than `min_gap_ms` ago; true when it armed. An arm never
+    // disturbs a round already walking - `sweep_due` is consulted only between rounds - so
+    // the limit bounds cost, never the answer.
+    inline bool sweep_arm_limited(SweepSched& s, std::uint64_t now, std::uint64_t min_gap_ms) noexcept
+    {
+        // `started` is the "has ever been armed or completed" flag; a zero `last_arm` is a
+        // real tick, not a sentinel, so the gap is measured against it either way.
+        if (s.started && now >= s.last_arm && now - s.last_arm < min_gap_ms)
+        {
+            return false;
+        }
+        sweep_arm(s, now);
+        return true;
     }
 
     inline bool sweep_armed(const SweepSched& s, std::uint64_t now) noexcept
@@ -322,7 +346,11 @@ namespace scan
     // costs latency rather than a frame.
     constexpr int kWidgetCommitPerPump = 128;
 
-    // The menu answer, OR-ed from two sources that are BOTH fresh this pump:
+    // The menu answer, OR-ed from two sources that are BOTH fresh this pump. Neither is a
+    // latch and neither waits for a sweep round: a pump on which no watchlisted root is in
+    // the viewport and no candidate confirms publishes CLOSED, whatever the walk is doing
+    // and even when the watchlist has just emptied because the root object died.
+    //
     //   * the watchlist re-test - authoritative over every root ever confirmed, rebuilt
     //     from `IsInViewport()` on every pump;
     //   * this pump's commit of newly-seen candidates, which can only ADD a root.
@@ -610,6 +638,20 @@ namespace scan
             return 0;
         }
         return known_front < pending ? known_front : pending;
+    }
+
+    // Which entry a known-menu-class candidate DISPLACES when the pending list is already at
+    // `kWidgetCandidateMax`. Returns the last unknown-class slot, or -1 when every entry is
+    // itself a known class and the newcomer has to be refused. Without this the cap refuses
+    // exactly the candidate most likely to be a menu root: the list fills, in object-array
+    // index order, with byte-`Visible` junk long before a lazily constructed menu root.
+    constexpr int candidate_evict_at(int pending, int known_front) noexcept
+    {
+        if (pending <= 0 || known_front >= pending)
+        {
+            return -1;
+        }
+        return pending - 1;
     }
 
     // The slots of `pending` a pump takes, given the per-pump cap.

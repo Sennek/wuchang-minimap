@@ -2029,6 +2029,68 @@ namespace
             const int at = scan::candidate_insert_at(scan::kWidgetCandidateMax, 0, true);
             CHECK(at < scan::kWidgetCommitPerPump);
         }
+
+        {
+            // THE CAP MUST NOT REFUSE A KNOWN MENU CLASS. A burst of byte-Visible junk fills
+            // the list in object-array index order and a menu root is constructed late, so a
+            // cap that simply dropped the newcomer would drop exactly the interesting one.
+            CHECK_EQ(scan::candidate_evict_at(scan::kWidgetCandidateMax, 0),
+                     scan::kWidgetCandidateMax - 1);
+            CHECK_EQ(scan::candidate_evict_at(512, 4), 511); // the last UNKNOWN entry
+            // A list of nothing but known classes has nothing to give up.
+            CHECK_EQ(scan::candidate_evict_at(512, 512), -1);
+            CHECK_EQ(scan::candidate_evict_at(512, 600), -1);
+            CHECK_EQ(scan::candidate_evict_at(0, 0), -1);
+            CHECK_EQ(scan::candidate_evict_at(-4, 0), -1);
+            // Evicting then inserting keeps the list at the cap and the newcomer in the first
+            // commit batch: that is the whole contract the two functions share.
+            const int after_evict = scan::kWidgetCandidateMax - 1;
+            CHECK_EQ(scan::candidate_insert_at(after_evict, 0, true), 0);
+            CHECK(scan::commit_batch(after_evict + 1, scan::kWidgetCommitPerPump) >= 1);
+        }
+
+        {
+            // THE ARM RATE LIMIT. The UI-event path sees thousands of calls a second; arming
+            // per event pins the walk to fast_ms, so rounds run back to back and refill the
+            // candidate list faster than the per-pump commit drains it.
+            scan::SweepSched s{};
+            CHECK(scan::sweep_arm_limited(s, 1000, scan::kSweepArmMinGapMs)); // never armed
+            CHECK(!scan::sweep_arm_limited(s, 1000, scan::kSweepArmMinGapMs));
+            CHECK(!scan::sweep_arm_limited(s, 1000 + scan::kSweepArmMinGapMs - 1,
+                                           scan::kSweepArmMinGapMs));
+            CHECK(scan::sweep_arm_limited(s, 1000 + scan::kSweepArmMinGapMs,
+                                          scan::kSweepArmMinGapMs));
+            // A refused arm changes NOTHING - the walk keeps the cadence it had.
+            scan::SweepSched t{};
+            scan::sweep_arm(t, 0);
+            t.armed_until = 0; // warm window expired
+            t.backoff = 3;
+            t.next_at = 9999;
+            const scan::SweepSched before = t;
+            CHECK(!scan::sweep_arm_limited(t, 10, scan::kSweepArmMinGapMs));
+            CHECK(t.backoff == before.backoff);
+            CHECK(t.next_at == before.next_at);
+            CHECK(t.armed_until == before.armed_until);
+            // The limit is a rate, not a latch: a spam burst still arms ~4 times a second.
+            CHECK(scan::kSweepArmMinGapMs > 0 && scan::kSweepArmMinGapMs <= 500);
+            // A clock that went backwards must not lock the arm out.
+            scan::SweepSched w{};
+            scan::sweep_arm(w, 5000);
+            CHECK(scan::sweep_arm_limited(w, 10, scan::kSweepArmMinGapMs));
+        }
+
+        {
+            // CLOSING IS NEVER GATED ON A SWEEP. Whatever the walk is doing, a pump on which
+            // no watchlisted root is in the viewport and no candidate confirms is CLOSED -
+            // including the pump on which the watchlist empties because the root object died.
+            scan::SweepSched s{};
+            scan::sweep_arm(s, 0); // a round is due and would be mid-walk
+            CHECK(!scan::menu_open_from(false, false));
+            CHECK(scan::sweep_due(s, 0)); // a sweep IS due; the answer above ignored it
+            // An empty watchlist and an empty candidate list is CLOSED, not "still open".
+            CHECK_EQ(scan::commit_batch(0, scan::kWidgetCommitPerPump), 0);
+            CHECK(!scan::menu_open_from(false, scan::commit_batch(0, 128) > 0));
+        }
     }
     // src/projection.hpp - world -> screen
     // Expectations are computed by hand from the conventions at the top of projection.hpp.

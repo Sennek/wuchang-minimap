@@ -188,6 +188,17 @@ namespace gamestate
         constexpr std::size_t kEventOfferedMax = 256;
         constexpr std::uint64_t kEventReofferMs = 1000;
 
+        // A UI event named a widget that bears on the menu state - a watchlisted root being
+        // taken out of the viewport, or a freshly offered candidate. It asks the FAST PATH
+        // between position pumps to re-test the watchlist now rather than at the next 10 Hz
+        // pump, which is what makes a menu CLOSING as prompt as a menu opening.
+        bool g_menu_retest_due = false;
+        std::uint64_t g_menu_retest_ms = 0;
+        // The shortest gap between two fast re-tests: one `IsInViewport()` ProcessEvent per
+        // watchlisted root, i.e. 5-6 calls, so ~60 Hz is affordable and a frame is the
+        // finest granularity the overlay can show anyway.
+        constexpr std::uint64_t kMenuRetestMinMs = 16;
+
         // Event-sourced candidates accepted since the last 10 Hz pump. The cap is what keeps
         // a frame of widget churn from filling the pending list.
         int g_wevent_added = 0;
@@ -218,6 +229,12 @@ namespace gamestate
 
         // The root currently holding "a menu is open" true. Empty when no root is visible.
         std::wstring g_menu_holder;
+
+        // The last snapshot the 10 Hz pump published. The fast menu re-test republishes it
+        // with the menu fields refreshed and `stamp_ms` untouched: the position in it is the
+        // position of that pump and its age must keep reading true.
+        mm::Snapshot g_last_snap{};
+        bool g_have_last_snap = false;
 
         // Set whenever the menu state flips, a root leaves the viewport or the pawn
         // teleports: the next pump runs the full sweep.
@@ -388,6 +405,7 @@ namespace gamestate
             g_wknown_front = 0;
             g_wevent_offered.clear();
             g_wevent_added = 0;
+            g_menu_retest_due = false;
             g_wclass.clear();
             g_wcursor = scan::Cursor{};
             g_wround_active = false;
@@ -854,16 +872,23 @@ namespace gamestate
                 // here as well as the flag: set_menu_open runs at the END of the pump and the
                 // flag is consumed near its START. Arming twice is idempotent.
                 g_force_widget_sweep = true;
-                scan::sweep_arm(g_sweep, now);
-                // `route` is which of the three finders answered - the watchlist re-test, a
-                // candidate the ProcessEvent callback offered, or the discovery walk - and
-                // `lat_ms` is the age of the triggering UI event, 0 when there was none.
+                scan::sweep_arm_limited(g_sweep, now, scan::kSweepArmMinGapMs);
+                // `route` is which of the finders answered - the watchlist re-test on the
+                // pump or on a UI event, a candidate the ProcessEvent callback offered, or
+                // the discovery walk - and `lat_ms` is the age of the triggering UI event, 0
+                // when there was none. The rest is what would explain a LATE flip: how deep
+                // the untested candidate queue is, and how many roots the watchlist re-tests.
                 MM_LOGV(L"menu state -> {} ({}; found via {}, {} ms after the triggering UI "
-                        L"event); a full widget sweep is queued",
+                        L"event; watchlist {}, {} candidate(s) pending, {} refused by the cap, "
+                        L"sweep every {} ms)",
                         open ? L"OPEN" : L"closed",
                         why,
                         route,
-                        lat_ms);
+                        lat_ms,
+                        g_menu_watch.size(),
+                        g_wpending.size(),
+                        g_wcand_dropped,
+                        scan::sweep_period_ms(g_sweep, now));
             }
         }
 
@@ -881,16 +906,27 @@ namespace gamestate
             return has_byte && vis == 0;
         }
 
-        // Put a confirmed in-viewport root on the watchlist. Returns true when it was not
-        // already there: the "discovery found something" signal (scan::sweep_done).
-        bool watch_menu_root(UObject* w)
+        // Is this widget already re-tested on every pump? A watchlisted root needs no
+        // discovery, so neither the slice nor the event path offers it as a candidate.
+        bool on_menu_watch(const UObject* w)
         {
             for (const uer::ObjRef& ref : g_menu_watch)
             {
                 if (ref.obj == w)
                 {
-                    return false;
+                    return true;
                 }
+            }
+            return false;
+        }
+
+        // Put a confirmed in-viewport root on the watchlist. Returns true when it was not
+        // already there: the "discovery found something" signal (scan::sweep_done).
+        bool watch_menu_root(UObject* w)
+        {
+            if (on_menu_watch(w))
+            {
+                return false;
             }
             if (g_menu_watch.size() >= g_tune.max_menu_roots)
             {
@@ -1177,11 +1213,19 @@ namespace gamestate
         // appending; nothing here decides anything, the commit's `IsInViewport()` does.
         bool push_widget_candidate(UObject* obj, bool known_class)
         {
-            const int pending = static_cast<int>(g_wpending.size());
+            int pending = static_cast<int>(g_wpending.size());
             if (pending >= scan::kWidgetCandidateMax)
             {
-                ++g_wcand_dropped;
-                return false;
+                // A KNOWN MENU CLASS IS NEVER REFUSED BY THE CAP. It displaces the last
+                // unknown entry instead; only a list made entirely of known classes is full.
+                const int evict = known_class ? scan::candidate_evict_at(pending, g_wknown_front) : -1;
+                if (evict < 0)
+                {
+                    ++g_wcand_dropped;
+                    return false;
+                }
+                g_wpending.erase(g_wpending.begin() + static_cast<std::ptrdiff_t>(evict));
+                pending = static_cast<int>(g_wpending.size());
             }
             uer::ObjRef ref{};
             if (!uer::capture(obj, ref))
@@ -1237,6 +1281,10 @@ namespace gamestate
                 if (has_byte && !byte_visible)
                 {
                     continue;
+                }
+                if (on_menu_watch(obj))
+                {
+                    continue; // already re-tested every pump; offering it only fills the list
                 }
                 push_widget_candidate(obj, widget_class_is_known_menu(obj));
             }
@@ -1384,10 +1432,6 @@ namespace gamestate
             {
                 return; // the FindAllOf fallback never commits `g_wpending`
             }
-            if (g_wevent_added >= kEventCandidatesPerPump)
-            {
-                return; // this pump's budget is spent; the next one reopens it
-            }
             unsigned char kind = widget_class_kind(ctx);
             if (kind == 0)
             {
@@ -1426,13 +1470,19 @@ namespace gamestate
                 return; // every widget in the chain is deny-listed
             }
 
-            // Already known? The watchlist re-test answers those in one pump on its own.
-            for (const uer::ObjRef& ref : g_menu_watch)
+            // ALREADY WATCHLISTED - and this is the CLOSE signal. The game touches a menu's
+            // own widgets as it takes them out of the viewport, so the event that closes a
+            // menu names its root: ask for an immediate re-test instead of waiting out the
+            // remaining phase of the 10 Hz pump. The flag is all this path may do - the
+            // answer is still `IsInViewport()`, on the pump.
+            if (on_menu_watch(root))
             {
-                if (ref.obj == root)
-                {
-                    return;
-                }
+                g_menu_retest_due = true;
+                return;
+            }
+            if (g_wevent_added >= kEventCandidatesPerPump)
+            {
+                return; // this pump's budget for NEW candidates is spent
             }
             // Offered recently? The re-offer window bounds an event storm on one widget to a
             // hash lookup, and still lets a widget that was parked when it was offered be
@@ -1460,9 +1510,12 @@ namespace gamestate
                 g_wevent_offered.clear(); // bounded; the window would have expired anyway
             }
             g_wevent_offered[root] = now;
+            g_menu_retest_due = true;
             // Belt and braces: the commit runs every pump regardless, but a menu opening is
-            // also exactly when the discovery walk should be back on its fast cadence.
-            scan::sweep_arm(g_sweep, now);
+            // also exactly when the discovery walk should be back on its fast cadence. RATE
+            // LIMITED: arming per event keeps the walk permanently at `fast_ms`, so rounds
+            // run back to back and refill `g_wpending` faster than the commit drains it.
+            scan::sweep_arm_limited(g_sweep, now, scan::kSweepArmMinGapMs);
         }
 
         // End-of-round bookkeeping: the counts the state line reports, and the one place an
@@ -1720,6 +1773,9 @@ namespace gamestate
             snap.widget_sweep_period_ms = static_cast<std::uint32_t>(scan::sweep_period_ms(g_sweep, now));
             snap.widgets_visible_in_viewport = g_widgets_visible;
             mm::publish(snap);
+            // The last POSITIONED snapshot is gone: the fast re-test has nothing to
+            // republish until a validated pump produces one again.
+            g_have_last_snap = false;
             g_publishes.fetch_add(1, std::memory_order_relaxed);
             g_report_pending.store(true, std::memory_order_relaxed);
         }
@@ -1727,15 +1783,63 @@ namespace gamestate
         // The pump, one named step per stage. Same order, same early returns, same
         // g_pump_stage labels - the stall watchdog reports the step it froze in.
 
+        // THE FAST MENU RE-TEST, between position pumps. A UI event has named a watchlisted
+        // root, which is what a menu closing looks like from ProcessEvent, so the watchlist
+        // is re-tested now instead of at the next 10 Hz phase. It answers with the same
+        // `IsInViewport()` pass as the pump, adds nothing to the watchlist, and republishes
+        // the last positioned snapshot with only its menu fields moved on.
+        void pump_menu_retest(std::uint64_t now)
+        {
+            g_menu_retest_due = false;
+            g_menu_retest_ms = now;
+            std::uint32_t roots_visible = 0;
+            std::wstring holder;
+            const bool watch_menu = menu_from_cached_roots(roots_visible, holder);
+            if (watch_menu == g_menu_open)
+            {
+                return; // nothing moved; the 10 Hz pump publishes the counters
+            }
+            g_widgets_visible = roots_visible;
+            g_menu_holder = holder;
+            set_menu_open(watch_menu,
+                          now,
+                          watch_menu ? L"a watchlist root is in the viewport and Visible"
+                                     : L"no root is in the viewport and Visible",
+                          L"the watchlist, on a UI event",
+                          0);
+            if (!g_have_last_snap)
+            {
+                return;
+            }
+            mm::Snapshot snap = g_last_snap;
+            snap.menu_open = g_menu_open;
+            snap.menu_change_ms = g_menu_change_ms;
+            snap.menu_roots_cached = static_cast<std::uint32_t>(g_menu_roots.size());
+            snap.menu_watch_count = static_cast<std::uint32_t>(g_menu_watch.size());
+            snap.widgets_visible_in_viewport = g_widgets_visible;
+            copy_to(snap.menu_holder, std::size(snap.menu_holder), g_menu_holder);
+            mm::publish(snap);
+            g_last_snap = snap;
+            g_publishes.fetch_add(1, std::memory_order_relaxed);
+        }
+
         void pump_fast_slice(std::uint64_t now, int& depth)
         {
-            // BETWEEN position pumps: the sliced GUObjectArray walks, nothing else. Both are
-            // self-throttled on QueryPerformanceCounter, so a call out of turn costs one QPC
-            // read and a compare. They run on the LAST validated state: same re-entrancy
-            // guard, same cooldown, and only with a pawn standing as of the last position pump.
+            // BETWEEN position pumps: the sliced GUObjectArray walks and, when a UI event has
+            // named a watchlisted menu root, the menu re-test. All are self-throttled, so a
+            // call out of turn costs one clock read and a compare. They run on the LAST
+            // validated state: same re-entrancy guard, same cooldown, and only with a pawn
+            // standing as of the last position pump. The re-test is the one thing here that
+            // issues a ProcessEvent, which is why it takes the depth guard with the rest.
             if (g_state_ok_since != 0 && now >= g_cooldown_until)
             {
                 const DepthGuard slice_guard{depth};
+                if (g_menu_retest_due && !g_pawn.empty() &&
+                    scan::elapsed(now, g_menu_retest_ms, kMenuRetestMinMs))
+                {
+                    const StageMark rmark{"fast slice: menu re-test"};
+                    pump_menu_retest(now);
+                }
                 const StageMark mark{"fast slice: markers"};
                 markers::game_thread_pump(now, g_world);
                 // The menu-discovery walk rides here too. Raw reads only - its ProcessEvent
@@ -1890,6 +1994,9 @@ namespace gamestate
                 const mm::PerfScope scope(g_pf_retest);
                 watch_menu = menu_from_cached_roots(roots_visible, holder);
             }
+            // This IS the re-test the flag asks for, so it satisfies and re-phases it.
+            g_menu_retest_due = false;
+            g_menu_retest_ms = now;
             g_widgets_visible = roots_visible;
 
             // The discovery walk's cadence. This schedule bounds ONLY the latency of "a menu
@@ -2094,6 +2201,8 @@ namespace gamestate
             snap.state_ok_since_ms = g_state_ok_since;
 
             mm::publish(snap);
+            g_last_snap = snap;
+            g_have_last_snap = true;
             g_publishes.fetch_add(1, std::memory_order_relaxed);
             g_report_pending.store(true, std::memory_order_relaxed);
 

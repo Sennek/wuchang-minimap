@@ -482,6 +482,136 @@ namespace scan
         return extra_non_menu_match(class_name, extra) ? "listed in menu_ignore_roots" : nullptr;
     }
 
+    //==================================================================================
+    // Menu root CLASS names, remembered across worlds
+    //==================================================================================
+    //
+    // Every pointer-keyed cache in gamestate.cpp - the watchlist, the class memo, the
+    // pending candidates - dies with the pawn's world, because a recycled address would
+    // answer from the wrong entry. Class NAMES do not: `WB_MenuMain_C` holds the pause menu
+    // in every chapter, so a name confirmed once is worth prioritising for the rest of the
+    // session.
+    //
+    // This is a PRIORITY, never a latch: a candidate whose class is in the set still has to
+    // pass the same `IsInViewport()` confirmation as any other. What it buys is position -
+    // it leads the pending list, so the per-pump commit cap cannot push it behind a burst of
+    // unknown candidates.
+    //
+    // The set is fixed-size and round-robin: the game has ~10 menu roots, and a set that
+    // silently stopped learning would be worse than one that forgets its oldest entry.
+
+    constexpr int kMenuRootNameChars = 64; // including the terminator
+    constexpr int kMenuRootNamesMax = 24;
+
+    struct MenuRootNames
+    {
+        char rows[kMenuRootNamesMax][kMenuRootNameChars]{};
+        int count = 0;
+        int next = 0; // the slot the next insertion evicts once the set is full
+    };
+
+    // Whole-string case-insensitive compare, not the prefix match the deny-list uses: a
+    // remembered name is one exact class, not a family.
+    template <class CharT>
+    inline bool name_equals_ci(const CharT* name, const char* row) noexcept
+    {
+        if (name == nullptr || row == nullptr)
+        {
+            return false;
+        }
+        int i = 0;
+        for (; row[i] != '\0'; ++i)
+        {
+            if (name[i] == static_cast<CharT>(0) || ascii_lower(name[i]) != ascii_lower(row[i]))
+            {
+                return false;
+            }
+        }
+        return name[i] == static_cast<CharT>(0);
+    }
+
+    template <class CharT>
+    inline bool menu_root_known(const MenuRootNames& s, const CharT* class_name) noexcept
+    {
+        if (class_name == nullptr)
+        {
+            return false;
+        }
+        for (int i = 0; i < s.count; ++i)
+        {
+            if (name_equals_ci(class_name, s.rows[i]))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // True when the name was not already there. A name that does not fit a row, or that
+    // carries a non-ASCII character, is simply not remembered - the set is an optimisation.
+    template <class CharT>
+    inline bool remember_menu_root(MenuRootNames& s, const CharT* class_name) noexcept
+    {
+        if (class_name == nullptr)
+        {
+            return false;
+        }
+        int n = 0;
+        while (n < kMenuRootNameChars && class_name[n] != static_cast<CharT>(0))
+        {
+            if (static_cast<unsigned>(class_name[n]) > 127u)
+            {
+                return false;
+            }
+            ++n;
+        }
+        if (n <= 0 || n >= kMenuRootNameChars)
+        {
+            return false;
+        }
+        if (menu_root_known(s, class_name))
+        {
+            return false;
+        }
+        int slot = 0;
+        if (s.count < kMenuRootNamesMax)
+        {
+            slot = s.count;
+            ++s.count;
+        }
+        else
+        {
+            slot = s.next;
+            s.next = (s.next + 1) % kMenuRootNamesMax;
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            s.rows[slot][i] = ascii_lower(class_name[i]);
+        }
+        s.rows[slot][n] = '\0';
+        return true;
+    }
+
+    // Where a newly seen candidate goes in the pending list. A widget whose class has
+    // already confirmed as a menu root leads the list, behind the known ones already there;
+    // everything else appends. `known_front` is how many known-class entries lead the list.
+    constexpr int candidate_insert_at(int pending, int known_front, bool known_class) noexcept
+    {
+        if (pending <= 0)
+        {
+            return 0;
+        }
+        if (!known_class)
+        {
+            return pending;
+        }
+        if (known_front <= 0)
+        {
+            return 0;
+        }
+        return known_front < pending ? known_front : pending;
+    }
+
     // The slots of `pending` a pump takes, given the per-pump cap.
     constexpr int commit_batch(int pending, int cap) noexcept
     {

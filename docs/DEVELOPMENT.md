@@ -844,9 +844,43 @@ player is outside every mapped chapter — and the F2 panel prints which.
 `src/gamestate.cpp` reads the state on the **game thread** inside UE4SS's ProcessEvent
 pre-callback: pawn location and yaw at 10 Hz via `K2_GetActorLocation` /
 `K2_GetActorRotation`, the pawn and controller re-resolved at 2 Hz, and the menu test
-(`UWidget::Visibility == Visible` prefiltered from the reflected byte, then `IsInViewport()`)
-on a sliced object-array walk with an adaptive period. It publishes an `mm::Snapshot` through
-a seqlock; the render thread never touches a UObject.
+(`UWidget::Visibility == Visible` prefiltered from the reflected byte, then `IsInViewport()`).
+It publishes an `mm::Snapshot` through a seqlock; the render thread never touches a UObject.
+
+#### How a menu is found
+
+`IsInViewport()` on a root `UserWidget` whose `Visibility` is `Visible` is the whole
+decision, and it is asked on the validated 10 Hz pump. Three finders supply the roots it is
+asked about, and none of them latches anything:
+
+| Finder | What it costs | Latency of a menu it answers |
+|---|---|---|
+| the **watchlist** — every root that has ever confirmed, re-tested in full each pump | 5-6 `IsInViewport()` per pump | ≤ 1 pump (~100 ms), opening *and* closing |
+| the **UI-event path** — `note_ui_event`, on the ProcessEvent context itself | one hash lookup on the class pointer per event; a widget event adds ≤ 6 outer reads | ≤ 1 pump (~100 ms) from the game's first touch of the widget |
+| the **discovery walk** — a sliced `GUObjectArray` sweep on `scan::SweepSched` | 8192 slots per slice at 8 ms | one quiet period + one round + the commit, ~1-3 s |
+
+The **UI-event path** is what makes an unseen menu near-instant. ProcessEvent already names
+the object it is about, so a widget event is a free hint: `note_ui_event` looks the context's
+`UClass*` up in the memoised kind table (`0` not a widget, `1` may be a menu, `2` deny-listed,
+`3` a class that has already held a menu), walks up to six `Outer` hops — a widget's chain is
+`child -> WidgetTree -> the owning UserWidget -> … -> the game instance` — to the topmost
+`UserWidget`, and offers that root as a candidate. It does **raw reads only**: it runs outside
+the re-entrancy guard, so it may never issue a ProcessEvent, and it decides nothing. The
+candidate is confirmed by the same `IsInViewport()` commit as any other, at most 32
+event-sourced candidates per pump, each widget re-offered at most once a second.
+
+The pointer-keyed caches — the watchlist, the class kind memo, the pending candidates, the
+offer memo — are all cleared by `drop_pawn`, because a recycled address would answer from the
+wrong entry. Confirmed menu root **class names** are not: `scan::MenuRootNames` keeps a
+bounded, round-robin set of them (`scan_sched.hpp`, covered by `markers_test`), so after a
+level load the same class is recognised at once and its candidates lead the pending list
+(`scan::candidate_insert_at`) rather than being cut by the per-pump commit cap.
+
+`scan::kNonMenuRoots` stays authoritative over all three: a deny-listed class never reaches
+kind 1 or 3, so neither the walk nor an event can offer it.
+
+At verbose the flip line names which finder answered and how long after the triggering UI
+event, e.g. `menu state -> OPEN (…; found via event, 63 ms after the triggering UI event)`.
 
 ### The F2 panel
 
@@ -1512,7 +1546,8 @@ that decides "is this a marker class, or a subclass of one" happens once per cla
 not once per object per round. Everything expensive (`RootComponent` location, the state flag,
 the `GetFullName` id) runs only for the handful of objects that matched. The menu-widget sweep
 in `gamestate.cpp` uses the same slicer, with the raw reads on the slice and the
-`IsInViewport()` confirmation on the validated 10 Hz pump.
+`IsInViewport()` confirmation on the validated 10 Hz pump — it is the *fallback* finder there,
+behind the watchlist and the UI-event path described above.
 
 The slice is called from **every** `ProcessEvent` pre-callback while the last validated state
 stands, not from the 10 Hz position pump, and it throttles itself on

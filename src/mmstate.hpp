@@ -156,7 +156,7 @@ namespace mm
         int state_stale_ms = 1000;
         int min_visible_after_state_ok_ms = 600; // grace after the state becomes good
         // A menu closing is not a level transition: re-showing waits only this long, not
-        int menu_close_show_delay_ms = 150; // min_visible_after_state_ok_ms. Hiding is immediate.
+        int menu_close_show_delay_ms = 50; // min_visible_after_state_ok_ms. Hiding is immediate.
 
         //=== Height slicing (what the minimap actually draws) ======================
         // Eight 16-bit PNGs hold the Z of up to eight stacked walkable surfaces per pixel plus a

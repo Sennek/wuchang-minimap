@@ -56,6 +56,14 @@ namespace RC::Unreal
         // later liveness test without touching the object's own (possibly freed) memory.
         const int GetInternalIndex() const;
 
+        // ?GetOuterPrivate@UObjectBase@Unreal@RC@@QEAAAEAPEAVUObject@23@XZ
+        //
+        // The owning object, one raw field read. A widget's chain is
+        // child -> WidgetTree -> the UserWidget that owns the tree, up to the game
+        // instance, which is how the UI-event path reaches a menu's root from any of its
+        // children.
+        UObject*& GetOuterPrivate();
+
         // ?GetObjectItem@UObjectBase@Unreal@RC@@QEAAPEAUFUObjectItem@23@XZ
         FUObjectItem* GetObjectItem();
     };

@@ -164,6 +164,45 @@ namespace gamestate
         // GUObjectArray on this build); the whole-array `FindAllOf` sweep is the fallback.
         bool g_wfallback = false;
 
+        // How many known-menu-class candidates lead `g_wpending`. New known-class
+        // candidates are inserted behind them (scan::candidate_insert_at), so the per-pump
+        // commit cap can never push a likely menu root behind a burst of unknown widgets.
+        int g_wknown_front = 0;
+
+        // Menu root CLASS names confirmed this session (scan_sched.hpp). Everything else in
+        // this file that remembers a menu is keyed by POINTER and dies with the world; this
+        // survives, so the first menu after a level load is a known class again.
+        scan::MenuRootNames g_menu_root_names{};
+
+        //---- the UI-EVENT path -------------------------------------------------------
+        // ProcessEvent itself says which object is doing something. A widget event names a
+        // menu the instant the game touches it, ~2.5 s before the discovery walk would have
+        // reached it. The callback only OFFERS a candidate: `IsInViewport()` on the next
+        // 10 Hz pump is still the whole decision.
+
+        // Widgets the event path has already offered, and when (GetTickCount64). Bounds the
+        // cost of an event storm on one widget to a single hash lookup, and the re-offer
+        // window keeps a widget that was parked when it was offered from being ignored
+        // forever. Pointer-keyed, so drop_pawn clears it.
+        std::unordered_map<UObject*, std::uint64_t> g_wevent_offered;
+        constexpr std::size_t kEventOfferedMax = 256;
+        constexpr std::uint64_t kEventReofferMs = 1000;
+
+        // Event-sourced candidates accepted since the last 10 Hz pump. The cap is what keeps
+        // a frame of widget churn from filling the pending list.
+        int g_wevent_added = 0;
+        constexpr int kEventCandidatesPerPump = 32;
+
+        // Outer hops the walk from an arbitrary widget to its root UserWidget may take:
+        // child -> WidgetTree -> UserWidget -> WidgetTree -> ... -> game instance. Three
+        // levels of nesting is more than this game's UI uses.
+        constexpr int kWidgetOuterHops = 6;
+
+        // How the root that flipped the menu state was found, and how long after the
+        // triggering UI event - the numbers the verbose flip line reports.
+        const wchar_t* g_commit_route = L"sweep";
+        std::uint64_t g_commit_lat_ms = 0;
+
         // Perf counter ids (perf.hpp). Namespace-scope rather than function statics: a
         // guarded static's first call would run the CRT thread-safe-init path here.
         int g_pf_position = -1;
@@ -346,6 +385,9 @@ namespace gamestate
             // The sliced discovery walk is keyed to that world too, and a recycled UClass*
             // address would answer from the wrong memo entry. The cursor restarts.
             g_wpending.clear();
+            g_wknown_front = 0;
+            g_wevent_offered.clear();
+            g_wevent_added = 0;
             g_wclass.clear();
             g_wcursor = scan::Cursor{};
             g_wround_active = false;
@@ -801,7 +843,8 @@ namespace gamestate
         // UWidget::Visibility is a reflected TEnumAsByte and Visible == 0, so the byte is
         // the prefilter. Only called with a validated gameplay pawn, outside the cooldown.
 
-        void set_menu_open(bool open, std::uint64_t now, const wchar_t* why)
+        void set_menu_open(bool open, std::uint64_t now, const wchar_t* why, const wchar_t* route,
+                           std::uint64_t lat_ms)
         {
             if (open != g_menu_open)
             {
@@ -812,15 +855,22 @@ namespace gamestate
                 // flag is consumed near its START. Arming twice is idempotent.
                 g_force_widget_sweep = true;
                 scan::sweep_arm(g_sweep, now);
-                MM_LOGV(L"menu state -> {} ({}); a full widget sweep is queued",
+                // `route` is which of the three finders answered - the watchlist re-test, a
+                // candidate the ProcessEvent callback offered, or the discovery walk - and
+                // `lat_ms` is the age of the triggering UI event, 0 when there was none.
+                MM_LOGV(L"menu state -> {} ({}; found via {}, {} ms after the triggering UI "
+                        L"event); a full widget sweep is queued",
                         open ? L"OPEN" : L"closed",
-                        why);
+                        why,
+                        route,
+                        lat_ms);
             }
         }
 
         // Defined with the SLICED walk below; the FindAllOf fallback needs the same gate.
         unsigned char widget_class_kind(UObject* obj);
         bool widget_may_be_menu(UObject* obj);
+        void remember_menu_class(UObject* w);
 
         // Is this widget's reflected Visibility byte ESlateVisibility::Visible (0)? Raw read.
         bool widget_is_visible_byte(UObject* w, bool& has_byte)
@@ -861,6 +911,7 @@ namespace gamestate
             if (uer::capture(w, ref))
             {
                 g_menu_watch.push_back(ref);
+                remember_menu_class(w);
                 MM_LOGV(L"menu root discovered: {} (watchlist now {} widget(s); they are "
                         L"re-tested at 10 Hz, so this menu is caught within one pump from "
                         L"now on)",
@@ -1021,6 +1072,8 @@ namespace gamestate
         //   1 = a widget that MAY hold a menu
         //   2 = a widget whose class is on the not-a-menu deny-list, matched on the CLASS
         //       name (an object name is index-suffixed). See scan_sched.hpp.
+        //   3 = 1, plus this class has already confirmed as a menu root this session, so a
+        //       candidate of it leads the pending list. A PRIORITY, not an answer.
         unsigned char widget_class_kind(UObject* obj)
         {
             RC::Unreal::UClass* cls = obj->GetClassPrivate();
@@ -1065,6 +1118,11 @@ namespace gamestate
                                  std::wstring(why, why + std::strlen(why)));
                     }
                 }
+                else if (scan::menu_root_known(g_menu_root_names, cname.c_str()))
+                {
+                    // The memo died with the last world; the NAME set did not.
+                    kind = 3;
+                }
             }
             if (g_wclass.size() > kWidgetClassCacheMax)
             {
@@ -1083,7 +1141,61 @@ namespace gamestate
         // so the state line's `widgets N/M` numbers do not change.
         bool widget_may_be_menu(UObject* obj)
         {
-            return widget_class_kind(obj) == 1;
+            const unsigned char kind = widget_class_kind(obj);
+            return kind == 1 || kind == 3;
+        }
+
+        // A class that has already held a menu this session. Its candidates lead the pending
+        // list; the confirmation they must pass is unchanged.
+        bool widget_class_is_known_menu(UObject* obj)
+        {
+            return widget_class_kind(obj) == 3;
+        }
+
+        // Record a confirmed root's class name, so the next world starts knowing it, and
+        // promote the live memo entry to kind 3 at once.
+        void remember_menu_class(UObject* w)
+        {
+            RC::Unreal::UClass* cls = w->GetClassPrivate();
+            if (cls == nullptr)
+            {
+                return;
+            }
+            const std::wstring cname = static_cast<UObject*>(cls)->GetName();
+            if (scan::remember_menu_root(g_menu_root_names, cname.c_str()))
+            {
+                MM_LOGV(L"menu root class remembered: {} ({} name(s) now survive a level "
+                        L"transition)",
+                        cname,
+                        g_menu_root_names.count);
+            }
+            g_wclass[cls] = 3;
+        }
+
+        // THE ONE PLACE A CANDIDATE ENTERS `g_wpending`. Returns false when the list is full
+        // or the object could not be captured. A known-menu class jumps the queue instead of
+        // appending; nothing here decides anything, the commit's `IsInViewport()` does.
+        bool push_widget_candidate(UObject* obj, bool known_class)
+        {
+            const int pending = static_cast<int>(g_wpending.size());
+            if (pending >= scan::kWidgetCandidateMax)
+            {
+                ++g_wcand_dropped;
+                return false;
+            }
+            uer::ObjRef ref{};
+            if (!uer::capture(obj, ref))
+            {
+                return false;
+            }
+            const int at = scan::candidate_insert_at(pending, g_wknown_front, known_class);
+            g_wpending.insert(g_wpending.begin() + static_cast<std::ptrdiff_t>(at), ref);
+            if (known_class)
+            {
+                ++g_wknown_front;
+            }
+            ++g_wcand_round;
+            return true;
         }
 
         // ONE SLICE. Raw reads only - no ProcessEvent - so it is safe on the fast path
@@ -1126,17 +1238,7 @@ namespace gamestate
                 {
                     continue;
                 }
-                if (g_wpending.size() >= static_cast<std::size_t>(scan::kWidgetCandidateMax))
-                {
-                    ++g_wcand_dropped;
-                    continue;
-                }
-                uer::ObjRef ref{};
-                if (uer::capture(obj, ref))
-                {
-                    ++g_wcand_round;
-                    g_wpending.push_back(ref);
-                }
+                push_widget_candidate(obj, widget_class_is_known_menu(obj));
             }
         }
 
@@ -1198,7 +1300,7 @@ namespace gamestate
         // closes inside one round is still confirmed.
         // The byte-`Visible` candidates the slices collected are the only widgets that pay
         // for an `IsInViewport()` ProcessEvent. IT CAN ONLY ADD (scan::menu_open_from).
-        bool commit_widget_candidates(std::wstring& holder, bool& discovered_new)
+        bool commit_widget_candidates(std::uint64_t now, std::wstring& holder, bool& discovered_new)
         {
             discovered_new = false;
             bool menu = false;
@@ -1232,6 +1334,19 @@ namespace gamestate
                 if (!menu)
                 {
                     holder = w->GetName();
+                    // WHICH FINDER ANSWERED. A widget the ProcessEvent callback offered is
+                    // still in the offer memo, and its entry is when the event fired.
+                    const auto offered = g_wevent_offered.find(w);
+                    if (offered != g_wevent_offered.end())
+                    {
+                        g_commit_route = L"event";
+                        g_commit_lat_ms = now >= offered->second ? now - offered->second : 0;
+                    }
+                    else
+                    {
+                        g_commit_route = L"sweep";
+                        g_commit_lat_ms = 0;
+                    }
                 }
                 menu = true;
                 // Watched from now on: re-tested every pump.
@@ -1249,7 +1364,105 @@ namespace gamestate
                 }
             }
             g_wpending.erase(g_wpending.begin(), g_wpending.begin() + static_cast<std::ptrdiff_t>(take));
+            g_wknown_front = g_wknown_front > take ? g_wknown_front - take : 0;
             return menu;
+        }
+
+        // THE UI-EVENT PATH, on EVERY ProcessEvent - thousands per second.
+        //
+        // RAW READS ONLY. It issues no ProcessEvent (it runs outside the re-entrancy guard)
+        // and decides nothing: all it does is offer a candidate the next 10 Hz commit will
+        // put through the same `IsInViewport()` test as any other. The deny-list still wins,
+        // because a deny-listed class never reaches kind 1 or 3.
+        //
+        // The cost for the overwhelming majority of events - an actor or component, not a
+        // widget - is ONE hash lookup on the class pointer. A widget event adds up to six
+        // outer reads and one lookup in the offer memo.
+        void note_ui_event(UObject* ctx, RC::Unreal::UFunction* fn, std::uint64_t now)
+        {
+            if (ctx == nullptr || fn == nullptr || g_wfallback)
+            {
+                return; // the FindAllOf fallback never commits `g_wpending`
+            }
+            if (g_wevent_added >= kEventCandidatesPerPump)
+            {
+                return; // this pump's budget is spent; the next one reopens it
+            }
+            unsigned char kind = widget_class_kind(ctx);
+            if (kind == 0)
+            {
+                return; // not a UUserWidget: 99 % of events stop here
+            }
+
+            // UP TO THE ROOT. A widget's outer chain is
+            // child -> WidgetTree -> the owning UserWidget -> ... -> the game instance, so
+            // the topmost UserWidget in the chain is the root `IsInViewport()` can confirm.
+            UObject* root = (kind == 1 || kind == 3) ? ctx : nullptr;
+            UObject* at = ctx;
+            for (int hop = 0; hop < kWidgetOuterHops; ++hop)
+            {
+                if (!mem::readable(at, 0x40))
+                {
+                    break;
+                }
+                UObject* outer = at->GetOuterPrivate();
+                if (outer == nullptr || !mem::plausible_ptr(outer) || !mem::readable(outer, 0x40))
+                {
+                    break;
+                }
+                at = outer;
+                kind = widget_class_kind(at);
+                if (kind == 0)
+                {
+                    break; // the WidgetTree's owner ran out: this is the game instance
+                }
+                if (kind == 1 || kind == 3)
+                {
+                    root = at;
+                }
+            }
+            if (root == nullptr)
+            {
+                return; // every widget in the chain is deny-listed
+            }
+
+            // Already known? The watchlist re-test answers those in one pump on its own.
+            for (const uer::ObjRef& ref : g_menu_watch)
+            {
+                if (ref.obj == root)
+                {
+                    return;
+                }
+            }
+            // Offered recently? The re-offer window bounds an event storm on one widget to a
+            // hash lookup, and still lets a widget that was parked when it was offered be
+            // re-offered once it is not.
+            const auto seen = g_wevent_offered.find(root);
+            if (seen != g_wevent_offered.end() && now >= seen->second &&
+                now - seen->second < kEventReofferMs)
+            {
+                return;
+            }
+            // The prefilter the slice applies, so an event does not offer a parked widget.
+            bool has_byte = false;
+            const bool byte_visible = widget_is_visible_byte(root, has_byte);
+            if (has_byte && !byte_visible)
+            {
+                return;
+            }
+            if (!push_widget_candidate(root, widget_class_kind(root) == 3))
+            {
+                return;
+            }
+            ++g_wevent_added;
+            if (g_wevent_offered.size() >= kEventOfferedMax)
+            {
+                g_wevent_offered.clear(); // bounded; the window would have expired anyway
+            }
+            g_wevent_offered[root] = now;
+            // Belt and braces: the commit runs every pump regardless, but a menu opening is
+            // also exactly when the discovery walk should be back on its fast cadence.
+            scan::sweep_arm(g_sweep, now);
         }
 
         // End-of-round bookkeeping: the counts the state line reports, and the one place an
@@ -1702,6 +1915,8 @@ namespace gamestate
                             mm::perf_register("widget sweep (FindAllOf, fallback)", perf::Thread::Game);
                     }
                     const std::uint64_t sweep_t0 = mm::qpc_us();
+                    g_commit_route = L"sweep";
+                    g_commit_lat_ms = 0;
                     commit_menu = update_widgets(commit_holder, discovered_new);
                     mm::perf_record(g_pf_sweep, sweep_t0);
                     scan::sweep_done(g_sweep, now, discovered_new, g_menu_watch.empty());
@@ -1716,7 +1931,7 @@ namespace gamestate
                 }
                 {
                     const mm::PerfScope commit_scope(g_pf_wcommit);
-                    commit_menu = commit_widget_candidates(commit_holder, discovered_new);
+                    commit_menu = commit_widget_candidates(now, commit_holder, discovered_new);
                 }
                 g_wcand_round_pub.store(g_wcand_round, std::memory_order_relaxed);
                 g_wpending_pub.store(static_cast<std::uint32_t>(g_wpending.size()),
@@ -1736,12 +1951,18 @@ namespace gamestate
                 holder = commit_holder;
             }
             g_menu_holder = holder;
+            // A root already on the watchlist needed no finding; otherwise the commit named
+            // which of the two discovery routes produced it.
+            const wchar_t* route = watch_menu ? L"the watchlist" : (commit_menu ? g_commit_route : L"-");
+            const std::uint64_t lat_ms = watch_menu ? 0 : (commit_menu ? g_commit_lat_ms : 0);
             set_menu_open(menu,
                           now,
                           menu ? (watch_menu ? L"a watchlist root is in the viewport and Visible"
                                              : L"the discovery walk just confirmed a new in-viewport "
                                                L"Visible root")
-                               : L"no root is in the viewport and Visible");
+                               : L"no root is in the viewport and Visible",
+                          route,
+                          lat_ms);
         }
 
         // Which chapter's map asset should be resident. 1 Hz, on the validated state.
@@ -1879,7 +2100,7 @@ namespace gamestate
             return true;
         }
 
-        void pump()
+        void pump(UObject* ctx, RC::Unreal::UFunction* fn)
         {
             // THE MASTER SWITCH, first statement (modswitch.hpp). UE4SS exports no Unregister
             // for the ProcessEvent callback, so a disabled mod bails here: one relaxed load.
@@ -1921,12 +2142,22 @@ namespace gamestate
 
             const std::uint64_t now = ::GetTickCount64();
             refresh_tunables(now);
+
+            // THE UI-EVENT PATH, before the 10 Hz gate: ProcessEvent has just named an
+            // object, and if it is a widget the menu it belongs to is worth offering NOW
+            // rather than when the discovery walk next reaches it. Raw reads, no
+            // ProcessEvent, no decision - see note_ui_event.
+            note_ui_event(ctx, fn, now);
+
             if (now - g_last_position < g_tune.position_ms)
             {
                 pump_fast_slice(now, depth);
                 return;
             }
             g_last_position = now;
+            // The UI-event path's per-pump budget reopens here rather than in pump_widgets:
+            // it must keep working while there is no validated pawn to run one.
+            g_wevent_added = 0;
 
             const DepthGuard guard{depth};
             g_pump_calls.fetch_add(1, std::memory_order_relaxed);
@@ -1988,12 +2219,13 @@ namespace gamestate
         // world coordinates, and the symptom is misplaced markers.
         mm::check_game_build();
         RC::Unreal::Hook::RegisterProcessEventPreCallback(
-            [](UObject*, RC::Unreal::UFunction*, void*) { pump(); });
+            [](UObject* ctx, RC::Unreal::UFunction* fn, void*) { pump(ctx, fn); });
         mm::log(L"game-state reader registered on the ProcessEvent game-thread pump "
                 L"(position 10 Hz, pawn/controller resolve 2 Hz, menu test EVERY pump on the cached "
-                L"in-viewport roots + a SLICED GUObjectArray walk for menu discovery - 8192 slots "
-                L"per slice, one round per 0.25-2 s, no FindAllOf; pawn validated through "
-                L"GUObjectArray every pump, class gate 'BP_CombatCharacter_Player')");
+                L"in-viewport roots, menu roots also offered by the ProcessEvent context itself, "
+                L"backed by a SLICED GUObjectArray walk - 8192 slots per slice, one round per "
+                L"0.25-2 s, no FindAllOf; pawn validated through GUObjectArray every pump, class "
+                L"gate 'BP_CombatCharacter_Player')");
     }
 
     void on_update()

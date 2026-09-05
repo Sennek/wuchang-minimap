@@ -1945,6 +1945,90 @@ namespace
             // A KNOWN menu is one pump, whatever the discovery walk is doing.
             CHECK(scan::menu_open_from(true, false));
         }
+
+        // THE UI-EVENT PATH'S TWO PURE PIECES
+        // ProcessEvent names the object it is about, so a widget event offers its root as a
+        // candidate at once. The two things that survive a world change are the remembered
+        // class names and the rule that puts their candidates at the head of the queue.
+        std::printf("-- menu root class names remembered across worlds --\n");
+
+        {
+            scan::MenuRootNames m{};
+            CHECK(m.count == 0);
+            CHECK(!scan::menu_root_known(m, L"WB_MenuMain_C"));
+
+            CHECK(scan::remember_menu_root(m, L"WB_MenuMain_C"));
+            CHECK(m.count == 1);
+            CHECK(scan::menu_root_known(m, L"WB_MenuMain_C"));
+            // Case-insensitive, both character widths, like the deny-list.
+            CHECK(scan::menu_root_known(m, "wb_menumain_c"));
+            CHECK(scan::menu_root_known(m, L"WB_MENUMAIN_C"));
+            // A second insertion of the same name is not new.
+            CHECK(!scan::remember_menu_root(m, L"wb_menumain_c"));
+            CHECK(m.count == 1);
+
+            // WHOLE-STRING, not a prefix: the deny-list matches families, this matches one
+            // class, so a different widget of the same family does not inherit the priority.
+            CHECK(!scan::menu_root_known(m, L"WB_MenuMain_C_Extra"));
+            CHECK(!scan::menu_root_known(m, L"WB_MenuMain"));
+            CHECK(!scan::menu_root_known(m, L""));
+            CHECK(!scan::menu_root_known(m, static_cast<const wchar_t*>(nullptr)));
+
+            // Names that cannot be stored are simply not remembered - the set is a priority,
+            // never a decision, so refusing one costs latency at worst.
+            CHECK(!scan::remember_menu_root(m, L""));
+            CHECK(!scan::remember_menu_root(m, static_cast<const wchar_t*>(nullptr)));
+            const std::wstring cjk = L"WB_" + std::wstring(1, static_cast<wchar_t>(0x4E2D)) + L"_C";
+            CHECK(!scan::remember_menu_root(m, cjk.c_str())); // non-ASCII
+            const std::wstring too_long(scan::kMenuRootNameChars + 8, L'x');
+            CHECK(!scan::remember_menu_root(m, too_long.c_str()));
+            CHECK(m.count == 1);
+            // A name exactly one character short of the row still fits.
+            const std::wstring longest(scan::kMenuRootNameChars - 1, L'y');
+            CHECK(scan::remember_menu_root(m, longest.c_str()));
+            CHECK(scan::menu_root_known(m, longest.c_str()));
+        }
+
+        {
+            // Bounded and round-robin: a set that stopped learning would be worse than one
+            // that forgets its oldest entry.
+            scan::MenuRootNames m{};
+            for (int i = 0; i < scan::kMenuRootNamesMax; ++i)
+            {
+                const std::string n = "WB_Menu" + std::to_string(i) + "_C";
+                CHECK(scan::remember_menu_root(m, n.c_str()));
+            }
+            CHECK(m.count == scan::kMenuRootNamesMax);
+            CHECK(scan::menu_root_known(m, "WB_Menu0_C"));
+            CHECK(scan::remember_menu_root(m, "WB_Late_C"));
+            CHECK(m.count == scan::kMenuRootNamesMax); // still bounded
+            CHECK(scan::menu_root_known(m, "WB_Late_C"));
+            CHECK(!scan::menu_root_known(m, "WB_Menu0_C")); // the oldest went
+            CHECK(scan::menu_root_known(m, "WB_Menu1_C"));
+            // The game has ~10 menu roots, so the set must hold a session's worth of them.
+            CHECK(scan::kMenuRootNamesMax >= 16);
+            CHECK(scan::kMenuRootNameChars >= 48); // WB_StyleSkill_SelectStyleSkilMain_C
+        }
+
+        {
+            // Queue position. A known-class candidate goes ahead of the unknown ones, so the
+            // per-pump commit cap cannot push it out of the first batch.
+            CHECK_EQ(scan::candidate_insert_at(0, 0, false), 0);
+            CHECK_EQ(scan::candidate_insert_at(0, 0, true), 0);
+            CHECK_EQ(scan::candidate_insert_at(300, 0, false), 300); // append
+            CHECK_EQ(scan::candidate_insert_at(300, 0, true), 0);    // jump the queue
+            CHECK_EQ(scan::candidate_insert_at(300, 4, true), 4);    // behind the known ones
+            CHECK_EQ(scan::candidate_insert_at(300, 4, false), 300);
+            // A known_front that has run past the list (a drained commit) never lands outside it.
+            CHECK_EQ(scan::candidate_insert_at(3, 9, true), 3);
+            CHECK_EQ(scan::candidate_insert_at(-1, 0, true), 0);
+            CHECK_EQ(scan::candidate_insert_at(5, -2, true), 0);
+
+            // A known-class root inserted into a FULL pending list is still inside the first
+            // commit batch, which is the whole point of the ordering.
+            const int at = scan::candidate_insert_at(scan::kWidgetCandidateMax, 0, true);
+            CHECK(at < scan::kWidgetCommitPerPump);
+        }
     }
     // src/projection.hpp - world -> screen
     // Expectations are computed by hand from the conventions at the top of projection.hpp.

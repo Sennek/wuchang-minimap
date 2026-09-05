@@ -298,7 +298,7 @@ state_stale_ms = 1000
 min_visible_after_state_ok_ms = 600
 
 ; Delay before the minimap comes back after a menu closes, in ms. Hiding is immediate.
-menu_close_show_delay_ms = 150
+menu_close_show_delay_ms = 50
 
 ; ---------------------------------------------------------------------------------
 ; HEIGHT SLICING - what the minimap draws

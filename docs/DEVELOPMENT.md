@@ -1138,28 +1138,70 @@ another storey — capped at `map_slice_hz`. An idle open map costs nothing per 
 draw, and the buffer being written is never one the GPU is still sampling (the same fence rule
 as the minimap; a busy buffer skips the update instead of stalling Present).
 
-**Height slicing at map scale** is the minimap's rule plus an offset:
-`|Z - (feetZ + floor offset)| <= floor_z_tolerance` is opaque, the nearest surface below
-within `floor_fade_uu` and the nearest above within `floor_fade_above_uu` are dimmed, and the
-floor adjustment nudges the offset so you can look at the storey above or the dungeon below
-without walking there. `map_show_all_floors` widens both fades to infinity for a
-route-planning view. The rule itself is pure C++ in `src/slicerule.hpp`, so the offline tests
-run the same code the two maps do:
+**Height slicing at map scale** is the minimap's rule plus an offset. Per pixel a surface within
+`floor_z_tolerance` of `feetZ + floor offset` wins — the *nearest* one, opaque — and everything
+above it at that pixel is a ceiling nobody draws. With none, the *lowest* surface up to
+`shade_above_band_uu` over the feet is drawn at `shade_above_alpha`: a ledge, or the upper
+terrain a ramp leads to, and it hides whatever lies under it. With none of those, the *highest*
+surface below, at `shade_below_alpha`, however deep. The floor adjustment nudges the offset so
+you can look at the storey above or the dungeon below without walking there.
+
+**The full map's band is unbounded.** `shade_above_band_uu` is the minimap's key; the full map
+always slices as if it were infinite, so away from the player each pixel takes the ground of the
+nearest storey at or above the feet. The priority is what keeps that safe — a floor underfoot
+still wins outright, so no ceiling is ever drawn over the player. A one-storey band applied to a
+whole chapter culls it: at the chapter-3 spot X 88715 Y -9996, feet -10005, it dropped 92 % of
+the pixels that have a reachable surface.
+
+**Colour is absolute height**, not distance from the player: the surface's own world Z on the
+`shade_lo_color` → `shade_hi_color` ramp, through `t ** shade_gamma`. One ramp serves all three
+classes at full opacity, so a height is the same colour whoever is standing where and the cut
+reads as a floor plan; the player marker at the centre says which storey is yours.
+
+**The ramp's ends are percentiles of the Z the cut actually drew** — `p(shade_range_pct_lo)` to
+`p(100 - shade_range_pct_lo)`, out of a 128-bin histogram over the asset's own Z range — never
+the drawn min and max, and never the chapter's `z_min..z_max`: a chapter spans tens of thousands
+of uu between one peak and one pit, which would leave every playable storey inside a colour level
+or two. The minimap widens that span to `shade_min_range_uu` so flat ground does not explode to
+full contrast and eases it over `shade_range_smooth_ms` so walking a staircase does not make the
+picture breathe (a teleport resets it).
+
+**The full map equalises instead** (`shade_map_equalize`, on by default): `t` is the CDF of the Z
+its cut drew — `srule::ZHistogram::cdf`, the same 128 bins, interpolated inside the bin — so every
+tenth of the ramp holds a tenth of the drawn pixels and a stretch of Z nothing sits at costs no
+contrast at all. A chapter is ten kilometres of Z with the playable storeys in a few hundred of
+them: under a linear p3..p97 ramp 58 % of chapter 3's drawn pixels landed inside one 0.10-wide
+band of `t`. Setting the key to 0 puts the linear ramp back, to compare the two in place. The
+minimap stays linear — its window already tracks one storey, and an equalised ramp would recolour
+the ground under the player as they walk. The rule itself is pure C++ in
+`src/slicerule.hpp`, so the offline tests run the same code the two maps do:
 
 | key | tier | default | what it does |
 |---|---|---|---|
-| `floor_z_tolerance` | Advanced | 200 | uu: within this of your feet is *your* floor, opaque |
-| `adjacent_floor_opacity` | Advanced | 0.25 | opacity of the surface below; the one above uses 60 % of it |
-| `floor_fade_uu` | Advanced | 800 | uu: how far **below** your feet is still drawn |
-| `floor_fade_above_uu` | Advanced | 300 | uu: how far **above**; 0 = never draw a floor above you |
+| `floor_z_tolerance` | Player | 200 | uu: within this of your feet is *your* floor, opaque |
+| `show_adjacent_floors` | Player | 1 | 0 forces both alphas below to 0: your storey only |
+| `shade_lo_color` | Dev | `88 84 78` | the ramp's low end, `R G B` |
+| `shade_hi_color` | Dev | `244 240 232` | its high end |
+| `shade_gamma` | Dev | 0.80 | `t -> pow(t, gamma)` along the ramp; < 1 lifts the low ground |
+| `shade_below_alpha` | Dev | 1.00 | opacity of the storey below you |
+| `shade_above_alpha` | Dev | 1.00 | opacity of a ledge or upper terrain overhead |
+| `shade_above_band_uu` | Dev | 600 | uu above your feet a ledge may sit and show; 0 = nothing |
+| `shade_range_pct_lo` | Dev | 3 | the ramp's low percentile; the high one is 100 minus it |
+| `shade_min_range_uu` | Dev | 400 | narrowest Z span the minimap's ramp is stretched over |
+| `shade_range_smooth_ms` | Dev | 400 | easing on that span |
+| `shade_map_equalize` | Dev | 1 | the full map's ramp is the CDF of its own cut, not a linear span |
 | `map_unreachable` | Dev | `hide` | a surface the flood never reached: `hide` \| `dim` \| `show` |
 
-`floor_fade_above_uu` is its own dial because ground overhead is never ground the player can
-walk on now: measured on the chapter-2 Ai Nengqi arena, the above class is 31 % of everything
-drawn, in 230 separate blobs. `map_unreachable` is a Dev key and lives on the F2 panel's
-*Debug* tab, under *Tuning*, as a three-way control, disabled with
-`maps without reachability data` when the asset tree is /4. `dim` draws an unreachable surface one rung further down the same
-opacity ladder — no second colour ramp.
+`shade_above_band_uu` is 600 on the minimap — one storey — because ground that close overhead is ground the
+player walks up to, not a ceiling: on the chapter-3 courtyard at X 63506 Y 24472 the above class
+is the surrounding walkway. Anything higher is culled outright, so the roof over a corridor never
+covers the corridor. The cost of that cull is that a deck over a *solid* floor of yours shows
+only through the holes in it; the band is deliberately one storey rather than trying to fix
+that. Every `shade_*` key is a Dev key with a live
+control on the F2 panel's *Debug* tab, under *Developer settings > Height shading*. `map_unreachable` lives on the same
+tab under *Tuning*, as a three-way control, disabled with `maps without reachability data` when
+the asset tree is /4. `dim` draws an unreachable surface one rung further down the same opacity
+ladder — no second colour ramp.
 
 **Markers** are the same published draw buffer, the same glyphs and the same category mask the
 minimap uses — the legend column toggles the *same* `markers_categories` setting the F2 chips

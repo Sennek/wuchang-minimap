@@ -983,8 +983,8 @@ namespace overlay
                                          alpha(cfg.minimap_frame_alpha));
             const ImU32 inner_ring = IM_COL32(0, 0, 0, alpha(0.55f));
 
-            // The slice texture already carries the floor colour, the height gradient
-            // and the per-pixel alpha, so the only tint left is the global opacity.
+            // The slice texture already carries the height ramp's colour and the
+            // per-pixel alpha, so the only tint left is the global opacity.
             const ImU32 tint_slice = IM_COL32(255, 255, 255, alpha(1.0f));
             const ImU32 tint_composite = IM_COL32(255, 255, 255, alpha(cfg.minimap_composite_alpha));
 

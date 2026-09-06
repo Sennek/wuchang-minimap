@@ -659,7 +659,6 @@ namespace
         CHECK(neutral.frame_alpha == 0.85f);
         CHECK(neutral.backdrop == (mdb::Rgb{6, 9, 13}));
         CHECK(neutral.backdrop_alpha == 0.86f);
-        CHECK(neutral.floor_base == (mdb::Rgb{214, 208, 196}));
         const gly::ThemeColors ink = gly::theme_colors(gly::Theme::Ink);
         CHECK(!(ink.frame == neutral.frame));
         CHECK(!(ink.backdrop == neutral.backdrop));
@@ -3018,7 +3017,7 @@ namespace
 
     void test_slice_rule()
     {
-        std::printf("height codes and the slice rule: masking, reachability, fade above\n");
+        std::printf("height codes and the slice rule: masking, reachability, the height ramp\n");
 
         section("bit 12 never reaches the Z");
         {
@@ -3072,18 +3071,16 @@ namespace
             // 500 uu below it.
             srule::SliceStyle st{};
             st.tol = 200.0f;
-            st.fade = 800.0f;
-            st.fade_above = 300.0f;
-            st.a_dim = 0.25f;
-            st.a_faint = 0.15f;
+            st.above_band = 300.0f;
+            st.a_below = 0.7f;
+            st.a_above = 0.3f;
 
             const auto column = [&st](srule::Unreachable mode, std::uint8_t& cls, bool& reach, float& alpha) {
                 st.unreachable = mode;
                 std::uint8_t rank = 0;
-                float ad = 0.0f;
                 float d = 0.0f;
-                srule::accumulate(rank, ad, d, 0.0f, false, st);     // my level, unreachable
-                srule::accumulate(rank, ad, d, -500.0f, true, st);   // 500 uu below, reachable
+                srule::accumulate(rank, d, 0.0f, false, st);   // my level, unreachable
+                srule::accumulate(rank, d, -500.0f, true, st); // 500 uu below, reachable
                 cls = srule::rank_class(rank);
                 reach = srule::rank_reachable(rank);
                 alpha = srule::alpha_for(cls, reach, st);
@@ -3097,77 +3094,336 @@ namespace
             column(srule::Unreachable::Hide, cls, reach, alpha);
             CHECK_EQ(cls, srule::kClassBelow);
             CHECK(reach);
-            CHECK_NEAR(static_cast<double>(alpha), 0.25, 1e-6);
+            CHECK_NEAR(static_cast<double>(alpha), 0.7, 1e-6);
 
             // dim: it is drawn, one rung down the same ladder - never at full opacity.
             column(srule::Unreachable::Dim, cls, reach, alpha);
             CHECK_EQ(cls, srule::kClassFloor);
             CHECK(!reach);
-            CHECK_NEAR(static_cast<double>(alpha), 0.25, 1e-6);
+            CHECK_NEAR(static_cast<double>(alpha), 0.7, 1e-6);
 
-            // show: indistinguishable from a reachable floor - 1.0.0's picture.
+            // show: indistinguishable from a reachable floor.
             column(srule::Unreachable::Show, cls, reach, alpha);
             CHECK_EQ(cls, srule::kClassFloor);
             CHECK(reach);
             CHECK_NEAR(static_cast<double>(alpha), 1.0, 1e-6);
 
             // Within one class a REACHABLE surface beats an unreachable one even when the
-            // unreachable one is nearer.
+            // unreachable one is higher.
             st.unreachable = srule::Unreachable::Dim;
             std::uint8_t rank = 0;
-            float ad = 0.0f;
             float d = 0.0f;
-            srule::accumulate(rank, ad, d, 10.0f, false, st);
-            srule::accumulate(rank, ad, d, -150.0f, true, st);
+            srule::accumulate(rank, d, 10.0f, false, st);
+            srule::accumulate(rank, d, -150.0f, true, st);
             CHECK_EQ(srule::rank_class(rank), srule::kClassFloor);
             CHECK(srule::rank_reachable(rank));
             CHECK_NEAR(static_cast<double>(d), -150.0, 1e-6);
-            // ... and within one rank, the nearest wins.
-            rank = 0;
-            ad = 0.0f;
-            d = 0.0f;
-            srule::accumulate(rank, ad, d, -150.0f, true, st);
-            srule::accumulate(rank, ad, d, 20.0f, true, st);
-            CHECK_NEAR(static_cast<double>(d), 20.0, 1e-6);
         }
 
-        section("floor_fade_above_uu splits the above case off floor_fade_uu");
+        section("the pick order: my floor, then a ledge overhead, then the ground below");
         {
             srule::SliceStyle st{};
             st.tol = 200.0f;
-            st.fade = 800.0f;
+            st.above_band = 1500.0f;
             st.unreachable = srule::Unreachable::Show;
 
-            const auto one = [&st](float d) {
+            const auto column = [&st](std::initializer_list<float> ds, std::uint8_t& cls, float& d) {
                 std::uint8_t rank = 0;
-                float ad = 0.0f;
-                float dd = 0.0f;
-                srule::accumulate(rank, ad, dd, d, true, st);
-                return srule::rank_class(rank);
+                d = 0.0f;
+                for (const float one : ds)
+                {
+                    srule::accumulate(rank, d, one, true, st);
+                }
+                cls = srule::rank_class(rank);
             };
 
-            // At the shipped default a floor 250 uu up is drawn and one 500 uu up is not,
-            // while the same distances BELOW are both drawn - fade is 800 either way in
-            // 1.0.0 and the two dials are now independent.
-            st.fade_above = 300.0f;
-            CHECK_EQ(one(250.0f), srule::kClassAbove);
-            CHECK_EQ(one(500.0f), srule::kClassNone);
-            CHECK_EQ(one(-250.0f), srule::kClassBelow);
-            CHECK_EQ(one(-500.0f), srule::kClassBelow);
-            CHECK_EQ(one(-900.0f), srule::kClassNone);
+            std::uint8_t cls = 0;
+            float d = 0.0f;
 
-            // 0 = never draw a floor above the player; below is untouched.
-            st.fade_above = 0.0f;
-            CHECK_EQ(one(250.0f), srule::kClassNone);
-            CHECK_EQ(one(201.0f), srule::kClassNone);
-            CHECK_EQ(one(1.0f), srule::kClassFloor); // still inside the tolerance
-            CHECK_EQ(one(-250.0f), srule::kClassBelow);
+            // The class order is baked into the constants, so one comparison of ranks
+            // gives floor > ledge > below.
+            CHECK(srule::kClassFloor > srule::kClassAbove);
+            CHECK(srule::kClassAbove > srule::kClassBelow);
+            CHECK(srule::kClassBelow > srule::kClassNone);
 
-            // The gradient span follows the class it belongs to.
-            st.fade_above = 300.0f;
-            CHECK_NEAR(static_cast<double>(srule::span_for(srule::kClassFloor, st)), 200.0, 1e-6);
-            CHECK_NEAR(static_cast<double>(srule::span_for(srule::kClassBelow, st)), 800.0, 1e-6);
-            CHECK_NEAR(static_cast<double>(srule::span_for(srule::kClassAbove, st)), 300.0, 1e-6);
+            // A stack of ground under one pixel: the surface NEAREST the feet inside the
+            // tolerance is the one being stood on, whether it is the top of the stack...
+            column({-4000.0f, -900.0f, -150.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassFloor);
+            CHECK_NEAR(static_cast<double>(d), -150.0, 1e-6);
+            // ...or not: a walkway 190 uu overhead is inside the tolerance too, and the
+            // floor 30 uu under the feet is still the one the player is on.
+            column({-180.0f, 30.0f, 190.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassFloor);
+            CHECK_NEAR(static_cast<double>(d), 30.0, 1e-6);
+
+            // Nothing within the tolerance: the highest below wins, however deep,
+            // because its colour says how deep it is.
+            column({-9000.0f, -1500.0f, -800.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassBelow);
+            CHECK_NEAR(static_cast<double>(d), -800.0, 1e-6);
+
+            // A gallery overhead never beats ground the player can stand on, and
+            // everything above that floor is a ceiling: it is not even considered.
+            column({-150.0f, 250.0f, 1200.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassFloor);
+            CHECK_NEAR(static_cast<double>(d), -150.0, 1e-6);
+
+            // With nothing underfoot the LOWEST surface in the band is the ledge, and it
+            // hides whatever lies below it - a ramp leads up to it, so it is the ground
+            // the player reads, not the pit under the walkway.
+            column({-3000.0f, 400.0f, 1100.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassAbove);
+            CHECK_NEAR(static_cast<double>(d), 400.0, 1e-6);
+            // Over the band it is a ceiling and is dropped, and then the ground below
+            // is what is drawn.
+            column({-3000.0f, 4000.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassBelow);
+            CHECK_NEAR(static_cast<double>(d), -3000.0, 1e-6);
+            column({4000.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassNone);
+
+            // shade_above_band_uu = 0 draws nothing above at all; below is untouched.
+            st.above_band = 0.0f;
+            column({250.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassNone);
+            column({201.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassNone);
+            column({1.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassFloor); // still inside the tolerance
+            column({-250.0f}, cls, d);
+            CHECK_EQ(cls, srule::kClassBelow);
+        }
+
+        section("colour is absolute Z on the ramp, and the minimap's ramp is eased");
+        {
+            srule::SliceStyle st{};
+            st.lo_r = 100.0f;
+            st.lo_g = 0.0f;
+            st.lo_b = 50.0f;
+            st.hi_r = 200.0f;
+            st.hi_g = 100.0f;
+            st.hi_b = 250.0f;
+            st.z_lo = 1000.0f;
+            st.z_hi = 2000.0f;
+            st.gamma = 1.0f;
+
+            CHECK_NEAR(static_cast<double>(srule::shade_t(1000.0f, st)), 0.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::shade_t(1500.0f, st)), 0.5, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::shade_t(2000.0f, st)), 1.0, 1e-6);
+            // Outside the ramp clamps rather than wrapping or going negative.
+            CHECK_NEAR(static_cast<double>(srule::shade_t(-9999.0f, st)), 0.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::shade_t(9999.0f, st)), 1.0, 1e-6);
+            // gamma < 1 lifts the low ground: a quarter of the way up reads as half.
+            st.gamma = 0.5f;
+            CHECK_NEAR(static_cast<double>(srule::shade_t(1250.0f, st)), 0.5, 1e-6);
+            st.gamma = 1.0f;
+
+            float r = 0.0f;
+            float g = 0.0f;
+            float b = 0.0f;
+            srule::shade_rgb(1500.0f, st, r, g, b);
+            CHECK_NEAR(static_cast<double>(r), 150.0, 1e-4);
+            CHECK_NEAR(static_cast<double>(g), 50.0, 1e-4);
+            CHECK_NEAR(static_cast<double>(b), 150.0, 1e-4);
+            // A chapter or a window with no height in it at all takes the ramp's middle
+            // instead of dividing by zero.
+            st.z_hi = st.z_lo;
+            CHECK_NEAR(static_cast<double>(srule::shade_t(1000.0f, st)), 0.5, 1e-6);
+
+            // The window's own span, widened to shade_min_range_uu around its centre.
+            st.min_range_uu = 600.0f;
+            st.range_smooth_ms = 400.0f;
+            srule::RangeState rs{};
+            srule::ease_range(rs, 1000.0f, 1100.0f, 16.0f, st);
+            CHECK(rs.valid);
+            CHECK_NEAR(static_cast<double>(rs.lo), 750.0, 1e-4);
+            CHECK_NEAR(static_cast<double>(rs.hi), 1350.0, 1e-4);
+            // A window wider than the floor is taken as it stands, but only eased into.
+            srule::RangeState slow{};
+            srule::ease_range(slow, 0.0f, 1000.0f, 16.0f, st);
+            CHECK_NEAR(static_cast<double>(slow.lo), 0.0, 1e-4);
+            CHECK_NEAR(static_cast<double>(slow.hi), 1000.0, 1e-4);
+            srule::ease_range(slow, 1000.0f, 2000.0f, 40.0f, st); // 10 % of the way
+            CHECK_NEAR(static_cast<double>(slow.lo), 100.0, 1e-3);
+            CHECK_NEAR(static_cast<double>(slow.hi), 1100.0, 1e-3);
+            // An empty window leaves the last answer standing.
+            const float was_lo = slow.lo;
+            srule::ease_range(slow, 1.0f, 0.0f, 16.0f, st);
+            CHECK_NEAR(static_cast<double>(slow.lo), static_cast<double>(was_lo), 1e-6);
+        }
+
+        section("one ramp serves every class: a height is one colour, whoever stands where");
+        {
+            srule::SliceStyle st{};
+            st.lo_r = 100.0f;
+            st.lo_g = 0.0f;
+            st.lo_b = 50.0f;
+            st.hi_r = 200.0f;
+            st.hi_g = 100.0f;
+            st.hi_b = 250.0f;
+            st.z_lo = 1000.0f;
+            st.z_hi = 2000.0f;
+            st.gamma = 1.0f;
+
+            // Halfway up this ramp is (150, 50, 150), for the floor as much as for the
+            // storey below it or a ledge overhead: nothing is tinted apart, so two
+            // pixels of the same height are the same colour.
+            float r = 0.0f;
+            float g = 0.0f;
+            float b = 0.0f;
+            for (const std::uint8_t cls :
+                 {srule::kClassBelow, srule::kClassAbove, srule::kClassFloor})
+            {
+                srule::class_rgb(1500.0f, cls, st, r, g, b);
+                CHECK_NEAR(static_cast<double>(r), 150.0, 1e-4);
+                CHECK_NEAR(static_cast<double>(g), 50.0, 1e-4);
+                CHECK_NEAR(static_cast<double>(b), 150.0, 1e-4);
+            }
+
+            // The floor moves along the ramp like anything else.
+            float r2 = 0.0f;
+            float g2 = 0.0f;
+            float b2 = 0.0f;
+            srule::class_rgb(1000.0f, srule::kClassFloor, st, r, g, b);
+            srule::class_rgb(2000.0f, srule::kClassFloor, st, r2, g2, b2);
+            CHECK_NEAR(static_cast<double>(r), 100.0, 1e-4);
+            CHECK_NEAR(static_cast<double>(r2), 200.0, 1e-4);
+            CHECK_NEAR(static_cast<double>(b), 50.0, 1e-4);
+            CHECK_NEAR(static_cast<double>(b2), 250.0, 1e-4);
+        }
+
+        section("the ramp's ends are percentiles of the drawn Z, so a pit cannot set them");
+        {
+            const srule::SliceStyle st{};
+            // The percentile the runtime and the offline preview both start from.
+            CHECK_NEAR(static_cast<double>(st.range_pct_lo), 3.0, 1e-6);
+
+            // A storey at Z -9900 filling the window, plus a two-pixel glimpse down a
+            // pit at -10500. min..max would hand 600 of the 4000 uu range to two pixels.
+            srule::ZHistogram h;
+            h.reset(-11000.0f, -7000.0f);
+            CHECK_EQ(h.total, 0u);
+            float lo = 0.0f;
+            float hi = 0.0f;
+            CHECK(!srule::hist_range(h, 5.0f, lo, hi)); // nothing drawn: no answer
+            for (int i = 0; i < 1000; ++i)
+            {
+                h.add(-9900.0f);
+            }
+            h.add(-10500.0f);
+            h.add(-10500.0f);
+            CHECK_EQ(h.total, 1002u);
+
+            CHECK(srule::hist_range(h, 5.0f, lo, hi));
+            CHECK(hi >= lo);
+            // Both ends land on the storey, ~600 uu above the pit.
+            CHECK(lo > -10000.0f);
+            CHECK(hi < -9800.0f);
+
+            // Percentile 0 is min..max after all - the bin edges the outliers fall in.
+            CHECK(srule::hist_range(h, 0.0f, lo, hi));
+            CHECK_NEAR(static_cast<double>(lo), -10500.0, 40.0);
+            CHECK_NEAR(static_cast<double>(hi), -9875.0, 40.0);
+
+            // A flat window: both ends collapse onto it, and widen_range opens the ramp
+            // to shade_min_range_uu about it rather than dividing by nothing.
+            srule::ZHistogram flat;
+            flat.reset(-11000.0f, -7000.0f);
+            for (int i = 0; i < 500; ++i)
+            {
+                flat.add(-9000.0f);
+            }
+            CHECK(srule::hist_range(flat, 5.0f, lo, hi));
+            CHECK(hi - lo < 40.0f);
+            srule::widen_range(lo, hi, 600.0f);
+            CHECK_NEAR(static_cast<double>(hi - lo), 600.0, 1e-3);
+            // An already-wide span is left exactly as it stands.
+            lo = 0.0f;
+            hi = 2000.0f;
+            srule::widen_range(lo, hi, 600.0f);
+            CHECK_NEAR(static_cast<double>(lo), 0.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(hi), 2000.0, 1e-6);
+        }
+
+        section("the full map's equalised ramp: t is the CDF of the drawn Z");
+        {
+            // A chapter-shaped drawn set: two storeys 300 uu apart holding all the area,
+            // inside a 4000 uu asset range with nothing at all in between them. A linear
+            // ramp hands most of its length to that empty gap; the CDF hands it none.
+            srule::ZHistogram h;
+            h.reset(-11000.0f, -7000.0f);
+            for (int i = 0; i < 400; ++i)
+            {
+                h.add(-10500.0f); // the lower storey
+            }
+            for (int i = 0; i < 600; ++i)
+            {
+                h.add(-8000.0f); // the upper one, 2500 uu higher
+            }
+            h.build_cdf();
+
+            srule::SliceStyle st{};
+            st.gamma = 1.0f;
+            st.equalize = true;
+            st.z_lo = -11000.0f; // ignored while equalising, and deliberately wrong
+            st.z_hi = -7000.0f;
+
+            // Monotone in z, over the whole asset range and not only the drawn part.
+            float prev = -1.0f;
+            for (int i = 0; i <= 200; ++i)
+            {
+                const float z = -11000.0f + static_cast<float>(i) * 20.0f;
+                const float t = srule::shade_t(z, st, &h);
+                CHECK(t >= prev - 1.0e-6f);
+                CHECK(t >= 0.0f && t <= 1.0f);
+                prev = t;
+            }
+
+            // It spans 0..1 over the drawn set: nothing below the lowest drawn pixel,
+            // everything below the highest.
+            CHECK_NEAR(static_cast<double>(srule::shade_t(-11000.0f, st, &h)), 0.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::shade_t(-7000.0f, st, &h)), 1.0, 1e-6);
+
+            // The empty bins between the storeys cost no contrast at all: the whole gap
+            // sits at the 0.4 the lower storey's 400 of 1000 pixels earned, where the
+            // linear ramp would have spent 0.625 of its length crossing it.
+            const float t_gap_lo = srule::shade_t(-10000.0f, st, &h);
+            const float t_gap_hi = srule::shade_t(-8500.0f, st, &h);
+            CHECK_NEAR(static_cast<double>(t_gap_lo), 0.4, 0.02);
+            CHECK_NEAR(static_cast<double>(t_gap_hi), 0.4, 0.02);
+            st.equalize = false;
+            CHECK(srule::shade_t(-8500.0f, st) - srule::shade_t(-10000.0f, st) > 0.3f);
+            st.equalize = true;
+
+            // Gamma still applies on top: it is the same curve over a different t.
+            st.gamma = 0.5f;
+            const float t_lin = srule::shade_t(-8500.0f, st, &h);
+            st.gamma = 1.0f;
+            CHECK_NEAR(static_cast<double>(t_lin),
+                       static_cast<double>(std::sqrt(srule::shade_t(-8500.0f, st, &h))), 1e-5);
+
+            // No histogram, an empty one, or one build_cdf() never ran on: the linear
+            // ramp answers instead, so a caller without a cut still gets a picture.
+            st.z_lo = -11000.0f;
+            st.z_hi = -7000.0f;
+            CHECK_NEAR(static_cast<double>(srule::shade_t(-9000.0f, st, nullptr)), 0.5, 1e-6);
+            srule::ZHistogram empty;
+            empty.reset(-11000.0f, -7000.0f);
+            empty.build_cdf();
+            CHECK_NEAR(static_cast<double>(srule::shade_t(-9000.0f, st, &empty)), 0.5, 1e-6);
+            srule::ZHistogram unbuilt;
+            unbuilt.reset(-11000.0f, -7000.0f);
+            unbuilt.add(-10500.0f);
+            CHECK_NEAR(static_cast<double>(srule::shade_t(-9000.0f, st, &unbuilt)), 0.5, 1e-6);
+
+            // The minimap is never equalised, whatever it is handed.
+            srule::SliceStyle mini{};
+            mini.gamma = 1.0f;
+            mini.z_lo = -11000.0f;
+            mini.z_hi = -7000.0f;
+            CHECK(!mini.equalize);
+            CHECK_NEAR(static_cast<double>(srule::shade_t(-9000.0f, mini, &h)), 0.5, 1e-6);
         }
     }
 

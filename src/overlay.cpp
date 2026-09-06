@@ -91,6 +91,9 @@ namespace overlay
         std::uint32_t g_slice_faint = 0;
         std::uint32_t g_slice_unreach = 0;
         int g_slice_surfaces = 0; // height planes the slicer is reading
+        float g_slice_z_lo = 0.0f;
+        float g_slice_z_hi = 0.0f;
+        srule::RangeState g_slice_range{};
         SliceScratch g_slice_scratch;
         std::atomic<bool> g_slicer_pause{false};
         std::atomic<bool> g_slicer_busy{false};

@@ -417,14 +417,14 @@ namespace overlay
         //--------------------------------------------------------------------------
         //
         // In the FILE a theme recolours every colour key the player has not customised; in the
-        // PANEL choosing one is explicit, so it writes the theme's colours into the five
+        // PANEL choosing one is explicit, so it writes the theme's colours into the four
         // colour keys there and then - otherwise the combo looks broken for a player
         // whose config spells one of those keys out.
         void overview_look(mm::Config& cfg)
         {
             int theme_i = static_cast<int>(cfg.theme);
             const char* themes[] = {"neutral", "ink"};
-            if (ImGui::Combo("Theme (frame / backdrop / plates / fill)", &theme_i, themes, 2))
+            if (ImGui::Combo("Theme (frame / backdrop / plates)", &theme_i, themes, 2))
             {
                 cfg.theme = static_cast<gly::Theme>(theme_i);
                 const gly::ThemeColors tc = gly::theme_colors(cfg.theme);
@@ -436,9 +436,6 @@ namespace overlay
                 cfg.minimap_backdrop_g = static_cast<float>(tc.backdrop.g);
                 cfg.minimap_backdrop_b = static_cast<float>(tc.backdrop.b);
                 cfg.minimap_backdrop = tc.backdrop_alpha;
-                cfg.floor_base_r = static_cast<float>(tc.floor_base.r);
-                cfg.floor_base_g = static_cast<float>(tc.floor_base.g);
-                cfg.floor_base_b = static_cast<float>(tc.floor_base.b);
             }
             int pal_i = static_cast<int>(cfg.palette);
             const char* pals[] = {"default", "colorblind"};
@@ -715,8 +712,6 @@ namespace overlay
         {
             ImGui::TextDisabled("Press %s in-world. It opens where you left it.",
                                 key_name_ascii(cfg.map_key).c_str());
-            ImGui::Checkbox("Show every floor", &cfg.map_show_all_floors);
-            ImGui::SameLine();
             ImGui::Checkbox("Gamepad", &cfg.map_gamepad);
         }
 
@@ -1167,20 +1162,8 @@ namespace overlay
         void tune_floors(mm::Config& cfg)
         {
             ImGui::SliderFloat("Floor Z tolerance (uu)", &cfg.floor_z_tolerance, 10.0f, 2000.0f, "%.0f");
-            ImGui::SliderFloat("Adjacent floor opacity", &cfg.adjacent_floor_opacity, 0.0f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Fade range below (uu)", &cfg.floor_fade_uu, cfg.floor_z_tolerance,
-                               20000.0f, "%.0f");
-            ImGui::SliderFloat("Fade range above (uu)", &cfg.floor_fade_above_uu, 0.0f, 20000.0f, "%.0f");
             ImGui::SameLine();
-            ImGui::TextDisabled("0 = never draw a floor above you");
-            ImGui::SliderFloat("Height gradient strength", &cfg.floor_gradient_strength, 0.0f, 1.0f, "%.2f");
-            float base[3] = {cfg.floor_base_r / 255.0f, cfg.floor_base_g / 255.0f, cfg.floor_base_b / 255.0f};
-            if (ImGui::ColorEdit3("Walkable fill colour", base, ImGuiColorEditFlags_NoInputs))
-            {
-                cfg.floor_base_r = base[0] * 255.0f;
-                cfg.floor_base_g = base[1] * 255.0f;
-                cfg.floor_base_b = base[2] * 255.0f;
-            }
+            ImGui::TextDisabled("the ramp itself is on the Developer settings");
             ImGui::SliderInt("Slice rate (Hz)", &cfg.slice_hz, 2, 30);
             ImGui::SliderInt("Feet Z smoothing (ms)", &cfg.feet_z_smooth_ms, 1, 2000);
             ImGui::SliderFloat("Player Z offset (uu, capsule -> feet)", &cfg.player_z_offset, -500.0f, 500.0f,
@@ -1364,6 +1347,46 @@ namespace overlay
             }
         }
 
+        // The height ramp: colour by absolute Z, one ramp for every storey. Every edit
+        // lands in the live config on the same frame and is written back to the dev file
+        // a moment later, so tuning here is what the next launch starts with.
+        void dev_shading(mm::Config& cfg)
+        {
+            const auto color_key = [](const char* label, float& r, float& g, float& b) {
+                float c[3] = {r / 255.0f, g / 255.0f, b / 255.0f};
+                if (ImGui::ColorEdit3(label, c, ImGuiColorEditFlags_NoInputs))
+                {
+                    r = c[0] * 255.0f;
+                    g = c[1] * 255.0f;
+                    b = c[2] * 255.0f;
+                }
+            };
+            color_key("Low ground", cfg.shade_lo_r, cfg.shade_lo_g, cfg.shade_lo_b);
+            ImGui::SameLine();
+            color_key("High ground", cfg.shade_hi_r, cfg.shade_hi_g, cfg.shade_hi_b);
+            ImGui::SliderFloat("Ramp gamma", &cfg.shade_gamma, 0.1f, 4.0f, "%.2f");
+            ImGui::SameLine();
+            ImGui::TextDisabled("< 1 lifts the low ground");
+            ImGui::SliderFloat("Storey below, opacity", &cfg.shade_below_alpha, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Ledge overhead, opacity", &cfg.shade_above_alpha, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Ledge overhead, band (uu)", &cfg.shade_above_band_uu, 0.0f, 3000.0f,
+                               "%.0f");
+            ImGui::SameLine();
+            ImGui::TextDisabled("0 = nothing above you");
+            ImGui::SliderFloat("Ramp ends, percentile", &cfg.shade_range_pct_lo, 0.0f, 25.0f, "%.0f");
+            ImGui::SameLine();
+            ImGui::TextDisabled("of the Z the cut drew; 0 = its min..max");
+            ImGui::SliderFloat("Minimap ramp, narrowest span (uu)", &cfg.shade_min_range_uu, 0.0f,
+                               5000.0f, "%.0f");
+            ImGui::SliderInt("Minimap ramp, easing (ms)", &cfg.shade_range_smooth_ms, 0, 5000);
+            ImGui::Checkbox("Full map: equalise the ramp", &cfg.shade_map_equalize);
+            ImGui::SameLine();
+            ImGui::TextDisabled("spend it on area, not on height");
+            ImGui::TextDisabled("the full map ignores the band and the two minimap ramp keys: it "
+                                "draws the nearest storey at or above your feet, however high, and "
+                                "colours its own cut");
+        }
+
         // The Dev tier (config_wuchang_minimap_dev.txt). Its own function so the Debug
         // tab does not become one more 300-line block.
         void panel_dev_keys(mm::Config& cfg)
@@ -1377,6 +1400,8 @@ namespace overlay
             ImGui::Checkbox("Open the panel on start", &cfg.debug_show_panel_on_start);
             ImGui::Checkbox("Load the composite fallback picture", &cfg.fallback_use_composite);
             ImGui::SliderFloat("Composite alpha", &cfg.minimap_composite_alpha, 0.0f, 1.0f, "%.2f");
+            ImGui::SeparatorText("Height shading");
+            dev_shading(cfg);
             ImGui::SeparatorText("Game-state reader");
             ImGui::SliderInt("Position period (ms)", &cfg.reader_position_period_ms, 16, 1000);
             ImGui::SliderInt("Resolve period (ms)", &cfg.reader_resolve_period_ms, 100, 10000);
@@ -2100,14 +2125,15 @@ namespace overlay
                             g_slice_ms_peak,
                             static_cast<unsigned long long>(g_slice_updates),
                             static_cast<unsigned long long>(g_slice_skipped));
-                ImGui::Text("       feet Z %.0f (raw %.0f)   tol %.0f  fade %.0f/%.0f  gradient %.2f   "
-                            "opaque %u / dim %u / faint %u   unreachable %s, %u px",
+                ImGui::Text("       feet Z %.0f (raw %.0f)   tol %.0f  band %.0f  ramp %.0f..%.0f "
+                            "(p%.0f)   opaque %u / dim %u / faint %u   unreachable %s, %u px",
                             static_cast<double>(g_feet_z),
                             snap.z - static_cast<double>(cfg.player_z_offset),
                             static_cast<double>(cfg.floor_z_tolerance),
-                            static_cast<double>(cfg.floor_fade_uu),
-                            static_cast<double>(cfg.floor_fade_above_uu),
-                            static_cast<double>(cfg.floor_gradient_strength),
+                            static_cast<double>(cfg.shade_above_band_uu),
+                            static_cast<double>(g_slice_z_lo),
+                            static_cast<double>(g_slice_z_hi),
+                            static_cast<double>(cfg.shade_range_pct_lo),
                             g_slice_opaque,
                             g_slice_dim,
                             g_slice_faint,
@@ -2115,6 +2141,19 @@ namespace overlay
                                 ? srule::unreachable_name(cfg.map_unreachable)
                                 : "n/a (asset has no reachability)",
                             g_slice_unreach);
+                // The full map's own cut, which runs the same slicer with an unbounded
+                // band overhead and (by default) an equalised ramp - so its numbers say
+                // nothing about the minimap's and belong on their own line.
+                ImGui::Text("full map  ramp %.0f..%.0f (%s)   floor %u / below %u / above %u   "
+                            "unreachable %u px   %.2f ms",
+                            static_cast<double>(g_mslice_counts.z_lo),
+                            static_cast<double>(g_mslice_counts.z_hi),
+                            cfg.shade_map_equalize ? "equalised" : "linear",
+                            g_mslice_counts.opaque,
+                            g_mslice_counts.dim,
+                            g_mslice_counts.faint,
+                            g_mslice_counts.unreachable,
+                            g_mslice_ms);
                 ImGui::Text("pawn %s   pawn-view %s   menu %s   state age %llu ms",
                             snap.has_pawn ? "yes" : "no",
                             snap.is_pawn_view ? "yes" : "no",

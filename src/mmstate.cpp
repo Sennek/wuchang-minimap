@@ -737,21 +737,9 @@ namespace mm
             {
                 cfg.show_adjacent_floors = parse_bool(value, cfg.show_adjacent_floors);
             }
-            else if (key == "adjacent_floor_opacity")
-            {
-                cfg.adjacent_floor_opacity = parse_float(value, cfg.adjacent_floor_opacity);
-            }
             else if (key == "floor_z_tolerance")
             {
                 cfg.floor_z_tolerance = parse_float(value, cfg.floor_z_tolerance);
-            }
-            else if (key == "floor_fade_uu")
-            {
-                cfg.floor_fade_uu = parse_float(value, cfg.floor_fade_uu);
-            }
-            else if (key == "floor_fade_above_uu")
-            {
-                cfg.floor_fade_above_uu = parse_float(value, cfg.floor_fade_above_uu);
             }
             else if (key == "map_unreachable")
             {
@@ -761,13 +749,45 @@ namespace mm
                          widen_ascii(value), widen_ascii(srule::unreachable_name(cfg.map_unreachable)));
                 }
             }
-            else if (key == "floor_gradient_strength")
+            else if (key == "shade_lo_color")
             {
-                cfg.floor_gradient_strength = parse_float(value, cfg.floor_gradient_strength);
+                parse_rgb(value, cfg.shade_lo_r, cfg.shade_lo_g, cfg.shade_lo_b);
             }
-            else if (key == "floor_base_color")
+            else if (key == "shade_hi_color")
             {
-                parse_rgb(value, cfg.floor_base_r, cfg.floor_base_g, cfg.floor_base_b);
+                parse_rgb(value, cfg.shade_hi_r, cfg.shade_hi_g, cfg.shade_hi_b);
+            }
+            else if (key == "shade_gamma")
+            {
+                cfg.shade_gamma = parse_float(value, cfg.shade_gamma);
+            }
+            else if (key == "shade_below_alpha")
+            {
+                cfg.shade_below_alpha = parse_float(value, cfg.shade_below_alpha);
+            }
+            else if (key == "shade_above_alpha")
+            {
+                cfg.shade_above_alpha = parse_float(value, cfg.shade_above_alpha);
+            }
+            else if (key == "shade_above_band_uu")
+            {
+                cfg.shade_above_band_uu = parse_float(value, cfg.shade_above_band_uu);
+            }
+            else if (key == "shade_range_pct_lo")
+            {
+                cfg.shade_range_pct_lo = parse_float(value, cfg.shade_range_pct_lo);
+            }
+            else if (key == "shade_min_range_uu")
+            {
+                cfg.shade_min_range_uu = parse_float(value, cfg.shade_min_range_uu);
+            }
+            else if (key == "shade_range_smooth_ms")
+            {
+                cfg.shade_range_smooth_ms = parse_int(value, cfg.shade_range_smooth_ms);
+            }
+            else if (key == "shade_map_equalize")
+            {
+                cfg.shade_map_equalize = parse_bool(value, cfg.shade_map_equalize);
             }
             else if (key == "slice_hz")
             {
@@ -993,10 +1013,6 @@ namespace mm
             else if (key == "map_floor_step")
             {
                 cfg.map_floor_step = parse_float(value, cfg.map_floor_step);
-            }
-            else if (key == "map_show_all_floors")
-            {
-                cfg.map_show_all_floors = parse_bool(value, cfg.map_show_all_floors);
             }
             else if (key == "map_slice_px")
             {
@@ -1810,7 +1826,6 @@ namespace mm
             bool frame_alpha_custom = mentioned("minimap_frame_alpha");
             bool backdrop_custom = mentioned("minimap_backdrop_color");
             bool backdrop_alpha_custom = mentioned("minimap_backdrop");
-            bool floor_custom = mentioned("floor_base_color");
             for (const gly::Theme t : kThemes)
             {
                 const gly::ThemeColors c = gly::theme_colors(t);
@@ -1823,8 +1838,6 @@ namespace mm
                                                                cfg.minimap_backdrop_b, c.backdrop);
                 backdrop_alpha_custom =
                     backdrop_alpha_custom && !about_eq(cfg.minimap_backdrop, c.backdrop_alpha, 0.005f);
-                floor_custom = floor_custom && !same_rgb(cfg.floor_base_r, cfg.floor_base_g,
-                                                         cfg.floor_base_b, c.floor_base);
             }
 
             const gly::ThemeColors tc = gly::theme_colors(cfg.theme);
@@ -1847,12 +1860,6 @@ namespace mm
             if (!backdrop_alpha_custom)
             {
                 cfg.minimap_backdrop = tc.backdrop_alpha;
-            }
-            if (!floor_custom)
-            {
-                cfg.floor_base_r = static_cast<float>(tc.floor_base.r);
-                cfg.floor_base_g = static_cast<float>(tc.floor_base.g);
-                cfg.floor_base_b = static_cast<float>(tc.floor_base.b);
             }
             // The item-quality tiers follow the PALETTE, not the theme.
             if (!mentioned("xray_rarity_colors"))
@@ -1877,15 +1884,22 @@ namespace mm
             cfg.state_stale_ms = (std::max)(100, (std::min)(60000, cfg.state_stale_ms));
             cfg.min_visible_after_state_ok_ms = (std::max)(0, (std::min)(10000, cfg.min_visible_after_state_ok_ms));
             cfg.menu_close_show_delay_ms = (std::max)(0, (std::min)(3000, cfg.menu_close_show_delay_ms));
-            cfg.adjacent_floor_opacity = (std::max)(0.0f, (std::min)(1.0f, cfg.adjacent_floor_opacity));
             cfg.floor_z_tolerance = (std::max)(10.0f, (std::min)(2000.0f, cfg.floor_z_tolerance));
-            cfg.floor_fade_uu = (std::max)(cfg.floor_z_tolerance, (std::min)(20000.0f, cfg.floor_fade_uu));
+            const auto channel = [](float v) { return (std::max)(0.0f, (std::min)(255.0f, v)); };
+            cfg.shade_lo_r = channel(cfg.shade_lo_r);
+            cfg.shade_lo_g = channel(cfg.shade_lo_g);
+            cfg.shade_lo_b = channel(cfg.shade_lo_b);
+            cfg.shade_hi_r = channel(cfg.shade_hi_r);
+            cfg.shade_hi_g = channel(cfg.shade_hi_g);
+            cfg.shade_hi_b = channel(cfg.shade_hi_b);
+            cfg.shade_gamma = (std::max)(0.1f, (std::min)(4.0f, cfg.shade_gamma));
+            cfg.shade_below_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.shade_below_alpha));
+            cfg.shade_above_alpha = (std::max)(0.0f, (std::min)(1.0f, cfg.shade_above_alpha));
             // 0 is meaningful here: never draw a floor above the player.
-            cfg.floor_fade_above_uu = (std::max)(0.0f, (std::min)(20000.0f, cfg.floor_fade_above_uu));
-            cfg.floor_gradient_strength = (std::max)(0.0f, (std::min)(1.0f, cfg.floor_gradient_strength));
-            cfg.floor_base_r = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_r));
-            cfg.floor_base_g = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_g));
-            cfg.floor_base_b = (std::max)(0.0f, (std::min)(255.0f, cfg.floor_base_b));
+            cfg.shade_above_band_uu = (std::max)(0.0f, (std::min)(20000.0f, cfg.shade_above_band_uu));
+            cfg.shade_range_pct_lo = (std::max)(0.0f, (std::min)(49.0f, cfg.shade_range_pct_lo));
+            cfg.shade_min_range_uu = (std::max)(0.0f, (std::min)(20000.0f, cfg.shade_min_range_uu));
+            cfg.shade_range_smooth_ms = (std::max)(0, (std::min)(5000, cfg.shade_range_smooth_ms));
             cfg.slice_hz = (std::max)(2, (std::min)(30, cfg.slice_hz));
             cfg.feet_z_smooth_ms = (std::max)(1, (std::min)(2000, cfg.feet_z_smooth_ms));
             cfg.player_z_offset = (std::max)(-500.0f, (std::min)(500.0f, cfg.player_z_offset));
@@ -2081,7 +2095,6 @@ namespace mm
         add("first_run_toast", b(cfg.first_run_toast));
         add("map_zoom", f0(cfg.map_zoom));
         add("map_marker_size", f1(cfg.map_marker_size));
-        add("map_show_all_floors", b(cfg.map_show_all_floors));
         add("map_gamepad", b(cfg.map_gamepad));
         add("highlight_enabled", b(cfg.highlight_enabled));
         add("highlight_mode", std::string{cfg.highlight_mode == HighlightMode::Hold ? "hold" : "toggle"});
@@ -2144,11 +2157,16 @@ namespace mm
         add("state_stale_ms", std::to_string(cfg.state_stale_ms));
         add("min_visible_after_state_ok_ms", std::to_string(cfg.min_visible_after_state_ok_ms));
         add("menu_close_show_delay_ms", std::to_string(cfg.menu_close_show_delay_ms));
-        add("adjacent_floor_opacity", f2(cfg.adjacent_floor_opacity));
-        add("floor_fade_uu", f0(cfg.floor_fade_uu));
-        add("floor_fade_above_uu", f0(cfg.floor_fade_above_uu));
-        add("floor_gradient_strength", f2(cfg.floor_gradient_strength));
-        add("floor_base_color", rgb(cfg.floor_base_r, cfg.floor_base_g, cfg.floor_base_b));
+        add("shade_lo_color", rgb(cfg.shade_lo_r, cfg.shade_lo_g, cfg.shade_lo_b));
+        add("shade_hi_color", rgb(cfg.shade_hi_r, cfg.shade_hi_g, cfg.shade_hi_b));
+        add("shade_gamma", f2(cfg.shade_gamma));
+        add("shade_below_alpha", f2(cfg.shade_below_alpha));
+        add("shade_above_alpha", f2(cfg.shade_above_alpha));
+        add("shade_above_band_uu", f0(cfg.shade_above_band_uu));
+        add("shade_range_pct_lo", f0(cfg.shade_range_pct_lo));
+        add("shade_min_range_uu", f0(cfg.shade_min_range_uu));
+        add("shade_range_smooth_ms", std::to_string(cfg.shade_range_smooth_ms));
+        add("shade_map_equalize", b(cfg.shade_map_equalize));
         add("slice_hz", std::to_string(cfg.slice_hz));
         add("feet_z_smooth_ms", std::to_string(cfg.feet_z_smooth_ms));
         add("player_z_offset", f0(cfg.player_z_offset));

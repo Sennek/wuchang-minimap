@@ -59,6 +59,7 @@ namespace overlay
             g_slice_next = 0;
             clear_slice_view();
             g_slice_last_ms = 0;
+            g_slice_range.valid = false;
             note_slice_buffers_changed();
         }
 
@@ -255,18 +256,21 @@ namespace overlay
         // a reachable bit (mapdata::HeightMaps); the per-pixel rule is
         // srule::accumulate / alpha_for in src/slicerule.hpp:
         //
-        //     |Z - feetZ| <= floor_z_tolerance                 -> the floor I am on, opaque
-        //     nearest below within floor_fade_uu               -> dim (adjacent_floor_opacity)
-        //     nearest above within floor_fade_above_uu         -> faint (x 0.6)
-        //     nothing                                          -> transparent
+        //     a surface within floor_z_tolerance of the feet wins - the nearest one -
+        //     and everything above that pixel is a ceiling nobody draws
+        //     with none, the LOWEST surface up to shade_above_band_uu over the feet: a
+        //     ledge or a piece of upper terrain, at shade_above_alpha
+        //     with none of those, the highest surface below, at shade_below_alpha
         //
         // and `map_unreachable` decides whether a surface the reachability flood never
         // reached is dropped, drawn one rung dimmer, or drawn like any other.
         //
-        // Each pixel is shaded by (surfaceZ - feetZ), so slopes and staircases inside
-        // one storey read as a gradient rather than a flat silhouette. No floor ranks,
-        // no bands, no per-position grid lookup; the only hysteresis is the EMA on
-        // feetZ.
+        // Colour is absolute height on the shade_lo_color -> shade_hi_color ramp - one
+        // ramp for every class - so slopes, staircases and the storey below all read by
+        // their Z rather than by a flat silhouette. Both slicers stretch the ramp between
+        // percentiles of the Z their own cut drew (shade_range_pct_lo); the minimap eases
+        // that span through srule::ease_range, the full map takes it as measured. The
+        // only other hysteresis is the EMA on feetZ.
         //
         // It runs on the CPU, at slice_hz, over only the window the minimap can show
         // (a ~512x512 source region), and uploads that window into a small dynamic
@@ -414,8 +418,7 @@ namespace overlay
         }
 
         // `state` holds srule's rank - class * 2 + reachable - so a reachable surface
-        // beats an unreachable one of the same class, and a nearer surface beats a
-        // farther one of the same rank.
+        // beats an unreachable one of the same class, and height settles the rest.
 
         // Fills `dst` (size*size RGBA8, row pitch `pitch`) with the window whose
         // top-left source pixel is (x0, y0).
@@ -430,9 +433,15 @@ namespace overlay
         // the minimap (the asset at its own resolution) and > 1 for the full map, which
         // decimates. Sampling is nearest, at the destination pixel's centre, so a 1-px
         // corridor can drop out at a decimating step - sub-pixel at that zoom anyway.
+        //
+        // The ramp's ends are always measured from what this cut drew - percentiles of
+        // the surviving surfaces' Z. `range` non-null eases them into `*range` over
+        // `dt_ms` and paints with the eased span (the minimap, which moves with the
+        // player); null paints with the measured span as it stands (the full map, one
+        // cut over the whole visible chapter).
         void slice_region(const mapdata::HeightMaps& hm, double sx0, double sy0, double src_step, int w, int h,
                           std::uint8_t* dst, UINT pitch, float feet, const SliceStyle& st, SliceScratch& sc,
-                          SliceCounts& counts)
+                          SliceCounts& counts, srule::RangeState* range, float dt_ms)
         {
             counts = SliceCounts{};
 
@@ -440,7 +449,6 @@ namespace overlay
             if (sc.state.size() != n)
             {
                 sc.state.assign(n, 0);
-                sc.best_ad.assign(n, 0.0f);
                 sc.best_d.assign(n, 0.0f);
             }
             else
@@ -448,7 +456,6 @@ namespace overlay
                 std::memset(sc.state.data(), 0, n);
             }
             std::uint8_t* state = sc.state.data();
-            float* best_ad = sc.best_ad.data();
             float* best_d = sc.best_d.data();
 
             // Destination -> source index, computed once instead of once per plane, and
@@ -517,10 +524,75 @@ namespace overlay
                         const bool reachable = !has_reach || (raw & mapdata::kReachableBit) != 0;
                         const float z = z0 + (static_cast<float>(code) - 1.0f) * step;
                         const std::size_t i = out_base + static_cast<std::size_t>(col);
-                        srule::accumulate(state[i], best_ad[i], best_d[i], z - feet, reachable, st);
+                        srule::accumulate(state[i], best_d[i], z - feet, reachable, st);
                     }
                 }
             }
+
+            // The ramp this cut paints with: percentiles of the Z of the pixels that
+            // survived the pass above, so the culled ceiling, one deep pit and one high
+            // gallery are all outside the ends. Measured before any of it is coloured.
+            SliceStyle style = st;
+            srule::ZHistogram hist;
+            hist.reset(hm.z_min, hm.z_max);
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                if (state[i] != 0)
+                {
+                    hist.add(feet + best_d[i]);
+                }
+            }
+            // The full map equalises: `t` is the cut's own CDF, so the ramp is spent in
+            // proportion to the area at each height. The minimap leaves it null and
+            // stays linear between the percentile ends.
+            const srule::ZHistogram* eq = nullptr;
+            if (st.equalize && hist.total > 0)
+            {
+                hist.build_cdf();
+                eq = &hist;
+            }
+            float raw_lo = 0.0f;
+            float raw_hi = 0.0f;
+            // An equalised ramp is bounded by the drawn set itself, so its ends are that
+            // set's extremes rather than the trimmed percentiles: p0..p100 is then what
+            // the read-out reports, which is the span the picture really covers.
+            const float pct = st.equalize ? 0.0f : st.range_pct_lo;
+            const bool measured = srule::hist_range(hist, pct, raw_lo, raw_hi);
+            bool have_ramp = false;
+            if (range != nullptr)
+            {
+                if (measured)
+                {
+                    srule::ease_range(*range, raw_lo, raw_hi, dt_ms, st);
+                }
+                if (range->valid)
+                {
+                    style.z_lo = range->lo;
+                    style.z_hi = range->hi;
+                    have_ramp = true;
+                }
+            }
+            else if (measured)
+            {
+                if (!st.equalize)
+                {
+                    srule::widen_range(raw_lo, raw_hi, st.min_range_uu);
+                }
+                style.z_lo = raw_lo;
+                style.z_hi = raw_hi;
+                have_ramp = true;
+            }
+            if (!have_ramp)
+            {
+                // The cut drew nothing and there is no carried range to keep - the first
+                // cut of a session onto empty ground. Fall back to the asset's own Z
+                // range: SliceStyle's 0..1 would be a one-uu ramp over a whole chapter,
+                // and the read-out would report it as the truth.
+                style.z_lo = hm.z_min;
+                style.z_hi = hm.z_max;
+            }
+            counts.z_lo = style.z_lo;
+            counts.z_hi = style.z_hi;
 
             for (int row = 0; row < h; ++row)
             {
@@ -537,19 +609,18 @@ namespace overlay
                         continue;
                     }
                     const bool reachable = srule::rank_reachable(state[i]);
-                    // lum = 1 + strength * clamp(d / span, -1, +1).
-                    const float span = srule::span_for(cls, st);
-                    float t = span > 0.0f ? best_d[i] / span : 0.0f;
-                    t = t < -1.0f ? -1.0f : (t > 1.0f ? 1.0f : t);
-                    const float lum = 1.0f + st.strength * t;
-                    const auto ch = [lum](float v) {
-                        const float x = v * lum + 0.5f;
+                    float r = 0.0f;
+                    float g = 0.0f;
+                    float b = 0.0f;
+                    srule::class_rgb(feet + best_d[i], cls, style, r, g, b, eq);
+                    const auto ch = [](float v) {
+                        const float x = v + 0.5f;
                         return static_cast<std::uint8_t>(x < 0.0f ? 0.0f : (x > 255.0f ? 255.0f : x));
                     };
-                    px[0] = ch(st.base_r);
-                    px[1] = ch(st.base_g);
-                    px[2] = ch(st.base_b);
-                    px[3] = static_cast<std::uint8_t>(srule::alpha_for(cls, reachable, st) * 255.0f + 0.5f);
+                    px[0] = ch(r);
+                    px[1] = ch(g);
+                    px[2] = ch(b);
+                    px[3] = static_cast<std::uint8_t>(srule::alpha_for(cls, reachable, style) * 255.0f + 0.5f);
                     if (cls == srule::kClassFloor)
                     {
                         ++counts.opaque;
@@ -570,18 +641,22 @@ namespace overlay
             }
         }
 
-        // The minimap's window: the asset at 1:1, at an integral source origin.
+        // The minimap's window: the asset at 1:1, at an integral source origin. Its
+        // ramp follows the window, so `dt_ms` - how long since the previous cut - paces
+        // the easing.
         void slice_window(const mapdata::HeightMaps& hm, int x0, int y0, int size, std::uint8_t* dst, UINT pitch,
-                          float feet, const SliceStyle& st)
+                          float feet, const SliceStyle& st, float dt_ms)
         {
             SliceCounts counts{};
             slice_region(hm, static_cast<double>(x0), static_cast<double>(y0), 1.0, size, size, dst, pitch, feet,
-                         st, g_slice_scratch, counts);
+                         st, g_slice_scratch, counts, &g_slice_range, dt_ms);
             g_slice_opaque = counts.opaque;
             g_slice_dim = counts.dim;
             g_slice_faint = counts.faint;
             g_slice_unreach = counts.unreachable;
             g_slice_surfaces = counts.surfaces;
+            g_slice_z_lo = counts.z_lo;
+            g_slice_z_hi = counts.z_hi;
         }
 
         // The slice style, built from the config. Both slicers use it and the loop
@@ -589,15 +664,20 @@ namespace overlay
         SliceStyle style_from(const mm::Config& cfg)
         {
             SliceStyle st{};
-            st.base_r = cfg.floor_base_r;
-            st.base_g = cfg.floor_base_g;
-            st.base_b = cfg.floor_base_b;
-            st.strength = cfg.floor_gradient_strength;
+            st.lo_r = cfg.shade_lo_r;
+            st.lo_g = cfg.shade_lo_g;
+            st.lo_b = cfg.shade_lo_b;
+            st.hi_r = cfg.shade_hi_r;
+            st.hi_g = cfg.shade_hi_g;
+            st.hi_b = cfg.shade_hi_b;
+            st.gamma = cfg.shade_gamma;
             st.tol = cfg.floor_z_tolerance;
-            st.fade = cfg.floor_fade_uu;
-            st.fade_above = cfg.floor_fade_above_uu;
-            st.a_dim = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity : 0.0f;
-            st.a_faint = cfg.show_adjacent_floors ? cfg.adjacent_floor_opacity * 0.6f : 0.0f;
+            st.above_band = cfg.show_adjacent_floors ? cfg.shade_above_band_uu : 0.0f;
+            st.a_below = cfg.show_adjacent_floors ? cfg.shade_below_alpha : 0.0f;
+            st.a_above = cfg.show_adjacent_floors ? cfg.shade_above_alpha : 0.0f;
+            st.range_pct_lo = cfg.shade_range_pct_lo;
+            st.min_range_uu = cfg.shade_min_range_uu;
+            st.range_smooth_ms = static_cast<float>(cfg.shade_range_smooth_ms);
             st.unreachable = cfg.map_unreachable;
             return st;
         }
@@ -687,7 +767,8 @@ namespace overlay
             {
                 g_feet_z = raw_feet;
                 g_feet_z_valid = true;
-                g_slice_last_ms = 0; // a teleport must re-slice immediately
+                g_slice_last_ms = 0;        // a teleport must re-slice immediately
+                g_slice_range.valid = false; // and land on the new storey's ramp at once
             }
             else
             {
@@ -726,12 +807,15 @@ namespace overlay
             const int y0 = static_cast<int>(std::lround(pyc)) - b.w / 2;
 
             const SliceStyle st = style_from(cfg);
+            const float dt_ms = g_slice_last_ms == 0
+                                    ? 0.0f
+                                    : static_cast<float>(now - g_slice_last_ms);
 
             LARGE_INTEGER t0{};
             LARGE_INTEGER t1{};
             ::QueryPerformanceCounter(&t0);
             slice_window(hm, x0, y0, b.w, b.mapped + b.footprint.Offset, b.footprint.Footprint.RowPitch,
-                         g_feet_z, st);
+                         g_feet_z, st, dt_ms);
             ::QueryPerformanceCounter(&t1);
             const std::int64_t freq = qpc_freq();
             double g_slice_last_cut_ms = 0.0;
@@ -825,17 +909,7 @@ namespace overlay
 
             const mapdata::HeightMaps& hm = *ch->heights;
             SliceBuf& b = g_slice[0];
-            SliceStyle st{};
-            st.base_r = cfg.floor_base_r;
-            st.base_g = cfg.floor_base_g;
-            st.base_b = cfg.floor_base_b;
-            st.strength = cfg.floor_gradient_strength;
-            st.tol = cfg.floor_z_tolerance;
-            st.fade = cfg.floor_fade_uu;
-            st.fade_above = cfg.floor_fade_above_uu;
-            st.a_dim = cfg.adjacent_floor_opacity;
-            st.a_faint = cfg.adjacent_floor_opacity * 0.6f;
-            st.unreachable = cfg.map_unreachable;
+            const SliceStyle st = style_from(cfg);
 
             LARGE_INTEGER t0{};
             LARGE_INTEGER t1{};
@@ -860,8 +934,9 @@ namespace overlay
                     sy0 = py - b.w / 2;
                 }
             }
+            g_slice_range.valid = false; // the probe window is nobody's storey
             slice_window(hm, sx0, sy0, b.w, b.mapped + b.footprint.Offset,
-                         b.footprint.Footprint.RowPitch, probe_z, st);
+                         b.footprint.Footprint.RowPitch, probe_z, st, 0.0f);
             ::QueryPerformanceCounter(&t1);
             const std::int64_t freq = qpc_freq();
             const double ms = freq > 0 ? 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) /
@@ -886,6 +961,7 @@ namespace overlay
             g_slice_dim = 0;
             g_slice_faint = 0;
             g_slice_unreach = 0;
+            g_slice_range.valid = false;
         }
 
         // Render thread, inside a frame, after the command list has been reset: record

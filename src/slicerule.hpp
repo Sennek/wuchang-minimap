@@ -8,20 +8,33 @@
 // and nothing else - no Windows, no D3D12 - so tests/markers_test.cpp exercises the
 // exact rule the minimap and the full map run.
 //
-// Per surface, relative to the player's feet Z:
+// Shading is hypsometric: the COLOUR of a pixel is its surface's absolute world Z on a
+// two-colour ramp, one ramp for all three classes and nothing else on top of it. Height
+// alone carries the picture, so a staircase, a slope and the storey below all read by
+// where they sit, and the player's own storey is found by the marker at its centre.
 //
-//     |dZ| <= tol                      -> class 3, the floor I am on, opaque
-//     below and |dZ| <= fade           -> class 2, dimmed
-//     above and |dZ| <= fade_above     -> class 1, fainter
-//     otherwise                        -> not drawn
+// Per pixel, over the surfaces stored under it, with feet = the player's feet Z:
 //
-// `fade_above` is its own dial because ground overhead is never ground the player can
-// walk on now: at the Ai Nengqi arena the above class is 31 % of everything drawn, in
-// 230 separate blobs.
+//     any surface with |Z - feet| <= tol
+//         -> class FLOOR, the one NEAREST the feet. Everything above that pixel is a
+//            ceiling and is ignored.
+//     else any surface in (feet + tol, feet + above_band]
+//         -> class ABOVE, the LOWEST such one: a ledge or a piece of upper terrain the
+//            player walks up to. Surfaces below it are ignored - the ledge hides them.
+//     else any surface below feet - tol
+//         -> class BELOW, the HIGHEST one. No lower bound: its colour says how deep it is.
+//     else nothing is drawn.
 //
-// A pixel keeps the best of the surfaces under it, ranked class first and then by
-// distance, with a REACHABLE surface beating an unreachable one of the same class. The
-// rank is `class * 2 + reachable`, so both orderings fall out of one comparison.
+// A floor underfoot wins outright, so an upper deck over the player's own storey shows
+// only through the holes in that storey - a gallery running over a solid floor is
+// invisible from under it. That is the price of never drawing a ceiling over the player,
+// and it is why the band overhead is one storey (600 uu): what it is for is the ledge or
+// the piece of upper terrain the player can see across, not a whole floor above.
+//
+// Class priority is FLOOR > ABOVE > BELOW, which is the order of the class constants; a
+// REACHABLE surface beats an unreachable one of the same class, so the rank is
+// `class * 2 + reachable` and one comparison settles both orderings. Equal ranks are
+// settled by height, in whichever direction that class wants.
 //
 // `map_unreachable` decides what an unreachable surface is worth:
 //
@@ -29,7 +42,25 @@
 //     Dim  - it is drawn one rung further down the same opacity ladder
 //     Show - it is drawn exactly like a reachable one
 //
+// The ramp's two ends are percentiles of the Z of the pixels a cut actually DRAWS
+// (`ZHistogram` + `hist_range`), never the asset's raw Z range: one deep pit or one high
+// gallery must not push every playable storey into two colour levels. The minimap widens
+// that span to `min_range_uu` and eases it through `ease_range`.
+//
+// The full map runs the same rule with two settings of its own, because it is a picture
+// of a whole chapter and not a window on the player's storey:
+//
+//     above_band unbounded - away from the player every pixel takes the ground of the
+//         nearest storey at or above the feet. The priority above is what keeps that
+//         honest: a floor underfoot still wins, so a ceiling never covers the player.
+//         A one-storey band would cull most of a chapter.
+//     equalize - `t` is the cut's own CDF (`ZHistogram::cdf`) instead of a linear
+//         position between the percentile ends. Over ten kilometres of chapter a linear
+//         ramp spends its contrast on the tails and leaves the playable storeys inside
+//         a couple of tones; the CDF spends it where the area is.
+//
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -85,40 +116,49 @@ namespace srule
     }
 
     // How the height slice is shaded. The same formula as the offline preview
-    // (tools/navmesh/slice_preview.py), so a reported spot reproduces without the game:
-    //     lum = 1 + gradient_strength * clamp((surfaceZ - feetZ) / span, -1, +1)
-    // with span = tol for the current floor, fade below it and fade_above over it.
+    // (tools/navmesh/slice_preview.py), so a reported spot reproduces without the game.
     struct SliceStyle
     {
-        float base_r = 214.0f;
-        float base_g = 208.0f;
-        float base_b = 196.0f;
-        float strength = 0.18f;
-        float tol = 200.0f;
-        float fade = 800.0f;       // below
-        float fade_above = 300.0f; // above; 0 = never draw a floor above
-        float a_dim = 0.25f;
-        float a_faint = 0.15f;
+        // The ramp's ends, 0..255 per channel: lo is z_lo, hi is z_hi.
+        float lo_r = 88.0f;
+        float lo_g = 84.0f;
+        float lo_b = 78.0f;
+        float hi_r = 244.0f;
+        float hi_g = 240.0f;
+        float hi_b = 232.0f;
+        float gamma = 0.80f;       // t -> pow(t, gamma) along the ramp
+        float tol = 200.0f;        // uu: |Z - feetZ| within this is my own floor
+        float above_band = 600.0f; // uu ABOVE THE FEET a ledge may sit and still show; 0 = none
+        float a_below = 1.0f;
+        float a_above = 1.0f;
+        // The world Z the ramp's two ends stand for. The caller sets them per cut.
+        float z_lo = 0.0f;
+        float z_hi = 1.0f;
+        float range_pct_lo = 3.0f;      // ramp ends = p(this) .. p(100 - this) of the drawn Z
+        float min_range_uu = 400.0f;    // narrowest window span the ramp is stretched over
+        float range_smooth_ms = 400.0f; // time constant of the easing on that span
+        // Spend the ramp on area rather than on height: t is the cut's own CDF at z.
+        // The full map's mode; the minimap stays linear.
+        bool equalize = false;
         Unreachable unreachable = Unreachable::Hide;
     };
 
-    // 3 = my floor, 2 = below, 1 = above, 0 = out of range.
+    // 3 = my floor, 2 = a ledge above, 1 = below, 0 = out of range. The numbers ARE the
+    // priority: with a floor underfoot nothing else is considered, and a ledge overhead
+    // hides whatever lies under it.
     constexpr std::uint8_t kClassNone = 0;
-    constexpr std::uint8_t kClassAbove = 1;
-    constexpr std::uint8_t kClassBelow = 2;
+    constexpr std::uint8_t kClassBelow = 1;
+    constexpr std::uint8_t kClassAbove = 2;
     constexpr std::uint8_t kClassFloor = 3;
 
-    inline std::uint8_t classify(float d, float ad, const SliceStyle& st)
+    // `d` is surfaceZ - feetZ.
+    inline std::uint8_t classify(float d, const SliceStyle& st)
     {
-        if (ad <= st.tol)
+        if (d > st.tol)
         {
-            return kClassFloor;
+            return d <= st.above_band ? kClassAbove : kClassNone;
         }
-        if (d < 0.0f)
-        {
-            return ad <= st.fade ? kClassBelow : kClassNone;
-        }
-        return ad <= st.fade_above ? kClassAbove : kClassNone;
+        return d >= -st.tol ? kClassFloor : kClassBelow;
     }
 
     inline std::uint8_t rank_of(std::uint8_t cls, bool reachable)
@@ -136,9 +176,21 @@ namespace srule
         return (rank & 1u) != 0;
     }
 
-    // Folds one surface into a pixel's running answer. `d` is surfaceZ - feetZ.
-    // `rank` / `best_ad` / `best_d` start at 0 and are the pixel's state.
-    inline void accumulate(std::uint8_t& rank, float& best_ad, float& best_d, float d, bool reachable,
+    // Which of two surfaces of the same class and reachability the pixel keeps: the one
+    // nearest the feet on my own storey, the lowest of a stack overhead, the highest of
+    // a stack below.
+    inline bool prefer_d(std::uint8_t cls, float d, float best_d)
+    {
+        if (cls == kClassFloor)
+        {
+            return std::fabs(d) < std::fabs(best_d);
+        }
+        return cls == kClassAbove ? d < best_d : d > best_d;
+    }
+
+    // Folds one surface into a pixel's running answer. `rank` / `best_d` start at 0 and
+    // are the pixel's state; `d` is surfaceZ - feetZ.
+    inline void accumulate(std::uint8_t& rank, float& best_d, float d, bool reachable,
                            const SliceStyle& st)
     {
         bool reach = reachable;
@@ -150,17 +202,20 @@ namespace srule
         {
             return;
         }
-        const float ad = d < 0.0f ? -d : d;
-        const std::uint8_t cls = classify(d, ad, st);
+        const std::uint8_t cls = classify(d, st);
         if (cls == kClassNone)
         {
             return;
         }
         const std::uint8_t r = rank_of(cls, reach);
-        if (r > rank || (r == rank && ad < best_ad))
+        if (r > rank)
         {
             rank = r;
-            best_ad = ad;
+            best_d = d;
+            return;
+        }
+        if (r == rank && prefer_d(cls, d, best_d))
+        {
             best_d = d;
         }
     }
@@ -172,23 +227,234 @@ namespace srule
         switch (cls)
         {
         case kClassFloor:
-            return reachable ? 1.0f : st.a_dim;
+            return reachable ? 1.0f : st.a_below;
         case kClassBelow:
-            return reachable ? st.a_dim : st.a_faint;
+            return reachable ? st.a_below : st.a_above;
         case kClassAbove:
-            return reachable ? st.a_faint : st.a_faint * 0.6f;
+            return reachable ? st.a_above : st.a_above * 0.6f;
         default:
             return 0.0f;
         }
     }
 
-    // What the height gradient is measured against for this class.
-    inline float span_for(std::uint8_t cls, const SliceStyle& st)
+    // An area-weighted histogram of the Z of the pixels one cut draws. The ramp's ends
+    // come out of it as percentiles, so a single pit or gallery cannot set them and
+    // flatten everything else onto two tones. Bins span the ASSET's Z range, coarse on
+    // purpose: a bin is a few tens of uu, well under what the eye reads off the ramp.
+    struct ZHistogram
     {
-        if (cls == kClassFloor)
+        static constexpr int kBins = 128;
+
+        float lo = 0.0f;
+        float hi = 1.0f;
+        std::uint32_t bins[kBins]{};
+        // Running sum of `bins`, cum[i] = everything below bin i. Filled by build_cdf()
+        // once a cut has counted every pixel, so cdf() costs two loads instead of a
+        // 128-bin walk per pixel.
+        std::uint32_t cum[kBins + 1]{};
+        std::uint32_t total = 0;
+        bool cum_ready = false;
+
+        void reset(float z_min, float z_max)
         {
-            return st.tol;
+            lo = z_min;
+            hi = z_max > z_min + 1.0e-3f ? z_max : z_min + 1.0f;
+            total = 0;
+            cum_ready = false;
+            for (int i = 0; i < kBins; ++i)
+            {
+                bins[i] = 0;
+                cum[i] = 0;
+            }
+            cum[kBins] = 0;
         }
-        return cls == kClassAbove ? st.fade_above : st.fade;
+
+        void add(float z)
+        {
+            const float t = (z - lo) / (hi - lo);
+            int i = static_cast<int>(t * static_cast<float>(kBins));
+            i = i < 0 ? 0 : (i >= kBins ? kBins - 1 : i);
+            ++bins[i];
+            ++total;
+            cum_ready = false;
+        }
+
+        void build_cdf()
+        {
+            std::uint32_t seen = 0;
+            for (int i = 0; i < kBins; ++i)
+            {
+                cum[i] = seen;
+                seen += bins[i];
+            }
+            cum[kBins] = seen;
+            cum_ready = true;
+        }
+
+        // The fraction of the counted area lying below `z`, interpolated inside the bin
+        // `z` falls in. This is the equalised ramp: it rises only where there is area,
+        // so a stretch of Z nothing was drawn at costs no contrast at all, and every
+        // tenth of the ramp holds a tenth of the pixels. Needs build_cdf() first.
+        float cdf(float z) const
+        {
+            if (total == 0 || !cum_ready)
+            {
+                return 0.5f;
+            }
+            const float width = (hi - lo) / static_cast<float>(kBins);
+            const float pos = (z - lo) / width;
+            int i = static_cast<int>(pos);
+            i = i < 0 ? 0 : (i >= kBins ? kBins - 1 : i);
+            float frac = pos - static_cast<float>(i);
+            frac = frac < 0.0f ? 0.0f : (frac > 1.0f ? 1.0f : frac);
+            const float below = static_cast<float>(cum[i]) + frac * static_cast<float>(bins[i]);
+            const float t = below / static_cast<float>(total);
+            return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        }
+
+        // The world Z below which `pct` per cent of the counted area lies, interpolated
+        // inside the bin it falls in so the ramp does not step as the window moves.
+        float percentile(float pct) const
+        {
+            if (total == 0)
+            {
+                return lo;
+            }
+            const float p = pct < 0.0f ? 0.0f : (pct > 100.0f ? 100.0f : pct);
+            const float target = static_cast<float>(total) * p * 0.01f;
+            const float width = (hi - lo) / static_cast<float>(kBins);
+            float seen = 0.0f;
+            for (int i = 0; i < kBins; ++i)
+            {
+                const float c = static_cast<float>(bins[i]);
+                if (c <= 0.0f)
+                {
+                    continue;
+                }
+                if (seen + c >= target)
+                {
+                    const float frac = (target - seen) / c;
+                    return lo + (static_cast<float>(i) + frac) * width;
+                }
+                seen += c;
+            }
+            return hi;
+        }
+    };
+
+    // The ramp's two ends for one cut: p(pct_lo) and p(100 - pct_lo). False when the cut
+    // drew nothing, which leaves the caller's previous answer standing.
+    inline bool hist_range(const ZHistogram& h, float pct_lo, float& out_lo, float& out_hi)
+    {
+        if (h.total == 0)
+        {
+            return false;
+        }
+        const float p = pct_lo < 0.0f ? 0.0f : (pct_lo > 49.0f ? 49.0f : pct_lo);
+        out_lo = h.percentile(p);
+        out_hi = h.percentile(100.0f - p);
+        return out_hi >= out_lo;
+    }
+
+    // Where a world Z lands on the ramp, 0 at the low end and 1 at the high one. Two
+    // modes, chosen by `st.equalize`:
+    //
+    //     linear     - (z - z_lo) / (z_hi - z_lo), clamped. `eq` is ignored.
+    //     equalised  - the cut's own CDF at z, so the ramp is spent in proportion to the
+    //                  area at each height instead of to the height itself.
+    //
+    // `eq` is the histogram of the cut being painted, already through build_cdf(); a
+    // null one (or an empty cut) falls back to linear, so a caller that has no histogram
+    // still gets a picture. Gamma applies to both.
+    inline float shade_t(float z, const SliceStyle& st, const ZHistogram* eq = nullptr)
+    {
+        float t = 0.5f;
+        if (st.equalize && eq != nullptr && eq->total > 0 && eq->cum_ready)
+        {
+            t = eq->cdf(z);
+        }
+        else
+        {
+            const float span = st.z_hi - st.z_lo;
+            if (!(span > 1.0e-3f))
+            {
+                return 0.5f; // a chapter or a window with no height in it at all
+            }
+            t = (z - st.z_lo) / span;
+            t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        }
+        if (st.gamma != 1.0f && st.gamma > 0.0f)
+        {
+            t = std::pow(t, st.gamma);
+        }
+        return t;
+    }
+
+    // The ramp colour of a world Z, 0..255 per channel.
+    inline void shade_rgb(float z, const SliceStyle& st, float& r, float& g, float& b,
+                          const ZHistogram* eq = nullptr)
+    {
+        const float t = shade_t(z, st, eq);
+        r = st.lo_r + (st.hi_r - st.lo_r) * t;
+        g = st.lo_g + (st.hi_g - st.lo_g) * t;
+        b = st.lo_b + (st.hi_b - st.lo_b) * t;
+    }
+
+    // What a pixel is actually painted with. One ramp serves every class: a height is the
+    // same colour whoever is standing where, so the cut reads as one floor plan.
+    inline void class_rgb(float z, std::uint8_t cls, const SliceStyle& st, float& r, float& g,
+                          float& b, const ZHistogram* eq = nullptr)
+    {
+        (void)cls;
+        shade_rgb(z, st, r, g, b, eq);
+    }
+
+    // Widens a measured span to at least `min_range_uu` about its own centre, so flat
+    // ground does not explode to full contrast.
+    inline void widen_range(float& lo, float& hi, float min_range_uu)
+    {
+        const float min_range = min_range_uu > 0.0f ? min_range_uu : 0.0f;
+        if (hi - lo < min_range)
+        {
+            const float mid = (lo + hi) * 0.5f;
+            lo = mid - min_range * 0.5f;
+            hi = mid + min_range * 0.5f;
+        }
+    }
+
+    // The ramp ends the minimap is using, carried across cuts.
+    struct RangeState
+    {
+        float lo = 0.0f;
+        float hi = 0.0f;
+        bool valid = false;
+    };
+
+    // Folds one window's measured Z span into `rs`: widened to at least `min_range_uu`
+    // around its own centre, then eased towards over `range_smooth_ms`. A window with
+    // nothing in it leaves the last answer standing, so a step through a doorway into
+    // empty space does not flash.
+    inline void ease_range(RangeState& rs, float raw_lo, float raw_hi, float dt_ms,
+                           const SliceStyle& st)
+    {
+        if (!(raw_hi >= raw_lo))
+        {
+            return;
+        }
+        float lo = raw_lo;
+        float hi = raw_hi;
+        widen_range(lo, hi, st.min_range_uu);
+        if (!rs.valid)
+        {
+            rs.lo = lo;
+            rs.hi = hi;
+            rs.valid = true;
+            return;
+        }
+        const float tau = st.range_smooth_ms > 1.0f ? st.range_smooth_ms : 1.0f;
+        float a = (dt_ms > 0.0f ? dt_ms : 16.0f) / tau;
+        a = a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
+        rs.lo += (lo - rs.lo) * a;
+        rs.hi += (hi - rs.hi) * a;
     }
 } // namespace srule

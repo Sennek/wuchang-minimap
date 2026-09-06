@@ -276,8 +276,8 @@ namespace gly
     //==================================================================================
     //
     // `theme` presets the colours that are not a marker: the minimap's frame and
-    // backdrop, the dark plate under every label, and the walkable fill the height
-    // slicer paints.
+    // backdrop, and the dark plate under every label. The ground the height slicer
+    // paints is not one of them - it is shaded by absolute height (src/slicerule.hpp).
     //
     // Precedence: a theme supplies every colour the player has not personally picked - a
     // key the config file does not mention, or one whose value is exactly what some
@@ -334,8 +334,7 @@ namespace gly
         float frame_alpha = 0.85f;
         mdb::Rgb backdrop{6, 9, 13};
         float backdrop_alpha = 0.86f;
-        mdb::Rgb plate{8, 10, 14};  // the dark box behind a label / the compass strip
-        mdb::Rgb floor_base{214, 208, 196}; // the walkable fill the height slicer paints
+        mdb::Rgb plate{8, 10, 14}; // the dark box behind a label / the compass strip
     };
 
     inline constexpr ThemeColors theme_colors(Theme t)
@@ -348,7 +347,6 @@ namespace gly
             c.backdrop = mdb::Rgb{14, 11, 9};
             c.backdrop_alpha = 0.88f;
             c.plate = mdb::Rgb{18, 14, 10};
-            c.floor_base = mdb::Rgb{222, 210, 186};
         }
         return c;
     }

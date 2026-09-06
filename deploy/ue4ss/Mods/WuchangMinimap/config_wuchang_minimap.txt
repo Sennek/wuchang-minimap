@@ -53,7 +53,7 @@ opacity = 0.92
 ; Hide the minimap, the compass and the x-ray while any menu is open.
 hide_in_menus = 1
 
-; Also draw the surfaces below (dimmed) and above (dimmer).
+; Also draw the storey below (dimmed) and a hint of the one overhead (dimmer).
 show_adjacent_floors = 1
 
 ; Half-thickness of "my floor" in uu: a surface within this of your feet is opaque.
@@ -82,9 +82,6 @@ map_zoom = 30
 
 ; Marker glyph radius on the full map, in screen pixels.
 map_marker_size = 8.0
-
-; 1 = draw every walkable surface; 0 = height slice.
-map_show_all_floors = 0
 
 ; Allow the controller to open the map (polls XInput).
 map_gamepad = 1
@@ -197,21 +194,6 @@ min_visible_after_state_ok_ms = 600
 menu_close_show_delay_ms = 50
 
 ; ---- Height slicing ----
-; Opacity of the surface below, as a multiple of `opacity`; the one above uses 60 % of
-; it. 0 = draw only the floor you are on.
-adjacent_floor_opacity = 0.25
-
-; How far BELOW and ABOVE your feet a surface is still drawn, in uu. 0 above = never
-; draw a floor above you.
-floor_fade_uu = 800
-floor_fade_above_uu = 300
-
-; Height shading strength; 0 = a flat fill.
-floor_gradient_strength = 0.18
-
-; The walkable fill colour, "R G B" (0..255 each).
-floor_base_color = 214 208 196
-
 ; How many times a second the CPU re-cuts the minimap window (2..30).
 slice_hz = 12
 

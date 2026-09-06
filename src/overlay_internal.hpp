@@ -251,7 +251,6 @@ namespace overlay
         struct SliceScratch
         {
             std::vector<std::uint8_t> state;
-            std::vector<float> best_ad;
             std::vector<float> best_d;
             std::vector<int> col_x;
             std::vector<int> row_y;
@@ -263,7 +262,6 @@ namespace overlay
             void clear()
             {
                 state.clear();
-                best_ad.clear();
                 best_d.clear();
                 col_x.clear();
                 row_y.clear();
@@ -277,6 +275,8 @@ namespace overlay
             std::uint32_t faint = 0;
             std::uint32_t unreachable = 0; // of the drawn pixels, how many are dimmed for it
             int surfaces = 0;
+            float z_lo = 0.0f; // the height ramp this cut actually painted with, world uu
+            float z_hi = 0.0f;
         };
         // Perf counter ids (perf.hpp). Namespace-scope, initialised on first use by
         // their single owning thread - never a guarded function static, because one of
@@ -358,6 +358,11 @@ namespace overlay
         extern std::uint32_t g_slice_faint;
         extern std::uint32_t g_slice_unreach;
         extern int g_slice_surfaces; // height planes the slicer is reading
+        // The height ramp the last minimap cut painted with, in world uu, and the state
+        // that eases it from one cut to the next.
+        extern float g_slice_z_lo;
+        extern float g_slice_z_hi;
+        extern srule::RangeState g_slice_range;
         extern SliceScratch g_slice_scratch;
         extern std::atomic<bool> g_slicer_pause;
         extern std::atomic<bool> g_slicer_busy;
@@ -382,7 +387,6 @@ namespace overlay
             float canvas_w = 0.0f;
             float canvas_h = 0.0f;
             float feet = 0.0f;
-            bool show_all_floors = false;
         };
         extern spin::Spinlock g_slice_req_lock;
         extern MapSliceReq g_map_req;
@@ -1076,9 +1080,9 @@ namespace overlay
         int slice_size_for(const mm::Config& cfg, const mapdata::HeightMaps& hm, float half_px);
         void slice_region(const mapdata::HeightMaps& hm, double sx0, double sy0, double src_step, int w, int h,
                           std::uint8_t* dst, UINT pitch, float feet, const SliceStyle& st, SliceScratch& sc,
-                          SliceCounts& counts);
+                          SliceCounts& counts, srule::RangeState* range, float dt_ms);
         void slice_window(const mapdata::HeightMaps& hm, int x0, int y0, int size, std::uint8_t* dst, UINT pitch,
-                          float feet, const SliceStyle& st);
+                          float feet, const SliceStyle& st, float dt_ms);
         SliceStyle style_from(const mm::Config& cfg);
         bool plan_slice(const mm::Config& cfg, const mapdata::Chapter& ch, float half_px, std::uint64_t now);
         void slice_minimap_step(std::uint64_t now);

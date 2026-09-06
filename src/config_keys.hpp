@@ -69,7 +69,6 @@ namespace cfgkeys
         {"markers_clamp_to_edge", Tier::Player},
         {"map_zoom", Tier::Player},
         {"map_marker_size", Tier::Player},
-        {"map_show_all_floors", Tier::Player},
         {"map_gamepad", Tier::Player},
         {"highlight_enabled", Tier::Player},
         {"highlight_mode", Tier::Player},
@@ -106,11 +105,6 @@ namespace cfgkeys
         {"state_stale_ms", Tier::Advanced},
         {"min_visible_after_state_ok_ms", Tier::Advanced},
         {"menu_close_show_delay_ms", Tier::Advanced},
-        {"adjacent_floor_opacity", Tier::Advanced},
-        {"floor_fade_uu", Tier::Advanced},
-        {"floor_fade_above_uu", Tier::Advanced},
-        {"floor_gradient_strength", Tier::Advanced},
-        {"floor_base_color", Tier::Advanced},
         {"slice_hz", Tier::Advanced},
         {"feet_z_smooth_ms", Tier::Advanced},
         {"player_z_offset", Tier::Advanced},
@@ -163,6 +157,16 @@ namespace cfgkeys
 
         // DEV - config_wuchang_minimap_dev.txt, not shipped
         {"map_unreachable", Tier::Dev},
+        {"shade_lo_color", Tier::Dev},
+        {"shade_hi_color", Tier::Dev},
+        {"shade_gamma", Tier::Dev},
+        {"shade_below_alpha", Tier::Dev},
+        {"shade_above_alpha", Tier::Dev},
+        {"shade_above_band_uu", Tier::Dev},
+        {"shade_range_pct_lo", Tier::Dev},
+        {"shade_min_range_uu", Tier::Dev},
+        {"shade_range_smooth_ms", Tier::Dev},
+        {"shade_map_equalize", Tier::Dev},
         {"first_run_toast", Tier::Dev},
         {"found_profile", Tier::Dev},
         {"log_level", Tier::Dev},
@@ -216,6 +220,19 @@ namespace cfgkeys
         {"markers_absence_marks", Tier::Removed},
         {"map_waypoint_persist", Tier::Removed},
         {"shrine_list", Tier::Removed},
+        // The height slice shades by ABSOLUTE Z: the colour of a pixel is its surface's own
+        // height on the shade_* ramp, whichever storey it belongs to.
+        {"adjacent_floor_opacity", Tier::Removed},  // shade_below_alpha / shade_above_alpha
+        {"floor_fade_uu", Tier::Removed},           // everything below the player is drawn
+        {"floor_fade_above_uu", Tier::Removed},     // shade_above_band_uu
+        {"floor_gradient_strength", Tier::Removed}, // shade_gamma
+        {"floor_base_color", Tier::Removed},        // shade_lo_color / shade_hi_color
+        // One hypsometric ramp serves every class; the own storey is not tinted apart.
+        {"shade_floor_tint", Tier::Removed},
+        {"shade_floor_tint_mix", Tier::Removed},
+        // The full map always slices with an unbounded band overhead, so there is no
+        // longer a floor for this to show.
+        {"map_show_all_floors", Tier::Removed},
     };
 
     inline constexpr std::size_t kKeyCount = sizeof(kKeys) / sizeof(kKeys[0]);

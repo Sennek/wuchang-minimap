@@ -162,31 +162,42 @@ namespace mm
 
         //=== Height slicing (what the minimap actually draws) ======================
         // Eight 16-bit PNGs hold the Z of up to eight stacked walkable surfaces per pixel plus a
-        // reachable bit. Every ~80 ms the overlay slices the window around the player on the CPU:
-        //     |surfaceZ - feetZ| <= floor_z_tolerance -> opaque, shaded by the gradient
-        //     nearest below within floor_fade_uu       -> adjacent_floor_opacity
-        //     nearest above within floor_fade_above_uu -> adjacent_floor_opacity x 0.6
-        //     nothing                                  -> transparent
-        // and map_unreachable decides what a surface the flood never reached is worth.
-        // The only smoothing is feet_z_smooth_ms. The rule itself is src/slicerule.hpp.
+        // reachable bit. Every ~80 ms the overlay slices the window around the player on the CPU.
+        // Per pixel a surface within floor_z_tolerance of the feet wins - the nearest one, opaque,
+        // and everything above it at that pixel is a ceiling nobody draws. With none, the LOWEST
+        // surface up to shade_above_band_uu over the feet (a ledge, upper terrain) at
+        // shade_above_alpha; with none of those, the highest surface below at shade_below_alpha.
+        // map_unreachable decides what a surface the flood never reached is worth. The rule itself
+        // is src/slicerule.hpp.
+        //
+        // Colour is the surface's ABSOLUTE Z on the shade_lo_color -> shade_hi_color ramp, one
+        // ramp for every class, so the cut reads as a floor plan by height alone. The ramp's
+        // ends are percentiles (shade_range_pct_lo) of the Z the cut actually drew: eased by
+        // shade_range_smooth_ms and never narrower than shade_min_range_uu on the minimap, taken
+        // as measured on the full map. The same formula runs offline in
+        // tools/navmesh/slice_preview.py.
 
-        bool show_adjacent_floors = true;     // draw the surfaces below / above, dimmed
-        float adjacent_floor_opacity = 0.25f; // below; above uses 0.6 x this
-        float floor_z_tolerance = 200.0f;     // uu: |Z - feetZ| within this = my floor
-        float floor_fade_uu = 800.0f;         // uu: how far BELOW is still shown
-        // Ground overhead is never ground you can walk on now, and at a boss arena it is a third
-        // of everything drawn, so it gets its own, much shorter range. 0 = never draw it.
-        float floor_fade_above_uu = 300.0f;
+        bool show_adjacent_floors = true; // draw the surfaces below / above; 0 = my storey only
+        float floor_z_tolerance = 200.0f; // uu: |Z - feetZ| within this = my floor
         // What a surface the reachability flood never reached is worth: hide (not a surface at
         // all), dim (one rung further down the opacity ladder), show (like any other).
         srule::Unreachable map_unreachable = srule::Unreachable::Hide;
-        // lum = 1 + strength * clamp((surfaceZ - feetZ) / span, -1, 1), span = tolerance (current
-        // floor), fade below or fade_above over. The same formula runs offline in
-        // tools/navmesh/slice_preview.py.
-        float floor_gradient_strength = 0.18f;
-        float floor_base_r = 214.0f; // walkable fill colour, 0..255
-        float floor_base_g = 208.0f;
-        float floor_base_b = 196.0f;
+        float shade_lo_r = 88.0f; // the ramp's low end, 0..255
+        float shade_lo_g = 84.0f;
+        float shade_lo_b = 78.0f;
+        float shade_hi_r = 244.0f; // its high end
+        float shade_hi_g = 240.0f;
+        float shade_hi_b = 232.0f;
+        float shade_gamma = 0.80f;          // t -> pow(t, gamma) along the ramp
+        float shade_below_alpha = 1.0f;     // the storey under the player
+        float shade_above_alpha = 1.0f;     // a ledge or upper terrain overhead
+        float shade_above_band_uu = 600.0f; // uu ABOVE THE FEET a ledge may sit and show; 0 = none
+        float shade_range_pct_lo = 3.0f;   // ramp = p(this)..p(100 - this) of the drawn Z
+        float shade_min_range_uu = 400.0f; // flat ground must not stretch to full contrast
+        int shade_range_smooth_ms = 400;   // easing on the minimap window's ramp
+        // The full map spends its ramp on AREA, not on height: t is the CDF of the Z
+        // its cut drew. 0 goes back to the linear percentile ramp, to compare the two.
+        bool shade_map_equalize = true;
         int slice_hz = 12;           // CPU re-slices per second (2..30)
         int feet_z_smooth_ms = 100;  // EMA time constant on feet Z
         // The pawn's location is its capsule centre, ~90 uu above the navmesh under it;
@@ -258,7 +269,6 @@ namespace mm
         float map_marker_size = 8.0f;  // glyph radius in screen px
         int map_markers_max_draw = 4000;
         float map_floor_step = 200.0f; // uu per floor-adjust notch (Q/E, LB/RB, Ctrl+wheel)
-        bool map_show_all_floors = false; // ignore the height slice: draw every surface
         // Side of the dynamic texture the map slice is cut into. The cut costs roughly
         // (width x height x surfaces) plane reads - 5-10 ms - so it runs only on a change.
         int map_slice_px = 768;
@@ -494,15 +504,22 @@ namespace mm
         a.min_visible_after_state_ok_ms == b.min_visible_after_state_ok_ms &&
         a.menu_close_show_delay_ms == b.menu_close_show_delay_ms &&
         a.show_adjacent_floors == b.show_adjacent_floors &&
-        a.adjacent_floor_opacity == b.adjacent_floor_opacity &&
         a.floor_z_tolerance == b.floor_z_tolerance &&
-        a.floor_fade_uu == b.floor_fade_uu &&
-        a.floor_fade_above_uu == b.floor_fade_above_uu &&
         a.map_unreachable == b.map_unreachable &&
-        a.floor_gradient_strength == b.floor_gradient_strength &&
-        a.floor_base_r == b.floor_base_r &&
-        a.floor_base_g == b.floor_base_g &&
-        a.floor_base_b == b.floor_base_b &&
+        a.shade_lo_r == b.shade_lo_r &&
+        a.shade_lo_g == b.shade_lo_g &&
+        a.shade_lo_b == b.shade_lo_b &&
+        a.shade_hi_r == b.shade_hi_r &&
+        a.shade_hi_g == b.shade_hi_g &&
+        a.shade_hi_b == b.shade_hi_b &&
+        a.shade_gamma == b.shade_gamma &&
+        a.shade_below_alpha == b.shade_below_alpha &&
+        a.shade_above_alpha == b.shade_above_alpha &&
+        a.shade_above_band_uu == b.shade_above_band_uu &&
+        a.shade_range_pct_lo == b.shade_range_pct_lo &&
+        a.shade_min_range_uu == b.shade_min_range_uu &&
+        a.shade_range_smooth_ms == b.shade_range_smooth_ms &&
+        a.shade_map_equalize == b.shade_map_equalize &&
         a.slice_hz == b.slice_hz &&
         a.feet_z_smooth_ms == b.feet_z_smooth_ms &&
         a.player_z_offset == b.player_z_offset &&
@@ -536,7 +553,6 @@ namespace mm
         a.map_marker_size == b.map_marker_size &&
         a.map_markers_max_draw == b.map_markers_max_draw &&
         a.map_floor_step == b.map_floor_step &&
-        a.map_show_all_floors == b.map_show_all_floors &&
         a.map_slice_px == b.map_slice_px &&
         a.map_slice_hz == b.map_slice_hz &&
         a.map_gamepad == b.map_gamepad &&

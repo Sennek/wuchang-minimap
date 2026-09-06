@@ -52,6 +52,56 @@ first_run_toast = 1
 ; treated as reachable whatever this says.
 map_unreachable = hide
 
+; ---------------------------------------------------------------------------------
+; HEIGHT SHADING
+; ---------------------------------------------------------------------------------
+; A pixel's COLOUR is its surface's absolute world Z on a two-colour ramp - one ramp for
+; every storey, so a height is the same colour wherever it is and the cut reads as a
+; floor plan. The marker at the centre says which storey is yours. The F2 panel's Debug
+; tab edits all of it live, under "Developer settings > Height shading".
+
+; The ramp's two ends, "R G B" (0..255 each): low ground and high ground.
+shade_lo_color = 88 84 78
+shade_hi_color = 244 240 232
+
+; The curve along the ramp: t -> pow(t, gamma). Below 1 lifts the low ground, above 1
+; holds the contrast for the peaks. 1 = linear.
+shade_gamma = 0.80
+
+; Opacity of the storey below you, and of a ledge or upper terrain overhead. Your own
+; storey is always fully opaque; at 1.00 so are these, and height alone separates them.
+; show_adjacent_floors = 0 in the player config forces both to 0.
+shade_below_alpha = 1.00
+shade_above_alpha = 1.00
+
+; How far ABOVE YOUR FEET a surface may sit and still be drawn, in uu - a ledge, or the
+; upper terrain a ramp leads to. Anything higher is dropped, so a ceiling never covers
+; you. One storey, because a deck over solid floor of yours is hidden by that floor
+; anyway and only its edges would show. 0 = never draw anything above you. THE MINIMAP
+; ONLY: the full map draws the nearest storey at or above your feet, however high.
+shade_above_band_uu = 600
+
+; The ramp's ends are percentiles of the Z of the pixels a cut actually draws, not their
+; min and max: one deep pit or one high gallery must not push every playable storey into
+; two colour levels. This is the LOW percentile; the high one is 100 minus it. 0 = the
+; drawn min..max.
+shade_range_pct_lo = 3
+
+; The narrowest span the minimap will stretch the ramp over, in uu, so flat ground does
+; not explode to full contrast...
+shade_min_range_uu = 400
+
+; ...and the time constant of the easing on that span, in ms, so walking up a stair does
+; not make the picture breathe. A teleport resets it. The full map ignores both: it
+; equalises its own cut instead (shade_map_equalize).
+shade_range_smooth_ms = 400
+
+; 1 = the FULL MAP spends its ramp on area instead of on height: a pixel's t is the CDF
+; of the Z its cut drew, so every tenth of the ramp holds a tenth of the drawn pixels and
+; a stretch of Z nothing sits at costs no contrast. 0 = the linear percentile ramp, to
+; compare the two. The minimap is always linear - its window already tracks one storey.
+shade_map_equalize = 1
+
 ; 1 = scale minimap_zoom and map_zoom with ui_scale, so one config shows the same area
 ; of the world at every resolution. 0 = uu per pixel is literal.
 zoom_dpi_scaled = 1

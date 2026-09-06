@@ -39,12 +39,14 @@ namespace overlay
         // pannable and zoomable, with every marker on it.
         //
         // Shared with the minimap: the asset (mapdata::HeightMaps, one ~327 MB copy in
-        // RAM), the height-slice rule and its config (floor_z_tolerance / floor_fade_uu
-        // / the gradient / the base colour) plus a floor OFFSET the player can nudge,
-        // and the marker draw buffer, category mask and glyphs.
+        // RAM), the height-slice rule and its config (floor_z_tolerance and the shade_*
+        // ramp) plus a floor OFFSET the player can nudge, and the marker draw buffer,
+        // category mask and glyphs.
         //
-        // Different: the cut is decimated (one texture pixel covers `step` source
-        // pixels) and covers the visible viewport plus a 30 % margin; it re-cuts only
+        // Different: the height ramp's percentiles come out of one cut over the whole
+        // visible map and are taken as measured, with none of the minimap's easing;
+        // the cut is decimated (one texture pixel covers `step`
+        // source pixels) and covers the visible viewport plus a 30 % margin; it re-cuts only
         // when something changed - a pan out of the cut region, a zoom, a floor change,
         // a big player move - capped at map_slice_hz; and it is always north-up.
         //
@@ -205,11 +207,15 @@ namespace overlay
                 g_map_req.canvas_w = canvas.w();
                 g_map_req.canvas_h = canvas.h();
                 g_map_req.feet = feet;
-                g_map_req.show_all_floors = cfg.map_show_all_floors;
             }
             g_map_req_ms.store(now, std::memory_order_relaxed);
             return map_slice_view().shown >= 0;
         }
+
+        // The config generation the standing cut was made with (mm::g_cfg_gen). Loop
+        // thread only, and a plain int on purpose - no guarded function static on a path
+        // the loop thread shares with the pump.
+        std::uint32_t g_mr_cfg_gen = 0;
 
         // LOOP THREAD. Cut the visible region (plus a margin) into the map's own dynamic
         // texture, if anything changed and the next buffer is free.
@@ -251,6 +257,15 @@ namespace overlay
             }
 
             const mm::Config& cfg = mm::cfg_cached();
+            // A config edit changes what the cut would paint, and the map re-cuts only
+            // when the view or the player moves - so without this a slider dragged in the
+            // F2 panel with the map open leaves the previous cut on screen.
+            const std::uint32_t cfg_gen = mm::g_cfg_gen.load(std::memory_order_acquire);
+            if (cfg_gen != g_mr_cfg_gen)
+            {
+                g_mr_cfg_gen = cfg_gen;
+                g_mr_valid = false;
+            }
             SliceBuf& b = g_mslice[g_mslice_next];
             if (b.tex == nullptr || b.mapped == nullptr || b.w <= 0 || b.h <= 0)
             {
@@ -307,15 +322,20 @@ namespace overlay
             }
 
             SliceStyle st = style_from(cfg);
-            if (req.show_all_floors)
+            // The full map is a picture of a whole chapter, so it slices with an
+            // UNBOUNDED band overhead: away from the player each pixel takes the ground
+            // of the nearest storey at or above the feet. The player's own floor still
+            // wins outright wherever it exists, so no ceiling covers them - the minimap's
+            // one-storey band is what keeps a gallery off the window they are standing
+            // in, and applying it to a chapter culls most of the chapter instead.
+            if (st.above_band > 0.0f)
             {
-                // "Show everything": no surface is out of range, so the whole chapter's
-                // walkable area is drawn with the current storey still at full opacity.
-                st.fade = 1.0e9f;
-                st.fade_above = 1.0e9f;
-                st.a_dim = 0.34f;
-                st.a_faint = 0.24f;
+                st.above_band = 1.0e9f; // show_adjacent_floors = 0 still means "my storey"
             }
+            // Colour is equalised over this cut: `t` is the CDF of the drawn Z, so the
+            // ramp is spent in proportion to the area at each height. A linear ramp over
+            // ten kilometres of chapter puts every playable storey inside a tone or two.
+            st.equalize = cfg.shade_map_equalize;
 
             const double x1 = req.cx + half_h; // north edge
             const double y0 = req.cy - half_w; // west edge
@@ -326,7 +346,8 @@ namespace overlay
             LARGE_INTEGER t1{};
             ::QueryPerformanceCounter(&t0);
             slice_region(hm, src_x0, src_y0, step, b.w, b.h, b.mapped + b.footprint.Offset,
-                         b.footprint.Footprint.RowPitch, req.feet, st, g_mslice_scratch, g_mslice_counts);
+                         b.footprint.Footprint.RowPitch, req.feet, st, g_mslice_scratch, g_mslice_counts,
+                         nullptr, 0.0f);
             ::QueryPerformanceCounter(&t1);
             const std::int64_t freq = qpc_freq();
             double g_mslice_last_cut_ms = 0.0;

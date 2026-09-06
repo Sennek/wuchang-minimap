@@ -10,7 +10,7 @@ requirements and ships at the root of every release zip.
 | Dear ImGui | 1.92.9b | MIT | yes, compiled into `main.dll` |
 | MinHook (with Hacker Disassembler Engine 32/64) | 1.3.3 | BSD 2-clause | yes, compiled into `main.dll` |
 | {fmt} | 11.2.0 | MIT with the "compiled form" exception | headers only; see note |
-| UE4SS (RE-UE4SS) | v3.0.1-1111-g97b7e501 | MIT | no - linked at runtime, installed separately by the player |
+| UE4SS (RE-UE4SS) | v3.0.1-934-gcac01ee2 | MIT | no - linked at runtime, installed separately by the player |
 | Game map / marker data | n/a | see "Game data" | yes, as mod assets |
 
 Version provenance: Dear ImGui from `IMGUI_VERSION` in `third_party/imgui/imgui.h`;
@@ -139,7 +139,7 @@ without including the above copyright and permission notices.
 
 ---
 
-## UE4SS (RE-UE4SS) v3.0.1-1111-g97b7e501
+## UE4SS (RE-UE4SS) v3.0.1-934-gcac01ee2
 
 Homepage: <https://github.com/UE4SS-RE/RE-UE4SS>, MIT licence.
 

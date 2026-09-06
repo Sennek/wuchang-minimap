@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cwctype>
 #include <filesystem>
 #include <format>
 #include <fstream>

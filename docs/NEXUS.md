@@ -7,13 +7,13 @@ two real blocks (the build string and the ini snippet).
 
 **Category**: User Interface. **Tags**: UI, HUD, Map, Quality of Life, UE4SS.
 **Requirements** (set these in the Nexus *Requirements* tab, not just in the text):
-*UE4SS for Wuchang: Fallen Feathers* — Wuchang mod **384**, the **`experimental-latest`**
-asset, which is UE4SS build **`v3.0.1-1111-g97b7e501`**.
+*UE4SS for Wuchang: Fallen Feathers* — Wuchang mod **384**, file **1.79** (26 Feb 2026),
+which is UE4SS build **`v3.0.1-934-gcac01ee2`**.
 
-> The build string belongs in the Requirements note as well as the description: any other
-> UE4SS build fails to load with no overlay and no in-game message. It must be identical
-> to the one in `BUILD_INFO.txt`, `README.md` and `THIRD_PARTY_NOTICES.md`;
-> `tools/check_release.ps1` fails the release if they drift.
+> The file version belongs in the Requirements note as well as the description: any other
+> UE4SS build fails to load with no overlay and no in-game message. The git build string
+> must be identical to the one in `BUILD_INFO.txt`, `README.md` and
+> `THIRD_PARTY_NOTICES.md`; `tools/check_release.ps1` fails the release if they drift.
 
 ---
 
@@ -44,11 +44,13 @@ A minimap, a full chapter map and a compass, built from the game's own navmesh. 
 [b]UE4SS for Wuchang: Fallen Feathers[/b] (Wuchang mod 384), installed into [font=Courier New]Project_Plague\Binaries\Win64\[/font].
 
 [b]It has to be this exact UE4SS build:[/b]
-[code]UE4SS v3.0.1-1111-g97b7e501   (the "experimental-latest" asset of mod 384)[/code]
+[code]UE4SS for WFF 1.79       mod 384, file version 1.79 (26 Feb 2026)
+v3.0.1-934-gcac01ee2     the same build, as a git description[/code]
+[font=Courier New]ue4ss\UE4SS.log[/font] opens with [font=Courier New]UE4SS - v3.0.1 Beta #0 - Git SHA #cac01ee2[/font] when it is the right one.
 This mod links straight to that DLL's exports, so [b]another UE4SS build will not work[/b], and the failure is silent: the game plays normally, no overlay appears, F2 does nothing, and [font=Courier New]ue4ss\UE4SS.log[/font] says [font=Courier New]Failed to load dll <...\Mods\WuchangMinimap\dlls\main.dll> for mod WuchangMinimap, error: The specified procedure could not be found.[/font] instead of a [font=Courier New]WuchangMinimap vX.Y.Z loaded[/font] line naming the version you installed. [font=Courier New]BUILD_INFO.txt[/font] in the download repeats the version.
 
 [size=4][color=#ff6600]Then: HookInitGameState = 0[/color][/size]
-Open [font=Courier New]Project_Plague\Binaries\Win64\ue4ss\UE4SS-settings.ini[/font] and set:
+Open [font=Courier New]Project_Plague\Binaries\Win64\ue4ss\UE4SS-settings.ini[/font] and check (1.79 already ships it set):
 [code]
 [Hooks]
 HookInitGameState = 0

@@ -63,28 +63,29 @@ $env:WUCHANG_XMAKE = 'C:\tools\xmake\xmake.exe'
 
 ### 3. Install UE4SS into the game
 
-**UE4SS for Wuchang: Fallen Feathers**, Nexus mod **384**, the **`experimental-latest`**
-asset — build **`v3.0.1-1111-g97b7e501`**. It is not interchangeable: the mod links against
-this DLL's export table, so any other build fails to load. Unzip it into
+**UE4SS for Wuchang: Fallen Feathers**, Nexus mod **384**, file version **1.79**
+(26 Feb 2026) — build **`v3.0.1-934-gcac01ee2`**, which is what `ue4ss\UE4SS.log` calls
+`UE4SS - v3.0.1 Beta #0 - Git SHA #cac01ee2`. It is not interchangeable: the mod links
+against this DLL's export table, so any other build fails to load. Unzip it into
 
 ```
 <Game>\Project_Plague\Binaries\Win64\
 ```
 
-Then set `HookInitGameState = 0` in `ue4ss\UE4SS-settings.ini`, or the game crashes a third
-of a second into loading with or without this mod.
+Then check that `HookInitGameState = 0` in `ue4ss\UE4SS-settings.ini` — 1.79 already ships
+it set — or the game crashes a third of a second into loading with or without this mod.
 
 Step 5 needs the installed `UE4SS.dll` whether or not you intend to run the game.
 
 ### 4. Clone RE-UE4SS at the matching commit
 
 The build needs UE4SS's **headers** at the commit the installed DLL was built from. The
-`-g97b7e501` suffix in the release name *is* that commit:
+`-gcac01ee2` suffix of the build string *is* that commit:
 
 ```powershell
 git clone --no-recurse-submodules https://github.com/UE4SS-RE/RE-UE4SS F:\Tools\RE-UE4SS
 cd F:\Tools\RE-UE4SS
-git checkout --recurse-submodules=no 97b7e501c19d8b2b7c662feee73aaa0dc1f0a4d1
+git checkout --recurse-submodules=no cac01ee29ca2e2fa723ae3a4e14f0d52b70b226d
 ```
 
 **No submodules are needed.** RE-UE4SS has two — `deps/first/Unreal` and
@@ -419,11 +420,11 @@ library.
 
 So instead:
 
-1. **Headers** come from a plain `git clone` of RE-UE4SS at `97b7e501`, the commit the
+1. **Headers** come from a plain `git clone` of RE-UE4SS at `cac01ee2`, the commit the
    installed `UE4SS.dll` was built from. Only `deps/first/Unreal` and
    `deps/first/patternsleuth` fail to clone, and nothing on the C++ mod API path needs them.
 2. **Linking** goes through `sdk/lib/UE4SS.lib`, synthesised by
-   `tools/gen_ue4ss_importlib.ps1`: `dumpbin /exports` on that same `UE4SS.dll` (4239
+   `tools/gen_ue4ss_importlib.ps1`: `dumpbin /exports` on that same `UE4SS.dll` (4081
    exports), a `.def`, then `lib /def: /machine:x64`.
 
 Headers and DLL come from one commit, so the ABI matches by construction, and
@@ -470,7 +471,7 @@ internals and crashes. `xmake.lua` pins `set_runtimes("MD")` for every target.
 
 ### Consequences to keep in mind
 
-- The mod is tied to UE4SS `v3.0.1-1111-g97b7e501`. Upgrading means: re-checkout
+- The mod is tied to UE4SS `v3.0.1-934-gcac01ee2`. Upgrading means: re-checkout
   `F:\Tools\RE-UE4SS` at the new commit, re-run `tools\gen_ue4ss_importlib.ps1` against the
   new `UE4SS.dll`, rebuild, and re-check `src/ue_min.hpp` against the new `sdk/UE4SS.def` —
   every declaration there names the symbol it must match.

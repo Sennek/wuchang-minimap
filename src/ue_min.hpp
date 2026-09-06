@@ -152,8 +152,11 @@ namespace RC::Unreal
     class UStruct : public UField
     {
       public:
-        // ?GetSuperStruct@UStruct@Unreal@RC@@QEAAAEAPEAV123@XZ
-        UStruct*& GetSuperStruct();
+        // ?GetSuperStruct@UStruct@Unreal@RC@@QEBAPEAV123@XZ
+        //
+        // Const and by value: this build exports only that overload, so the class walk
+        // reads the parent, never writes it.
+        UStruct* GetSuperStruct() const;
 
         // ?GetChildProperties@UStruct@Unreal@RC@@QEAAAEAPEAVFField@23@XZ
         FField*& GetChildProperties();
@@ -310,8 +313,8 @@ namespace RC::Unreal
         // ?FindFirstOf@UObjectGlobals@Unreal@RC@@YAPEAVUObject@23@PEB_W@Z
         UObject* FindFirstOf(const wchar_t* class_name);
 
-        // ?IsValidObjectForFindXOf@UObjectGlobals@Unreal@RC@@YA_NPEAVUObject@23@@Z
-        bool IsValidObjectForFindXOf(UObject* object);
+        // This build exports no `IsValidObjectForFindXOf`; the mod owns the equivalent
+        // test as `uer::valid_for_find_xof`.
     } // namespace UObjectGlobals
 
     namespace Hook

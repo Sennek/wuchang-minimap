@@ -120,8 +120,8 @@ If anything here fails, the release does not ship — fix, re-tag.
 - Version field: `1.0.1`, matching the tag and `BUILD_INFO.txt`.
 - Changelog: paste the `## 1.0.1` section of `tools\CHANGELOG.template.md`.
 - Description: `docs\NEXUS.md`, BBCode editor (not rich text).
-- **Requirements tab**: UE4SS for Wuchang: Fallen Feathers, mod **384**, the
-  `experimental-latest` asset — build `v3.0.1-1111-g97b7e501`. Put the build string in
+- **Requirements tab**: UE4SS for Wuchang: Fallen Feathers, mod **384**, file version
+  **1.79** (26 Feb 2026) — build `v3.0.1-934-gcac01ee2`. Put the file version in
   the requirement note as well as the description: a mismatch produces no overlay and no
   in-game message. It is **not** bundled.
 - Tick "this mod contains files derived from the game's data" if the upload form asks;

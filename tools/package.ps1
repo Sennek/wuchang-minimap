@@ -94,7 +94,7 @@ param(
     [switch]$StampOnly,
     [switch]$AllowDirty,
     [string]$Ue4ssBuild = $(if ($env:WUCHANG_UE4SS_BUILD) { $env:WUCHANG_UE4SS_BUILD }
-                           else { 'v3.0.1-1111-g97b7e501' })
+                           else { 'v3.0.1-934-gcac01ee2' })
 )
 
 $ErrorActionPreference = 'Stop'

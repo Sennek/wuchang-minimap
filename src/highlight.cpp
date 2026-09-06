@@ -111,14 +111,14 @@ namespace hl
         void resolve_manager()
         {
             UObject* pcm = UObjectGlobals::FindFirstOf(L"PlayerCameraManager");
-            if (pcm != nullptr && !UObjectGlobals::IsValidObjectForFindXOf(pcm))
+            if (pcm != nullptr && !uer::valid_for_find_xof(pcm))
             {
                 pcm = nullptr;
             }
             if (pcm == nullptr)
             {
                 UObject* controller = UObjectGlobals::FindFirstOf(L"PlayerController");
-                if (controller != nullptr && UObjectGlobals::IsValidObjectForFindXOf(controller))
+                if (controller != nullptr && uer::valid_for_find_xof(controller))
                 {
                     const uer::ClassLayout* layout = g_layouts.get(controller);
                     pcm = uer::read_object_prop(layout, controller, L"PlayerCameraManager");

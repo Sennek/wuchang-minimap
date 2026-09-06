@@ -790,6 +790,24 @@ namespace uer
             args->ok = true;
         }
 
+        struct FindXOfArgs
+        {
+            UObject* obj = nullptr;
+            bool ok = false;
+        };
+
+        inline void find_xof_trampoline(void* a, void*, void*)
+        {
+            auto* args = static_cast<FindXOfArgs*>(a);
+            UObject* obj = args->obj;
+            if (obj->HasAnyFlags(static_cast<RC::Unreal::EObjectFlags>(
+                    RC::Unreal::RF_ClassDefaultObject | RC::Unreal::RF_ArchetypeObject)))
+            {
+                return;
+            }
+            args->ok = !obj->IsUnreachable();
+        }
+
         struct WorldArgs
         {
             UObject* obj = nullptr;
@@ -802,6 +820,26 @@ namespace uer
             args->world = args->obj->GetWorld();
         }
     } // namespace detail
+
+    // What UE4SS's FindAllOf / FindFirstOf count as a real instance: not a class default
+    // object, not an archetype, not already unreachable. The pinned UE4SS build exports no
+    // equivalent (`UObjectGlobals::IsValidObjectForFindXOf` arrives in a later commit), so
+    // the mod owns the test - same two rejects, plus the readability and SEH guards every
+    // other engine read here carries.
+    inline bool valid_for_find_xof(UObject* obj)
+    {
+        if (obj == nullptr || !mem::readable(obj, 0x40))
+        {
+            return false;
+        }
+        detail::FindXOfArgs args{};
+        args.obj = obj;
+        if (!mem::guarded_call(&detail::find_xof_trampoline, &args, nullptr, nullptr))
+        {
+            return false;
+        }
+        return args.ok;
+    }
 
     // Remembers an object by pointer + GUObjectArray index (+ serial). Rejects CDOs,
     // archetypes and dying objects.

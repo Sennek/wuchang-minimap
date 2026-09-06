@@ -1635,7 +1635,7 @@ namespace markers
         // One slice = one game-thread pump. The rejects, cheapest first: FUObjectItem::
         // IsValid(false), read through the object ARRAY so a freed allocation is safe to
         // look at; spec_for_class() < 0, memoised per UClass*; then
-        // IsValidObjectForFindXOf() for CDOs and archetypes.
+        // uer::valid_for_find_xof() for CDOs and archetypes.
         int scan_slice(const scan::Slice& slice)
         {
             int visited = 0;
@@ -1657,7 +1657,7 @@ namespace markers
                 {
                     continue;
                 }
-                if (!UObjectGlobals::IsValidObjectForFindXOf(obj) || !mem::readable(obj, 0x40))
+                if (!uer::valid_for_find_xof(obj) || !mem::readable(obj, 0x40))
                 {
                     continue;
                 }
@@ -1683,7 +1683,7 @@ namespace markers
             for (std::size_t i = 0; i < count; ++i)
             {
                 UObject* obj = found[i];
-                if (obj == nullptr || !UObjectGlobals::IsValidObjectForFindXOf(obj) || !mem::readable(obj, 0x40))
+                if (obj == nullptr || !uer::valid_for_find_xof(obj) || !mem::readable(obj, 0x40))
                 {
                     continue;
                 }

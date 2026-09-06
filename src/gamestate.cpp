@@ -542,7 +542,7 @@ namespace gamestate
                 route = L"FindFirstOf(PlayerController)";
                 controller = UObjectGlobals::FindFirstOf(L"PlayerController");
             }
-            if (controller == nullptr || !UObjectGlobals::IsValidObjectForFindXOf(controller))
+            if (controller == nullptr || !uer::valid_for_find_xof(controller))
             {
                 g_controller.reset();
                 if (throttled(g_log_no_controller, ::GetTickCount64()))
@@ -622,8 +622,8 @@ namespace gamestate
                 mm::logf(L"no-pawn diagnosis:   {} ({}, {})",
                          mem::readable(obj, 0x40) ? obj->GetFullName() : std::wstring{L"<unreadable>"},
                          ok ? L"capturable" : L"NOT capturable",
-                         UObjectGlobals::IsValidObjectForFindXOf(obj) ? L"valid for FindXOf"
-                                                                      : L"rejected by IsValidObjectForFindXOf");
+                         uer::valid_for_find_xof(obj) ? L"valid for FindXOf"
+                                                      : L"rejected as CDO/archetype/unreachable");
             }
             if (found.empty())
             {
@@ -644,7 +644,7 @@ namespace gamestate
                 UObjectGlobals::FindAllOf(kPlayerPawnClass, found);
                 for (UObject* obj : found)
                 {
-                    if (obj != nullptr && UObjectGlobals::IsValidObjectForFindXOf(obj))
+                    if (obj != nullptr && uer::valid_for_find_xof(obj))
                     {
                         candidates[1] = obj;
                         break;
@@ -658,7 +658,7 @@ namespace gamestate
                 UObjectGlobals::FindAllOf(kGameplayPawnSubstr, found);
                 for (UObject* obj : found)
                 {
-                    if (obj != nullptr && UObjectGlobals::IsValidObjectForFindXOf(obj))
+                    if (obj != nullptr && uer::valid_for_find_xof(obj))
                     {
                         candidates[2] = obj;
                         break;
@@ -1060,7 +1060,7 @@ namespace gamestate
             for (std::size_t i = 0; i < count; ++i)
             {
                 UObject* w = widgets[i];
-                if (w == nullptr || !UObjectGlobals::IsValidObjectForFindXOf(w))
+                if (w == nullptr || !uer::valid_for_find_xof(w))
                 {
                     continue;
                 }
@@ -1249,7 +1249,7 @@ namespace gamestate
         // ONE SLICE. Raw reads only - no ProcessEvent - so it is safe on the fast path
         // between position pumps. Rejects cheapest first: FUObjectItem validity read through
         // the object ARRAY (safe on a freed allocation), the memoised class test,
-        // IsValidObjectForFindXOf, then the Visibility byte.
+        // uer::valid_for_find_xof, then the Visibility byte.
         void widget_scan_slice(const scan::Slice& slice)
         {
             for (int i = slice.begin; i < slice.end; ++i)
@@ -1268,7 +1268,7 @@ namespace gamestate
                 {
                     continue;
                 }
-                if (!UObjectGlobals::IsValidObjectForFindXOf(obj) || !mem::readable(obj, 0x40))
+                if (!uer::valid_for_find_xof(obj) || !mem::readable(obj, 0x40))
                 {
                     continue;
                 }

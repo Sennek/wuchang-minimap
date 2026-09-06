@@ -299,7 +299,7 @@ namespace gb
             {
                 pc = UObjectGlobals::FindFirstOf(L"PlayerController");
             }
-            if (pc != nullptr && UObjectGlobals::IsValidObjectForFindXOf(pc) &&
+            if (pc != nullptr && uer::valid_for_find_xof(pc) &&
                 mem::readable(pc, 0x40))
             {
                 UObject* pi = uer::read_object_prop(g_layouts.get(pc), pc, L"PlayerInput");

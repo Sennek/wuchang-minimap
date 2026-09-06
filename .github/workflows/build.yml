@@ -36,11 +36,11 @@ on:
   workflow_dispatch:
 
 env:
-  # The UE4SS commit the mod's headers must come from. This is the -g97b7e501 suffix of
-  # UE4SS release v3.0.1-1111-g97b7e501, expanded. It must stay in step with
+  # The UE4SS commit the mod's headers must come from. This is the -gcac01ee2 suffix of
+  # UE4SS build v3.0.1-934-gcac01ee2, expanded. It must stay in step with
   # sdk/lib/UE4SS.lib, which was synthesised from that build's DLL - headers and import
   # library from different UE4SS builds is an ABI mismatch, not a warning.
-  UE4SS_COMMIT: 97b7e501c19d8b2b7c662feee73aaa0dc1f0a4d1
+  UE4SS_COMMIT: cac01ee29ca2e2fa723ae3a4e14f0d52b70b226d
   UE4SS_ROOT: ${{ github.workspace }}\.ue4ss-src
   XMAKE_VERSION: v3.1.1
 

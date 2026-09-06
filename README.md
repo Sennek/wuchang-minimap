@@ -16,11 +16,15 @@ with the map built from the game's own navmesh.
 ## Requirements
 
 **UE4SS for Wuchang: Fallen Feathers** (Nexus mod **384**), installed into
-`Project_Plague\Binaries\Win64\`. It must be this exact build:
+`Project_Plague\Binaries\Win64\`. It must be this exact file:
 
 ```
-UE4SS v3.0.1-1111-g97b7e501   (the "experimental-latest" asset of Nexus mod 384)
+UE4SS for WFF 1.79       Nexus mod 384, file version 1.79 (26 Feb 2026)
+v3.0.1-934-gcac01ee2     the same build, as a git description
 ```
+
+`ue4ss\UE4SS.log` opens with `UE4SS - v3.0.1 Beta #0 - Git SHA #cac01ee2` when it is
+the right one.
 
 The mod links to that DLL's exports, so **another UE4SS build will not work**, and the
 failure is silent: the game plays normally, no overlay appears, `F2` does nothing, and
@@ -34,7 +38,7 @@ error: The specified procedure could not be found.
 instead of a `WuchangMinimap vX.Y.Z loaded` line naming the version you installed.
 `BUILD_INFO.txt` in this download repeats the version.
 
-Then set this in `ue4ss\UE4SS-settings.ini`:
+Then check this in `ue4ss\UE4SS-settings.ini` (1.79 already ships it set):
 
 ```ini
 [Hooks]

@@ -31,8 +31,8 @@ Failed to load dll <...\Mods\WuchangMinimap\dlls\main.dll> for mod WuchangMinima
 error: The specified procedure could not be found.
 ```
 
-instead of `WuchangMinimap v1.0.0 loaded`. `BUILD_INFO.txt` in this download repeats the
-version.
+instead of a `WuchangMinimap vX.Y.Z loaded` line naming the version you installed.
+`BUILD_INFO.txt` in this download repeats the version.
 
 Then set this in `ue4ss\UE4SS-settings.ini`:
 
@@ -62,7 +62,7 @@ There is no `mods.txt` to edit — the empty `enabled.txt` in the mod folder is 
 
 | Key | Action |
 |---|---|
-| `F2` | Settings panel: Overview, Categories, Map & tracker, Keys, Tuning |
+| `F2` | Settings panel: Overview, Categories, Map & tracker, Keys. Every change applies at once and is written to the config by itself |
 | `M` | Full map. Drag or `WASD` to pan, wheel to zoom, `Q`/`E` for the floor, `Home` to fit, right-click a marker to waypoint it or the ground to drop one, `C` to copy the map to the clipboard, `F1` for the rest, `Esc` to close |
 | `TAB` | X-ray highlight through walls — a toggle |
 | `LB`+`RB` | The same, on a controller |
@@ -102,8 +102,8 @@ None of these stops the mod working.
 
 ```
 <Game>\Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangMinimap\
-    config_wuchang_minimap.txt      your settings (the F2 panel's Save writes this; the
-                                    category filters write themselves)
+    config_wuchang_minimap.txt      your settings; the F2 panel writes a change here by
+                                    itself, a moment after you make it
     wuchang_minimap.log             the mod's log, rotated .1 .2 .3 per launch
     wuchang_minimap_found*.txt      the collection tracker, one file per save slot
                                     (NG+ keeps the save id, so start it over with the
@@ -138,8 +138,8 @@ To turn it off without uninstalling, set `mod_enabled = 0` in the config, or del
 first six lines carry every version number a report needs. Add
 `wuchang_minimap_last_stage.txt` if the game crashed, `wuchang_minimap_watchdog.txt` if it
 froze, and your `config_wuchang_minimap.txt`. If you are asked to reproduce something,
-first set `log_level = verbose` in the config (or **Tuning** → Log detail in the panel,
-then Save), reproduce it, and send the log.
+first add the line `log_level = verbose` to `config_wuchang_minimap.txt` and press `F5`,
+reproduce it, and send the log.
 
 ## More
 

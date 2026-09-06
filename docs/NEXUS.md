@@ -1,4 +1,4 @@
-# Nexus Mods page — WuchangMinimap 1.0.0
+# Nexus Mods page — WuchangMinimap
 
 Copy-paste source for the Nexus mod page. The long description is BBCode; paste it via *Import description* or the BBCode editor.
 Inline names use `[font=Courier New]` on purpose: Nexus renders `[code]` as a block, so
@@ -38,7 +38,7 @@ A minimap, a full chapter map, a compass and a collection tracker for Wuchang: F
 
 [b]It has to be this exact UE4SS build:[/b]
 [code]UE4SS v3.0.1-1111-g97b7e501   (the "experimental-latest" asset of mod 384)[/code]
-This mod links straight to that DLL's exports, so [b]another UE4SS build will not work[/b], and the failure is silent: the game plays normally, no overlay appears, F2 does nothing, and [font=Courier New]ue4ss\UE4SS.log[/font] says [font=Courier New]Failed to load dll <...\Mods\WuchangMinimap\dlls\main.dll> for mod WuchangMinimap, error: The specified procedure could not be found.[/font] instead of [font=Courier New]WuchangMinimap v1.0.0 loaded[/font]. [font=Courier New]BUILD_INFO.txt[/font] in the download repeats the version.
+This mod links straight to that DLL's exports, so [b]another UE4SS build will not work[/b], and the failure is silent: the game plays normally, no overlay appears, F2 does nothing, and [font=Courier New]ue4ss\UE4SS.log[/font] says [font=Courier New]Failed to load dll <...\Mods\WuchangMinimap\dlls\main.dll> for mod WuchangMinimap, error: The specified procedure could not be found.[/font] instead of a [font=Courier New]WuchangMinimap vX.Y.Z loaded[/font] line naming the version you installed. [font=Courier New]BUILD_INFO.txt[/font] in the download repeats the version.
 
 [size=4][color=#ff6600]Then: HookInitGameState = 0[/color][/size]
 Open [font=Courier New]Project_Plague\Binaries\Win64\ue4ss\UE4SS-settings.ini[/font] and set:
@@ -59,7 +59,7 @@ To uninstall, delete [font=Courier New]ue4ss\Mods\WuchangMinimap\[/font]. That i
 
 [size=5]Hotkeys[/size]
 [list]
-[*][b]F2[/b] — settings panel (Overview / Categories / Map & tracker / Keys tabs). Every change is saved by itself. [b]Back+RS[/b] on a controller.
+[*][b]F2[/b] — settings panel (Overview / Categories / Map & tracker / Keys tabs). A change applies as you make it and is written to the config by itself. [b]Back+RS[/b] on a controller.
 [*][b]M[/b] — full map: drag or WASD to pan, wheel to zoom, Q/E for the floor, Home to fit, right-click a marker to waypoint it (or the ground to drop one), F1 or H for the rest
 [*][b]TAB[/b] — x-ray highlight through walls, with names and distances. A toggle. [b]LB+RB[/b] on a controller.
 [*][b]N[/b] — cycle the minimap zoom · [b]R[/b] — recentre the map · [b]F5[/b] — reload the config and data
@@ -77,7 +77,7 @@ None of these stops the mod working.
 [size=5]Reporting a bug[/size]
 Attach [font=Courier New]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first six lines carry every version number a report needs. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font].
 
-If the minimap simply is not on screen, send me [font=Courier New]wuchang_minimap.log[/font] from the mod's own folder — it names the exact reason it stayed hidden. If I ask you to reproduce something, put [font=Courier New]log_level = verbose[/font] into [font=Courier New]config_wuchang_minimap_dev.txt[/font] beside the config first.
+If the minimap simply is not on screen, send me [font=Courier New]wuchang_minimap.log[/font] from the mod's own folder — it names the exact reason it stayed hidden. If I ask you to reproduce something, add the line [font=Courier New]log_level = verbose[/font] to [font=Courier New]config_wuchang_minimap.txt[/font] first, press [b]F5[/b], and reproduce it.
 
 [size=5]Permissions and credits[/size]
 [b]MIT licensed[/b] — fork it, reuse it, translate it; the licence has to travel with it. Credit appreciated, not required. Third-party components: Dear ImGui (MIT), MinHook (BSD-2-Clause), fmt (MIT), RE-UE4SS (MIT); full notices ship in [font=Courier New]THIRD_PARTY_NOTICES.md[/font].

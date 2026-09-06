@@ -1,58 +1,54 @@
-﻿# WuchangMinimap - changelog
-
-## 1.0.1
-
-- **The maps show only ground you can actually get to.** The map background is built from
-  the game's own navigation data, and the game walks things you cannot: wall tops, roof
-  ridges, cliff ledges, the outside faces of arena walls. Every surface is now marked with
-  whether a player can reach it, and unreachable ground is not drawn - a boss arena is the
-  arena and its entrance instead of a disc in a field of scraps. `map_unreachable` on the
-  `F2` panel's *Map & tracker* tab switches it between `hide`, `dim` (drawn faint) and
-  `show` (the old picture) while you play.
-- **Floors above you barely show now.** A gallery over your head is not ground you can walk
-  on, and at a boss arena it was a third of everything on the map. The new
-  `floor_fade_above_uu` (300 uu, on the *Tuning* tab) is how far above your feet a floor is
-  still drawn; `0` never draws one. `floor_fade_uu` now only controls how far **below** you
-  a floor is drawn, and is unchanged at 800 uu.
-- **Shrines never disappear from the maps** - `Hide found` no longer removes a lit shrine
-  from the minimap or the full map: a shrine is a landmark, not loot. A lit one is drawn
-  solid, an unlit one hollow.
-- **Right-click a marker on the full map to waypoint it**, again to take the waypoint off - on
-  the map itself and on a search-result row. Right-clicking bare ground still drops one there.
-- Full-map marker tooltip says `12 m above` / `8 m below` / `same level` instead of `-20 m up`.
-- **No more black screen on some launches** - the DX12 hook addresses are found fresh every
-  launch instead of being reused from `wuchang_minimap_hookaddr.txt`, which is now deleted on
-  sight. Reusing them hooked the frame before ReShade, Streamline and the Steam overlay had
-  been through their own start-up, and the game came up black.
-- **The settings panel is rebuilt** - Overview, Categories, Map & tracker, Keys and Tuning.
-  Every category filter is now one grid with a column per surface, the presets and the three
-  HUD surfaces share one first screen, and `Reset to defaults` sits beside Save.
-- **The x-ray key is now `TAB`** - Alt is a key the game itself uses.
-- **The marker filters remember themselves** - a legend click survives a restart, with no Save.
-- **The shrine list's Travel button is gone** - the game only travels at a shrine.
-- **The nearest-unfound key ships unbound** - `G` is a key the game itself uses. Bind it on
-  the `F2` panel's Keys tab.
-- **The map's search results are a dropdown under the box** - they open where you are
-  looking, never take the caret, and clicking one leaves you typing where you were.
-- **Typing in a search box no longer fires the hotkeys** - the map's marker search and the
-  panel's boxes keep every letter, and a binding capture waits for the caret to leave.
+# WuchangMinimap - changelog
 
 ## 1.0.0
 
-What the mod does:
+What you get in this build.
 
-- **A minimap and a full chapter map** on `M` to pan, zoom and place waypoints on.
-- **The map is the game's own navigation data**, sliced by height: ground you can stand on.
-- **Markers with the game's own names** for all five chapters and the DLC.
-- **A name search on the full map**, with a nearest-first list you can waypoint straight from.
-- **Up to 16 waypoints at once**; a key you bind sets one on the nearest marker you have not found.
-- **Export / import** of the found list and waypoints as one JSON file - a merge, never a wipe.
-- **An x-ray key** (`TAB`, or `LB`+`RB`) drawing markers through walls, tinted by item quality.
-- **A collection tracker per save slot**: per-chapter progress, shrines, bosses from the save.
-- **Everything configurable in-game** in the `F2` panel: every hotkey rebindable, no restart.
-- **`wuchang_minimap.log`** rotated per launch, plus a watchdog file if the game hangs.
+**The map**
 
-### Known issues
+- **A minimap, a compass strip and a full chapter map** on `M`: drag or `WASD` to pan,
+  wheel to zoom, `Q`/`E` for the floor, `Home` to fit, `C` to copy the map to the clipboard.
+  A controller drives all of it.
+- **The map is the game's own navigation data** - ground you can stand on, not a drawing.
+  Surfaces the game walks but a player cannot reach (wall tops, roof ridges, the outside
+  faces of arena walls) are left out, so a boss arena is the arena and its entrance.
+- **Height is drawn as colour.** One shading ramp runs from the chapter's low ground to its
+  high ground, so a slope reads as a slope and a gallery overhead reads as overhead. The
+  floor you are standing on always wins over anything above it, and the full map shades the
+  whole chapter at once instead of following your feet.
+- **The chapter changes when the ground under your feet does**, so standing at a border -
+  the passage into Hillswatch, say - shows the chapter you are actually in.
+- **The overlay finds its DX12 hook addresses fresh every launch**, never from a cache.
+
+**Markers and the tracker**
+
+- **The game's own names** on chests, pickups, shrines, bosses, NPCs and notes, for all five
+  chapters and the DLC, plus a name search on the full map with a nearest-first list.
+- **Loot dropped in front of you is named too** - a drop reads the item it is holding, so it
+  arrives as itself instead of a nameless pickup.
+- **A marker off your own floor carries an up or down arrow** on the minimap, the full map
+  and the compass alike; `compass_pip_height_uu` is how far off counts.
+- **Shrines stay on the map** even with `Hide found` on - lit solid, unlit hollow.
+- **Up to 16 waypoints**, kept per save slot. Right-click a marker (on the map or on a
+  search row) to waypoint it and again to take it off; right-click bare ground to drop one.
+  A key you bind marks the nearest thing you have not collected - unbound as shipped,
+  because the game itself uses `G`.
+- **A collection tracker per save slot** with export / import as one JSON file, and a button
+  to clear a save's list for NG+.
+- **An x-ray key on `TAB`** (`LB`+`RB` on a controller) drawing loot through walls, tinted
+  by item quality.
+
+**Settings**
+
+- **The `F2` panel is the whole configuration**: Overview, Categories, Map & tracker, Keys.
+  Every change applies on the spot and is written to `config_wuchang_minimap.txt` by itself
+  - there is no Save button and nothing to remember.
+- **The Keys tab reads your real in-game bindings**, so it names the action a key would take
+  away from the game and follows a remap you made in the game's own options. `Back`+`RS`
+  opens the panel on a controller, `Back`+`Y` the map.
+- Typing in a search or name box never fires a hotkey.
+
+**Known issues**
 
 - **The DLC has no map.** The game ships no navigation data for it. Markers work there,
   but its 7 shrines keep their internal ids: the DLC's fire points have no row in the
@@ -62,9 +58,6 @@ What the mod does:
   uses the arena's respawn point, which the save remembers unlocking. It is recomputed
   every launch and never written to the collection file, so `boss_defeat_from_save = 0`
   undoes it.
-- **A few dozen detached patches of walkable ground per chapter are drawn although you
-  cannot walk to them.** Fixed in 1.0.1: every surface now carries whether a player can
-  reach it, and `map_unreachable` decides what to do with the rest.
 - **The overlay draws underneath ReShade's effects**, so a heavy preset tints it.
 - **Enemy markers are off by default.** The live sweep refreshes them about once a
   second, so they lag behind anything that moves.

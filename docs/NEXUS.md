@@ -31,7 +31,15 @@ A minimap, a full chapter map and a compass, built from the game's own navmesh. 
 
 ```bbcode
 [size=5]What it is[/size]
-A minimap, a full chapter map, a compass and a collection tracker for Wuchang: Fallen Feathers. The map background is not hand-drawn: it is built from the game's own navigation mesh, so what you see is ground you can stand on. Markers for chests, pickups, shrines, bosses, NPCs and notes carry the game's own English names. Keyboard, mouse and gamepad; English UI.
+[list]
+[*][b]Minimap[/b] and [b]compass strip[/b] in-world, [b]full chapter map[/b] on M
+[*]Map built from the game's own navmesh: every drawn pixel is ground you can stand on, height shown as colour
+[*][b]Markers[/b] for chests, pickups, shrines, bosses, NPCs and notes, with the game's own names, all five chapters and the DLC
+[*][b]Collection tracker[/b] per save slot, up to 16 waypoints, name search on the full map
+[*][b]X-ray[/b] on TAB: loot through walls, tinted by item quality
+[*]Everything configured from the [b]F2[/b] panel, saved by itself
+[*]Keyboard, mouse and gamepad; English UI
+[/list]
 
 [size=5]Requirements[/size]
 [b]UE4SS for Wuchang: Fallen Feathers[/b] (Wuchang mod 384), installed into [font=Courier New]Project_Plague\Binaries\Win64\[/font].

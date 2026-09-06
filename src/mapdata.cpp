@@ -85,6 +85,17 @@ namespace mapdata
             g_chapters.store(new std::vector<Chapter>(std::move(list)), std::memory_order_release);
         }
 
+        // The manifest entries the coverage tiebreak asks, published the same way and for
+        // the same reason: the game thread reads them at 1 Hz with no lock while the loop
+        // thread may be rebuilding them, and the old vector is left alive for a reader
+        // still walking it. An entry costs its decoded index - ~90 KB a chapter.
+        std::atomic<const std::vector<mapmanifest::Entry>*> g_cover{nullptr};
+
+        void publish_coverage(const std::vector<mapmanifest::Entry>& list)
+        {
+            g_cover.store(new std::vector<mapmanifest::Entry>(list), std::memory_order_release);
+        }
+
         bool read_whole_file(const std::wstring& path, std::string& out)
         {
             const HANDLE h = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
@@ -413,7 +424,7 @@ namespace mapdata
             return;
         }
         // There is no "schema mismatch, read it anyway" branch: mapmanifest::parse()
-        // accepts /5 and /4 and refuses everything else. The /3 height encoding differs
+        // accepts /6, /5 and /4 and refuses everything else. The /3 height encoding differs
         // by a factor of sixteen in one scale, so reading it here would draw a map that
         // looks empty rather than reporting a version error.
         if (parsed_manifest.chapters.empty())
@@ -482,6 +493,25 @@ namespace mapdata
         mm::logf(L"maps: schema \"{}\" - the height planes {} reachability (bit 12)",
                  widen(parsed_manifest.schema),
                  parsed_manifest.has_reachability() ? L"carry" : L"do not carry");
+
+        publish_coverage(parsed_manifest.chapters);
+        int with_cover = 0;
+        std::size_t cover_tiles = 0;
+        for (const mapmanifest::Entry& e : parsed_manifest.chapters)
+        {
+            if (e.coverage.ok())
+            {
+                ++with_cover;
+                cover_tiles += e.coverage.lo.size();
+            }
+        }
+        mm::logf(L"maps: coverage index in {} of {} chapter(s), {} tile(s) of {} px, {} KB - the "
+                 L"chapter vote's tiebreak at a boundary",
+                 with_cover,
+                 parsed_manifest.chapters.size(),
+                 cover_tiles,
+                 mapmanifest::kCoverageTilePx,
+                 (cover_tiles * 4u) / 1024u);
         g_manifest = std::move(parsed_manifest);
         publish_chapters(std::move(parsed));
         g_chapters_mut = const_cast<std::vector<Chapter>*>(g_chapters.load(std::memory_order_acquire));
@@ -534,6 +564,38 @@ namespace mapdata
     bool reachability_available()
     {
         return g_has_reach.load(std::memory_order_acquire);
+    }
+
+    bool chapter_covers(int number, double wx, double wy, double feet_z, double tol)
+    {
+        const std::vector<mapmanifest::Entry>* list = g_cover.load(std::memory_order_acquire);
+        if (list == nullptr || number == chid::kNone)
+        {
+            return false;
+        }
+        for (const mapmanifest::Entry& e : *list)
+        {
+            if (e.chapter == number)
+            {
+                return e.covers(wx, wy, feet_z, tol);
+            }
+        }
+        return false;
+    }
+
+    int chapters_with_coverage()
+    {
+        const std::vector<mapmanifest::Entry>* list = g_cover.load(std::memory_order_acquire);
+        if (list == nullptr)
+        {
+            return 0;
+        }
+        int n = 0;
+        for (const mapmanifest::Entry& e : *list)
+        {
+            n += e.coverage.ok() ? 1 : 0;
+        }
+        return n;
     }
 
     std::string active_chapter_key()

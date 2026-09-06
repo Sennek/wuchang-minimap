@@ -45,12 +45,11 @@ namespace cfgkeys
     inline constexpr KeyInfo kKeys[] = {
         // PLAYER
         {"mod_enabled", Tier::Player},
-        {"overlay_enabled", Tier::Player},
         {"show_minimap", Tier::Player},
         {"theme", Tier::Player},
         {"palette", Tier::Player},
-        {"map_unreachable", Tier::Player},
         {"ui_scale", Tier::Player},
+        {"font_size", Tier::Player},
         {"hud_preset", Tier::Player},
         {"minimap_size", Tier::Player},
         {"minimap_zoom", Tier::Player},
@@ -68,16 +67,10 @@ namespace cfgkeys
         {"markers_hide_found", Tier::Player},
         {"markers_size", Tier::Player},
         {"markers_clamp_to_edge", Tier::Player},
-        {"markers_absence_marks", Tier::Player},
-        {"found_tracker", Tier::Player},
-        {"found_profile", Tier::Player},
-        {"first_run_toast", Tier::Player},
         {"map_zoom", Tier::Player},
         {"map_marker_size", Tier::Player},
         {"map_show_all_floors", Tier::Player},
         {"map_gamepad", Tier::Player},
-        {"map_waypoint_persist", Tier::Player},
-        {"shrine_list", Tier::Player},
         {"highlight_enabled", Tier::Player},
         {"highlight_mode", Tier::Player},
         {"highlight_key", Tier::Player},
@@ -86,10 +79,12 @@ namespace cfgkeys
         {"highlight_radius", Tier::Player},
         {"highlight_categories", Tier::Player},
         {"highlight_labels", Tier::Player},
+        {"highlight_show_found", Tier::Player},
         {"highlight_size", Tier::Player},
         {"xray_rarity_colors_enabled", Tier::Player},
         {"markers_rarity_tint", Tier::Player},
         {"compass_enabled", Tier::Player},
+        {"compass_anchor", Tier::Player},
         {"compass_width", Tier::Player},
         {"compass_offset_y", Tier::Player},
         {"compass_span_deg", Tier::Player},
@@ -150,7 +145,6 @@ namespace cfgkeys
         {"map_slice_px", Tier::Advanced},
         {"map_slice_hz", Tier::Advanced},
         {"map_gamepad_deadzone", Tier::Advanced},
-        {"highlight_show_found", Tier::Advanced},
         {"highlight_labels_max", Tier::Advanced},
         {"highlight_max_draw", Tier::Advanced},
         {"highlight_alpha_near", Tier::Advanced},
@@ -158,7 +152,6 @@ namespace cfgkeys
         {"highlight_edge_arrows", Tier::Advanced},
         {"highlight_camera_hz", Tier::Advanced},
         {"xray_rarity_colors", Tier::Advanced},
-        {"compass_anchor", Tier::Advanced},
         {"compass_plate", Tier::Advanced},
         {"compass_height", Tier::Advanced},
         {"compass_marker_distance", Tier::Advanced},
@@ -166,12 +159,15 @@ namespace cfgkeys
         {"compass_tick_step_deg", Tier::Advanced},
         {"compass_max_pips", Tier::Advanced},
         {"compass_pip_height_uu", Tier::Advanced},
-        {"log_level", Tier::Advanced},
-        {"crash_breadcrumb", Tier::Advanced},
         {"ui_font", Tier::Advanced},
-        {"zoom_dpi_scaled", Tier::Advanced},
 
         // DEV - config_wuchang_minimap_dev.txt, not shipped
+        {"map_unreachable", Tier::Dev},
+        {"first_run_toast", Tier::Dev},
+        {"found_profile", Tier::Dev},
+        {"log_level", Tier::Dev},
+        {"crash_breadcrumb", Tier::Dev},
+        {"zoom_dpi_scaled", Tier::Dev},
         {"debug_readout", Tier::Dev},
         {"debug_show_panel_on_start", Tier::Dev},
         {"fallback_use_composite", Tier::Dev},
@@ -211,21 +207,23 @@ namespace cfgkeys
         {"markers_class_cache_max", Tier::Removed},
         {"markers_fallback_max_per_class", Tier::Removed},
         {"fast_travel_enabled", Tier::Removed}, // the game only travels at a shrine
-
-        // LEGACY - old names, accepted with one warning
-        {"recon_dump_key", Tier::Removed}, // recon dump is a Debug-tab button
-        {"enabled", Tier::Legacy}, // -> overlay_enabled
+        {"recon_dump_key", Tier::Removed},      // recon dump is a Debug-tab button
+        // Behaviour the mod now always has; the panel toggles for them are gone.
+        {"overlay_enabled", Tier::Removed},     // the master switch is the only off switch
+        {"enabled", Tier::Removed},             // the older name for overlay_enabled
+        {"found_tracker", Tier::Removed},       // the collection tracker is always on
+        {"markers_absence_marks", Tier::Removed},
+        {"map_waypoint_persist", Tier::Removed},
+        {"shrine_list", Tier::Removed},
     };
 
     inline constexpr std::size_t kKeyCount = sizeof(kKeys) / sizeof(kKeys[0]);
 
     // The new name a legacy key maps onto, or nullptr when `key` is not a legacy name.
+    // No key is renamed right now; the loader keeps the path for the next one.
     inline const char* renamed_to(std::string_view key)
     {
-        if (key == "enabled")
-        {
-            return "overlay_enabled";
-        }
+        (void)key;
         return nullptr;
     }
 

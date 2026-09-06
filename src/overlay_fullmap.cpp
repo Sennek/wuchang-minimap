@@ -536,8 +536,19 @@ namespace overlay
                                 static_cast<double>(g_map_floor_off) / 100.0,
                                 snap.x,
                                 snap.y);
-            ImGui::SameLine((std::max)(200.0f, ImGui::GetWindowWidth() -
-                                                   ImGui::CalcTextSize("FitRecentreClose").x - 90.0f));
+            // The button group is measured from its own labels, so it ends flush with
+            // the window's right edge at every width, font and UI scale, and drops to
+            // its own line when the readout leaves it no room.
+            {
+                float bw[5]{};
+                int bn = 0;
+                bw[bn++] = button_width("Fit");
+                bw[bn++] = button_width("Stats");
+                bw[bn++] = button_width("Shrines");
+                bw[bn++] = button_width("Recentre");
+                bw[bn++] = button_width("Close");
+                right_align_group(row_width(bw, bn), ImGui::GetCursorScreenPos().x);
+            }
             // Zoom to fit, from the chapter's bounds in the manifest.
             bool want_fit = ImGui::SmallButton("Fit");
             ImGui::SameLine();
@@ -546,14 +557,11 @@ namespace overlay
                 g_stats_page = !g_stats_page;
             }
             ImGui::SameLine();
-            if (cfg.shrine_list && ImGui::SmallButton("Shrines"))
+            if (ImGui::SmallButton("Shrines"))
             {
                 g_shrine_panel = !g_shrine_panel;
             }
-            if (cfg.shrine_list)
-            {
-                ImGui::SameLine();
-            }
+            ImGui::SameLine();
             if (ImGui::SmallButton("Recentre"))
             {
                 g_map_recenter.store(true, std::memory_order_relaxed);
@@ -574,7 +582,8 @@ namespace overlay
             {
                 ImGui::SetKeyboardFocusHere();
             }
-            ImGui::SetNextItemWidth(240.0f * ui_scale);
+            ImGui::SetNextItemWidth((std::min)(240.0f * g_chrome_scale,
+                                               ImGui::GetContentRegionAvail().x));
             if (ImGui::InputTextWithHint("##mapsearch", "search marker names...", g_map_search,
                                          sizeof(g_map_search)))
             {
@@ -647,7 +656,9 @@ namespace overlay
                     std::sort(hits.begin(), hits.end(), nearer_player);
                 }
             }
-            ImGui::SameLine();
+            // Every item of this row keeps the line only while it still fits; the rest
+            // wrap onto the next one rather than run under the window's right edge.
+            (void)same_line_if_fits(button_width("clear"));
             ImGui::BeginDisabled(!searching);
             if (ImGui::SmallButton("clear"))
             {
@@ -658,16 +669,21 @@ namespace overlay
             ImGui::EndDisabled();
             if (searching)
             {
-                ImGui::SameLine();
-                ImGui::TextDisabled("%d match(es)   Esc clears", g_map_search_hits);
+                char matches[64]{};
+                (void)std::snprintf(matches, sizeof(matches), "%d match(es)   Esc clears",
+                                    g_map_search_hits);
+                (void)same_line_if_fits(ImGui::CalcTextSize(matches).x);
+                ImGui::TextDisabled("%s", matches);
             }
-            ImGui::SameLine();
+            (void)same_line_if_fits(button_width("Waypoints"));
             if (ImGui::SmallButton("Waypoints"))
             {
                 g_wp_panel = !g_wp_panel;
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("%zu set", wps.count);
+            char wp_count[32]{};
+            (void)std::snprintf(wp_count, sizeof(wp_count), "%zu set", wps.count);
+            (void)same_line_if_fits(ImGui::CalcTextSize(wp_count).x);
+            ImGui::TextDisabled("%s", wp_count);
 
             //--------------------------------------------------------------------------
             // The canvas, with the legend column reserved on its right
@@ -678,9 +694,12 @@ namespace overlay
             // toggles it.
             const float footer_h = ImGui::GetTextLineHeightWithSpacing() * 2.2f;
             const ImVec2 avail = ImGui::GetContentRegionAvail();
-            // Sized from the text, so it is right at every ui_scale.
-            const float legend_w =
+            // Sized from the text, so it is right at every ui_scale, and capped at a
+            // share of the row so a narrow window keeps a canvas instead of pushing the
+            // legend past the right edge.
+            const float legend_want =
                 ImGui::CalcTextSize("      Fog gates   9999/9999").x + ImGui::GetStyle().FramePadding.x * 4.0f;
+            const float legend_w = (std::max)(48.0f, (std::min)(legend_want, avail.x * 0.4f));
             const ImVec2 csize{(std::max)(64.0f, avail.x - legend_w - ImGui::GetStyle().ItemSpacing.x),
                                (std::max)(64.0f, avail.y - footer_h)};
             const ImVec2 cpos = ImGui::GetCursorScreenPos();
@@ -766,12 +785,14 @@ namespace overlay
                 {
                     cfg.markers_categories = mdb::kAllCats;
                 }
-                ImGui::SameLine();
+                (void)same_line_if_fits(button_width("none"));
                 if (ImGui::SmallButton("none"))
                 {
                     cfg.markers_categories = 0u;
                 }
-                ImGui::SameLine();
+                // A checkbox is the square plus the inner gap plus its label.
+                (void)same_line_if_fits(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x +
+                                        ImGui::CalcTextSize("found").x);
                 bool show_found = !cfg.markers_hide_found;
                 if (ImGui::Checkbox("found", &show_found))
                 {
@@ -1387,8 +1408,8 @@ namespace overlay
                 if (searching && g_search_panel)
                 {
                     const ImVec2 vpsz = ImGui::GetMainViewport()->Size;
-                    const float drop_w = (std::max)(search_max.x - search_min.x, 420.0f * ui_scale);
-                    ImGui::SetNextWindowPos(ImVec2(search_min.x, search_max.y + 2.0f * ui_scale));
+                    const float drop_w = (std::max)(search_max.x - search_min.x, 420.0f * g_chrome_scale);
+                    ImGui::SetNextWindowPos(ImVec2(search_min.x, search_max.y + 2.0f * g_chrome_scale));
                     ImGui::SetNextWindowSizeConstraints(ImVec2(drop_w, 0.0f), ImVec2(drop_w, vpsz.y * 0.40f));
                     constexpr ImGuiWindowFlags kDropFlags =
                         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
@@ -1459,14 +1480,19 @@ namespace overlay
                 const ImVec2 vpsz = ImGui::GetMainViewport()->Size;
                 ImGui::SetNextWindowPos(ImVec2(vpsz.x * 0.5f, vpsz.y * 0.5f), ImGuiCond_Appearing,
                                         ImVec2(0.5f, 0.5f));
-                ImGui::SetNextWindowSize(ImVec2(460.0f * ui_scale, 0.0f), ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(ImVec2(460.0f * g_chrome_scale, 0.0f), ImGuiCond_Appearing);
                 if (ImGui::Begin("Waypoints", &g_wp_panel,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
                     const mv::WaypointSet& live = wps;
-                    ImGui::TextDisabled("%zu of %zu   -   right-click a marker or the map to toggle "
-                                        "one",
-                                        live.count, mv::kMaxWaypoints);
+                    {
+                        char head[128]{};
+                        (void)std::snprintf(head, sizeof(head),
+                                            "%zu of %zu   -   right-click a marker or the map to "
+                                            "toggle one",
+                                            live.count, mv::kMaxWaypoints);
+                        text_disabled_wrapped(head);
+                    }
                     const int nearest = mv::nearest_waypoint(live, snap.x, snap.y);
                     for (std::size_t wi = 0; wi < live.count; ++wi)
                     {
@@ -1480,7 +1506,7 @@ namespace overlay
                             ImGui::PopID();
                             break;
                         }
-                        ImGui::SameLine();
+                        (void)same_line_if_fits(button_width("go to"));
                         if (ImGui::SmallButton("go to"))
                         {
                             g_mv.cx = wp.x;
@@ -1488,9 +1514,11 @@ namespace overlay
                             g_map_recut.store(true, std::memory_order_release);
                         }
                         ImGui::SameLine();
-                        ImGui::Text("%zu.  %.0f m   X %.0f  Y %.0f  Z %.0f%s", wi + 1,
-                                    std::sqrt(ddx * ddx + ddy * ddy) / 100.0, wp.x, wp.y, wp.z,
-                                    static_cast<int>(wi) == nearest ? "   (nearest)" : "");
+                        // Wrapped: a coordinate line is longer than the window's default
+                        // width, and the player can narrow the window further.
+                        ImGui::TextWrapped("%zu.  %.0f m   X %.0f  Y %.0f  Z %.0f%s", wi + 1,
+                                           std::sqrt(ddx * ddx + ddy * ddy) / 100.0, wp.x, wp.y, wp.z,
+                                           static_cast<int>(wi) == nearest ? "   (nearest)" : "");
                         ImGui::PopID();
                     }
                     ImGui::Spacing();
@@ -1512,12 +1540,12 @@ namespace overlay
             //--------------------------------------------------------------------------
             // The shrine list (the `Shrines` button in the header)
             //--------------------------------------------------------------------------
-            if (g_shrine_panel && cfg.shrine_list)
+            if (g_shrine_panel)
             {
                 const ImVec2 vp = ImGui::GetMainViewport()->Size;
                 ImGui::SetNextWindowPos(ImVec2(vp.x * 0.5f, vp.y * 0.5f), ImGuiCond_Appearing,
                                         ImVec2(0.5f, 0.5f));
-                ImGui::SetNextWindowSize(ImVec2(620.0f * ui_scale, 0.0f), ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(ImVec2(620.0f * g_chrome_scale, 0.0f), ImGuiCond_Appearing);
                 if (ImGui::Begin("Shrines", &g_shrine_panel,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
@@ -1543,7 +1571,7 @@ namespace overlay
                 const ImVec2 vp = ImGui::GetMainViewport()->Size;
                 ImGui::SetNextWindowPos(ImVec2(vp.x * 0.5f, vp.y * 0.5f), ImGuiCond_Appearing,
                                         ImVec2(0.5f, 0.5f));
-                ImGui::SetNextWindowSize(ImVec2(720.0f * ui_scale, 0.0f), ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(ImVec2(720.0f * g_chrome_scale, 0.0f), ImGuiCond_Appearing);
                 if (ImGui::Begin("Collection", &g_stats_page,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
@@ -1743,12 +1771,7 @@ namespace overlay
             if (before != cfg)
             {
                 mm::set_config(cfg);
-            }
-            // The category filters save themselves: the loop thread rewrites those four keys
-            // shortly after the last change, so a filter is remembered without a Save.
-            if (mm::filters_differ(before, cfg))
-            {
-                mm::g_save_filters = true;
+                mm::g_save_config_soon = true;
             }
         }
     } // namespace ovl

@@ -423,7 +423,7 @@ namespace slotid
     void game_thread_pump(std::uint64_t now, const void*)
     {
         const mm::Config& cfg = mm::cfg_cached();
-        if (!cfg.found_tracker || std::strcmp(cfg.found_profile, "auto") != 0)
+        if (std::strcmp(cfg.found_profile, "auto") != 0)
         {
             return;
         }

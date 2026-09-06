@@ -8,7 +8,7 @@ textures plus a `maps.json` manifest the C++ mod reads at start-up.
 
     maps/
       maps.json                {"chapters": {"chapter1": {...}}}
-      maps.json                schema `wuchang-minimap-maps/5` (see mapfmt.py)
+      maps.json                schema `wuchang-minimap-maps/6` (see mapfmt.py)
       chapter1/small.png       256-COLOUR PALETTE PNG, transparent background,
                                Z-shaded composite of every floor (the fallback /
                                full-map asset; `fallback_use_composite = 0`)
@@ -98,7 +98,7 @@ Z quantisation
 that survive the flat-plane filter) and ship in the manifest, together with the
 resulting step in uu.
 
-Manifest (schema `wuchang-minimap-maps/5`), per chapter:
+Manifest (schema `wuchang-minimap-maps/6`), per chapter:
 
     image        composite PNG, relative to maps/            "chapter1/small.png"
     image_width  / image_height   pixels (== width / height)
@@ -1125,7 +1125,7 @@ def build_chapter(args: argparse.Namespace) -> dict:
 
     height_maps: list[str] = []
     height_bytes: list[int] = []
-    height_codes: list["np.ndarray"] = []  # kept for the tile-occupancy count below
+    height_codes: list["np.ndarray"] = []  # kept for the tile-occupancy count and the coverage index
     for k in range(used):
         rel = mapfmt.height_plane_name(args.chapter, stem, k)
         code = mapfmt.apply_reach_bit(quantize_heights(zbuf[k], z_min, z_max), reach[k])
@@ -1195,6 +1195,17 @@ def build_chapter(args: argparse.Namespace) -> dict:
     entry["height_tiles_128"] = tiles
     entry["height_tiles_128_total"] = tiles_total
     entry["height_tile_ram_bytes"] = tiles * HEIGHT_TILE_PX * HEIGHT_TILE_PX * 2
+    # The COVERAGE INDEX: min/max Z code per 32-px tile, which is how the runtime asks a
+    # chapter it has not loaded whether it has ground under the player's feet
+    # (src/chapterid.hpp's vote cannot tell at a chapter boundary). See mapfmt.
+    coverage = mapfmt.coverage_index(height_codes, z_min, z_max)
+    entry[mapfmt.COVERAGE_KEY] = coverage
+    print(
+        f"[{args.chapter}] coverage: {coverage['tiles_x']}x{coverage['tiles_y']} tiles of "
+        f"{coverage['tile_px']} px, {coverage['tiles_present']}/{coverage['tiles_total']} present, "
+        f"{len(coverage['data']) / 1024.0:.0f} KB base64, "
+        f"worst tile Z span {coverage['z_tile_span_uu_max']:.0f} uu"
+    )
     print(
         f"[{args.chapter}] tile store: {tiles}/{tiles_total} tiles of {HEIGHT_TILE_PX} px "
         f"({100.0 * tiles / max(1, tiles_total):.1f} %) = "

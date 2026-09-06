@@ -392,7 +392,6 @@ namespace markers
         // Live copies of the sweep's caps: process_marker() / publish_round() run per
         // actor and must not each take the config spinlock.
         std::uint64_t g_grace_rounds = 2;
-        bool g_absence_on = true;
         int g_absence_rounds = 2;
         std::uint32_t g_absence_cats =
             mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup);
@@ -427,6 +426,10 @@ namespace markers
         std::vector<int> g_chapter_subset;
         int g_subset_chapter = chid::kNone;
         bool g_subset_valid = false;
+        // The markers drawn this round: the subrange above plus every OTHER chapter's marker
+        // whose actor answered - a chapter boundary streams both chapters' levels in, and an
+        // actor standing in the world is named from its own entry whatever chapter owns it.
+        std::vector<int> g_draw_idx;
         // The found set changed wholesale, so g_found_static must be rebuilt.
         bool g_found_index_dirty = true;
 
@@ -1539,6 +1542,7 @@ namespace markers
             g_level_known.assign(levels, 0);
             g_level_round.assign(levels, 0);
             g_chapter_subset.clear();
+            g_draw_idx.clear();
             g_subset_valid = false;
             g_found_index_dirty = true;
         }
@@ -1636,13 +1640,21 @@ namespace markers
 
                 // One hash lookup per LIVE actor instead of one per STATIC marker.
                 std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);
+                g_draw_idx.assign(g_chapter_subset.begin(), g_chapter_subset.end());
                 for (const auto& kv : g_live)
                 {
                     const auto sit = db->by_id.find(kv.first);
                     if (sit != db->by_id.end() && sit->second >= 0 &&
                         static_cast<std::size_t>(sit->second) < g_live_of_static.size())
                     {
-                        g_live_of_static[static_cast<std::size_t>(sit->second)] = &kv.second;
+                        const std::size_t idx = static_cast<std::size_t>(sit->second);
+                        g_live_of_static[idx] = &kv.second;
+                        // The actor is here, so its entry is about this world however the chapter
+                        // filter reads the streamed level set. Ids are unique, so is this index.
+                        if (!mdb::marker_in_chapter(db->markers[idx].chapter, filter_chapter))
+                        {
+                            g_draw_idx.push_back(sit->second);
+                        }
                     }
                 }
 
@@ -1676,8 +1688,8 @@ namespace markers
                 int boss_from_save = 0;
                 int boss_no_door = 0;
                 const bool boss_save_on = mm::cfg_cached().boss_defeat_from_save;
-                dst.reserve(g_chapter_subset.size() + g_live.size());
-                for (const int mi : g_chapter_subset)
+                dst.reserve(g_draw_idx.size() + g_live.size());
+                for (const int mi : g_draw_idx)
                 {
                     const std::size_t idx = static_cast<std::size_t>(mi);
                     const mdb::StaticMarker& sm = db->markers[idx];
@@ -1853,7 +1865,7 @@ namespace markers
                     // ABSENCE AS EVIDENCE OF A COLLECT. mdb::absence_marks() holds the rule; this
                     // round has walked the whole object array and the level table is current.
                     mdb::AbsenceFacts facts{};
-                    facts.feature_on = g_absence_on;
+                    facts.feature_on = true; // the rule is always armed
                     facts.cat_selected = mdb::cat_enabled(g_absence_cats, sm.cat);
                     facts.already_found = (d.flags & kFlagFound) != 0;
                     facts.level_known = mob.level_known;
@@ -1923,13 +1935,12 @@ namespace markers
                 }
                 if (db != nullptr)
                 {
-                    // Only skip the live actor when its static twin was actually drawn above: a live
-                    // actor is in the current world, but its static entry may name another chapter.
+                    // A static twin exists, so the loop above owns this actor - it drew the joined
+                    // marker, or dropped it on the corpse / walked-away rules. Either way this
+                    // nameless live-only copy would be a duplicate.
                     const auto sit = db->by_id.find(kv.first);
                     if (sit != db->by_id.end() && sit->second >= 0 &&
-                        sit->second < static_cast<int>(db->markers.size()) &&
-                        mdb::marker_in_chapter(db->markers[static_cast<std::size_t>(sit->second)].chapter,
-                                               filter_chapter))
+                        sit->second < static_cast<int>(db->markers.size()))
                     {
                         continue;
                     }
@@ -2719,11 +2730,10 @@ namespace markers
         load_found_file();
         recompute_stats();
         const mm::Config cfg = mm::config();
-        mm::logf(L"markers: {} ({} live sweep, {} found tracker); categories = {}; "
+        mm::logf(L"markers: {} ({} live sweep); categories = {}; "
                  L"scan = {} slot(s)/pump every {} ms, {} full round(s)/s max",
                  cfg.markers_enabled ? L"enabled" : L"DISABLED",
                  cfg.markers_live ? L"with" : L"without",
-                 cfg.found_tracker ? L"with" : L"without",
                  widen(mdb::format_category_mask(cfg.markers_categories)),
                  cfg.markers_scan_chunk,
                  cfg.markers_scan_period_ms,
@@ -2805,7 +2815,7 @@ namespace markers
     // The debounced write, forced. An ordinary loop-thread save.
     void flush_found_tracker()
     {
-        if (g_found_dirty && !g_found_unreadable && mm::cfg_cached().found_tracker)
+        if (g_found_dirty && !g_found_unreadable)
         {
             mm::log(L"markers: flushing the found tracker before standing down");
             save_found_file();
@@ -3001,14 +3011,14 @@ namespace markers
 
         // Keep the shutdown snapshot in step with the pending write: one serialisation
         // per burst of marks, on the loop thread.
-        if (g_found_dirty && g_stage_dirty && cfg.found_tracker && !g_found_unreadable)
+        if (g_found_dirty && g_stage_dirty && !g_found_unreadable)
         {
             stage_found_snapshot();
             g_stage_dirty = false;
         }
 
         // A failed write adds its backoff to the ordinary debounce.
-        if (g_found_dirty && cfg.found_tracker &&
+        if (g_found_dirty &&
             now - g_found_dirty_ms >=
                 static_cast<std::uint64_t>(cfg.found_save_debounce_ms) + g_found_backoff_ms)
         {
@@ -3176,7 +3186,6 @@ namespace markers
         // 2. The generation-cached, per-thread config copy (mm::cfg_cached).
         const mm::Config& cfg = mm::cfg_cached();
         g_grace_rounds = static_cast<std::uint64_t>(cfg.markers_live_grace_rounds);
-        g_absence_on = cfg.markers_absence_marks;
         g_absence_rounds = cfg.markers_absence_rounds;
         g_absence_cats = cfg.markers_absence_categories;
 

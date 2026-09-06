@@ -39,7 +39,10 @@ namespace overlay
         //==============================================================================
         float g_ui_scale = 1.0f;          // what the HUD is currently drawn at
         float g_ui_scale_applied = 0.0f;  // what the ImGui style was last built for
+        float g_chrome_scale = 1.0f;         // ui_scale x font_size / 13
+        float g_chrome_scale_applied = 0.0f; // what the ImGui style was last built for
         char g_font_loaded[192]{};   // the path the atlas currently holds
+        float g_font_px_loaded = 0.0f; // the size the atlas currently holds
         bool g_font_checked = false; // false = the config's path has not been tried yet
         int g_circle_segments = kCircleSegments;
         SrvHeap g_srv_heap;
@@ -81,7 +84,6 @@ namespace overlay
         std::uint64_t g_slice_skipped = 0;
         double g_slice_min_y = 0.0;
         double g_slice_max_x = 0.0;
-        double g_slice_px_per_uu = 0.0;
         float g_feet_z = 0.0f;
         bool g_feet_z_valid = false;
         std::uint32_t g_slice_opaque = 0;
@@ -246,6 +248,11 @@ namespace overlay
         //   ui_scaled()       - every pixel config key, multiplied once per frame into
         //                       a copy of the Config the HUD draws from.
         //
+        // Two factors come out of it. `g_ui_scale` is the resolution factor and owns all
+        // world and HUD geometry. `g_chrome_scale` is ui_scale x font_size / 13 and owns
+        // the text and what is sized around it: the ImGui style and the widget widths
+        // written in pixels in the panel and the full map.
+        //
 
         float wanted_ui_scale(const mm::Config& cfg, float screen_h)
         {
@@ -270,11 +277,15 @@ namespace overlay
         //==============================================================================
         //
         // ImGui's built-in ProggyClean is a 13-pixel bitmap, and `style.FontScaleMain`
-        // only magnifies it. So a real TTF is loaded and rasterised at 13 px, and ImGui
-        // 1.92's dynamic atlas re-rasterises it at 13 * ui_scale when the scale changes
-        // (the backend declares ImGuiBackendFlags_RendererHasTextures, so there is no
-        // atlas of ours to rebuild and no texture of ours to release) - which is why
-        // this is the only place that reacts to a scale change.
+        // only magnifies it. So a real TTF is loaded and rasterised at `font_size`, the
+        // size the player asked for, and ImGui 1.92's dynamic atlas re-rasterises it at
+        // font_size * ui_scale when the scale changes (the backend declares
+        // ImGuiBackendFlags_RendererHasTextures, so there is no atlas of ours to rebuild
+        // and no texture of ours to release) - which is why this is the only place that
+        // reacts to a scale change.
+        //
+        // A changed `font_size` needs a new rasterisation, so the atlas is rebuilt when
+        // either the path or the size moves.
         //
 
         bool font_path_is_none(const char* path)
@@ -286,13 +297,22 @@ namespace overlay
             return ::_stricmp(path, "none") == 0 || ::_stricmp(path, "off") == 0;
         }
 
+        // The configured text height in 1080p pixels, clamped the way the loader clamps it.
+        float font_px(const mm::Config& cfg)
+        {
+            const int px = (std::max)(kFontPxMin, (std::min)(kFontPxMax, cfg.font_size));
+            return static_cast<float>(px);
+        }
+
         void ensure_ui_font(const mm::Config& cfg)
         {
-            if (g_font_checked && ::strcmp(g_font_loaded, cfg.ui_font) == 0)
+            const float px = font_px(cfg);
+            if (g_font_checked && px == g_font_px_loaded && ::strcmp(g_font_loaded, cfg.ui_font) == 0)
             {
                 return; // steady state: one strcmp of a short string per frame
             }
             g_font_checked = true;
+            g_font_px_loaded = px;
             ::strncpy_s(g_font_loaded, sizeof(g_font_loaded), cfg.ui_font, _TRUNCATE);
 
             ImGuiIO& io = ImGui::GetIO();
@@ -303,9 +323,9 @@ namespace overlay
                 mm::log(L"ui font: the built-in bitmap font (ui_font = none)");
                 return;
             }
-            // 13 px is the base size; style.FontScaleMain multiplies it, so this number
-            // stays 13 at every resolution and the scaling lives in one place.
-            const ImFont* f = io.Fonts->AddFontFromFileTTF(cfg.ui_font, 13.0f);
+            // style.FontScaleMain multiplies this by ui_scale, so the resolution factor
+            // lives in one place and this number is the player's own font_size.
+            const ImFont* f = io.Fonts->AddFontFromFileTTF(cfg.ui_font, px);
             const std::wstring shown(cfg.ui_font, cfg.ui_font + ::strlen(cfg.ui_font));
             if (f == nullptr)
             {
@@ -315,7 +335,10 @@ namespace overlay
                 mm::logf(L"ui font: could not read '{}' - using the built-in bitmap font", shown);
                 return;
             }
-            mm::logf(L"ui font: {} at 13 px (x ui scale {:.2f})", shown, static_cast<double>(g_ui_scale));
+            mm::logf(L"ui font: {} at {:.0f} px (x ui scale {:.2f})",
+                     shown,
+                     static_cast<double>(px),
+                     static_cast<double>(g_ui_scale));
         }
 
         //==============================================================================
@@ -406,8 +429,13 @@ namespace overlay
         {
             // The font rides along: this is the one function that runs on the render
             // thread at the top of every frame, before a draw list exists.
-            ensure_ui_font(mm::cfg_cached());
-            if (scale == g_ui_scale_applied)
+            const mm::Config& cfg = mm::cfg_cached();
+            ensure_ui_font(cfg);
+            // The style is drawn for a 13 px font, so its paddings follow the text, not
+            // the resolution alone.
+            const float px = font_px(cfg);
+            const float chrome = scale * px / kStyleFontPx;
+            if (scale == g_ui_scale_applied && chrome == g_chrome_scale_applied)
             {
                 return;
             }
@@ -415,11 +443,16 @@ namespace overlay
             style = ImGuiStyle{};
             ImGui::StyleColorsDark();
             style.WindowRounding = 4.0f;
-            style.ScaleAllSizes(scale);
+            style.ScaleAllSizes(chrome);
             style.FontScaleMain = scale;
             g_ui_scale_applied = scale;
+            g_chrome_scale_applied = chrome;
             g_ui_scale = scale;
-            mm::logf(L"ui scale: {:.2f} (font {:.0f} px, style rebuilt)", scale, 13.0f * scale);
+            g_chrome_scale = chrome;
+            mm::logf(L"ui scale: {:.2f} (font {:.0f} px, chrome {:.2f}, style rebuilt)",
+                     scale,
+                     static_cast<double>(px * scale),
+                     static_cast<double>(chrome));
         }
 
         // Every config key that is a number of pixels, multiplied once. Fractions of the
@@ -894,13 +927,6 @@ namespace overlay
         g_render_stopped.store(false, std::memory_order_release);
 
         const mm::Config cfg = mm::config();
-        if (!cfg.overlay_enabled)
-        {
-            mm::log(L"overlay disabled by config (enabled = 0) - no hooks installed");
-            mm::drain_log();
-            return;
-        }
-
         if (!g_hooks_created)
         {
             g_hooks_created = install_hooks();
@@ -1402,6 +1428,8 @@ namespace overlay
                 post_toast(note, 1000);
                 mm::logf(L"minimap zoom: {:.0f} uu/px (cycled with {} over {} preset(s))",
                          edit.zoom_uu_per_px, mm::key_name(edit.zoom_key), n);
+                // The rung the player stopped on is where the minimap opens next session.
+                mm::g_save_config_soon = true;
             }
             else if (n <= 0)
             {
@@ -1598,28 +1626,28 @@ namespace overlay
         held = held && foreground;
         // The only thing that makes the game thread read the camera: with neither the
         // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.
-        hl::set_demand(held, cfg.overlay_enabled && cfg.compass_enabled);
+        hl::set_demand(held, cfg.compass_enabled);
 
         // THE FILE WRITES, all on this thread and none near Present: the render thread
-        // only raises a flag (a waypoint drag, the panel's Save button, a category filter
-        // change, the screenshot request) and this is where the flag turns into a write.
-        // They share one perf row and declare a stall - a ~28 KB rewrite through CreateFile
-        // can block on a virus scanner for as long as it likes.
+        // only raises a flag (a waypoint drag, a settings change, the screenshot request)
+        // and this is where the flag turns into a write. They share one perf row and
+        // declare a stall - a ~28 KB rewrite through CreateFile can block on a virus
+        // scanner for as long as it likes.
         // The waypoint file follows the save slot the found tracker does. This flushes the
         // set to the file of the save it was made in before adopting the new one, so it
         // runs before the dirty flag below is taken away from it.
         mm::waypoint_slot_poll();
         const bool wp_dirty = mm::g_waypoint_dirty.exchange(false);
         const bool cfg_dirty = mm::g_save_config.load();
-        // The category filters save themselves, debounced: every change pushes the deadline
-        // out, so a run of legend clicks costs one write. 0 is "nothing pending".
-        static std::uint64_t filter_save_due = 0;
-        if (mm::g_save_filters.exchange(false))
+        // Settings save themselves, debounced: every change pushes the deadline out, so a
+        // dragged slider or a run of legend clicks costs one write. 0 is "nothing pending".
+        static std::uint64_t config_save_due = 0;
+        if (mm::g_save_config_soon.exchange(false))
         {
-            filter_save_due = now + 750;
+            config_save_due = now + 750;
         }
-        const bool filters_due = filter_save_due != 0 && now >= filter_save_due && !cfg_dirty;
-        if (wp_dirty || cfg_dirty || filters_due)
+        const bool config_due = config_save_due != 0 && now >= config_save_due && !cfg_dirty;
+        if (wp_dirty || cfg_dirty || config_due)
         {
             if (g_pf_save < 0)
             {
@@ -1629,11 +1657,8 @@ namespace overlay
         }
         if (wp_dirty)
         {
-            if (cfg.map_waypoint_persist)
-            {
-                const mm::PerfScope save_scope(g_pf_save);
-                mm::save_waypoint_file();
-            }
+            const mm::PerfScope save_scope(g_pf_save);
+            mm::save_waypoint_file();
         }
 
         if (g_export_request.exchange(false, std::memory_order_acquire))
@@ -1671,26 +1696,11 @@ namespace overlay
             mapdata::load(mm::mod_dir());
             markers::reload();
         }
-        if (mm::g_save_config.exchange(false))
+        if (mm::g_save_config.exchange(false) || config_due)
         {
+            config_save_due = 0;
             const mm::PerfScope save_scope(g_pf_save);
             mm::save_config_file();
-            // A full save carries the filters, so there is nothing left to write.
-            filter_save_due = 0;
-        }
-        else if (filters_due)
-        {
-            filter_save_due = 0;
-            const mm::PerfScope save_scope(g_pf_save);
-            mm::save_config_keys(mm::kFilterKeys, std::size(mm::kFilterKeys));
-        }
-        // REVERT: re-read the config files and publish them, throwing away every unsaved
-        // edit made in the panel. Not a maps / markers reload - an undo must not cost a
-        // 340 MB asset swap.
-        if (mm::g_revert_config.exchange(false))
-        {
-            mm::log(L"config: reverting to what is on disk");
-            mm::load_config_file();
         }
 
         if (!logged_first_present && g_present_count.load() > 0)

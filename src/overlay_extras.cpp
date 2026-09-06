@@ -263,14 +263,22 @@ namespace overlay
                     }
                 }
                 ImGui::Text("Shrines lit: %d", lit);
-                ImGui::SameLine();
-                ImGui::TextDisabled("(%d unlocked ids incl. boss doors / tasks; %d shrines in the DB%s)",
+                // Both trailers keep the line only while they fit; a narrowed window
+                // drops them onto the next one rather than clipping them.
+                char note[160]{};
+                (void)std::snprintf(note, sizeof(note),
+                                    "(%d unlocked ids incl. boss doors / tasks; %d shrines in the DB%s)",
                                     c.shrines.unlocked, shrine_total,
                                     c.shrines.truncated ? "; list TRUNCATED" : "");
+                (void)same_line_if_fits(ImGui::CalcTextSize(note).x);
+                ImGui::TextDisabled("%s", note);
                 if (c.shrines.current[0] != '\0')
                 {
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("| last rested at %s", c.shrines.current);
+                    char rested[160]{};
+                    (void)std::snprintf(rested, sizeof(rested), "| last rested at %s",
+                                        c.shrines.current);
+                    (void)same_line_if_fits(ImGui::CalcTextSize(rested).x);
+                    ImGui::TextDisabled("%s", rested);
                 }
             }
 

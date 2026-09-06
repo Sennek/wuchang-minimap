@@ -354,8 +354,9 @@ try {
     $pngCount = 0
     if (Require-File $manifestPath 'maps.json') {
         $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-        # /5 carries the reachability bit, /4 does not; src/mapmanifest.hpp reads both.
-        $mapSchemas = @('wuchang-minimap-maps/5', 'wuchang-minimap-maps/4')
+        # /6 adds the coverage index, /5 carries the reachability bit, /4 carries neither;
+        # src/mapmanifest.hpp reads all three.
+        $mapSchemas = @('wuchang-minimap-maps/6', 'wuchang-minimap-maps/5', 'wuchang-minimap-maps/4')
         if ($mapSchemas -notcontains $manifest.schema) {
             $problems.Add("maps.json schema is '$($manifest.schema)', expected one of $($mapSchemas -join ', ')")
         }

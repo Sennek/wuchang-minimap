@@ -83,12 +83,23 @@ namespace overlay
         constexpr float kBaseScreenHeight = 1080.0f;
         constexpr float kUiScaleMin = 0.5f;
         constexpr float kUiScaleMax = 4.0f;
+        // ImGui's default paddings and spacings are drawn for a 13-pixel font, so the
+        // chrome scale below is measured against that.
+        constexpr float kStyleFontPx = 13.0f;
+        constexpr int kFontPxMin = 8;
+        constexpr int kFontPxMax = 48;
         extern float g_ui_scale; // what the HUD is currently drawn at
         extern float g_ui_scale_applied; // what the ImGui style was last built for
+        // ui_scale x font_size / 13: the factor for anything sized around the text -
+        // window padding, item spacing, hand-written widget widths. Marker glyphs, the
+        // minimap disc, the compass and the zoom keys stay on g_ui_scale.
+        extern float g_chrome_scale;
+        extern float g_chrome_scale_applied;
         // Render thread only, at the top of the frame: io.Fonts is read by
         // ImGui::NewFrame and by every draw-list text call, so it may only be swapped
         // there - the same rule the F5 texture drop obeys.
         extern char g_font_loaded[192]; // the path the atlas currently holds
+        extern float g_font_px_loaded; // the pixel size the atlas currently holds
         extern bool g_font_checked; // false = the config's path has not been tried yet
         // Roundness of the minimap disc and its rings. A global because the drawing
         // helpers are handed geometry rather than the config.
@@ -338,7 +349,6 @@ namespace overlay
         // The window the SHOWN buffer covers, as a world->uv mapping.
         extern double g_slice_min_y;
         extern double g_slice_max_x;
-        extern double g_slice_px_per_uu;
         // Feet Z, EMA-smoothed so a jump or a step does not snap the whole picture.
         extern float g_feet_z;
         extern bool g_feet_z_valid;
@@ -950,15 +960,6 @@ namespace overlay
             int deduped = 0; // pips left after the 3-px dedupe
         };
         extern CompassDebug g_compass_debug;
-        // One-click presets. They touch nothing on the Tuning tab, no hotkey,
-        // not the master switch and not the UI scale - a preset must never undo a
-        // machine-specific setting.
-        enum class Preset
-        {
-            Minimal,
-            Loot,
-            Exploration,
-        };
         // Which panel sections are open. The render thread owns the bits (it draws the
         // headers) and raises a flag; the loop thread does the file I/O, in the same
         // block as every other write this mod does. One atomic each way, no lock.
@@ -1090,6 +1091,75 @@ namespace overlay
                       bool round, float x0, float y0, float side);
         void draw_image(ImDrawList* dl, const MapTexture& t, const UvMap& uv, const MiniGeom& g, ImU32 col,
                         bool round, float x0, float y0, float side);
+        //==============================================================================
+        // Layout helpers
+        //==============================================================================
+        //
+        // Every row that has to end at a window edge measures itself here rather than
+        // carrying a pixel constant, so a window the player stretches or shrinks keeps
+        // its buttons inside it. All four are render-thread only and read the current
+        // ImGui window.
+
+        // The width a Button / SmallButton of that label occupies. SmallButton drops
+        // only the vertical frame padding, so both take FramePadding.x twice.
+        inline float button_width(const char* label)
+        {
+            return ImGui::CalcTextSize(label, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        }
+
+        // The width of `count` items laid out with SameLine between them.
+        inline float row_width(const float* widths, int count)
+        {
+            const float spacing = ImGui::GetStyle().ItemSpacing.x;
+            float w = 0.0f;
+            for (int i = 0; i < count; ++i)
+            {
+                w += widths[i] + (i > 0 ? spacing : 0.0f);
+            }
+            return w;
+        }
+
+        // The content region's right edge in screen space. Valid wherever the cursor
+        // is: GetContentRegionAvail() is measured from the cursor, so the two add back
+        // up to the same edge.
+        inline float content_right_x()
+        {
+            return ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        }
+
+        // SameLine only while `item_w` still fits on this line; otherwise leave the
+        // cursor on the next one. Returns whether the row continued.
+        inline bool same_line_if_fits(float item_w)
+        {
+            const float after = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x;
+            if (after + item_w > content_right_x())
+            {
+                return false;
+            }
+            ImGui::SameLine();
+            return true;
+        }
+
+        // TextDisabled that wraps at the content region's right edge instead of being
+        // clipped by it. Pre-formatted, so the caller owns the formatting.
+        inline void text_disabled_wrapped(const char* text)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            ImGui::TextWrapped("%s", text);
+            ImGui::PopStyleColor();
+        }
+
+        // Lay a `group_w` wide group out flush with the content region's right edge:
+        // beside the item just placed while it fits there, on its own line when it does
+        // not. `line_start_x` is the screen x a fresh line begins at - the cursor's own
+        // x before the call - and the group never starts left of it.
+        inline void right_align_group(float group_w, float line_start_x)
+        {
+            (void)same_line_if_fits(group_w);
+            ImGui::SetCursorScreenPos(ImVec2{(std::max)(line_start_x, content_right_x() - group_w),
+                                             ImGui::GetCursorScreenPos().y});
+        }
+
         std::string wide_to_ascii(const std::wstring& wide);
         std::string key_name_ascii(int binding);
         std::string bindings_hint(const mm::Config& cfg);
@@ -1133,9 +1203,7 @@ namespace overlay
         void draw_full_map(mm::Config cfg, const mm::Snapshot& snap, bool have_state, float ui_scale);
         void draw_perf_table();
         bool category_chips(std::uint32_t& mask, int base_id, float wrap_width);
-        void category_filter(const char* title, const char* key, std::uint32_t& mask, int base_id,
-                             float wrap_width);
-        void apply_preset(mm::Config& cfg, Preset which);
+        void category_filter(const char* title, std::uint32_t& mask, int base_id, float wrap_width);
         bool panel_section(const char* title, int bit);
         void overview_what_is_on(mm::Config& cfg);
         void overview_placement(mm::Config& cfg);
@@ -1144,13 +1212,14 @@ namespace overlay
         void category_grid(mm::Config& cfg);
         void panel_categories(mm::Config& cfg);
         void map_fullmap(mm::Config& cfg);
-        void map_waypoints(mm::Config& cfg);
-        void map_tracker(mm::Config& cfg);
+        const char* waypoint_place(const mv::WaypointSet& wps, std::size_t index, std::uint64_t now);
+        void map_waypoints(mm::Config& cfg, const mm::Snapshot& snap, bool have_state);
+        void map_tracker();
         std::wstring panel_state_path();
         void panel_state_load();
         void panel_state_save();
         void panel_overview(mm::Config& cfg);
-        void panel_map_tracker(mm::Config& cfg);
+        void panel_map_tracker(mm::Config& cfg, const mm::Snapshot& snap, bool have_state);
         void tune_minimap(mm::Config& cfg);
         void tune_fullmap(mm::Config& cfg);
         void tune_xray(mm::Config& cfg);
@@ -1159,7 +1228,8 @@ namespace overlay
         void tune_sweep(mm::Config& cfg, float wrap);
         void tune_gate(mm::Config& cfg);
         void tune_diagnostics(mm::Config& cfg);
-        void panel_tuning(mm::Config& cfg);
+        void debug_tuning(mm::Config& cfg);
+        void debug_found_profile(mm::Config& cfg);
         void panel_dev_keys(mm::Config& cfg);
         bool is_modifier_vk(int vk);
         int held_modifier();

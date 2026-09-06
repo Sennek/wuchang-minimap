@@ -2,10 +2,11 @@
 """
 slice_preview.py - render the RUNTIME's height-slicing rule offline, from maps/.
 
-The shipped map asset (see `build_map.py`, schema `wuchang-minimap-maps/3`) is a stack
-of 16-bit grayscale height maps - eight of them as shipped: at every pixel, the Z of up
-to eight walkable surfaces, lowest first, with code 0 meaning "no surface". The number
-of planes is read from the manifest (`height_maps`), never assumed. This tool answers the only question
+The shipped map asset (see `build_map.py`, schema `wuchang-minimap-maps/6`) is a stack
+of 16-bit grayscale height planes - up to eight of them: at every pixel, the Z of up
+to eight walkable surfaces, lowest first, with code 0 meaning "no surface". A code is
+12 bits of Z plus bit 12, the reachable flag. The number of planes and the code range
+are read from the manifest through `mapfmt`, never assumed. This tool answers the only question
 that matters about that asset - *does the slice at the player's feet read as one
 coherent floor plan?* - without launching the game, and it is the reference
 implementation of the rule the C++ overlay must reproduce pixel for pixel.
@@ -55,6 +56,8 @@ from pathlib import Path
 
 import numpy as np
 
+import mapfmt
+
 try:
     from PIL import Image
 except ImportError:  # pragma: no cover
@@ -76,8 +79,11 @@ def load_chapter(maps_dir: Path, chapter: str) -> tuple[dict, str]:
     if chapter not in chapters:
         sys.exit(f"chapter '{chapter}' not in {path} (have: {', '.join(sorted(chapters)) or 'nothing'})")
     ch = chapters[chapter]
-    if "height_maps" not in ch:
-        sys.exit(f"{path} carries no 'height_maps' (schema {schema}); rebuild with build_map.py")
+    if not mapfmt.height_plane_list(ch)[0]:
+        sys.exit(
+            f"{path} carries no '{mapfmt.HEIGHT_KEY}' or '{mapfmt.HEIGHT_KEY_LEGACY}' "
+            f"(schema {schema}); rebuild with build_map.py"
+        )
     return ch, schema
 
 
@@ -103,16 +109,18 @@ def read_window(
     z_min = float(ch["z_min"])
     z_max = float(ch["z_max"])
     span = z_max - z_min
+    code_max = int(ch.get("z_code_max", mapfmt.Z_CODE_MAX_LEGACY))
     zs = []
     vs = []
-    for rel in ch["height_maps"]:
+    for rel in mapfmt.height_plane_list(ch)[0]:
         img = Image.open(maps_dir / rel)
         if img.size != (w_img, h_img):
             sys.exit(f"{rel} is {img.size[0]}x{img.size[1]}, manifest says {w_img}x{h_img}")
-        code = np.asarray(img.crop((x0, y0, x1, y1))).astype(np.uint32)
+        raw = np.asarray(img.crop((x0, y0, x1, y1))).astype(np.uint16)
+        code = mapfmt.z_codes(raw).astype(np.uint32)
         valid = code > 0
         z = np.full(code.shape, np.nan, dtype=np.float64)
-        z[valid] = z_min + (code[valid].astype(np.float64) - 1.0) / 65534.0 * span
+        z[valid] = z_min + (code[valid].astype(np.float64) - 1.0) / float(code_max - 1) * span
         zs.append(z)
         vs.append(valid)
     return np.stack(zs), np.stack(vs), x0, y0

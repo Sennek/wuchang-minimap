@@ -18,6 +18,44 @@ debug_readout = 1
 ; Open the settings panel as soon as the mod starts.
 debug_show_panel_on_start = 0
 
+; How much goes into wuchang_minimap.log and UE4SS.log:
+;   normal   startup, what loaded, chapter and save-slot changes, warnings, errors,
+;            first-time diagnostics, a health summary once a minute
+;   verbose  adds the player-state line, per-round marker timings, menu open/close,
+;            why the minimap is hidden, x-ray toggles
+;   trace    adds everything else, including a marker census every two seconds
+log_level = normal
+
+; Rewrite wuchang_minimap_last_stage.txt at every overlay stage (hooks installed,
+; swapchain chosen, ImGui up, first map slice, chapter swap, teardown, exit), so a
+; crash leaves the stage it was in behind. One small file write per stage change.
+crash_breadcrumb = 1
+
+; Show a 10-second toast naming the panel, map and highlight keys on the first launch
+; after installing. Delete wuchang_minimap_firstrun.txt to see it again.
+first_run_toast = 1
+
+; ---------------------------------------------------------------------------------
+; MAP BACKGROUND AND DPI
+; ---------------------------------------------------------------------------------
+; The map assets mark every surface the game's own navigation data says a player can
+; walk to. What to do with the rest - wall tops, roof ridges, ledges outside the arena:
+;   hide  the map draws only ground you can reach
+;   dim   it is drawn one step fainter than ground you can reach
+;   show  it is drawn like any other ground
+; Map assets built before this existed have no such marks, and everything in them is
+; treated as reachable whatever this says.
+map_unreachable = hide
+
+; 1 = scale minimap_zoom and map_zoom with ui_scale, so one config shows the same area
+; of the world at every resolution. 0 = uu per pixel is literal.
+zoom_dpi_scaled = 1
+
+; Which collection file: auto | shared | <name>. auto = one file per save slot,
+; wuchang_minimap_found_<slot>.txt, seeded once from the shared file. shared = the
+; single wuchang_minimap_found.txt. <name> = wuchang_minimap_found_<name>.txt.
+found_profile = auto
+
 ; Also load the Z-shaded composite small.png (+82 MB of VRAM for Chapter 1). It is the
 ; fallback for a chapter with no height planes, which the runtime loads on its own.
 fallback_use_composite = 0

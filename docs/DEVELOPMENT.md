@@ -900,54 +900,51 @@ candidate queue, how many the cap refused, and the sweep's current period.
 
 ### The F2 panel
 
-Five tabs, one home per concept — a surface's on/off, its size and its categories are never
+Four tabs, one home per concept — a surface's on/off, its size and its categories are never
 on different tabs:
 
-- **Overview** — the three presets (*Minimal HUD* / *Loot hunting* / *Exploration*, each
-  setting several Player keys at once and touching no hotkey, no UI scale and nothing on
-  Tuning), then *What is on* (minimap, compass, x-ray with their own dials and the
-  `hidden because: <reason>` line), *Placement* (`hud_preset`, with the anchors revealed under
-  `custom`) and *Look* (theme, palette, `overlay_enabled`).
+- **Overview** — *What is on* (minimap, compass and x-ray, each with the handful of dials that
+  decide how it looks, plus show-markers and hide-in-menus), *Placement* (`hud_preset`, with
+  the anchors revealed under `custom`, the minimap offset and the UI scale) and *Look* (theme,
+  palette, font).
 - **Categories** — the fourteen categories as rows against the three masks as columns
   (`markers_categories` / `highlight_categories` / `compass_categories`), each row carrying the
   category's glyph, colour and live found / known count, each column header an *all* / *none*
   pair, a click on a row label toggling it everywhere. Under it the rules that are about every
-  surface at once: show found, the three glyph sizes, the item-quality combo, show markers and
-  clamp-to-rim.
-- **Map & tracker** — the collection tracker first, with its profile, export / import,
-  clear-this-save button and statistics page, then the map background, the full map and the
-  waypoint list.
+  surface at once: show found and how faint, the three glyph sizes, the item-quality combo with
+  its tier colours, and clamp-to-rim.
+- **Map & tracker** — the collection tracker first, with its clear-this-save button, backup and
+  statistics page, then the full map and the waypoint list.
 - **Keys** — every hotkey, rebound by clicking a row and pressing a key, plus the three gamepad
   chords.
-- **Tuning** — the Advanced tier, grouped by the surface it tunes: minimap, full map, x-ray,
-  compass, floors, sweep & tracker, the visibility gate and diagnostics.
 - **Debug** — present only while `debug_readout = 1`, a Dev key in a file a player does not
-  have. It carries the Dev keys, the per-activity performance table and every read-only
-  diagnostic (marker sweep, gamepad, map slice, x-ray camera, game state).
+  have. It carries the Dev keys, a *Tuning* section holding the whole Advanced tier (map
+  background, minimap, full map, x-ray, compass, floors, sweep & tracker, the visibility gate
+  and diagnostics), the collection-file readout, the per-activity performance table and every
+  read-only diagnostic (marker sweep, gamepad, map slice, x-ray camera, game state).
 
-Section folds are one bit each in `wuchang_minimap_panel.txt` (`sections2 = 0x...`; the bits
-are positional, so the enum in `overlay_panel.cpp` is the file format). The
-Save / **Revert** / Reload / **Reset to defaults** row and the master switch live outside the
-tabs, at the bottom, and never scroll away. Save writes the file named on the button and
-rewrites *only the values*; Debug-tab settings go to the dev file.
+Section folds are one bit each in `wuchang_minimap_panel.txt` (`sections3 = 0x...`; the bits
+are positional, so the enum in `overlay_panel.cpp` is the file format — a token bump is how a
+changed enum invalidates an old file). The **Reload map data** / **Reset to defaults** row and
+the master switch live outside the tabs, at the bottom, and never scroll away.
 
-#### The category filters save themselves
+#### Everything saves itself
 
-Four keys — `markers_categories`, `markers_hide_found`, `highlight_categories`,
-`compass_categories` — are what `mm::filters_differ()` compares and `mm::kFilterKeys` names, the
-one definition of "a filter". Both places that publish a UI-edited config (the full map and the
-F2 panel, each doing `if (before != cfg) mm::set_config(cfg)`) also raise `mm::g_save_filters`
-when a filter moved, which covers the legend rows, the Categories grid, the `found` checkbox
-and the player presets.
+There is no Save button. Both places that publish a UI-edited config — the full map and the F2
+panel, each doing `if (before != cfg) mm::set_config(cfg)` — also raise
+`mm::g_save_config_soon`, and so do the two settings the game itself moves: the minimap zoom
+ladder (loop thread, `overlay.cpp`) and the full map's zoom, written back un-DPI-scaled on the
+frame the map closes (`overlay_d3d12.cpp`).
 
-The loop thread consumes it in the same file-writes block as the waypoint and Save writes:
-raising the flag stamps a deadline 750 ms out, so a run of legend clicks costs one write, and a
-change arriving while a save is pending re-stamps it and lands on the next pass. The write goes
-through `mm::save_config_keys()`, a `cfgrw::filter` over `config_kv()` down to just those keys,
-so every other key — including a panel edit the player has *not* saved — keeps whatever is on
-disk. Dev keys cannot leak in: the filter set only names Player keys and `save_config_keys`
-drops anything that is not Player or Advanced. With no config file on disk it defers to the full
-`save_config_file()`, which owns the pristine text a fresh file is made of.
+The loop thread consumes the flag in the same file-writes block as the waypoint file: raising it
+stamps a deadline 750 ms out, so a dragged slider or a run of legend clicks costs one write, and
+a change arriving while a save is pending re-stamps it. The write is `mm::save_config_file()`,
+which rewrites *only the values* of both files through `cfgrw::rewrite` — comments, ordering and
+keys this build does not know survive it — and writes the dev file only when one exists or a Dev
+key is off its default.
+
+One save stays synchronous, `mm::g_save_config`: unticking the master switch, which must have
+`mod_enabled = 0` on disk before the 1 Hz watcher acts on it.
 
 ### Settings
 
@@ -957,20 +954,22 @@ table that says which **tier** each key is in:
 
 | tier | where it lives | what it is |
 |---|---|---|
-| **Player** (59) | `config_wuchang_minimap.txt`, under `; ---- PLAYER SETTINGS ----`; F2 → *Player* | something a person tuning the HUD would plausibly change |
-| **Advanced** (63) | the same file, under `; ---- ADVANCED ----`; F2 → *Advanced* | correct as shipped; changed to answer a symptom |
-| **Dev** (24) | `config_wuchang_minimap_dev.txt`; F2 → *Debug* | a dial that exists because a developer needed one during bring-up |
+| **Player** (56) | `config_wuchang_minimap.txt`, under `; ---- PLAYER SETTINGS ----`; the F2 panel's four player tabs | something a person tuning the HUD would plausibly change |
+| **Advanced** (58) | the same file, under `; ---- ADVANCED ----`; F2 → *Debug* → *Tuning* | correct as shipped; changed to answer a symptom |
+| **Dev** (30) | `config_wuchang_minimap_dev.txt`; F2 → *Debug* | a dial that exists because a developer needed one during bring-up |
 
-Twelve further keys are **removed** — sanity caps that are constants now — and one is
-**legacy** (`enabled` -> `overlay_enabled`). Either gets a single warning naming it and is
-then ignored.
+Nineteen further keys are **removed** — sanity caps that are constants now, and toggles for
+behaviour the mod simply has (`overlay_enabled` and its older name `enabled`, `found_tracker`,
+`markers_absence_marks`, `map_waypoint_persist`, `shrine_list`). A removed key gets a single
+warning naming it and is then ignored. `cfgkeys::renamed_to` keeps the **legacy** rename path
+alive for the next one; nothing is renamed right now.
 
 **`config_wuchang_minimap_dev.txt` is not part of a release.** It is read only if it exists,
 in the same folder, **after** the player config — so a key set in both wins there — and
 `tools\package.ps1` throws if it finds one in the staged package. `deploy.ps1` copies it. The
 1 Hz timestamp watch and F5 look at **both** files, so editing either reloads both. The Debug
-tab saves into the dev file, never into the player one; if the file does not exist, Save
-leaves it that way.
+tab saves into the dev file, never into the player one; if the file does not exist and every
+Dev key is at its default, it stays that way.
 
 Only `srv_heap_size` needs a restart: the descriptor heap is created once, when the overlay
 first initialises.
@@ -985,14 +984,14 @@ height maps are freed and XInput is never polled. What keeps running is one
 `GetFileAttributesEx` of the config file per second on the loop thread, so setting the key back
 to `1` restarts the mod within a second. **F5 does not work while the mod is off** — nothing
 samples the keyboard — and the panel's checkbox can only turn it *off*. Every flip writes one
-`master switch:` line into `UE4SS.log`. `overlay_enabled` is the *overlay*, not the mod: with
-`overlay_enabled = 0` the reader, the marker sweep and the map asset still run.
+`master switch:` line into `UE4SS.log`. It is the only off switch: the Debug tab's *Disable for
+this session* stops the same way without writing anything.
 
 `tests/markers_test.cpp` is the drift guard, in both directions:
 `keys(config_wuchang_minimap.txt) == Player ∪ Advanced`,
 `keys(config_wuchang_minimap_dev.txt) == Dev`,
 `{key == "..." literals scraped out of mmstate.cpp} == Player ∪ Advanced ∪ Dev ∪ Legacy`, the
-four tiers pairwise disjoint, no removed or renamed key in either file, the shipped file's
+tiers pairwise disjoint, no removed or renamed key in either file, the shipped file's
 `; ---- PLAYER SETTINGS ----` / `; ---- ADVANCED ----` banner order matching the tier tags key
 for key, and a byte-identical round trip of the in-place rewrite over both real files. So no
 layout, no table and no parser branch can drift away from the others.
@@ -1003,7 +1002,7 @@ An item picked up **before the mod was installed** leaves nothing to read: the g
 collected pickup at `(0, 0, 0)` when its level loads and frees it at the next GC, so neither
 `dying` nor the `(0,0,0)` test has an actor to speak for. Absence on its own is *not* evidence
 here — an unloaded level and a collected pickup are indistinguishable from the object array —
-so `markers_absence_marks` adds the facts that make it one:
+so the absence rule adds the facts that make it one:
 
 1. the marker's owning level (its `level` field) is in the set `gamestate` reports as loaded.
    **A marker whose level cannot be matched is never marked** — that is the safety rail;
@@ -1154,19 +1153,19 @@ run the same code the two maps do:
 | `adjacent_floor_opacity` | Advanced | 0.25 | opacity of the surface below; the one above uses 60 % of it |
 | `floor_fade_uu` | Advanced | 800 | uu: how far **below** your feet is still drawn |
 | `floor_fade_above_uu` | Advanced | 300 | uu: how far **above**; 0 = never draw a floor above you |
-| `map_unreachable` | Player | `hide` | a surface the flood never reached: `hide` \| `dim` \| `show` |
+| `map_unreachable` | Dev | `hide` | a surface the flood never reached: `hide` \| `dim` \| `show` |
 
 `floor_fade_above_uu` is its own dial because ground overhead is never ground the player can
 walk on now: measured on the chapter-2 Ai Nengqi arena, the above class is 31 % of everything
-drawn, in 230 separate blobs. `map_unreachable` is a Player key and lives on the F2 panel's
-*Map & tracker* tab as a three-way control, disabled with `maps without reachability data`
-when the asset tree is /4. `dim` draws an unreachable surface one rung further down the same
+drawn, in 230 separate blobs. `map_unreachable` is a Dev key and lives on the F2 panel's
+*Debug* tab, under *Tuning*, as a three-way control, disabled with
+`maps without reachability data` when the asset tree is /4. `dim` draws an unreachable surface one rung further down the same
 opacity ladder — no second colour ramp.
 
 **Markers** are the same published draw buffer, the same glyphs and the same category mask the
 minimap uses — the legend column toggles the *same* `markers_categories` setting the F2 chips
 and the config file drive, and the click is
-[written back to the config on its own](#the-category-filters-save-themselves). Hovering a
+[written back to the config on its own](#everything-saves-itself). Hovering a
 marker shows its class, category, found state and
 distance; a left-click toggles found by hand, which goes through the tracker mailbox to the
 loop thread and into the found file. The live sweep still owns the truth: un-marking a chest
@@ -1191,8 +1190,8 @@ waypoint = <x> <y> <z>
 
 written by the loop thread (the render thread only sets the value). The older single-waypoint
 format — a `set` / `x` / `y` / `z` block — is still read, as a list of one. The file is
-deliberately **not** part of `config_wuchang_minimap.txt`, which is only written by the panel's
-Save button, because a waypoint set during play must survive without anybody pressing Save.
+deliberately **not** part of `config_wuchang_minimap.txt`: it is play state, not a setting, and
+it is written on its own debounce as the player drags a pin around.
 
 The set lives in one fixed-capacity POD (`mv::WaypointSet`) behind a spinlock: every draw site
 copies the whole thing inside Present, and a `std::vector` there would allocate.

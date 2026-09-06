@@ -124,8 +124,7 @@ namespace mm
         bool mod_enabled = true;
 
         // The ladder, in order of how much they stop: mod_enabled (the whole mod) >
-        // overlay_enabled (anything drawn) > show_minimap (just the minimap disc).
-        bool overlay_enabled = true;
+        // show_minimap (just the minimap disc).
         bool show_minimap = true;
 
         //=== UI scale, HUD placement, theme and palette ============================
@@ -139,6 +138,9 @@ namespace mm
 
         bool ui_scale_auto = true;
         float ui_scale = 1.0f; // only consulted when ui_scale_auto is false
+        // Overlay text height in 1080p pixels; the font is rasterised at font_size * ui_scale.
+        // Window padding and spacing follow it, marker and compass geometry does not.
+        int font_size = 20;
         HudPreset hud_preset = HudPreset::Custom;
         float size_frac = 0.24f;      // minimap side as a fraction of screen height
         float zoom_uu_per_px = 26.0f; // world uu per minimap pixel (smaller = closer)
@@ -217,9 +219,8 @@ namespace mm
 
         //=== Absence as evidence of a collect ======================================
         // An item collected before the mod was installed has a DB entry and no live actor at all.
-        // With this on, a marker whose owning level is loaded and that no full object-array round
-        // has seen since that level streamed in is marked collected after this many rounds.
-        bool markers_absence_marks = true;
+        // A marker whose owning level is loaded and that no full object-array round has seen
+        // since that level streamed in is marked collected after this many rounds.
         int markers_absence_rounds = 2;
         // A boss killed before the mod was installed never spawns again. With this on, a boss
         // marker also counts as defeated when the `bossdoor_*` firepoint the level script names
@@ -230,14 +231,13 @@ namespace mm
         std::uint32_t markers_absence_categories =
             mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup);
 
-        // The found tracker: wuchang_minimap_found.txt, one stable id per line.
-        bool found_tracker = true;
+        // The found tracker: wuchang_minimap_found.txt, one stable id per line. Always on; the
+        // panel's "Clear this save's found list" is the only way to empty it.
         int found_save_debounce_ms = 2000;
         // `auto` runs the save-slot ladder in src/saveslot.hpp and writes
         // wuchang_minimap_found_<key>.txt; `shared` pins the global file; anything else is the key.
         char found_profile[32] = "auto";
         bool first_run_toast = true;
-        bool shrine_list = true;
         // Extra widget class-name prefixes that are NOT menus, on top of `kNonMenuRoots` in
         // scan_sched.hpp - "a menu is open" means "an in-viewport widget Visibility is Visible",
         // which a combat subtitle also satisfies. Comma-separated, matched as a prefix.
@@ -265,7 +265,6 @@ namespace mm
         int map_slice_hz = 6;        // hard cap on re-cuts per second
         bool map_gamepad = true;     // poll XInput while the map is open
         float map_gamepad_deadzone = 0.22f;
-        bool map_waypoint_persist = true; // write wuchang_minimap_waypoint.txt
 
         //=== X-ray highlight =======================================================
         // While on, every marker of an enabled category within `highlight_radius` is drawn at its
@@ -425,7 +424,7 @@ namespace mm
         // `highlight_pad_chord` is ("BACK+Y"), pressed as a chord. `none` disables it.
         std::uint16_t map_pad_open_chord = 0x8020; // pad::kY | pad::kBack
 
-        // The UI font, rasterised at 13 * ui_scale. A missing or unreadable file falls back to the
+        // The UI font, rasterised at font_size * ui_scale. A missing or unreadable file falls back to the
         // built-in ProggyClean and says so in the log. A fixed array, not std::string.
         char ui_font[192] = "C:\\Windows\\Fonts\\segoeui.ttf";
 
@@ -468,12 +467,12 @@ namespace mm
     {
         return
         a.mod_enabled == b.mod_enabled &&
-        a.overlay_enabled == b.overlay_enabled &&
         a.show_minimap == b.show_minimap &&
         a.theme == b.theme &&
         a.palette == b.palette &&
         a.ui_scale_auto == b.ui_scale_auto &&
         a.ui_scale == b.ui_scale &&
+        a.font_size == b.font_size &&
         a.hud_preset == b.hud_preset &&
         a.size_frac == b.size_frac &&
         a.zoom_uu_per_px == b.zoom_uu_per_px &&
@@ -516,15 +515,12 @@ namespace mm
         a.markers_size == b.markers_size &&
         a.markers_clamp_to_edge == b.markers_clamp_to_edge &&
         a.markers_max_draw == b.markers_max_draw &&
-        a.markers_absence_marks == b.markers_absence_marks &&
         a.markers_absence_rounds == b.markers_absence_rounds &&
         a.boss_defeat_from_save == b.boss_defeat_from_save &&
         a.markers_absence_categories == b.markers_absence_categories &&
-        a.found_tracker == b.found_tracker &&
         a.found_save_debounce_ms == b.found_save_debounce_ms &&
         detail::eq(a.found_profile, b.found_profile) &&
         a.first_run_toast == b.first_run_toast &&
-        a.shrine_list == b.shrine_list &&
         detail::eq(a.menu_ignore_roots, b.menu_ignore_roots) &&
         a.map_zoom == b.map_zoom &&
         a.map_zoom_min == b.map_zoom_min &&
@@ -541,7 +537,6 @@ namespace mm
         a.map_slice_hz == b.map_slice_hz &&
         a.map_gamepad == b.map_gamepad &&
         a.map_gamepad_deadzone == b.map_gamepad_deadzone &&
-        a.map_waypoint_persist == b.map_waypoint_persist &&
         a.highlight_enabled == b.highlight_enabled &&
         a.highlight_mode == b.highlight_mode &&
         a.highlight_key == b.highlight_key &&
@@ -633,20 +628,6 @@ namespace mm
         return !(a == b);
     }
 
-    // The marker filters, the one definition of the set: what the full map's legend and the F2
-    // chips edit, and the only keys the automatic filter save writes. All four are Tier::Player.
-    inline bool filters_differ(const Config& a, const Config& b)
-    {
-        return a.markers_categories != b.markers_categories ||
-               a.markers_hide_found != b.markers_hide_found ||
-               a.highlight_categories != b.highlight_categories ||
-               a.compass_categories != b.compass_categories;
-    }
-
-    // The keys `filters_differ` compares, for save_config_keys().
-    inline const char* const kFilterKeys[] = {"markers_categories", "markers_hide_found",
-                                              "highlight_categories", "compass_categories"};
-
     // The config lives here and is copied under a spinlock. The loop thread writes it on load /
     // F5; the render thread writes it when the F2 panel is used.
     Config config();
@@ -726,12 +707,6 @@ namespace mm
     // Loop thread only (plain Win32 file I/O, no iostreams).
     void load_config_file();
     void save_config_file();
-    // A partial save: only the named keys get their live value written into
-    // config_wuchang_minimap.txt. Every other key, including a panel edit not yet saved, keeps
-    // whatever is on disk. `keys` must be Player or Advanced keys - a Dev key is dropped, since
-    // this only ever writes the player file. With no file to rewrite it falls back to
-    // save_config_file(), which owns the pristine text a fresh file is made of.
-    void save_config_keys(const char* const* keys, std::size_t count);
     std::wstring config_path();
     // config_wuchang_minimap_dev.txt - the Tier::Dev overlay, parsed after the main file.
     std::wstring dev_config_path();
@@ -812,12 +787,12 @@ namespace mm
     extern std::atomic<bool> g_panel_open;      // F2
     extern std::atomic<bool> g_map_open;        // M - full map (reserved)
     extern std::atomic<bool> g_reload_config;   // F5 -> loop thread reloads
-    // Panel "Revert": re-read the config files only and publish them, dropping unsaved edits.
-    extern std::atomic<bool> g_revert_config;
-    extern std::atomic<bool> g_save_config;     // panel -> loop thread saves
-    // A category filter changed in the UI. Render thread -> loop thread, which writes the four
-    // filter keys ~750 ms after the last change, so a run of legend clicks costs one write.
-    extern std::atomic<bool> g_save_filters;
+    // The master switch writing mod_enabled = 0: the one save that may not wait for a debounce.
+    extern std::atomic<bool> g_save_config;
+    // Any other settings change, from the panel, the full map or the zoom ladder. The loop
+    // thread rewrites both config files ~750 ms after the last one, so a dragged slider costs
+    // one write.
+    extern std::atomic<bool> g_save_config_soon;
     extern std::atomic<bool> g_panel_drew_frame; // set by the render thread, for the log
     // The Keys tab is waiting for a key press. While it is set the WndProc hook swallows
     // the whole keyboard. Set and cleared by the render thread; read by the WndProc hook.

@@ -193,7 +193,7 @@ namespace mdb
 
     struct AbsenceFacts
     {
-        bool feature_on = false;               // markers_absence_marks
+        bool feature_on = false;               // the absence rule is armed
         bool cat_selected = false;             // markers_absence_categories
         bool already_found = false;
         bool level_known = false;              // the marker's level is in the loaded set

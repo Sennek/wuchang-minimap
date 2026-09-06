@@ -458,7 +458,7 @@ namespace overlay
                 // first-run tip waits for it.
                 g_hud_gate_ever_open.store(true, std::memory_order_release);
             }
-            const float fade = hud_fade_step(gate_open && cfg.overlay_enabled, frame_now);
+            const float fade = hud_fade_step(gate_open, frame_now);
             cfg.opacity *= fade;
             cfg.compass_opacity *= fade;
             cfg.highlight_alpha_near *= fade;
@@ -562,14 +562,30 @@ namespace overlay
                 // map): the next open starts centred on the player again, with the map
                 // mode's panels and search box reset. close_map has already done that
                 // for its own routes; this is the edge the map never sees.
+                //
+                // The zoom the player left the map at becomes the zoom it opens with.
+                // The view holds a DPI-scaled number (draw_full_map's `zscale`), so it is
+                // un-scaled on the way back into the config, which is always literal.
+                if (g_mv_init)
+                {
+                    const float zscale =
+                        (raw.zoom_dpi_scaled && g_ui_scale > 0.0f) ? 1.0f / g_ui_scale : 1.0f;
+                    mm::Config edit = mm::config();
+                    edit.map_zoom = static_cast<float>(g_mv.uu_per_px) / zscale;
+                    if (edit.map_zoom != raw.map_zoom)
+                    {
+                        mm::set_config(edit);
+                        mm::g_save_config_soon = true;
+                    }
+                }
                 g_mv_init = false;
                 reset_map_mode();
             }
             g_map_was_open = mm::g_map_open.load(std::memory_order_relaxed);
 
-            if (!cfg.overlay_enabled || !cfg.show_minimap)
+            if (!cfg.show_minimap)
             {
-                set_hide_reason(L"disabled in the config");
+                set_hide_reason(L"the minimap is switched off");
             }
             else if (mm::g_map_open.load(std::memory_order_relaxed))
             {

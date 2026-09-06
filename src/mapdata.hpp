@@ -2,7 +2,7 @@
 
 //
 // mapdata - loads maps/maps.json and the chapter PNGs the offline pipeline produced
-// (tools/navmesh/build_map.py, schema `wuchang-minimap-maps/5`).
+// (tools/navmesh/build_map.py, schema `wuchang-minimap-maps/6`).
 //
 // THE ASSET
 // ---------
@@ -444,8 +444,8 @@ namespace mapdata
         double max_x = 0.0;
         double max_y = 0.0;
         double px_per_uu = 0.0;
-        // The planes carry bit 12 (schema /5). The F2 control that decides what to do
-        // with an unreachable surface is disabled while this is false.
+        // The planes carry bit 12 (schema /5 and up). The F2 control that decides what to
+        // do with an unreachable surface is disabled while this is false.
         bool has_reachability = false;
 
         bool contains(double wx, double wy) const
@@ -509,9 +509,21 @@ namespace mapdata
     // The chapter whose height planes are resident right now, or an empty string.
     std::string active_chapter_key();
 
-    // The loaded manifest is schema /5, so the height planes carry reachability. False
-    // until maps.json has been read, and for a /4 asset tree.
+    // The loaded manifest is schema /5 or newer, so the height planes carry reachability.
+    // False until maps.json has been read, and for a /4 asset tree.
     bool reachability_available();
+
+    // ANY THREAD, the game thread included: does the chapter NUMBERED `number` hold a
+    // surface within `tol` uu of `feet_z` at (wx, wy)? Answered from the coverage index
+    // in maps.json (mapmanifest::Entry::covers), so a chapter that is not resident answers
+    // too - which is what lets gamestate.cpp break a contested chapter vote at a boundary.
+    // False when nothing is loaded, no chapter carries that number, the position is off
+    // that chapter's picture, or the asset predates the index (schema /5 and older).
+    bool chapter_covers(int number, double wx, double wy, double feet_z, double tol);
+
+    // How many loaded chapters carry a coverage index. 0 for a pre-/6 asset tree, where
+    // `chapter_covers()` answers false everywhere and the chapter vote stands alone.
+    int chapters_with_coverage();
 
     // Render thread: take ownership of one decoded image, if any is ready.
     std::unique_ptr<PendingImage> take_pending();

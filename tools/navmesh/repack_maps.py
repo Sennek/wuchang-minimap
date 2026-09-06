@@ -16,6 +16,7 @@ It is also the tool to reach for the next time only the format changes - a repac
 takes about a minute and verifies its own output, where a rebuild depends on the
 extraction step and on the island filter's thresholds staying put.
 
+    python tools/navmesh/repack_maps.py --index-only         # only maps.json's coverage index
     python tools/navmesh/repack_maps.py --dry-run            # measure, write nothing
     python tools/navmesh/repack_maps.py --skip-heights       # composites only
     python tools/navmesh/repack_maps.py                      # in place, maps/
@@ -33,7 +34,8 @@ WHAT IT REWRITES
                               before the reachability pass carries no flag, so a repack
                               of one flags every surface - which is exactly what a
                               flagless asset means.
-  * `maps/maps.json`          the format fields (`z_bits`, `z_code_max`, `z_step_uu`,
+  * `maps/maps.json`          the coverage index (`--index-only` writes nothing else),
+                              the format fields (`z_bits`, `z_code_max`, `z_step_uu`,
                               `z_quantisation`, `composite_format`), the new byte
                               counts, and the tile-store numbers the runtime pays
                               (`height_tiles_128`, `height_tile_ram_bytes`)
@@ -191,6 +193,7 @@ def _repack_heights(key: str, entry: dict, src: Path, dst: Path, dry_run: bool) 
     )
 
     mapfmt.stamp_format(entry, z_min, z_max)
+    _stamp_coverage(entry, planes, z_min, z_max)
     entry.pop(mapfmt.HEIGHT_KEY_LEGACY, None)
     entry[mapfmt.HEIGHT_KEY] = out_files
     entry["height_map_bytes"] = sizes
@@ -209,6 +212,54 @@ def _repack_heights(key: str, entry: dict, src: Path, dst: Path, dry_run: bool) 
         "tiles": present,
         "tiles_total": total,
         "worst_uu": worst_uu,
+    }
+
+
+def _stamp_coverage(entry: dict, planes: list["np.ndarray"], z_min: float, z_max: float) -> dict:
+    """Recompute the coverage index from the planes in hand and print what it costs."""
+    index = mapfmt.coverage_index(planes, z_min, z_max)
+    entry[mapfmt.COVERAGE_KEY] = index
+    print(
+        f"  coverage: {index['tiles_x']}x{index['tiles_y']} tiles of {index['tile_px']} px, "
+        f"{index['tiles_present']}/{index['tiles_total']} present, "
+        f"{mapfmt.mb(index['bytes'])} raw -> {mapfmt.mb(len(index['data']))} base64, "
+        f"worst tile Z span {index['z_tile_span_uu_max']:.0f} uu"
+    )
+    return index
+
+
+def index_chapter(key: str, entry: dict, src: Path) -> dict:
+    """
+    --index-only: recompute the coverage index from the planes ON DISK and touch nothing
+    else.
+
+    This is how the index reaches an already-shipped tree. A full repack would re-encode
+    every PNG, and the 26 MB of map PNGs are only reproducible from a 400 MB extraction
+    run that is not in the repo - so the safe way to add a manifest field is to read the
+    planes and write only maps.json.
+    """
+    print(f"\n{key}")
+    z_min = float(entry.get("z_min", 0.0))
+    z_max = float(entry.get("z_max", 0.0))
+    if not z_max > z_min:
+        raise SystemExit(f"{key}: unusable z_min/z_max ({z_min}..{z_max})")
+    files, _ = mapfmt.height_plane_list(entry)
+    if not files:
+        raise SystemExit(f'{key}: no "{mapfmt.HEIGHT_KEY}" in the manifest')
+    planes = [mapfmt.read_height_png(src / rel) for rel in files]
+    index = _stamp_coverage(entry, planes, z_min, z_max)
+    return {
+        "key": key,
+        "composite_before": int(entry.get("png_bytes", 0)),
+        "composite_after": int(entry.get("png_bytes", 0)),
+        "heights_before": sum(int(n) for n in entry.get("height_map_bytes", [])),
+        "heights_after": sum(int(n) for n in entry.get("height_map_bytes", [])),
+        "ram_dense": int(entry.get("height_map_raw_bytes", 0)),
+        "ram_tiled": int(entry.get("height_tile_ram_bytes", 0)),
+        "tiles": int(entry.get("height_tiles_128", 0)),
+        "tiles_total": int(entry.get("height_tiles_128_total", 0)),
+        "worst_uu": 0.0,
+        "coverage_bytes": len(index["data"]),
     }
 
 
@@ -258,9 +309,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--chapter", action="append", default=None, help="only this chapter key (repeatable)")
     ap.add_argument("--skip-composite", action="store_true", help="leave <chapter>/small.png alone")
     ap.add_argument("--skip-heights", action="store_true", help="leave the height planes (and the schema) alone")
+    ap.add_argument(
+        "--index-only",
+        action="store_true",
+        help="recompute only the coverage index and rewrite maps.json; no PNG is read for "
+        "re-encoding and none is written",
+    )
     ap.add_argument("--dry-run", action="store_true", help="measure and report, write nothing")
     args = ap.parse_args(argv)
 
+    if args.index_only and (args.skip_composite or args.skip_heights or args.out):
+        print("--index-only takes no --skip-* and no --out: it rewrites maps.json in place",
+              file=sys.stderr)
+        return 2
     if args.skip_composite and args.skip_heights:
         print("nothing to do: both --skip-composite and --skip-heights were given", file=sys.stderr)
         return 2
@@ -279,9 +340,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     was = manifest.get("schema", "(none)")
-    # The schema string is the HEIGHT format's version. Rewriting only the composite
-    # leaves it alone on purpose: an older DLL reads a palette PNG fine.
-    will = mapfmt.SCHEMA if not args.skip_heights else was
+    # The schema string is the version of everything a DECODER has to agree about: the
+    # height codes and the coverage index. Rewriting only the composite leaves it alone
+    # on purpose - an older DLL reads a palette PNG fine.
+    will = was if (args.skip_heights and not args.index_only) else mapfmt.SCHEMA
     print(f"repack: {manifest_path} schema {was} -> {will}")
     if dst != src and not args.dry_run:
         dst.mkdir(parents=True, exist_ok=True)
@@ -291,17 +353,20 @@ def main(argv: list[str] | None = None) -> int:
     for key, entry in chapters.items():
         if args.chapter and key not in args.chapter:
             continue
-        reports.append(
-            repack_chapter(
-                key,
-                entry,
-                src,
-                dst,
-                args.dry_run,
-                do_composite=not args.skip_composite,
-                do_heights=not args.skip_heights,
+        if args.index_only:
+            reports.append(index_chapter(key, entry, src))
+        else:
+            reports.append(
+                repack_chapter(
+                    key,
+                    entry,
+                    src,
+                    dst,
+                    args.dry_run,
+                    do_composite=not args.skip_composite,
+                    do_heights=not args.skip_heights,
+                )
             )
-        )
     if not reports:
         print("no chapter matched --chapter", file=sys.stderr)
         return 2

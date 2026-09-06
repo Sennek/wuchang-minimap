@@ -23,6 +23,15 @@
 // Hence a tiered vote, not a sum: cell packages beat `_logic` levels, which beat a bare
 // `Chapter<N>` mention, and a tier is consulted only when no higher tier saw anything.
 //
+// THE COVERAGE TIEBREAK. Two chapters' `_logic` levels are resident together in the
+// passages between chapters, so the vote there is a contested count and its winner can be
+// the chapter whose map asset stops short of the player - the map goes blank while the
+// neighbour's asset has ground under the player's feet. `coverage_tiebreak()` takes the
+// contested candidates plus, per candidate, whether that chapter's shipped asset covers
+// the player (mapmanifest::Entry::covers) and hands the answer to the one candidate that
+// does. `Hysteresis` then makes a swap wait for N consecutive agreeing samples, because a
+// swap costs ~340 MB of decode.
+//
 // Pure: no Windows, no UE4SS, no allocation.
 //
 
@@ -299,5 +308,117 @@ namespace chid
         int counts_[kTierCell + 1][kMaxChapter + 2]{};
         int seen_ = 0;
         int classified_ = 0;
+    };
+
+    //==================================================================================
+    // The coverage tiebreak
+    //==================================================================================
+
+    // One chapter that scored at the vote's winning tier, and whether its shipped map has
+    // ground at the player's feet.
+    struct Candidate
+    {
+        int chapter = kNone;
+        int count = 0;
+        bool covers = false;
+    };
+
+    constexpr int kMaxCandidates = kMaxChapter + 2;
+
+    // The chapter to use, given the vote's winner and what the assets say about the
+    // player's position. In order:
+    //
+    //   1. fewer than two candidates scored - nothing is contested, the vote stands;
+    //   2. the vote winner covers the player - it stands, so a chapter is never abandoned
+    //      while its own map has ground underfoot;
+    //   3. `current` is a candidate and covers - it stays, for the same reason;
+    //   4. exactly one candidate covers - that one wins, which is the whole point;
+    //   5. none or several cover - nothing was learned, the vote stands.
+    inline int coverage_tiebreak(const Candidate* candidates, int n, int vote_winner, int current)
+    {
+        if (candidates == nullptr || n <= 0)
+        {
+            return vote_winner;
+        }
+        int scored = 0;
+        int covering = 0;
+        int only_covering = kNone;
+        bool winner_covers = false;
+        bool current_covers = false;
+        for (int i = 0; i < n; ++i)
+        {
+            const Candidate& c = candidates[i];
+            if (c.count <= 0 || c.chapter < kDlc || c.chapter > kMaxChapter)
+            {
+                continue;
+            }
+            ++scored;
+            if (!c.covers)
+            {
+                continue;
+            }
+            ++covering;
+            only_covering = c.chapter;
+            winner_covers = winner_covers || c.chapter == vote_winner;
+            current_covers = current_covers || c.chapter == current;
+        }
+        if (scored < 2 || covering == 0 || winner_covers)
+        {
+            return vote_winner;
+        }
+        if (current_covers)
+        {
+            return current;
+        }
+        return covering == 1 ? only_covering : vote_winner;
+    }
+
+    // A swap decodes ~340 MB, so the coverage answer has to hold still first: `settle()`
+    // hands back `current` until the same `proposal` has arrived `need` times running.
+    // A proposal equal to `current` clears the streak, so walking back over a boundary
+    // costs nothing.
+    class Hysteresis
+    {
+      public:
+        void reset()
+        {
+            pending_ = kNone;
+            streak_ = 0;
+        }
+
+        int settle(int current, int proposal, int need)
+        {
+            if (proposal == current || proposal == kNone)
+            {
+                reset();
+                return current;
+            }
+            if (proposal != pending_)
+            {
+                pending_ = proposal;
+                streak_ = 0;
+            }
+            ++streak_;
+            if (streak_ >= (need > 1 ? need : 1))
+            {
+                reset();
+                return proposal;
+            }
+            return current;
+        }
+
+        int pending() const
+        {
+            return pending_;
+        }
+
+        int streak() const
+        {
+            return streak_;
+        }
+
+      private:
+        int pending_ = kNone;
+        int streak_ = 0;
     };
 } // namespace chid

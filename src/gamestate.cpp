@@ -265,6 +265,8 @@ namespace gamestate
             std::uint64_t cooldown_ms = kTransitionCooldownMs;
             std::uint64_t log_throttle_ms = kLogThrottleMs;
             std::uint64_t chapter_ms = kChapterPeriodMs;
+            double floor_tol = 200.0;      // uu, the slicer's own floor tolerance
+            double player_z_offset = 90.0; // uu from the pawn's origin down to its feet
             std::size_t max_widgets = kMaxWidgets;
             std::size_t max_menu_roots = kMaxMenuRoots;
             int max_levels = kMaxLevelsScanned;
@@ -294,6 +296,8 @@ namespace gamestate
             g_tune.log_throttle_ms = static_cast<std::uint64_t>(cfg.reader_log_throttle_ms);
             g_tune.chapter_ms = static_cast<std::uint64_t>(cfg.reader_chapter_period_ms);
             g_tune.teleport_uu = cfg.reader_teleport_jump_uu;
+            g_tune.floor_tol = static_cast<double>(cfg.floor_z_tolerance);
+            g_tune.player_z_offset = static_cast<double>(cfg.player_z_offset);
         }
 
         std::wstring g_pawn_class_name;
@@ -1684,6 +1688,63 @@ namespace gamestate
             return route;
         }
 
+        // THE COVERAGE TIEBREAK (chapterid.hpp + mapdata::chapter_covers). In the passage
+        // between two chapters both chapters' `_logic` levels are resident, so the vote is
+        // a contested count whose winner can be the chapter whose map asset stops short of
+        // the player. Each candidate at the winning tier is asked whether its shipped
+        // asset has ground at the player's feet, and the one that does wins.
+        chid::Hysteresis g_chapter_hyst;
+
+        // How many consecutive 1 Hz samples must agree before the tiebreak overrides the
+        // vote. A swap frees and decodes ~340 MB, so a boundary the player steps over and
+        // back must not flap.
+        constexpr int kCoverageSwapSamples = 3;
+
+        // The chapter to use: the vote's winner, unless exactly one contested candidate
+        // has ground under the player and the streak has been held. `g_last_x/y/z` is the
+        // position pump's last reading, at most 100 ms old.
+        int coverage_choice(const chid::Vote& vote, int detected)
+        {
+            if (detected == chid::kNone || !g_have_last_pos)
+            {
+                g_chapter_hyst.reset();
+                return detected;
+            }
+            const double feet_z = g_last_z - g_tune.player_z_offset;
+            chid::Candidate cand[chid::kMaxCandidates]{};
+            int n = 0;
+            const int tier = vote.best_tier();
+            for (int ch = chid::kDlc; ch <= chid::kMaxChapter && n < chid::kMaxCandidates; ++ch)
+            {
+                const int count = vote.count(ch, tier);
+                if (count <= 0)
+                {
+                    continue;
+                }
+                cand[n].chapter = ch;
+                cand[n].count = count;
+                cand[n].covers =
+                    mapdata::chapter_covers(ch, g_last_x, g_last_y, feet_z, g_tune.floor_tol);
+                ++n;
+            }
+            const int tiebreak = chid::coverage_tiebreak(cand, n, detected, g_chapter);
+            // Already on the chapter the coverage names: that is the settled state, and
+            // the vote does not pull us off it. Otherwise the streak has to be earned.
+            const int base = g_chapter == tiebreak ? tiebreak : detected;
+            const int chosen = g_chapter_hyst.settle(base, tiebreak, kCoverageSwapSamples);
+            if (tiebreak != detected && chosen == detected)
+            {
+                MM_LOGV(L"chapter: the coverage index proposes {} over the vote's {} at tier {} "
+                        L"({} of {} sample(s) so far)",
+                        tiebreak,
+                        detected,
+                        tier,
+                        g_chapter_hyst.streak(),
+                        kCoverageSwapSamples);
+            }
+            return chosen;
+        }
+
         void refresh_chapter(std::uint64_t now)
         {
             if (g_world == nullptr)
@@ -1729,19 +1790,30 @@ namespace gamestate
             {
                 return; // never overwrite a good answer with "I could not tell"
             }
-            if (detected != g_chapter)
+            const int chosen = coverage_choice(vote, detected);
+            if (chosen != g_chapter)
             {
-                mm::logf(L"chapter: {} -> {} (tier {}, {} of {} named level(s) agree)",
+                const std::wstring why =
+                    chosen == detected
+                        ? std::format(L"tier {}, {} of {} named level(s) agree",
+                                      vote.best_tier(), vote.best_count(), counted)
+                        : std::format(L"coverage tiebreak: the vote said {} at tier {}, but only "
+                                      L"this chapter's map has ground at X {:.0f} Y {:.0f} Z {:.0f}",
+                                      detected == chid::kDlc ? std::wstring{L"DLC"}
+                                                             : std::to_wstring(detected),
+                                      vote.best_tier(),
+                                      g_last_x,
+                                      g_last_y,
+                                      g_last_z - g_tune.player_z_offset);
+                mm::logf(L"chapter: {} -> {} ({})",
                          g_chapter == chid::kNone  ? std::wstring{L"?"}
                          : g_chapter == chid::kDlc ? std::wstring{L"DLC"}
                                                    : std::to_wstring(g_chapter),
-                         detected == chid::kDlc ? std::wstring{L"DLC"} : std::to_wstring(detected),
-                         vote.best_tier(),
-                         vote.best_count(),
-                         counted);
-                g_chapter = detected;
+                         chosen == chid::kDlc ? std::wstring{L"DLC"} : std::to_wstring(chosen),
+                         why);
+                g_chapter = chosen;
             }
-            mapdata::set_detected_chapter(detected);
+            mapdata::set_detected_chapter(chosen);
             (void)now;
         }
 

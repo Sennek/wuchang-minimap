@@ -4,10 +4,10 @@
 // mapmanifest - `maps/maps.json`, parsed. Pure: json.hpp and the standard library, no
 // Windows / WIC / UE4SS.
 //
-// SCHEMA `wuchang-minimap-maps/5`, produced by tools/navmesh/build_map.py (and by
+// SCHEMA `wuchang-minimap-maps/6`, produced by tools/navmesh/build_map.py (and by
 // tools/navmesh/repack_maps.py, which re-encodes an already-shipped tree):
 //
-//     { "schema": "wuchang-minimap-maps/5",
+//     { "schema": "wuchang-minimap-maps/6",
 //       "chapters": {
 //         "chapter1": { "chapter": 1, "image": "chapter1/small.png",
 //                       "image_width": ..., "image_height": ...,
@@ -15,7 +15,10 @@
 //                       "px_per_uu": ..., "z_min": ..., "z_max": ...,
 //                       "z_bits": 12, "z_code_max": 4095,
 //                       "max_surfaces": 8,
-//                       "height_planes": ["chapter1/small_h0.png", ...] },
+//                       "height_planes": ["chapter1/small_h0.png", ...],
+//                       "coverage": { "tile_px": 32, "tiles_x": .., "tiles_y": ..,
+//                                     "encoding": "u16le-lo-hi-base64",
+//                                     "data": "<base64>" } },
 //         "chapter2": { ... }, ... } }
 //
 // A HEIGHT CODE is one 16-bit sample of a height plane:
@@ -24,10 +27,20 @@
 //     bit  12      REACHABLE - a marker-seeded walk-and-fall flood reached this surface
 //     bits 13..15  zero
 //
-// Two schemas are accepted. /5 carries bit 12; /4 does not, and a /4 asset is read with
-// `has_reachability` false, which makes every surface reachable. /3 is refused: its
-// codes span the full 16 bits, so a /3 plane read here lands sixteen times off and looks
-// like an empty map rather than a version error.
+// THE COVERAGE INDEX (`coverage`, since /6) is a dense grid of 32-px tiles over the
+// chapter's own pixel grid, two 16-bit Z codes a tile - the lowest and the highest code
+// stored anywhere in that tile across every plane, 0/0 for a tile with no surface -
+// base64, little-endian, row-major. `Entry::covers()` answers the one question the
+// runtime cannot answer about a chapter it has not loaded: does THIS chapter's asset have
+// ground at the player's feet? gamestate.cpp asks it of the chapter vote's contested
+// candidates, because at a chapter boundary the vote can name the chapter whose asset
+// stops short of the player.
+//
+// Three schemas are accepted. /6 is /5 plus the coverage index. /5 carries bit 12 but no
+// index, and `covers()` then answers false everywhere, which leaves the vote alone. /4
+// carries neither, and is read with `has_reachability` false, which makes every surface
+// reachable. /3 is refused: its codes span the full 16 bits, so a /3 plane read here
+// lands sixteen times off and looks like an empty map rather than a version error.
 //
 // Fields worth naming:
 //
@@ -57,8 +70,10 @@ namespace mapmanifest
     // Must match tools/navmesh/mapfmt.py's SCHEMA. Compared for exact equality, so a
     // schema this build has never heard of is a stated version error and not a map that
     // silently decodes wrong.
-    inline constexpr const char* kSchema = "wuchang-minimap-maps/5";
-    // Accepted too: the same geometry and the same 12-bit Z, without bit 12.
+    inline constexpr const char* kSchema = "wuchang-minimap-maps/6";
+    // Accepted too: the same geometry and the same 12-bit Z, without the coverage index.
+    inline constexpr const char* kSchemaNoCoverage = "wuchang-minimap-maps/5";
+    // And without bit 12 either.
     inline constexpr const char* kSchemaNoReach = "wuchang-minimap-maps/4";
 
     // Height-quantisation fallbacks for a file that omits them.
@@ -72,6 +87,50 @@ namespace mapmanifest
     // How many stacked walkable surfaces one pixel can carry. Must match
     // build_map.py's --max-surfaces (shipped: 8).
     inline constexpr int kMaxSurfaces = 8;
+
+    // The coverage index's tile size, in pixels of the chapter's own grid. Must match
+    // mapfmt.py's COVERAGE_TILE. A file that states another value is read at the value it
+    // states, so only the producer has to move.
+    inline constexpr int kCoverageTilePx = 32;
+
+    //==================================================================================
+    // The coverage index
+    //==================================================================================
+
+    // One chapter's tile grid: the lowest and the highest Z CODE stored in each tile,
+    // 0/0 where the tile holds no surface. Codes, not world Z - the Entry owns the
+    // quantisation that turns them into uu.
+    struct Coverage
+    {
+        int tile_px = 0;
+        int tiles_x = 0;
+        int tiles_y = 0;
+        std::vector<std::uint16_t> lo;
+        std::vector<std::uint16_t> hi;
+
+        bool ok() const
+        {
+            const std::size_t want =
+                static_cast<std::size_t>(tiles_x) * static_cast<std::size_t>(tiles_y);
+            return tile_px > 0 && tiles_x > 0 && tiles_y > 0 && lo.size() == want &&
+                   hi.size() == want;
+        }
+
+        // False when the tile is outside the grid or holds no surface at all.
+        bool tile_range(int tx, int ty, std::uint16_t& lo_code, std::uint16_t& hi_code) const
+        {
+            if (!ok() || tx < 0 || ty < 0 || tx >= tiles_x || ty >= tiles_y)
+            {
+                return false;
+            }
+            const std::size_t i =
+                static_cast<std::size_t>(ty) * static_cast<std::size_t>(tiles_x) +
+                static_cast<std::size_t>(tx);
+            lo_code = lo[i];
+            hi_code = hi[i];
+            return hi_code != 0;
+        }
+    };
 
     struct Entry
     {
@@ -95,9 +154,12 @@ namespace mapmanifest
         // The file carried no `height_planes`; the names were guessed from the
         // composite's.
         bool height_maps_guessed = false;
-        // The planes carry bit 12 (schema /5). False for a /4 asset, where every
+        // The planes carry bit 12 (schema /5 and up). False for a /4 asset, where every
         // surface counts as reachable.
         bool has_reachability = false;
+        // The coverage index (schema /6). Empty for an older asset, and `covers()` then
+        // answers false everywhere.
+        Coverage coverage;
 
         // uu per height code - what HeightMaps::z_step() reproduces at runtime.
         double z_step_uu() const
@@ -115,6 +177,51 @@ namespace mapmanifest
         {
             return !height_maps.empty() && z_max > z_min && z_code_max > 1;
         }
+
+        // The chapter's own pixel for a world position, through the north-up mapping
+        // `u = (Y - min_y) * px_per_uu`, `v = (max_x - X) * px_per_uu`. False outside the
+        // picture.
+        bool to_px(double wx, double wy, int& px, int& py) const
+        {
+            if (!geometry_ok())
+            {
+                return false;
+            }
+            const double upx = (wy - min_y) * px_per_uu;
+            const double vpx = (max_x - wx) * px_per_uu;
+            if (!(upx >= 0.0) || !(vpx >= 0.0))
+            {
+                return false;
+            }
+            px = static_cast<int>(upx);
+            py = static_cast<int>(vpx);
+            return px < image_width && py < image_height;
+        }
+
+        // Does this chapter's asset hold a surface within `tol` uu of `feet_z` at
+        // (wx, wy)? A tile brackets every storey it touches, so this reads "there is
+        // ground about here at about this height" rather than "the pixel under the player
+        // is lit" - which is what a boundary tiebreak wants, and all a 32-px tile can say.
+        //
+        // False whenever the answer is not known: no index (a pre-/6 asset), a position
+        // off the picture, or an empty tile.
+        bool covers(double wx, double wy, double feet_z, double tol) const
+        {
+            int px = 0;
+            int py = 0;
+            std::uint16_t lo_code = 0;
+            std::uint16_t hi_code = 0;
+            if (!coverage.ok() || !heights_ok() || !to_px(wx, wy, px, py) ||
+                !coverage.tile_range(px / coverage.tile_px, py / coverage.tile_px, lo_code,
+                                     hi_code))
+            {
+                return false;
+            }
+            const double step = z_step_uu();
+            const double z_lo = z_min + (static_cast<double>(lo_code) - 1.0) * step;
+            const double z_hi = z_min + (static_cast<double>(hi_code) - 1.0) * step;
+            return feet_z >= z_lo - tol && feet_z <= z_hi + tol;
+        }
     };
 
     struct Manifest
@@ -124,11 +231,18 @@ namespace mapmanifest
 
         bool schema_ok() const
         {
-            return schema == kSchema || schema == kSchemaNoReach;
+            return schema == kSchema || schema == kSchemaNoCoverage || schema == kSchemaNoReach;
         }
 
         // The planes carry bit 12. Mirrored onto every Entry.
         bool has_reachability() const
+        {
+            return schema == kSchema || schema == kSchemaNoCoverage;
+        }
+
+        // The file carries a coverage index. False for /5 and /4, where `Entry::covers()`
+        // answers false everywhere and the chapter vote stands on its own.
+        bool has_coverage() const
         {
             return schema == kSchema;
         }
@@ -191,6 +305,109 @@ namespace mapmanifest
             const std::size_t dot = image.rfind('.');
             return dot == std::string::npos ? image : image.substr(0, dot);
         }
+
+        // -1 for anything that is not a base64 digit; '=' and whitespace are handled by
+        // the caller.
+        inline int b64_digit(char c)
+        {
+            if (c >= 'A' && c <= 'Z')
+            {
+                return c - 'A';
+            }
+            if (c >= 'a' && c <= 'z')
+            {
+                return c - 'a' + 26;
+            }
+            if (c >= '0' && c <= '9')
+            {
+                return c - '0' + 52;
+            }
+            if (c == '+')
+            {
+                return 62;
+            }
+            if (c == '/')
+            {
+                return 63;
+            }
+            return -1;
+        }
+
+        // Standard base64. Padding and whitespace are skipped; any other character makes
+        // the whole string a failure, so a truncated or mangled blob is refused rather
+        // than half-decoded.
+        inline bool b64_decode(std::string_view text, std::vector<std::uint8_t>& out)
+        {
+            out.clear();
+            out.reserve(text.size() / 4 * 3);
+            std::uint32_t acc = 0;
+            int bits = 0;
+            for (const char c : text)
+            {
+                if (c == '=' || c == '\n' || c == '\r' || c == ' ' || c == '\t')
+                {
+                    continue;
+                }
+                const int d = b64_digit(c);
+                if (d < 0)
+                {
+                    out.clear();
+                    return false;
+                }
+                acc = (acc << 6) | static_cast<std::uint32_t>(d);
+                bits += 6;
+                if (bits >= 8)
+                {
+                    bits -= 8;
+                    out.push_back(static_cast<std::uint8_t>((acc >> bits) & 0xFFu));
+                }
+            }
+            return true;
+        }
+
+        // The `coverage` object, or a left-empty Coverage. `problem` is set only when the
+        // object is there and unusable, so a pre-/6 chapter is silent.
+        inline void parse_coverage(const mjson::JValue& c, Coverage& out, std::string& problem)
+        {
+            out = Coverage{};
+            const mjson::JValue* jc = c.find("coverage");
+            if (jc == nullptr || jc->kind != mjson::JValue::Kind::Object)
+            {
+                return;
+            }
+            Coverage cov{};
+            cov.tile_px = static_cast<int>(number_or(*jc, "tile_px", kCoverageTilePx));
+            cov.tiles_x = static_cast<int>(number_or(*jc, "tiles_x", 0.0));
+            cov.tiles_y = static_cast<int>(number_or(*jc, "tiles_y", 0.0));
+            const mjson::JValue* jd = jc->find("data");
+            const std::string data = jd != nullptr ? jd->string_or("") : "";
+            if (cov.tile_px <= 0 || cov.tiles_x <= 0 || cov.tiles_y <= 0 || data.empty())
+            {
+                problem = "its \"coverage\" object is incomplete";
+                return;
+            }
+            const std::size_t tiles =
+                static_cast<std::size_t>(cov.tiles_x) * static_cast<std::size_t>(cov.tiles_y);
+            std::vector<std::uint8_t> raw;
+            if (!b64_decode(data, raw) || raw.size() != tiles * 4u)
+            {
+                problem = "its \"coverage\" blob is not " + std::to_string(tiles * 4u) +
+                          " base64 byte(s)";
+                return;
+            }
+            cov.lo.resize(tiles);
+            cov.hi.resize(tiles);
+            for (std::size_t i = 0; i < tiles; ++i)
+            {
+                cov.lo[i] = static_cast<std::uint16_t>(static_cast<std::uint16_t>(raw[i * 4 + 0]) |
+                                                       (static_cast<std::uint16_t>(raw[i * 4 + 1])
+                                                        << 8));
+                cov.hi[i] = static_cast<std::uint16_t>(static_cast<std::uint16_t>(raw[i * 4 + 2]) |
+                                                       (static_cast<std::uint16_t>(raw[i * 4 + 3])
+                                                        << 8));
+            }
+            out = std::move(cov);
+        }
     } // namespace detail
 
     // Parses `text`, collecting one line in `problems` per skipped chapter. False only
@@ -214,8 +431,9 @@ namespace mapmanifest
             // scale and looks like an empty map rather than an error.
             problems.push_back("maps.json is schema \"" +
                                (out.schema.empty() ? std::string("(none)") : out.schema) +
-                               "\" but this build reads \"" + std::string(kSchema) +
-                               "\" or \"" + std::string(kSchemaNoReach) +
+                               "\" but this build reads \"" + std::string(kSchema) + "\", \"" +
+                               std::string(kSchemaNoCoverage) + "\" or \"" +
+                               std::string(kSchemaNoReach) +
                                "\" - re-run tools/navmesh/build_map.py (or "
                                "tools/navmesh/repack_maps.py) and deploy.ps1, or install the "
                                "matching mod version");
@@ -294,6 +512,16 @@ namespace mapmanifest
                 e.height_maps_guessed = true;
             }
             e.max_surfaces = static_cast<int>(e.height_maps.size());
+
+            // A broken index costs the chapter its tiebreak vote, never the chapter
+            // itself: the map still draws.
+            std::string cov_problem;
+            detail::parse_coverage(c, e.coverage, cov_problem);
+            if (!cov_problem.empty())
+            {
+                problems.push_back("chapter \"" + e.key + "\": " + cov_problem +
+                                   " - the coverage tiebreak is off for it");
+            }
 
             if (!e.geometry_ok())
             {

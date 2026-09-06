@@ -1221,7 +1221,7 @@ namespace overlay
         void draw_highlight(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
         {
             g_hl_debug = HighlightDebug{};
-            if (!cfg.overlay_enabled || !cfg.highlight_enabled || !gate_ok)
+            if (!cfg.highlight_enabled || !gate_ok)
             {
                 return;
             }
@@ -1577,7 +1577,7 @@ namespace overlay
         void draw_compass(const mm::Config& cfg, const mm::Snapshot& snap, bool gate_ok)
         {
             g_compass_debug = CompassDebug{};
-            if (!cfg.overlay_enabled || !cfg.compass_enabled || !gate_ok)
+            if (!cfg.compass_enabled || !gate_ok)
             {
                 return;
             }

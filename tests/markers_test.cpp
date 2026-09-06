@@ -2509,13 +2509,95 @@ namespace
             tie.reset();
             CHECK_EQ(tie.best(), chid::kNone);
         }
+
+        section("the coverage tiebreak decides only a contested vote");
+        {
+            // One candidate: nothing is contested, whatever the coverage says.
+            chid::Candidate one[1]{};
+            one[0].chapter = 2;
+            one[0].count = 4;
+            one[0].covers = false;
+            CHECK_EQ(chid::coverage_tiebreak(one, 1, 2, 2), 2);
+            CHECK_EQ(chid::coverage_tiebreak(nullptr, 0, 2, 2), 2);
+
+            chid::Candidate c[3]{};
+            c[0].chapter = 2;
+            c[0].count = 3;
+            c[1].chapter = 3;
+            c[1].count = 3;
+            c[2].chapter = 4;
+            c[2].count = 1;
+
+            // Only the loser covers: it wins. This is the Hillswatch passage.
+            c[0].covers = false;
+            c[1].covers = true;
+            c[2].covers = false;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 3);
+
+            // The vote's winner covers: it is never abandoned.
+            c[0].covers = true;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 2);
+
+            // Neither covers, or both do: nothing was learned, the vote stands.
+            c[0].covers = false;
+            c[1].covers = false;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 2);
+            c[0].covers = true;
+            c[1].covers = true;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 2);
+
+            // Several cover and the chapter in use is one of them: it stays, so a
+            // boundary the player walks along does not swap the map back and forth.
+            c[0].covers = false;
+            c[1].covers = true;
+            c[2].covers = true;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 4), 4);
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 3), 3);
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, chid::kNone), 2);
+
+            // A candidate with no votes at the winning tier is not a candidate.
+            c[0].count = 0;
+            c[2].count = 0;
+            c[1].covers = true;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 2);
+        }
+
+        section("the swap waits for a streak");
+        {
+            chid::Hysteresis h{};
+            // Three samples proposing chapter 3 before the swap happens.
+            CHECK_EQ(h.settle(2, 3, 3), 2);
+            CHECK_EQ(h.streak(), 1);
+            CHECK_EQ(h.settle(2, 3, 3), 2);
+            CHECK_EQ(h.settle(2, 3, 3), 3);
+            CHECK_EQ(h.streak(), 0); // spent
+
+            // A proposal that agrees with the chapter in use clears the streak.
+            CHECK_EQ(h.settle(2, 3, 3), 2);
+            CHECK_EQ(h.settle(2, 2, 3), 2);
+            CHECK_EQ(h.streak(), 0);
+            CHECK_EQ(h.settle(2, 3, 3), 2);
+            CHECK_EQ(h.streak(), 1);
+
+            // So does a different proposal.
+            CHECK_EQ(h.settle(2, 4, 3), 2);
+            CHECK_EQ(h.pending(), 4);
+            CHECK_EQ(h.streak(), 1);
+
+            // kNone proposes nothing; need <= 1 swaps at once.
+            h.reset();
+            CHECK_EQ(h.settle(2, chid::kNone, 3), 2);
+            CHECK_EQ(h.settle(2, 3, 1), 3);
+            CHECK_EQ(h.settle(2, 3, 0), 3);
+        }
     }
 
     // mapmanifest.hpp - maps/maps.json
 
     void test_map_manifest(const std::string& markers_dir)
     {
-        std::printf("mapmanifest: schema /5 and /4, five chapters, and the ways it can be wrong\n");
+        std::printf("mapmanifest: schema /6, /5 and /4, five chapters, and the ways it can be "
+                    "wrong\n");
 
         {
             const char* text = R"({
@@ -2562,7 +2644,7 @@ namespace
             CHECK_EQ(m.default_index(), 0);
         }
 
-        // --- schema /5: the same document, with reachability in bit 12 ---------------
+        // --- schema /5: reachability in bit 12, but no coverage index -----------------
         {
             const char* text = R"({
               "schema": "wuchang-minimap-maps/5",
@@ -2580,8 +2662,9 @@ namespace
             CHECK(mapmanifest::parse(text, m, problems));
             CHECK_EQ(static_cast<long long>(problems.size()), 0);
             CHECK(m.schema_ok());
-            CHECK_STR(m.schema, std::string(mapmanifest::kSchema));
+            CHECK_STR(m.schema, std::string(mapmanifest::kSchemaNoCoverage));
             CHECK(m.has_reachability());
+            CHECK(!m.has_coverage());
             CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
             CHECK(m.chapters[0].has_reachability);
             // /5 changed nothing else: same geometry, same 12-bit Z.
@@ -2589,6 +2672,91 @@ namespace
             CHECK_EQ(m.chapters[0].z_code_max, 4095);
             CHECK(m.chapters[0].geometry_ok());
             CHECK(m.chapters[0].heights_ok());
+            // No index, so the tiebreak learns nothing anywhere and the vote stands.
+            CHECK(!m.chapters[0].coverage.ok());
+            CHECK(!m.chapters[0].covers(0.0, 0.0, 0.0, 1e9));
+        }
+
+        // --- schema /6: the coverage index, decoded and queried -----------------------
+        // Two 32-px tiles over a 64x32 px chapter at 1 px/uu, so a pixel is a world unit
+        // and a code is a world unit: z_min 0 over 4094 steps of 4094 uu. The left tile
+        // holds codes 101..201 (Z 100..200); the right one is empty.
+        {
+            const char* text = R"({
+              "schema": "wuchang-minimap-maps/6",
+              "chapters": {
+                "chapter1": { "chapter": 1, "image": "chapter1/small.png",
+                              "image_width": 64, "image_height": 32,
+                              "min_x": 0, "min_y": 0, "max_x": 32, "max_y": 64,
+                              "px_per_uu": 1.0, "z_min": 0, "z_max": 4094,
+                              "z_bits": 12, "z_code_max": 4095,
+                              "max_surfaces": 1,
+                              "height_planes": ["chapter1/small_h0.png"],
+                              "coverage": { "tile_px": 32, "tiles_x": 2, "tiles_y": 1,
+                                            "encoding": "u16le-lo-hi-base64",
+                                            "data": "ZQDJAAAAAAA=" } }
+              } })";
+            mapmanifest::Manifest m{};
+            std::vector<std::string> problems;
+            CHECK(mapmanifest::parse(text, m, problems));
+            CHECK_EQ(static_cast<long long>(problems.size()), 0);
+            CHECK(m.schema_ok());
+            CHECK_STR(m.schema, std::string(mapmanifest::kSchema));
+            CHECK(m.has_reachability());
+            CHECK(m.has_coverage());
+            const mapmanifest::Entry& e = m.chapters[0];
+            CHECK(e.coverage.ok());
+            CHECK_EQ(e.coverage.tile_px, mapmanifest::kCoverageTilePx);
+            CHECK_EQ(static_cast<long long>(e.coverage.lo.size()), 2);
+            CHECK_NEAR(e.z_step_uu(), 1.0, 1e-9);
+
+            std::uint16_t lo = 0;
+            std::uint16_t hi = 0;
+            CHECK(e.coverage.tile_range(0, 0, lo, hi));
+            CHECK_EQ(static_cast<long long>(lo), 101);
+            CHECK_EQ(static_cast<long long>(hi), 201);
+            CHECK(!e.coverage.tile_range(1, 0, lo, hi)); // empty tile
+            CHECK(!e.coverage.tile_range(2, 0, lo, hi)); // off the grid
+
+            // (wx, wy) -> px = (wy - min_y), py = (max_x - wx): wy < 32 is the left tile.
+            int px = 0;
+            int py = 0;
+            CHECK(e.to_px(16.0, 10.0, px, py));
+            CHECK_EQ(px, 10);
+            CHECK_EQ(py, 16);
+            CHECK(e.covers(16.0, 10.0, 150.0, 0.0));  // inside the tile's Z span
+            CHECK(e.covers(16.0, 10.0, 100.0, 0.0));  // exactly the floor
+            CHECK(e.covers(16.0, 10.0, 250.0, 60.0)); // above it, inside the tolerance
+            CHECK(!e.covers(16.0, 10.0, 250.0, 20.0));
+            CHECK(!e.covers(16.0, 10.0, -50.0, 20.0));
+            CHECK(!e.covers(16.0, 40.0, 150.0, 200.0)); // the empty right tile
+            CHECK(!e.covers(16.0, 100.0, 150.0, 200.0)); // off the picture
+            CHECK(!e.covers(100.0, 10.0, 150.0, 200.0));
+        }
+
+        // --- a /6 file whose index is unusable keeps its chapter, loses the tiebreak ---
+        {
+            const char* text = R"({
+              "schema": "wuchang-minimap-maps/6",
+              "chapters": {
+                "chapter1": { "chapter": 1, "image": "chapter1/small.png",
+                              "image_width": 64, "image_height": 32,
+                              "min_x": 0, "min_y": 0, "max_x": 32, "max_y": 64,
+                              "px_per_uu": 1.0, "z_min": 0, "z_max": 4094,
+                              "max_surfaces": 1,
+                              "height_planes": ["chapter1/small_h0.png"],
+                              "coverage": { "tile_px": 32, "tiles_x": 9, "tiles_y": 9,
+                                            "data": "ZQDJAAAAAAA=" } }
+              } })";
+            mapmanifest::Manifest m{};
+            std::vector<std::string> problems;
+            CHECK(mapmanifest::parse(text, m, problems));
+            CHECK_EQ(static_cast<long long>(m.chapters.size()), 1);
+            CHECK_EQ(static_cast<long long>(problems.size()), 1);
+            CHECK(problems[0].find("coverage") != std::string::npos);
+            CHECK(!m.chapters[0].coverage.ok());
+            CHECK(!m.chapters[0].covers(16.0, 10.0, 150.0, 200.0));
+            CHECK(m.chapters[0].geometry_ok()); // the map still draws
         }
 
         // --- a chapter that states max_surfaces but no plane list --------------------
@@ -2638,6 +2806,7 @@ namespace
             CHECK(!m.schema_ok());
             CHECK(m.chapters.empty()); // nothing is drawn from a file we cannot read
             CHECK(problems[0].find("wuchang-minimap-maps/3") != std::string::npos);
+            CHECK(problems[0].find("wuchang-minimap-maps/6") != std::string::npos);
             CHECK(problems[0].find("wuchang-minimap-maps/5") != std::string::npos);
             CHECK(problems[0].find("wuchang-minimap-maps/4") != std::string::npos);
             CHECK(problems[0].find("build_map.py") != std::string::npos);
@@ -2768,6 +2937,69 @@ namespace
                     CHECK(bytes <= 340u * 1024u * 1024u);
                     total_ram = bytes > total_ram ? bytes : total_ram;
                 }
+                // THE HILLSWATCH PASSAGE, the case the coverage tiebreak exists for. Both
+                // chapters' `_logic` levels are resident there and the vote latches
+                // chapter 2, whose asset has nothing at the player's feet; chapter 3's
+                // has the ground the player is standing on.
+                {
+                    constexpr double kX = 56274.0;
+                    constexpr double kY = 374.0;
+                    constexpr double kFeetZ = -1904.0;
+                    constexpr double kTol = 200.0; // the shipped floor_z_tolerance
+                    const int i2 = m.index_of_number(2);
+                    const int i3 = m.index_of_number(3);
+                    CHECK(i2 >= 0 && i3 >= 0);
+                    if (i2 >= 0 && i3 >= 0)
+                    {
+                        const mapmanifest::Entry& c2 = m.chapters[static_cast<std::size_t>(i2)];
+                        const mapmanifest::Entry& c3 = m.chapters[static_cast<std::size_t>(i3)];
+                        CHECK(c2.coverage.ok());
+                        CHECK(c3.coverage.ok());
+                        CHECK(!c2.covers(kX, kY, kFeetZ, kTol));
+                        CHECK(c3.covers(kX, kY, kFeetZ, kTol));
+
+                        // And the tiebreak turns that into the answer: the vote's
+                        // chapter 2 loses to the chapter that has ground.
+                        chid::Candidate cand[2]{};
+                        cand[0].chapter = 2;
+                        cand[0].count = 3;
+                        cand[0].covers = c2.covers(kX, kY, kFeetZ, kTol);
+                        cand[1].chapter = 3;
+                        cand[1].count = 3;
+                        cand[1].covers = c3.covers(kX, kY, kFeetZ, kTol);
+                        CHECK_EQ(chid::coverage_tiebreak(cand, 2, 2, 2), 3);
+                    }
+                }
+
+                // Every shipped chapter carries an index, sized to its own picture.
+                for (const mapmanifest::Entry& e : m.chapters)
+                {
+                    CHECK(e.coverage.ok());
+                    CHECK_EQ(e.coverage.tile_px, mapmanifest::kCoverageTilePx);
+                    const int want_x =
+                        (e.image_width + mapmanifest::kCoverageTilePx - 1) /
+                        mapmanifest::kCoverageTilePx;
+                    const int want_y =
+                        (e.image_height + mapmanifest::kCoverageTilePx - 1) /
+                        mapmanifest::kCoverageTilePx;
+                    CHECK_EQ(e.coverage.tiles_x, want_x);
+                    CHECK_EQ(e.coverage.tiles_y, want_y);
+                    // A tile that holds a surface has lo <= hi, and both are 12-bit codes.
+                    for (std::size_t t = 0; t < e.coverage.hi.size(); ++t)
+                    {
+                        const bool sane =
+                            e.coverage.hi[t] == 0
+                                ? e.coverage.lo[t] == 0
+                                : (e.coverage.lo[t] >= 1 && e.coverage.lo[t] <= e.coverage.hi[t] &&
+                                   e.coverage.hi[t] <= mapmanifest::kZCodeMax);
+                        if (!sane)
+                        {
+                            CHECK(sane);
+                            break;
+                        }
+                    }
+                }
+
                 std::printf("  shipped manifest: %d chapters, worst chapter %llu MB resident\n",
                             static_cast<int>(m.chapters.size()),
                             static_cast<unsigned long long>(total_ram / (1024 * 1024)));
@@ -3491,7 +3723,7 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
-        constexpr std::size_t kPaddingBytes = 73;
+        constexpr std::size_t kPaddingBytes = 66;
 
         mm::Config a{};
         mm::Config b{};
@@ -3681,8 +3913,9 @@ namespace
         CHECK(!cfgkeys::is_known("slice_min_px"));   // Removed is recognised, not known
         CHECK(cfgkeys::is_removed("slice_min_px"));
         CHECK(!cfgkeys::is_removed("minimap_min_px"));
-        CHECK(cfgkeys::renamed_to("enabled") != nullptr);
-        CHECK(cfgkeys::renamed_to("overlay_enabled") == nullptr);
+        CHECK(cfgkeys::is_removed("overlay_enabled")); // the master switch is the only off switch
+        CHECK(cfgkeys::is_removed("enabled"));         // its own older name
+        CHECK(cfgkeys::renamed_to("mod_enabled") == nullptr);
         CHECK_EQ(static_cast<int>(cfgkeys::kConfigKeyCount), static_cast<int>(known.size()));
 
         // The line parser: the same rules as the loader.

@@ -593,11 +593,6 @@ namespace mm
             {
                 cfg.mod_enabled = parse_bool(value, cfg.mod_enabled);
             }
-            // `enabled` is the legacy name, accepted with one warning.
-            else if (key == "overlay_enabled" || key == "enabled")
-            {
-                cfg.overlay_enabled = parse_bool(value, cfg.overlay_enabled);
-            }
             else if (key == "show_minimap")
             {
                 cfg.show_minimap = parse_bool(value, cfg.show_minimap);
@@ -614,6 +609,10 @@ namespace mm
                     cfg.ui_scale_auto = false;
                     cfg.ui_scale = parse_float(value, cfg.ui_scale);
                 }
+            }
+            else if (key == "font_size")
+            {
+                cfg.font_size = parse_int(value, cfg.font_size);
             }
             else if (key == "hud_preset")
             {
@@ -887,10 +886,6 @@ namespace mm
                 ::strncpy_s(cfg.menu_ignore_roots, sizeof(cfg.menu_ignore_roots), trim(value).c_str(),
                             _TRUNCATE);
             }
-            else if (key == "shrine_list")
-            {
-                cfg.shrine_list = parse_bool(value, cfg.shrine_list);
-            }
             // A bad value keeps the level in force and names the three that exist.
             else if (key == "log_level")
             {
@@ -1018,10 +1013,6 @@ namespace mm
             else if (key == "map_gamepad_deadzone")
             {
                 cfg.map_gamepad_deadzone = parse_float(value, cfg.map_gamepad_deadzone);
-            }
-            else if (key == "map_waypoint_persist")
-            {
-                cfg.map_waypoint_persist = parse_bool(value, cfg.map_waypoint_persist);
             }
             else
             {
@@ -1183,17 +1174,9 @@ namespace mm
             {
                 cfg.compass_show_waypoint = parse_bool(value, cfg.compass_show_waypoint);
             }
-            else if (key == "found_tracker")
-            {
-                cfg.found_tracker = parse_bool(value, cfg.found_tracker);
-            }
             else if (key == "found_save_debounce_ms")
             {
                 cfg.found_save_debounce_ms = parse_int(value, cfg.found_save_debounce_ms);
-            }
-            else if (key == "markers_absence_marks")
-            {
-                cfg.markers_absence_marks = parse_bool(value, cfg.markers_absence_marks);
             }
             else if (key == "boss_defeat_from_save")
             {
@@ -1401,10 +1384,9 @@ namespace mm
     std::atomic<bool> g_panel_open{false};
     std::atomic<bool> g_map_open{false};
     std::atomic<bool> g_reload_config{false};
-    std::atomic<bool> g_revert_config{false};
     std::atomic<bool> g_save_config{false};
-    // Raised by the render thread when a category filter changes; consumed, debounced, by the loop thread.
-    std::atomic<bool> g_save_filters{false};
+    // Raised wherever a setting changes; consumed, debounced, by the loop thread.
+    std::atomic<bool> g_save_config_soon{false};
     std::atomic<bool> g_key_capture{false};
     std::atomic<bool> g_panel_drew_frame{false};
     std::atomic<bool> g_waypoint_dirty{false};
@@ -1882,6 +1864,7 @@ namespace mm
         void clamp_config(Config& cfg)
         {
             // Every numeric key is clamped: a hand-edited file must not divide by zero, allocate unboundedly or stall the game thread.
+            cfg.font_size = (std::max)(8, (std::min)(48, cfg.font_size));
             cfg.size_frac = (std::max)(0.05f, (std::min)(0.9f, cfg.size_frac));
             cfg.zoom_uu_per_px = (std::max)(2.0f, (std::min)(400.0f, cfg.zoom_uu_per_px));
             cfg.opacity = (std::max)(0.1f, (std::min)(1.0f, cfg.opacity));
@@ -2055,9 +2038,9 @@ namespace mm
         const auto vk = [](int v) { return vk_name(v); };
 
         add("mod_enabled", b(cfg.mod_enabled));
-        add("overlay_enabled", b(cfg.overlay_enabled));
         add("show_minimap", b(cfg.show_minimap));
         add("ui_scale", cfg.ui_scale_auto ? std::string{"auto"} : f2(cfg.ui_scale));
+        add("font_size", std::to_string(cfg.font_size));
         add("hud_preset", preset_name(cfg.hud_preset));
         add("theme", gly::theme_name(cfg.theme));
         add("palette", gly::palette_name(cfg.palette));
@@ -2090,16 +2073,12 @@ namespace mm
         add("markers_hide_found", b(cfg.markers_hide_found));
         add("markers_size", f1(cfg.markers_size));
         add("markers_clamp_to_edge", b(cfg.markers_clamp_to_edge));
-        add("markers_absence_marks", b(cfg.markers_absence_marks));
-        add("found_tracker", b(cfg.found_tracker));
         add("found_profile", std::string{cfg.found_profile});
         add("first_run_toast", b(cfg.first_run_toast));
         add("map_zoom", f0(cfg.map_zoom));
         add("map_marker_size", f1(cfg.map_marker_size));
         add("map_show_all_floors", b(cfg.map_show_all_floors));
         add("map_gamepad", b(cfg.map_gamepad));
-        add("map_waypoint_persist", b(cfg.map_waypoint_persist));
-        add("shrine_list", b(cfg.shrine_list));
         add("highlight_enabled", b(cfg.highlight_enabled));
         add("highlight_mode", std::string{cfg.highlight_mode == HighlightMode::Hold ? "hold" : "toggle"});
         add("highlight_key", vk(cfg.highlight_key));
@@ -2367,36 +2346,6 @@ namespace mm
         }
     }
 
-    void save_config_keys(const char* const* keys, std::size_t count)
-    {
-        const std::wstring path = config_path();
-        std::string existing;
-        if (!read_whole_file(path, existing))
-        {
-            // Nothing to rewrite in place, and the banners a fresh file needs are save_config_file()'s.
-            save_config_file();
-            return;
-        }
-
-        const std::vector<std::pair<std::string, std::string>> kv = config_kv(config());
-        const std::vector<cfgrw::Pair> mine = cfgrw::filter(kv, [keys, count](const std::string& k) {
-            if (!cfgkeys::tier_is(k, cfgkeys::Tier::Player) && !cfgkeys::tier_is(k, cfgkeys::Tier::Advanced))
-            {
-                return false;
-            }
-            for (std::size_t i = 0; i < count; ++i)
-            {
-                if (k == keys[i])
-                {
-                    return true;
-                }
-            }
-            return false;
-        });
-        // Every key outside `mine` is invisible to the rewrite, so an unsaved panel edit survives.
-        rewrite_config(path, existing, mine);
-    }
-
     // The master switch, read straight off disk. NOT load_config_file(): no other key is applied on the way
     // back in. `modswitch` calls load_config_file() itself once it has decided to turn the mod on.
 
@@ -2558,7 +2507,7 @@ namespace mm
         // the legacy file is removed. Loop thread.
         void reconcile_legacy_waypoints(const std::string& key)
         {
-            if (key.empty() || !cfg_cached().map_waypoint_persist)
+            if (key.empty())
             {
                 return;
             }
@@ -2650,11 +2599,10 @@ namespace mm
 
         // First sight of a slot with no waypoint file of its own: seed it from the shared
         // one, as the found tracker does. The copy is itself the "already seeded" mark -
-        // once the file exists this is a no-op. With map_waypoint_persist off nothing may
-        // be written, so the seed is skipped and waypoint_path() reads the shared file.
+        // once the file exists this is a no-op.
         void seed_waypoints_from_shared(const std::string& key)
         {
-            if (key.empty() || !cfg_cached().map_waypoint_persist)
+            if (key.empty())
             {
                 return;
             }
@@ -2740,8 +2688,7 @@ namespace mm
         {
             return;
         }
-        if (g_wp_key_valid && g_waypoint_dirty.load(std::memory_order_acquire) &&
-            cfg_cached().map_waypoint_persist)
+        if (g_wp_key_valid && g_waypoint_dirty.load(std::memory_order_acquire))
         {
             save_waypoint_file();
         }

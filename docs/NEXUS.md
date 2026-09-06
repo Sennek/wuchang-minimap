@@ -59,7 +59,7 @@ To uninstall, delete [font=Courier New]ue4ss\Mods\WuchangMinimap\[/font]. That i
 
 [size=5]Hotkeys[/size]
 [list]
-[*][b]F2[/b] — settings panel (Overview / Categories / Map & tracker / Keys / Tuning tabs). [b]Back+RS[/b] on a controller.
+[*][b]F2[/b] — settings panel (Overview / Categories / Map & tracker / Keys tabs). Every change is saved by itself. [b]Back+RS[/b] on a controller.
 [*][b]M[/b] — full map: drag or WASD to pan, wheel to zoom, Q/E for the floor, Home to fit, right-click a marker to waypoint it (or the ground to drop one), F1 or H for the rest
 [*][b]TAB[/b] — x-ray highlight through walls, with names and distances. A toggle. [b]LB+RB[/b] on a controller.
 [*][b]N[/b] — cycle the minimap zoom · [b]R[/b] — recentre the map · [b]F5[/b] — reload the config and data
@@ -77,7 +77,7 @@ None of these stops the mod working.
 [size=5]Reporting a bug[/size]
 Attach [font=Courier New]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first six lines carry every version number a report needs. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font].
 
-If the minimap simply is not on screen, press F2 and screenshot the orange [font=Courier New]hidden because:[/font] line at the top of the Overview tab — it names the exact reason. If I ask you to reproduce something, set [font=Courier New]log_level = verbose[/font] in the config first (or pick it under Tuning → Diagnostics → Log detail).
+If the minimap simply is not on screen, send me [font=Courier New]wuchang_minimap.log[/font] from the mod's own folder — it names the exact reason it stayed hidden. If I ask you to reproduce something, put [font=Courier New]log_level = verbose[/font] into [font=Courier New]config_wuchang_minimap_dev.txt[/font] beside the config first.
 
 [size=5]Permissions and credits[/size]
 [b]MIT licensed[/b] — fork it, reuse it, translate it; the licence has to travel with it. Credit appreciated, not required. Third-party components: Dear ImGui (MIT), MinHook (BSD-2-Clause), fmt (MIT), RE-UE4SS (MIT); full notices ship in [font=Courier New]THIRD_PARTY_NOTICES.md[/font].

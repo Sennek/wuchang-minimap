@@ -62,6 +62,27 @@ being deleted - and the pass is reversible from one config line rather than by
 rebuilding assets. A /4 asset carries no flag, which reads as "every surface is
 reachable".
 
+THE COVERAGE INDEX (schema /6)
+------------------------------
+Each chapter entry also carries a `coverage` object: a DENSE grid of 32-px tiles over the
+chapter's own pixel grid, two 16-bit Z codes per tile - the lowest and the highest code
+stored anywhere in that tile, across every plane, with the reachable bit masked off. A
+tile holding no surface is 0, 0.
+
+It answers one question the runtime cannot answer from a chapter it has not loaded: does
+THIS chapter's map have ground under the player's feet? The chapter vote (src/chapterid.hpp)
+counts resident sublevels, and in a passage between two chapters the count can name the
+chapter whose asset stops short of the player - so the vote's contested candidates are
+asked this, and the one that covers wins.
+
+32 px is the granularity the question needs, measured rather than guessed: at 64 px and at
+128 px both chapter 2 and chapter 3 answer "covered" at the Hillswatch passage
+(X 56274 Y 374 Z -1904), because a tile that wide brackets several storeys. At 32 px
+(~660 uu) only chapter 3 does, and a plain chapter-2 spot is covered by chapter 2 alone.
+
+The grid is dense and base64'd rather than sparse: 4 bytes a tile is ~88 KB a chapter,
+~117 KB once base64'd, and a dense array needs no index and no decoder beyond base64.
+
 A DECODER MUST MATCH THE MANIFEST, because the versions differ only in how a number is
 scaled or masked: a /3 plane read with a /4 decoder puts every surface 16x too high, and
 a /5 plane read with a /4 decoder puts every reachable surface 4096 codes too high -
@@ -72,6 +93,7 @@ accepted; a mismatch is fatal.
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 from pathlib import Path
@@ -89,7 +111,7 @@ except ImportError:  # pragma: no cover
 Image.MAX_IMAGE_PIXELS = None
 
 # The manifest contract with src/mapmanifest.hpp. Bump BOTH or neither.
-SCHEMA = "wuchang-minimap-maps/5"
+SCHEMA = "wuchang-minimap-maps/6"
 
 # Height codes. 0 means "no surface here"; 1..Z_CODE_MAX are heights, so the number
 # of distinct heights is Z_CODE_MAX - 1 and the step is span / (Z_CODE_MAX - 1).
@@ -111,6 +133,12 @@ FILL_ALPHA = 235  # must match build_map.FILL_ALPHA
 # map 16x too high. See the version discussion in src/mapmanifest.hpp.
 HEIGHT_KEY = "height_planes"
 HEIGHT_KEY_LEGACY = "height_maps"
+
+# The coverage index (see the header). 32 px is load-bearing: see the measurement there.
+COVERAGE_KEY = "coverage"
+COVERAGE_TILE = 32
+# Row-major over the tile grid, 4 bytes a tile: uint16 LE lowest code, uint16 LE highest.
+COVERAGE_ENCODING = "u16le-lo-hi-base64"
 
 
 def height_plane_name(chapter_key: str, stem: str, k: int) -> str:
@@ -415,6 +443,68 @@ def tile_occupancy(planes: list["np.ndarray"], tile: int = 128) -> tuple[int, in
     return present, total
 
 
+def coverage_index(
+    planes: list["np.ndarray"],
+    z_min: float,
+    z_max: float,
+    tile: int = COVERAGE_TILE,
+) -> dict:
+    """
+    The per-chapter coverage index (see the header): min/max Z code per `tile`-px tile
+    over every plane, dense, row-major, base64.
+
+    `planes` are raw height codes; the reachable bit is masked off here, so an
+    unreachable surface still counts as ground - the question is whether this chapter's
+    asset HAS geometry at the player's feet, not whether the player may stand on it.
+    """
+    if not planes:
+        raise ValueError("coverage_index needs at least one height plane")
+    h, w = planes[0].shape
+    nty = ceil_div(h, tile)
+    ntx = ceil_div(w, tile)
+    lo = np.full((nty, ntx), 0xFFFF, dtype=np.uint16)
+    hi = np.zeros((nty, ntx), dtype=np.uint16)
+    for a in planes:
+        if a.shape != planes[0].shape:
+            raise ValueError(f"height planes differ in size: {a.shape} vs {planes[0].shape}")
+        z = z_codes(a)
+        pad_lo = np.full((nty * tile, ntx * tile), 0xFFFF, dtype=np.uint16)
+        pad_hi = np.zeros((nty * tile, ntx * tile), dtype=np.uint16)
+        present = z != 0
+        pad_lo[:h, :w] = np.where(present, z, np.uint16(0xFFFF))
+        pad_hi[:h, :w] = z
+        lo = np.minimum(lo, pad_lo.reshape(nty, tile, ntx, tile).min(axis=(1, 3)))
+        hi = np.maximum(hi, pad_hi.reshape(nty, tile, ntx, tile).max(axis=(1, 3)))
+    # An empty tile is 0, 0 - the 0xFFFF sentinel never reaches the file.
+    lo = np.where(hi != 0, lo, 0).astype(np.uint16)
+
+    blob = np.stack([lo, hi], axis=-1).astype("<u2").tobytes()
+    present_tiles = int((hi != 0).sum())
+    step = z_step_uu(z_min, z_max)
+    return {
+        "tile_px": tile,
+        "tiles_x": ntx,
+        "tiles_y": nty,
+        "tiles_present": present_tiles,
+        "tiles_total": ntx * nty,
+        "encoding": COVERAGE_ENCODING,
+        "bytes": len(blob),
+        "z_tile_span_uu_max": round(float((hi.astype(np.int32) - lo.astype(np.int32)).max()) * step, 1),
+        "data": base64.b64encode(blob).decode("ascii"),
+    }
+
+
+def decode_coverage(index: dict) -> tuple["np.ndarray", "np.ndarray"]:
+    """(lo, hi) code grids from a `coverage` object - the reader side, for the tools."""
+    ntx = int(index["tiles_x"])
+    nty = int(index["tiles_y"])
+    raw = base64.b64decode(index["data"])
+    if len(raw) != ntx * nty * 4:
+        raise ValueError(f"coverage blob is {len(raw)} B, expected {ntx * nty * 4}")
+    pair = np.frombuffer(raw, dtype="<u2").reshape(nty, ntx, 2)
+    return pair[:, :, 0].copy(), pair[:, :, 1].copy()
+
+
 def mb(n: float) -> str:
     return f"{n / (1024.0 * 1024.0):.2f} MB"
 
@@ -448,6 +538,11 @@ __all__ = [
     "stamp_format",
     "HEIGHT_KEY",
     "HEIGHT_KEY_LEGACY",
+    "COVERAGE_KEY",
+    "COVERAGE_TILE",
+    "COVERAGE_ENCODING",
+    "coverage_index",
+    "decode_coverage",
     "height_plane_name",
     "height_plane_list",
     "load_manifest",

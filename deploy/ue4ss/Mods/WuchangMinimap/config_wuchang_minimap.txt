@@ -1,8 +1,8 @@
 ; WuchangMinimap - overlay settings.
 ;
-; Plain `key = value` lines; `;` and `#` start a comment. The F2 panel's Save rewrites
-; values only: comments, ordering and unknown keys are kept. F5 or the panel's Reload
-; re-reads the file; no restart.
+; Plain `key = value` lines; `;` and `#` start a comment. The F2 panel writes every
+; change back here on its own, values only: comments, ordering and unknown keys are
+; kept. F5 or the panel's "Reload map data" re-reads the file; no restart.
 ;
 ; HOTKEY NAMES: F1..F5, F7, F8, A..Z, 0..9, TAB, SPACE, ENTER, BACKSPACE, UP / DOWN /
 ; LEFT / RIGHT, INSERT / DELETE / HOME / END / PAGEUP / PAGEDOWN, NUM0..NUM9, NUMPLUS /
@@ -17,7 +17,7 @@
 ; =================================================================================
 ; ---- PLAYER SETTINGS ----
 ; =================================================================================
-; Everything on the F2 panel's "Player" tab.
+; Everything the F2 panel's Overview, Categories, Map & tracker and Keys tabs edit.
 
 ; ---------------------------------------------------------------------------------
 ; THE MASTER SWITCH
@@ -27,10 +27,6 @@
 ; to 1 restarts the mod within a second. F5 does nothing while the mod is off. The F2
 ; panel can switch it off, never on. Flips are logged as "master switch:".
 mod_enabled = 1
-
-; 1 = draw; 0 = draw nothing, but keep the reader and the marker sweep running.
-; (`enabled` is the old name for this key; it is accepted and logs one warning.)
-overlay_enabled = 1
 
 ; Draw the minimap disc.
 show_minimap = 1
@@ -47,18 +43,6 @@ theme = neutral
 palette = default
 
 ; ---------------------------------------------------------------------------------
-; MAP BACKGROUND
-; ---------------------------------------------------------------------------------
-; The map assets mark every surface the game's own navigation data says a player can
-; walk to. What to do with the rest - wall tops, roof ridges, ledges outside the arena:
-;   hide  the map draws only ground you can reach
-;   dim   it is drawn one step fainter than ground you can reach
-;   show  it is drawn like any other ground
-; Map assets built before this existed have no such marks, and everything in them is
-; treated as reachable whatever this says.
-map_unreachable = hide
-
-; ---------------------------------------------------------------------------------
 ; SCALE AND PLACEMENT
 ; ---------------------------------------------------------------------------------
 ; auto = clamp(back-buffer height / 1080, 1, 4); a number pins it (1.0 = 1080p sizing).
@@ -66,6 +50,10 @@ map_unreachable = hide
 ; highlight_size, compass_height, compass_offset_y, minimap_offset_x/y, minimap_min_px,
 ; minimap_arrow_min_px. minimap_size and compass_width are fractions and are not scaled.
 ui_scale = auto
+
+; Overlay text height in 1080p pixels, times ui_scale. 8..48. Window padding and
+; spacing follow the text; markers, the minimap disc and the compass do not.
+font_size = 20
 
 ; custom | top-left | top-right | bottom-left | bottom-right. `custom` obeys
 ; minimap_anchor / minimap_offset_* / compass_anchor; any other value moves the minimap
@@ -78,7 +66,8 @@ hud_preset = custom
 ; Side length as a fraction of screen height (0.05 .. 0.9).
 minimap_size = 0.24
 
-; World units per minimap pixel; smaller = more zoomed in. 1 uu = 1 cm.
+; World units per minimap pixel; smaller = more zoomed in. 1 uu = 1 cm. The zoom key
+; steps through minimap_zoom_presets and the rung you stop on is written back here.
 minimap_zoom = 26
 
 ; round | square
@@ -111,17 +100,12 @@ floor_z_tolerance = 200
 ; Draw markers at all.
 markers_enabled = 1
 
-; The four category filters - markers_categories, markers_hide_found,
-; highlight_categories and compass_categories - are REMEMBERED AUTOMATICALLY: change one
-; from the full map's legend or the F2 chips and it is written back here a moment later,
-; on its own, without pressing Save.
-;
 ; Categories to draw: a comma-separated list of
 ;   shrine, chest, pickup, boss, elite, enemy, npc, note, door, ladder, lift,
 ;   fog_gate, hidden, other
 ; or `all` / `none`. `note` is the game's readable notes; the old name `merchant` is
-; accepted and rewritten by Save. Enemies refresh once a second, so they lag while they
-; move.
+; accepted and rewritten on the next save. Enemies refresh once a second, so they lag
+; while they move.
 markers_categories = shrine,chest,pickup,boss,elite,npc,note,door,ladder,lift,fog_gate,hidden,other
 
 ; Found markers: 0 = draw dimmed as a hollow glyph, 1 = hide. Shrines are exempt:
@@ -134,30 +118,11 @@ markers_size = 6.5
 ; 1 = keep off-map markers on the rim, drawn smaller; 0 = drop them.
 markers_clamp_to_edge = 0
 
-; Mark a chest or pickup collected when its level is loaded, a full pass over the
-; object array has completed since, and no live twin was found - for
-; markers_absence_rounds passes in a row. A marker whose level cannot be matched is
-; never marked. The mark goes into the found file and can be undone by clicking the
-; marker on the full map. 0 switches the rule off.
-markers_absence_marks = 1
-
-; Write the collection file. The F2 panel's "Clear this save's found list" empties it
-; for the save in force - NG+ keeps the save id, so that is how you start it over.
-found_tracker = 1
-
-; Which collection file: auto | shared | <name>. auto = one file per save slot,
-; wuchang_minimap_found_<slot>.txt, seeded once from the shared file. shared = the
-; single wuchang_minimap_found.txt. <name> = wuchang_minimap_found_<name>.txt.
-found_profile = auto
-
-; Show a 10-second toast naming the panel, map and highlight keys on the first launch
-; after installing. Delete wuchang_minimap_firstrun.txt to see it again.
-first_run_toast = 1
-
 ; ---------------------------------------------------------------------------------
 ; THE FULL MAP
 ; ---------------------------------------------------------------------------------
-; Zoom the map opens at, in uu per screen pixel.
+; The zoom the full map opens at, in uu per screen pixel. Closing the map writes back
+; the zoom you left it at.
 map_zoom = 30
 
 ; Marker glyph radius on the full map, in screen pixels.
@@ -168,11 +133,6 @@ map_show_all_floors = 0
 
 ; Poll XInput whenever this is on - the pad has to be able to OPEN the map.
 map_gamepad = 1
-
-; Remember the waypoints across sessions in wuchang_minimap_waypoint_<save>.txt, up to 16
-; of them as plain `key = value` lines next to this file. One file per save slot, like the
-; collection tracker; a new slot starts from wuchang_minimap_waypoint.txt if that exists.
-map_waypoint_persist = 1
 
 ; ---------------------------------------------------------------------------------
 ; THE X-RAY HIGHLIGHT
@@ -197,11 +157,15 @@ highlight_pad_chord = LB+RB
 highlight_radius = 3000
 
 ; Categories to highlight; same names as markers_categories, or `all` / `none`.
-; A filter: remembered automatically, no Save needed.
 highlight_categories = chest,pickup,shrine,boss,npc,note
 
 ; Draw the name and distance next to each glyph.
 highlight_labels = 1
+
+; 1 = also highlight collected loot, dimmed. Only chests, pickups, hidden items and a
+; defeated boss are affected; shrines, NPCs, notes, doors and fog gates are always
+; highlighted.
+highlight_show_found = 0
 
 ; Glyph radius on screen, in pixels.
 highlight_size = 7.0
@@ -224,6 +188,10 @@ markers_rarity_tint = 0
 ; Draw the heading strip.
 compass_enabled = 1
 
+; Which edge the strip hangs off: top | bottom. compass_offset_y measures from that
+; edge. A non-custom hud_preset overrides this.
+compass_anchor = top
+
 ; Strip width as a fraction of screen width, and the distance from the anchored edge
 ; in pixels.
 compass_width = 0.340
@@ -235,15 +203,11 @@ compass_span_deg = 120
 ; Strip opacity, 0.1 .. 1.
 compass_opacity = 0.90
 
-; Categories that get a bearing pip. A filter: remembered automatically, no Save needed.
+; Categories that get a bearing pip.
 compass_categories = shrine,boss,elite,fog_gate
 
 ; Write the distance in metres under each pip.
 compass_pip_labels = 1
-
-; Show the shrine list on the full map: name, chapter, distance and lit state. Click a
-; row to set a waypoint, double-click to centre the map.
-shrine_list = 1
 
 ; ---------------------------------------------------------------------------------
 ; HOTKEYS
@@ -279,8 +243,8 @@ waypoint_nearest_key = none
 ; =================================================================================
 ; ---- ADVANCED ----
 ; =================================================================================
-; Correct as shipped; change one to answer a symptom. All on the F2 panel's "Advanced"
-; tab.
+; Correct as shipped; change one to answer a symptom. The F2 panel reaches them under
+; Debug > Tuning, which players do not have.
 
 ; ---------------------------------------------------------------------------------
 ; WHEN THE OVERLAY IS ALLOWED ON SCREEN
@@ -363,8 +327,10 @@ markers_max_draw = 400
 ; How long after the last change the found file is written, in ms.
 found_save_debounce_ms = 2000
 
-; Consecutive confirming rounds before markers_absence_marks marks something, and the
-; categories that rule may mark.
+; A chest or pickup whose level is loaded, that a full pass over the object array has
+; not seen, counts as collected after this many confirming rounds in a row. A marker
+; whose level cannot be matched is never marked, and the mark can be undone by clicking
+; the marker on the full map. Then the categories the rule may mark.
 markers_absence_rounds = 2
 markers_absence_categories = chest,pickup
 
@@ -436,11 +402,6 @@ map_gamepad_deadzone = 0.22
 ; ---------------------------------------------------------------------------------
 ; X-RAY TUNING
 ; ---------------------------------------------------------------------------------
-; 1 = also highlight collected loot, dimmed. Only chests, pickups, hidden items and a
-; defeated boss are affected; shrines, NPCs, notes, doors and fog gates are always
-; highlighted.
-highlight_show_found = 0
-
 ; Hard cap on glyphs per frame, nearest first.
 highlight_max_draw = 60
 
@@ -471,10 +432,6 @@ xray_rarity_colors = ADAFDA, DAADC5, DAD6AD
 ; ---------------------------------------------------------------------------------
 ; COMPASS TUNING
 ; ---------------------------------------------------------------------------------
-; Which edge the strip hangs off: top | bottom. compass_offset_y measures from that
-; edge. A non-custom hud_preset overrides this.
-compass_anchor = top
-
 ; Strip height in pixels.
 compass_height = 26
 
@@ -499,29 +456,9 @@ compass_max_pips = 32
 compass_pip_height_uu = 300
 
 ; ---------------------------------------------------------------------------------
-; DIAGNOSTICS
+; TEXT
 ; ---------------------------------------------------------------------------------
-; How much goes into wuchang_minimap.log and UE4SS.log:
-;   normal   startup, what loaded, chapter and save-slot changes, warnings, errors,
-;            first-time diagnostics, a health summary once a minute
-;   verbose  adds the player-state line, per-round marker timings, menu open/close,
-;            why the minimap is hidden, x-ray toggles
-;   trace    adds everything else, including a marker census every two seconds
-log_level = normal
-
-; Rewrite wuchang_minimap_last_stage.txt at every overlay stage (hooks installed,
-; swapchain chosen, ImGui up, first map slice, chapter swap, teardown, exit), so a
-; crash leaves the stage it was in behind. One small file write per stage change.
-crash_breadcrumb = 1
-
-; ---------------------------------------------------------------------------------
-; TEXT AND DPI
-; ---------------------------------------------------------------------------------
-; Full path to a .ttf or .otf for the whole overlay, rasterised at 13 px times
+; Full path to a .ttf or .otf for the whole overlay, rasterised at font_size times
 ; ui_scale. `none`, empty or an unreadable file falls back to ImGui's built-in bitmap
 ; font and logs it.
 ui_font = C:\Windows\Fonts\segoeui.ttf
-
-; 1 = scale minimap_zoom and map_zoom with ui_scale, so one config shows the same area
-; of the world at every resolution. 0 = uu per pixel is literal.
-zoom_dpi_scaled = 1

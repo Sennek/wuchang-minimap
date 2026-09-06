@@ -76,24 +76,58 @@ namespace mapdata
 
         // Published as an immutable snapshot pointer: the loop thread builds a fresh
         // vector, then swaps the pointer in, so the render thread reads it with no lock
-        // while an F5 reload rebuilds it. The old vector is leaked on purpose (bounded by
-        // the number of reloads) because a reader may still be walking it.
+        // while an F5 reload rebuilds it. TWO-GENERATION RETIREMENT frees the old one (see
+        // g_chapters_retired).
         std::atomic<const std::vector<Chapter>*> g_chapters{nullptr};
-
-        void publish_chapters(std::vector<Chapter>&& list)
-        {
-            g_chapters.store(new std::vector<Chapter>(std::move(list)), std::memory_order_release);
-        }
 
         // The manifest entries the coverage tiebreak asks, published the same way and for
         // the same reason: the game thread reads them at 1 Hz with no lock while the loop
-        // thread may be rebuilding them, and the old vector is left alive for a reader
-        // still walking it. An entry costs its decoded index - ~90 KB a chapter.
+        // thread may be rebuilding them. An entry costs its decoded index - ~90 KB a
+        // chapter.
         std::atomic<const std::vector<mapmanifest::Entry>*> g_cover{nullptr};
+
+        // TWO-GENERATION RETIREMENT. Both snapshots above are handed to readers as raw
+        // pointers dereferenced with no lock, so the vector a publish replaces cannot be
+        // freed on the spot: the game thread (chapter_covers / chapters_with_coverage) or
+        // the render thread (chapter_ptr_for) may be inside it right then. It becomes the
+        // RETIRED generation instead, and the NEXT publish - or unload() - frees it.
+        //
+        // One generation of grace is enough. Every reader takes the pointer, walks the
+        // list and drops it inside one call: microseconds on the game thread's ~1 Hz
+        // refresh, one frame on the render thread, and no caller keeps a `const Chapter*`
+        // past the frame it fetched it in. A second publish only comes from another F5
+        // reload, seconds away at the very least, by which time nothing can still be in
+        // the generation being freed. The cost is one spare snapshot resident (~570 KB),
+        // not one per reload.
+        const std::vector<Chapter>* g_chapters_retired = nullptr;
+        const std::vector<mapmanifest::Entry>* g_cover_retired = nullptr;
+
+        void publish_chapters(std::vector<Chapter>&& list)
+        {
+            const std::vector<Chapter>* prev = g_chapters.exchange(
+                new std::vector<Chapter>(std::move(list)), std::memory_order_acq_rel);
+            delete g_chapters_retired;
+            g_chapters_retired = prev;
+        }
 
         void publish_coverage(const std::vector<mapmanifest::Entry>& list)
         {
-            g_cover.store(new std::vector<mapmanifest::Entry>(list), std::memory_order_release);
+            const std::vector<mapmanifest::Entry>* prev = g_cover.exchange(
+                new std::vector<mapmanifest::Entry>(list), std::memory_order_acq_rel);
+            delete g_cover_retired;
+            g_cover_retired = prev;
+        }
+
+        // Loop thread, master switch only: with the render side torn down and no game
+        // thread pump left, the retired generation has no reader and goes now. The LIVE
+        // snapshot stays - `loaded()`, `chapters()` and `chapter_ptr_for()` keep answering
+        // from it, and a re-enable republishes over it.
+        void free_retired_snapshots()
+        {
+            delete g_chapters_retired;
+            g_chapters_retired = nullptr;
+            delete g_cover_retired;
+            g_cover_retired = nullptr;
         }
 
         bool read_whole_file(const std::wstring& path, std::string& out)
@@ -152,10 +186,11 @@ namespace mapdata
         // ONE CHAPTER AT A TIME
         //==============================================================================
         //
-        // All loop-thread state except the two atomics. The published chapter list is never
-        // freed (see publish_chapters), so a render thread holding a `const Chapter*` keeps
-        // a valid object across a reload; what it may find inside is a null `heights`,
-        // which every caller already tests for.
+        // All loop-thread state except the two atomics. A reload publishes a new chapter
+        // list and the previous one survives one more generation (see publish_chapters), so
+        // a render thread holding a `const Chapter*` for the frame keeps a valid object
+        // across the reload; what it may find inside is a null `heights`, which every
+        // caller already tests for.
 
         // Parsed manifest, kept in step (index for index) with the published chapter
         // vector. It carries the per-chapter z_min / z_max and file list that decoding
@@ -545,6 +580,7 @@ namespace mapdata
         g_retire_at = 0;
         g_pending_chapter = -1;
         pending_clear();
+        free_retired_snapshots();
         // Nothing is detected while the mod is off; the next enable logs the chapter
         // again rather than assuming the player never moved.
         g_detected.store(chid::kNone, std::memory_order_relaxed);
@@ -757,8 +793,9 @@ namespace mapdata
 
     const Chapter* chapter_ptr_for(double wx, double wy)
     {
-        // Safe to hand out a pointer: the published vector is never freed (see
-        // publish_chapters), so a reader can keep using it across a reload.
+        // Safe to hand out a pointer: a reload retires the published vector for one whole
+        // generation (see publish_chapters), which outlives the frame the caller uses it in
+        // by orders of magnitude.
         const std::vector<Chapter>* list = g_chapters.load(std::memory_order_acquire);
         if (list == nullptr)
         {

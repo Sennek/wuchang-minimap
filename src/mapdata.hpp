@@ -61,6 +61,13 @@
 // is handed over as a decoded RGBA buffer through an atomic queue so Present never blocks
 // on the decode.
 //
+// The chapter list and the coverage index are published the same lock-free way and freed
+// on a TWO-GENERATION scheme: an F5 reload swaps a fresh snapshot in and keeps the one it
+// replaced alive until the NEXT publish or unload(), because a reader may be walking it at
+// that instant. A read is one microsecond-long walk inside a single call - no caller holds
+// a `const Chapter*` past its frame - so the generation freed by a later reload, seconds
+// away, has no reader left. Only one spare snapshot is ever resident.
+//
 
 #include <atomic>
 #include <cstdint>
@@ -534,9 +541,10 @@ namespace mapdata
     // Chapter whose world bounds contain (wx, wy) - empty key if none.
     Chapter chapter_for(double wx, double wy);
 
-    // THE MAP THE OVERLAY SHOULD DRAW at (wx, wy). A pointer into the published (and
-    // never freed) chapter list, so the render thread reads the height planes every frame
-    // without a copy. nullptr if nothing matches.
+    // THE MAP THE OVERLAY SHOULD DRAW at (wx, wy). A pointer into the published chapter
+    // list, so the render thread reads the height planes every frame without a copy.
+    // nullptr if nothing matches. Valid for the frame that fetched it - a reload retires
+    // the snapshot for a whole generation before freeing it - and never cached past that.
     //
     // Once a chapter is ACTIVE this answers with that chapter and no other: the chapters'
     // world bounds overlap (chapter 4 covers nearly all of chapter 1), so a bounds test

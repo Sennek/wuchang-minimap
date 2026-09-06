@@ -1288,6 +1288,10 @@ namespace mm
             {
                 cfg.srv_heap_size = parse_int(value, cfg.srv_heap_size);
             }
+            else if (key == "navmesh_dump")
+            {
+                cfg.navmesh_dump = parse_bool(value, cfg.navmesh_dump);
+            }
             else if (key == "highlight_camera_resolve_ms")
             {
                 cfg.highlight_camera_resolve_ms = parse_int(value, cfg.highlight_camera_resolve_ms);
@@ -2217,6 +2221,7 @@ namespace mm
         add("map_asset_retire_grace_ms", std::to_string(cfg.map_asset_retire_grace_ms));
         add("hide_reason_log_ms", std::to_string(cfg.hide_reason_log_ms));
         add("srv_heap_size", std::to_string(cfg.srv_heap_size));
+        add("navmesh_dump", b(cfg.navmesh_dump));
         add("highlight_camera_resolve_ms", std::to_string(cfg.highlight_camera_resolve_ms));
         add("highlight_compass_period_ms", std::to_string(cfg.highlight_compass_period_ms));
         add("highlight_getter_period_ms", std::to_string(cfg.highlight_getter_period_ms));

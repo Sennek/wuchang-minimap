@@ -1,80 +1,45 @@
 ; WuchangMinimap - overlay settings.
-;
-; Plain `key = value` lines; `;` and `#` start a comment. The F2 panel writes every
-; change back here on its own, values only: comments, ordering and unknown keys are
-; kept. F5 or the panel's "Reload map data" re-reads the file; no restart.
-;
-; HOTKEY NAMES: F1..F5, F7, F8, A..Z, 0..9, TAB, SPACE, ENTER, BACKSPACE, UP / DOWN /
-; LEFT / RIGHT, INSERT / DELETE / HOME / END / PAGEUP / PAGEDOWN, NUM0..NUM9, NUMPLUS /
-; NUMMINUS / NUMMUL / NUMDIV / NUMDOT, MOUSE3 / MOUSE4 / MOUSE5, LALT / RALT / ALT /
-; LSHIFT / RSHIFT / SHIFT / LCTRL / RCTRL / CTRL, or `none` for unbound. One modifier
-; may prefix a key (`ctrl+m`). F6 and F9..F12 are rejected and fall back to the default:
-; they belong to RenoDX/DLSS, the engine, the game console and Steam.
-; The F2 panel's Keys tab rebinds every key by pressing the new one.
-;
+; Plain `key = value` lines; `;` and `#` start a comment. F5 or the F2 panel's "Reload
+; map data" applies changes; no restart. The panel writes your edits back here, values
+; only. Key names for the hotkeys are listed in the HOTKEY NAMES block below.
 ; config_wuchang_minimap_dev.txt, when present, is read after this file and overrides it.
 
 ; =================================================================================
 ; ---- PLAYER SETTINGS ----
 ; =================================================================================
-; Everything the F2 panel's Overview, Categories, Map & tracker and Keys tabs edit.
-
-; ---------------------------------------------------------------------------------
-; THE MASTER SWITCH
-; ---------------------------------------------------------------------------------
-; 1 = run; 0 = inert (no DX12 hook, no object scans, no map in memory, no gamepad).
-; While off, only this file's timestamp is checked once a second, so setting it back
-; to 1 restarts the mod within a second. F5 does nothing while the mod is off. The F2
-; panel can switch it off, never on. Flips are logged as "master switch:".
+; 1 = run; 0 = inert (no hook, no scans, no map). The F2 panel can switch it off, never on.
 mod_enabled = 1
 
 ; Draw the minimap disc.
 show_minimap = 1
 
-; ---------------------------------------------------------------------------------
-; LOOK: THEME AND PALETTE
-; ---------------------------------------------------------------------------------
-; Chrome colours (frame, disc backdrop, label plates, walkable fill): neutral | ink.
-; A theme recolours every colour key still at some theme's own value; one you changed wins.
+; Chrome colours: neutral | ink.
 theme = neutral
 
-; Marker hue set: default | colorblind (Okabe-Ito, plus colour-blind-safe item-quality
-; tiers unless xray_rarity_colors is written out). Shapes never change.
+; Marker hue set: default | colorblind. Shapes never change.
 palette = default
 
-; ---------------------------------------------------------------------------------
-; SCALE AND PLACEMENT
-; ---------------------------------------------------------------------------------
-; auto = clamp(back-buffer height / 1080, 1, 4); a number pins it (1.0 = 1080p sizing).
-; Scales the font, the panel and every pixel key: markers_size, map_marker_size,
-; highlight_size, compass_height, compass_offset_y, minimap_offset_x/y, minimap_min_px,
-; minimap_arrow_min_px. minimap_size and compass_width are fractions and are not scaled.
+; auto = scale with screen height; a number pins it (1.0 = 1080p sizing).
 ui_scale = auto
 
-; Overlay text height in 1080p pixels, times ui_scale. 8..48. Window padding and
-; spacing follow the text; markers, the minimap disc and the compass do not.
+; Overlay text height in 1080p pixels, times ui_scale. 8..48.
 font_size = 20
 
-; custom | top-left | top-right | bottom-left | bottom-right. `custom` obeys
-; minimap_anchor / minimap_offset_* / compass_anchor; any other value moves the minimap
-; into that corner and the compass to the same vertical side.
+; custom | top-left | top-right | bottom-left | bottom-right. `custom` obeys the
+; minimap_anchor / minimap_offset_* / compass_anchor keys below.
 hud_preset = custom
 
-; ---------------------------------------------------------------------------------
-; THE MINIMAP
-; ---------------------------------------------------------------------------------
+; ---- The minimap ----
 ; Side length as a fraction of screen height (0.05 .. 0.9).
 minimap_size = 0.24
 
-; World units per minimap pixel; smaller = more zoomed in. 1 uu = 1 cm. The zoom key
-; steps through minimap_zoom_presets and the rung you stop on is written back here.
+; World units per minimap pixel; smaller = more zoomed in. 1 uu = 1 cm.
 minimap_zoom = 26
 
 ; round | square
 minimap_shape = round
 
-; top-left | top-right | bottom-left | bottom-right, and the offset from that corner
-; in pixels.
+; top-left | top-right | bottom-left | bottom-right, and the offset from it in pixels.
 minimap_anchor = top-left
 minimap_offset_x = 24
 minimap_offset_y = 24
@@ -94,22 +59,15 @@ show_adjacent_floors = 1
 ; Half-thickness of "my floor" in uu: a surface within this of your feet is opaque.
 floor_z_tolerance = 200
 
-; ---------------------------------------------------------------------------------
-; MARKERS
-; ---------------------------------------------------------------------------------
+; ---- Markers ----
 ; Draw markers at all.
 markers_enabled = 1
 
-; Categories to draw: a comma-separated list of
-;   shrine, chest, pickup, boss, elite, enemy, npc, note, door, ladder, lift,
-;   fog_gate, hidden, other
-; or `all` / `none`. `note` is the game's readable notes; the old name `merchant` is
-; accepted and rewritten on the next save. Enemies refresh once a second, so they lag
-; while they move.
+; Categories to draw: comma-separated list of shrine, chest, pickup, boss, elite, enemy,
+; npc, note, door, ladder, lift, fog_gate, hidden, other - or `all` / `none`.
 markers_categories = shrine,chest,pickup,boss,elite,npc,note,door,ladder,lift,fog_gate,hidden,other
 
-; Found markers: 0 = draw dimmed as a hollow glyph, 1 = hide. Shrines are exempt:
-; a shrine always stays on the map, lit ones solid and unlit ones hollow.
+; Found markers: 0 = draw dimmed and hollow, 1 = hide. Shrines always stay on the map.
 markers_hide_found = 1
 
 ; Glyph radius in minimap pixels.
@@ -118,42 +76,35 @@ markers_size = 6.5
 ; 1 = keep off-map markers on the rim, drawn smaller; 0 = drop them.
 markers_clamp_to_edge = 0
 
-; ---------------------------------------------------------------------------------
-; THE FULL MAP
-; ---------------------------------------------------------------------------------
-; The zoom the full map opens at, in uu per screen pixel. Closing the map writes back
-; the zoom you left it at.
+; ---- The full map ----
+; Zoom the map opens at, in uu per screen pixel; closing it writes back where you left it.
 map_zoom = 30
 
 ; Marker glyph radius on the full map, in screen pixels.
 map_marker_size = 8.0
 
-; 1 = draw every walkable surface (the current storey stays opaque); 0 = height slice.
+; 1 = draw every walkable surface; 0 = height slice.
 map_show_all_floors = 0
 
-; Poll XInput whenever this is on - the pad has to be able to OPEN the map.
+; Allow the controller to open the map (polls XInput).
 map_gamepad = 1
 
-; ---------------------------------------------------------------------------------
-; THE X-RAY HIGHLIGHT
-; ---------------------------------------------------------------------------------
+; ---- The x-ray highlight ----
 ; Draw nearby markers through walls while armed.
 highlight_enabled = 1
 
-; toggle = press to turn on, press again to turn off; hold = on only while held.
-; A level transition or a lost pawn always turns it off.
+; toggle = press on, press off; hold = on only while held.
 highlight_mode = toggle
 
-; The key that arms the highlight. Any hotkey name from the list at the top.
+; The key that arms the highlight.
 highlight_key = TAB
 
-; The controller route: 1 = accept the pad chord below. Buttons joined with `+`, from
-; LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, RS, UP, DOWN, LEFT, RIGHT; `none`
-; disables it. XInput is polled whenever a chord is configured.
+; Pad route: 1 enables the chord. Buttons joined with `+`, from LB, RB, LT, RT, A, B, X,
+; Y, BACK, START, LS, RS, UP, DOWN, LEFT, RIGHT; `none` disables it.
 highlight_gamepad = 1
 highlight_pad_chord = LB+RB
 
-; How far a marker may be from the player, in uu (1 uu = 1 cm).
+; How far a marker may be from the player, in uu.
 highlight_radius = 3000
 
 ; Categories to highlight; same names as markers_categories, or `all` / `none`.
@@ -162,38 +113,27 @@ highlight_categories = chest,pickup,shrine,boss,npc,note
 ; Draw the name and distance next to each glyph.
 highlight_labels = 1
 
-; 1 = also highlight collected loot, dimmed. Only chests, pickups, hidden items and a
-; defeated boss are affected; shrines, NPCs, notes, doors and fog gates are always
-; highlighted.
+; 1 = also highlight collected loot, dimmed.
 highlight_show_found = 0
 
 ; Glyph radius on screen, in pixels.
 highlight_size = 7.0
 
-; 1 = while the highlight is armed, a pickup of item-quality tier 1 or 2 is drawn in
-; that tier's colour instead of its category colour. The tiers are the game's own
-; pickup-beam grouping by E_ItemType:
-;   0 Common     tools, consumables, arrows, enchanting materials      (blue beam)
-;   1 Equipment  weapons, armour, accessories, gems, spells, skills    (pink beam)
-;   2 Key        quest items and red-mercury upgrade materials         (gold beam)
-; Tier 0 keeps its category colour.
+; 1 = colour a pickup by item-quality tier instead of category: 1 Equipment (pink beam),
+; 2 Key (gold beam). Tier 0 Common keeps its category colour.
 xray_rarity_colors_enabled = 1
 
 ; 1 = use the tier colours on the minimap, the full map and the compass pips too.
 markers_rarity_tint = 0
 
-; ---------------------------------------------------------------------------------
-; THE COMPASS STRIP
-; ---------------------------------------------------------------------------------
+; ---- The compass strip ----
 ; Draw the heading strip.
 compass_enabled = 1
 
-; Which edge the strip hangs off: top | bottom. compass_offset_y measures from that
-; edge. A non-custom hud_preset overrides this.
+; Which edge the strip hangs off: top | bottom.
 compass_anchor = top
 
-; Strip width as a fraction of screen width, and the distance from the anchored edge
-; in pixels.
+; Strip width as a fraction of screen width, and the distance from that edge in pixels.
 compass_width = 0.340
 compass_offset_y = 18
 
@@ -209,79 +149,64 @@ compass_categories = shrine,boss,elite,fog_gate
 ; Write the distance in metres under each pip.
 compass_pip_labels = 1
 
-; ---------------------------------------------------------------------------------
-; HOTKEYS
-; ---------------------------------------------------------------------------------
-; Pad buttons that open and close the full map, joined with `+`; `none` disables it.
-; Needs map_gamepad = 1. The analogue triggers are not accepted.
+; ---- Hotkeys ----
+; HOTKEY NAMES: F1..F5, F7, F8, A..Z, 0..9, TAB, SPACE, ENTER, BACKSPACE, UP / DOWN /
+; LEFT / RIGHT, INSERT / DELETE / HOME / END / PAGEUP / PAGEDOWN, NUM0..NUM9, NUMPLUS /
+; NUMMINUS / NUMMUL / NUMDIV / NUMDOT, MOUSE3 / MOUSE4 / MOUSE5, LALT / RALT / ALT /
+; LSHIFT / RSHIFT / SHIFT / LCTRL / RCTRL / CTRL, or `none` for unbound. One modifier may
+; prefix a key (`ctrl+m`). F6 and F9..F12 are rejected and fall back to the default.
+; The F2 panel's Keys tab rebinds every key by pressing the new one.
+; Pad buttons that open and close the full map and the settings panel, joined with `+`;
+; `none` disables one. The map chord needs map_gamepad = 1; analogue triggers are out.
 map_pad_open_chord = BACK+Y
-
-; Pad buttons that open and close the settings panel, spelled the same way; `none`
-; disables it. The panel takes the mouse, so this is the way in without a keyboard.
 panel_pad_open_chord = BACK+RS
 
-; The settings panel, the full map, recentring the full map, and reloading the config,
-; maps and markers. A key bound here is swallowed while the mod uses it.
+; The settings panel, the full map, recentring the full map, and reloading config and data.
 panel_key = F2
 map_key = M
 map_recenter_key = R
 reload_key = F5
 
-; Steps the minimap zoom through minimap_zoom_presets. The mouse wheel over the disc
-; does the same while the F2 panel is open.
+; Steps the minimap zoom through minimap_zoom_presets.
 zoom_key = N
 
-; Copies the full map to the clipboard as a bitmap. Active only while the full map is
-; open. Nothing is written to disk.
+; Copies the full map to the clipboard as a bitmap while the full map is open.
 screenshot_key = C
 
-; Sets a waypoint on the nearest marker you have not found yet, among the categories
-; that are switched on. A toast names it and how far away it is. Unbound as shipped -
-; the game itself uses G, so pick a free key here or on the F2 panel Keys tab.
+; Sets a waypoint on the nearest marker you have not found yet. Unbound as shipped - the
+; game itself uses G, so pick a free key.
 waypoint_nearest_key = none
 
 ; =================================================================================
 ; ---- ADVANCED ----
 ; =================================================================================
-; Correct as shipped; change one to answer a symptom. The F2 panel reaches them under
-; Debug > Tuning, which players do not have.
+; Correct as shipped; change one to answer a symptom.
 
-; ---------------------------------------------------------------------------------
-; WHEN THE OVERLAY IS ALLOWED ON SCREEN
-; ---------------------------------------------------------------------------------
-; Hide the minimap, the compass and the x-ray unless the camera's view target is the
-; player pawn. This is what keeps them off the main menu and out of cutscenes.
+; ---- When the overlay is allowed on screen ----
+; Show the overlay only while the camera is on the player pawn (keeps it out of menus
+; and cutscenes).
 require_pawn_view = 1
 
-; Hide the minimap if the game-thread reader has not published a position for this
-; many ms.
+; Hide the minimap if no position has been published for this many ms.
 state_stale_ms = 1000
 
-; How long the reader must have had a validated gameplay pawn before the minimap may
-; appear, in ms.
+; How long a validated gameplay pawn must be held before the minimap may appear, in ms.
 min_visible_after_state_ok_ms = 600
 
 ; Delay before the minimap comes back after a menu closes, in ms. Hiding is immediate.
 menu_close_show_delay_ms = 50
 
-; ---------------------------------------------------------------------------------
-; HEIGHT SLICING - what the minimap draws
-; ---------------------------------------------------------------------------------
+; ---- Height slicing ----
 ; Opacity of the surface below, as a multiple of `opacity`; the one above uses 60 % of
 ; it. 0 = draw only the floor you are on.
 adjacent_floor_opacity = 0.25
 
-; How far BELOW your feet a surface is still drawn, in uu.
+; How far BELOW and ABOVE your feet a surface is still drawn, in uu. 0 above = never
+; draw a floor above you.
 floor_fade_uu = 800
-
-; How far ABOVE your feet a surface is still drawn, in uu. Much shorter than the one
-; below on purpose: a gallery overhead is not ground you can walk on now, and at a boss
-; arena it is a third of everything on the map. 0 = never draw a floor above you.
 floor_fade_above_uu = 300
 
-; Height shading: lum = 1 + strength * clamp((surfaceZ - feetZ) / span, -1, +1), with
-; span = floor_z_tolerance on your own floor and the fade range on the dimmed ones.
-; 0 = a flat fill.
+; Height shading strength; 0 = a flat fill.
 floor_gradient_strength = 0.18
 
 ; The walkable fill colour, "R G B" (0..255 each).
@@ -296,24 +221,15 @@ feet_z_smooth_ms = 100
 ; uu subtracted from the pawn's capsule centre to get feet Z.
 player_z_offset = 90
 
-; ---------------------------------------------------------------------------------
-; MARKER SWEEP AND TRACKER TUNING
-; ---------------------------------------------------------------------------------
-; Run the live actor sweep on the game thread. 0 = static positions only, no collected
-; or opened state.
+; ---- Marker sweep and tracker tuning ----
+; Run the live actor sweep. 0 = static positions only, no collected or opened state.
 markers_live = 1
 
-; Draw only the current chapter's static markers. The database holds all six chapters
-; and their world extents overlap, so 0 paints other chapters' markers on this map.
-; The chapter comes from the streamed level packages; nothing is filtered until it is
-; recognised, and live actors are never filtered.
+; Draw only the current chapter's static markers; 0 paints other chapters' markers too.
 markers_filter_chapter = 1
 
-; The sweep walks the object array once per round, a slice per pump.
-;   markers_rounds_per_sec (1..10)       ceiling on how often a round may start
-;   markers_scan_chunk     (512..131072) object slots per pump - the frame-cost dial
-;   markers_scan_period_ms (1..500)      minimum ms between pumps
-; The F2 panel prints `scan pump` (keep it under ~1 ms) and `round`.
+; Sweep pacing: rounds per second (1..10), object slots per pump (512..131072) - the
+; frame-cost dial - and the minimum ms between pumps (1..500).
 markers_rounds_per_sec = 1
 markers_scan_chunk = 8192
 markers_scan_period_ms = 8
@@ -327,25 +243,18 @@ markers_max_draw = 400
 ; How long after the last change the found file is written, in ms.
 found_save_debounce_ms = 2000
 
-; A chest or pickup whose level is loaded, that a full pass over the object array has
-; not seen, counts as collected after this many confirming rounds in a row. A marker
-; whose level cannot be matched is never marked, and the mark can be undone by clicking
-; the marker on the full map. Then the categories the rule may mark.
+; A loaded-but-unseen chest or pickup counts as collected after this many rounds in a
+; row, in these categories. Undo a mark by clicking the marker on the full map.
 markers_absence_rounds = 2
 markers_absence_categories = chest,pickup
 
-; 1 = count a boss as defeated when its arena's `bossdoor_*` respawn point is in the
-; save's unlocked list, even if the mod has never seen the boss. Whether the game
-; unlocks that point on the kill or on the first attempt is unconfirmed, so this may
-; mark a boss you fought and did not beat. It is derived on every publish and never
-; written to the collection file, so 0 undoes it completely.
+; 1 = count a boss as defeated when its arena's respawn point is unlocked in the save.
+; May mark a boss you fought and did not beat; 0 undoes it completely.
 boss_defeat_from_save = 1
 
-; ---------------------------------------------------------------------------------
-; MINIMAP LOOK
-; ---------------------------------------------------------------------------------
+; ---- Minimap look ----
 ; The ladder zoom_key steps through, in uu per minimap pixel: 1 to 8 numbers between 2
-; and 400, in any order (sorted, duplicates dropped).
+; and 400, in any order.
 minimap_zoom_presets = 13, 26, 52
 
 ; The dark disc the map is drawn on: opacity, then "R G B".
@@ -359,17 +268,14 @@ minimap_frame_alpha = 0.85
 ; Floor on the minimap's side length, in pixels.
 minimap_min_px = 72
 
-; The player arrow: a fraction of the minimap's side, never smaller than this many
-; pixels.
+; The player arrow: a fraction of the minimap's side, and a floor in pixels.
 minimap_arrow_frac = 0.055
 minimap_arrow_min_px = 8
 
 ; Waypoint glyph radius, as a multiple of markers_size.
 waypoint_size_scale = 1.05
 
-; ---------------------------------------------------------------------------------
-; FULL MAP TUNING
-; ---------------------------------------------------------------------------------
+; ---- Full map tuning ----
 ; Zoom limits, in uu per screen pixel (min = most zoomed in).
 map_zoom_min = 4
 map_zoom_max = 240
@@ -380,8 +286,7 @@ map_zoom_factor = 1.15
 ; Keyboard / stick pan speed, in screen pixels per second.
 map_pan_speed = 900
 
-; Border around the map as a fraction of screen height, and the opacity of the dark
-; backdrop behind it.
+; Border around the map as a fraction of screen height, and the opacity behind it.
 map_margin = 0.045
 map_backdrop = 0.86
 
@@ -391,47 +296,36 @@ map_markers_max_draw = 4000
 ; How far one press of the floor adjustment moves the height slice, in uu.
 map_floor_step = 200
 
-; The map's own dynamic slice texture: width in pixels, and the cap on re-cuts per
-; second. It only re-cuts when the view changed.
+; The map's own slice texture: width in pixels, and the cap on re-cuts per second.
 map_slice_px = 768
 map_slice_hz = 6
 
 ; Stick deadzone, as a fraction of full deflection.
 map_gamepad_deadzone = 0.22
 
-; ---------------------------------------------------------------------------------
-; X-RAY TUNING
-; ---------------------------------------------------------------------------------
+; ---- X-ray tuning ----
 ; Hard cap on glyphs per frame, nearest first.
 highlight_max_draw = 60
 
-; Hard cap on labels (name + distance), 0 .. 40. Labels go to the nearest markers,
-; never two for glyphs within highlight_size x 2 of each other, and are pushed down
-; until no two boxes overlap; a pushed box draws a leader line to its glyph.
+; Hard cap on labels (name + distance), 0 .. 40. They go to the nearest markers.
 highlight_labels_max = 12
 
-; Alpha at the camera and at highlight_radius; the fade between them is linear.
-; highlight_alpha_far is never allowed above highlight_alpha_near.
+; Alpha at the camera and at highlight_radius; the fade between them is linear, and far
+; is never above near.
 highlight_alpha_near = 1.00
 highlight_alpha_far = 0.25
 
 ; 1 = anything off screen or behind the camera gets an arrow on the screen edge.
 highlight_edge_arrows = 1
 
-; How often the game thread re-reads the camera while the highlight is armed, in Hz.
-; Nothing is read when it is disarmed and the compass is off.
+; How often the camera is re-read while the highlight is armed, in Hz.
 highlight_camera_hz = 60
 
-; ---------------------------------------------------------------------------------
-; ITEM QUALITY COLOURS
-; ---------------------------------------------------------------------------------
-; One RRGGBB per tier, in tier order (Common, Equipment, Key). The defaults are the
-; game's own pickup-beam colours. A `#` prefix and the 3-digit short form are accepted.
+; One RRGGBB per item-quality tier, in tier order (Common, Equipment, Key). A `#` prefix
+; and the 3-digit short form are accepted.
 xray_rarity_colors = ADAFDA, DAADC5, DAD6AD
 
-; ---------------------------------------------------------------------------------
-; COMPASS TUNING
-; ---------------------------------------------------------------------------------
+; ---- Compass tuning ----
 ; Strip height in pixels.
 compass_height = 26
 
@@ -451,14 +345,11 @@ compass_tick_step_deg = 15
 ; Hard cap on marker pips, nearest first.
 compass_max_pips = 32
 
-; A minimap glyph and a compass pip get an up / down arrow once the marker is this far
-; off your own height, in uu. 0 turns the arrows off.
+; A glyph and a pip get an up / down arrow once the marker is this far off your own
+; height, in uu. 0 turns the arrows off.
 compass_pip_height_uu = 300
 
-; ---------------------------------------------------------------------------------
-; TEXT
-; ---------------------------------------------------------------------------------
-; Full path to a .ttf or .otf for the whole overlay, rasterised at font_size times
-; ui_scale. `none`, empty or an unreadable file falls back to ImGui's built-in bitmap
-; font and logs it.
+; ---- Text ----
+; Full path to a .ttf or .otf for the whole overlay. `none`, empty or an unreadable file
+; falls back to ImGui's built-in font.
 ui_font = C:\Windows\Fonts\segoeui.ttf

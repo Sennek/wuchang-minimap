@@ -6,7 +6,7 @@
 // (Dear ImGui + a MinHook'd DX12 Present) lives in overlay.cpp.
 //
 // The navmesh dumper is opt-in and off by default; the map background is built offline
-// from the paks. `[navmesh] navmesh_dump = 1` in config.ini turns it on.
+// from the paks. `navmesh_dump = 1` in the dev config turns it on.
 //
 
 #include <Windows.h>

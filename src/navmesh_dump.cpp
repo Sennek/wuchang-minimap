@@ -23,7 +23,6 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
-#include <cwctype>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -81,14 +80,9 @@ namespace navmesh
         // Hard cap on how many depth-1 targets the depth-2 chase will look inside.
         constexpr int kMaxDeepHops = 4096;
 
-        // The runtime dumper is OFF unless ue4ss\Mods\WuchangMinimap\config.ini carries
-        // [navmesh] navmesh_dump = 1. With it on, the F2 panel's Debug tab forces a dump.
-        struct Config
-        {
-            bool enabled = false;
-        };
-
-        Config g_cfg;
+        // The runtime dumper is OFF unless the dev config carries navmesh_dump = 1. With it on,
+        // the F2 panel's Debug tab forces a dump. Read once at init: arming it needs a restart.
+        bool g_enabled = false;
 
         // navmesh/last_stage.txt: every stage writes its name here, closing the file each time.
         std::filesystem::path g_stage_path;
@@ -2219,49 +2213,6 @@ namespace navmesh
             }
         }
 
-        Config load_config()
-        {
-            Config cfg{};
-            const std::filesystem::path ini = g_out_root.parent_path() / L"config.ini";
-            std::wifstream f(ini);
-            if (!f)
-            {
-                return cfg;
-            }
-            const auto trim = [](std::wstring v) {
-                while (!v.empty() && std::iswspace(static_cast<wint_t>(v.front())))
-                {
-                    v.erase(v.begin());
-                }
-                while (!v.empty() && std::iswspace(static_cast<wint_t>(v.back())))
-                {
-                    v.pop_back();
-                }
-                return v;
-            };
-            std::wstring line;
-            while (std::getline(f, line))
-            {
-                const auto comment = line.find_first_of(L";#");
-                if (comment != std::wstring::npos)
-                {
-                    line.erase(comment);
-                }
-                const auto eq = line.find(L'=');
-                if (eq == std::wstring::npos)
-                {
-                    continue;
-                }
-                const std::wstring key = trim(line.substr(0, eq));
-                const std::wstring value = trim(line.substr(eq + 1));
-                if (key == L"navmesh_dump")
-                {
-                    cfg.enabled = (value == L"1" || value == L"true" || value == L"yes" || value == L"on");
-                }
-            }
-            return cfg;
-        }
-
         // Called from UE4SS's ProcessEvent pre-callback, i.e. the game thread. The ONLY place that
         // touches g_agents, walks UObjects or reads engine allocations. ProcessEvent fires thousands
         // of times a second, so it throttles first.
@@ -2379,22 +2330,22 @@ namespace navmesh
         }
         g_out_root = resolve_out_root();
         g_stage_path = g_out_root / L"last_stage.txt";
-        g_cfg = load_config();
+        g_enabled = mm::config().navmesh_dump;
 
-        if (!g_cfg.enabled)
+        if (!g_enabled)
         {
             logf(L"runtime dtNavMesh dumper is DISABLED (the default). The map background comes from the offline "
                  L"pak extraction (tools/navmesh/offline), so this module is only needed for cells missing from "
                  L"the paks. No memory is scanned.");
-            logf(L"to enable it, put   [navmesh]  navmesh_dump = 1   in {}",
-                 (g_out_root.parent_path() / L"config.ini").wstring());
+            logf(L"to enable it, set   navmesh_dump = 1   in {} and restart the game",
+                 mm::dev_config_path());
             return;
         }
 
         g_initialised = true;
         g_loop_thread = ::GetCurrentThreadId();
         set_stage(L"module up (enabled)");
-        logf(L"module up, ENABLED by config.ini. Output root: {}", g_out_root.wstring());
+        logf(L"module up, ENABLED by navmesh_dump. Output root: {}", g_out_root.wstring());
         logf(L"the F2 panel's Debug tab forces a dump of every agent; an automatic dump follows {} ms after "
              L"the set of live tiles changes; the primary agent for the map is \"{}\"",
              static_cast<int>(kDebounceMs),
@@ -2409,7 +2360,7 @@ namespace navmesh
 
     bool enabled()
     {
-        return g_cfg.enabled && g_initialised;
+        return g_enabled && g_initialised;
     }
 
     // ANY THREAD (the F2 Debug tab's button); the game-thread pump picks the flag up.

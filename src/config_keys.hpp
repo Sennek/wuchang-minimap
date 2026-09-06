@@ -186,6 +186,7 @@ namespace cfgkeys
         {"map_asset_retire_grace_ms", Tier::Dev},
         {"hide_reason_log_ms", Tier::Dev},
         {"srv_heap_size", Tier::Dev},
+        {"navmesh_dump", Tier::Dev},
         {"highlight_camera_resolve_ms", Tier::Dev},
         {"highlight_compass_period_ms", Tier::Dev},
         {"highlight_getter_period_ms", Tier::Dev},

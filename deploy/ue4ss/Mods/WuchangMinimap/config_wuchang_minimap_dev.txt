@@ -5,8 +5,8 @@
 ; back to the built-in defaults. The F2 panel's "Debug" tab (visible while
 ; debug_readout = 1) edits these keys and saves them back here.
 ;
-; Only `srv_heap_size` needs a restart. Everything else is picked up by F5 or by the
-; 1 Hz watch on both files' timestamps.
+; Only `srv_heap_size` and `navmesh_dump` need a restart. Everything else is picked up by
+; F5 or by the 1 Hz watch on both files' timestamps.
 
 ; ---------------------------------------------------------------------------------
 ; DIAGNOSTICS
@@ -17,6 +17,11 @@ debug_readout = 1
 
 ; Open the settings panel as soon as the mod starts.
 debug_show_panel_on_start = 0
+
+; Arm the runtime dtNavMesh dumper, which scans engine memory and writes tile JSON into
+; the mod's navmesh\ folder. RESTART ONLY: the module reads this once, when it starts.
+; With it on, the F2 panel's Debug tab gets a button that forces a dump.
+navmesh_dump = 0
 
 ; How much goes into wuchang_minimap.log and UE4SS.log:
 ;   normal   startup, what loaded, chapter and save-slot changes, warnings, errors,

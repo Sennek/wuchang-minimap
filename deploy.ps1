@@ -46,7 +46,7 @@ $ModName  = 'WuchangMinimap'
 if ($Pull) {
     $srcNav = Join-Path $GameRoot "Project_Plague\Binaries\Win64\ue4ss\Mods\$ModName\navmesh"
     if (-not (Test-Path $srcNav)) {
-        throw "No navmesh dumps yet: '$srcNav' does not exist. Enable navmesh_dump in config.ini, run the game and press F3 first."
+        throw "No navmesh dumps yet: '$srcNav' does not exist. Enable navmesh_dump in config_wuchang_minimap_dev.txt, run the game and press F3 first."
     }
     $dstNav = Join-Path $PSScriptRoot 'tools\navmesh\dumps'
     New-Item -ItemType Directory -Force -Path $dstNav | Out-Null
@@ -100,14 +100,14 @@ foreach ($modDir in $targets) {
     if (-not (Test-Path $enabled)) { New-Item -ItemType File -Path $enabled | Out-Null }
 
     # Config files are never overwritten unless -ForceConfig - they are hand-tuned.
-    #   config.ini                     - the runtime navmesh dumper (off by default)
     #   config_wuchang_minimap.txt     - the overlay / minimap / full map settings
     #   config_wuchang_minimap_dev.txt - developer dials, read after the player config
-    #                                    and overriding it. Installed by this dev deploy;
-    #                                    tools\package.ps1 refuses to ship it.
+    #                                    and overriding it, and the home of the runtime
+    #                                    navmesh dumper switch. Installed by this dev
+    #                                    deploy; tools\package.ps1 refuses to ship it.
     # wuchang_minimap_found.txt (collection tracker) and wuchang_minimap_waypoint.txt
     # (full map waypoint) are the player's own state: never shipped, never deployed.
-    foreach ($cfgName in @('config.ini', 'config_wuchang_minimap.txt', 'config_wuchang_minimap_dev.txt')) {
+    foreach ($cfgName in @('config_wuchang_minimap.txt', 'config_wuchang_minimap_dev.txt')) {
         $cfgSrc = Join-Path $PSScriptRoot "deploy\ue4ss\Mods\WuchangMinimap\$cfgName"
         $cfgDst = Join-Path $modDir $cfgName
         if ((Test-Path $cfgSrc) -and ($cfgSrc -ne $cfgDst) -and ($ForceConfig -or -not (Test-Path $cfgDst))) {

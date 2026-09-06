@@ -395,6 +395,10 @@ namespace mm
         // ONLY: the heap is created once, when the overlay first initialises.
         int srv_heap_size = 64;
 
+        // Arms the runtime dtNavMesh dumper. RESTART ONLY: the module reads this once, when it
+        // starts, and registers its game-thread pump only if it is set.
+        bool navmesh_dump = false;
+
         bool debug_readout = false;
         bool debug_show_panel_on_start = false; // main-menu verification aid
         int panel_key = 0x71;                   // VK_F2
@@ -604,6 +608,7 @@ namespace mm
         a.map_asset_retire_grace_ms == b.map_asset_retire_grace_ms &&
         a.hide_reason_log_ms == b.hide_reason_log_ms &&
         a.srv_heap_size == b.srv_heap_size &&
+        a.navmesh_dump == b.navmesh_dump &&
         a.debug_readout == b.debug_readout &&
         a.debug_show_panel_on_start == b.debug_show_panel_on_start &&
         a.panel_key == b.panel_key &&

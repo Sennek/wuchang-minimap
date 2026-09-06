@@ -3723,7 +3723,7 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
-        constexpr std::size_t kPaddingBytes = 66;
+        constexpr std::size_t kPaddingBytes = 65;
 
         mm::Config a{};
         mm::Config b{};

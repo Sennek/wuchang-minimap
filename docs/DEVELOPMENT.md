@@ -267,7 +267,6 @@ WuchangMinimap-1.0.0\
     markers\chapter{1..5,dlc}.json     chapter1.sample.json is excluded
     markers\shrines.json               required; markers\items.json when present
     config_wuchang_minimap.txt
-    config.ini
     enabled.txt                        empty; UE4SS's "load me" opt-in
 ```
 
@@ -498,11 +497,10 @@ one directory per `ARecastNavMesh` actor (`Small` / `Big` / `BitFat` / `Giant`, 
 > **The runtime dumper is off by default.** The map background is built offline from the paks
 > (`tools/navmesh/offline`) — the whole game in ~2 minutes, with 0 % false positives against
 > the game's own navigation probes — so the runtime path covers only cells the paks do not
-> carry and navmesh carved at runtime. Turn it on for a session in
-> `ue4ss\Mods\WuchangMinimap\config.ini`:
+> carry and navmesh carved at runtime. It is a Dev key, read once at start-up, so arming it
+> takes a restart. In `ue4ss\Mods\WuchangMinimap\config_wuchang_minimap_dev.txt`:
 >
 > ```ini
-> [navmesh]
 > navmesh_dump = 1
 > ```
 >
@@ -971,8 +969,8 @@ in the same folder, **after** the player config — so a key set in both wins th
 tab saves into the dev file, never into the player one; if the file does not exist and every
 Dev key is at its default, it stays that way.
 
-Only `srv_heap_size` needs a restart: the descriptor heap is created once, when the overlay
-first initialises.
+Two keys need a restart: `srv_heap_size`, because the descriptor heap is created once, when
+the overlay first initialises, and `navmesh_dump`, which the dumper reads once when it starts.
 
 **The master switch, `mod_enabled` (default 1).** `mod_enabled = 0` makes the DLL inert: the
 DX12 hooks are not installed (and are cleanly disabled if they already were — the render

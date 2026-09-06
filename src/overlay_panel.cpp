@@ -1899,7 +1899,7 @@ namespace overlay
             //
             // A button, not a binding: it scans engine memory and writes JSON, which no
             // player should trigger by leaning on a key. The module ships disabled
-            // (config.ini [navmesh] navmesh_dump = 1) and the button says so.
+            // (navmesh_dump = 1 in the dev config) and the button says so.
             ImGui::SeparatorText("Runtime navmesh dump");
             ImGui::BeginDisabled(!navmesh::enabled());
             if (ImGui::Button("Dump the live navmesh tiles"))
@@ -1911,7 +1911,7 @@ namespace overlay
             if (!navmesh::enabled())
             {
                 ImGui::SameLine();
-                ImGui::TextDisabled("off - set navmesh_dump = 1 in config.ini and restart");
+                ImGui::TextDisabled("off - set navmesh_dump = 1 in the dev config and restart");
             }
 
             draw_perf_table();

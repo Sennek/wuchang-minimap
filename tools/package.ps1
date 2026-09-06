@@ -30,7 +30,6 @@
             markers\items.json             (item display names, when it has been built)
             markers\shrines.json           (the shrine table: names, chapters, destinations)
             config_wuchang_minimap.txt
-            config.ini
             enabled.txt
 
     Before zipping, the script smoke-checks that everything the runtime enumerates is
@@ -255,8 +254,8 @@ try {
     }
     Copy-Item -LiteralPath $shrinesSrc -Destination $markersDst -Force
 
-    # 3d. the two shipped config files, and the enabled.txt opt-in UE4SS looks for.
-    foreach ($cfg in @('config_wuchang_minimap.txt', 'config.ini')) {
+    # 3d. the shipped config file, and the enabled.txt opt-in UE4SS looks for.
+    foreach ($cfg in @('config_wuchang_minimap.txt')) {
         $src = Join-Path $repo "deploy\ue4ss\Mods\WuchangMinimap\$cfg"
         if (-not (Test-Path $src)) { throw "Shipped config '$src' is missing." }
         Copy-Item -LiteralPath $src -Destination (Join-Path $modDir $cfg) -Force
@@ -343,7 +342,6 @@ try {
         $problems.Add("release consistency check reported $LASTEXITCODE problem(s) - see above")
     }
     Require-File (Join-Path $modDir 'config_wuchang_minimap.txt') 'overlay config' | Out-Null
-    Require-File (Join-Path $modDir 'config.ini') 'navmesh config' | Out-Null
     if (-not (Test-Path -LiteralPath (Join-Path $modDir 'enabled.txt') -PathType Leaf)) {
         $problems.Add('missing enabled.txt')
     }
@@ -440,7 +438,7 @@ try {
     foreach ($e in Get-ChildItem -LiteralPath $pkgRoot) {
         if ($e.Name -notin $allowedRoot) { $problems.Add("unexpected at package root: $($e.Name)") }
     }
-    $allowedMod = @('dlls', 'maps', 'markers', 'config_wuchang_minimap.txt', 'config.ini', 'enabled.txt')
+    $allowedMod = @('dlls', 'maps', 'markers', 'config_wuchang_minimap.txt', 'enabled.txt')
     foreach ($e in Get-ChildItem -LiteralPath $modDir) {
         if ($e.Name -notin $allowedMod) { $problems.Add("unexpected in the mod folder: $($e.Name)") }
     }

@@ -2,7 +2,8 @@
 
 Everything here happens on the build machine with the **game closed**. A release is a
 version stamp, a commit, a tag, one `tools\package.ps1` run and an upload; nothing is
-assembled by hand.
+assembled by hand. `1.0.1` below is the worked example: the number after the shipped
+`1.0.0`; substitute the version you are cutting.
 
 ## 0. Before you start
 
@@ -60,8 +61,8 @@ two archives:
 
 | File | What it is |
 |---|---|
-| `dist\WuchangMinimap-1.0.1.zip` | what a player downloads (~40 MB) |
-| `dist\WuchangMinimap-1.0.1-symbols.zip` | `main.pdb` + `BUILD_INFO.txt` (~6 MB) |
+| `dist\WuchangMinimap-1.0.1.zip` | what a player downloads (~27 MB) |
+| `dist\WuchangMinimap-1.0.1-symbols.zip` | `main.pdb` + `BUILD_INFO.txt` (~14 MB) |
 
 Any failure stops before the zip is written. Do not work around a smoke-check or
 consistency failure by zipping the folder yourself.
@@ -90,7 +91,7 @@ Open `dist\WuchangMinimap-1.0.1\` and confirm:
 | `...\maps\` | `maps.json` + five `chapter<N>\` folders of PNGs |
 | `...\markers\` | `chapter1..5.json`, `chapterdlc.json`, `shrines.json`, `items.json`; **no `*.sample.json`** |
 | `...\enabled.txt` | present (empty file — that is correct) |
-| the zip | ~40 MB, and the console printed `zip round-trip OK` |
+| the zip | ~27 MB, and the console printed `zip round-trip OK` |
 
 The script also prints the size and file count; a sudden change in either is worth
 understanding before uploading.

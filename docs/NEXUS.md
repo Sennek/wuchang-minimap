@@ -33,7 +33,6 @@ A minimap, a full chapter map and a compass, built from the game's own navmesh. 
 [size=5]What it is[/size]
 [list]
 [*][b]Minimap[/b] and [b]compass strip[/b] in-world, [b]full chapter map[/b] on M
-[*]Map built from the game's own navmesh: every drawn pixel is ground you can stand on, height shown as colour
 [*][b]Markers[/b] for chests, pickups, shrines, bosses, NPCs and notes, with the game's own names, all five chapters and the DLC
 [*][b]Collection tracker[/b] per save slot, up to 16 waypoints, name search on the full map
 [*][b]X-ray[/b] on TAB: loot through walls, tinted by item quality

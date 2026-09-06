@@ -17,7 +17,12 @@
       F12 / CTRL+F12 - pickup watch   (toggle; snapshots pickup/chest actors every
                                        2 s and logs actors that vanished and props
                                        that changed - settles "collected" vs
-                                       "destroyed" when you pick something up)
+                                       "destroyed" when you pick something up, and
+                                       deep-dumps every pickup-family actor one tick
+                                       after it first sees it, so an enemy drop's item
+                                       identity is captured before it is collected -
+                                       a tick late, because the actor is still being
+                                       constructed on the tick it appears)
       F5  / CTRL+F5  - input dump     (Enhanced Input: local player, player input,
                                        applied mapping contexts and their priority,
                                        every action/key mapping, remap storage
@@ -33,6 +38,8 @@
             <mod dir>\out\navprobe_<yyyymmdd_hhmmss>.csv
             <mod dir>\out\track.csv
             <mod dir>\out\pickupwatch_<yyyymmdd_hhmmss>.txt
+            <mod dir>\out\pickupdeep_<yyyymmdd_hhmmss>.txt   (F12 deep dumps)
+            <mod dir>\out\deepdump_<yyyymmdd_hhmmss>.txt     (world-dump deep dumps)
     A one-line confirmation for every dump goes to ue4ss\UE4SS.log.
 --]]
 
@@ -56,7 +63,19 @@ local CFG = {
     -- BP_Wumen_C's LocalUsed / FirstActive, which are the state flags the whole section
     -- exists to capture. The priority list below is printed FIRST and is never capped.
     MAX_VALUE_PROPS          = 140,    -- scalar props printed per marker instance
+    -- deep dump (pickup-family actors: every property, arrays and structs walked)
+    DEEP_VALUES              = true,   -- false: write the property LIST only, read nothing
+    DEEP_DEPTH               = 3,      -- struct/object recursion depth
+    DEEP_MAX_ELEMS           = 8,      -- TArray elements expanded per array
+    DEEP_MAX_LINES           = 600,    -- hard line cap per deep-dumped actor
+    DEEP_MAX_INSTANCES       = 8,      -- pickup-family instances deep-dumped per class
     -- pickup watch (F12)
+    WATCH_MAX_DEEP_DUMPS     = 24,     -- first-seen deep dumps per watch session
+    -- Watch ticks between first sighting a pickup actor and deep-dumping it. An
+    -- enemy drop is spawned during the tick it first appears in and its arrays and
+    -- components are not filled in yet; reading them then can fault inside the
+    -- engine. One tick of delay is ~2 s, still well before the player collects it.
+    WATCH_DEEP_DELAY_TICKS   = 1,
     WATCH_PERIOD_MS          = 2000,
     WATCH_MAX_ACTORS         = 4000,
     -- property dumps
@@ -99,6 +118,8 @@ local KEYWORDS = {
 local MARKER_CLASSES = {
     -- pickups
     "BP_PickupActor_C", "BP_PickUpPT_C", "BP_AutoPickUp_C", "ItemCollectionBox_C",
+    -- runtime enemy drop, spawned on death (chain BP_PickupActor_C -> DSCActor -> Actor)
+    "BP_DropItem_C",
     -- chests
     "BP_treasurebox_C", "BP_ItemRedBox_C",
     -- shrines / fast travel
@@ -107,6 +128,16 @@ local MARKER_CLASSES = {
     "BP_Wumen_C",
     -- doors / shortcuts
     "BP_NewPuzzlesDoor_C", "BP_Door_C", "BP_DoorBase_C",
+}
+
+-- The pickup family: actors that carry an item identity somewhere. Scalar values are
+-- not enough for these - the item id lives in a TArray of structs, or on a component -
+-- so they get the deep dump: every property, arrays expanded, structs and objects
+-- walked, nothing capped at 80 names.
+local PICKUP_CLASSES = {
+    BP_DropItem_C = true, BP_PickupActor_C = true, BP_PickUpPT_C = true,
+    BP_AutoPickUp_C = true, ItemCollectionBox_C = true,
+    BP_treasurebox_C = true, BP_ItemRedBox_C = true,
 }
 
 -- Property types worth printing a VALUE for. Struct/object/array properties come
@@ -521,6 +552,411 @@ local function read_prop_str(obj, name)
     if not ok then return "<fmt error>" end
     if s == "<userdata>" then return nil end
     return s
+end
+
+-- fmt_value renders "no such property" as one of these; treat them as absent.
+local OPAQUE_STR = { ["<userdata>"] = true, ["{}"] = true, ["nil"] = true, ["<?>"] = true }
+
+-- A TArray element or TMap key/value can arrive wrapped in a handle that has to be
+-- :get()'d before its fields are readable.
+local function unwrap(v)
+    if type(v) ~= "userdata" and type(v) ~= "table" then return v end
+    local ok, r = pcall(function() return v:get() end)
+    if ok and r ~= nil then return r end
+    return v
+end
+
+-- Iterate a TArray. UE4SS exposes ForEach on it, older builds only GetArrayNum plus
+-- indexing, and the index base is not the same everywhere. Returns the number of
+-- elements visited and the name of the route that worked - the C++ reader has to
+-- make the same choice, so which one answered is worth recording.
+local function array_each(arr, cb)
+    if arr == nil then return 0, "nil" end
+    local n = nil
+    pcall(function() n = arr:GetArrayNum() end)
+    local seen = 0
+    local ok = pcall(function()
+        arr:ForEach(function(i, e)
+            seen = seen + 1
+            cb(i, unwrap(e))
+        end)
+    end)
+    if ok and seen > 0 then return seen, "ForEach" end
+    if type(n) == "number" and n > 0 then
+        for base = 0, 1 do
+            local got = 0
+            pcall(function()
+                for i = base, n - 1 + base do
+                    local e = arr[i]
+                    if e == nil then break end
+                    got = got + 1
+                    cb(i, unwrap(e))
+                end
+            end)
+            if got > 0 then return got, string.format("index[%d..]", base) end
+        end
+    end
+    if type(n) == "number" then return 0, string.format("empty (GetArrayNum=%d)", n) end
+    return 0, "no route"
+end
+
+local function map_each(m, cb)
+    if m == nil then return 0, "nil" end
+    local seen = 0
+    local ok = pcall(function()
+        m:ForEach(function(k, v)
+            seen = seen + 1
+            cb(unwrap(k), unwrap(v))
+        end)
+    end)
+    if ok then return seen, "ForEach" end
+    return 0, "no route"
+end
+
+-- A nested struct, TArray or TMap formats as opaque even when its own fields are
+-- perfectly readable, and UE4SS returns opaque userdata for a property that is not
+-- there at all - so "does this field exist?" is answered by probing it, never by
+-- how it formats.
+local function struct_like(v)
+    if type(v) ~= "userdata" and type(v) ~= "table" then return false end
+    for _, m in ipairs({ "ForEach", "GetArrayNum", "GetKeys" }) do
+        local ok, f = pcall(function() return v[m] end)
+        if ok and type(f) == "function" then return true end
+    end
+    for _, sub in ipairs({ "KeyName", "Name", "DisplayName", "Action", "Key", "Mappings" }) do
+        local ok, sv = pcall(function() return v[sub] end)
+        if ok and sv ~= nil then
+            local oks, ss = pcall(fmt_value, sv)
+            if oks and ss ~= nil and not OPAQUE_STR[ss] then return true end
+        end
+    end
+    return false
+end
+
+--------------------------------------------------------------------------------
+-- deep value dump: arrays, structs and object refs walked, not just scalars
+--------------------------------------------------------------------------------
+-- The scalar dump answers "is this collected?" but never "WHICH item is this?".
+-- A pickup's item identity lives in a TArray of structs (Items / 首次拾取道具内容 /
+-- ItemResult / CustomedItems) or on a component, and both format as opaque. So the
+-- pickup family gets this instead: every reflected property, arrays expanded element
+-- by element, struct fields listed, object properties followed one level.
+--
+-- Reading a property off an actor the engine is still constructing can fault inside
+-- the engine, and a native access violation is NOT a Lua error: pcall never sees it
+-- and the process dies without unwinding. The dump is therefore built to survive
+-- being killed mid-read:
+--   * it goes to a flushed sink - every line is opened, written and closed on its own,
+--   * the complete property LIST is written before any value is read,
+--   * every read is announced ("-> read <name> (<type>)") before the engine is
+--     touched and acknowledged ("ok") after,
+--   * values are read safest-first: scalars, then object refs, then arrays/structs.
+-- Whatever the file ends with is the property that killed the game.
+
+-- A writer shaped like new_writer's but with no buffer at all.
+local function flushed_writer(path)
+    local w = { path = path, n = 0 }
+    function w:line(fmt, ...)
+        local s
+        if select("#", ...) > 0 then
+            local ok, r = pcall(string.format, fmt, ...)
+            s = ok and r or tostring(fmt)
+        else
+            s = tostring(fmt)
+        end
+        self.n = self.n + 1
+        local f = io.open(self.path, "a")
+        if f then
+            f:write(s, "\n")
+            f:close()
+        end
+    end
+    function w:blank() self:line("") end
+    function w:flush() end
+    return w
+end
+
+-- The FProperty OBJECTS of a class chain, nearest class first. class_gameplay_props
+-- keeps only names; the object is what carries GetInner (FArrayProperty) and
+-- GetStruct (FStructProperty), the routes into an array's element type and a
+-- struct's layout. Both are asked only of a property whose reflected type already
+-- says it is that kind, never of a property that merely might be.
+local function class_prop_objs(cls, stopAtEngine)
+    local out, seen = {}, {}
+    local guard, c = 0, cls
+    while c ~= nil and isvalid(c) and guard < CFG.MAX_CLASS_CHAIN do
+        local cn = sname(c)
+        if stopAtEngine and ENGINE_STOP_CLASSES[cn] then break end
+        pcall(function()
+            c:ForEachProperty(function(p)
+                local n = prop_name(p)
+                if n and n ~= "<?>" and not seen[n] then
+                    seen[n] = true
+                    out[#out + 1] = { name = n, type = prop_type(p), prop = p, owner = cn }
+                end
+            end)
+        end)
+        c = safe(function() return c:GetSuperStruct() end)
+        guard = guard + 1
+    end
+    return out
+end
+
+-- Struct field names when the layout cannot be reflected: probe the item-shaped ones.
+local STRUCT_FIELD_GUESSES = {
+    "ItemID", "ItemId", "Item_ID", "ID", "Id", "GUID", "RowName", "Name", "Item",
+    "ItemType", "Type", "Quality", "Count", "Num", "Number", "Amount", "Quantity",
+    "Level", "Weight", "Prob", "Rate", "Index", "Key", "Value", "DataTable",
+    "ItemData", "ItemConfig", "ItemRow", "ItemClass", "Class",
+}
+
+-- The reflected field list of the UScriptStruct a StructProperty declares, nil when
+-- unavailable. FStructProperty:GetStruct() is documented UE4SS Lua API and returns a
+-- UScriptStruct, which answers ForEachProperty like any UStruct.
+local function struct_fields_of(prop, ptype)
+    if prop == nil or ptype ~= "StructProperty" then return nil end
+    local st = safe(function() return prop:GetStruct() end)
+    if st == nil then return nil end
+    local fields = {}
+    pcall(function()
+        st:ForEachProperty(function(p)
+            local n = prop_name(p)
+            if n and n ~= "<?>" then
+                fields[#fields + 1] = { name = n, type = prop_type(p), prop = p }
+            end
+        end)
+    end)
+    if #fields == 0 then return nil end
+    return fields
+end
+
+local OBJECT_PROP_TYPES = {
+    ObjectProperty = true, ObjectPtrProperty = true, WeakObjectProperty = true,
+    LazyObjectProperty = true, SoftObjectProperty = true, ClassProperty = true,
+    SoftClassProperty = true, InterfaceProperty = true,
+}
+
+-- Read order. A scalar is a copy out of the actor's own memory; an object ref drags
+-- in a second object; an array or struct walks memory the constructor may not have
+-- filled in yet. Cheapest and safest first, so a crash still leaves the useful part.
+local function prop_phase(ptype)
+    if SCALAR_PROP_TYPES[ptype] then return 1 end
+    if OBJECT_PROP_TYPES[ptype] then return 2 end
+    return 3
+end
+
+local PHASE_LABEL = { "scalars", "object refs", "arrays / structs / other" }
+
+local function fmt_line(fmt, ...)
+    if select("#", ...) == 0 then return tostring(fmt) end
+    local ok, s = pcall(string.format, fmt, ...)
+    return ok and s or tostring(fmt)
+end
+
+local deep_dump_value -- recursive
+
+-- one line of a deep dump, under a hard per-actor cap
+local function deep_line(ctx, indent, fmt, ...)
+    if ctx.lines >= ctx.cap then
+        if not ctx.capped then
+            ctx.capped = true
+            ctx.w:line("%s... deep-dump line cap %d reached", indent, ctx.cap)
+        end
+        return false
+    end
+    ctx.lines = ctx.lines + 1
+    ctx.w:line("%s%s", indent, fmt_line(fmt, ...))
+    return true
+end
+
+-- A breadcrumb, not counted against the line cap: it is on disk BEFORE the engine
+-- call it describes, so an unrecoverable fault leaves its own cause as the last line.
+local function deep_trace(ctx, indent, fmt, ...)
+    ctx.w:line("%s%s", indent, fmt_line(fmt, ...))
+end
+
+-- obj[name], announced before and acknowledged after
+local function deep_read(ctx, indent, obj, name, ptype)
+    deep_trace(ctx, indent, "-> read %s (%s)", tostring(name), tostring(ptype))
+    local v = safe(function() return obj[name] end)
+    deep_trace(ctx, indent, "   ok %s", tostring(name))
+    return v
+end
+
+local function fmt_deep(v)
+    local ok, s = pcall(fmt_value, v)
+    if not ok or s == nil then return "<fmt error>" end
+    return s
+end
+
+deep_dump_value = function(ctx, indent, label, prop, ptype, v, depth)
+    ptype = ptype or "?"
+    if v == nil then
+        deep_line(ctx, indent, "%-38s %-22s = nil", label, ptype)
+        return
+    end
+
+    -- TArray: Num first, then the elements - this is where an item id hides.
+    -- ForEach on a TArray is the route proven in game by the input dump.
+    local n = nil
+    if ptype == "ArrayProperty" or ptype == "?" then
+        n = safe(function() return v:GetArrayNum() end)
+    end
+    if ptype == "ArrayProperty" or type(n) == "number" then
+        local inner, itype = nil, nil
+        if ptype == "ArrayProperty" and prop ~= nil then
+            deep_trace(ctx, indent, "-> GetInner %s", label)
+            inner = safe(function() return prop:GetInner() end)
+            itype = inner and prop_type(inner) or nil
+            deep_trace(ctx, indent, "   ok GetInner -> %s", tostring(itype))
+        end
+        deep_line(ctx, indent, "%-38s %-22s = TArray Num=%s inner=%s",
+                  label, ptype, tostring(n), itype or "?")
+        if depth <= 0 then return end
+        local shown = 0
+        deep_trace(ctx, indent, "-> walk %s elements", label)
+        local seen, route = array_each(v, function(i, e)
+            if shown >= CFG.DEEP_MAX_ELEMS then return end
+            shown = shown + 1
+            deep_dump_value(ctx, indent .. "  ", string.format("[%s]", tostring(i)),
+                            inner, itype or "?", e, depth - 1)
+        end)
+        deep_line(ctx, indent .. "  ", "(%d element(s) via %s, %d expanded)",
+                  seen, tostring(route), shown)
+        return
+    end
+
+    -- object reference: class + name, then one level of its own properties, because
+    -- the item may live on a component (InventoryComponent and friends)
+    local fn = nil
+    if OBJECT_PROP_TYPES[ptype] or ptype == "?" then
+        fn = safe(function() return v:GetFullName() end)
+    end
+    if type(fn) == "string" then
+        deep_line(ctx, indent, "%-38s %-22s = [%s] %s", label, ptype, classname(v), fn)
+        if depth <= 0 then return end
+        local key = addr_hex(v)
+        if key ~= "<?>" and ctx.seen[key] then
+            deep_line(ctx, indent .. "  ", "(already dumped above)")
+            return
+        end
+        if key ~= "<?>" then ctx.seen[key] = true end
+        local sub = class_prop_objs(classof(v), true)
+        if #sub == 0 then sub = class_prop_objs(classof(v), false) end
+        for _, pi in ipairs(sub) do
+            deep_dump_value(ctx, indent .. "  ", pi.name, pi.prop, pi.type,
+                            deep_read(ctx, indent .. "  ", v, pi.name, pi.type),
+                            depth - 1)
+        end
+        return
+    end
+
+    -- struct: reflected layout when there is one, probed field names when there is
+    -- not. The probe is for struct-shaped values only - firing 30 speculative field
+    -- reads at an unknown userdata is 30 more chances to walk off a bad pointer.
+    local fields = struct_fields_of(prop, ptype)
+    if fields == nil and (ptype == "StructProperty" or ptype == "?")
+       and (type(v) == "userdata" or type(v) == "table") then
+        fields = {}
+        deep_trace(ctx, indent, "-> probe %s for struct fields", label)
+        for _, gn in ipairs(STRUCT_FIELD_GUESSES) do
+            local gv = safe(function() return v[gn] end)
+            if gv ~= nil then
+                local s = fmt_deep(gv)
+                if not OPAQUE_STR[s] then
+                    fields[#fields + 1] = { name = gn, type = "?", prop = nil }
+                end
+            end
+        end
+        deep_trace(ctx, indent, "   ok probe %s -> %d field(s)", label, #fields)
+        if #fields == 0 then fields = nil end
+    end
+    if fields then
+        deep_line(ctx, indent, "%-38s %-22s = struct{%d field(s)}", label, ptype, #fields)
+        if depth <= 0 then return end
+        for _, f in ipairs(fields) do
+            deep_dump_value(ctx, indent .. "  ", f.name, f.prop, f.type,
+                            deep_read(ctx, indent .. "  ", v, f.name, f.type),
+                            depth - 1)
+        end
+        return
+    end
+
+    deep_line(ctx, indent, "%-38s %-22s = %s", label, ptype, fmt_deep(v))
+end
+
+-- AActor-level properties worth following on a pickup: a component list is the other
+-- place an item identity can sit.
+local ENGINE_DEEP_PROPS = {
+    "RootComponent", "Owner", "Instigator", "Tags",
+    "BlueprintCreatedComponents", "InstanceComponents",
+}
+
+-- Every property of one actor: the names and types first, then - unless
+-- CFG.DEEP_VALUES is off - the values, arrays and structs walked. `w` must be a
+-- flushed sink (flushed_writer); a buffered one loses everything if the game dies.
+local function deep_dump_actor(w, a, indent, tag)
+    indent = indent or "    "
+    local ctx = { w = w, lines = 0, cap = CFG.DEEP_MAX_LINES, seen = {} }
+    local key = addr_hex(a)
+    if key ~= "<?>" then ctx.seen[key] = true end
+    local loc = safe(function() return a:K2_GetActorLocation() end)
+    w:line("%s>> DEEP DUMP  %s%s", indent, fullname(a), tag and ("   " .. tag) or "")
+    w:line("%s   chain: %s", indent, class_chain(a))
+    w:line("%s   loc %s", indent, loc and fmt_vec(loc) or "<?>")
+    local own = class_prop_objs(classof(a), true)
+    local all = class_prop_objs(classof(a), false)
+    local byName = {}
+    for _, pi in ipairs(all) do byName[pi.name] = pi end
+    local engine = {}
+    for _, pn in ipairs(ENGINE_DEEP_PROPS) do
+        if byName[pn] then engine[#engine + 1] = byName[pn] end
+    end
+    local body = indent .. "   "
+    w:line("%s   own properties: %d   (whole chain incl. AActor/UObject: %d)",
+           indent, #own, #all)
+
+    -- phase 1: the list. No value is read, so this much is on disk even if the very
+    -- first read kills the process - and it is what says WHICH properties exist.
+    w:line("%sPROPERTY LIST (names and types only, nothing read):", body)
+    if #own == 0 then
+        w:line("%s  (no own properties below AActor)", body)
+    end
+    for i, pi in ipairs(own) do
+        w:line("%s  %3d %-38s %-22s [%s]", body, i, pi.name, pi.type, pi.owner)
+    end
+    for _, pi in ipairs(engine) do
+        w:line("%s  eng %-38s %-22s [%s]", body, pi.name, pi.type, pi.owner)
+    end
+    if not CFG.DEEP_VALUES then
+        w:line("%sVALUES: skipped (CFG.DEEP_VALUES = false)", body)
+        return
+    end
+
+    -- phase 2: the values, safest kind first
+    for phase = 1, 3 do
+        local announced = false
+        for _, pi in ipairs(own) do
+            if prop_phase(pi.type) == phase then
+                if not announced then
+                    announced = true
+                    w:line("%sVALUES - %s:", body, PHASE_LABEL[phase])
+                end
+                deep_dump_value(ctx, body, pi.name, pi.prop, pi.type,
+                                deep_read(ctx, body, a, pi.name, pi.type),
+                                CFG.DEEP_DEPTH)
+            end
+        end
+    end
+    -- the engine-side ones, one level deep, last of all
+    if #engine > 0 then
+        w:line("%sVALUES - engine-side:", body)
+        for _, pi in ipairs(engine) do
+            deep_dump_value(ctx, body, pi.name, pi.prop, pi.type,
+                            deep_read(ctx, body, a, pi.name, pi.type), 1)
+        end
+    end
+    w:line("%s   (%d deep lines%s)", indent, ctx.lines, ctx.capped and ", capped" or "")
 end
 
 -- UE4SS hands an FRotator back as a plain Lua table whose fields are
@@ -1142,8 +1578,10 @@ local function sec_actors(w)
         w:line("[%s]  total=%d  shown=%d  matched-on=%s", cn, hist[cn] or 0, #b, kwA[cn] or "?")
         local pn = class_gameplay_props(classof(b[1]))
         if #pn > 0 then
+            -- the 80-name cap keeps the census readable, but a pickup-family class is
+            -- exactly the one whose tail names may be the item carrier: never cut those
             local shown = pn
-            if #pn > 80 then
+            if #pn > 80 and not PICKUP_CLASSES[cn] then
                 shown = {}
                 for i = 1, 80 do shown[i] = pn[i] end
                 shown[81] = "..."
@@ -1258,9 +1696,31 @@ local function sec_markers(w)
     w:line("per-class instance cap: %d   scalar props per instance cap: %d"
            .. "   (state props are printed first and are never capped)",
            CFG.MAX_MARKERS_PER_CLASS, CFG.MAX_VALUE_PROPS)
+    w:line("pickup-family classes (%s) additionally get a DEEP DUMP of up to %d instances:"
+           .. " every property, TArrays expanded, structs and object refs walked to depth"
+           .. " %d. Those go to their own deepdump_*.txt next to this file, one flushed"
+           .. " line at a time.",
+           "BP_DropItem_C, BP_PickupActor_C, BP_PickUpPT_C, BP_AutoPickUp_C,"
+           .. " ItemCollectionBox_C, BP_treasurebox_C, BP_ItemRedBox_C",
+           CFG.DEEP_MAX_INSTANCES, CFG.DEEP_DEPTH)
     w:line("NOTE: an instance printed at loc 0.00 0.00 0.00 is an already-collected pickup"
            .. " that the level saver has parked at the origin - filter those out when"
            .. " deciding what is still collectable (run-2 finding)")
+
+    -- The deep dumps go to their own flushed file, not into this buffered one: a
+    -- deep dump can take the process down with it, and a buffer that is never
+    -- written is a dump that never happened.
+    local deepw = nil
+    local function deep_sink()
+        if deepw == nil and OUT_DIR then
+            deepw = flushed_writer(OUT_DIR .. "\\deepdump_" .. stamp() .. ".txt")
+            deepw:line("# WuchangRecon deep dumps (world dump, pickup-family actors)")
+            deepw:line("# %s  level %s  values=%s",
+                       tostring(safe(os.date, "%Y-%m-%d %H:%M:%S")),
+                       current_level_name(), tostring(CFG.DEEP_VALUES))
+        end
+        return deepw
+    end
 
     for _, cn in ipairs(MARKER_CLASSES) do
         local insts = find_all(cn)
@@ -1290,6 +1750,7 @@ local function sec_markers(w)
             w:line("[%s]  %d instances   own props %d (%d scalar)   chain: %s",
                    cn, #live, #own, scalars, class_chain(live[1]))
             local shown = 0
+            local deep = 0
             for _, a in ipairs(live) do
                 if shown >= CFG.MAX_MARKERS_PER_CLASS then
                     w:line("  ... %d more instances not shown", #live - shown)
@@ -1308,6 +1769,16 @@ local function sec_markers(w)
                            extra > 0 and string.format("   (+%d more)", extra) or "")
                 else
                     w:line("      (no scalar own properties)")
+                end
+                if PICKUP_CLASSES[cn] and deep < CFG.DEEP_MAX_INSTANCES then
+                    deep = deep + 1
+                    local dw = deep_sink()
+                    if dw then
+                        w:line("      >> DEEP DUMP -> %s", dw.path)
+                        dw:blank()
+                        pcall(deep_dump_actor, dw, a, "  ",
+                              string.format("(%s instance %d)", cn, deep))
+                    end
                 end
             end
         end
@@ -1855,65 +2326,6 @@ local INPUT_MAX_CONTEXTS = 60
 local INPUT_MAX_INSTANCES = 40  -- listed per class in the census
 local INPUT_MAX_SWEEP = 200     -- class names listed in the keyword sweep
 
--- fmt_value renders "no such property" as one of these; treat them as absent.
-local OPAQUE_STR = { ["<userdata>"] = true, ["{}"] = true, ["nil"] = true, ["<?>"] = true }
-
--- A TArray element or TMap key/value can arrive wrapped in a handle that has to be
--- :get()'d before its fields are readable.
-local function unwrap(v)
-    if type(v) ~= "userdata" and type(v) ~= "table" then return v end
-    local ok, r = pcall(function() return v:get() end)
-    if ok and r ~= nil then return r end
-    return v
-end
-
--- Iterate a TArray. UE4SS exposes ForEach on it, older builds only GetArrayNum plus
--- indexing, and the index base is not the same everywhere. Returns the number of
--- elements visited and the name of the route that worked - the C++ reader has to
--- make the same choice, so which one answered is worth recording.
-local function array_each(arr, cb)
-    if arr == nil then return 0, "nil" end
-    local n = nil
-    pcall(function() n = arr:GetArrayNum() end)
-    local seen = 0
-    local ok = pcall(function()
-        arr:ForEach(function(i, e)
-            seen = seen + 1
-            cb(i, unwrap(e))
-        end)
-    end)
-    if ok and seen > 0 then return seen, "ForEach" end
-    if type(n) == "number" and n > 0 then
-        for base = 0, 1 do
-            local got = 0
-            pcall(function()
-                for i = base, n - 1 + base do
-                    local e = arr[i]
-                    if e == nil then break end
-                    got = got + 1
-                    cb(i, unwrap(e))
-                end
-            end)
-            if got > 0 then return got, string.format("index[%d..]", base) end
-        end
-    end
-    if type(n) == "number" then return 0, string.format("empty (GetArrayNum=%d)", n) end
-    return 0, "no route"
-end
-
-local function map_each(m, cb)
-    if m == nil then return 0, "nil" end
-    local seen = 0
-    local ok = pcall(function()
-        m:ForEach(function(k, v)
-            seen = seen + 1
-            cb(unwrap(k), unwrap(v))
-        end)
-    end)
-    if ok then return seen, "ForEach" end
-    return 0, "no route"
-end
-
 -- An FKey prints as its KeyName FName: "E", "SpaceBar", "Gamepad_FaceButton_Bottom".
 local function fkey_str(k)
     if k == nil then return "<nil>" end
@@ -1942,26 +2354,6 @@ local function field_str(obj, name)
     local ok, s = pcall(fmt_value, v)
     if not ok or s == nil or OPAQUE_STR[s] then return nil end
     return s
-end
-
--- A nested struct, TArray or TMap formats as opaque even when its own fields are
--- perfectly readable, and UE4SS returns opaque userdata for a property that is not
--- there at all - so "does this field exist?" is answered by probing it, never by
--- how it formats.
-local function struct_like(v)
-    if type(v) ~= "userdata" and type(v) ~= "table" then return false end
-    for _, m in ipairs({ "ForEach", "GetArrayNum", "GetKeys" }) do
-        local ok, f = pcall(function() return v[m] end)
-        if ok and type(f) == "function" then return true end
-    end
-    for _, sub in ipairs({ "KeyName", "Name", "DisplayName", "Action", "Key", "Mappings" }) do
-        local ok, sv = pcall(function() return v[sub] end)
-        if ok and sv ~= nil then
-            local oks, ss = pcall(fmt_value, sv)
-            if oks and ss ~= nil and not OPAQUE_STR[ss] then return true end
-        end
-    end
-    return false
 end
 
 -- the value of obj[name], or nil when the field is absent
@@ -2548,6 +2940,63 @@ local function watch_write(fmt, ...)
     end
 end
 
+-- The item identity of an enemy drop has to be captured BEFORE the player picks it
+-- up, so the watch deep-dumps every pickup-family actor the first time it sees it.
+-- Those dumps are hundreds of lines each: they go to their own file next to the
+-- watch log, which stays a one-line-per-event record.
+local watch_deep_path = nil
+local watch_deep_seen = {}      -- fullname -> true: dumped, or decided against
+local watch_deep_pending = {}   -- fullname -> { tick, why }: seen, not yet old enough
+local watch_deep_count = 0
+
+local function watch_deep_dump(a, cn, why)
+    if not watch_deep_path then return end
+    if watch_deep_count >= CFG.WATCH_MAX_DEEP_DUMPS then return end
+    watch_deep_count = watch_deep_count + 1
+    -- one line per open/write/close: the game can die inside the dump and the file
+    -- still names the property it died on
+    local w = flushed_writer(watch_deep_path)
+    w:blank()
+    w:line("================================================================================")
+    w:line("== %s  [%s]  tick %d  %s", why, cn, watch_tick,
+           tostring(safe(os.date, "%H:%M:%S")))
+    w:line("== %s", fullname(a))
+    w:line("================================================================================")
+    -- announced in the watch log BEFORE the dump, so a crash still says which actor
+    watch_write("DEEPDUMP   %s  [%s]  %s  (#%d -> %s)", fullname(a), cn, why,
+                watch_deep_count, tostring(watch_deep_path))
+    pcall(deep_dump_actor, w, a, "  ", why)
+    w:line("== end of dump #%d", watch_deep_count)
+end
+
+-- Decide what to do about a pickup-family actor this tick: nothing, start the delay,
+-- or dump it. The delay exists because the actor is spawned during the tick it first
+-- appears in - its arrays and components are not filled in yet.
+local function watch_deep_consider(a, cn, fnm)
+    if watch_deep_seen[fnm] then return end
+    local pend = watch_deep_pending[fnm]
+    if pend == nil then
+        -- at baseline only the runtime drops, or the level's whole pickup population
+        -- would eat the dump budget
+        local baseline = (watch_prev == nil)
+        if baseline and cn ~= "BP_DropItem_C" then
+            watch_deep_seen[fnm] = true
+            return
+        end
+        watch_deep_pending[fnm] = {
+            tick = watch_tick,
+            why = baseline and "BASELINE" or "FIRST SEEN",
+        }
+        return
+    end
+    local waited = watch_tick - pend.tick
+    if waited < CFG.WATCH_DEEP_DELAY_TICKS then return end
+    watch_deep_pending[fnm] = nil
+    watch_deep_seen[fnm] = true
+    pcall(watch_deep_dump, a, cn,
+          string.format("%s (+%d tick(s))", pend.why, waited))
+end
+
 -- fullname -> { cls, loc, vals = { name = value } }
 local function watch_snapshot()
     local snap, n = {}, 0
@@ -2558,13 +3007,17 @@ local function watch_snapshot()
                 if n >= CFG.WATCH_MAX_ACTORS then break end
                 if isvalid(a) and not is_cdo(a) then
                     n = n + 1
+                    local fnm = fullname(a)
+                    if PICKUP_CLASSES[cn] then
+                        pcall(watch_deep_consider, a, cn, fnm)
+                    end
                     local vals = {}
                     for _, kv in ipairs((scalar_values(a))) do
                         local k, v = kv:match("^([^=]+)=(.*)$")
                         if k then vals[k] = v end
                     end
                     local loc = safe(function() return a:K2_GetActorLocation() end)
-                    snap[fullname(a)] = {
+                    snap[fnm] = {
                         cls = cn,
                         loc = loc and fmt_vec(loc) or "?",
                         vals = vals,
@@ -2634,7 +3087,28 @@ end
 local function watch_start()
     watch_prev = nil
     watch_tick = 0
-    watch_path = OUT_DIR and (OUT_DIR .. "\\pickupwatch_" .. stamp() .. ".txt") or nil
+    watch_deep_seen = {}
+    watch_deep_pending = {}
+    watch_deep_count = 0
+    local st = stamp()
+    watch_path = OUT_DIR and (OUT_DIR .. "\\pickupwatch_" .. st .. ".txt") or nil
+    watch_deep_path = OUT_DIR and (OUT_DIR .. "\\pickupdeep_" .. st .. ".txt") or nil
+    if watch_deep_path then
+        local df = io.open(watch_deep_path, "w")
+        if df then
+            df:write("# WuchangRecon pickup deep dumps (first sight of a pickup-family actor)\n")
+            df:write(string.format("# started %s  level %s  classes: %s\n",
+                tostring(safe(os.date, "%Y-%m-%d %H:%M:%S")), current_level_name(),
+                "BP_DropItem_C at baseline, every pickup class once the watch is running"))
+            df:write(string.format("# dumped %d tick(s) after first sight; values=%s;"
+                .. " every line is flushed - if the game dies, the last line is the"
+                .. " property that killed it\n",
+                CFG.WATCH_DEEP_DELAY_TICKS, tostring(CFG.DEEP_VALUES)))
+            df:close()
+        else
+            watch_deep_path = nil
+        end
+    end
     if watch_path then
         local f = io.open(watch_path, "w")
         if f then
@@ -2643,13 +3117,14 @@ local function watch_start()
                 tostring(safe(os.date, "%Y-%m-%d %H:%M:%S")), current_level_name(),
                 CFG.WATCH_PERIOD_MS))
             f:write("# classes: " .. table.concat(MARKER_CLASSES, ", ") .. "\n")
+            f:write("# deep dumps: " .. tostring(watch_deep_path) .. "\n")
             f:close()
         else
             watch_path = nil
         end
     end
-    log("pickup watch ON  (every %d ms; file: %s)", CFG.WATCH_PERIOD_MS,
-        tostring(watch_path))
+    log("pickup watch ON  (every %d ms; file: %s; deep dumps: %s)", CFG.WATCH_PERIOD_MS,
+        tostring(watch_path), tostring(watch_deep_path))
 
     if watch_loop_live then return end
     watch_loop_live = true

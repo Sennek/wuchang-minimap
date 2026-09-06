@@ -1545,6 +1545,18 @@ is what `FindAllOf` hands back at runtime.
 Absence from `FindAllOf` is **not** evidence of a collect: an unloaded level looks exactly the
 same. Only the state flags auto-mark, plus the guarded absence rule above.
 
+A pickup the static DB does not know — loot an enemy drops — is labelled from the actor itself.
+Its contents are a `TMap<int32 ItemID, int32 Amount>` UPROPERTY: `AddItems` on `BP_DropItem_C`,
+`Items` / `首次拾取道具内容` / `ItemResult` / `CustomedItems` on the placed
+`BP_PickupActor_C` family, with a TArray of the same pairs on the classes that use one.
+`src/scriptmap.hpp` (PURE, covered by `markers_test`) decodes the 80-byte `FScriptMap` — a
+sparse array whose *allocation bits*, not its bytes, say which slots are entries, since a free
+slot unions the pair with the free-list link. The property is accepted only when reflection
+reports 80 bytes with 4-byte key and value properties, and the answer only when
+`markers/items.json` knows the id; the label is the first item's name plus ` +N` for further
+distinct items, exactly what the offline extractor writes. The winning property is memoised per
+class and logged once, so `wuchang_minimap.log` names the route each class took.
+
 ### Cost control
 
 `UObjectGlobals::FindAllOf` walks the **whole** object array, so one `FindAllOf` per class is

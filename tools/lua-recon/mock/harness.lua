@@ -259,6 +259,33 @@ local C_PickupPT = marker_class("BP_PickUpPT_C")
 local C_Chest = marker_class("BP_treasurebox_C", { { name = "DoorOpen", type = "BoolProperty", value = false } })
 local C_Shrine = marker_class("BP_RebornFire_C", { { name = "Active", type = "BoolProperty", value = true } })
 local C_Wumen = marker_class("BP_Wumen_C", { { name = "Persistent", type = "BoolProperty", value = true } })
+-- A runtime enemy drop: the item identity is NOT a scalar on the actor - it sits in
+-- a TArray of structs and on a component. This is what the deep dump exists for.
+local function fake_array(elems)
+    local o = {}
+    o.GetArrayNum = function() if HOSTILE then boom() end return #elems end
+    o.ForEach = function(_, cb)
+        if HOSTILE then boom() end
+        for i, e in ipairs(elems) do cb(i - 1, e) end
+    end
+    return setmetatable({}, { __index = o })
+end
+
+local C_InvComp = {
+    name = "InventoryComponent",
+    super = C_Object,
+    props = {
+        { name = "OwnedItemID", type = "IntProperty", value = 30412 },
+        { name = "OwnedItemCount", type = "IntProperty", value = 3 },
+    },
+    fns = {},
+}
+local C_Drop = marker_class("BP_DropItem_C", {
+    { name = "Items", type = "ArrayProperty", value = nil },
+    { name = "CustomedItems", type = "ArrayProperty", value = nil },
+    { name = "InventoryComponent", type = "ObjectProperty", value = nil },
+})
+
 local C_Recast = {
     name = "RecastNavMesh",
     super = C_Actor,
@@ -305,6 +332,18 @@ PICKUP_B_VALUES = { Used = false }
 local pickup_a = new_obj({ name = "BP_PickupActor_C_1", cls = C_Pickup, loc = { X = 18200, Y = 5600, Z = -1550 } })
 local pickup_b = new_obj({ name = "BP_PickupActor_C_2", cls = C_Pickup, loc = { X = 19000, Y = 6000, Z = -1500 }, values = PICKUP_B_VALUES })
 
+local drop_inv = new_obj({ name = "InventoryComponent_0", cls = C_InvComp })
+local drop = new_obj({
+    name = "BP_DropItem_C_1",
+    cls = C_Drop,
+    loc = { X = 18250, Y = 5650, Z = -1545 },
+    values = {
+        Items = fake_array({ { ItemID = 30412, Count = 2, Quality = 1 } }),
+        CustomedItems = fake_array({}),
+        InventoryComponent = drop_inv,
+    },
+})
+
 local instances = {
     ["BP_CombatCharacter_Player_Final_C"] = { player },
     ["PlayerController"] = { pc },
@@ -312,6 +351,7 @@ local instances = {
     ["PlayerCameraManager"] = { pcm },
     ["World"] = { world },
     ["BP_PickupActor_C"] = { pickup_a, pickup_b },
+    ["BP_DropItem_C"] = { drop },
     ["BP_PickUpPT_C"] = { new_obj({ name = "BP_PickUpPT_C_1", cls = C_PickupPT, loc = { X = 18500, Y = 5700, Z = -1540 } }) },
     ["BP_treasurebox_C"] = { new_obj({ name = "BP_treasurebox_C_1", cls = C_Chest, loc = { X = 18300, Y = 5000, Z = -1560 } }) },
     ["BP_RebornFire_C"] = { new_obj({ name = "BP_RebornFire_C_1", cls = C_Shrine, loc = { X = 18100, Y = 5500, Z = -1555 } }) },

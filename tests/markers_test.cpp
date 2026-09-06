@@ -40,6 +40,7 @@
 #include "projection.hpp"
 #include "saveslot.hpp"
 #include "scan_sched.hpp"
+#include "scriptmap.hpp"
 #include "shrines_db.hpp"
 #include "slicerule.hpp"
 #include "spinlock.hpp"
@@ -5531,6 +5532,126 @@ namespace
             {"LeftControl", "IP_Walking"},
     };
 
+    // ---- FScriptMap decode (src/scriptmap.hpp) -----------------------------------------
+
+    struct FakeMap
+    {
+        unsigned char hdr[smap::kScriptMapSize]{};
+        unsigned char elems[4 * smap::kElementStride]{};
+
+        void put32(int at, std::uint32_t v)
+        {
+            std::memcpy(hdr + at, &v, sizeof(v));
+        }
+        void put64(int at, std::uint64_t v)
+        {
+            std::memcpy(hdr + at, &v, sizeof(v));
+        }
+        void pair(int slot, std::int32_t key, std::int32_t amount)
+        {
+            const int at = slot * smap::kElementStride;
+            std::memcpy(elems + at, &key, sizeof(key));
+            std::memcpy(elems + at + 4, &amount, sizeof(amount));
+        }
+    };
+
+    // A four-slot TMap<int32,int32> whose slot 2 is a HOLE: its bytes are a plausible
+    // id/amount pair (the free-list link) that only the allocation bit rejects.
+    FakeMap make_fake_map()
+    {
+        FakeMap m{};
+        m.put64(0, 0xDEADBEEF00ull); // Data
+        m.put32(8, 4);               // Num
+        m.put32(12, 4);              // Max
+        m.put32(16, 0b1011u);        // AllocationFlags inline word: slots 0, 1, 3
+        m.put64(32, 0);              // no secondary words
+        m.put32(40, 4);              // NumBits
+        m.put32(44, 32);             // MaxBits
+        m.put32(48, 2);              // FirstFreeIndex
+        m.put32(52, 1);              // NumFreeIndices
+        m.put32(72, 4);              // HashSize
+        m.pair(0, 20020, 1);
+        m.pair(1, 20222, 3);
+        m.pair(2, 23245, 1); // the hole
+        m.pair(3, 20020, 2); // a duplicate id, live
+        return m;
+    }
+
+    void test_script_map()
+    {
+        std::printf("FScriptMap decode\n");
+
+        const FakeMap m = make_fake_map();
+        smap::Header h{};
+        CHECK(smap::parse(m.hdr, sizeof(m.hdr), h));
+        CHECK_EQ(h.num, 4);
+        CHECK_EQ(h.num_free, 1);
+        CHECK_EQ(h.live_count(), 3);
+        CHECK_EQ(h.word_count(), 1);
+        CHECK(h.words_are_inline());
+        CHECK_EQ(h.hash_size, 4);
+
+        const std::uint32_t words[1] = {h.inline_words[0]};
+        CHECK(smap::slot_live(h, words, 1, 0));
+        CHECK(smap::slot_live(h, words, 1, 1));
+        CHECK(!smap::slot_live(h, words, 1, 2)); // the hole
+        CHECK(smap::slot_live(h, words, 1, 3));
+        CHECK(!smap::slot_live(h, words, 1, 4)); // past Num
+        CHECK(!smap::slot_live(h, words, 0, 0)); // no words handed over
+
+        std::int32_t keys[smap::kMaxSlots]{};
+        int n = smap::live_keys(h, words, 1, m.elems, sizeof(m.elems), keys, 8);
+        CHECK_EQ(n, 3);
+        CHECK_EQ(keys[0], 20020);
+        CHECK_EQ(keys[1], 20222);
+        CHECK_EQ(keys[2], 20020); // the hole's 23245 is never returned
+
+        // The caller's cap and a short element buffer both bound the walk.
+        CHECK_EQ(smap::live_keys(h, words, 1, m.elems, sizeof(m.elems), keys, 1), 1);
+        CHECK_EQ(smap::live_keys(h, words, 1, m.elems, 2 * smap::kElementStride, keys, 8), 2);
+        CHECK_EQ(smap::live_keys(h, words, 1, nullptr, sizeof(m.elems), keys, 8), 0);
+
+        // ---- a header that is not an FScriptMap is refused, field by field --------------
+        smap::Header bad{};
+        CHECK(!smap::parse(m.hdr, smap::kScriptMapSize - 1, bad)); // short read
+        CHECK(!smap::parse(nullptr, smap::kScriptMapSize, bad));
+
+        FakeMap t = make_fake_map();
+        t.put32(40, 5); // NumBits != Num
+        CHECK(!smap::parse(t.hdr, sizeof(t.hdr), bad));
+
+        t = make_fake_map();
+        t.put32(52, 5); // more free slots than slots
+        CHECK(!smap::parse(t.hdr, sizeof(t.hdr), bad));
+
+        t = make_fake_map();
+        t.put32(12, 2); // Max < Num
+        CHECK(!smap::parse(t.hdr, sizeof(t.hdr), bad));
+
+        t = make_fake_map();
+        t.put64(0, 0); // populated map with no buffer
+        CHECK(!smap::parse(t.hdr, sizeof(t.hdr), bad));
+
+        t = make_fake_map();
+        t.put32(72, 3); // HashSize is 0 or a power of two
+        CHECK(!smap::parse(t.hdr, sizeof(t.hdr), bad));
+
+        t = make_fake_map();
+        t.put32(44, 256); // more bits than fit inline, with a null secondary pointer
+        CHECK(!smap::parse(t.hdr, sizeof(t.hdr), bad));
+
+        // ---- the same map with its bits out of line ------------------------------------
+        t = make_fake_map();
+        t.put32(8, 100);
+        t.put32(12, 128);
+        t.put32(40, 100);
+        t.put32(44, 256);
+        t.put64(32, 0xCAFE0000ull);
+        CHECK(smap::parse(t.hdr, sizeof(t.hdr), h));
+        CHECK(!h.words_are_inline());
+        CHECK_EQ(h.word_count(), 4);
+    }
+
     void test_game_binds()
     {
         std::printf("game key bindings\n");
@@ -5663,6 +5784,7 @@ int main(int argc, char** argv)
     test_saveslot();
     test_clipimg();
     test_shrines_db(markers_dir);
+    test_script_map();
     test_game_binds();
     test_config_equality();
     test_ids();

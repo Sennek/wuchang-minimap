@@ -22,6 +22,7 @@
 #include "mem.hpp"
 #include "mmstate.hpp"
 #include "saveslot.hpp"
+#include "scriptmap.hpp"
 #include "recon.hpp"
 #include "shrines.hpp"
 #include "scan_sched.hpp"
@@ -905,18 +906,21 @@ namespace markers
         }
 
         // The item name of a runtime-spawned pickup. `BP_PickupActor_C` and its
-        // descendants carry an inline `Items` array of `int32 ID, int32 Amount` pairs,
-        // ids in the 10000..40000 band; at runtime a reflected TArray, so a 16-byte
-        // header read plus one int32. Neither the stride nor the position of `ID` is
-        // knowable offline, so an answer is accepted only when `markers/items.json`
-        // knows the id. The winning property is cached per class.
-        constexpr const wchar_t* kItemArrayProps[] = {
+        // descendants hold their contents as `TMap<int32 ItemID, int32 Amount>`
+        // UPROPERTIES - `AddItems` on the enemy-drop actor, `Items` on a placed pickup -
+        // with ids in the 10000..40000 band; a few classes expose a TArray of the same
+        // pairs instead, so both shapes are tried per property. Neither the shape nor the
+        // position of `ID` is knowable offline, so an answer is accepted only when
+        // `markers/items.json` knows the id. The winning property is cached per class.
+        constexpr const wchar_t* kItemProps[] = {
+            L"AddItems",                 // BP_DropItem_C: what an enemy drops
             L"Items",                    // what BP_PickupActor_C writes (1044/1046)
             L"首次拾取道具内容", // "first pickup contents"
             L"ItemResult",
             L"CustomedItems",
+            L"CanAddItems",
         };
-        constexpr int kItemArrayCount = static_cast<int>(std::size(kItemArrayProps));
+        constexpr int kItemPropCount = static_cast<int>(std::size(kItemProps));
 
         // The byte offsets inside the first element at which `ID` may sit. 0 is the
         // serialized order; 4 covers a struct that leads with the amount.
@@ -931,6 +935,131 @@ namespace markers
             }
             out = it->second;
             return true;
+        }
+
+        // The label the offline extractor writes for a pickup: the first KNOWN item's
+        // name, plus ` +N` when the property grants N further distinct known items. An
+        // unknown id is what rejects a misread, so it is skipped rather than counted.
+        bool label_from_ids(const std::int32_t* ids, int count, std::string& out)
+        {
+            std::string first;
+            bool have_first = false;
+            int distinct = 0;
+            std::int32_t seen[smap::kMaxSlots]{};
+            for (int i = 0; i < count && distinct < static_cast<int>(std::size(seen)); ++i)
+            {
+                std::string name;
+                if (ids[i] <= 0 || !lookup_item_name(ids[i], name))
+                {
+                    continue;
+                }
+                bool dup = false;
+                for (int j = 0; j < distinct; ++j)
+                {
+                    dup = dup || seen[j] == ids[i];
+                }
+                if (dup)
+                {
+                    continue;
+                }
+                seen[distinct++] = ids[i];
+                if (!have_first)
+                {
+                    first = std::move(name);
+                    have_first = true;
+                }
+            }
+            if (!have_first)
+            {
+                return false;
+            }
+            out = distinct > 1 ? std::format("{} +{}", first, distinct - 1) : first;
+            return true;
+        }
+
+        // Is `p` a `TMap<int32, int32>`? Element size is FScriptMap's, and the key and
+        // value properties then have to read back as live 4-byte properties.
+        bool map_is_int32_pair(const uer::Prop* p)
+        {
+            if (p == nullptr || p->field == nullptr || p->size != smap::kScriptMapSize)
+            {
+                return false;
+            }
+            auto* mp = static_cast<RC::Unreal::FMapProperty*>(p->field);
+            uer::FProperty* kv[2] = {nullptr, nullptr};
+            if (!mem::read(&mp->GetKeyProp(), kv[0]) || !mem::read(&mp->GetValueProp(), kv[1]))
+            {
+                return false;
+            }
+            for (uer::FProperty* q : kv)
+            {
+                int size = 0;
+                if (!mem::plausible_ptr(q) || !mem::readable(q, 0x40) ||
+                    !mem::read(&q->GetElementSize(), size) || size != 4)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // The ids of the live entries of `prop` read as a `TMap<int32, int32>`. The
+        // sparse array's allocation bits decide which slots are entries: a free slot
+        // unions the pair with the free-list link, so its bytes read as a plausible
+        // id/amount pair (src/scriptmap.hpp).
+        int item_ids_from_map(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
+                              std::int32_t* out, int cap)
+        {
+            const uer::Prop* p = uer::find_prop(layout, prop);
+            if (!map_is_int32_pair(p))
+            {
+                return 0;
+            }
+            struct MapRaw
+            {
+                unsigned char b[smap::kScriptMapSize];
+            };
+            MapRaw raw{};
+            if (!mem::read_at(actor, p->offset, raw))
+            {
+                return 0;
+            }
+            smap::Header h{};
+            if (!smap::parse(raw.b, sizeof(raw.b), h) || h.live_count() <= 0 ||
+                h.num > smap::kMaxSlots)
+            {
+                return 0;
+            }
+            std::uint32_t words[smap::kMaxSlots / 32]{};
+            const int wc = h.word_count();
+            if (wc <= 0 || wc > static_cast<int>(std::size(words)))
+            {
+                return 0;
+            }
+            const std::size_t word_bytes = static_cast<std::size_t>(wc) * sizeof(words[0]);
+            if (h.words_are_inline())
+            {
+                std::memcpy(words, h.inline_words, word_bytes);
+            }
+            else
+            {
+                const auto* src = reinterpret_cast<const void*>(
+                    static_cast<std::uintptr_t>(h.words_ptr));
+                if (!mem::plausible_ptr(src) || !mem::readable(src, word_bytes) ||
+                    !mem::copy(src, words, word_bytes))
+                {
+                    return 0;
+                }
+            }
+            unsigned char elems[smap::kMaxSlots * smap::kElementStride]{};
+            const std::size_t bytes = static_cast<std::size_t>(h.num) * smap::kElementStride;
+            const auto* data = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(h.data));
+            if (!mem::plausible_ptr(data) || !mem::readable(data, bytes) ||
+                !mem::copy(data, elems, bytes))
+            {
+                return 0;
+            }
+            return smap::live_keys(h, words, wc, elems, bytes, out, cap);
         }
 
         // Pulls a KNOWN item id out of the first element of `prop` read as a TArray.
@@ -968,6 +1097,27 @@ namespace markers
             return false;
         }
 
+        // A label from `prop` in whichever shape it has; `kind` names the shape that
+        // answered, for the log.
+        bool item_name_from_prop(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
+                                 std::string& out, const wchar_t*& kind)
+        {
+            std::int32_t ids[smap::kMaxSlots]{};
+            const int n =
+                item_ids_from_map(layout, actor, prop, ids, static_cast<int>(std::size(ids)));
+            if (n > 0 && label_from_ids(ids, n, out))
+            {
+                kind = L"TMap<int32,int32>";
+                return true;
+            }
+            if (item_name_from_array(layout, actor, prop, out))
+            {
+                kind = L"TArray";
+                return true;
+            }
+            return false;
+        }
+
         // The display name of a pickup-family actor, or empty. Memoised per actor and class.
         const std::string& resolve_item_name(UObject* actor)
         {
@@ -985,20 +1135,21 @@ namespace markers
             UClass* cls = actor->GetClassPrivate();
             std::string name;
             int winner = -1;
+            const wchar_t* kind = L"?";
             const auto known = cls != nullptr ? g_item_prop.find(cls) : g_item_prop.end();
             if (known != g_item_prop.end())
             {
                 if (known->second >= 0 &&
-                    item_name_from_array(layout, actor, kItemArrayProps[known->second], name))
+                    item_name_from_prop(layout, actor, kItemProps[known->second], name, kind))
                 {
                     winner = known->second;
                 }
             }
             else
             {
-                for (int i = 0; i < kItemArrayCount; ++i)
+                for (int i = 0; i < kItemPropCount; ++i)
                 {
-                    if (item_name_from_array(layout, actor, kItemArrayProps[i], name))
+                    if (item_name_from_prop(layout, actor, kItemProps[i], name, kind))
                     {
                         winner = i;
                         break;
@@ -1013,11 +1164,33 @@ namespace markers
                     g_item_prop.emplace(cls, winner);
                     if (first_time(L"itemname", safe_class_name(actor)))
                     {
-                        mm::logf(L"markers: item-name route on '{}' is {} (first resolved name '{}')",
-                                 safe_class_name(actor),
-                                 winner >= 0 ? std::wstring{kItemArrayProps[winner]}
-                                             : std::wstring{L"(none - no array holds a known item id)"},
-                                 widen(name));
+                        if (winner >= 0)
+                        {
+                            mm::logf(L"markers: item-name route on '{}' is '{}' as a {} (first "
+                                     L"resolved name '{}')",
+                                     safe_class_name(actor),
+                                     kItemProps[winner],
+                                     kind,
+                                     widen(name));
+                        }
+                        else
+                        {
+                            // The candidates this class does have, with the element size
+                            // reflection reports: 80 is an FScriptMap, 16 a TArray header.
+                            std::wstring seen;
+                            for (int i = 0; i < kItemPropCount; ++i)
+                            {
+                                const uer::Prop* p = uer::find_prop(layout, kItemProps[i]);
+                                if (p != nullptr)
+                                {
+                                    seen += std::format(L" {}={}B", kItemProps[i], p->size);
+                                }
+                            }
+                            mm::logf(L"markers: item-name route on '{}' is (none - no map or array "
+                                     L"holds a known item id); candidates present:{}",
+                                     safe_class_name(actor),
+                                     seen.empty() ? std::wstring{L" (none)"} : seen);
+                        }
                     }
                 }
             }

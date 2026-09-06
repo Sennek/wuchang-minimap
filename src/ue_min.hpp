@@ -236,6 +236,20 @@ namespace RC::Unreal
         FProperty*& GetInner();
     };
 
+    // The key and value properties of a TMap UPROPERTY. Validated exactly like
+    // FArrayProperty: each pointer must read back as a plausible, readable FProperty that
+    // then reports a 4-byte element size, which is what turns "80 bytes here is an
+    // FScriptMap of int32 to int32" into an answer instead of a guess.
+    class FMapProperty : public FProperty
+    {
+      public:
+        // ?GetKeyProp@FMapProperty@Unreal@RC@@QEAAAEAPEAVFProperty@23@XZ
+        FProperty*& GetKeyProp();
+
+        // ?GetValueProp@FMapProperty@Unreal@RC@@QEAAAEAPEAVFProperty@23@XZ
+        FProperty*& GetValueProp();
+    };
+
     // The USTRUCT behind a struct UPROPERTY - the route from `TArray<FStruct>` to the
     // struct's own reflected layout. Validated the same way: the UScriptStruct must
     // capture as a live object and its name must be the expected one.

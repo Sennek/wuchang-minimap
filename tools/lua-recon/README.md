@@ -27,7 +27,7 @@ of the plain F-keys. `CTRL+O` stays UE4SS's own GUI toggle.
 | `F9` | `CTRL+F9` | UI dump | `out\dump_<ts>_ui.txt` |
 | `F7` | `CTRL+F7` | tracker on/off (1 Hz) | `out\track.csv` |
 | `F11` | `CTRL+F11` | navmesh probe grid | `out\navprobe_<ts>.csv` |
-| `F12` | `CTRL+F12` | pickup watch on/off (2 s diff) | `out\pickupwatch_<ts>.txt` |
+| `F12` | `CTRL+F12` | pickup watch on/off (2 s diff) | `out\pickupwatch_<ts>.txt`, `out\pickupdeep_<ts>.txt` |
 | `F5` | `CTRL+F5` | Enhanced Input / key bindings dump | `out\dump_<ts>_input.txt` |
 
 `F5` is the only F-key left over: `F6` belongs to the C++ mod, `F9` and `F11` are engine binds, `F10`
@@ -101,6 +101,19 @@ real navmesh render uses, so the two images can be overlaid to check alignment.
 *and* to `UE4SS.log`. It exists to settle one question: when the player collects a pickup, is the
 actor destroyed or does it survive with a flag flipped? Auto-marking "found" items depends on the
 answer. Procedure: stand next to a pickup, press `F12`, collect it, press `F12` again.
+
+A pickup-family actor (`BP_DropItem_C` and friends) additionally gets a **deep dump** into
+`out\pickupdeep_<ts>.txt` — every reflected property, TArrays expanded element by element, structs
+and object refs walked — which is how an enemy drop's item identity is captured before the player
+collects it. It runs one watch tick (~2 s) after the actor is first seen, because the actor is still
+being constructed on the tick it appears. Reading a half-built actor's memory can fault inside the
+engine, and a native access violation is not a Lua error — `pcall` never sees it and the game dies
+on the spot — so the dump writes the whole property **list** before it reads any value, brackets
+every read with `-> read <name>` / `ok <name>`, reads scalars before object refs before
+arrays/structs, and flushes every line to disk on its own. If the game dies mid-dump, the last line
+of the file names the property that killed it. `CFG.DEEP_VALUES = false` turns the value phase off
+entirely and leaves the list; `CFG.WATCH_DEEP_DELAY_TICKS` is the delay. The `F8` world dump does
+the same for the pickups it lists, into `out\deepdump_<ts>.txt`.
 
 **F5 — input dump** — everything needed to read the player's *actual* key bindings at runtime. Press
 it **in gameplay**, not at the title screen: the player controller and its `PlayerInput` only exist

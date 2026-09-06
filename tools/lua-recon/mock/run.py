@@ -80,6 +80,24 @@ EXPECTED_INPUT_STRINGS = [
 ]
 
 
+# The F12 deep dump of a freshly spawned BP_DropItem_C. It runs one watch tick after
+# the actor is first seen, writes its property list before reading anything, and puts a
+# flushed breadcrumb around every read - these strings are the proof of all three.
+EXPECTED_DEEP_STRINGS = [
+    "BP_DropItem_C",
+    "(+1 tick(s))",                   # the deferred first-sight dump
+    "PROPERTY LIST (names and types only, nothing read):",
+    "VALUES - scalars:",
+    "VALUES - object refs:",
+    "VALUES - arrays / structs / other:",
+    "-> read Items (ArrayProperty)",  # the breadcrumb written before the engine call
+    "ok Items",
+    "ItemID",                         # the item identity, out of a TArray of structs
+    "OwnedItemID",                    # and off the component
+    "element(s) via ForEach",
+]
+
+
 def run_mode(mode: str, keep: bool) -> bool:
     tmp = Path(tempfile.mkdtemp(prefix=f"wrmock_{mode}_"))
     try:
@@ -150,6 +168,18 @@ def run_mode(mode: str, keep: bool) -> bool:
                     print(f"[friendly] FAIL: pickup watch never logged {needle!r}\n{wbody}", file=sys.stderr)
                     return False
             print("[friendly] pickup watch OK: baseline + DESTROYED + CHANGED all reported")
+
+            deep = [d for d in dumps if d.name.startswith("pickupdeep_")]
+            if not deep:
+                print("[friendly] FAIL: no pickupdeep file", file=sys.stderr)
+                return False
+            dbody = deep[-1].read_text(encoding="utf-8", errors="replace")
+            dmissing = [s for s in EXPECTED_DEEP_STRINGS if s not in dbody]
+            if dmissing:
+                print(f"[friendly] FAIL: deep dump is missing {dmissing}\n{dbody}", file=sys.stderr)
+                return False
+            print(f"[friendly] deep dump OK: {len(dbody.splitlines())} lines, "
+                  "list-before-values + read breadcrumbs + item id present")
 
             inp = [d for d in dumps if "_input" in d.name]
             if not inp:

@@ -1,159 +1,117 @@
 # WuchangMinimap
 
-A minimap, full map, compass and collection tracker for **Wuchang: Fallen Feathers**,
-with the map built from the game's own navmesh.
+A minimap, a full chapter map and a compass for **Wuchang: Fallen Feathers**, built from the
+game's own navmesh.
 
-- A **minimap**, a **compass strip** and a **full chapter map** on `M` to pan and zoom.
-- **Markers with the game's own names** for every chapter and the DLC, filtered by
-  category — the filters are remembered between sessions on their own — and a **name
-  search** on the full map.
-- **Up to 16 waypoints** at once, on the map, the minimap and the compass; a key you bind
-  drops one on the nearest thing you have not collected.
-- **A collection tracker per save slot**, with **export / import** of your found list and
-  waypoints as one JSON file.
-- **An x-ray key** that draws nearby markers through walls.
+## What it is
+
+- **Minimap** and **compass strip** in-world, **full chapter map** on `M`
+- **Markers** for chests, pickups, shrines, bosses, NPCs and notes, with the game's own names,
+  all five chapters and the DLC
+- **Collection tracker** per save slot, up to 16 waypoints, name search on the full map
+- **X-ray** on `TAB`: loot through walls, tinted by item quality
+- Everything configured from the **F2** panel, saved by itself
+- Keyboard, mouse and gamepad; English UI
 
 ## Requirements
 
-**UE4SS for Wuchang: Fallen Feathers** (Nexus mod **384**), installed into
-`Project_Plague\Binaries\Win64\`. It must be this exact file:
+**UE4SS for Wuchang: Fallen Feathers** (Wuchang mod 384), installed into
+`Project_Plague\Binaries\Win64\`.
+
+**It has to be this exact UE4SS build:**
 
 ```
-UE4SS for WFF 1.79       Nexus mod 384, file version 1.79 (26 Feb 2026)
+UE4SS for WFF 1.79       mod 384, file version 1.79 (26 Feb 2026)
 v3.0.1-934-gcac01ee2     the same build, as a git description
 ```
 
-`ue4ss\UE4SS.log` opens with `UE4SS - v3.0.1 Beta #0 - Git SHA #cac01ee2` when it is
-the right one.
+`ue4ss\UE4SS.log` opens with `UE4SS - v3.0.1 Beta #0 - Git SHA #cac01ee2` when it is the right
+one.
 
-The mod links to that DLL's exports, so **another UE4SS build will not work**, and the
+This mod links straight to that DLL's exports, so **another UE4SS build will not work**, and the
 failure is silent: the game plays normally, no overlay appears, `F2` does nothing, and
-`ue4ss\UE4SS.log` says
+`ue4ss\UE4SS.log` says `Failed to load dll <...\Mods\WuchangMinimap\dlls\main.dll> for mod
+WuchangMinimap, error: The specified procedure could not be found.` instead of a
+`WuchangMinimap vX.Y.Z loaded` line naming the version you installed. `BUILD_INFO.txt` in the
+download repeats the version.
 
-```
-Failed to load dll <...\Mods\WuchangMinimap\dlls\main.dll> for mod WuchangMinimap,
-error: The specified procedure could not be found.
-```
+### Then: HookInitGameState = 0
 
-instead of a `WuchangMinimap vX.Y.Z loaded` line naming the version you installed.
-`BUILD_INFO.txt` in this download repeats the version.
-
-Then check this in `ue4ss\UE4SS-settings.ini` (1.79 already ships it set):
+Open `Project_Plague\Binaries\Win64\ue4ss\UE4SS-settings.ini` and check (1.79 already ships it
+set):
 
 ```ini
 [Hooks]
 HookInitGameState = 0
 ```
 
-**Without it the game crashes a third of a second into loading**, with or without this
-mod: UE4SS locates `AGameModeBase::InitGameState` by a fixed vtable slot index, and in Wuchang's
-engine build that slot holds a different function, so the detour lands on the wrong virtual.
-Every other hook can stay on. It is a UE4SS-plus-Wuchang problem, not a bug here.
+**Without this the game crashes about a third of a second into loading**, with or without this
+mod. It is a UE4SS-plus-Wuchang problem, not a bug here.
 
 ## Install
 
 1. Close the game.
 2. Copy the `ue4ss\` folder from the download into
-   `<Steam>\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\`
-   and **merge** when Windows asks. Everything lands under
-   `ue4ss\Mods\WuchangMinimap\`, so nothing of UE4SS's own is overwritten. Updating an
-   old install: keep your `config_wuchang_minimap.txt` when Windows offers to replace it.
-3. Launch the game, load a save (nothing shows on the main menu), press `F2`.
+   `<Steam>\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\` and
+   **merge** when Windows asks. Everything lives under `ue4ss\Mods\WuchangMinimap\`.
+3. Check `[Hooks] HookInitGameState = 0`.
+4. Launch the game and load a save — the overlay is hidden on the main menu — then press `F2`.
 
-There is no `mods.txt` to edit — the empty `enabled.txt` in the mod folder is the opt-in.
+To uninstall, delete `ue4ss\Mods\WuchangMinimap\`. That is the whole mod; it modifies no game or
+save data.
 
 ## Hotkeys
 
 | Key | Action |
 |---|---|
-| `F2` | Settings panel: Overview, Categories, Map & tracker, Keys. Every change applies at once and is written to the config by itself |
-| `M` | Full map. Drag or `WASD` to pan, wheel to zoom, `Q`/`E` for the floor, `Home` to fit, right-click a marker to waypoint it or the ground to drop one, `C` to copy the map to the clipboard, `F1` for the rest, `Esc` to close |
-| `TAB` | X-ray highlight through walls — a toggle |
-| `LB`+`RB` | The same, on a controller |
-| `Back`+`RS` | Open / close the settings panel on a controller |
-| `Back`+`Y` | Open / close the full map on a controller. The map takes a gamepad throughout: left stick pans, triggers zoom, `LB`/`RB` change floor, `A` drops or removes a waypoint, `B` closes it |
+| `F2` | Settings panel (Overview / Categories / Map & tracker / Keys tabs). A change applies as you make it and is written to the config by itself. `Back`+`RS` on a controller |
+| `M` | Full map: drag or `WASD` to pan, wheel to zoom, `Q`/`E` for the floor, `Home` to fit, right-click a marker to waypoint it (or the ground to drop one), `F1` or `H` for the rest |
+| `TAB` | X-ray highlight through walls, with names and distances. A toggle. `LB`+`RB` on a controller |
 | `N` | Cycle the minimap zoom |
-| `R` | Recentre the full map |
-| unbound | Set a waypoint on the nearest marker you have not found — bind it in `F2` → **Keys** |
-| `F5` | Reload the config, maps and markers |
+| `R` | Recentre the map |
+| `F5` | Reload the config and data |
 
-Everything is rebindable in `F2` → **Keys**: click a row and press the new key, holding
-`Ctrl`, `Shift` or `Alt` for a combination. `F6` and `F9`–`F12` are refused — they belong
-to RenoDX/DLSS, the engine, the game console and Steam. A key bound to the mod is taken
-away from the game while the mod is using it; put a modifier in front to leave the bare
-key to the game.
-
-The tab reads **your** game bindings out of the running game, so it names the action a
-key would take away and follows a remap you made in the game's own options. Before a save
-is loaded it says so and falls back to a built-in list of the usual binds.
+Everything is rebindable in `F2` → **Keys**.
 
 ## Known conflicts
 
 None of these stops the mod working.
 
-- **ReShade / RenoDX** (any `dxgi.dll` or `d3d12.dll` proxy next to the game exe). The
-  overlay is drawn **before** ReShade's effects, so colour-grading, tone-mapping and
-  sharpening are applied on top of the minimap and a strong LUT tints it. `F6` is
-  refused as a mod hotkey because it is RenoDX's default toggle.
-- **Another UE4SS C++ mod that hooks `Present`.** Two overlays on one swapchain is the
-  one combination that can lose an overlay: whichever installs second usually wins.
-  Test them one at a time before reporting a blank screen.
-- **The Steam overlay.** Every launch creates and destroys a throwaway swapchain to find
-  the addresses to hook, and Steam's overlay follows it, so its FPS counter can end up
-  pointing at nothing. Shift+Tab still works.
+- **ReShade / RenoDX** (any `dxgi.dll` or `d3d12.dll` next to the game exe) — the mod draws
+  *before* ReShade's effects, so grading and sharpening are applied on top of the minimap and a
+  strong LUT tints it. Cosmetic only. `F6` is refused as a mod hotkey because it is RenoDX's
+  default toggle.
+- **Another UE4SS C++ mod that also hooks `Present`** — the one combination that can lose an
+  overlay: whichever installs second usually wins, and the loser is invisible. Test them one at a
+  time before reporting a blank screen.
+- **The Steam overlay** — the first run of a new install creates and destroys a throwaway
+  swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at nothing.
+  Shift+Tab still works.
 
-## Files it writes, and uninstalling
+## Reporting a bug
 
-```
-<Game>\Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangMinimap\
-    config_wuchang_minimap.txt      your settings; the F2 panel writes a change here by
-                                    itself, a moment after you make it
-    wuchang_minimap.log             the mod's log, rotated .1 .2 .3 per launch
-    wuchang_minimap_found*.txt      the collection tracker, one file per save slot
-                                    (NG+ keeps the save id, so start it over with the
-                                    F2 panel's "Clear this save's found list")
-    wuchang_minimap_waypoint*.txt   the full map's waypoints, one file per save slot
-    wuchang_minimap_export_*.json   backups written by the F2 panel's Export button
-    wuchang_minimap_last_stage.txt  crash breadcrumb: how far start-up got
-    wuchang_minimap_watchdog.txt    stall report, rewritten each launch
-    wuchang_minimap_firstrun.txt    records that the first-run key tip has been shown
-    wuchang_minimap_panel.txt       which F2 panel sections are folded up
-```
+Attach `ue4ss\Mods\WuchangMinimap\wuchang_minimap.log` — the mod's own log, rotated per launch.
+Its first six lines carry every version number a report needs. Add
+`wuchang_minimap_last_stage.txt` if the game crashed, `wuchang_minimap_watchdog.txt` if it froze,
+and your `config_wuchang_minimap.txt`.
 
-**To uninstall**, delete that whole `WuchangMinimap\` folder. The mod modifies no game
-file and no save data. Copy the `wuchang_minimap_found*.txt` files out first to keep
-your collection progress.
+If the minimap simply is not on screen, send me `wuchang_minimap.log` from the mod's own folder —
+it names the exact reason it stayed hidden. If I ask you to reproduce something, add the line
+`log_level = verbose` to `config_wuchang_minimap.txt` first, press `F5`, and reproduce it.
 
-To turn it off without uninstalling, set `mod_enabled = 0` in the config, or delete
-`enabled.txt` from the mod folder.
+## Permissions and credits
 
-## Something went wrong
+**MIT licensed** — fork it, reuse it, translate it; the licence has to travel with it. Credit
+appreciated, not required. Third-party components: Dear ImGui (MIT), MinHook (BSD-2-Clause), fmt
+(MIT), RE-UE4SS (MIT); full notices ship in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The licence itself is [LICENSE](LICENSE).
 
-- **The game crashes on start-up** — almost always `HookInitGameState`; see
-  [Requirements](#requirements).
-- **Nothing on screen** — press `F2`. If the panel opens, the mod is running and only the
-  minimap is suppressed: the **Overview** tab prints one orange `hidden because:` line
-  naming the reason. Screenshot it.
-- **Not even the F2 panel appears** — frame generation (DLSS-FG, FSR-FG) and other overlay
-  proxies can present the frame themselves, so the game's `Present` never reaches the mod
-  and it has nothing to draw into. Turn frame generation off to check.
+The map backgrounds, the marker database and every name shown are extracted from the game's own
+data. Not affiliated with the developers or publisher of Wuchang: Fallen Feathers.
 
-**Bug reports**: attach `wuchang_minimap.log` from `ue4ss\Mods\WuchangMinimap\` — its
-first six lines carry every version number a report needs. Add
-`wuchang_minimap_last_stage.txt` if the game crashed, `wuchang_minimap_watchdog.txt` if it
-froze, and your `config_wuchang_minimap.txt`. If you are asked to reproduce something,
-first add the line `log_level = verbose` to `config_wuchang_minimap.txt` and press `F5`,
-reproduce it, and send the log.
+## For developers
 
-## More
-
-- **This version**: [CHANGELOG.md](CHANGELOG.md), next to this file in the download.
-- **Which build you have**: `BUILD_INFO.txt`, next to this file.
-- **Every setting, documented inline**: `ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`.
-- **Building from source**: `docs/DEVELOPMENT.md` in the repository, not in this download.
-
-MIT — see [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-This mod is not affiliated with the developers or publisher of Wuchang: Fallen Feathers.
-It reads the game's memory and its packaged data; it never modifies game files or save
-data.
+- What changed in this version: [CHANGELOG.md](CHANGELOG.md).
+- Building from source, layout and architecture:
+  [docs/DEVELOPMENT.md](https://github.com/Sennek/wuchang-minimap/blob/master/docs/DEVELOPMENT.md)
+  in the repository, not in the download.

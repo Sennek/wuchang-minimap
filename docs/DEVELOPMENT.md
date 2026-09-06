@@ -378,6 +378,7 @@ third_party/minhook/       MinHook v1.3.3
 third_party/fmt/           fmt 11.2.0, headers only (FMT_HEADER_ONLY)
 tools/gen_ue4ss_importlib.ps1
 tools/package.ps1          the RELEASE packager: build + assemble + smoke check + zip
+tools/make_rar.ps1         package.ps1 + a RAR5 of the package tree (make_rar.cmd: double-click)
 tools/check_release.ps1    version, UE4SS build string, placeholder and link consistency
 tools/CHANGELOG.template.md the changelog dropped at the package root
 tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json

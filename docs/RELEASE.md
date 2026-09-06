@@ -66,6 +66,11 @@ two archives:
 Any failure stops before the zip is written. Do not work around a smoke-check or
 consistency failure by zipping the folder yourself.
 
+Need a `.rar` as well? Double-click `make_rar.cmd` (or run `.\tools\make_rar.ps1`) instead of
+`package.ps1`: it runs the same packaging and then writes `dist\WuchangMinimap-1.0.1.rar`
+with WinRAR's `Rar.exe`, tests it and round-trips it against the tree. Same checks, same
+refusals; if anything above fails, no rar is written.
+
 **Keep the symbols zip.** It is the only way to read a crash dump from that exact build,
 and `main.pdb` otherwise lives only in the gitignored `build\` folder. Upload it as an
 optional file or archive it with the tag, never as the main download.

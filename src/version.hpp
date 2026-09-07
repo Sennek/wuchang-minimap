@@ -5,7 +5,7 @@
 // `tools\package.ps1 -Version x.y.z` rewrites the literal below by pattern, so the
 // definition must stay on one line in exactly this shape.
 //
-#define WUCHANG_MINIMAP_VERSION "1.0.0"
+#define WUCHANG_MINIMAP_VERSION "1.0.2"
 
 // The UE4SS mod API is wide (RC_IS_ANSI=0), so the literal needs a wide twin. Two-step
 // so the argument expands first.

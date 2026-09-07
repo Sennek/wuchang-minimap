@@ -9,7 +9,7 @@
 set_project("WuchangMinimap")
 -- Metadata only; src/version.hpp holds the version everything else reads.
 -- package.ps1 -Version rewrites both.
-set_version("1.0.0")
+set_version("1.0.2")
 -- The tested xmake version; docs/DEVELOPMENT.md quotes the same number.
 set_xmakever("3.1.1")
 

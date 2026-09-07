@@ -2,64 +2,43 @@
 
 ## 1.0.2
 
-A player reported the game hanging at start-up with the mod enabled, ending in a crash
-after about two minutes. On their machine the mod's very first frame kills the D3D12
-device. That does not happen here, on any of the machines or game installs it has been
-tried on, so this release does not claim to fix the cause - it changes what the mod does
-when it happens, and makes the mod say enough for the cause to be found.
+**Added**
 
-**If the game hangs or crashes at start-up**
+- `overlay_hooks = 0` (Advanced): the mod loads with no DirectX hooks and no overlay at all.
+  The tracker, the found file and the log keep working.
+- The log records the GPU and driver version, the display's colour space and peak brightness,
+  the present mode, every graphics-related module in the game's process, and the size and link
+  stamp of the game executable and of `UE4SS.dll`.
+- The log names where the game's own logs and crash dumps are written.
 
-- **`overlay_hooks = 0`** in `config_wuchang_minimap.txt` (Advanced section) now runs the
-  mod with nothing of it anywhere near DirectX: no hooks, no overlay, nothing drawn. The
-  collection tracker, the found file and the log keep working. It takes effect on a
-  restart. Before this, the only off switch was `mod_enabled = 0`, which stops everything.
-- **The mod no longer hangs the game when its device dies.** It logs the reason DirectX
-  gives, releases its objects once and stays off for the rest of the session instead of
-  building everything again on a dead device - which is what turned a fast failure into a
-  two-minute freeze.
-- **`overlay_enabled` is not a setting** and has not been one since 1.0.0. If somebody
-  told you to set it, that test did nothing; the line can be deleted.
+**Fixed**
 
-**Getting the overlay onto the right frame**
+- A lost D3D12 device no longer hangs the game: the mod logs the reason DirectX gives, releases
+  its objects once, and stays off for the rest of the session instead of rebuilding on the dead
+  device.
+- The overlay picks the command queue the game presents from by how much work each queue
+  submits, instead of the first one it sees - with frame generation or another overlay in play,
+  the wrong queue meant a minimap that tore, lagged a frame or never appeared.
+- The overlay waits for the GPU to complete one empty test frame before it builds anything else.
+- `wuchang_minimap_last_stage.txt` no longer names a start-up stage that was already passed, and
+  says `mod off` while the mod is off.
+- The freeze watchdogs fire on a start-up freeze and on a stopped frame counter; a long level
+  load is no longer reported as a freeze.
+- `game-state reader: the ProcessEvent pump is not firing` no longer prints on every machine a
+  second after the game starts.
+- Log lines from the render and game threads carry the time they were written.
 
-- The mod now works out **which command queue the game actually presents from** by how
-  much work each one submits between frames, instead of taking the first one it sees. On a
-  PC with DLSS frame generation, an FSR3 frame-generation mod or another overlay, several
-  queues are in play and the wrong one means a minimap that tears, lags a frame or never
-  appears.
-- Before it draws anything, the mod submits **one empty test frame** and waits for the GPU
-  to finish it. Everything else it needs is built only after that frame comes back clean.
-- If it cannot tell two queues apart it says so in the log, waits, and after ten seconds
-  takes the better of the two rather than leaving you with no minimap and no explanation.
+**Notes**
 
-**The log is what a bug report is made of, so it stopped lying**
-
-- The first lines now carry the **size and link stamp of the game's executable** and of
-  `UE4SS.dll`, not a version number that two different game patches share, and they name
-  where the **game's own** logs and crash dumps live.
-- The log now describes the machine it is running on instead of asking: the **GPU, its
-  driver version, the display's colour space and peak brightness** (which is the honest
-  answer to "is HDR on"), whether the game is presenting in exclusive fullscreen, and
-  whether it is waiting for the display. It also lists **every graphics-related module in
-  the game's process** - a frame generator, an upscaler, an overlay, a wrapper - instead
-  of the six it used to know by name.
-- `wuchang_minimap_last_stage.txt` can no longer name a start-up stage the mod has already
-  passed, and it says `mod off` while the mod is off instead of naming a chapter change.
-- The freeze watchdogs now fire on a start-up freeze and on a frame counter that has
-  stopped moving, which are the two cases they used to miss. A long level load is not
-  reported as a freeze.
-- `game-state reader: the ProcessEvent pump is not firing` no longer prints once on every
-  machine a second after the game starts. It only appears when the pump has really stopped.
-- Lines written from the render and game threads carry the time they were written, not the
-  time they reached the file.
-
-**Known, not caused by this mod**
-
-- Clicking or dragging inside UE4SS's black console window puts it in selection mode, which
-  freezes UE4SS in the middle of start-up and hangs the game before this mod runs at all.
-  Press `Esc` in that window, or set `ConsoleEnabled = 0` in `ue4ss\UE4SS-settings.ini`. The
-  tell is that `wuchang_minimap.log` was never created.
+- This release does not fix the start-up device loss reported on one machine - it is not
+  reproducible on any machine here. It fails fast instead of freezing, and logs what is needed
+  to find the cause.
+- `overlay_enabled` is not a setting and has not been one since 1.0.0. If you were told to set
+  it, that test did nothing; the line can be deleted.
+- Not caused by this mod: clicking or dragging in UE4SS's console window puts it in selection
+  mode, which freezes UE4SS mid-start-up and hangs the game before this mod loads. Press `Esc`
+  in that window, or set `ConsoleEnabled = 0` in `ue4ss\UE4SS-settings.ini`. The tell is that
+  `wuchang_minimap.log` was never created.
 
 ## 1.0.0
 

@@ -88,15 +88,43 @@ namespace modswitch
             return L"unknown";
         }
 
+        // The size of a loaded module's file on disk. UE4SS carries no version resource
+        // at all, and the game's executable changes between patches while its version
+        // resource does not, so the byte count is the only thing in reach that tells two
+        // builds apart in a bug report.
+        std::wstring module_bytes(const wchar_t* module_name)
+        {
+            wchar_t path[MAX_PATH]{};
+            const HMODULE mod = module_name == nullptr ? nullptr : ::GetModuleHandleW(module_name);
+            if (module_name != nullptr && mod == nullptr)
+            {
+                return {};
+            }
+            if (::GetModuleFileNameW(mod, path, static_cast<DWORD>(std::size(path))) == 0)
+            {
+                return {};
+            }
+            WIN32_FILE_ATTRIBUTE_DATA fad{};
+            if (::GetFileAttributesExW(path, GetFileExInfoStandard, &fad) == 0)
+            {
+                return {};
+            }
+            const std::uint64_t bytes =
+                (static_cast<std::uint64_t>(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
+            return std::format(L"{} bytes", bytes);
+        }
+
         void log_bug_report_header()
         {
             const std::wstring game = file_version(nullptr);
-            const std::wstring ue4ss = file_version(L"UE4SS.dll");
+            const std::wstring game_size = module_bytes(nullptr);
+            const std::wstring ue4ss_size = module_bytes(L"UE4SS.dll");
             mm::logf(L"===== WuchangMinimap v{} - attach these lines to any bug report =====",
                      WUCHANG_MINIMAP_VERSION_W);
-            mm::logf(L"  game exe {}, UE4SS {}, Windows {}",
+            mm::logf(L"  game exe {} ({}), UE4SS.dll {}, Windows {}",
                      game.empty() ? std::wstring{L"(no version info)"} : game,
-                     ue4ss.empty() ? std::wstring{L"(not loaded / no version info)"} : ue4ss,
+                     game_size.empty() ? std::wstring{L"size unknown"} : game_size,
+                     ue4ss_size.empty() ? std::wstring{L"not loaded"} : ue4ss_size,
                      windows_build());
             const char* level = mm::log_level_name(mm::config().log_level);
             wchar_t level_w[16]{};
@@ -153,6 +181,10 @@ namespace modswitch
             mm::load_config_file();
             mm::g_mod_active.store(true, std::memory_order_release);
             g_state = State::Running;
+            // Nothing measured across the off period means anything: the loop thread was
+            // not calling the game-state reader's on_update, so its watchdog window would
+            // otherwise be stale by however long the mod was off.
+            gamestate::reset_watchdog();
             mm::logf(L"master switch: mod_enabled = 1 ({}) - starting up", std::wstring{why});
             if (!g_ever_started)
             {
@@ -205,6 +237,10 @@ namespace modswitch
                      L"resident; set mod_enabled = 1 in {} to turn it back on (checked once a second).",
                      mm::config_path());
             mm::drain_log();
+            // The very last thing the stop does, so the breadcrumb names the state the mod
+            // stays in. Anything earlier is overwritten by step 3b's chapter unload, and a
+            // crash while the mod is off would then be reported against a chapter swap.
+            crumb::stage(crumb::kModOff);
         }
 
         // The 1 Hz watcher. Reads only `mod_enabled`, and only when the file's timestamp

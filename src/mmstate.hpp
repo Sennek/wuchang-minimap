@@ -123,8 +123,17 @@ namespace mm
         // it back on without restarting the game.
         bool mod_enabled = true;
 
+        // `overlay_hooks = 0` is the DirectX off switch: no dummy device, no
+        // Present / ResizeBuffers / ExecuteCommandLists hooks, no overlay, nothing of
+        // this mod anywhere near the game's render thread. Everything on the game thread
+        // - the state reader, the collection tracker, the found file, this mod's log -
+        // keeps running. Takes effect on restart, or on a `mod_enabled` off/on cycle:
+        // `overlay::start()` reads it once, and the master switch calls it again.
+        bool overlay_hooks = true;
+
         // The ladder, in order of how much they stop: mod_enabled (the whole mod) >
-        // show_minimap (just the minimap disc).
+        // overlay_hooks (every DX12 hook and the overlay) > show_minimap (just the
+        // minimap disc).
         bool show_minimap = true;
 
         //=== UI scale, HUD placement, theme and palette ============================
@@ -481,6 +490,7 @@ namespace mm
     {
         return
         a.mod_enabled == b.mod_enabled &&
+        a.overlay_hooks == b.overlay_hooks &&
         a.show_minimap == b.show_minimap &&
         a.theme == b.theme &&
         a.palette == b.palette &&

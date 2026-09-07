@@ -290,6 +290,10 @@ namespace overlay
         extern int g_pf_pad; // XInput only, split out of the block above
         extern spin::Spinlock g_render_lock;
         extern ID3D12Device* g_device;
+        // The queue the overlay submits on: the DIRECT queue that has been the busiest of
+        // the window before a Present of the adopted swapchain in most of the last
+        // kQueueScoreHorizon windows, on the device that owns its back buffers. See the
+        // ring below.
         extern std::atomic<ID3D12CommandQueue*> g_queue;
         extern ID3D12GraphicsCommandList* g_cmd_list;
         extern ID3D12DescriptorHeap* g_rtv_heap;
@@ -469,10 +473,135 @@ namespace overlay
         // starts over - a new swapchain, a new queue, a new device off it.
         extern std::atomic<bool> g_readopt;
         extern std::atomic<std::uint64_t> g_readopt_count;
-        // A queue that was captured and then proved not to belong to the presenting
-        // device. One slot: ExecuteCommandLists must not immediately re-capture the same
-        // wrong queue, and there is never more than one wrong answer in flight.
-        extern std::atomic<ID3D12CommandQueue*> g_bad_queue;
+        // TERMINAL. The device this module adopted has been removed - a TDR, a driver
+        // reset, or our own submission on a queue that was never the presenting one.
+        // Everything the overlay holds belongs to a device that no longer answers, and
+        // a re-adoption on top of it would walk straight into ImGui's INFINITE
+        // font-upload fence wait. So the first Present to see this releases the objects
+        // once and every later one returns immediately; only `overlay::start()` and the
+        // master switch's `finish_stop()` clear it, never `release_device_objects()`.
+        extern std::atomic<bool> g_device_removed;
+        // Whether the one release after a removal has happened.
+        extern std::atomic<bool> g_removal_released;
+        // Set by `overlay::start()`, consumed by the first Present after it. A stop that
+        // never reached a Present leaves this module holding the objects of the device it
+        // had adopted, and `g_device` may only be read by the render thread - so the
+        // question "is anything still allocated?" is asked there rather than in start().
+        extern std::atomic<bool> g_verify_on_start;
+        // Whether the DEVICE REMOVED line has been written. Once per removal, not once
+        // per process: it is cleared together with `g_device_removed`, so a second
+        // removal after a master-switch cycle gets its own line.
+        extern std::atomic<bool> g_removal_logged;
+        // Set by whatever thread saw a Present of the adopted swapchain fail with
+        // DEVICE_REMOVED / DEVICE_RESET. The render thread is the only one allowed to
+        // ask `g_device` anything, so it is the one that reads this, calls
+        // GetDeviceRemovedReason and decides between the terminal state and a
+        // re-adoption.
+        extern std::atomic<bool> g_present_failed;
+        // Queues that were captured, or offered, and proved not to belong to the
+        // presenting device. A fixed set rather than one slot: with frame generation
+        // there can be several DIRECT queues of another device in the process, and each
+        // wrong answer has to stay refused.
+        //
+        // An entry EXPIRES: a queue address that is freed and handed out again by the
+        // allocator belongs to a different queue, and refusing an address for ever would
+        // refuse the right queue after a device reset. The expiry is a present count
+        // rather than a re-identification of the queue behind the address, because the
+        // address is all a refusal ever had to go on.
+        constexpr int kBadQueues = 8;
+        // Presents, not seconds: g_present_count counts the Presents of every swapchain
+        // in the process, so a chain with frame generation on it reaches this bar in
+        // fewer game frames than a plain one.
+        constexpr std::uint64_t kBadQueueTtlPresents = 3600;
+        struct BadQueue
+        {
+            std::atomic<ID3D12CommandQueue*> queue{nullptr};
+            std::atomic<std::uint64_t> expires_at_present{0};
+        };
+        extern BadQueue g_bad_queues[kBadQueues];
+
+        //======================================================================
+        // WHICH QUEUE PRESENTS
+        //======================================================================
+        //
+        // ExecuteCommandLists is hooked process-wide, so every renderer in the process
+        // comes through it: the game, Streamline's frame generation, another overlay.
+        //
+        // Two things separate the game's queue from the others, and both are needed. It
+        // submitted in the window before a Present of the adopted swapchain, and it
+        // submitted the MOST work in that window: a game frame is many command lists,
+        // where a frame-generation or another overlay's queue submits one or two.
+        //
+        // One window is not enough, and counting WINDOWS WON is the wrong measure. A
+        // frame-generation renderer alternates - the game's queue is busiest before a real
+        // frame, the interposer's before a generated one - so at 2x generation the two win
+        // every other window for ever and no majority of windows ever arrives. What does
+        // separate them is the WORK: a game frame is ten to forty command lists, an
+        // interposer's present pass is one or two, every time.
+        //
+        // So the score of a queue is the number of command lists it submitted across the
+        // last kQueueScoreHorizon informative windows, and the leader is believed once it
+        // has kQueueScoreMin submissions and at least kQueueScoreMargin times the
+        // runner-up's. Under 2x frame generation that ratio is around ten to one, and the
+        // alternation does not matter.
+        //
+        // Two queues genuinely sharing the frame would keep the ratio under the margin for
+        // ever, and "no overlay, no explanation" is the worst outcome there is. So after
+        // kQueueDecideByPresents Presents the leader is taken on a plurality instead, with
+        // a line saying so: a wrong queue OF THE SAME DEVICE cannot remove the device, and
+        // the device test below is what rules out the case that can.
+        //
+        // What each half protects against differs. A queue of ANOTHER DEVICE is an
+        // immediate device removal, and the device test is what rules it out. A wrong
+        // DIRECT queue of the SAME device is legal D3D12 and removes nothing: the
+        // overlay's draw is simply unordered against the flip, so it tears, appears a
+        // frame late or never appears. That is the failure the scoring exists for, and
+        // the runner-up is logged so a bug report can name the queue that was not taken.
+        //
+        // The ring is fixed and allocation-free: a queue pointer, the sequence number of
+        // its last submission and a submission counter. The hot path is relaxed loads and
+        // stores; only a queue not yet in the ring takes `g_queue_ring_lock`. A ring entry
+        // holds a REFERENCE on its queue - without one a queue could be freed and its
+        // address handed to a COMPUTE queue that the pointer match would then treat as
+        // DIRECT, and the render thread would call GetDesc() on freed memory.
+        constexpr int kQueueRing = 8;
+        // How many recent informative windows a score covers, the fewest submissions a
+        // leader is believed on, and the factor it must lead the runner-up by.
+        constexpr int kQueueScoreHorizon = 16;
+        constexpr std::uint64_t kQueueScoreMin = 8;
+        constexpr std::uint64_t kQueueScoreMargin = 2;
+        // When the margin is never met, the leader is taken on a plurality instead: 10 s
+        // at 60 Hz of an overlay that does not appear is long enough to be sure the
+        // scoring is not going to settle on its own.
+        constexpr std::uint64_t kQueueDecideByPresents = 600;
+        // A horizon of informative windows can span minutes when informative windows are
+        // rare - a menu, a pause, a stretch only a refused queue submitted in. Scores that
+        // old are not evidence about which queue presents now, so the horizon starts again.
+        constexpr std::uint64_t kQueueScoreStaleMs = 5000;
+        struct QueueSlot
+        {
+            std::atomic<ID3D12CommandQueue*> queue{nullptr};
+            std::atomic<std::uint64_t> seq{0};
+            // Every submission ever seen on this queue. The render thread keeps its own
+            // copy per Present and the difference is the window's submission count.
+            std::atomic<std::uint64_t> submits{0};
+        };
+        extern QueueSlot g_queue_ring[kQueueRing];
+        // Queues evicted from the ring by a submitting thread, waiting for the render
+        // thread to Release them: a Release can be the last one, and destroying a D3D12
+        // object off the render thread is what the whole module is arranged to avoid. An
+        // eviction with no free slot here does not happen - the new queue is simply not
+        // remembered.
+        //
+        // Both the ring and this list are emptied by the render thread only. A stop that
+        // never reaches a Present therefore leaves them alone: if the render thread never
+        // runs again, up to kQueueRing + kPendingQueueReleases references stay held for
+        // the life of the process, and a reference is not a resource the game can run out
+        // of.
+        constexpr int kPendingQueueReleases = 8;
+        extern std::atomic<ID3D12CommandQueue*> g_pending_queue_release[kPendingQueueReleases];
+        extern std::atomic<std::uint64_t> g_exec_seq;
+        extern spin::Spinlock g_queue_ring_lock;
         extern std::atomic<std::uint64_t> g_present_count;
         extern std::atomic<std::uint64_t> g_resize_count;
         // Where the render thread is, for the loop thread's stall watchdog. Relaxed
@@ -1038,6 +1167,57 @@ namespace overlay
         void slicer_pause_end();
         void note_slice_buffers_changed();
         void safe_release_queue();
+        // The refused-queue set. `queue_is_bad` only reads it; `sweep_bad_queues` is the
+        // one place an entry past its TTL is dropped, and it belongs to the render thread.
+        // `mark_queue_bad` returns false when the set is full - the refusal is then not
+        // recorded, which only a process with more than kBadQueues wrong DIRECT queues
+        // could reach.
+        bool queue_is_bad(ID3D12CommandQueue* queue);
+        void sweep_bad_queues();
+        bool mark_queue_bad(ID3D12CommandQueue* queue);
+        // Any submitting thread: remembers `queue` as a DIRECT submission. Only while
+        // nothing is adopted - once the queue is captured this records nothing, so the
+        // hook costs one relaxed load for the rest of the session.
+        void note_direct_queue(ID3D12CommandQueue* queue);
+        // Render thread, exactly once per Present of the adopted swapchain: it closes the
+        // window that started at `after`, adds it to the horizon and reports where the
+        // scoring stands. `informative` is false for a window no unrefused queue submitted
+        // in - that says nothing, so the horizon does not move and no caller state changes,
+        // and `decided` is meaningless. `score` is command lists submitted across the
+        // horizon, not windows won.
+        struct QueuePick
+        {
+            ID3D12CommandQueue* queue = nullptr; // the leader, null while the ring is empty
+            std::uint64_t score = 0;
+            ID3D12CommandQueue* runner_up = nullptr;
+            std::uint64_t runner_score = 0;
+            std::uint64_t window_count = 0; // submissions the leader made in this window
+            bool informative = false;
+            bool decided = false;
+            bool by_plurality = false; // decided without the margin, on the time bound
+        };
+        QueuePick pick_presenting_queue(std::uint64_t after);
+        // Any thread: queues `queue` for the render thread to Release. False when the
+        // pending list is full, which leaves the caller holding the reference.
+        bool defer_queue_release(ID3D12CommandQueue* queue);
+        // Render thread: Releases whatever a submitting thread evicted from the ring.
+        void drain_pending_queue_releases();
+        // Render thread: empties the ring, dropping the reference each entry holds.
+        void release_queue_ring();
+        // For a caller that already holds `g_queue_ring_lock`: it empties the ring and
+        // hands back the pointers, which the caller Releases with the lock let go of -
+        // a Release runs foreign destructor code and must never happen under this lock.
+        void take_queue_ring_locked(ID3D12CommandQueue* (&out)[kQueueRing]);
+        void release_taken_queues(ID3D12CommandQueue* (&taken)[kQueueRing]);
+        // Render thread, called while nothing is adopted. True on the Present that
+        // captures the queue (with a reference held on it).
+        bool adopt_presenting_queue(IDXGISwapChain* swapchain);
+        // `on_render_thread` false leaves the ring and the pending list untouched - see
+        // the pending list's comment for what that keeps held.
+        void reset_queue_adoption(bool on_render_thread);
+        // A re-adoption is recoverable; an endless cycle of them is not. After
+        // kMaxReadoptions the overlay goes to its terminal off state instead.
+        constexpr std::uint64_t kMaxReadoptions = 5;
         void request_readoption(const wchar_t* why);
         std::wstring stage_w(const char* s);
         void set_hide_reason(const wchar_t* text);
@@ -1242,16 +1422,31 @@ namespace overlay
         void panel_debug(mm::Config& cfg, const mm::Snapshot& snap, bool have_state);
         void draw_panel(mm::Config cfg, const mm::Snapshot& snap, bool have_state);
         void build_ui();
+        // The three phases `ensure_initialised` drives, in order: the D3D12 objects, one
+        // barrier-only frame that tests the back buffer's assumed state, then ImGui.
+        bool ensure_device_objects(IDXGISwapChain* swapchain, ID3D12CommandQueue* queue);
+        bool submit_probe_frame(IDXGISwapChain* swapchain);
+        bool ensure_imgui(ID3D12CommandQueue* queue);
         bool ensure_initialised(IDXGISwapChain* swapchain);
         UINT current_backbuffer_index(IDXGISwapChain* swapchain);
         bool is_d3d12_swapchain(IDXGISwapChain* sc);
         void log_candidate(IDXGISwapChain* sc, bool d3d12);
-        void release_device_objects();
-        void shutdown_render();
+        // `on_render_thread` false is the loop thread's stop when no Present ever came:
+        // it releases the objects this module created and leaves every reference held on
+        // a foreign queue alone.
+        void release_device_objects(bool on_render_thread);
+        void shutdown_render(bool on_render_thread);
         void render(IDXGISwapChain* swapchain);
         void render_guarded(IDXGISwapChain* sc);
         void collect_guarded();
-        void note_present_result(HRESULT hr);
+        // `sc` is the swapchain whose Present returned `hr`: a removal is reported for
+        // any swapchain in the process, and only one on OUR device is terminal.
+        void note_present_result(HRESULT hr, IDXGISwapChain* sc);
+        // Render thread: acts on what note_present_result recorded.
+        void handle_present_failure();
+        // True while the adopted device still answers S_OK. False - and one log line -
+        // once it does not, which also engages the terminal state.
+        bool device_alive(const wchar_t* what);
         HRESULT STDMETHODCALLTYPE hk_Present(IDXGISwapChain* sc, UINT sync, UINT flags);
         HRESULT STDMETHODCALLTYPE hk_Present1(IDXGISwapChain1* sc, UINT sync, UINT flags,
                                               const DXGI_PRESENT_PARAMETERS* params);

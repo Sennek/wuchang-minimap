@@ -3980,7 +3980,7 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
-        constexpr std::size_t kPaddingBytes = 65;
+        constexpr std::size_t kPaddingBytes = 64;
 
         mm::Config a{};
         mm::Config b{};
@@ -4170,8 +4170,29 @@ namespace
         CHECK(!cfgkeys::is_known("slice_min_px"));   // Removed is recognised, not known
         CHECK(cfgkeys::is_removed("slice_min_px"));
         CHECK(!cfgkeys::is_removed("minimap_min_px"));
-        CHECK(cfgkeys::is_removed("overlay_enabled")); // the master switch is the only off switch
+        // The overlay's off switch is a live Advanced key; the two old names for it stay
+        // removed, and both point the reader at it.
+        CHECK(cfgkeys::tier_is("overlay_hooks", cfgkeys::Tier::Advanced));
+        CHECK(cfgkeys::is_known("overlay_hooks"));
+        CHECK(cfgkeys::is_removed("overlay_enabled"));
         CHECK(cfgkeys::is_removed("enabled"));         // its own older name
+        CHECK(cfgkeys::removed_advice("overlay_enabled") != nullptr);
+        CHECK(cfgkeys::removed_advice("enabled") != nullptr);
+        CHECK(std::string{cfgkeys::removed_advice("overlay_enabled")} == "overlay_hooks");
+        CHECK(cfgkeys::removed_advice("slice_min_px") == nullptr);
+        CHECK(cfgkeys::removed_advice("overlay_hooks") == nullptr);
+        // A key the removed advice points at must be live, or the advice is a dead end.
+        for (const std::string& k : removed)
+        {
+            const char* instead = cfgkeys::removed_advice(k);
+            if (instead == nullptr)
+            {
+                continue;
+            }
+            const std::string msg = std::string{"the advice for a removed key names a live key: "} + k;
+            check(std::find(known.begin(), known.end(), std::string{instead}) != known.end(),
+                  msg.c_str(), __FILE__, __LINE__);
+        }
         CHECK(cfgkeys::renamed_to("mod_enabled") == nullptr);
         CHECK_EQ(static_cast<int>(cfgkeys::kConfigKeyCount), static_cast<int>(known.size()));
 

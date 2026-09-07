@@ -101,6 +101,7 @@ namespace cfgkeys
         {"waypoint_nearest_key", Tier::Player}, // sets a waypoint on the nearest unfound marker
 
         // ADVANCED
+        {"overlay_hooks", Tier::Advanced},
         {"require_pawn_view", Tier::Advanced},
         {"state_stale_ms", Tier::Advanced},
         {"min_visible_after_state_ok_ms", Tier::Advanced},
@@ -214,7 +215,7 @@ namespace cfgkeys
         {"fast_travel_enabled", Tier::Removed}, // the game only travels at a shrine
         {"recon_dump_key", Tier::Removed},      // recon dump is a Debug-tab button
         // Behaviour the mod now always has; the panel toggles for them are gone.
-        {"overlay_enabled", Tier::Removed},     // the master switch is the only off switch
+        {"overlay_enabled", Tier::Removed},     // overlay_hooks is the off switch
         {"enabled", Tier::Removed},             // the older name for overlay_enabled
         {"found_tracker", Tier::Removed},       // the collection tracker is always on
         {"markers_absence_marks", Tier::Removed},
@@ -236,6 +237,18 @@ namespace cfgkeys
     };
 
     inline constexpr std::size_t kKeyCount = sizeof(kKeys) / sizeof(kKeys[0]);
+
+    // The live key a removed name should send the reader to, or nullptr when the generic
+    // "this is a hard-coded constant" line says everything. Only for names a player
+    // deliberately typed in the hope of an effect.
+    inline const char* removed_advice(std::string_view key)
+    {
+        if (key == "overlay_enabled" || key == "enabled")
+        {
+            return "overlay_hooks";
+        }
+        return nullptr;
+    }
 
     // The new name a legacy key maps onto, or nullptr when `key` is not a legacy name.
     // No key is renamed right now; the loader keeps the path for the next one.

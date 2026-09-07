@@ -28,12 +28,23 @@ namespace crumb
     // ALT+F4 / close button / DLL_PROCESS_DETACH. Terminal: none of the mod's teardown
     // paths run when the window closes from outside, so this is the only clean marker.
     inline constexpr const char* kWindowClosed = "window closed";
+    // The master switch is off and everything is released. Without it the file keeps
+    // whatever the last transition happened to be - a chapter unload, most often - and a
+    // crash in that window is reported against a stage the mod is not in any more.
+    inline constexpr const char* kModOff = "mod off";
 
     // Loop thread, once. Builds the paths under mod directory `dir` and reads the
     // previous session's value before overwriting it.
     void init(const wchar_t* dir, bool enabled);
 
     // Any thread. Rewrites the file with `name`, a timestamp and the calling thread id.
+    //
+    // The five start-up stages are a ladder - dll loaded, hooks installed, swapchain
+    // chosen, imgui up, first slice - and a rung is never written over a higher one. The
+    // loop thread and the render thread climb it at the same time: on a fast machine
+    // `install_hooks` returns after the render thread has already reached `imgui up`, and
+    // a crash report naming a stage the mod had already left is worse than useless. A
+    // teardown lets the ladder be climbed again; every other stage always writes.
     void stage(const char* name);
 
     // Any thread. Writes the terminal `kWindowClosed` stage exactly once; WM_CLOSE,

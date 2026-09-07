@@ -954,13 +954,14 @@ table that says which **tier** each key is in:
 
 | tier | where it lives | what it is |
 |---|---|---|
-| **Player** (56) | `config_wuchang_minimap.txt`, under `; ---- PLAYER SETTINGS ----`; the F2 panel's four player tabs | something a person tuning the HUD would plausibly change |
-| **Advanced** (58) | the same file, under `; ---- ADVANCED ----`; F2 → *Debug* → *Tuning* | correct as shipped; changed to answer a symptom |
-| **Dev** (30) | `config_wuchang_minimap_dev.txt`; F2 → *Debug* | a dial that exists because a developer needed one during bring-up |
+| **Player** | `config_wuchang_minimap.txt`, under `; ---- PLAYER SETTINGS ----`; the F2 panel's four player tabs | something a person tuning the HUD would plausibly change |
+| **Advanced** | the same file, under `; ---- ADVANCED ----`; F2 → *Debug* → *Tuning* | correct as shipped; changed to answer a symptom |
+| **Dev** | `config_wuchang_minimap_dev.txt`; F2 → *Debug* | a dial that exists because a developer needed one during bring-up |
 
-Nineteen further keys are **removed** — sanity caps that are constants now, and toggles for
-behaviour the mod simply has (`overlay_enabled` and its older name `enabled`, `found_tracker`,
-`markers_absence_marks`, `map_waypoint_persist`, `shrine_list`). A removed key gets a single
+Further keys are **removed** — sanity caps that are hard-coded constants, and toggles for
+behaviour the mod simply has (`overlay_enabled` and its older name `enabled`, both answered by
+`overlay_hooks`; `found_tracker`, `markers_absence_marks`, `map_waypoint_persist`,
+`shrine_list`). A removed key gets a single
 warning naming it and is then ignored. `cfgkeys::renamed_to` keeps the **legacy** rename path
 alive for the next one; nothing is renamed right now.
 
@@ -971,8 +972,11 @@ in the same folder, **after** the player config — so a key set in both wins th
 tab saves into the dev file, never into the player one; if the file does not exist and every
 Dev key is at its default, it stays that way.
 
-Two keys need a restart: `srv_heap_size`, because the descriptor heap is created once, when
-the overlay first initialises, and `navmesh_dump`, which the dumper reads once when it starts.
+Three keys take effect on restart, or on a `mod_enabled` off/on cycle — `modswitch::enable()`
+re-reads the whole file and calls `overlay::start()` again: `overlay_hooks`, which
+`overlay::start()` reads once before the hooks go in, `srv_heap_size`, because the descriptor
+heap is created once, when the overlay first initialises, and `navmesh_dump`, which the dumper
+reads once when it starts.
 
 **The master switch, `mod_enabled` (default 1).** `mod_enabled = 0` makes the DLL inert: the
 DX12 hooks are not installed (and are cleanly disabled if they already were — the render
@@ -984,8 +988,54 @@ height maps are freed and XInput is never polled. What keeps running is one
 `GetFileAttributesEx` of the config file per second on the loop thread, so setting the key back
 to `1` restarts the mod within a second. **F5 does not work while the mod is off** — nothing
 samples the keyboard — and the panel's checkbox can only turn it *off*. Every flip writes one
-`master switch:` line into `UE4SS.log`. It is the only off switch: the Debug tab's *Disable for
+`master switch:` line into `UE4SS.log`. It stops the whole mod; the Debug tab's *Disable for
 this session* stops the same way without writing anything.
+
+**The DirectX off switch, `overlay_hooks` (default 1).** `overlay_hooks = 0` runs the mod with
+nothing of it anywhere near DirectX: `install_hooks` is never called, so there is no throwaway
+device, no vtable discovery and no Present / Present1 / ResizeBuffers / ExecuteCommandLists
+trampoline, and nothing is drawn. The game-thread reader, the collection tracker, the found file
+and the mod's own log all carry on, and the breadcrumb reads `dx12 hooks off by config`. That is
+what makes it the answer to a report of a hang or a crash at start-up: it splits the render half
+off from everything else in one line and a restart. It takes effect on restart, or on a
+`mod_enabled` off/on cycle — the 1 Hz watch and F5 ignore it on their own.
+
+### Surviving a swapchain that is not the game's own
+
+Three gates stand between the hook and the first thing the overlay submits, and every one of them
+writes the reason it opened or closed into `wuchang_minimap.log`. They exist because
+`ExecuteCommandLists` is hooked process-wide, so a frame-generation interposer, a ReShade proxy or
+another overlay all come through it, and because the mod's own first submission is what killed a
+reporter's D3D12 device.
+
+**Which queue presents.** The ring in `overlay_internal.hpp` remembers up to eight DIRECT queues
+with a reference held on each. A *window* is the submissions between two Presents of the adopted
+swapchain, and a queue's *score* is the command lists it submitted across the last
+`kQueueScoreHorizon` informative windows. The leader is captured once it has `kQueueScoreMin`
+submissions and `kQueueScoreMargin` times the runner-up's — a game frame is ten to forty lists
+where an interposer's present pass is one or two, so the ratio is wide and stable even when the
+two alternate. Counting *windows won* instead cannot work: at 2x frame generation the two queues
+win every other window for ever. After `kQueueDecideByPresents` Presents with no margin the leader
+is taken on a plurality and the log says so, because a wrong queue of the same device costs
+ordering (a torn or missing overlay), not the device. A queue of *another* device is refused
+outright — that one is an immediate device removal — and refusals expire after
+`kBadQueueTtlPresents` Presents so a device reset cannot blacklist the right queue for good.
+
+**The probe frame.** The first thing ever submitted is a command list holding one
+`PRESENT -> RENDER_TARGET -> PRESENT` barrier pair and no draw. D3D12 cannot be asked what state a
+resource is in, and the barrier asserts `PRESENT`; under an interposer that assertion may be false,
+and a wrong before-state is a device-removal-class error. So it is tested while nothing else of the
+overlay exists: ImGui, the SRV heap and the map textures are built only after the fence the probe
+signalled has completed and the device still answers `S_OK`. A failed `Signal`, or a fence that has
+not completed in `kProbeWaitPresents` Presents, refuses that queue and adopts again.
+
+**A removed device is terminal.** `note_present_result` runs on whichever thread presented and only
+records the failure; the render thread reads `GetDeviceRemovedReason()`, logs it by name and sets
+`g_device_removed`, which releases the objects once inside the next Present and returns from every
+Present after that. Nothing is ever rebuilt on a dead device, because ImGui's font upload waits on
+a fence with no timeout and would wedge the render thread inside the game's own recovery. A
+recoverable failure asks for a re-adoption instead, capped at `kMaxReadoptions` per stretch: a
+successful adoption clears the count, so a player cycling video settings does not spend it.
 
 `tests/markers_test.cpp` is the drift guard, in both directions:
 `keys(config_wuchang_minimap.txt) == Player ∪ Advanced`,

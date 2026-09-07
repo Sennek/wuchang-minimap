@@ -32,7 +32,16 @@ namespace mm
         mv::WaypointSet g_wp{};
 
         spin::Spinlock g_log_lock;
-        std::vector<std::wstring> g_log_queue;
+        // A line logged off the loop thread waits here until the loop thread drains it,
+        // which can be a whole frame later - so the wall clock is taken when the line is
+        // MADE, not when it is written. The stamp is POD beside the string, so it costs
+        // the queue entry one SYSTEMTIME and no allocation.
+        struct LogEntry
+        {
+            std::wstring line;
+            SYSTEMTIME at{};
+        };
+        std::vector<LogEntry> g_log_queue;
         DWORD g_loop_thread = 0;
         // Dropped, never blocked and never grown: the game thread must not wait on the loop thread.
         constexpr std::size_t kLogQueueMax = 4096;
@@ -1300,6 +1309,10 @@ namespace mm
             {
                 cfg.hide_reason_log_ms = parse_int(value, cfg.hide_reason_log_ms);
             }
+            else if (key == "overlay_hooks")
+            {
+                cfg.overlay_hooks = parse_bool(value, cfg.overlay_hooks);
+            }
             else if (key == "srv_heap_size")
             {
                 cfg.srv_heap_size = parse_int(value, cfg.srv_heap_size);
@@ -1764,13 +1777,26 @@ namespace mm
                     continue;
                 }
 
-                // A key that is a hard-coded constant now: named rather than ignored in silence.
+                // A key that is a hard-coded constant: named rather than ignored in silence.
                 if (cfgkeys::is_removed(key))
                 {
-                    warn_once(key,
-                              std::format(L"config: `{}` is not a setting (it is a hard-coded sanity "
-                                          L"cap) - the line is ignored and can be deleted",
-                                          widen_ascii(key)));
+                    if (const char* instead = cfgkeys::removed_advice(key); instead != nullptr)
+                    {
+                        warn_once(key,
+                                  std::format(L"config: `{}` is not a setting - the overlay's own off "
+                                              L"switch is `{} = 0` (the mod then never touches DirectX), "
+                                              L"and `mod_enabled = 0` still stops the whole mod. This "
+                                              L"line is ignored and can be deleted.",
+                                              widen_ascii(key),
+                                              widen_ascii(instead)));
+                    }
+                    else
+                    {
+                        warn_once(key,
+                                  std::format(L"config: `{}` is not a setting (it is a hard-coded sanity "
+                                              L"cap) - the line is ignored and can be deleted",
+                                              widen_ascii(key)));
+                    }
                     continue;
                 }
                 if (const char* to = cfgkeys::renamed_to(key); to != nullptr)
@@ -2056,6 +2082,7 @@ namespace mm
         const auto vk = [](int v) { return vk_name(v); };
 
         add("mod_enabled", b(cfg.mod_enabled));
+        add("overlay_hooks", b(cfg.overlay_hooks));
         add("show_minimap", b(cfg.show_minimap));
         add("ui_scale", cfg.ui_scale_auto ? std::string{"auto"} : f2(cfg.ui_scale));
         add("font_size", std::to_string(cfg.font_size));
@@ -2897,10 +2924,19 @@ namespace mm
             g_modlog_buf.clear();
         }
 
-        void modlog_line(const std::wstring& line)
+        // `at` is when the line was made. Null means now, which is right for every line
+        // written from the loop thread itself.
+        void modlog_line(const std::wstring& line, const SYSTEMTIME* at = nullptr)
         {
             SYSTEMTIME st{};
-            ::GetLocalTime(&st);
+            if (at != nullptr)
+            {
+                st = *at;
+            }
+            else
+            {
+                ::GetLocalTime(&st);
+            }
             wchar_t stamp[32]{};
             ::_snwprintf_s(stamp, std::size(stamp), _TRUNCATE, L"%02u:%02u:%02u.%03u ",
                            static_cast<unsigned>(st.wHour), static_cast<unsigned>(st.wMinute),
@@ -3111,10 +3147,14 @@ namespace mm
     {
         if (g_loop_thread == 0 || ::GetCurrentThreadId() != g_loop_thread)
         {
+            // Outside the lock: GetLocalTime is a read of shared kernel data and this is
+            // the render thread's own timestamp, not something the drain needs to serialise.
+            SYSTEMTIME at{};
+            ::GetLocalTime(&at);
             spin::SpinGuard guard(g_log_lock);
             if (g_log_queue.size() < kLogQueueMax)
             {
-                g_log_queue.push_back(line);
+                g_log_queue.push_back(LogEntry{line, at});
             }
             else
             {
@@ -3128,7 +3168,7 @@ namespace mm
 
     void drain_log()
     {
-        std::vector<std::wstring> lines;
+        std::vector<LogEntry> lines;
         std::size_t dropped = 0;
         {
             spin::SpinGuard guard(g_log_lock);
@@ -3149,10 +3189,10 @@ namespace mm
             Output::send<LogLevel::Warning>(STR("[minimap] {}\n"), note);
             modlog_line(note);
         }
-        for (const std::wstring& l : lines)
+        for (const LogEntry& e : lines)
         {
-            Output::send<LogLevel::Verbose>(STR("[minimap] {}\n"), l);
-            modlog_line(l);
+            Output::send<LogLevel::Verbose>(STR("[minimap] {}\n"), e.line);
+            modlog_line(e.line, &e.at);
         }
     }
 } // namespace mm

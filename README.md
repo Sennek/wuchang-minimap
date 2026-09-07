@@ -87,13 +87,28 @@ None of these stops the mod working.
 - **The Steam overlay** — the first run of a new install creates and destroys a throwaway
   swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at nothing.
   Shift+Tab still works.
+- **UE4SS's own console window** — not a mod conflict, but it looks exactly like one. Clicking or
+  dragging in that black console window puts it in selection mode, which blocks whoever writes to
+  it: UE4SS stops mid-startup and the game hangs before this mod has run a single line. Press
+  `Esc` in the console to release it, or set `ConsoleEnabled = 0` in `ue4ss\UE4SS-settings.ini`.
+  The tell is that `wuchang_minimap.log` was never written and `UE4SS.log` stops in the middle.
 
 ## Reporting a bug
 
 Attach `ue4ss\Mods\WuchangMinimap\wuchang_minimap.log` — the mod's own log, rotated per launch.
-Its first six lines carry every version number a report needs. Add
+Its first six lines carry every version and file size a report needs. Add
 `wuchang_minimap_last_stage.txt` if the game crashed, `wuchang_minimap_watchdog.txt` if it froze,
 and your `config_wuchang_minimap.txt`.
+
+**If there is no `wuchang_minimap.log` at all**, this mod never ran, so it cannot be the cause.
+Check `ue4ss\UE4SS.log`: `Failed to load dll ... [0x7f] The specified procedure could not be found`
+means the mod does not match your UE4SS build, and a log that simply stops mid-startup usually
+means the console window above.
+
+If the game hangs or crashes at start with the mod enabled, set `overlay_hooks = 0` in
+`config_wuchang_minimap.txt` and restart: the mod then never touches DirectX and draws nothing,
+while the tracker and the log keep running. Send me that log too — with and without, the pair
+says which half is at fault.
 
 If the minimap simply is not on screen, send me `wuchang_minimap.log` from the mod's own folder —
 it names the exact reason it stayed hidden. If I ask you to reproduce something, add the line

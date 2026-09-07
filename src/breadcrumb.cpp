@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 
+#include <atomic>
 #include <cstring>
 
 namespace crumb
@@ -19,6 +20,50 @@ namespace crumb
         char g_previous[64]{};
         bool g_had_previous = false;
         char g_current[64]{};
+        // How far up the start-up ladder this session has been. Relaxed: two threads can
+        // pass the check together, which leaves exactly the race this bounds - never a
+        // rung written over one the ladder has already passed.
+        std::atomic<int> g_ladder{0};
+
+        bool same_stage(const char* a, const char* b)
+        {
+            if (a == nullptr || b == nullptr)
+            {
+                return false;
+            }
+            while (*a != 0 && *a == *b)
+            {
+                ++a;
+                ++b;
+            }
+            return *a == *b;
+        }
+
+        // 1..5 for the start-up ladder, 0 for a stage that is not part of it.
+        int ladder_rank(const char* name)
+        {
+            if (same_stage(name, kDllLoaded))
+            {
+                return 1;
+            }
+            if (same_stage(name, kHooksInstalled))
+            {
+                return 2;
+            }
+            if (same_stage(name, kSwapchainChosen))
+            {
+                return 3;
+            }
+            if (same_stage(name, kImGuiUp))
+            {
+                return 4;
+            }
+            if (same_stage(name, kFirstSlice))
+            {
+                return 5;
+            }
+            return 0;
+        }
         void (*g_flush_hook)() = nullptr;
         LONG g_closing_written = 0; // interlocked: mark_closing() writes exactly once
 
@@ -133,6 +178,19 @@ namespace crumb
         if (name == nullptr)
         {
             return;
+        }
+        const int rank = ladder_rank(name);
+        if (rank != 0 && rank < g_ladder.load(std::memory_order_relaxed))
+        {
+            return; // a later rung of this start-up is already on record
+        }
+        if (rank != 0)
+        {
+            g_ladder.store(rank, std::memory_order_relaxed);
+        }
+        else if (same_stage(name, kTeardownBegin) || same_stage(name, kModOff))
+        {
+            g_ladder.store(0, std::memory_order_relaxed); // the ladder can be climbed again
         }
         // The in-memory copy is kept even when the file is off, for the F2 Debug tab.
         std::size_t at = 0;

@@ -146,7 +146,16 @@ namespace overlay
         int g_candidates_logged = 0;
         std::atomic<bool> g_readopt{false};
         std::atomic<std::uint64_t> g_readopt_count{0};
-        std::atomic<ID3D12CommandQueue*> g_bad_queue{nullptr};
+        std::atomic<bool> g_device_removed{false};
+        std::atomic<bool> g_verify_on_start{false};
+        std::atomic<bool> g_removal_released{false};
+        std::atomic<bool> g_removal_logged{false};
+        std::atomic<bool> g_present_failed{false};
+        BadQueue g_bad_queues[kBadQueues]{};
+        QueueSlot g_queue_ring[kQueueRing]{};
+        std::atomic<ID3D12CommandQueue*> g_pending_queue_release[kPendingQueueReleases]{};
+        std::atomic<std::uint64_t> g_exec_seq{0};
+        spin::Spinlock g_queue_ring_lock;
         std::atomic<std::uint64_t> g_present_count{0};
         std::atomic<std::uint64_t> g_resize_count{0};
         std::atomic<const char*> g_render_stage{"no frame yet"};
@@ -157,6 +166,11 @@ namespace overlay
         std::atomic<bool> g_render_stopped{true};    // render -> loop
         std::atomic<bool> g_watchdog_reported{false};
         std::uint64_t g_hook_install_ms = 0;
+        // Bumped by start(). Both watchdogs below keep their windows in function statics
+        // and re-seed them when this changes: while the mod is off nothing advances the
+        // Present count, so an off period is exactly what a wedged render thread looks
+        // like to them.
+        std::atomic<std::uint64_t> g_watchdog_epoch{0};
         wchar_t g_hide_reason[96] = L"not evaluated yet";
         int g_pf_newframe = -1; // ImGui_ImplWin32_NewFrame - cross-thread user32
         int g_pf_buildui = -1;  // build_ui() - our own drawing
@@ -928,9 +942,39 @@ namespace overlay
 
         // The render thread is allowed to build its objects again from the next frame.
         g_render_stopped.store(false, std::memory_order_release);
+        // A stop that never reached a Present leaves the objects of the old device in
+        // place. Forgetting the removal without releasing them would let the next Present
+        // take the "ImGui is ready" path and record a frame on a dead device. `g_device`
+        // belongs to the render thread, so the question is left to it: the first Present
+        // after a start releases whatever survived before it builds anything.
+        g_verify_on_start.store(true, std::memory_order_release);
+        // Nothing that happened before this start counts against the re-adoption cap.
+        g_readopt_count.store(0, std::memory_order_relaxed);
+        // A fresh start is the one place a terminal device removal is forgotten: the
+        // master switch coming back on means the player wants the overlay to try again.
+        g_device_removed.store(false, std::memory_order_release);
+        g_removal_released.store(false, std::memory_order_release);
+        // The reason line belongs to the removal, not to the process: a second removal
+        // in one session has to be able to say why it happened.
+        g_removal_logged.store(false, std::memory_order_release);
+        g_present_failed.store(false, std::memory_order_release);
+        // Neither watchdog may read the off period as a freeze.
+        g_watchdog_epoch.fetch_add(1, std::memory_order_relaxed);
 
         const mm::Config cfg = mm::config();
-        if (!g_hooks_created)
+        if (!cfg.overlay_hooks)
+        {
+            // The real off switch, read once and never re-read: no dummy device, no
+            // trampolines, nothing of this mod in the game's render thread. Everything on
+            // the game thread carries on, which is what makes it a usable answer to a
+            // crash or a hang at start-up rather than a way to turn the mod off.
+            crumb::stage("dx12 hooks off by config");
+            mm::log(L"overlay_hooks = 0: no DirectX hooks are installed and nothing is drawn. The "
+                    L"game-state reader, the collection tracker, the found file and this log keep "
+                    L"running. Set overlay_hooks = 1 in config_wuchang_minimap.txt and restart the "
+                    L"game to get the overlay back.");
+        }
+        else if (!g_hooks_created)
         {
             g_hooks_created = install_hooks();
             crumb::stage(g_hooks_created ? crumb::kHooksInstalled : "hook install FAILED");
@@ -979,8 +1023,28 @@ namespace overlay
         // at all - stop_complete() below answers for it.
         if (!g_hooks_installed.load(std::memory_order_acquire) || g_present_count.load() == 0)
         {
-            spin::SpinGuard guard(g_render_lock);
-            shutdown_render(); // nothing of ours is in flight; safe from this thread
+            // A bound, not a spin. The render thread holds this lock across
+            // ImGui_ImplWin32_NewFrame, which waits on the GAME thread's message pump, so
+            // a frame that is itself wedged would keep the loop thread here for ever -
+            // and the loop thread is the one that still answers when the other two do
+            // not. On a timeout the stop state machine carries on: `stop_complete()` goes
+            // on returning false until a Present tears the objects down, which is the
+            // same state a game that has stopped presenting was already in.
+            if (g_render_lock.try_lock_ms(2000))
+            {
+                // `false`: this is the loop thread, so the queue ring and the pending
+                // release list are left alone - see the pending list's comment.
+                shutdown_render(false);
+                g_render_lock.unlock();
+            }
+            else
+            {
+                mm::logf(L"master switch: the render lock was still held after 2000 ms, so the render "
+                         L"objects were NOT released from the loop thread. Render thread {} was at "
+                         L"'{}'. The next Present releases them.",
+                         g_render_tid.load(std::memory_order_relaxed),
+                         stage_w(g_render_stage.load(std::memory_order_relaxed)));
+            }
         }
     }
 
@@ -997,9 +1061,20 @@ namespace overlay
         }
         const MH_STATUS st = MH_DisableHook(MH_ALL_HOOKS);
         g_hooks_installed.store(false, std::memory_order_release);
+        // The stop is complete, so the removal that ended the last session is history;
+        // a re-enable through start() re-adopts from an empty state.
+        g_device_removed.store(false, std::memory_order_release);
+        g_removal_released.store(false, std::memory_order_release);
+        // The reason line belongs to the removal, not to the process: a second removal
+        // in one session has to be able to say why it happened.
+        g_removal_logged.store(false, std::memory_order_release);
+        g_present_failed.store(false, std::memory_order_release);
         mm::logf(L"master switch: the DX12 hooks were disabled (MH_DisableHook = {}); the trampolines "
                  L"stay created so turning the mod back on cannot double-hook",
                  static_cast<int>(st));
+        // The `mod off` crumb belongs at the END of the whole stop, not here: step 3b
+        // unloads the chapter and stamps its own stage. `modswitch::finish_disable` is
+        // what writes it.
     }
 
     //======================================================================================
@@ -1025,6 +1100,10 @@ namespace overlay
         // Generous, because a stutter is not a freeze: 6 s reads as "not responding".
         constexpr std::uint64_t kStallMs = 6000;
         constexpr std::uint64_t kRepeatMs = 5000;
+        // The FROZEN bar, and it has to clear the longest legitimate silence there is: a
+        // synchronous level load on a slow disk stops Present for tens of seconds and
+        // looks identical from here.
+        constexpr std::uint64_t kFrozenMs = 40000;
 
         static std::uint64_t present_seen = 0;
         static std::uint64_t present_at = 0;
@@ -1032,13 +1111,29 @@ namespace overlay
         static std::uint64_t pump_at = 0;
         static std::uint64_t last_shout = 0;
         static bool shouting = false;
+        static std::uint64_t sw_epoch = 0;
+        // `present_at` is pushed forward by the stall window every tick, which is what
+        // suppresses a level load. This one is not: it is the true clock of the last
+        // Present, and it is what the frozen case below measures.
+        static std::uint64_t present_moved_at = 0;
 
         const std::uint64_t presents = g_present_count.load(std::memory_order_relaxed);
         const std::uint64_t pumps = gamestate::pump_calls();
+        const std::uint64_t epoch = g_watchdog_epoch.load(std::memory_order_relaxed);
+        if (epoch != sw_epoch)
+        {
+            // A fresh start: every window starts again from here, and a `present_at` of
+            // zero is what the seeding branch below keys on.
+            sw_epoch = epoch;
+            present_at = 0;
+            shouting = false;
+            last_shout = 0;
+        }
         if (present_at == 0)
         {
             present_at = now;
             pump_at = now;
+            present_moved_at = now;
             present_seen = presents;
             pump_seen = pumps;
             return;
@@ -1047,6 +1142,7 @@ namespace overlay
         {
             present_seen = presents;
             present_at = now;
+            present_moved_at = now;
         }
         if (pumps != pump_seen)
         {
@@ -1054,15 +1150,27 @@ namespace overlay
             pump_at = now;
         }
 
+        // FROZEN, not stalled. Frames were reaching the hook and have stopped dead for
+        // kFrozenMs. Nothing suppresses this one, because a device removed inside our own
+        // first Present looks exactly like a synchronous level load that never ends - and
+        // that is the case this exists to name. The price is that a long enough load
+        // reports too, which the line itself says.
+        const bool frozen = mm::mod_active() && g_hooks_installed.load(std::memory_order_acquire) &&
+                            presents > 0 && present_moved_at != 0 && now - present_moved_at >= kFrozenMs;
+
         // Nothing to watch: the mod is off, the hooks are not in, no frame has ever
         // arrived (the no-Present watchdog above owns that case), or the game is
         // legitimately not producing frames or ticks.
-        if (!mm::mod_active() || !g_hooks_installed.load(std::memory_order_acquire) || presents == 0 ||
-            mm::perf_in_stall())
+        if (!frozen && (!mm::mod_active() || !g_hooks_installed.load(std::memory_order_acquire) ||
+                        presents == 0 || mm::perf_in_stall()))
         {
             present_at = now;
             pump_at = now;
             return;
+        }
+        if (frozen)
+        {
+            present_at = present_moved_at; // the real silence, not the one the window reset
         }
 
         const std::uint64_t render_ms = now - present_at;
@@ -1103,7 +1211,7 @@ namespace overlay
         mm::modlog_flush();
 
         mm::logf(L"WATCHDOG: {} has not moved for {} ms (render {} ms at '{}', game {} ms at '{}'); "
-                 L"{}. A line is also in wuchang_minimap_watchdog.txt, which is written without "
+                 L"{}.{} A line is also in wuchang_minimap_watchdog.txt, which is written without "
                  L"allocating in case the heap is what is stuck.",
                  render_ms >= kStallMs && game_ms >= kStallMs
                      ? L"NEITHER the render thread NOR the game thread"
@@ -1114,7 +1222,10 @@ namespace overlay
                  stage_w(rstage),
                  game_ms,
                  stage_w(gstage),
-                 stage_w(note));
+                 stage_w(note),
+                 frozen ? L" No Present has reached the hook for over 40 s - a long load looks like this "
+                          L"too; if the game is responsive, ignore this line."
+                        : L"");
         mm::drain_log();
         mm::modlog_flush();
     }
@@ -1719,24 +1830,53 @@ namespace overlay
             last_panel_log = now;
             mm::log(L"the settings panel is rendering");
         }
-        if (!g_watchdog_reported.load() && g_hooks_installed.load() && g_hook_install_ms != 0 &&
-            now - g_hook_install_ms > 8000 && g_present_count.load() == 0)
+        // Has the Present count MOVED in the 8 s since the hooks went in? A count stuck
+        // at 0 means the game's swapchain is behind a proxy we did not create ours
+        // through. A count stuck at anything else means frames were arriving and have
+        // stopped, which is what a device removed inside the first Present looks like
+        // from the loop thread. Both want the same module list, so both get it.
+        static std::uint64_t wd_presents = 0;
+        static std::uint64_t wd_presents_at = 0;
+        static std::uint64_t wd_epoch = 0;
+        const std::uint64_t epoch = g_watchdog_epoch.load(std::memory_order_relaxed);
+        if (epoch != wd_epoch)
         {
-            g_watchdog_reported = true;
-            mm::log(L"WATCHDOG: 8 s after installing the hooks not a single Present has arrived. The game's "
-                    L"swapchain is behind a proxy we did not create ours through (a DLSS frame-generation wrapper "
-                    L"is the likely candidate). Loaded graphics modules follow:");
-            static const wchar_t* const suspects[] = {L"dxgi.dll",       L"d3d12.dll",  L"ReShade64.dll",
-                                                      L"nvngx_dlssg.dll", L"sl.interposer.dll", L"sl.dlss_g.dll",
-                                                      L"amd_fidelityfx_dx12.dll"};
-            for (const wchar_t* name : suspects)
+            wd_epoch = epoch;
+            wd_presents = 0;
+            wd_presents_at = 0;
+        }
+        if (!g_watchdog_reported.load() && g_hooks_installed.load() && g_hook_install_ms != 0)
+        {
+            const std::uint64_t presents = g_present_count.load();
+            if (wd_presents_at == 0 || presents != wd_presents)
             {
-                const HMODULE mod = ::GetModuleHandleW(name);
-                if (mod != nullptr)
+                wd_presents = presents;
+                wd_presents_at = wd_presents_at == 0 ? g_hook_install_ms : now;
+            }
+            else if (now - wd_presents_at > 8000)
+            {
+                g_watchdog_reported = true;
+                mm::logf(L"WATCHDOG: the Present count has not moved off {} for 8 s. {} Loaded graphics "
+                         L"modules follow:",
+                         presents,
+                         presents == 0
+                             ? L"Not a single Present has reached the hook: the game's swapchain is "
+                               L"behind a proxy we did not create ours through (a DLSS "
+                               L"frame-generation wrapper is the likely candidate)."
+                             : L"Frames WERE reaching the hook and have stopped, which is what a "
+                               L"removed device or a wedged render thread looks like from here.");
+                static const wchar_t* const suspects[] = {L"dxgi.dll",       L"d3d12.dll",  L"ReShade64.dll",
+                                                          L"nvngx_dlssg.dll", L"sl.interposer.dll", L"sl.dlss_g.dll",
+                                                          L"amd_fidelityfx_dx12.dll"};
+                for (const wchar_t* name : suspects)
                 {
-                    wchar_t path[MAX_PATH * 2]{};
-                    ::GetModuleFileNameW(mod, path, static_cast<DWORD>(std::size(path)));
-                    mm::logf(L"  loaded: {} -> {}", name, path);
+                    const HMODULE mod = ::GetModuleHandleW(name);
+                    if (mod != nullptr)
+                    {
+                        wchar_t path[MAX_PATH * 2]{};
+                        ::GetModuleFileNameW(mod, path, static_cast<DWORD>(std::size(path)));
+                        mm::logf(L"  loaded: {} -> {}", name, path);
+                    }
                 }
             }
         }

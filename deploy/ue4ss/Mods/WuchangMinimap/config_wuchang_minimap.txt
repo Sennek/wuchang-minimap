@@ -179,6 +179,12 @@ waypoint_nearest_key = none
 ; =================================================================================
 ; Correct as shipped; change one to answer a symptom.
 
+; ---- The DirectX hooks ----
+; 0 = the mod never touches DirectX - no DX12 hooks, no overlay; tracker, log and
+; everything on the game thread keep running. Use it if the game hangs or crashes at
+; start with the mod enabled. Takes effect on restart, or on a mod_enabled off/on cycle.
+overlay_hooks = 1
+
 ; ---- When the overlay is allowed on screen ----
 ; Show the overlay only while the camera is on the player pawn (keeps it out of menus
 ; and cutscenes).

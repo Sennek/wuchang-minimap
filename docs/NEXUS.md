@@ -76,15 +76,21 @@ To uninstall, delete [font=Courier New]ue4ss\Mods\WuchangMinimap\[/font]. That i
 Everything is rebindable in F2 → Keys.
 
 [size=5]Known conflicts[/size]
-None of these stops the mod working.
+None of these stops the mod working, except where the last one says otherwise.
 [list]
 [*][b]ReShade / RenoDX[/b] (any [font=Courier New]dxgi.dll[/font] or [font=Courier New]d3d12.dll[/font] next to the game exe) — the mod draws [i]before[/i] ReShade's effects, so grading and sharpening are applied on top of the minimap and a strong LUT tints it. Cosmetic only. F6 is refused as a mod hotkey because it is RenoDX's default toggle.
 [*][b]Another UE4SS C++ mod that also hooks Present[/b] — the one combination that can lose an overlay: whichever installs second usually wins, and the loser is invisible. Test them one at a time before reporting a blank screen.
 [*][b]The Steam overlay[/b] — the first run of a new install creates and destroys a throwaway swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at nothing. Shift+Tab still works.
+[*][b]UE4SS's own console window[/b] — not a mod conflict, but it looks exactly like one. Clicking or dragging in that black console window puts it in selection mode, which blocks whoever writes to it: UE4SS stops mid-startup and the game hangs before this mod has run a single line. Press [b]Esc[/b] in the console to release it, or set [font=Courier New]ConsoleEnabled = 0[/font] in [font=Courier New]ue4ss\UE4SS-settings.ini[/font]. The tell is that [font=Courier New]wuchang_minimap.log[/font] was never written and [font=Courier New]UE4SS.log[/font] stops in the middle.
+[*][b]A frame-generation or swapchain proxy[/b] — anything that presents the game's frames through its own swapchain (NVIDIA Streamline / DLSS frame generation, an FSR3 frame-interpolation mod). The overlay identifies the queue the game presents from before it draws anything, and if it cannot it stays away rather than guess; if the minimap never appears, [font=Courier New]overlay_hooks = 0[/font] plus the log says so in one line.
 [/list]
 
 [size=5]Reporting a bug[/size]
-Attach [font=Courier New]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first six lines carry every version number a report needs. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font].
+Attach [font=Courier New]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first six lines carry every version and file size a report needs. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font].
+
+[b]If there is no wuchang_minimap.log at all[/b], this mod never ran, so it cannot be the cause. Check [font=Courier New]ue4ss\UE4SS.log[/font]: [font=Courier New]Failed to load dll ... [0x7f] The specified procedure could not be found[/font] means the mod does not match your UE4SS build, and a log that simply stops mid-startup usually means the console window above.
+
+If the game hangs or crashes at start with the mod enabled, set [font=Courier New]overlay_hooks = 0[/font] in [font=Courier New]config_wuchang_minimap.txt[/font] and restart: the mod then never touches DirectX and draws nothing, while the tracker and the log keep running. Send me that log too — with and without, the pair says which half is at fault.
 
 If the minimap simply is not on screen, send me [font=Courier New]wuchang_minimap.log[/font] from the mod's own folder — it names the exact reason it stayed hidden. If I ask you to reproduce something, add the line [font=Courier New]log_level = verbose[/font] to [font=Courier New]config_wuchang_minimap.txt[/font] first, press [b]F5[/b], and reproduce it.
 

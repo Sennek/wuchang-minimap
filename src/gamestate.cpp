@@ -82,6 +82,9 @@ namespace gamestate
         };
         std::atomic<std::uint64_t> g_publishes{0};
         std::atomic<bool> g_report_pending{false};
+        // GetTickCount64() of the publish that set `g_report_pending`, so the watchdog
+        // measures from the last snapshot rather than from the window that carried it.
+        std::atomic<std::uint64_t> g_report_ms{0};
 
         uer::LayoutCache g_layouts;
         uer::FuncCache g_funcs;
@@ -1849,6 +1852,7 @@ namespace gamestate
             // republish until a validated pump produces one again.
             g_have_last_snap = false;
             g_publishes.fetch_add(1, std::memory_order_relaxed);
+            g_report_ms.store(now, std::memory_order_relaxed);
             g_report_pending.store(true, std::memory_order_relaxed);
         }
 
@@ -2276,6 +2280,7 @@ namespace gamestate
             g_last_snap = snap;
             g_have_last_snap = true;
             g_publishes.fetch_add(1, std::memory_order_relaxed);
+            g_report_ms.store(now, std::memory_order_relaxed);
             g_report_pending.store(true, std::memory_order_relaxed);
 
             return true;
@@ -2379,6 +2384,10 @@ namespace gamestate
         }
     } // namespace
 
+    // GetTickCount64() when the ProcessEvent callback was registered; the pump watchdog
+    // measures its first window from here rather than from tick 0.
+    static std::uint64_t g_registered_ms = 0;
+
     std::uint64_t pump_calls()
     {
         return g_pump_calls.load(std::memory_order_relaxed);
@@ -2396,6 +2405,10 @@ namespace gamestate
         {
             return;
         }
+        // The clock the "has the pump fired?" check below measures from. Without it the
+        // check's window starts at tick 0 and its first line fires on the loop thread's
+        // first pass, before a world exists to tick.
+        g_registered_ms = ::GetTickCount64();
         // The marker/map data is dumped from ONE game build; a patch can move actor ids and
         // world coordinates, and the symptom is misplaced markers.
         mm::check_game_build();
@@ -2409,23 +2422,78 @@ namespace gamestate
                 L"gate 'BP_CombatCharacter_Player')");
     }
 
+    // The watchdog window, and the two statics that make it up. `reset_watchdog` is the
+    // one thing allowed to move them from outside on_update.
+    static std::uint64_t g_wd_last_report = 0;
+    // The last snapshot the watchdog knows about. Zero until one has arrived, which is
+    // what separates "no world is ticking yet" from "the game thread has stopped".
+    static std::uint64_t g_wd_last_snapshot = 0;
+    // When the reader last started watching: the registration, or the master switch
+    // coming back on. The "has not fired yet" line counts from here, so it does not
+    // report a whole session's uptime after a re-enable.
+    static std::uint64_t g_wd_watching_since = 0;
+
+    void reset_watchdog()
+    {
+        const std::uint64_t now = ::GetTickCount64();
+        g_wd_last_report = now;
+        g_wd_last_snapshot = 0;
+        g_wd_watching_since = now;
+    }
+
     void on_update()
     {
         // Loop thread, two cadences. The "is the pump alive?" check keeps its 10-second
         // window whatever the log level; the `state:` line is 10 s at verbose, 60 s at normal.
-        static std::uint64_t last_report = 0;
+        constexpr std::uint64_t kWindowMs = 10000;
+        // A window this much longer than it should be was not a window: this thread was
+        // not running (the mod off, the process suspended, a machine resumed from sleep),
+        // and nothing measured across it says anything about the game thread.
+        constexpr std::uint64_t kResumeMs = 30000;
         static std::uint64_t last_state = 0;
         const std::uint64_t now = ::GetTickCount64();
-        if (now - last_report < 10000)
+        if (g_wd_last_report == 0)
+        {
+            g_wd_last_report = g_registered_ms != 0 ? g_registered_ms : now;
+        }
+        if (g_wd_watching_since == 0)
+        {
+            g_wd_watching_since = g_registered_ms != 0 ? g_registered_ms : now;
+        }
+        const std::uint64_t window = now - g_wd_last_report;
+        if (window < kWindowMs)
         {
             return;
         }
-        last_report = now;
+        g_wd_last_report = now;
+        if (window > kResumeMs)
+        {
+            // Re-seed and say nothing: the pending flag is consumed so the next real
+            // window starts clean.
+            g_report_pending.exchange(false);
+            g_wd_last_snapshot = 0;
+            return;
+        }
         if (!g_report_pending.exchange(false))
         {
-            mm::log(L"game-state reader: no snapshot in the last 10 s (the ProcessEvent pump is not firing)");
+            if (g_wd_last_snapshot == 0)
+            {
+                mm::logf(L"game-state reader: the ProcessEvent pump has not fired yet ({} s since the "
+                         L"reader started watching) - normal until a world is ticking",
+                         (now - g_wd_watching_since) / 1000);
+            }
+            else
+            {
+                mm::logf(L"game-state reader: the ProcessEvent pump has STOPPED firing (last snapshot "
+                         L"{} s ago) - the game thread is blocked",
+                         (now - g_wd_last_snapshot) / 1000);
+            }
             return;
         }
+        // The pump's own timestamp, not this window's: the snapshot can be up to a whole
+        // window old and the STOPPED line above reports this number.
+        const std::uint64_t stamped = g_report_ms.load(std::memory_order_relaxed);
+        g_wd_last_snapshot = stamped != 0 ? stamped : now;
         const std::uint64_t state_period = mm::log_enabled(mm::LogLv::Verbose) ? 10000 : 60000;
         if (last_state != 0 && now - last_state < state_period)
         {

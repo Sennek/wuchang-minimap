@@ -21,7 +21,8 @@
 #include <Windows.h>
 
 #include <d3d12.h>
-#include <dxgi1_4.h>
+#include <dxgi1_6.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <atomic>
@@ -1154,6 +1155,15 @@ namespace overlay
         bool compass_at_bottom(const mm::Config& cfg);
         std::wstring module_of(const void* addr);
         bool module_identity(HMODULE mod, ModuleId& out);
+        // Render thread, once per adoption: the adapter, its user-mode driver, the output
+        // the swapchain is on and how the game is presenting. Every question a bug report
+        // about a missing or broken overlay starts with, answered by observation instead
+        // of by asking the player what their menu says.
+        void log_display_environment(IDXGISwapChain* swapchain);
+        // The sync interval and flags of the most recent Present of the adopted
+        // swapchain, recorded by the hook so the line above can report them.
+        extern std::atomic<unsigned> g_present_sync;
+        extern std::atomic<unsigned> g_present_flags;
         std::wstring detour_report(const void* addr);
         void log_overlay_modules();
         void srv_alloc_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu);

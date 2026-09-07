@@ -114,6 +114,45 @@ namespace modswitch
             return std::format(L"{} bytes", bytes);
         }
 
+        // The PE TimeDateStamp of a loaded module, read out of the mapped image. Two
+        // game patches can carry the same version resource; they cannot carry the same
+        // link timestamp, so this is what actually names a build.
+        std::uint32_t module_stamp(const wchar_t* module_name)
+        {
+            const HMODULE mod = module_name == nullptr ? ::GetModuleHandleW(nullptr)
+                                                       : ::GetModuleHandleW(module_name);
+            if (mod == nullptr)
+            {
+                return 0;
+            }
+            const auto* base = reinterpret_cast<const unsigned char*>(mod);
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+            {
+                return 0;
+            }
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+            if (nt->Signature != IMAGE_NT_SIGNATURE)
+            {
+                return 0;
+            }
+            return nt->FileHeader.TimeDateStamp;
+        }
+
+        // Where the GAME keeps its own log and its crash dumps. Named here because a
+        // report about a crash needs them and asking for them costs a round trip; the
+        // path is the one saveslot already resolves for the save files.
+        std::wstring game_saved_dir()
+        {
+            wchar_t buf[MAX_PATH]{};
+            const DWORD n = ::GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
+            if (n == 0 || n >= MAX_PATH)
+            {
+                return {};
+            }
+            return std::wstring{buf} + L"\\Project_Plague\\Saved";
+        }
+
         void log_bug_report_header()
         {
             const std::wstring game = file_version(nullptr);
@@ -121,9 +160,10 @@ namespace modswitch
             const std::wstring ue4ss_size = module_bytes(L"UE4SS.dll");
             mm::logf(L"===== WuchangMinimap v{} - attach these lines to any bug report =====",
                      WUCHANG_MINIMAP_VERSION_W);
-            mm::logf(L"  game exe {} ({}), UE4SS.dll {}, Windows {}",
+            mm::logf(L"  game exe {} ({}, PE stamp 0x{:08X}), UE4SS.dll {}, Windows {}",
                      game.empty() ? std::wstring{L"(no version info)"} : game,
                      game_size.empty() ? std::wstring{L"size unknown"} : game_size,
+                     module_stamp(nullptr),
                      ue4ss_size.empty() ? std::wstring{L"not loaded"} : ue4ss_size,
                      windows_build());
             const char* level = mm::log_level_name(mm::config().log_level);
@@ -136,7 +176,17 @@ namespace modswitch
             mm::logf(L"  log      {} (plus .1 / .2 / .3, the three previous sessions)", mm::modlog_path());
             mm::logf(L"  crash breadcrumb {} | waypoint {}", mm::mod_dir() + crumb::file_name(),
                      mm::waypoint_path());
-            mm::log(L"  SEND: wuchang_minimap.log, wuchang_minimap_last_stage.txt and your config file.");
+            const std::wstring saved = game_saved_dir();
+            if (!saved.empty())
+            {
+                mm::logf(L"  the GAME's own logs and crash dumps, which are not this mod's: {}\\Logs and "
+                         L"{}\\Crashes",
+                         saved,
+                         saved);
+            }
+            mm::log(L"  SEND: wuchang_minimap.log, wuchang_minimap_last_stage.txt and your config file. "
+                    L"If the GAME crashed rather than the overlay, add its own Logs and Crashes folders "
+                    L"named above.");
         }
 
         enum class State

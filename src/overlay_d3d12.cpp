@@ -292,6 +292,9 @@ namespace overlay
         // level load - so it is thrown away rather than believed.
         static std::uint64_t g_history_ms = 0;
         static std::uint64_t g_queue_attempts = 0;
+        // Whether the adapter / output / presenting trio has been written for the current
+        // adoption. One set of lines per adopted swapchain, not per resize.
+        static bool g_display_logged = false;
         // The next attempt count at which the indecision report repeats, doubling each
         // time: often enough that a log covering a session says the overlay never
         // decided, rarely enough not to become the log.
@@ -618,6 +621,7 @@ namespace overlay
             }
             g_history_at = 0;
             g_history_ms = 0;
+            g_display_logged = false;
             // `pick_presenting_queue`'s per-slot baselines are deliberately left alone:
             // each is compared against the slot's current occupant, so a stale reading
             // cannot be attributed to a new one.
@@ -672,6 +676,118 @@ namespace overlay
                      score.runner_score,
                      kQueueDecideByPresents);
             set_hide_reason(L"no presenting DIRECT command queue identified yet");
+        }
+
+        // A colour space is how the swapchain's numbers reach the display, and it is the
+        // only honest answer to "is HDR on?" - the game's own menu says what was asked
+        // for, not what the display is doing.
+        const wchar_t* colour_space_name(DXGI_COLOR_SPACE_TYPE cs)
+        {
+            switch (cs)
+            {
+            case DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709:
+                return L"sRGB / SDR";
+            case DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020:
+                return L"HDR10 (PQ, Rec.2020)";
+            case DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709:
+                return L"scRGB (linear, HDR)";
+            case DXGI_COLOR_SPACE_RGB_STUDIO_G2084_NONE_P2020:
+                return L"HDR10 studio range";
+            default:
+                return L"another colour space";
+            }
+        }
+
+        // RENDER THREAD, once per adoption. Three questions a bug report about this mod
+        // always needs and can never answer from the outside: what the GPU and its driver
+        // are, what the display is doing with the frames, and how the game is presenting
+        // them. All of it read from objects this module already holds; nothing is asked of
+        // the player and nothing is read out of the game's own settings, which describe
+        // what was requested rather than what is happening.
+        void log_display_environment(IDXGISwapChain* swapchain)
+        {
+            if (g_device == nullptr || swapchain == nullptr)
+            {
+                // Not silent: this used to be called before the device existed, and a
+                // guard that returns without a word is how three lines went missing.
+                mm::logf(L"  the display environment cannot be read yet (device {:p}, swapchain {:p})",
+                         static_cast<void*>(g_device),
+                         static_cast<void*>(swapchain));
+                return;
+            }
+
+            // The adapter, by LUID, because that is the one identity a D3D12 device
+            // exposes. CheckInterfaceSupport on IID_IDXGIDevice answers with the
+            // user-mode driver's version - the number a driver release is known by.
+            IDXGIFactory4* factory = nullptr;
+            if (SUCCEEDED(::CreateDXGIFactory1(IID_PPV_ARGS(&factory))) && factory != nullptr)
+            {
+                IDXGIAdapter1* adapter = nullptr;
+                if (SUCCEEDED(factory->EnumAdapterByLuid(g_device->GetAdapterLuid(), IID_PPV_ARGS(&adapter)))
+                    && adapter != nullptr)
+                {
+                    DXGI_ADAPTER_DESC1 ad{};
+                    LARGE_INTEGER umd{};
+                    const bool have_desc = SUCCEEDED(adapter->GetDesc1(&ad));
+                    const bool have_umd = SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &umd));
+                    mm::logf(L"  adapter \"{}\" vendor 0x{:04X} device 0x{:04X}, {} MB dedicated video "
+                             L"memory, user-mode driver {}.{}.{}.{}",
+                             have_desc ? ad.Description : L"(unnamed)",
+                             have_desc ? ad.VendorId : 0u,
+                             have_desc ? ad.DeviceId : 0u,
+                             have_desc ? static_cast<std::uint64_t>(ad.DedicatedVideoMemory / (1024 * 1024))
+                                       : 0ull,
+                             have_umd ? HIWORD(umd.HighPart) : 0,
+                             have_umd ? LOWORD(umd.HighPart) : 0,
+                             have_umd ? HIWORD(umd.LowPart) : 0,
+                             have_umd ? LOWORD(umd.LowPart) : 0);
+                    safe_release(adapter);
+                }
+                safe_release(factory);
+            }
+
+            // The output, for the colour space. GetContainingOutput has no answer while
+            // the game is windowed on some drivers, which is itself worth saying.
+            IDXGIOutput* output = nullptr;
+            if (SUCCEEDED(swapchain->GetContainingOutput(&output)) && output != nullptr)
+            {
+                IDXGIOutput6* out6 = nullptr;
+                if (SUCCEEDED(output->QueryInterface(IID_PPV_ARGS(&out6))) && out6 != nullptr)
+                {
+                    DXGI_OUTPUT_DESC1 od{};
+                    if (SUCCEEDED(out6->GetDesc1(&od)))
+                    {
+                        mm::logf(L"  output \"{}\" {}x{}, {} bit(s) per colour, {}, {} nit peak",
+                                 od.DeviceName,
+                                 od.DesktopCoordinates.right - od.DesktopCoordinates.left,
+                                 od.DesktopCoordinates.bottom - od.DesktopCoordinates.top,
+                                 od.BitsPerColor,
+                                 colour_space_name(od.ColorSpace),
+                                 static_cast<int>(od.MaxLuminance));
+                    }
+                    safe_release(out6);
+                }
+                safe_release(output);
+            }
+            else
+            {
+                mm::log(L"  the swapchain reports no containing output, which a windowed game can do");
+            }
+
+            // How the game presents: the flip model and whether it is synchronised. The
+            // sync interval is the game's own argument to Present, recorded by the hook -
+            // 0 means it is not waiting for the display.
+            BOOL fullscreen = FALSE;
+            const bool have_fs = SUCCEEDED(swapchain->GetFullscreenState(&fullscreen, nullptr));
+            const unsigned sync = g_present_sync.load(std::memory_order_relaxed);
+            const unsigned flags = g_present_flags.load(std::memory_order_relaxed);
+            mm::logf(L"  presenting {}, sync interval {}{}, present flags 0x{:X}{}",
+                     !have_fs ? L"in an unknown mode"
+                              : (fullscreen ? L"in exclusive fullscreen" : L"windowed or borderless"),
+                     sync,
+                     sync == 0 ? L" (not waiting for the display)" : L"",
+                     flags,
+                     (flags & DXGI_PRESENT_ALLOW_TEARING) != 0 ? L" (tearing allowed)" : L"");
         }
 
         bool adopt_presenting_queue(IDXGISwapChain* swapchain)
@@ -1677,6 +1793,14 @@ namespace overlay
             {
                 return false;
             }
+            if (!g_display_logged)
+            {
+                // Here rather than at the capture: the adapter is reached through
+                // `g_device`, which `ensure_device_objects` is what creates. Once per
+                // adoption, so a resize does not reprint it.
+                g_display_logged = true;
+                log_display_environment(swapchain);
+            }
             if (g_probe == Probe::Pending)
             {
                 if (submit_probe_frame(swapchain))
@@ -2410,8 +2534,21 @@ namespace overlay
                                L"DEVICE_RESET while the device still answers S_OK");
         }
 
+        // The game's own Present arguments, kept for `log_display_environment`. Recorded
+        // for the adopted swapchain only, so a decoy or a frame-generation chain cannot
+        // put its own pacing in the log.
+        void note_present_args(IDXGISwapChain* sc, UINT sync, UINT flags)
+        {
+            if (sc == g_swapchain)
+            {
+                g_present_sync.store(sync, std::memory_order_relaxed);
+                g_present_flags.store(flags, std::memory_order_relaxed);
+            }
+        }
+
         HRESULT STDMETHODCALLTYPE hk_Present(IDXGISwapChain* sc, UINT sync, UINT flags)
         {
+            note_present_args(sc, sync, flags);
             render_guarded(sc);
             if (sc == g_swapchain)
             {
@@ -2431,6 +2568,7 @@ namespace overlay
         HRESULT STDMETHODCALLTYPE hk_Present1(IDXGISwapChain1* sc, UINT sync, UINT flags,
                                               const DXGI_PRESENT_PARAMETERS* params)
         {
+            note_present_args(sc, sync, flags);
             render_guarded(sc);
             if (sc == g_swapchain)
             {

@@ -86,7 +86,7 @@ None of these stops the mod working, except where the last one says otherwise.
 [/list]
 
 [size=5]Reporting a bug[/size]
-Attach [font=Courier New]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first six lines carry every version and file size a report needs. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font].
+Attach [font=Courier New]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first lines carry every version, file size, the GPU and driver, the display's colour space and the graphics modules loaded in the game - everything a report needs about the machine. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font].
 
 [b]If there is no wuchang_minimap.log at all[/b], this mod never ran, so it cannot be the cause. Check [font=Courier New]ue4ss\UE4SS.log[/font]: [font=Courier New]Failed to load dll ... [0x7f] The specified procedure could not be found[/font] means the mod does not match your UE4SS build, and a log that simply stops mid-startup usually means the console window above.
 

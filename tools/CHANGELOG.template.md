@@ -35,8 +35,15 @@ when it happens, and makes the mod say enough for the cause to be found.
 
 **The log is what a bug report is made of, so it stopped lying**
 
-- The first lines now carry the **size of the game's executable** and of `UE4SS.dll`, not
-  a version number that two different game patches share.
+- The first lines now carry the **size and link stamp of the game's executable** and of
+  `UE4SS.dll`, not a version number that two different game patches share, and they name
+  where the **game's own** logs and crash dumps live.
+- The log now describes the machine it is running on instead of asking: the **GPU, its
+  driver version, the display's colour space and peak brightness** (which is the honest
+  answer to "is HDR on"), whether the game is presenting in exclusive fullscreen, and
+  whether it is waiting for the display. It also lists **every graphics-related module in
+  the game's process** - a frame generator, an upscaler, an overlay, a wrapper - instead
+  of the six it used to know by name.
 - `wuchang_minimap_last_stage.txt` can no longer name a start-up stage the mod has already
   passed, and it says `mod off` while the mod is off instead of naming a chapter change.
 - The freeze watchdogs now fire on a start-up freeze and on a frame counter that has

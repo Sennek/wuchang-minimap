@@ -96,7 +96,8 @@ None of these stops the mod working.
 ## Reporting a bug
 
 Attach `ue4ss\Mods\WuchangMinimap\wuchang_minimap.log` — the mod's own log, rotated per launch.
-Its first six lines carry every version and file size a report needs. Add
+Its first lines carry every version, file size, the GPU and driver, the display's colour space
+and the graphics modules loaded in the game - everything a report needs about the machine. Add
 `wuchang_minimap_last_stage.txt` if the game crashed, `wuchang_minimap_watchdog.txt` if it froze,
 and your `config_wuchang_minimap.txt`.
 

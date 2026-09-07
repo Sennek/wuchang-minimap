@@ -148,6 +148,8 @@ namespace overlay
         std::atomic<std::uint64_t> g_readopt_count{0};
         std::atomic<bool> g_device_removed{false};
         std::atomic<bool> g_verify_on_start{false};
+        std::atomic<unsigned> g_present_sync{0};
+        std::atomic<unsigned> g_present_flags{0};
         std::atomic<bool> g_removal_released{false};
         std::atomic<bool> g_removal_logged{false};
         std::atomic<bool> g_present_failed{false};
@@ -666,30 +668,104 @@ namespace overlay
 
         // The overlays sharing this process, with their bases, logged next to the hook
         // report.
+        // Lower-case, so the match below is case-insensitive.
+        std::wstring lower_name(const wchar_t* s)
+        {
+            std::wstring out;
+            for (const wchar_t* p = s; p != nullptr && *p != 0; ++p)
+            {
+                out.push_back(static_cast<wchar_t>(::towlower(*p)));
+            }
+            return out;
+        }
+
+        // A module worth naming in a bug report: the DirectX runtime itself, and anything
+        // known to sit between a game and its swapchain - a frame generator, an upscaler,
+        // an overlay, a wrapper. Substrings rather than exact names, because every one of
+        // these ships under several file names and half of them arrive renamed to
+        // `dxgi.dll` on purpose.
+        bool graphics_module(const std::wstring& name)
+        {
+            static const wchar_t* const marks[] = {L"dxgi",
+                                                   L"d3d12",
+                                                   L"d3d11",
+                                                   L"d3d9",
+                                                   L"opengl",
+                                                   L"vulkan",
+                                                   L"nvngx",
+                                                   L"nvapi",
+                                                   L"sl.",
+                                                   L"streamline",
+                                                   L"amd_fidelityfx",
+                                                   L"amdxc",
+                                                   L"ffx",
+                                                   L"xess",
+                                                   L"reshade",
+                                                   L"renodx",
+                                                   L"optiscaler",
+                                                   L"lossless",
+                                                   L"rtsshooks",
+                                                   L"specialk",
+                                                   L"dxvk",
+                                                   L"gameoverlayrenderer",
+                                                   L"discord",
+                                                   L"obs-",
+                                                   L"nvcamera",
+                                                   L"nvspcap",
+                                                   L"gfsdk",
+                                                   L"medal",
+                                                   L"overlay"};
+            for (const wchar_t* mark : marks)
+            {
+                if (name.find(mark) != std::wstring::npos)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Every module of THIS process that matches, not a fixed list of six: the one
+        // thing the first bug report had to be asked for was its module list, and a
+        // machine with an upscaler or a frame generator this code has never heard of
+        // would have shown nothing. Toolhelp rather than psapi - it is in kernel32, so it
+        // costs no extra import.
         void log_overlay_modules()
         {
-            static const wchar_t* const names[] = {L"dxgi.dll",
-                                                   L"d3d12.dll",
-                                                   L"GameOverlayRenderer64.dll",
-                                                   L"ReShade64.dll",
-                                                   L"nvngx_dlssg.dll",
-                                                   L"sl.interposer.dll"};
-            for (const wchar_t* name : names)
+            const HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, ::GetCurrentProcessId());
+            if (snap == INVALID_HANDLE_VALUE)
             {
-                const HMODULE mod = ::GetModuleHandleW(name);
-                if (mod == nullptr)
+                mm::log(L"  the module list is unavailable (CreateToolhelp32Snapshot failed)");
+                return;
+            }
+            MODULEENTRY32W me{};
+            me.dwSize = sizeof(me);
+            int total = 0;
+            int named = 0;
+            for (BOOL ok = ::Module32FirstW(snap, &me); ok; ok = ::Module32NextW(snap, &me))
+            {
+                ++total;
+                const std::wstring name = lower_name(me.szModule);
+                if (!graphics_module(name))
                 {
                     continue;
                 }
+                ++named;
+                const HMODULE mod = me.hModule;
                 ModuleId id{};
                 module_identity(mod, id);
                 mm::logf(L"  module {} @ {:p}  size 0x{:X}  stamp 0x{:08X}  sum 0x{:08X}",
-                         name,
+                         me.szModule,
                          static_cast<void*>(mod),
                          id.size,
                          id.stamp,
                          id.sum);
             }
+            ::CloseHandle(snap);
+            mm::logf(L"  {} of the process's {} loaded module(s) are graphics-related; the rest are not "
+                     L"named here",
+                     named,
+                     total);
         }
 
         //==============================================================================

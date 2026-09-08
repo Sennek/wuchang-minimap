@@ -55,6 +55,7 @@ namespace overlay
         int g_pf_pad = -1;      // XInput only, split out of the block above
         spin::Spinlock g_render_lock;
         ID3D12Device* g_device = nullptr;
+        spin::Spinlock g_device_lock;
         std::atomic<ID3D12CommandQueue*> g_queue{nullptr};
         ID3D12GraphicsCommandList* g_cmd_list = nullptr;
         ID3D12DescriptorHeap* g_rtv_heap = nullptr;
@@ -1269,9 +1270,19 @@ namespace overlay
 
         const char* rstage = g_render_stage.load(std::memory_order_relaxed);
         const char* gstage = gamestate::pump_stage();
+        // The render thread is the silent one, so the adopted device is worth asking why.
+        // A device removed while the overlay sits between frames is invisible from
+        // everywhere else in this module: the Present that would report it never comes.
+        // Read-only and bounded - the watchdog is the last thread still answering and may
+        // not wait on a lock the wedged thread is holding.
+        char device_state[96]{};
+        if (render_ms >= kStallMs)
+        {
+            describe_device_state(device_state, sizeof(device_state), 50);
+        }
         char note[192]{};
         ::_snprintf_s(note, std::size(note), _TRUNCATE,
-                      "rtid=%lu presents=%llu pumps=%llu pause=%d busy=%d panel=%d map=%d msgdrop=%llu",
+                      "rtid=%lu presents=%llu pumps=%llu pause=%d busy=%d panel=%d map=%d msgdrop=%llu%s%s",
                       g_render_tid.load(std::memory_order_relaxed),
                       static_cast<unsigned long long>(presents),
                       static_cast<unsigned long long>(pumps),
@@ -1279,7 +1290,9 @@ namespace overlay
                       g_slicer_busy.load() ? 1 : 0,
                       mm::g_panel_open.load() ? 1 : 0,
                       mm::g_map_open.load() ? 1 : 0,
-                      static_cast<unsigned long long>(g_msg_dropped.load(std::memory_order_relaxed)));
+                      static_cast<unsigned long long>(g_msg_dropped.load(std::memory_order_relaxed)),
+                      device_state[0] != 0 ? " dev=" : "",
+                      device_state);
         // POD first: if the heap is what is wedged, nothing below this line returns -
         // and the line is already on disk.
         crumb::watchdog(static_cast<unsigned long>(render_ms), static_cast<unsigned long>(game_ms),

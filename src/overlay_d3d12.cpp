@@ -978,24 +978,24 @@ namespace overlay
 
         // GetDeviceRemovedReason answers with one of these, and the bare number is
         // unreadable in a bug report.
-        const wchar_t* removed_reason_name(HRESULT hr)
+        const char* removed_reason_name(HRESULT hr)
         {
             switch (hr)
             {
             case S_OK:
-                return L"S_OK";
+                return "S_OK";
             case DXGI_ERROR_DEVICE_HUNG:
-                return L"DXGI_ERROR_DEVICE_HUNG";
+                return "DXGI_ERROR_DEVICE_HUNG";
             case DXGI_ERROR_DEVICE_REMOVED:
-                return L"DXGI_ERROR_DEVICE_REMOVED";
+                return "DXGI_ERROR_DEVICE_REMOVED";
             case DXGI_ERROR_DEVICE_RESET:
-                return L"DXGI_ERROR_DEVICE_RESET";
+                return "DXGI_ERROR_DEVICE_RESET";
             case DXGI_ERROR_DRIVER_INTERNAL_ERROR:
-                return L"DXGI_ERROR_DRIVER_INTERNAL_ERROR";
+                return "DXGI_ERROR_DRIVER_INTERNAL_ERROR";
             case DXGI_ERROR_INVALID_CALL:
-                return L"DXGI_ERROR_INVALID_CALL";
+                return "DXGI_ERROR_INVALID_CALL";
             default:
-                return L"an HRESULT outside the removal family";
+                return "an HRESULT outside the removal family";
             }
         }
 
@@ -1022,6 +1022,38 @@ namespace overlay
                                 L"adopted has been removed.");
         }
 
+        // ANY THREAD. The whole point is that it does not need the render thread: the
+        // case this exists for is a device that dies while the overlay is idle, where the
+        // next Present - the only place the render thread could ask - never arrives.
+        void describe_device_state(char* out, std::size_t cap, unsigned budget_ms)
+        {
+            if (out == nullptr || cap == 0)
+            {
+                return;
+            }
+            out[0] = '\0';
+            // A bound, not a spin. The thread that mutates `g_device` can be wedged while
+            // holding this, and the callers are a Present in the game's own path and the
+            // watchdog, which is the last thread still answering. Neither may wait for
+            // ever to fill in a diagnostic.
+            if (!g_device_lock.try_lock_ms(budget_ms))
+            {
+                ::_snprintf_s(out, cap, _TRUNCATE, "not asked: the device lock was still held after %u ms",
+                              budget_ms);
+                return;
+            }
+            const bool adopted = g_device != nullptr;
+            const HRESULT reason = adopted ? g_device->GetDeviceRemovedReason() : S_OK;
+            g_device_lock.unlock();
+            if (!adopted)
+            {
+                ::_snprintf_s(out, cap, _TRUNCATE, "no device adopted");
+                return;
+            }
+            ::_snprintf_s(out, cap, _TRUNCATE, "%s (0x%08X)", removed_reason_name(reason),
+                          static_cast<unsigned>(reason));
+        }
+
         bool device_alive(const wchar_t* what)
         {
             if (g_device_removed.load(std::memory_order_acquire))
@@ -1039,7 +1071,7 @@ namespace overlay
             }
             mm::logf(L"the adopted D3D12 device {:p} reports {} (0x{:08X}) at {}",
                      static_cast<void*>(g_device),
-                     removed_reason_name(reason),
+                     stage_w(removed_reason_name(reason)),
                      static_cast<unsigned>(reason),
                      what);
             engage_device_removal();
@@ -1501,14 +1533,19 @@ namespace overlay
                 // The device comes off the captured QUEUE, not off the swapchain:
                 // IDXGISwapChain::GetDevice(ID3D12Device) fails on this game's ReShade
                 // wrapper. ID3D12CommandQueue::GetDevice always works.
-                HRESULT hr = queue->GetDevice(IID_PPV_ARGS(&g_device));
-                if (FAILED(hr) || g_device == nullptr)
+                //
+                // Into a local, published under `g_device_lock` once it is whole: the
+                // out-parameter of a call that is still running is not a pointer another
+                // thread may dereference.
+                ID3D12Device* device = nullptr;
+                HRESULT hr = queue->GetDevice(IID_PPV_ARGS(&device));
+                if (FAILED(hr) || device == nullptr)
                 {
                     mm::logf(L"queue->GetDevice failed (0x{:08X}); trying the swapchain",
                              static_cast<unsigned>(hr));
-                    hr = swapchain->GetDevice(IID_PPV_ARGS(&g_device));
+                    hr = swapchain->GetDevice(IID_PPV_ARGS(&device));
                 }
-                if (FAILED(hr) || g_device == nullptr)
+                if (FAILED(hr) || device == nullptr)
                 {
                     mm::logf(L"no ID3D12Device reachable from either the queue or the swapchain "
                              L"(0x{:08X}) - overlay off",
@@ -1516,6 +1553,8 @@ namespace overlay
                     g_failed = true;
                     return false;
                 }
+                spin::SpinGuard guard(g_device_lock);
+                g_device = device;
             }
 
             // Not `g_failed`: a swapchain that will not hand out its buffers is a
@@ -1984,7 +2023,12 @@ namespace overlay
                 }
                 g_fence_value = 0;
                 g_srv_heap.destroy();
-                safe_release(g_device);
+                {
+                    // Under the lock, so a thread asking the device for its removal
+                    // reason sees either a live pointer or none - never a released one.
+                    spin::SpinGuard guard(g_device_lock);
+                    safe_release(g_device);
+                }
                 g_imgui_frames_in_flight = 0;
                 g_imgui_rtv_format = DXGI_FORMAT_UNKNOWN;
                 mm::log(L"the render thread has released ImGui, the descriptor heaps, "
@@ -2465,10 +2509,12 @@ namespace overlay
         // adopted and the reason code is what a bug report is read for. Only a removal on
         // our own device is terminal; anything else is one log line.
         //
-        // ANY THREAD - frame generation presents from its own. So nothing here touches
-        // `g_device`: the pointer is printed, never dereferenced, and asking it for its
-        // removal reason is left to the render thread, which is the only one that may be
-        // holding it (see g_present_failed and the check at the top of render()).
+        // ANY THREAD - frame generation presents from its own. The device is asked for
+        // its reason HERE rather than left to the render thread: the removal that matters
+        // most is the one that stops the game presenting for good, and then no later
+        // Present ever arrives for the render thread to ask in. Asking is all this does -
+        // acting on the answer is still the render thread's, through `g_present_failed`
+        // and the check at the top of render().
         void note_present_result(HRESULT hr, IDXGISwapChain* sc)
         {
             if (hr != DXGI_ERROR_DEVICE_REMOVED && hr != DXGI_ERROR_DEVICE_RESET)
@@ -2485,11 +2531,13 @@ namespace overlay
                 {
                     sc->GetDesc(&desc);
                 }
+                // A short budget: this runs inside the game's own Present, once per
+                // removal, on a device that is already gone.
+                char device_state[128]{};
+                describe_device_state(device_state, sizeof(device_state), 50);
                 mm::logf(L"DEVICE REMOVED: Present returned 0x{:08X} on {} swapchain {:p} ({}x{} {} "
                          L"x{} buffers, flags 0x{:X}, swap effect {}, hwnd 0x{:X}); our device {:p}, "
-                         L"our queue {:p}, present count {}. GetDeviceRemovedReason() is asked and "
-                         L"logged by the render thread, which is the only thread allowed to touch the "
-                         L"device.",
+                         L"our queue {:p}, present count {}. GetDeviceRemovedReason() answers {}.",
                          static_cast<unsigned>(hr),
                          ours ? L"OUR adopted" : L"another",
                          static_cast<void*>(sc),
@@ -2502,7 +2550,8 @@ namespace overlay
                          reinterpret_cast<std::uintptr_t>(desc.OutputWindow),
                          static_cast<void*>(g_device),
                          static_cast<void*>(g_queue.load(std::memory_order_acquire)),
-                         g_present_count.load(std::memory_order_relaxed));
+                         g_present_count.load(std::memory_order_relaxed),
+                         stage_w(device_state));
             }
             if (!ours)
             {

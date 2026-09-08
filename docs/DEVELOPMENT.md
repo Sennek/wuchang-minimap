@@ -1029,8 +1029,11 @@ overlay exists: ImGui, the SRV heap and the map textures are built only after th
 signalled has completed and the device still answers `S_OK`. A failed `Signal`, or a fence that has
 not completed in `kProbeWaitPresents` Presents, refuses that queue and adopts again.
 
-**A removed device is terminal.** `note_present_result` runs on whichever thread presented and only
-records the failure; the render thread reads `GetDeviceRemovedReason()`, logs it by name and sets
+**A removed device is terminal.** `note_present_result` runs on whichever thread presented. It asks
+the device its `GetDeviceRemovedReason()` there and then, through `describe_device_state`, and logs
+it by name in the same line as the HRESULT - not left to the render thread, because the removal that
+matters most is the one that stops the game presenting for good, and then no later Present ever
+arrives to ask in. Acting on the answer is still the render thread's: `device_alive` sets
 `g_device_removed`, which releases the objects once inside the next Present and returns from every
 Present after that. Nothing is ever rebuilt on a dead device, because ImGui's font upload waits on
 a fence with no timeout and would wedge the render thread inside the game's own recovery. A
@@ -1707,7 +1710,11 @@ to ask for in a bug report.
 watches two counters — Presents on the render thread and ProcessEvent position pumps on the
 game thread — and after six seconds of either not moving it appends one line naming which
 thread stopped, how long ago, and the coarse stage each was last in (`build_ui`,
-`imgui: ImplWin32_NewFrame (user32)`, `pawn validate`, ...). It is a second file with its own
+`imgui: ImplWin32_NewFrame (user32)`, `pawn validate`, ...). When the render thread is the silent
+one the line also carries `dev=` and what the adopted device answers, which is the only way a device
+that died while the overlay sat between frames gets named: no Present arrives to report it. The
+question goes through `g_device_lock` with a 50 ms budget - a lock the watchdog gives up on rather
+than wait behind the thread it is reporting. It is a second file with its own
 writer: the line is assembled in a stack buffer and written with flat `CreateFileW` /
 `WriteFile` / `FILE_FLAG_WRITE_THROUGH` and no allocation at all, because the failure it
 describes can be a wedged process heap, in which case `std::format` would hang the last thread

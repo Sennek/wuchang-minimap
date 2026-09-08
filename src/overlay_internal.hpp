@@ -290,7 +290,31 @@ namespace overlay
         extern int g_pf_input; // the hotkey block and the loop thread's file I/O
         extern int g_pf_pad; // XInput only, split out of the block above
         extern spin::Spinlock g_render_lock;
+        // The adopted device. It is MUTATED by whoever holds `g_render_lock` -
+        // `ensure_device_objects` publishes it and `release_device_objects` clears it -
+        // and that thread need not be the render thread: the master switch releases from
+        // the loop thread when no frame is coming.
+        //
+        // Three protocols keep a dereference off a released pointer, and which one
+        // applies is a property of the caller:
+        //   * the render path derefs on the mutator's own side, and cannot race itself;
+        //   * the loop thread's slicer (overlay_slice.cpp) derefs under the
+        //     `g_slicer_pause` / `g_slicer_busy` handshake, which the release performs
+        //     before it lets go;
+        //   * everyone else may ask ONE question, the removal reason, under the lock
+        //     below.
         extern ID3D12Device* g_device;
+        // Guards the window in which `g_device` is a live pointer for a thread that holds
+        // neither of the other two protocols - see `describe_device_state`, its only
+        // reader. The mutator takes it around publishing and around releasing.
+        //
+        // Lock order is `g_render_lock` and then this one, never the other way. The two
+        // sides are deliberately asymmetric: the asker gives up after a budget, because a
+        // diagnostic may not wedge the thread collecting it, while the release takes it
+        // unbounded, because a release that gave up would leak the device. That is safe
+        // only because the sole thing ever held under it is one GetDeviceRemovedReason,
+        // which answers out of a cached HRESULT and does not wait on the GPU.
+        extern spin::Spinlock g_device_lock;
         // The queue the overlay submits on: the DIRECT queue that has been the busiest of
         // the window before a Present of the adopted swapchain in most of the last
         // kQueueScoreHorizon windows, on the device that owns its back buffers. See the
@@ -486,18 +510,17 @@ namespace overlay
         extern std::atomic<bool> g_removal_released;
         // Set by `overlay::start()`, consumed by the first Present after it. A stop that
         // never reached a Present leaves this module holding the objects of the device it
-        // had adopted, and `g_device` may only be read by the render thread - so the
-        // question "is anything still allocated?" is asked there rather than in start().
+        // had adopted, and only the render thread may act on `g_device` - so the question
+        // "is anything still allocated?" is asked there rather than in start().
         extern std::atomic<bool> g_verify_on_start;
         // Whether the DEVICE REMOVED line has been written. Once per removal, not once
         // per process: it is cleared together with `g_device_removed`, so a second
         // removal after a master-switch cycle gets its own line.
         extern std::atomic<bool> g_removal_logged;
         // Set by whatever thread saw a Present of the adopted swapchain fail with
-        // DEVICE_REMOVED / DEVICE_RESET. The render thread is the only one allowed to
-        // ask `g_device` anything, so it is the one that reads this, calls
-        // GetDeviceRemovedReason and decides between the terminal state and a
-        // re-adoption.
+        // DEVICE_REMOVED / DEVICE_RESET. Any thread may ask the device its reason for the
+        // log, but only the render thread may ACT on the answer, so it is the one that
+        // reads this and decides between the terminal state and a re-adoption.
         extern std::atomic<bool> g_present_failed;
         // Queues that were captured, or offered, and proved not to belong to the
         // presenting device. A fixed set rather than one slot: with frame generation
@@ -1457,6 +1480,17 @@ namespace overlay
         // True while the adopted device still answers S_OK. False - and one log line -
         // once it does not, which also engages the terminal state.
         bool device_alive(const wchar_t* what);
+        // The removal-reason family as a name, because the bare number is unreadable in a
+        // bug report. Narrow, because the watchdog's line is written without the CRT's
+        // wide formatting; `stage_w` widens it for the log.
+        const char* removed_reason_name(HRESULT hr);
+        // Writes what the adopted device currently answers into `out`: the reason name
+        // and code, or why it could not be asked. READ-ONLY - it never engages the
+        // terminal state, because deciding what a removal means stays the render
+        // thread's job - and allocation-free, because the stall watchdog calls it on the
+        // last thread still running. `budget_ms` bounds the wait for `g_device_lock`: a
+        // render thread wedged while holding it must not take the watchdog down too.
+        void describe_device_state(char* out, std::size_t cap, unsigned budget_ms);
         HRESULT STDMETHODCALLTYPE hk_Present(IDXGISwapChain* sc, UINT sync, UINT flags);
         HRESULT STDMETHODCALLTYPE hk_Present1(IDXGISwapChain1* sc, UINT sync, UINT flags,
                                               const DXGI_PRESENT_PARAMETERS* params);

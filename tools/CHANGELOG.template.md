@@ -1,5 +1,40 @@
 # WuchangMinimap - changelog
 
+## 1.1.0
+
+**Fixed**
+
+- **The minimap works with NVIDIA frame generation, and no longer takes the game down with it.**
+  On a PC where DLSS frame generation is available, the game hands its frames to it, and the
+  buffers behind them stop being the game's. The mod used to draw into them anyway: DirectX
+  answered `ACCESS_DENIED`, the graphics device was lost, and the game froze and died about two
+  minutes later. It now draws into a surface of its own that Windows composes over the game, so
+  nothing of the game's is written and there is nothing left to be refused. It needs no setting
+  and no restart of anything.
+- The mod's own settings had nothing to do with it, and neither did the game's: Frame Generation
+  reading **Off** in the graphics menu did not help, because the runtime loads whenever the PC can
+  run it and keeps the buffers either way. Nobody who reported this had frame generation switched
+  on.
+- The overlay no longer submits anything on a command queue belonging to the game or to anything
+  else in the process. It creates its own.
+
+**Changed**
+
+- ReShade and RenoDX no longer tint the minimap. The overlay is composed after the game's frame
+  instead of being drawn into it, so colour grading, sharpening and LUTs apply to the game and
+  leave the map alone.
+- The mod installs three DirectX hooks instead of four.
+
+**Notes**
+
+- The one thing to watch on an older PC: where the display cannot compose an extra plane
+  (multi-plane overlay support), the overlay can cost the game about one frame of latency. Where
+  it can - which is most current hardware - it costs nothing measurable, and the log line
+  `hardware composition (MPO)` says which case yours is.
+- Thanks to the two players who reported the start-up crash and kept sending logs and test runs
+  until it was found. One of them located the mechanism precisely - the queue the frames are
+  presented on - and patched his own copy to prove it; that build should be replaced with this one.
+
 ## 1.0.2
 
 **Added**

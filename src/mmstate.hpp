@@ -124,7 +124,7 @@ namespace mm
         bool mod_enabled = true;
 
         // `overlay_hooks = 0` is the DirectX off switch: no dummy device, no
-        // Present / ResizeBuffers / ExecuteCommandLists hooks, no overlay, nothing of
+        // Present / Present1 / ResizeBuffers hooks, no overlay, nothing of
         // this mod anywhere near the game's render thread. Everything on the game thread
         // - the state reader, the collection tracker, the found file, this mod's log -
         // keeps running. Takes effect on restart, or on a `mod_enabled` off/on cycle:

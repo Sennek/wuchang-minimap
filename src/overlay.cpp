@@ -143,7 +143,6 @@ namespace overlay
         int g_map_markers_drawn = 0;
         int g_map_markers_total = 0;
         IDXGISwapChain* g_swapchain = nullptr;
-        IDXGISwapChain3* g_sc3 = nullptr;
         int g_candidates_logged = 0;
         std::atomic<bool> g_readopt{false};
         std::atomic<std::uint64_t> g_readopt_count{0};
@@ -154,11 +153,6 @@ namespace overlay
         std::atomic<bool> g_removal_released{false};
         std::atomic<bool> g_removal_logged{false};
         std::atomic<bool> g_present_failed{false};
-        BadQueue g_bad_queues[kBadQueues]{};
-        QueueSlot g_queue_ring[kQueueRing]{};
-        std::atomic<ID3D12CommandQueue*> g_pending_queue_release[kPendingQueueReleases]{};
-        std::atomic<std::uint64_t> g_exec_seq{0};
-        spin::Spinlock g_queue_ring_lock;
         std::atomic<std::uint64_t> g_present_count{0};
         std::atomic<std::uint64_t> g_resize_count{0};
         std::atomic<const char*> g_render_stage{"no frame yet"};
@@ -188,7 +182,6 @@ namespace overlay
         PresentFn o_Present = nullptr;
         Present1Fn o_Present1 = nullptr;
         ResizeBuffersFn o_ResizeBuffers = nullptr;
-        ExecuteCommandListsFn o_ExecuteCommandLists = nullptr;
         int g_imgui_frames_in_flight = 0;
         std::atomic<std::uint32_t> g_swallow_bits[8]{};
         std::atomic<std::uint64_t> g_swallow_stamp{0};
@@ -1109,9 +1102,7 @@ namespace overlay
             // same state a game that has stopped presenting was already in.
             if (g_render_lock.try_lock_ms(2000))
             {
-                // `false`: this is the loop thread, so the queue ring and the pending
-                // release list are left alone - see the pending list's comment.
-                shutdown_render(false);
+                shutdown_render();
                 g_render_lock.unlock();
             }
             else

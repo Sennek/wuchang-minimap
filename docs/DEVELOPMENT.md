@@ -788,24 +788,28 @@ charges a chapter a full halving and then leaves it under budget.
 
 ## The overlay
 
-`src/overlay_d3d12.cpp` installs four MinHook hooks whose addresses come from a throwaway device +
-queue + swapchain (the hudhook trick, since the game's swapchain and command queue are not
-reachable from a UE4SS mod):
+`src/overlay_d3d12.cpp` installs three MinHook hooks whose addresses come from a throwaway device +
+queue + swapchain (the hudhook trick, since the game's swapchain is not reachable from a UE4SS
+mod):
 
 | slot | function |
 |---|---|
 | swapchain vtable 8 | `IDXGISwapChain::Present` |
 | swapchain vtable 13 | `IDXGISwapChain::ResizeBuffers` |
 | swapchain vtable 22 | `IDXGISwapChain1::Present1` |
-| queue vtable 10 | `ID3D12CommandQueue::ExecuteCommandLists` (captures the real queue) |
 
-**On this install all four land inside ReShade's `dxgi.dll`**, a 5.6 MB proxy next to the exe
-that wraps the command queue too. The dummy objects are created through our own import table,
-so we get the same wrappers the game holds; the module+offset of every hooked address is
-logged. The overlay therefore draws before ReShade's effects. Two consequences:
-`swapchain->GetDevice(IID_ID3D12Device)` **fails** on the wrapper, so the device is taken off
-the captured queue; and the game presents a decoy **144x8 D3D11** swapchain every frame next
-to the real **1920x1080 R10G10B10A2_UNORM** one, so the overlay picks one swapchain
+The throwaway queue exists only because `CreateSwapChainForHwnd` needs one; nothing of the
+game's queue is hooked, because the overlay submits on a DIRECT queue of its own
+(`overlay_dcomp.cpp`).
+
+**On this install all three land inside ReShade's `dxgi.dll`**, a 5.6 MB proxy next to the exe.
+The dummy objects are created through our own import table, so we get the same wrappers the
+game holds; the module+offset of every hooked address is logged. The overlay therefore draws
+before ReShade's effects. Two consequences: `swapchain->GetDevice(IID_ID3D12Device)` **fails**
+on the wrapper, so the device is taken off back buffer 0 instead — `GetBuffer` only *reads*
+the buffer, which is the one link every wrapper forwards and the one that answers even where
+writing that buffer is denied; and the game presents a decoy **144x8 D3D11** swapchain every
+frame next to the real **1920x1080 R10G10B10A2_UNORM** one, so the overlay picks one swapchain
 (`GetBuffer(0, IID_ID3D12Resource)` is the test) and ignores Presents from any other. A
 foreign swapchain is ignored for *drawing* only: `hk_Present`, `hk_Present1` and
 `hk_ResizeBuffers` call the original unconditionally, for every swapchain, so nothing else in
@@ -993,8 +997,8 @@ this session* stops the same way without writing anything.
 
 **The DirectX off switch, `overlay_hooks` (default 1).** `overlay_hooks = 0` runs the mod with
 nothing of it anywhere near DirectX: `install_hooks` is never called, so there is no throwaway
-device, no vtable discovery and no Present / Present1 / ResizeBuffers / ExecuteCommandLists
-trampoline, and nothing is drawn. The game-thread reader, the collection tracker, the found file
+device, no vtable discovery and no Present / Present1 / ResizeBuffers trampoline, and nothing is
+drawn. The game-thread reader, the collection tracker, the found file
 and the mod's own log all carry on, and the breadcrumb reads `dx12 hooks off by config`. That is
 what makes it the answer to a report of a hang or a crash at start-up: it splits the render half
 off from everything else in one line and a restart. It takes effect on restart, or on a
@@ -1002,32 +1006,26 @@ off from everything else in one line and a restart. It takes effect on restart, 
 
 ### Surviving a swapchain that is not the game's own
 
-Three gates stand between the hook and the first thing the overlay submits, and every one of them
-writes the reason it opened or closed into `wuchang_minimap.log`. They exist because
-`ExecuteCommandLists` is hooked process-wide, so a frame-generation interposer, a ReShade proxy or
-another overlay all come through it, and because the mod's own first submission is what killed a
-reporter's D3D12 device.
+The gates between the hook and the first thing the overlay submits each write the reason they
+opened or closed into `wuchang_minimap.log`. They exist because Present is reached by every
+renderer in the process — a frame-generation interposer, a ReShade proxy, another overlay — and
+because the mod's own first submission is what killed a reporter's D3D12 device.
 
-**Which queue presents.** The ring in `overlay_internal.hpp` remembers up to eight DIRECT queues
-with a reference held on each. A *window* is the submissions between two Presents of the adopted
-swapchain, and a queue's *score* is the command lists it submitted across the last
-`kQueueScoreHorizon` informative windows. The leader is captured once it has `kQueueScoreMin`
-submissions and `kQueueScoreMargin` times the runner-up's — a game frame is ten to forty lists
-where an interposer's present pass is one or two, so the ratio is wide and stable even when the
-two alternate. Counting *windows won* instead cannot work: at 2x frame generation the two queues
-win every other window for ever. After `kQueueDecideByPresents` Presents with no margin the leader
-is taken on a plurality and the log says so, because a wrong queue of the same device costs
-ordering (a torn or missing overlay), not the device. A queue of *another* device is refused
-outright — that one is an immediate device removal — and refusals expire after
-`kBadQueueTtlPresents` Presents so a device reset cannot blacklist the right queue for good.
+**Which swapchain, and what the overlay draws on.** The swapchain is the game's, followed for its
+geometry and its frame tick; the queue and the surface are the mod's own (`overlay_dcomp.cpp`
+creates a DIRECT queue, a `CreateSwapChainForComposition` swapchain and a DirectComposition visual
+over the game's window). Nothing of the game's is submitted on, so no queue has to be elected, and
+the game's back buffers are never written — which is what makes this work under frame generation
+and capture layers. `create_render_targets` is what stores that queue in `g_queue`.
 
-**The probe frame.** The first thing ever submitted is a command list holding one
-`PRESENT -> RENDER_TARGET -> PRESENT` barrier pair and no draw. D3D12 cannot be asked what state a
-resource is in, and the barrier asserts `PRESENT`; under an interposer that assertion may be false,
-and a wrong before-state is a device-removal-class error. So it is tested while nothing else of the
-overlay exists: ImGui, the SRV heap and the map textures are built only after the fence the probe
-signalled has completed and the device still answers `S_OK`. A failed `Signal`, or a fence that has
-not completed in `kProbeWaitPresents` Presents, refuses that queue and adopts again.
+**Nothing is tested before the first frame, because there is nothing to test.** Earlier versions
+submitted a probe frame - one `PRESENT -> RENDER_TARGET -> PRESENT` barrier pair and no draw - to
+find out whether the game's back buffer could be written at all, because D3D12 cannot be asked what
+state a resource is in, nor whether this process may write it. On a machine where the answer was no,
+asking cost the game its device. The overlay now writes only buffers it created, in states it chose,
+so the question does not arise. If the surface cannot be created the overlay simply does not start,
+says so in one line, and the rest of the mod - the tracker, the marker sweep, the waypoint files -
+keeps running.
 
 **A removed device is terminal.** `note_present_result` runs on whichever thread presented. It asks
 the device its `GetDeviceRemovedReason()` there and then, through `describe_device_state`, and logs

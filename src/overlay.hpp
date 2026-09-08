@@ -9,8 +9,8 @@ namespace overlay
     auto selftest() -> RC::StringType;
 
     // Loop thread. Loads the waypoint and map assets, installs the DX12 hooks
-    // (Present / Present1 / ResizeBuffers / ExecuteCommandLists). Idempotent; called
-    // by modswitch, and the config must already be loaded.
+    // (Present / Present1 / ResizeBuffers). Idempotent; called by modswitch, and the
+    // config must already be loaded.
     void start();
 
     //==================================================================================

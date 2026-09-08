@@ -3,22 +3,20 @@
 // render entry point.
 //
 // Everything here runs on the RENDER thread except the slice request the loop thread
-// leaves behind: the SRV heap, the map and height-slice textures, the ImGui backends,
-// the Present / Present1 / ResizeBuffers / ExecuteCommandLists hooks and the hook
-// address cache they are installed from.
+// leaves behind: the SRV heap, the map and height-slice textures, the ImGui backends
+// and the Present / Present1 / ResizeBuffers hooks.
 //
 // HOOK STRATEGY (the hudhook approach)
 // ------------------------------------
-// The game's IDXGISwapChain and ID3D12CommandQueue are not reachable from a UE4SS mod,
-// and the swapchain's command queue cannot be queried back out of the swapchain. So:
+// The game's IDXGISwapChain is not reachable from a UE4SS mod, so:
 //
 //   1. create a throwaway D3D12 device + DIRECT command queue + a 64x64 swapchain on a
-//      hidden window, purely to read their vtables;
+//      hidden window, purely to read the swapchain's vtable;
 //   2. MinHook the absolute addresses of IDXGISwapChain::Present (vtable slot 8),
-//      ResizeBuffers (13), IDXGISwapChain1::Present1 (22) and
-//      ID3D12CommandQueue::ExecuteCommandLists (10);
+//      ResizeBuffers (13) and IDXGISwapChain1::Present1 (22);
 //   3. throw the dummy objects away and wait. The first real Present gives us the
-//      swapchain; the DIRECT queue that executed last before it gives us the queue.
+//      swapchain, which the overlay follows for its geometry and its frame tick. What
+//      it draws on is a queue and a surface of its own - see overlay_dcomp.cpp.
 //
 // The dummy objects go through our own import table, i.e. through whatever `dxgi.dll`
 // is loaded - on this machine ReShade's proxy, so the dummy swapchain is a ReShade
@@ -84,8 +82,13 @@ namespace overlay
         // `g_imgui_rtv_format` is the RTV format ImGui's DX12 backend was initialised
         // for. Its pipeline state bakes that format in, so a back-buffer format change
         // needs the backend rebuilt exactly as a raised buffer count does.
+        //
+        // `g_display_logged` is whether the adapter / output / presenting trio has been
+        // written for the current adoption: one set of lines per adopted swapchain, not
+        // one per resize.
         static std::uint64_t g_adopted_present_ms = 0;
         static DXGI_FORMAT g_imgui_rtv_format = DXGI_FORMAT_UNKNOWN;
+        static bool g_display_logged = false;
         constexpr std::uint64_t kSwapchainSilentMs = 2000;
 
         //==============================================================================
@@ -204,480 +207,6 @@ namespace overlay
         // changed (pan out of the cut region, zoom, floor slice, a big player move),
         // capped at map_slice_hz, where the minimap re-cuts 12 times a second.
 
-        // Drops the captured command queue and the reference held on it. The render
-        // thread's teardown is what calls it, so no other thread can be inside
-        // `o_ExecuteCommandLists(queue, ...)` with our pointer at the same time. The loop
-        // thread reaches it on a stop taken before any Present arrived or with the hooks
-        // already disabled; a queue can only be captured inside a Present, so in the
-        // first case there is nothing to release, and in the second nothing can be
-        // submitting through a disabled trampoline.
-        void safe_release_queue()
-        {
-            ID3D12CommandQueue* queue = g_queue.exchange(nullptr, std::memory_order_acq_rel);
-            if (queue != nullptr)
-            {
-                queue->Release();
-            }
-        }
-
-        // Asks only; the expiry is a separate sweep, so this is safe to call from inside
-        // a log line or a scoring loop.
-        bool queue_is_bad(ID3D12CommandQueue* queue)
-        {
-            for (const BadQueue& slot : g_bad_queues)
-            {
-                if (slot.queue.load(std::memory_order_acquire) == queue)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        // RENDER THREAD. Drops the refusals that have run out: the address may by now be
-        // a queue that has nothing to do with the one refused, so it is offered again and
-        // judged on its own device.
-        void sweep_bad_queues()
-        {
-            const std::uint64_t now = g_present_count.load(std::memory_order_relaxed);
-            for (BadQueue& slot : g_bad_queues)
-            {
-                if (slot.queue.load(std::memory_order_acquire) != nullptr
-                    && now >= slot.expires_at_present.load(std::memory_order_acquire))
-                {
-                    slot.queue.store(nullptr, std::memory_order_release);
-                }
-            }
-        }
-
-        // True when the refusal is remembered. False means every slot is taken, and the
-        // caller uses that to keep from logging the same refusal on every Present.
-        bool mark_queue_bad(ID3D12CommandQueue* queue)
-        {
-            if (queue == nullptr || queue_is_bad(queue))
-            {
-                return false;
-            }
-            const std::uint64_t until = g_present_count.load(std::memory_order_relaxed) + kBadQueueTtlPresents;
-            for (BadQueue& slot : g_bad_queues)
-            {
-                ID3D12CommandQueue* empty = nullptr;
-                if (slot.queue.compare_exchange_strong(empty, queue, std::memory_order_acq_rel))
-                {
-                    slot.expires_at_present.store(until, std::memory_order_release);
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        //==============================================================================
-        // Which queue presents (see the ring's comment in overlay_internal.hpp)
-        //==============================================================================
-
-        // RENDER THREAD ONLY. `g_queue_seq_mark` is `g_exec_seq` as it stood at the
-        // previous Present of the adopted swapchain, so the search window is exactly
-        // "submitted since the last frame".
-        static std::uint64_t g_queue_seq_mark = 0;
-        // The horizon, render thread only: for each ring slot, the command lists its queue
-        // submitted in each of the last kQueueScoreHorizon informative windows, and which
-        // queue those columns belong to. A slot whose occupant changes starts its row
-        // again, and a refusal or an eviction clears the row, so a queue that lands on a
-        // freed address inherits nothing.
-        static std::uint64_t g_slot_history[kQueueRing][kQueueScoreHorizon]{};
-        static ID3D12CommandQueue* g_slot_owner[kQueueRing]{};
-        static int g_history_at = 0;
-        // When the last informative window closed. A horizon older than
-        // kQueueScoreStaleMs describes a renderer that has moved on - a menu, a pause, a
-        // level load - so it is thrown away rather than believed.
-        static std::uint64_t g_history_ms = 0;
-        static std::uint64_t g_queue_attempts = 0;
-        // Whether the adapter / output / presenting trio has been written for the current
-        // adoption. One set of lines per adopted swapchain, not per resize.
-        static bool g_display_logged = false;
-        // The next attempt count at which the indecision report repeats, doubling each
-        // time: often enough that a log covering a session says the overlay never
-        // decided, rarely enough not to become the log.
-        static std::uint64_t g_queue_indecision_at = 240;
-
-        // Any thread. Hands `queue` to the render thread to Release; false when there is
-        // no room, which leaves the caller holding it.
-        bool defer_queue_release(ID3D12CommandQueue* queue)
-        {
-            for (std::atomic<ID3D12CommandQueue*>& slot : g_pending_queue_release)
-            {
-                ID3D12CommandQueue* empty = nullptr;
-                if (slot.compare_exchange_strong(empty, queue, std::memory_order_acq_rel))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        void scrub_window_winner(ID3D12CommandQueue* queue);
-
-        void drain_pending_queue_releases()
-        {
-            for (std::atomic<ID3D12CommandQueue*>& slot : g_pending_queue_release)
-            {
-                ID3D12CommandQueue* q = slot.exchange(nullptr, std::memory_order_acq_rel);
-                if (q != nullptr)
-                {
-                    // The address is about to become anyone's, so the windows it won go
-                    // with it.
-                    scrub_window_winner(q);
-                    q->Release();
-                }
-            }
-        }
-
-        void note_direct_queue(ID3D12CommandQueue* queue)
-        {
-            // Recording is only worth anything while the adoption is open. Once the queue
-            // is captured this hook is one relaxed load and a return for the rest of the
-            // process's life; the teardown's `safe_release_queue` nulls `g_queue` and so
-            // re-arms it.
-            if (g_queue.load(std::memory_order_relaxed) != nullptr)
-            {
-                return;
-            }
-            // The hot path: a queue already in the ring only needs its recency and its
-            // submission count bumped.
-            for (QueueSlot& slot : g_queue_ring)
-            {
-                if (slot.queue.load(std::memory_order_relaxed) == queue)
-                {
-                    slot.submits.fetch_add(1, std::memory_order_relaxed);
-                    slot.seq.store(g_exec_seq.fetch_add(1, std::memory_order_relaxed) + 1,
-                                   std::memory_order_release);
-                    return;
-                }
-            }
-            // Not in the ring, so GetDesc() is asked once per queue rather than once per
-            // submission. Only DIRECT queues are remembered: a copy or compute queue can
-            // never be the one a swapchain presents from.
-            if (queue->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
-            {
-                return;
-            }
-            spin::SpinGuard guard(g_queue_ring_lock);
-            if (g_queue.load(std::memory_order_acquire) != nullptr)
-            {
-                // Captured while this thread was on its way here, and the render thread
-                // has already emptied the ring under this same lock - an entry now would
-                // be a reference nothing ever comes back for.
-                return;
-            }
-            // Its own slot if another thread has just inserted it, else a free one, else
-            // the least recently used.
-            QueueSlot* pick = nullptr;
-            for (QueueSlot& slot : g_queue_ring)
-            {
-                ID3D12CommandQueue* held = slot.queue.load(std::memory_order_relaxed);
-                if (held == queue || held == nullptr)
-                {
-                    pick = &slot;
-                    break;
-                }
-                if (pick == nullptr ||
-                    slot.seq.load(std::memory_order_relaxed) < pick->seq.load(std::memory_order_relaxed))
-                {
-                    pick = &slot;
-                }
-            }
-            if (pick == nullptr)
-            {
-                return;
-            }
-            ID3D12CommandQueue* evicted = pick->queue.load(std::memory_order_relaxed);
-            if (evicted != queue)
-            {
-                if (evicted != nullptr && !defer_queue_release(evicted))
-                {
-                    return; // nowhere to hand the eviction to, so nothing is evicted
-                }
-                // A reference for as long as the entry lives - the ring's comment says
-                // why. The counter restarts with it and is published BEFORE the pointer,
-                // so a reader cannot attribute the old queue's total to the new one. A
-                // bump already in flight for the old occupant can still land on the fresh
-                // counter, which costs one submission out of one window.
-                queue->AddRef();
-                pick->submits.store(0, std::memory_order_relaxed);
-                pick->queue.store(queue, std::memory_order_release);
-            }
-            pick->submits.fetch_add(1, std::memory_order_relaxed);
-            pick->seq.store(g_exec_seq.fetch_add(1, std::memory_order_relaxed) + 1,
-                            std::memory_order_release);
-        }
-
-        // RENDER THREAD. Forgets everything a queue submitted, so a refused queue stops
-        // leading and a released address cannot pass its score to whatever lands there.
-        void scrub_window_winner(ID3D12CommandQueue* queue)
-        {
-            if (queue == nullptr)
-            {
-                return;
-            }
-            for (int i = 0; i < kQueueRing; ++i)
-            {
-                if (g_slot_owner[i] == queue)
-                {
-                    g_slot_owner[i] = nullptr;
-                    for (std::uint64_t& cell : g_slot_history[i])
-                    {
-                        cell = 0;
-                    }
-                }
-            }
-        }
-
-        // RENDER THREAD. What one slot submitted across the whole horizon.
-        std::uint64_t slot_score(int slot)
-        {
-            std::uint64_t sum = 0;
-            for (const std::uint64_t cell : g_slot_history[slot])
-            {
-                sum += cell;
-            }
-            return sum;
-        }
-
-        // RENDER THREAD. The two best-scoring slots of the horizon.
-        void score_horizon(QueuePick& out)
-        {
-            for (int i = 0; i < kQueueRing; ++i)
-            {
-                ID3D12CommandQueue* q = g_slot_owner[i];
-                if (q == nullptr)
-                {
-                    continue;
-                }
-                const std::uint64_t score = slot_score(i);
-                if (score == 0)
-                {
-                    continue;
-                }
-                if (score > out.score)
-                {
-                    out.runner_up = out.queue;
-                    out.runner_score = out.score;
-                    out.queue = q;
-                    out.score = score;
-                }
-                else if (score > out.runner_score)
-                {
-                    out.runner_up = q;
-                    out.runner_score = score;
-                }
-            }
-        }
-
-        QueuePick pick_presenting_queue(std::uint64_t after)
-        {
-            // The window baselines: what each slot's counter stood at when the previous
-            // window closed, and which queue that reading belonged to.
-            static std::uint64_t base[kQueueRing]{};
-            static ID3D12CommandQueue* base_queue[kQueueRing]{};
-            std::uint64_t window[kQueueRing]{};
-            bool informative = false;
-            for (int i = 0; i < kQueueRing; ++i)
-            {
-                const QueueSlot& slot = g_queue_ring[i];
-                ID3D12CommandQueue* q = slot.queue.load(std::memory_order_acquire);
-                // `submits` is read BEFORE `seq` because a submitting thread publishes them
-                // the other way round. Reading them in that order could pair a new count
-                // with the old sequence, which would drop the slot from this window and
-                // still take its baseline forward - losing those submissions from the next
-                // window as well. This way round the pairing errs the other way and the
-                // count simply lands in the next window.
-                const std::uint64_t submits = slot.submits.load(std::memory_order_acquire);
-                const std::uint64_t seq = slot.seq.load(std::memory_order_acquire);
-                // A slot whose queue changed inside this window restarted its counter with
-                // it, so the whole reading belongs to the window.
-                const bool same = q == base_queue[i] && submits >= base[i];
-                const std::uint64_t count = same ? submits - base[i] : submits;
-                base[i] = submits;
-                base_queue[i] = q;
-                if (q != g_slot_owner[i])
-                {
-                    g_slot_owner[i] = q; // a new occupant inherits nothing from the last
-                    for (std::uint64_t& cell : g_slot_history[i])
-                    {
-                        cell = 0;
-                    }
-                }
-                // A refused queue is no answer, so its work is not counted either: left in
-                // the horizon it would keep the leader from ever reaching the margin.
-                if (q == nullptr || seq <= after || count == 0 || queue_is_bad(q))
-                {
-                    continue;
-                }
-                window[i] = count;
-                informative = true;
-            }
-            QueuePick out{};
-            const std::uint64_t now = ::GetTickCount64();
-            if (g_history_ms != 0 && now - g_history_ms > kQueueScoreStaleMs)
-            {
-                for (int i = 0; i < kQueueRing; ++i)
-                {
-                    for (std::uint64_t& cell : g_slot_history[i])
-                    {
-                        cell = 0;
-                    }
-                }
-                g_history_at = 0;
-            }
-            if (!informative)
-            {
-                // Nothing unrefused submitted between the last two Presents: a generated
-                // frame, a paused game. The horizon does not move, and the scores are
-                // reported as they stand.
-                score_horizon(out);
-                return out;
-            }
-            g_history_ms = now;
-            out.informative = true;
-            for (int i = 0; i < kQueueRing; ++i)
-            {
-                g_slot_history[i][g_history_at] = window[i];
-            }
-            g_history_at = (g_history_at + 1) % kQueueScoreHorizon;
-            score_horizon(out);
-            for (int i = 0; i < kQueueRing; ++i)
-            {
-                if (out.queue != nullptr && g_slot_owner[i] == out.queue)
-                {
-                    out.window_count = window[i];
-                }
-            }
-            if (out.queue != nullptr && out.score >= kQueueScoreMin
-                && out.score >= kQueueScoreMargin * out.runner_score)
-            {
-                out.decided = true;
-            }
-            else if (out.queue != nullptr && out.score > out.runner_score
-                     && g_queue_attempts >= kQueueDecideByPresents)
-            {
-                // The margin is not coming. A queue of this device that does not present
-                // costs ordering, not the device, and an overlay that never appears with
-                // nothing in the log to explain it is the worse outcome.
-                out.decided = true;
-                out.by_plurality = true;
-            }
-            return out;
-        }
-
-        // The caller holds `g_queue_ring_lock` and gets the pointers back to Release once
-        // it has let go of it. A final Release runs the destructor of whatever wraps the
-        // queue - Streamline, ReShade, a frame-generation proxy - and a wrapper that
-        // submits from its destructor would come back through hk_ExecuteCommandLists into
-        // this same non-recursive lock. So no Release ever happens under it.
-        void take_queue_ring_locked(ID3D12CommandQueue* (&out)[kQueueRing])
-        {
-            for (int i = 0; i < kQueueRing; ++i)
-            {
-                out[i] = g_queue_ring[i].queue.exchange(nullptr, std::memory_order_acq_rel);
-                g_queue_ring[i].submits.store(0, std::memory_order_relaxed);
-                scrub_window_winner(out[i]);
-            }
-        }
-
-        void release_taken_queues(ID3D12CommandQueue* (&taken)[kQueueRing])
-        {
-            for (ID3D12CommandQueue*& q : taken)
-            {
-                if (q != nullptr)
-                {
-                    q->Release();
-                    q = nullptr;
-                }
-            }
-        }
-
-        void release_queue_ring()
-        {
-            ID3D12CommandQueue* taken[kQueueRing]{};
-            {
-                spin::SpinGuard guard(g_queue_ring_lock);
-                take_queue_ring_locked(taken);
-            }
-            release_taken_queues(taken);
-            drain_pending_queue_releases();
-        }
-
-        void reset_queue_adoption(bool on_render_thread)
-        {
-            g_queue_attempts = 0;
-            g_queue_indecision_at = 240;
-            for (int i = 0; i < kQueueRing; ++i)
-            {
-                g_slot_owner[i] = nullptr;
-                for (std::uint64_t& cell : g_slot_history[i])
-                {
-                    cell = 0;
-                }
-            }
-            g_history_at = 0;
-            g_history_ms = 0;
-            g_display_logged = false;
-            // `pick_presenting_queue`'s per-slot baselines are deliberately left alone:
-            // each is compared against the slot's current occupant, so a stale reading
-            // cannot be attributed to a new one.
-            if (on_render_thread)
-            {
-                release_queue_ring();
-            }
-            // Only submissions made from here on may be adopted: a ring entry from before
-            // a teardown belongs to a device this module no longer knows anything about.
-            g_queue_seq_mark = g_exec_seq.load(std::memory_order_acquire);
-        }
-
-        // The scoring is not converging: two DIRECT queues are winning windows evenly, so
-        // neither leads by the margin, and "no overlay and no explanation" is the worst of
-        // the possible outcomes. Repeated at each doubling of the attempt count, so a log
-        // covering a whole session says so more than once without becoming the log.
-        // Nothing is given up - the scoring goes on with every Present.
-        void log_queue_indecision()
-        {
-            std::wstring ring;
-            for (const QueueSlot& slot : g_queue_ring)
-            {
-                ID3D12CommandQueue* q = slot.queue.load(std::memory_order_acquire);
-                if (q == nullptr)
-                {
-                    continue;
-                }
-                ring += std::format(L"{}{:p}@{}x{}{}",
-                                    ring.empty() ? L"" : L", ",
-                                    static_cast<void*>(q),
-                                    slot.seq.load(std::memory_order_acquire),
-                                    slot.submits.load(std::memory_order_acquire),
-                                    queue_is_bad(q) ? L" (refused)" : L"");
-            }
-            QueuePick score{};
-            score_horizon(score);
-            mm::logf(L"no presenting queue after {} Presents of the adopted swapchain: no DIRECT queue "
-                     L"has submitted {} command list(s) across the last {} windows and {}x the "
-                     L"runner-up's, so nothing of the overlay is submitted. Drawing on a queue that does "
-                     L"not present this swapchain puts the overlay out of order with the flip - torn, a "
-                     L"frame late or invisible - which is why this waits rather than guesses. DIRECT "
-                     L"queues seen (pointer@last submission x total submissions): {}. Leading {:p} with "
-                     L"{}, runner-up {:p} with {}. After {} Presents the leader is taken anyway.",
-                     g_queue_attempts,
-                     kQueueScoreMin,
-                     kQueueScoreHorizon,
-                     kQueueScoreMargin,
-                     ring.empty() ? std::wstring{L"none"} : ring,
-                     static_cast<void*>(score.queue),
-                     score.score,
-                     static_cast<void*>(score.runner_up),
-                     score.runner_score,
-                     kQueueDecideByPresents);
-            set_hide_reason(L"no presenting DIRECT command queue identified yet");
-        }
-
         // A colour space is how the swapchain's numbers reach the display, and it is the
         // only honest answer to "is HDR on?" - the game's own menu says what was asked
         // for, not what the display is doing.
@@ -790,149 +319,109 @@ namespace overlay
                      (flags & DXGI_PRESENT_ALLOW_TEARING) != 0 ? L" (tearing allowed)" : L"");
         }
 
-        bool adopt_presenting_queue(IDXGISwapChain* swapchain)
+        // Streamline's own answer to "is frame generation in this present path". The
+        // interposer exports `slIsFeatureLoaded`, which reads state the host has already
+        // set up - it creates nothing, proxies nothing and initialises nothing, which is
+        // why it is the question asked rather than any of the interfaces NVIDIA asks
+        // third parties to leave alone.
+        //
+        // Loaded is the state that matters, not enabled. DLSS-G takes the present path
+        // when it loads and does not give it back when a player switches frame generation
+        // off in the menu, which is why a player can truthfully say theirs is off while
+        // the back buffers are not the game's.
+        //
+        // `Unknown` is its own answer and not a synonym for absent: with DLSS-G absent
+        // this export does not return false, it returns an error. Nothing may be refused
+        // on a question that was never answered.
+        enum class FrameGen
         {
-            // A ring entry holds a reference, so a pointer read out of the ring below is
-            // alive for the rest of this function - as long as nothing releases an
-            // eviction underneath it. Which is why the pending list is drained FIRST.
-            drain_pending_queue_releases();
-            sweep_bad_queues();
+            Unknown,
+            Absent,
+            Loaded
+        };
 
-            // The first report is loud enough to be found in a log and rare enough not to
-            // be noise: ~4 s at 60 Hz. Then every doubling.
-            if (++g_queue_attempts >= g_queue_indecision_at)
+        FrameGen frame_generation_state()
+        {
+            HMODULE sl = ::GetModuleHandleW(L"sl.interposer.dll");
+            if (sl == nullptr)
             {
-                log_queue_indecision();
-                g_queue_indecision_at *= 2;
+                return FrameGen::Absent;
             }
-            const std::uint64_t window_from = g_queue_seq_mark;
-            g_queue_seq_mark = g_exec_seq.load(std::memory_order_acquire);
-            const QueuePick pick = pick_presenting_queue(window_from);
-            if (!pick.informative)
+            using slIsFeatureLoadedFn = int(__cdecl*)(unsigned, bool*);
+            auto is_loaded = reinterpret_cast<slIsFeatureLoadedFn>(
+                reinterpret_cast<void*>(::GetProcAddress(sl, "slIsFeatureLoaded")));
+            if (is_loaded == nullptr)
             {
-                // No unrefused queue submitted between the last two Presents: a generated
-                // frame, a paused game, a window whose only entrant is already refused.
-                // That says nothing, so no score moves and nothing here changes.
-                return false;
+                return FrameGen::Unknown;
             }
-            if (!pick.decided)
+            bool loaded = false;
+            // Streamline's own id for DLSS-G.
+            if (is_loaded(1000u, &loaded) != 0)
             {
-                return false; // a leader, but not yet by the margin
+                return FrameGen::Unknown;
             }
-            ID3D12CommandQueue* last = pick.queue;
+            return loaded ? FrameGen::Loaded : FrameGen::Absent;
+        }
 
-            // The leader holds. Its type is asked again: the ring's pointer match is what
-            // the recency bump goes through, and a queue is only worth submitting on if it
-            // still calls itself DIRECT.
-            if (last->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        // RENDER THREAD, once per adoption. Two questions, both of which earned their
+        // place by discriminating between a machine this mod works on and one it does
+        // not, or by deciding something in the code.
+        //
+        // Everything else that was asked here once - the back buffer's heap flags and
+        // whether they carry SHARED, its resource flags, a Streamline proxy
+        // QueryInterface on the swapchain, device and queue, GetDesc against GetDesc1,
+        // and the swapchain's device against ours - answered identically on a machine
+        // that works and one that removes the device three milliseconds later. They are
+        // not asked any more; a log line that cannot come out two ways is noise in every
+        // report that carries it.
+        void log_present_path(IDXGISwapChain* swapchain)
+        {
+            switch (frame_generation_state())
             {
-                if (mark_queue_bad(last))
+            case FrameGen::Absent:
+                mm::log(L"  streamline: NVIDIA frame generation (DLSS-G) is not in this present path");
+                break;
+            case FrameGen::Loaded:
+                mm::log(L"  streamline: NVIDIA frame generation (DLSS-G) is LOADED, so the game renders "
+                        L"off-screen and the swapchain's back buffers belong to it, not to the game");
+                break;
+            case FrameGen::Unknown:
+                mm::log(L"  streamline: sl.interposer.dll is present but did not answer whether DLSS-G "
+                        L"is loaded, which is also what it does when DLSS-G is absent");
+                break;
+            }
+
+            // Whether the display can compose an extra plane. Not about the failure - it
+            // is what an overlay drawn beside the game's frames rather than into them
+            // depends on, and this is the one place a reporter's machine can be asked.
+            if (swapchain == nullptr)
+            {
+                return;
+            }
+            IDXGIOutput* output = nullptr;
+            if (SUCCEEDED(swapchain->GetContainingOutput(&output)) && output != nullptr)
+            {
+                IDXGIOutput6* out6 = nullptr;
+                if (SUCCEEDED(output->QueryInterface(IID_PPV_ARGS(&out6))) && out6 != nullptr)
                 {
-                    mm::logf(L"the queue {:p} leading the window scoring no longer reports a DIRECT type "
-                             L"- it is refused and another one is waited for",
-                             static_cast<void*>(last));
+                    UINT caps = 0;
+                    if (SUCCEEDED(out6->CheckHardwareCompositionSupport(&caps)))
+                    {
+                        mm::logf(L"  hardware composition (MPO): 0x{:X}{}{}",
+                                 caps,
+                                 (caps & static_cast<UINT>(
+                                              DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_FULLSCREEN)) != 0
+                                     ? L" fullscreen"
+                                     : L"",
+                                 (caps & static_cast<UINT>(
+                                              DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_WINDOWED)) != 0
+                                     ? L" windowed"
+                                     : L"");
+                    }
+                    safe_release(out6);
                 }
-                scrub_window_winner(last);
-                return false;
+                safe_release(output);
             }
-
-            // The remaining question is the device: ID3D12Resource::GetDevice on back
-            // buffer 0 is the one link from the swapchain to a device that every wrapper
-            // forwards, and recording our command list on a queue of any other device is
-            // an immediate device removal.
-            ID3D12Resource* buffer = nullptr;
-            if (FAILED(swapchain->GetBuffer(0, IID_PPV_ARGS(&buffer))) || buffer == nullptr)
-            {
-                return false; // a resize in flight; ask again on the next Present
-            }
-            ID3D12Device* sc_device = nullptr;
-            ID3D12Device* q_device = nullptr;
-            const bool have_sc = SUCCEEDED(buffer->GetDevice(IID_PPV_ARGS(&sc_device))) && sc_device != nullptr;
-            const bool have_q = SUCCEEDED(last->GetDevice(IID_PPV_ARGS(&q_device))) && q_device != nullptr;
-            const bool same = have_sc && have_q && sc_device == q_device;
-            safe_release(buffer);
-            if (!same)
-            {
-                if (mark_queue_bad(last))
-                {
-                    mm::logf(L"the DIRECT queue {:p} leads the scoring with {} command list(s) across "
-                             L"the last {} windows, but its ID3D12Device {:p} is not the device {:p} "
-                             L"that owns the back buffers - the queue is refused and another one is "
-                             L"waited for",
-                             static_cast<void*>(last),
-                             pick.score,
-                             kQueueScoreHorizon,
-                             static_cast<void*>(q_device),
-                             static_cast<void*>(sc_device));
-                }
-                scrub_window_winner(last);
-                safe_release(sc_device);
-                safe_release(q_device);
-                return false;
-            }
-
-            // A reference is held from here until the teardown releases it: the queue is
-            // the game's, and a game that destroys it (a device reset, a renderer swap)
-            // would leave this module submitting command lists to freed memory.
-            //
-            // The store and the ring's release go together under the ring's own lock: a
-            // submitting thread that is already past its "is anything captured?" check
-            // must not be able to put an entry into a ring nothing will empty again.
-            last->AddRef();
-            ID3D12CommandQueue* taken[kQueueRing]{};
-            {
-                spin::SpinGuard guard(g_queue_ring_lock);
-                g_queue.store(last, std::memory_order_release);
-                // The question is answered, so the ring's remaining references - a
-                // frame-generation queue, another overlay's - are dropped here rather than
-                // held for the session. The store and the emptying happen together under
-                // the lock so a submitting thread cannot put an entry into a ring that is
-                // about to be abandoned; the Releases themselves happen after it.
-                take_queue_ring_locked(taken);
-            }
-            release_taken_queues(taken);
-            drain_pending_queue_releases();
-            // The re-adoption cap counts attempts that got nowhere. This one arrived, so
-            // the count starts again: a player cycling the video settings is not a cycle
-            // of failures.
-            g_readopt_count.store(0, std::memory_order_relaxed);
-            const D3D12_COMMAND_QUEUE_DESC desc = last->GetDesc();
-            mm::logf(L"captured the PRESENTING DIRECT command queue {:p} (priority {}, flags {}): it "
-                     L"submitted {} command list(s) across the last {} windows before a Present of the "
-                     L"adopted swapchain against a runner-up's {}, {} in the window that decided it, "
-                     L"and its ID3D12Device {:p} is the one that owns the back buffers",
-                     static_cast<void*>(last),
-                     desc.Priority,
-                     static_cast<unsigned>(desc.Flags),
-                     pick.score,
-                     kQueueScoreHorizon,
-                     pick.runner_score,
-                     pick.window_count,
-                     static_cast<void*>(q_device));
-            if (pick.by_plurality)
-            {
-                mm::logf(L"it was taken on a plurality, not on the {}x margin: after {} Presents two "
-                         L"DIRECT queues of this device were still sharing the work. If the overlay "
-                         L"tears, appears a frame late or does not appear at all, this is the choice to "
-                         L"doubt first.",
-                         kQueueScoreMargin,
-                         kQueueDecideByPresents);
-            }
-            if (pick.runner_up != nullptr)
-            {
-                // The one thing a bug report cannot reconstruct: which other DIRECT queue
-                // of this device was close. A wrong choice here does not remove the
-                // device - it leaves the overlay unordered against the flip, so this is
-                // the line to read when the minimap tears or never appears.
-                mm::logf(L"the runner-up was the DIRECT queue {:p} with {} command list(s) across the "
-                         L"same windows; if the overlay tears or does not appear, this is the queue that "
-                         L"was not taken",
-                         static_cast<void*>(pick.runner_up),
-                         pick.runner_score);
-            }
-            safe_release(sc_device);
-            safe_release(q_device);
-            return true;
         }
 
         void engage_terminal_off(const wchar_t* why);
@@ -977,7 +466,11 @@ namespace overlay
         // cleared only by `overlay::start()` or the master switch's `finish_stop()`.
 
         // GetDeviceRemovedReason answers with one of these, and the bare number is
-        // unreadable in a bug report.
+        // unreadable in a bug report. The list is the whole DXGI table rather than the
+        // five codes the documentation calls the removal family, because the one that
+        // actually reached a player was DXGI_ERROR_ACCESS_DENIED - a reason a device
+        // never gets removed for in any of the textbook cases, and the single most
+        // informative word in the whole report when it does.
         const char* removed_reason_name(HRESULT hr)
         {
             switch (hr)
@@ -994,6 +487,24 @@ namespace overlay
                 return "DXGI_ERROR_DRIVER_INTERNAL_ERROR";
             case DXGI_ERROR_INVALID_CALL:
                 return "DXGI_ERROR_INVALID_CALL";
+            case DXGI_ERROR_ACCESS_DENIED:
+                return "DXGI_ERROR_ACCESS_DENIED - the buffers are not this process's to write";
+            case DXGI_ERROR_ACCESS_LOST:
+                return "DXGI_ERROR_ACCESS_LOST";
+            case DXGI_ERROR_NONEXCLUSIVE:
+                return "DXGI_ERROR_NONEXCLUSIVE";
+            case DXGI_ERROR_NOT_CURRENTLY_AVAILABLE:
+                return "DXGI_ERROR_NOT_CURRENTLY_AVAILABLE";
+            case DXGI_ERROR_CANNOT_PROTECT_CONTENT:
+                return "DXGI_ERROR_CANNOT_PROTECT_CONTENT";
+            case DXGI_ERROR_UNSUPPORTED:
+                return "DXGI_ERROR_UNSUPPORTED";
+            case DXGI_ERROR_NOT_FOUND:
+                return "DXGI_ERROR_NOT_FOUND";
+            case DXGI_ERROR_WAS_STILL_DRAWING:
+                return "DXGI_ERROR_WAS_STILL_DRAWING";
+            case E_OUTOFMEMORY:
+                return "E_OUTOFMEMORY";
             default:
                 return "an HRESULT outside the removal family";
             }
@@ -1129,24 +640,6 @@ namespace overlay
         // Original functions
         //==============================================================================
 
-        // The probe frame's state, declared here because releasing the render targets
-        // resets it. THE PROBE FRAME below is what it is for.
-        enum class Probe
-        {
-            Pending,   // the device objects exist, nothing has been submitted yet
-            Submitted, // the barrier-only list is on the queue; the next Present judges it
-            Passed,    // the GPU ran it and the device still answers S_OK
-        };
-        static Probe g_probe = Probe::Pending;
-        // The fence value the probe's submission signals, and how many Presents have gone
-        // by waiting for it. Zero means the Signal itself failed, so nothing can say the
-        // barrier pair ever ran.
-        static std::uint64_t g_probe_fence = 0;
-        static int g_probe_waits = 0;
-        // How long a probe may stay in flight before the overlay stops believing in it:
-        // one barrier pair is a fraction of a frame, so a second of Presents is generous.
-        constexpr int kProbeWaitPresents = 60;
-
         //==============================================================================
         // Teardown of the swapchain-dependent objects
         //==============================================================================
@@ -1160,13 +653,6 @@ namespace overlay
             }
             safe_release(g_rtv_heap);
             g_rt_ready = false;
-            // The probe barrier named a back buffer that no longer exists, so whatever it
-            // proved it no longer proves: the next set of render targets gets its own
-            // probe frame. Without this a resize between the submit and the next Present
-            // promotes an untested assumption to Passed.
-            g_probe = Probe::Pending;
-            g_probe_fence = 0;
-            g_probe_waits = 0;
         }
 
         void wait_for_gpu()
@@ -1231,6 +717,24 @@ namespace overlay
             g_height = desc.BufferDesc.Height;
             g_hwnd = desc.OutputWindow;
 
+            // The game's swapchain is read for its geometry and then left alone. What the
+            // overlay draws into is a surface of its own, composed over the same window -
+            // see overlay_dcomp.cpp for why there is no second way of doing this.
+            const bool surface = comp_ready() ? comp_resize(g_width, g_height)
+                                              : comp_create(g_device, g_hwnd, g_width, g_height);
+            if (!surface)
+            {
+                mm::log(L"the overlay has no surface to draw on, so it does not start. Nothing of the "
+                        L"game is touched, and the rest of the mod - the tracker, the marker sweep, the "
+                        L"waypoint files - keeps running.");
+                return false;
+            }
+            IDXGISwapChain* target = comp_swapchain();
+            g_buffer_count = comp_buffer_count();
+            g_format = comp_format();
+            // Our own queue, so nothing downstream has to ask whose surface this is.
+            g_queue.store(comp_queue(), std::memory_order_release);
+
             D3D12_DESCRIPTOR_HEAP_DESC heap{};
             heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
             heap.NumDescriptors = g_buffer_count;
@@ -1245,7 +749,7 @@ namespace overlay
             D3D12_CPU_DESCRIPTOR_HANDLE handle = g_rtv_heap->GetCPUDescriptorHandleForHeapStart();
             for (UINT i = 0; i < g_buffer_count; ++i)
             {
-                if (FAILED(swapchain->GetBuffer(i, IID_PPV_ARGS(&g_backbuffers[i]))))
+                if (FAILED(target->GetBuffer(i, IID_PPV_ARGS(&g_backbuffers[i]))))
                 {
                     mm::logf(L"GetBuffer({}) failed", i);
                     release_render_targets();
@@ -1256,32 +760,6 @@ namespace overlay
                 handle.ptr += stride;
             }
 
-            // Does the back buffer belong to the device taken off the queue? The queue
-            // was already matched against the back buffers' device at adoption, but the
-            // device this module holds comes off the queue and the swapchain can be
-            // replaced under us (IDXGISwapChain::GetDevice does not work through this
-            // game's ReShade wrapper). `ID3D12Resource::GetDevice` on a back buffer
-            // answers authoritatively and is the one link from the swapchain to a device
-            // the wrapper does forward. Recording our command list on a queue of another
-            // device is an immediate device removal: hard reject.
-            if (g_backbuffers[0] != nullptr)
-            {
-                ID3D12Device* owner = nullptr;
-                if (SUCCEEDED(g_backbuffers[0]->GetDevice(IID_PPV_ARGS(&owner))) && owner != nullptr)
-                {
-                    const bool same = owner == g_device;
-                    owner->Release();
-                    if (!same)
-                    {
-                        mm::log(L"the back buffers belong to a different ID3D12Device than the captured "
-                                L"command queue - dropping the queue so another one can be captured");
-                        mark_queue_bad(g_queue.load(std::memory_order_acquire));
-                        release_render_targets();
-                        request_readoption(L"the captured command queue belongs to another device");
-                        return false;
-                    }
-                }
-            }
 
             if (!ensure_frame_allocators())
             {
@@ -1290,21 +768,9 @@ namespace overlay
             }
 
             g_rt_ready = true;
-            // The reasoning, once a session; the per-creation line only names the
-            // assumption, because render targets are rebuilt on every resize.
-            static bool assumption_explained = false;
-            if (!assumption_explained)
-            {
-                assumption_explained = true;
-                mm::log(L"the overlay assumes a back buffer is in D3D12_RESOURCE_STATE_PRESENT when the "
-                        L"game calls Present: D3D12 cannot be asked what state a resource is in, and "
-                        L"PRESENT is the same state as COMMON, which is what a swapchain buffer has to "
-                        L"be in for the flip. The probe frame is what tests that assumption before "
-                        L"anything else of the overlay exists.");
-            }
-            mm::logf(L"render targets: {} buffer(s), {}x{}, {}, hwnd 0x{:X}, swapchain flags 0x{:X}, "
-                     L"swap effect {}. The back buffers are assumed to be in "
-                     L"D3D12_RESOURCE_STATE_PRESENT at Present.",
+            mm::logf(L"render targets: the overlay's own {} buffer(s), {}x{}, {}, composed over hwnd "
+                     L"0x{:X} whose own swapchain has flags 0x{:X} and swap effect {}. The game's back "
+                     L"buffers are not touched.",
                      g_buffer_count,
                      g_width,
                      g_height,
@@ -1520,34 +986,44 @@ namespace overlay
             draw_toast();
         }
 
-        // The D3D12 half of the start-up: the device, the render targets, one allocator
-        // per back buffer, the command list and the fence. Nothing here draws and nothing
-        // here is ImGui, which is what lets the probe frame run between the two halves.
+        // The D3D12 half of the start-up: the device, the composition surface and its
+        // render targets, one allocator per back buffer, the command list and the fence.
+        // Nothing here draws and nothing here is ImGui.
         //
-        // Called on every Present until ImGui is up - the probe frame costs at least one -
-        // so every object is created only where it does not exist yet.
-        bool ensure_device_objects(IDXGISwapChain* swapchain, ID3D12CommandQueue* queue)
+        // Called on every Present until ImGui is up, so every object is created only
+        // where it does not exist yet.
+        bool ensure_device_objects(IDXGISwapChain* swapchain)
         {
             if (g_device == nullptr)
             {
-                // The device comes off the captured QUEUE, not off the swapchain:
+                // ID3D12Resource::GetDevice on back buffer 0 is the one link from a
+                // swapchain to its device that every wrapper forwards, where
                 // IDXGISwapChain::GetDevice(ID3D12Device) fails on this game's ReShade
-                // wrapper. ID3D12CommandQueue::GetDevice always works.
+                // wrapper. GetBuffer only READS the buffer, so it answers even where
+                // WRITING that buffer is denied - which is why this is the reliable link
+                // and not merely the first one tried.
                 //
                 // Into a local, published under `g_device_lock` once it is whole: the
                 // out-parameter of a call that is still running is not a pointer another
                 // thread may dereference.
                 ID3D12Device* device = nullptr;
-                HRESULT hr = queue->GetDevice(IID_PPV_ARGS(&device));
+                ID3D12Resource* buffer = nullptr;
+                HRESULT hr = swapchain->GetBuffer(0, IID_PPV_ARGS(&buffer));
+                if (SUCCEEDED(hr) && buffer != nullptr)
+                {
+                    hr = buffer->GetDevice(IID_PPV_ARGS(&device));
+                }
+                safe_release(buffer);
                 if (FAILED(hr) || device == nullptr)
                 {
-                    mm::logf(L"queue->GetDevice failed (0x{:08X}); trying the swapchain",
+                    mm::logf(L"the swapchain's back buffer 0 named no ID3D12Device (0x{:08X}); "
+                             L"asking the swapchain itself",
                              static_cast<unsigned>(hr));
                     hr = swapchain->GetDevice(IID_PPV_ARGS(&device));
                 }
                 if (FAILED(hr) || device == nullptr)
                 {
-                    mm::logf(L"no ID3D12Device reachable from either the queue or the swapchain "
+                    mm::logf(L"no ID3D12Device reachable from either the back buffer or the swapchain "
                              L"(0x{:08X}) - overlay off",
                              static_cast<unsigned>(hr));
                     g_failed = true;
@@ -1607,97 +1083,9 @@ namespace overlay
             return true;
         }
 
-        //==============================================================================
-        // THE PROBE FRAME
-        //==============================================================================
-        //
-        // D3D12 has no way to ask a resource what state it is in, so the closing barrier
-        // of the game's own frame is taken on trust: a swapchain buffer must be in COMMON
-        // (which is the same state as PRESENT) for the flip, so PRESENT is the honest
-        // assumption for the barrier that takes it to RENDER_TARGET. A frame-generation
-        // proxy presenting a buffer it left in another state makes that barrier a
-        // wrong-state transition, and a wrong-state transition on a real swapchain buffer
-        // removes the device.
-        //
-        // So the FIRST thing submitted on a newly adopted queue is a command list that
-        // contains only the barrier pair and no draw at all. If the assumption is wrong,
-        // the Present that follows returns DEVICE_REMOVED, note_present_result logs the
-        // reason and the terminal state engages - and it does so before ImGui, the font
-        // atlas or a single map texture has been created, i.e. before the mod has spent
-        // anything or waited on any fence that could hang.
-        // True once the command list HAS BEEN SUBMITTED, not once the frame succeeded:
-        // everything after o_ExecuteCommandLists is in flight and must never be Reset
-        // again, so a fence failure is reported and still counts as submitted.
-        bool submit_probe_frame(IDXGISwapChain* swapchain)
-        {
-            const UINT index = current_backbuffer_index(swapchain);
-            if (index == kNoBackbuffer || g_backbuffers[index] == nullptr)
-            {
-                return false; // no index, no barrier - see current_backbuffer_index
-            }
-            FrameCtx& frame = g_frames[index];
-            ID3D12CommandQueue* queue = g_queue.load(std::memory_order_acquire);
-            if (frame.allocator == nullptr || g_cmd_list == nullptr || queue == nullptr)
-            {
-                return false;
-            }
-            if (FAILED(frame.allocator->Reset()) || FAILED(g_cmd_list->Reset(frame.allocator, nullptr)))
-            {
-                return false;
-            }
-            D3D12_RESOURCE_BARRIER barrier{};
-            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-            barrier.Transition.pResource = g_backbuffers[index];
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-            g_cmd_list->ResourceBarrier(1, &barrier);
-            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-            g_cmd_list->ResourceBarrier(1, &barrier);
-            if (FAILED(g_cmd_list->Close()))
-            {
-                return false;
-            }
-            ID3D12CommandList* lists[] = {g_cmd_list};
-            o_ExecuteCommandLists(queue, 1, lists);
-            // From here the list and the allocator are IN FLIGHT, whatever else fails:
-            // the caller's state moves to Submitted on this `true` and nothing Resets
-            // either of them again.
-            ++g_fence_value;
-            const HRESULT sig = queue->Signal(g_fence, g_fence_value);
-            // Stored whether or not the Signal took. A value the fence will never reach
-            // cannot be waited out, so it buys one bounded wait (500 ms in the frame path,
-            // 1 s in wait_for_gpu) and no more; what makes that safe is the size of this
-            // command list - two barriers, microseconds - and the re-adoption the failure
-            // asks for, which tears the allocator down rather than reusing it.
-            frame.fence_value = g_fence_value;
-            g_probe_fence = SUCCEEDED(sig) ? g_fence_value : 0;
-            g_probe_waits = 0;
-            mm::logf(L"probe frame: back buffer {} of {}, one PRESENT -> RENDER_TARGET -> PRESENT barrier "
-                     L"pair and no draw, submitted on queue {:p} to signal fence {}. Nothing else of the "
-                     L"overlay is created until the GPU has run this frame and the device still answers "
-                     L"S_OK.",
-                     index,
-                     g_buffer_count,
-                     static_cast<void*>(queue),
-                     g_fence_value);
-            if (FAILED(sig))
-            {
-                // The submission stands; only the fence does not. `g_fence_value` is left
-                // raised on purpose - wait_for_gpu then waits out its 1 s bound instead
-                // of concluding the GPU is idle while the probe is still running.
-                mm::logf(L"probe frame: ID3D12CommandQueue::Signal returned 0x{:08X}, so nothing can say "
-                         L"whether the barrier pair ran - the swapchain is adopted again rather than "
-                         L"trusted",
-                         static_cast<unsigned>(sig));
-            }
-            return true;
-        }
 
         // The ImGui half: our SRV heap, the context, both backends and the wndproc chain.
-        // Only ever reached once the probe frame has been presented.
+        // Only ever reached once the composition surface and its render targets exist.
         bool ensure_imgui(ID3D12CommandQueue* queue)
         {
             // RESTART-ONLY config key: the heap is created once, here.
@@ -1794,7 +1182,7 @@ namespace overlay
             g_imgui_rtv_format = g_format;
             g_imgui_ready = true;
             crumb::stage(crumb::kImGuiUp);
-            mm::logf(L"ImGui {} initialised on the game's swapchain: device {:p}, queue {:p}, {} frames in flight, "
+            mm::logf(L"ImGui {} initialised on the overlay's own surface: device {:p}, queue {:p}, {} frames in flight, "
                      L"RTV {}",
                      std::wstring(IMGUI_VERSION, IMGUI_VERSION + std::strlen(IMGUI_VERSION)),
                      static_cast<void*>(g_device),
@@ -1811,11 +1199,6 @@ namespace overlay
             {
                 return false;
             }
-            ID3D12CommandQueue* queue = g_queue.load(std::memory_order_acquire);
-            if (queue == nullptr)
-            {
-                return false; // no presenting queue chosen yet; try again next frame
-            }
             if (g_imgui_ready)  // NOLINT: the happy path, checked every frame
             {
                 return true;
@@ -1828,91 +1211,27 @@ namespace overlay
             {
                 return false;
             }
-            if (!ensure_device_objects(swapchain, queue))
+            if (!ensure_device_objects(swapchain))
+            {
+                return false;
+            }
+            // `create_render_targets`, inside the call above, is what fills `g_queue`
+            // with the overlay's own composition queue.
+            ID3D12CommandQueue* queue = g_queue.load(std::memory_order_acquire);
+            if (queue == nullptr)
             {
                 return false;
             }
             if (!g_display_logged)
             {
-                // Here rather than at the capture: the adapter is reached through
-                // `g_device`, which `ensure_device_objects` is what creates. Once per
-                // adoption, so a resize does not reprint it.
+                // Here rather than at the adoption of the swapchain: the adapter is
+                // reached through `g_device`, which `ensure_device_objects` is what
+                // creates. Once per adoption, so a resize does not reprint it.
                 g_display_logged = true;
                 log_display_environment(swapchain);
-            }
-            if (g_probe == Probe::Pending)
-            {
-                if (submit_probe_frame(swapchain))
-                {
-                    g_probe = Probe::Submitted;
-                }
-                return false; // this Present carries the probe and nothing else
-            }
-            if (g_probe == Probe::Submitted)
-            {
-                if (g_probe_fence == 0)
-                {
-                    // The Signal failed, so "the device still answers S_OK" says nothing
-                    // about the barrier pair: it may never have reached the GPU. The queue
-                    // is refused so the next adoption looks elsewhere instead of coming
-                    // back to the one queue that has already failed to fence.
-                    mark_queue_bad(queue);
-                    request_readoption(L"the probe frame could not be fenced, so nothing can say whether "
-                                       L"its barrier pair ran");
-                    return false;
-                }
-                if (g_fence == nullptr || g_fence->GetCompletedValue() < g_probe_fence)
-                {
-                    // Still in flight. Waiting here would block the game's render thread,
-                    // so the answer is simply asked again on the next Present.
-                    if (++g_probe_waits >= kProbeWaitPresents)
-                    {
-                        mark_queue_bad(queue);
-                        mm::logf(L"probe frame: its fence has not completed in {} Presents, so the queue "
-                                 L"{:p} it was submitted on is not running our work - it is refused and "
-                                 L"the swapchain is adopted again",
-                                 kProbeWaitPresents,
-                                 static_cast<void*>(queue));
-                        request_readoption(L"the probe frame's fence never completed");
-                    }
-                    return false;
-                }
-                // The GPU ran the barrier pair and the device is still answering, which is
-                // the one piece of evidence that the back buffer really is in PRESENT when
-                // the game calls Present.
-                g_probe = Probe::Passed;
-                mm::log(L"probe frame: the GPU ran it and the device still answers S_OK, so the back "
-                        L"buffer is in D3D12_RESOURCE_STATE_PRESENT when the game calls Present. "
-                        L"Building the overlay's own objects now.");
+                log_present_path(swapchain);
             }
             return ensure_imgui(queue);
-        }
-
-        // Never guesses. The index decides which resource the PRESENT -> RENDER_TARGET
-        // barrier is issued on, and a barrier declaring the wrong before-state is a
-        // device-removal-class error (and, with the wrong RTV, a frame drawn into the
-        // buffer being scanned out). IDXGISwapChain3 is QI'd once at adoption and
-        // cached; without it the caller skips the frame.
-        UINT current_backbuffer_index(IDXGISwapChain* swapchain)
-        {
-            if (g_sc3 == nullptr)
-            {
-                if (FAILED(swapchain->QueryInterface(IID_PPV_ARGS(&g_sc3))) || g_sc3 == nullptr)
-                {
-                    g_sc3 = nullptr;
-                    static bool logged = false;
-                    if (!logged)
-                    {
-                        logged = true;
-                        mm::log(L"this swapchain does not expose IDXGISwapChain3, so the back-buffer "
-                                L"index cannot be known - the overlay will not draw on it (guessing the "
-                                L"index would put a resource barrier on the wrong buffer)");
-                    }
-                    return kNoBackbuffer;
-                }
-            }
-            const UINT index = g_sc3->GetCurrentBackBufferIndex();
-            return index < g_buffer_count ? index : kNoBackbuffer;
         }
 
         // A D3D12 swapchain hands out ID3D12Resource back buffers; a D3D11 one, or a
@@ -1965,8 +1284,8 @@ namespace overlay
         // touched from the thread that created them - whichever thread calls Present. So
         // the loop thread clears mm::g_mod_active and this runs inside the next Present,
         // before the hooks are taken out. It leaves the module in the state it had
-        // before the first frame: `start()` re-enables the hooks, ExecuteCommandLists
-        // re-captures the queue and ensure_initialised() builds everything again.
+        // before the first frame: `start()` re-enables the hooks and
+        // ensure_initialised() builds everything again.
         //
         // Two callers, one body. The master switch (shutdown_render) and a lost device /
         // replaced swapchain (the re-adoption path in render()) release the same
@@ -1979,7 +1298,7 @@ namespace overlay
         // frame-generation proxy presents from, so the thread that built them and the one
         // that releases them need not be the same - only serialised.
 
-        void release_device_objects(bool on_render_thread)
+        void release_device_objects()
         {
             if (g_imgui_ready || g_device != nullptr)
             {
@@ -2009,6 +1328,10 @@ namespace overlay
                     g_ui_scale_applied = 0.0f;
                 }
                 release_render_targets();
+                // After the render targets, because the RTVs are views onto its buffers,
+                // and after wait_for_gpu above, because our queue is what they were
+                // submitted on.
+                comp_release();
                 for (UINT i = 0; i < kMaxBuffers; ++i)
                 {
                     safe_release(g_frames[i].allocator);
@@ -2041,26 +1364,21 @@ namespace overlay
             // The cached IDXGISwapChain3 holds a reference on the swapchain being let
             // go; keeping it would pin a dead object and answer
             // GetCurrentBackBufferIndex for a swapchain we no longer draw on.
-            safe_release(g_sc3);
             g_candidates_logged = 0;
-            // The queue was captured with a reference held (see adopt_presenting_queue),
-            // so dropping it means releasing it, and the scoring starts over.
-            safe_release_queue();
-            reset_queue_adoption(on_render_thread);
-            // The next adoption gets its own probe frame: a new swapchain can be behind a
-            // different proxy than the one that was just let go.
-            g_probe = Probe::Pending;
-            g_probe_fence = 0;
-            g_probe_waits = 0;
+            // The queue is the composition module's, released by the `comp_release()`
+            // above; this is only the overlay's handle on it.
+            g_queue.store(nullptr, std::memory_order_release);
+            // The display lines belong to an adoption, so the next one writes its own.
+            g_display_logged = false;
             g_failed = false;
             // Everything a re-adoption would have released is gone already.
             g_readopt.store(false, std::memory_order_release);
             crumb::stage(crumb::kTeardownEnd);
         }
 
-        void shutdown_render(bool on_render_thread)
+        void shutdown_render()
         {
-            release_device_objects(on_render_thread);
+            release_device_objects();
             // The master switch's handshake, and the one thing a re-adoption must skip.
             g_render_stopped.store(true, std::memory_order_release);
         }
@@ -2075,7 +1393,7 @@ namespace overlay
                 if (!g_render_stopped.load(std::memory_order_acquire))
                 {
                     spin::SpinGuard guard(g_render_lock);
-                    shutdown_render(true);
+                    shutdown_render();
                 }
                 return;
             }
@@ -2092,7 +1410,7 @@ namespace overlay
                 {
                     g_render_stage.store("releasing after a device removal", std::memory_order_relaxed);
                     spin::SpinGuard guard(g_render_lock);
-                    release_device_objects(true);
+                    release_device_objects();
                 }
                 g_render_stage.store("off: the adopted device was removed", std::memory_order_relaxed);
                 return;
@@ -2133,7 +1451,7 @@ namespace overlay
             {
                 g_render_stage.store("re-adopting the swapchain", std::memory_order_relaxed);
                 mm::perf_note_stall(L"a swapchain / device re-adoption", 2000);
-                release_device_objects(true);
+                release_device_objects();
                 return; // the next Present adopts whatever is there now
             }
 
@@ -2173,17 +1491,6 @@ namespace overlay
             // This Present is on the adopted swapchain: the reference point the check
             // above measures silence against.
             g_adopted_present_ms = ::GetTickCount64();
-
-            // THE PRESENTING QUEUE, decided here because this Present is what closes a
-            // window and scores its winner.
-            if (g_queue.load(std::memory_order_acquire) == nullptr)
-            {
-                g_render_stage.store("choosing the presenting queue", std::memory_order_relaxed);
-                if (!adopt_presenting_queue(swapchain))
-                {
-                    return; // nothing to submit on yet
-                }
-            }
 
             if (!ensure_initialised(swapchain))
             {
@@ -2242,13 +1549,8 @@ namespace overlay
                 g_imgui_rtv_format = g_format;
             }
 
-            const UINT index = current_backbuffer_index(swapchain);
-            if (index == kNoBackbuffer)
-            {
-                // No index, no frame. Drawing without knowing which buffer is next means
-                // barriering the wrong resource - see current_backbuffer_index.
-                return;
-            }
+            // The buffer being drawn is ours, so its index comes from our own swapchain.
+            const UINT index = comp_swapchain()->GetCurrentBackBufferIndex();
             FrameCtx& frame = g_frames[index];
             if (frame.allocator == nullptr)
             {
@@ -2368,6 +1670,10 @@ namespace overlay
             g_cmd_list->ResourceBarrier(1, &barrier);
 
             g_cmd_list->OMSetRenderTargets(1, &g_rtv[index], FALSE, nullptr);
+            // Our surface carries the overlay and nothing else, so every frame starts
+            // fully transparent and the compositor shows the game through it.
+            const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            g_cmd_list->ClearRenderTargetView(g_rtv[index], transparent, 0, nullptr);
             ID3D12DescriptorHeap* heaps[] = {g_srv_heap.heap()};
             g_cmd_list->SetDescriptorHeaps(1, heaps);
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_cmd_list);
@@ -2387,11 +1693,11 @@ namespace overlay
             g_render_stage.store("submitting the command list", std::memory_order_relaxed);
             ID3D12CommandQueue* queue = g_queue.load(std::memory_order_acquire);
             ID3D12CommandList* lists[] = {g_cmd_list};
-            // The original, so our own submission does not re-enter the hook.
+            // The overlay's own queue, which nothing in this process hooks.
             // ExecuteCommandLists returns void: the only report a bad submission gives is
             // the fence Signal that follows it and the device's own removal reason, both
             // checked below.
-            o_ExecuteCommandLists(queue, 1, lists);
+            queue->ExecuteCommandLists(1, lists);
             ++g_fence_value;
             const HRESULT sig = queue->Signal(g_fence, g_fence_value);
             if (FAILED(sig))
@@ -2407,6 +1713,25 @@ namespace overlay
                 }
             }
             frame.fence_value = g_fence_value;
+            // Our surface is presented by us. The game's Present, which this hook is
+            // inside, carries the game's frame and knows nothing about this one; the
+            // compositor is what puts the two together.
+            //
+            // The ORIGINAL, exactly as the command-list submission above. Present is one
+            // dxgi function shared by every swapchain in the process, ours included, so
+            // calling it through the vtable would re-enter this hook on a thread that
+            // already holds the render lock and wedge the render thread.
+            const HRESULT cp = o_Present(comp_swapchain(), 0, 0);
+            if (FAILED(cp))
+            {
+                static bool said = false;
+                if (!said)
+                {
+                    said = true;
+                    mm::logf(L"composition: presenting the overlay's own surface failed (0x{:08X})",
+                             static_cast<unsigned>(cp));
+                }
+            }
             if (shot_recorded)
             {
                 g_shot_fence = g_fence_value; // the readback may not be mapped before this
@@ -2597,6 +1922,13 @@ namespace overlay
 
         HRESULT STDMETHODCALLTYPE hk_Present(IDXGISwapChain* sc, UINT sync, UINT flags)
         {
+            // Our own composition surface. It is presented from inside a frame this hook
+            // is already running, so treating it as a frame of the game's would re-enter
+            // everything below on a thread that holds the render lock.
+            if (comp_ready() && sc == comp_swapchain())
+            {
+                return o_Present(sc, sync, flags);
+            }
             note_present_args(sc, sync, flags);
             render_guarded(sc);
             if (sc == g_swapchain)
@@ -2667,8 +1999,8 @@ namespace overlay
                     // thread, where it takes the game down with it.
                     try
                     {
-                        // The fence, not ImGui: the probe frame is submitted while
-                        // `g_imgui_ready` is still false, and releasing the back buffers
+                        // The fence, not ImGui: a frame can be in flight on the GPU
+                        // before `g_imgui_ready` is set, and releasing the back buffers
                         // out from under it is exactly the case this wait exists for.
                         if (g_fence != nullptr)
                         {
@@ -2707,28 +2039,12 @@ namespace overlay
             return hr;
         }
 
-        void STDMETHODCALLTYPE hk_ExecuteCommandLists(ID3D12CommandQueue* queue, UINT count,
-                                                      ID3D12CommandList* const* lists)
-        {
-            // This hook only REMEMBERS, and only while the adoption is open: once the
-            // queue is captured `note_direct_queue` returns on its first statement, so
-            // what is left in the game's submission path is a relaxed load. Which of the
-            // process's DIRECT queues presents the game's swapchain is decided on the
-            // render thread, at the Present that closes a window and scores it - see
-            // adopt_presenting_queue().
-            if (queue != nullptr && mm::mod_active() && !g_device_removed.load(std::memory_order_relaxed))
-            {
-                note_direct_queue(queue);
-            }
-            o_ExecuteCommandLists(queue, count, lists);
-        }
-
         //==============================================================================
         // Hook installation via a throwaway device + swapchain, on every launch
         //==============================================================================
         //
         // Discovery creates a throwaway D3D12 device, a DIRECT command queue and a 64x64
-        // swapchain on a hidden window through our own import table, reads four vtable
+        // swapchain on a hidden window through our own import table, reads three vtable
         // slots and destroys all three. The addresses it finds are a property of the
         // DLLs, so they could be written down and reused - and reusing them is what makes
         // such a launch a different launch. On a machine stacking ReShade's dxgi proxy,
@@ -2755,7 +2071,7 @@ namespace overlay
             }
         }
 
-        // Four MH_CreateHook calls, one MH_EnableHook, one report.
+        // Three MH_CreateHook calls, one MH_EnableHook, one report.
         bool create_and_enable(void** addr, const wchar_t* how)
         {
             const MH_STATUS s1 = MH_CreateHook(addr[0], reinterpret_cast<void*>(&hk_Present),
@@ -2764,15 +2080,13 @@ namespace overlay
                                                reinterpret_cast<void**>(&o_ResizeBuffers));
             const MH_STATUS s3 = MH_CreateHook(addr[2], reinterpret_cast<void*>(&hk_Present1),
                                                reinterpret_cast<void**>(&o_Present1));
-            const MH_STATUS s4 = MH_CreateHook(addr[3], reinterpret_cast<void*>(&hk_ExecuteCommandLists),
-                                               reinterpret_cast<void**>(&o_ExecuteCommandLists));
 
-            // The statuses are checked before anything is enabled: either both required
-            // hooks exist or nothing of ours is installed at all. A partial install
+            // The statuses are checked before anything is enabled: either the required
+            // hook exists or nothing of ours is installed at all. A partial install
             // would leave live trampolines behind while reporting failure, and the
             // master switch's re-enable would then run discovery on top of them.
-            const MH_STATUS created[kHookCount] = {s1, s2, s3, s4};
-            const bool required_ok = s1 == MH_OK && s4 == MH_OK;
+            const MH_STATUS created[kHookCount] = {s1, s2, s3};
+            const bool required_ok = s1 == MH_OK;
             MH_STATUS en = MH_ERROR_NOT_CREATED;
             if (required_ok)
             {
@@ -2788,13 +2102,13 @@ namespace overlay
                         MH_RemoveHook(addr[i]);
                     }
                 }
-                mm::log(L"hooks: the required pair (Present, ExecuteCommandLists) did not install, so "
-                        L"every trampoline that HAD been created was removed again - nothing of this "
-                        L"mod is in the game's call path");
+                mm::log(L"hooks: the required hook (Present) did not install, so every trampoline that "
+                        L"HAD been created was removed again - nothing of this mod is in the game's "
+                        L"call path");
             }
 
             g_hook_report = std::format(L"{} | Present {} @ {} | ResizeBuffers {} @ {} | Present1 {} @ {} | "
-                                        L"ExecuteCommandLists {} @ {} | enable {}",
+                                        L"enable {}",
                                         how,
                                         static_cast<int>(s1),
                                         module_of(addr[0]),
@@ -2802,15 +2116,12 @@ namespace overlay
                                         module_of(addr[1]),
                                         static_cast<int>(s3),
                                         module_of(addr[2]),
-                                        static_cast<int>(s4),
-                                        module_of(addr[3]),
                                         static_cast<int>(en));
             mm::logf(L"hooks: {}", g_hook_report);
-            mm::logf(L"hook addresses: Present {:p}  ResizeBuffers {:p}  Present1 {:p}  ExecuteCommandLists {:p}",
+            mm::logf(L"hook addresses: Present {:p}  ResizeBuffers {:p}  Present1 {:p}",
                      addr[0],
                      addr[1],
-                     addr[2],
-                     addr[3]);
+                     addr[2]);
             log_overlay_modules();
             const bool ok = required_ok && en == MH_OK;
             if (!ok)
@@ -2882,13 +2193,11 @@ namespace overlay
             if (SUCCEEDED(hr) && swapchain != nullptr && queue != nullptr)
             {
                 void** sc_vtable = *reinterpret_cast<void***>(swapchain);
-                void** q_vtable = *reinterpret_cast<void***>(queue);
 
                 void* addr[kHookCount] = {
                     sc_vtable[8],  // IDXGISwapChain::Present
                     sc_vtable[13], // IDXGISwapChain::ResizeBuffers
                     sc_vtable[22], // IDXGISwapChain1::Present1
-                    q_vtable[10],  // ID3D12CommandQueue::ExecuteCommandLists
                 };
 
                 // Who was already there, read before a byte is written: a jmp in front of
@@ -2921,7 +2230,7 @@ namespace overlay
             g_hook_install_ms = ::GetTickCount64();
             // What the throwaway objects cost, and the window in which Steam's overlay
             // could have re-targeted itself onto them.
-            mm::logf(L"hook discovery: {} ms from the dummy window to the four hooks; the dummy device, "
+            mm::logf(L"hook discovery: {} ms from the dummy window to the three hooks; the dummy device, "
                      L"queue, swapchain and window are destroyed again",
                      g_hook_install_ms - began);
             return ok;

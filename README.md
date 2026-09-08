@@ -77,16 +77,7 @@ Everything is rebindable in `F2` → **Keys**.
 
 None of these stops the mod working.
 
-- **ReShade / RenoDX** (any `dxgi.dll` or `d3d12.dll` next to the game exe) — no longer tints the
-  minimap: the overlay is composed after the game's frame rather than drawn into it, so grading,
-  sharpening and LUTs apply to the game and leave the map alone. `F6` is still refused as a mod
-  hotkey because it is RenoDX's default toggle.
-- **NVIDIA frame generation (DLSS-G) and other frame-generation layers** — not a conflict any more.
-  The overlay draws on a surface of its own and never touches the buffers frame generation owns,
-  which is what used to lose the graphics device and hang the game at start-up. Nothing to set.
-  One caveat on older hardware: where the display cannot compose an extra plane, the overlay can
-  cost about a frame of latency. The log line `hardware composition (MPO)` says which case your PC
-  is.
+- **RenoDX** — `F6` is refused as a mod hotkey, because it is RenoDX's own toggle.
 - **Another UE4SS C++ mod that also hooks `Present`** — the one combination that can lose an
   overlay: whichever installs second usually wins, and the loser is invisible. Test them one at a
   time before reporting a blank screen.

@@ -50,13 +50,9 @@ namespace markers
             PickupDying,   // pickups: `dying` (early) or parked at (0,0,0) (durable)
             ActiveBool,    // fog gates: SavedStatuKey=status_active, so `Active` is the flag
             ControllerPawn, // AI controller: the marker is its possessed Pawn
-            Proximity,     // NPC / note: "met" = seen loaded within kMetRadius of the player
+            Proximity,     // NPC / note: "met" = seen loaded within mdb::kMetRadius of the player
             BossPawn       // boss character: defeated when its controller's Health.Current <= 0
         };
-
-        // Rule::Proximity "met" radius, Unreal units (1 uu = 1 cm) = 30 m.
-        constexpr double kMetRadius = 3000.0;
-        constexpr double kMetRadiusSq = kMetRadius * kMetRadius;
 
         // Rounds a LIVE-ONLY entry (enemies, persist == false) may go unanswered before it
         // is dropped; persisted categories use `markers_live_grace_rounds` instead.
@@ -87,7 +83,7 @@ namespace markers
             {L"BP_WoodenElevator_C", mdb::Cat::Lift, Rule::None, false},
             // `BP_NPC_C` is the interactable-character base and covers its 78 descendants;
             // an exact entry below beats it. "Found" means MET: seen loaded within
-            // kMetRadius of the player. `DKDC_NPC_C` is a readable note, not a merchant.
+            // mdb::kMetRadius of the player. `DKDC_NPC_C` is a readable note, not a merchant.
             {L"DKDC_NPC_C", mdb::Cat::Note, Rule::Proximity, true},
             {L"BP_NPC_C", mdb::Cat::Npc, Rule::Proximity, true},
             // Not people, despite deriving from BP_NPC_C. Categories match
@@ -323,7 +319,7 @@ namespace markers
             // The health read answered "zero". KEPT rather than erased: the enemy's spawn
             // point is in the static DB, and a dead entry suppresses both halves at publish.
             bool dead = false;
-            // Filled only for the mobile categories - see actor_is_invisible.
+            // Filled for every Rule::Proximity actor - see actor_is_invisible.
             bool invisible_known = false;
             bool invisible = false;
             std::uint64_t round = 0;
@@ -352,6 +348,9 @@ namespace markers
 
         // Diagnostics that tell "the rule never fired" from "the property is not there".
         std::atomic<int> g_met_marks{0};      // NPC/note markers marked as met
+        // In range and NOT marked, because the actor is invisible: a used-up NPC or a note
+        // already read. Climbing while `met` stands still is this rule working.
+        std::atomic<int> g_met_unseen{0};
         std::atomic<int> g_dead_dropped{0};   // live enemies dropped because health == 0
         std::atomic<int> g_boss_defeated{0};  // boss markers marked as defeated
         std::atomic<int> g_health_unknown{0}; // characters whose health could not be read
@@ -1536,25 +1535,30 @@ namespace markers
             }
             case Rule::Proximity:
             {
-                // A used-up NPC keeps its actor, position and id and is made INVISIBLE, so the
-                // visibility read comes first: it hides the marker at the publish point and
-                // stops `met` firing. MOBILE categories only - a note is a thing on a wall.
-                if (mdb::is_mobile_category(e.cat))
+                // A used-up NPC and a read note both keep their actor, position and id and are
+                // made INVISIBLE, so the visibility read comes first: `mdb::met_marks` needs it,
+                // and for a mobile category it also hides the marker at the publish point.
+                bool answered = false;
+                const bool hidden = actor_is_invisible(actor, answered);
+                e.invisible_known = answered;
+                e.invisible = answered && hidden;
+                const double dx = e.x - g_player_x;
+                const double dy = e.y - g_player_y;
+                const double dz = e.z - g_player_z;
+                mdb::MetFacts met{};
+                met.player_pos_known = g_player_ok;
+                met.actor_pos_known = e.pos_valid;
+                met.known_invisible = e.invisible;
+                met.dist2 = dx * dx + dy * dy + dz * dz;
+                if (mdb::met_marks(met))
                 {
-                    bool answered = false;
-                    const bool hidden = actor_is_invisible(actor, answered);
-                    e.invisible_known = answered;
-                    e.invisible = answered && hidden;
+                    e.found = true;
                 }
-                if (g_player_ok && e.pos_valid && !e.invisible)
+                else if (mdb::met_in_range(met))
                 {
-                    const double dx = e.x - g_player_x;
-                    const double dy = e.y - g_player_y;
-                    const double dz = e.z - g_player_z;
-                    if (dx * dx + dy * dy + dz * dz <= kMetRadiusSq)
-                    {
-                        e.found = true;
-                    }
+                    // The line between "the tracker is filling" and "the tracker is filling
+                    // with actors the player never saw".
+                    g_met_unseen.fetch_add(1, std::memory_order_relaxed);
                 }
                 break;
             }
@@ -3219,7 +3223,7 @@ namespace markers
                 // Which rule fired and which cannot read its property: a climbing
                 // `health unknown` with zero dead/defeated means the Health route is wrong.
                 mm::logf(L"markers: rules - shrines lit {} of {} ({} marked this session), "
-                         L"met {} of {} ({} marked this session), "
+                         L"met {} of {} ({} marked this session, {} in range but unseen), "
                          L"bosses defeated {} of {} ({} from save, {} with no door, "
                          L"{} killed this session), "
                          L"dead hidden {} ({} newly dead), health unknown {} (health field width {})",
@@ -3229,6 +3233,7 @@ namespace markers
                          g_met_found.load(std::memory_order_relaxed),
                          g_met_total.load(std::memory_order_relaxed),
                          g_met_marks.load(std::memory_order_relaxed),
+                         g_met_unseen.load(std::memory_order_relaxed),
                          g_boss_found.load(std::memory_order_relaxed),
                          g_boss_total.load(std::memory_order_relaxed),
                          g_boss_from_save.load(std::memory_order_relaxed),

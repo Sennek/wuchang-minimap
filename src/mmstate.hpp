@@ -84,8 +84,9 @@ namespace mm
 
         wchar_t pawn_name[96]{}; // pawn class / object name
         wchar_t level_name[160]{}; // pawn full name (carries the world + level path)
-        // The in-viewport Visible root widget holding menu_open true, or empty.
-        wchar_t menu_holder[64]{};
+        // The in-viewport root widget holding menu_open true and the Visibility byte it is
+        // wearing - "WB_MenuMain_C_1 (HitTestInvisible)" - or empty.
+        wchar_t menu_holder[96]{};
     };
 
     // Writer (game thread) and reader (render thread). A torn read is retried, never

@@ -93,6 +93,17 @@ namespace mapmanifest
     // states, so only the producer has to move.
     inline constexpr int kCoverageTilePx = 32;
 
+    // `Entry::cover_score`'s probe pattern: the player plus two rings of eight spokes out
+    // to 15 m, which is about what the minimap shows. Unit vectors at 45 degrees.
+    inline constexpr double kCoverRadiusUu = 1500.0;
+    inline constexpr int kCoverRings = 2;
+    inline constexpr double kSqrtHalf = 0.70710678118654752;
+    inline constexpr double kCoverSpokes[8][2] = {
+        {1.0, 0.0},        {kSqrtHalf, kSqrtHalf},   {0.0, 1.0},        {-kSqrtHalf, kSqrtHalf},
+        {-1.0, 0.0},       {-kSqrtHalf, -kSqrtHalf}, {0.0, -1.0},       {kSqrtHalf, -kSqrtHalf},
+    };
+    inline constexpr int kCoverProbes = 1 + kCoverRings * 8;
+
     //==================================================================================
     // The coverage index
     //==================================================================================
@@ -221,6 +232,32 @@ namespace mapmanifest
             const double z_lo = z_min + (static_cast<double>(lo_code) - 1.0) * step;
             const double z_hi = z_min + (static_cast<double>(hi_code) - 1.0) * step;
             return feet_z >= z_lo - tol && feet_z <= z_hi + tol;
+        }
+
+        // HOW MUCH ground this chapter's asset has AROUND the player, 0..100, as `covers()`
+        // at the player and on two rings of eight out to `kCoverRadiusUu`.
+        //
+        // One pixel is a coin flip on a seam. Two chapters' assets overlap in world space
+        // and each has holes where the other has ground, so the pixel under the player's
+        // feet flips between them step by step while the place he is standing in is
+        // plainly one chapter's - measured on the 2026-09-10 seam at X 40843 Y 25755, the
+        // pixel said both chapters and the rings said 98 against 67. The map the player
+        // wants is the one that describes the PLACE.
+        int cover_score(double wx, double wy, double feet_z, double tol) const
+        {
+            int hits = covers(wx, wy, feet_z, tol) ? 1 : 0;
+            for (int ring = 1; ring <= kCoverRings; ++ring)
+            {
+                const double r = kCoverRadiusUu * static_cast<double>(ring) / kCoverRings;
+                for (const auto& s : kCoverSpokes)
+                {
+                    if (covers(wx + r * s[0], wy + r * s[1], feet_z, tol))
+                    {
+                        ++hits;
+                    }
+                }
+            }
+            return hits * 100 / kCoverProbes;
         }
     };
 

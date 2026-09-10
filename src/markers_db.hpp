@@ -216,6 +216,38 @@ namespace mdb
         return absence_round_confirms(f) && required_rounds >= 1 && streak >= required_rounds;
     }
 
+    // ---- Has the player MET this NPC or note? ----
+    //
+    // The whole of `Rule::Proximity`, and the only thing that writes an NPC or a note into
+    // the collection tracker. "Met" is SEEN, not spoken to or read: an actor loaded within
+    // `kMetRadius` of the player.
+    //
+    // A used-up one keeps its actor, its id and its position and is made INVISIBLE, so an
+    // actor the player cannot see is never met, however close they stand - a consumed note
+    // is a thing the player can neither see nor interact with, and marking it collected
+    // writes a lie into a file that outlives the session. A visibility read that could not
+    // answer counts as visible: this rule is what fills the tracker at all.
+    constexpr double kMetRadius = 3000.0; // Unreal units, 1 uu = 1 cm
+
+    struct MetFacts
+    {
+        bool player_pos_known = false; // the player's own position was read this round
+        bool actor_pos_known = false;  // and so was the actor's - not the (0,0,0) parking spot
+        bool known_invisible = false;  // the visibility read ANSWERED and said hidden
+        double dist2 = 0.0;            // squared distance between the two, uu^2
+    };
+
+    // Is the player close enough for the question to arise at all?
+    constexpr bool met_in_range(const MetFacts& f)
+    {
+        return f.player_pos_known && f.actor_pos_known && f.dist2 <= kMetRadius * kMetRadius;
+    }
+
+    constexpr bool met_marks(const MetFacts& f)
+    {
+        return met_in_range(f) && !f.known_invisible;
+    }
+
     // ---- Is this character dead? ----
     //
     // UNKNOWN must never collapse into DEAD: guessing "dead" hides living enemies, guessing
@@ -315,7 +347,8 @@ namespace mdb
     //   (c) no twin, level loaded, full round passed - nobody answered, so nobody is there
     //   (d) no twin, level unknown  - we have not looked; a hint is all we have
     //   (e) locatable live twin that is HIDDEN in the game - tested before (a). A used-up NPC is
-    //       made invisible rather than moved, so it is neither drawn nor counted MET
+    //       made invisible rather than moved, so it is not drawn. Whether it counts as MET is
+    //       `met_marks`'s answer, for every Proximity category and not only the mobile ones
     constexpr bool mobile_twin_is_stale(const MobileTwinFacts& f)
     {
         if (!f.mobile)

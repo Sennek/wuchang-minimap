@@ -88,7 +88,7 @@ namespace mapdata
 
         // TWO-GENERATION RETIREMENT. Both snapshots above are handed to readers as raw
         // pointers dereferenced with no lock, so the vector a publish replaces cannot be
-        // freed on the spot: the game thread (chapter_covers / chapters_with_coverage) or
+        // freed on the spot: the game thread (chapter_cover_score / chapters_with_coverage) or
         // the render thread (chapter_ptr_for) may be inside it right then. It becomes the
         // RETIRED generation instead, and the NEXT publish - or unload() - frees it.
         //
@@ -602,21 +602,21 @@ namespace mapdata
         return g_has_reach.load(std::memory_order_acquire);
     }
 
-    bool chapter_covers(int number, double wx, double wy, double feet_z, double tol)
+    int chapter_cover_score(int number, double wx, double wy, double feet_z, double tol)
     {
         const std::vector<mapmanifest::Entry>* list = g_cover.load(std::memory_order_acquire);
         if (list == nullptr || number == chid::kNone)
         {
-            return false;
+            return 0;
         }
         for (const mapmanifest::Entry& e : *list)
         {
             if (e.chapter == number)
             {
-                return e.covers(wx, wy, feet_z, tol);
+                return e.cover_score(wx, wy, feet_z, tol);
             }
         }
-        return false;
+        return 0;
     }
 
     int chapters_with_coverage()

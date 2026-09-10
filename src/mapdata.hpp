@@ -515,16 +515,16 @@ namespace mapdata
     // False until maps.json has been read, and for a /4 asset tree.
     bool reachability_available();
 
-    // ANY THREAD, the game thread included: does the chapter NUMBERED `number` hold a
-    // surface within `tol` uu of `feet_z` at (wx, wy)? Answered from the coverage index
-    // in maps.json (mapmanifest::Entry::covers), so a chapter that is not resident answers
-    // too - which is what lets gamestate.cpp break a contested chapter vote at a boundary.
-    // False when nothing is loaded, no chapter carries that number, the position is off
-    // that chapter's picture, or the asset predates the index (schema /5 and older).
-    bool chapter_covers(int number, double wx, double wy, double feet_z, double tol);
+    // ANY THREAD, the game thread included: how much ground the chapter NUMBERED `number`
+    // has around (wx, wy) at `feet_z`, 0..100 - see mapmanifest::Entry::cover_score, which
+    // probes the coverage index in maps.json, so a chapter that is not resident answers too.
+    // That is what lets gamestate.cpp break a contested chapter vote at a boundary.
+    // 0 when nothing is loaded, no chapter carries that number, the position is off that
+    // chapter's picture, or the asset predates the index (schema /5 and older).
+    int chapter_cover_score(int number, double wx, double wy, double feet_z, double tol);
 
     // How many loaded chapters carry a coverage index. 0 for a pre-/6 asset tree, where
-    // `chapter_covers()` answers false everywhere and the chapter vote stands alone.
+    // `chapter_cover_score()` answers 0 everywhere and the chapter vote stands alone.
     int chapters_with_coverage();
 
     // Render thread: take ownership of one decoded image, if any is ready.

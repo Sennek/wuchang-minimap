@@ -23,14 +23,15 @@
 // Hence a tiered vote, not a sum: cell packages beat `_logic` levels, which beat a bare
 // `Chapter<N>` mention, and a tier is consulted only when no higher tier saw anything.
 //
-// THE COVERAGE TIEBREAK. Two chapters' `_logic` levels are resident together in the
-// passages between chapters, so the vote there is a contested count and its winner can be
-// the chapter whose map asset stops short of the player - the map goes blank while the
-// neighbour's asset has ground under the player's feet. `coverage_tiebreak()` takes the
-// contested candidates plus, per candidate, whether that chapter's shipped asset covers
-// the player (mapmanifest::Entry::covers) and hands the answer to the one candidate that
-// does. `Hysteresis` then makes a swap wait for N consecutive agreeing samples, because a
-// swap costs ~340 MB of decode.
+// THE COVERAGE TIEBREAK. Two chapters' levels are resident together in the passages
+// between chapters - and along a seam the next chapter's CELL packages stream in while
+// this one's are still up, so even tier 3 is a contested count whose winner can be the
+// chapter whose map stops short of the player. `coverage_tiebreak()` takes the contested
+// candidates plus, per candidate, HOW MUCH ground that chapter's shipped asset has around
+// the player (mapmanifest::Entry::cover_score) and hands the answer to the one that leads.
+// `settle_chapter()` then weighs that against the chapter already resident, and
+// `Hysteresis` makes an unled swap wait for N agreeing samples, because a swap costs
+// ~340 MB of decode.
 //
 // Pure: no Windows, no UE4SS, no allocation.
 //
@@ -314,37 +315,44 @@ namespace chid
     // The coverage tiebreak
     //==================================================================================
 
-    // One chapter that scored at the vote's winning tier, and whether its shipped map has
-    // ground at the player's feet.
+    // One chapter that scored at the vote's winning tier, and how much ground its shipped
+    // map has around the player - mapdata::chapter_cover_score, 0..100.
     struct Candidate
     {
         int chapter = kNone;
         int count = 0;
-        bool covers = false;
+        int cover_score = 0;
     };
 
     constexpr int kMaxCandidates = kMaxChapter + 2;
 
-    // The chapter to use, given the vote's winner and what the assets say about the
-    // player's position. In order:
+    // How far ahead one chapter's coverage has to be before it is worth ~340 MB of decode
+    // on the spot. Two probes of the seventeen. Below it the answer still stands - it is
+    // simply not urgent, and the streak decides. Naming a proposal needs no threshold at
+    // all: see coverage_tiebreak.
+    constexpr int kCoverLeadPct = 10;
+
+    // What the contested vote should propose, from the assets alone. Nothing here knows
+    // which chapter is resident - `settle_chapter()` owns that. In order:
     //
     //   1. fewer than two candidates scored - nothing is contested, the vote stands;
-    //   2. the vote winner covers the player - it stands, so a chapter is never abandoned
-    //      while its own map has ground underfoot;
-    //   3. `current` is a candidate and covers - it stays, for the same reason;
-    //   4. exactly one candidate covers - that one wins, which is the whole point;
-    //   5. none or several cover - nothing was learned, the vote stands.
-    inline int coverage_tiebreak(const Candidate* candidates, int n, int vote_winner, int current)
+    //   2. one candidate has strictly more ground than every other - it wins, which is the
+    //      whole point of the tiebreak;
+    //   3. a tie at the top - nothing was learned, the vote stands.
+    //
+    // No margin here. Naming the better-covered chapter is free, and `settle_chapter()` is
+    // where a thin lead is made to earn its swap; a margin in both places let the vote win
+    // a seam the ground had already answered, 94 % against 76 %, on 2026-09-10.
+    inline int coverage_tiebreak(const Candidate* candidates, int n, int vote_winner)
     {
         if (candidates == nullptr || n <= 0)
         {
             return vote_winner;
         }
         int scored = 0;
-        int covering = 0;
-        int only_covering = kNone;
-        bool winner_covers = false;
-        bool current_covers = false;
+        int best = kNone;
+        int best_score = -1;
+        int second_score = -1;
         for (int i = 0; i < n; ++i)
         {
             const Candidate& c = candidates[i];
@@ -353,24 +361,22 @@ namespace chid
                 continue;
             }
             ++scored;
-            if (!c.covers)
+            if (c.cover_score > best_score)
             {
-                continue;
+                second_score = best_score;
+                best_score = c.cover_score;
+                best = c.chapter;
             }
-            ++covering;
-            only_covering = c.chapter;
-            winner_covers = winner_covers || c.chapter == vote_winner;
-            current_covers = current_covers || c.chapter == current;
+            else if (c.cover_score > second_score)
+            {
+                second_score = c.cover_score;
+            }
         }
-        if (scored < 2 || covering == 0 || winner_covers)
+        if (scored < 2 || best_score <= second_score)
         {
             return vote_winner;
         }
-        if (current_covers)
-        {
-            return current;
-        }
-        return covering == 1 ? only_covering : vote_winner;
+        return best;
     }
 
     // A swap decodes ~340 MB, so the coverage answer has to hold still first: `settle()`
@@ -421,4 +427,50 @@ namespace chid
         int pending_ = kNone;
         int streak_ = 0;
     };
+
+    // The chapter to use this sample, and the only place the chapter already resident is
+    // weighed: `proposal` is what `coverage_tiebreak()` made of the vote, and the two
+    // scores are how much ground the resident chapter's asset and the proposal's have
+    // around the player. In order:
+    //
+    //   1. nothing proposed, or the proposal is already resident - stay;
+    //   2. nothing resident yet - take the proposal at once, there is nothing to lose;
+    //   3. the proposal's ground leads the resident chapter's by kCoverLeadPct - swap at
+    //      once. This is what crossing a real boundary looks like, and waiting there
+    //      leaves the player looking at a blank map;
+    //   4. the resident chapter's ground leads by that much - stay, however the vote
+    //      counted levels. In the passages between chapters both chapters' levels are
+    //      resident and the vote's winner is whichever streamed more of them, which is how
+    //      the map used to go blank underfoot;
+    //   5. neither leads by that much - the streak decides, because a swap frees and
+    //      decodes ~340 MB.
+    //
+    // Rules 3 and 4 are the asymmetry that matters: ground AROUND the player outranks the
+    // vote in both directions, so a chapter can be neither entered nor left by a level
+    // count alone.
+    inline int settle_chapter(Hysteresis& h, int current, int proposal, int current_score,
+                              int proposal_score, int need)
+    {
+        if (proposal == kNone || proposal == current)
+        {
+            h.reset();
+            return current;
+        }
+        if (current == kNone)
+        {
+            h.reset();
+            return proposal;
+        }
+        if (proposal_score - current_score >= kCoverLeadPct)
+        {
+            h.reset();
+            return proposal;
+        }
+        if (current_score - proposal_score >= kCoverLeadPct)
+        {
+            h.reset();
+            return current;
+        }
+        return h.settle(current, proposal, need);
+    }
 } // namespace chid

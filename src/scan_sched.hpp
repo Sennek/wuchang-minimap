@@ -364,31 +364,31 @@ namespace scan
 
 
     //==================================================================================
-    // ESlateVisibility, and the two different questions asked of it
+    // ESlateVisibility: the byte a root wears while it is a screen
     //==================================================================================
     //
-    // `UWidget::Visibility` is a reflected TEnumAsByte over ESlateVisibility. Counted over
-    // the 1696 widgets of the gameplay UI dump
+    // `UWidget::Visibility` is a reflected TEnumAsByte over ESlateVisibility. One question is
+    // asked of it, at every point - the discovery prefilter over the object array, the commit
+    // that confirms a candidate, and the watchlist re-test that keeps a menu open - and it is
+    // not "is it Visible".
+    //
+    // Counted over the 1696 widgets of the gameplay UI dump
     // (`tools/lua-recon/WuchangRecon/out/dump_20260902_103010_ui.txt`): NO in-viewport widget
     // is `Visible` - the five HUD roots are `HitTestInvisible` and the area banner is
     // `SelfHitTestInvisible` - while 35 `Visible` widgets sit outside the viewport. And
     // `WB_MenuMain_C` enters the viewport as `HitTestInvisible`, turning `Visible` only while
     // the mouse cursor is up, so a menu opened with a gamepad is never `Visible` at all.
     //
-    // So the byte answers two questions, and neither of them is "is it Visible".
+    // Hence `Visible` plus `HitTestInvisible`, 107 of the 1696. Across all 20 shipped UI
+    // dumps every menu caught open wears one of the two - `WB_MenuMain_C`, `WB_Login_C`,
+    // `WB_PlumeArchive_Main_C` - and the only in-viewport root ever seen `SelfHitTestInvisible`
+    // is the area banner, which is furniture. `SelfHitTestInvisible` is the RESTING state of
+    // 1445 of the 1696: a screen that has closed itself without leaving the viewport wears it,
+    // and a root that answers it is not a menu, whatever it was when it was discovered.
     //
-    //   vis_shows()     - THE ANSWER, asked of a root already confirmed in the viewport:
-    //                     is it drawing at all. Everything except Collapsed and Hidden
-    //                     counts; an unrecognised byte counts as nothing.
-    //   vis_candidate() - THE DISCOVERY PREFILTER, asked of every widget in the object
-    //                     array, so its width is the walk's cost. `SelfHitTestInvisible`
-    //                     is the resting state of 1445 of this game's 1696 widgets and
-    //                     stays out; `Visible` plus `HitTestInvisible` is 107 of them.
-    //
-    // The asymmetry is deliberate. A root that is SelfHitTestInvisible from its first frame
-    // is never discovered, but one discovered while it was Visible or HitTestInvisible goes
-    // on keeping the menu open whatever it does afterwards, because the watchlist re-test
-    // asks vis_shows(). `IsInViewport()` is what closes a menu, never the byte.
+    // The one byte the re-test may not lean on is a MISSING one: a class with no reflected
+    // Visibility stays in, so the answer comes from `IsInViewport()` instead of from a failed
+    // read.
     enum class Vis : std::uint8_t
     {
         Visible = 0,
@@ -398,17 +398,30 @@ namespace scan
         SelfHitTestInvisible = 4,
     };
 
-    constexpr bool vis_shows(std::uint8_t v) noexcept
-    {
-        return v == static_cast<std::uint8_t>(Vis::Visible) ||
-               v == static_cast<std::uint8_t>(Vis::HitTestInvisible) ||
-               v == static_cast<std::uint8_t>(Vis::SelfHitTestInvisible);
-    }
-
-    constexpr bool vis_candidate(std::uint8_t v) noexcept
+    constexpr bool vis_menu_like(std::uint8_t v) noexcept
     {
         return v == static_cast<std::uint8_t>(Vis::Visible) ||
                v == static_cast<std::uint8_t>(Vis::HitTestInvisible);
+    }
+
+    // For the readouts: which byte a widget is wearing, `?` when there is none to read.
+    constexpr const wchar_t* vis_name(std::uint8_t v) noexcept
+    {
+        switch (static_cast<Vis>(v))
+        {
+        case Vis::Visible:
+            return L"Visible";
+        case Vis::Collapsed:
+            return L"Collapsed";
+        case Vis::Hidden:
+            return L"Hidden";
+        case Vis::HitTestInvisible:
+            return L"HitTestInvisible";
+        case Vis::SelfHitTestInvisible:
+            return L"SelfHitTestInvisible";
+        default:
+            return L"?";
+        }
     }
 
 
@@ -450,6 +463,8 @@ namespace scan
         {"WB_BossHp", "a boss health bar"},
         {"WB_BossBlood", "a boss health bar"},
         {"WB_AnimationSlot", "an animation wrapper, not a screen"},
+        // Raised by resting at a shrine, then closed without leaving the viewport.
+        {"WB_JoinDream", "the dream prompt (the Plume Archive screen is WB_PlumeArchive_Main)"},
     };
 
     // ASCII-only lowering. Widget class names in this game are ASCII (the CJK is in asset

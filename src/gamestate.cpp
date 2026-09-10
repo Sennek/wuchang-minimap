@@ -160,6 +160,9 @@ namespace gamestate
         // then a hash lookup per object. The cap must clear the whole GAME's class count.
         std::unordered_map<RC::Unreal::UClass*, unsigned char> g_wclass;
         constexpr std::size_t kWidgetClassCacheMax = 262144;
+        // The answers hold `menu_ignore_roots`, which the player can edit under a running
+        // game, so they are only good for the config generation that made them.
+        std::uint32_t g_wclass_cfg_gen = 0;
         // Class NAMES whose not-a-menu line has been printed. Never cleared, which is what
         // makes the diagnostic once-per-session.
         std::unordered_set<std::wstring> g_non_menu_logged;
@@ -864,11 +867,10 @@ namespace gamestate
 
         // Only *root* widgets are ever IsInViewport() (5-6 of ~1700 instances), and a menu
         // adds one, so "a menu is open" == "some in-viewport root is drawing and is not on
-        // the not-a-menu list". `IsInViewport()` is the whole answer; the Visibility byte
-        // only says whether a root draws (scan::vis_shows) and which widgets are worth the
-        // cost of discovery (scan::vis_candidate) - see scan_sched.hpp for why neither of
-        // those is "the byte is Visible". Only called with a validated gameplay pawn,
-        // outside the cooldown.
+        // the not-a-menu list". Two answers have to agree: `IsInViewport()`, and
+        // `scan::vis_menu_like` of the Visibility byte - see scan_sched.hpp for why that is
+        // not "the byte is Visible". Only called with a validated gameplay pawn, outside the
+        // cooldown.
 
         void set_menu_open(bool open, std::uint64_t now, const wchar_t* why, const wchar_t* route,
                            std::uint64_t lat_ms)
@@ -988,23 +990,31 @@ namespace gamestate
             return true;
         }
 
-        // IS IT DRAWING - the answer, asked of a root that is already in the viewport. A
-        // class whose visibility cannot be read at all is taken at its word: it is in the
-        // viewport, so it counts. The watchlist re-test, the commit and the FindAllOf
-        // fallback must agree on this.
+        // IS IT A SCREEN - `scan::vis_menu_like` of the byte, asked of a root already in the
+        // viewport, through the getter when the property cannot be read. A class whose
+        // visibility cannot be read at all is taken at its word: it is in the viewport, so it
+        // counts. The watchlist re-test, the commit and the FindAllOf fallback all ask this.
+        // `vis` comes back holding the byte the answer was made of, 0xFF when there was none.
+        bool widget_shows(UObject* w, std::uint8_t& vis)
+        {
+            vis = 0xFF;
+            return widget_vis(w, vis) ? scan::vis_menu_like(vis) : true;
+        }
+
         bool widget_shows(UObject* w)
         {
             std::uint8_t vis = 0xFF;
-            return widget_vis(w, vis) ? scan::vis_shows(vis) : true;
+            return widget_shows(w, vis);
         }
 
-        // IS IT WORTH AN `IsInViewport()` - the discovery prefilter, asked of every widget
-        // the walk passes. A class with no reflected Visibility stays a candidate so the
-        // commit can ask the getter instead.
+        // The same question as the discovery prefilter, asked of every widget the walk passes,
+        // so it reads the property only - the getter is a ProcessEvent call and the walk is
+        // 592467 objects. A class with no reflected Visibility stays a candidate so the commit
+        // can ask the getter instead.
         bool widget_vis_candidate(UObject* w)
         {
             std::uint8_t vis = 0xFF;
-            return !widget_vis_byte(w, vis) || scan::vis_candidate(vis);
+            return !widget_vis_byte(w, vis) || scan::vis_menu_like(vis);
         }
 
         // One ProcessEvent, SEH-guarded in uer::call_getter. Asked only of widgets the
@@ -1019,11 +1029,12 @@ namespace gamestate
         }
 
         // THE PER-PUMP TEST (10 Hz), over the watchlist only.
-        // `IsInViewport()` is the answer and the only thing that closes a menu: Wuchang
-        // takes `WB_MenuMain_C` out of the viewport but leaves its Visibility alone, so the
-        // byte alone would latch "menu open" forever - and it moves that root between
-        // Visible and HitTestInvisible WHILE the menu is open, so requiring Visible loses an
-        // open menu. `g_menu_roots` is REBUILT from this pass.
+        // Two answers close a menu, and a root has to fail neither. `IsInViewport()`, because
+        // Wuchang takes `WB_MenuMain_C` out of the viewport but leaves its Visibility alone;
+        // and `scan::vis_menu_like`, because a screen that closes itself WITHOUT leaving the
+        // viewport goes SelfHitTestInvisible instead, and that one latched the whole overlay
+        // off for fifteen minutes. Requiring `Visible` would lose a menu opened on a gamepad.
+        // `g_menu_roots` is REBUILT from this pass.
         bool menu_from_cached_roots(std::uint32_t& visible_count, std::wstring& holder)
         {
             bool menu = false;
@@ -1041,9 +1052,19 @@ namespace gamestate
                             g_menu_watch.size());
                     continue;
                 }
-                if (!widget_shows(w))
+                // The deny-list can grow under a running game - `menu_ignore_roots` is read
+                // from the config on every pump - and a root confirmed before the edit would
+                // otherwise go on holding the menu open until the next drop_pawn().
+                if (!widget_may_be_menu(w))
                 {
-                    ++i; // parked: Collapsed or Hidden
+                    g_menu_watch.erase(g_menu_watch.begin() + static_cast<std::ptrdiff_t>(i));
+                    g_force_widget_sweep = true;
+                    continue;
+                }
+                std::uint8_t vis = 0xFF;
+                if (!widget_shows(w, vis))
+                {
+                    ++i; // parked: closed itself without leaving the viewport
                     continue;
                 }
                 if (!widget_in_viewport(w))
@@ -1057,7 +1078,12 @@ namespace gamestate
                 ++visible_count;
                 if (!menu)
                 {
+                    // The byte goes with the name: "which widget is hiding the overlay" is
+                    // only half an answer without "and what is it wearing".
                     holder = w->GetName();
+                    holder += L" (";
+                    holder += scan::vis_name(vis);
+                    holder += L')';
                 }
                 menu = true;
                 ++i;
@@ -1148,6 +1174,14 @@ namespace gamestate
             if (cls == nullptr)
             {
                 return 0;
+            }
+            const std::uint32_t gen = mm::g_cfg_gen.load(std::memory_order_acquire);
+            if (gen != g_wclass_cfg_gen)
+            {
+                // A config edit may have added a class to `menu_ignore_roots`, and every
+                // memoised 1 or 3 was decided without it.
+                g_wclass_cfg_gen = gen;
+                g_wclass.clear();
             }
             const auto it = g_wclass.find(cls);
             if (it != g_wclass.end())
@@ -1305,7 +1339,7 @@ namespace gamestate
                 {
                     continue; // subtitles, damage numbers, toasts, the HUD - see scan_sched.hpp
                 }
-                // THE PREFILTER - scan::vis_candidate: Visible or HitTestInvisible, which is
+                // THE PREFILTER - scan::vis_menu_like: Visible or HitTestInvisible, which is
                 // ~107 of this game's 1696 widgets. A class with no reflected Visibility
                 // stays a candidate so the commit can ask `GetVisibility()` instead.
                 if (!widget_vis_candidate(obj))
@@ -1400,9 +1434,10 @@ namespace gamestate
                 {
                     continue; // the config's list can grow between the slice and here
                 }
-                // Re-read the byte rather than trusting the slice's. This is the ANSWER, not
-                // the prefilter: a candidate that has gone SelfHitTestInvisible since the
-                // slice saw it is still drawing, and is still a menu.
+                // Re-read the byte rather than trusting the slice's, and through the getter
+                // when the property cannot be read: a candidate that has gone
+                // SelfHitTestInvisible since the slice saw it has closed itself, and never was
+                // a menu the player is looking at.
                 if (!widget_shows(w))
                 {
                     continue;
@@ -1714,20 +1749,20 @@ namespace gamestate
             return route;
         }
 
-        // THE COVERAGE TIEBREAK (chapterid.hpp + mapdata::chapter_covers). In the passage
-        // between two chapters both chapters' `_logic` levels are resident, so the vote is
-        // a contested count whose winner can be the chapter whose map asset stops short of
-        // the player. Each candidate at the winning tier is asked whether its shipped
-        // asset has ground at the player's feet, and the one that does wins.
+        // THE COVERAGE TIEBREAK (chapterid.hpp + mapdata::chapter_cover_score). Along a seam
+        // both chapters' levels are resident - cell packages included - so the vote is a
+        // contested count whose winner can be the chapter whose map stops short of the
+        // player. Each candidate at the winning tier is asked how much ground its shipped
+        // asset has AROUND the player, and the one that leads wins.
         chid::Hysteresis g_chapter_hyst;
 
-        // How many consecutive 1 Hz samples must agree before the tiebreak overrides the
-        // vote. A swap frees and decodes ~340 MB, so a boundary the player steps over and
-        // back must not flap.
+        // How many consecutive 1 Hz samples must agree before a swap the ground under the
+        // player does not settle outright. A swap frees and decodes ~340 MB, so a boundary
+        // the player steps over and back must not flap.
         constexpr int kCoverageSwapSamples = 3;
 
-        // The chapter to use: the vote's winner, unless exactly one contested candidate
-        // has ground under the player and the streak has been held. `g_last_x/y/z` is the
+        // The chapter to use, from `chid::settle_chapter`: the tiebreak's proposal, held
+        // against the coverage of the chapter already resident. `g_last_x/y/z` is the
         // position pump's last reading, at most 100 ms old.
         int coverage_choice(const chid::Vote& vote, int detected)
         {
@@ -1740,6 +1775,26 @@ namespace gamestate
             chid::Candidate cand[chid::kMaxCandidates]{};
             int n = 0;
             const int tier = vote.best_tier();
+            // One score per chapter, memoised: `settle_chapter` asks about the resident
+            // chapter too, and that one can have dropped out of the winning tier entirely -
+            // a seam streams the next chapter's cells while this one's levels are still up.
+            // A chapter with no candidacy still has ground around the player.
+            bool asked[chid::kMaxChapter + 2]{};
+            int answer[chid::kMaxChapter + 2]{};
+            const auto score_of = [&](int ch) {
+                if (ch == chid::kNone)
+                {
+                    return 0;
+                }
+                int& memo = answer[ch + 1];
+                if (!asked[ch + 1])
+                {
+                    asked[ch + 1] = true;
+                    memo = mapdata::chapter_cover_score(ch, g_last_x, g_last_y, feet_z,
+                                                        g_tune.floor_tol);
+                }
+                return memo;
+            };
             for (int ch = chid::kDlc; ch <= chid::kMaxChapter && n < chid::kMaxCandidates; ++ch)
             {
                 const int count = vote.count(ch, tier);
@@ -1749,22 +1804,25 @@ namespace gamestate
                 }
                 cand[n].chapter = ch;
                 cand[n].count = count;
-                cand[n].covers =
-                    mapdata::chapter_covers(ch, g_last_x, g_last_y, feet_z, g_tune.floor_tol);
+                cand[n].cover_score = score_of(ch);
                 ++n;
             }
-            const int tiebreak = chid::coverage_tiebreak(cand, n, detected, g_chapter);
-            // Already on the chapter the coverage names: that is the settled state, and
-            // the vote does not pull us off it. Otherwise the streak has to be earned.
-            const int base = g_chapter == tiebreak ? tiebreak : detected;
-            const int chosen = g_chapter_hyst.settle(base, tiebreak, kCoverageSwapSamples);
-            if (tiebreak != detected && chosen == detected)
+            const int tiebreak = chid::coverage_tiebreak(cand, n, detected);
+            const int current_score = score_of(g_chapter);
+            const int proposal_score = score_of(tiebreak);
+            const int chosen = chid::settle_chapter(g_chapter_hyst, g_chapter, tiebreak,
+                                                    current_score, proposal_score,
+                                                    kCoverageSwapSamples);
+            if (chosen != tiebreak)
             {
-                MM_LOGV(L"chapter: the coverage index proposes {} over the vote's {} at tier {} "
-                        L"({} of {} sample(s) so far)",
+                MM_LOGV(L"chapter: staying on {} over the proposed {} (vote {} at tier {}; "
+                        L"ground around the player {}% / {}%; {} of {} sample(s) so far)",
+                        chosen,
                         tiebreak,
                         detected,
                         tier,
+                        current_score,
+                        proposal_score,
                         g_chapter_hyst.streak(),
                         kCoverageSwapSamples);
             }
@@ -1823,8 +1881,8 @@ namespace gamestate
                     chosen == detected
                         ? std::format(L"tier {}, {} of {} named level(s) agree",
                                       vote.best_tier(), vote.best_count(), counted)
-                        : std::format(L"coverage tiebreak: the vote said {} at tier {}, but only "
-                                      L"this chapter's map has ground at X {:.0f} Y {:.0f} Z {:.0f}",
+                        : std::format(L"coverage tiebreak: the vote said {} at tier {}, but this "
+                                      L"chapter's map has more ground around X {:.0f} Y {:.0f} Z {:.0f}",
                                       detected == chid::kDlc ? std::wstring{L"DLC"}
                                                              : std::to_wstring(detected),
                                       vote.best_tier(),
@@ -2606,7 +2664,7 @@ namespace gamestate
                  snap.widgets_seen,
                  snap.widget_sweep_period_ms,
                  snap.menu_watch_count,
-                 // The candidate population the cap applies to (scan::vis_candidate), not the roots.
+                 // The candidate population the cap applies to (scan::vis_menu_like), not the roots.
                  g_wcand_round_pub.load(std::memory_order_relaxed),
                  g_wpending_pub.load(std::memory_order_relaxed),
                  g_wcand_dropped_pub.load(std::memory_order_relaxed),

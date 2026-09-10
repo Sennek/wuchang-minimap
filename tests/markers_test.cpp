@@ -1866,37 +1866,33 @@ namespace
         CHECK(scan::menu_open_from(false, true));
         CHECK(scan::menu_open_from(true, true));
 
-        // ESLATEVISIBILITY: TWO QUESTIONS, NEITHER OF THEM "IS IT VISIBLE"
+        // ESLATEVISIBILITY: ONE QUESTION, AND IT IS NOT "IS IT VISIBLE"
         // Measured in game: no in-viewport widget is Visible during gameplay, and the pause-menu
         // root moves between Visible and HitTestInvisible WHILE the menu is open - so requiring
         // Visible loses an open menu, and loses it entirely when the menu was opened with a pad.
         const auto vis = [](scan::Vis v) { return static_cast<std::uint8_t>(v); };
 
-        // The ANSWER: a root already in the viewport is a menu unless it is parked.
-        CHECK(scan::vis_shows(vis(scan::Vis::Visible)));
-        CHECK(scan::vis_shows(vis(scan::Vis::HitTestInvisible)));
-        CHECK(scan::vis_shows(vis(scan::Vis::SelfHitTestInvisible)));
-        CHECK(!scan::vis_shows(vis(scan::Vis::Collapsed)));
-        CHECK(!scan::vis_shows(vis(scan::Vis::Hidden)));
+        CHECK(scan::vis_menu_like(vis(scan::Vis::Visible)));
+        CHECK(scan::vis_menu_like(vis(scan::Vis::HitTestInvisible)));
+        CHECK(!scan::vis_menu_like(vis(scan::Vis::Collapsed)));
+        CHECK(!scan::vis_menu_like(vis(scan::Vis::Hidden)));
 
-        // The DISCOVERY PREFILTER is narrower, and it is narrower for one reason only: cost.
-        // SelfHitTestInvisible is the resting state of 1445 of this game's 1696 widgets.
-        CHECK(scan::vis_candidate(vis(scan::Vis::Visible)));
-        CHECK(scan::vis_candidate(vis(scan::Vis::HitTestInvisible)));
-        CHECK(!scan::vis_candidate(vis(scan::Vis::SelfHitTestInvisible)));
-        CHECK(!scan::vis_candidate(vis(scan::Vis::Collapsed)));
-        CHECK(!scan::vis_candidate(vis(scan::Vis::Hidden)));
+        // SelfHitTestInvisible is the resting state of 1445 of this game's 1696 widgets, and
+        // what a screen wears after closing itself WITHOUT leaving the viewport. Counting it
+        // is what hid the whole overlay for fifteen minutes after a shrine rest, so it is out
+        // at every point - the prefilter, the commit and the watchlist re-test alike.
+        CHECK(!scan::vis_menu_like(vis(scan::Vis::SelfHitTestInvisible)));
 
-        // Anything the prefilter admits must also count as drawing, or a root could be
-        // discovered and then refused by the commit that follows it.
-        for (std::uint8_t v = 0; v < 8; ++v)
-        {
-            CHECK(!scan::vis_candidate(v) || scan::vis_shows(v));
-        }
         // A byte that is not a value of the enum counts as nothing at all.
-        CHECK(!scan::vis_shows(5));
-        CHECK(!scan::vis_shows(0xFF));
-        CHECK(!scan::vis_candidate(0xFF));
+        CHECK(!scan::vis_menu_like(5));
+        CHECK(!scan::vis_menu_like(0xFF));
+
+        // The readouts name the byte, because "which widget" is half an answer.
+        CHECK(std::wcscmp(scan::vis_name(vis(scan::Vis::SelfHitTestInvisible)),
+                          L"SelfHitTestInvisible") == 0);
+        CHECK(std::wcscmp(scan::vis_name(vis(scan::Vis::HitTestInvisible)),
+                          L"HitTestInvisible") == 0);
+        CHECK(std::wcscmp(scan::vis_name(0xFF), L"?") == 0);
 
 
         // THE NOT-A-MENU DENY-LIST
@@ -1932,6 +1928,10 @@ namespace
         CHECK(scan::builtin_non_menu_reason(L"WB_AddressInfo_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_LevelChapterInfo_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_AnimationSlot_Fade_C") != nullptr);
+        // The dream prompt, raised by resting at a shrine. Its sibling under the same asset
+        // folder IS the archive screen and must stay a menu.
+        CHECK(scan::builtin_non_menu_reason(L"WB_JoinDream_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_PlumeArchive_Main_C") == nullptr);
 
         // Every entry needs a reason and a non-empty prefix: an empty prefix matches EVERY widget.
         for (const scan::NonMenuRoot& row : scan::kNonMenuRoots)
@@ -2552,9 +2552,9 @@ namespace
             chid::Candidate one[1]{};
             one[0].chapter = 2;
             one[0].count = 4;
-            one[0].covers = false;
-            CHECK_EQ(chid::coverage_tiebreak(one, 1, 2, 2), 2);
-            CHECK_EQ(chid::coverage_tiebreak(nullptr, 0, 2, 2), 2);
+            one[0].cover_score = 0;
+            CHECK_EQ(chid::coverage_tiebreak(one, 1, 2), 2);
+            CHECK_EQ(chid::coverage_tiebreak(nullptr, 0, 2), 2);
 
             chid::Candidate c[3]{};
             c[0].chapter = 2;
@@ -2564,38 +2564,43 @@ namespace
             c[2].chapter = 4;
             c[2].count = 1;
 
-            // Only the loser covers: it wins. This is the Hillswatch passage.
-            c[0].covers = false;
-            c[1].covers = true;
-            c[2].covers = false;
-            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 3);
+            // Only the loser has ground: it wins. This is the Hillswatch passage.
+            c[0].cover_score = 0;
+            c[1].cover_score = 100;
+            c[2].cover_score = 0;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2), 3);
 
-            // The vote's winner covers: it is never abandoned.
-            c[0].covers = true;
-            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 2);
+            // The vote's winner leads: it is never abandoned, through the same rule.
+            c[0].cover_score = 100;
+            c[1].cover_score = 40;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2), 2);
 
-            // Neither covers, or both do: nothing was learned, the vote stands.
-            c[0].covers = false;
-            c[1].covers = false;
-            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 2);
-            c[0].covers = true;
-            c[1].covers = true;
-            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 2);
+            // Nobody has ground, or the lead is inside the noise: nothing was learned and
+            // the vote stands. Which chapter is resident is not this function's business -
+            // `settle_chapter()` holds the line for the one the player is standing in.
+            c[0].cover_score = 0;
+            c[1].cover_score = 0;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2), 2);
+            c[0].cover_score = 100;
+            c[1].cover_score = 100;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2), 2);
+            // Naming the better-covered chapter costs nothing, so one point is a lead here.
+            // Whether it is worth a swap is settle_chapter's question, not this one.
+            c[0].cover_score = 89;
+            c[1].cover_score = 90;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2), 3);
 
-            // Several cover and the chapter in use is one of them: it stays, so a
-            // boundary the player walks along does not swap the map back and forth.
-            c[0].covers = false;
-            c[1].covers = true;
-            c[2].covers = true;
-            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 4), 4);
-            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 3), 3);
-            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, chid::kNone), 2);
+            // THE SEAM OF 2026-09-10: the pixel under the player's feet was in chapter 1 and
+            // not in chapter 3, four chapter-1 cell packages were streamed, and the place was
+            // plainly chapter 3 - which is what the ground around him said, 94 against 76.
+            c[0].cover_score = 76;
+            c[1].cover_score = 94;
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2), 3);
 
             // A candidate with no votes at the winning tier is not a candidate.
             c[0].count = 0;
             c[2].count = 0;
-            c[1].covers = true;
-            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2, 2), 2);
+            CHECK_EQ(chid::coverage_tiebreak(c, 3, 2), 2);
         }
 
         section("the swap waits for a streak");
@@ -2625,6 +2630,91 @@ namespace
             CHECK_EQ(h.settle(2, chid::kNone, 3), 2);
             CHECK_EQ(h.settle(2, 3, 1), 3);
             CHECK_EQ(h.settle(2, 3, 0), 3);
+        }
+
+        section("ground under the player's feet outranks the vote in both directions");
+        {
+            constexpr int kNeed = 3;
+            chid::Hysteresis h{};
+
+            // Nothing resident: the first answer is taken whole.
+            CHECK_EQ(chid::settle_chapter(h, chid::kNone, 3, 0, 100, kNeed), 3);
+            CHECK_EQ(h.streak(), 0);
+
+            // Nothing proposed, or the proposal is already resident.
+            CHECK_EQ(chid::settle_chapter(h, 3, chid::kNone, 100, 0, kNeed), 3);
+            CHECK_EQ(chid::settle_chapter(h, 3, 3, 100, 100, kNeed), 3);
+
+            // Crossing a real boundary: off our ground, onto theirs. No streak to earn -
+            // waiting would leave the player looking at a blank map.
+            CHECK_EQ(chid::settle_chapter(h, 1, 3, 0, 100, kNeed), 3);
+            CHECK_EQ(h.streak(), 0);
+
+            // THE SEAM. Both chapters' levels are resident and chapter 1 streamed more of
+            // them, so the vote hands over chapter 1 sample after sample - but the ground
+            // around the player is chapter 3's. The map must not swap, and no number of
+            // samples may wear the answer down.
+            for (int i = 0; i < 20; ++i)
+            {
+                CHECK_EQ(chid::settle_chapter(h, 3, 1, 94, 76, kNeed), 3);
+            }
+            CHECK_EQ(h.streak(), 0);
+
+            // Neither asset has ground here - a hole in both. Nothing was learned from the
+            // ground, so the swap costs the full streak.
+            CHECK_EQ(chid::settle_chapter(h, 3, 1, 0, 0, kNeed), 3);
+            CHECK_EQ(chid::settle_chapter(h, 3, 1, 0, 0, kNeed), 3);
+            CHECK_EQ(chid::settle_chapter(h, 3, 1, 0, 0, kNeed), 1);
+
+            // Both are covered about equally: either map works, so the streak decides that
+            // too, and a sample that agrees with what is resident spends it.
+            h.reset();
+            CHECK_EQ(chid::settle_chapter(h, 3, 1, 100, 100, kNeed), 3);
+            CHECK_EQ(h.streak(), 1);
+            CHECK_EQ(chid::settle_chapter(h, 3, 3, 100, 100, kNeed), 3);
+            CHECK_EQ(h.streak(), 0);
+
+            // A single sample of ground around the player clears a streak that was building
+            // against it: one step back from the hole and the pending swap is gone.
+            CHECK_EQ(chid::settle_chapter(h, 3, 1, 0, 0, kNeed), 3);
+            CHECK_EQ(h.streak(), 1);
+            CHECK_EQ(chid::settle_chapter(h, 3, 1, 100, 0, kNeed), 3);
+            CHECK_EQ(h.streak(), 0);
+
+            // The two halves composed, the way the runtime composes them: a chapter in use
+            // whose ground leads is not given up, whether it is one of several with ground
+            // or never scored at the winning tier at all.
+            h.reset();
+            chid::Candidate cc[3]{};
+            cc[0].chapter = 2;
+            cc[0].count = 3;
+            cc[0].cover_score = 30;
+            cc[1].chapter = 3;
+            cc[1].count = 3;
+            cc[1].cover_score = 95;
+            cc[2].chapter = 4;
+            cc[2].count = 1;
+            cc[2].cover_score = 60;
+            const auto choose = [&](int current, int current_score) {
+                const int proposal = chid::coverage_tiebreak(cc, 3, 2);
+                const int proposal_score = proposal == 2   ? cc[0].cover_score
+                                           : proposal == 3 ? cc[1].cover_score
+                                                           : cc[2].cover_score;
+                return chid::settle_chapter(h, current, proposal, current_score, proposal_score,
+                                            kNeed);
+            };
+            CHECK_EQ(choose(3, 95), 3); // already there
+            // The chapter in use is level with the tiebreak's answer: nothing was learned
+            // from the ground, so the streak decides and it holds for now.
+            CHECK_EQ(choose(4, 90), 4);
+            CHECK_EQ(choose(4, 90), 4);
+            // The chapter in use has no ground at all: the answer is taken at once, because
+            // the player is looking at a blank map.
+            h.reset();
+            CHECK_EQ(choose(1, 0), 3);
+            // And a chapter in use with much less ground than the answer gives way too.
+            h.reset();
+            CHECK_EQ(choose(4, 60), 3);
         }
     }
 
@@ -2768,6 +2858,12 @@ namespace
             CHECK(!e.covers(16.0, 40.0, 150.0, 200.0)); // the empty right tile
             CHECK(!e.covers(16.0, 100.0, 150.0, 200.0)); // off the picture
             CHECK(!e.covers(100.0, 10.0, 150.0, 200.0));
+
+            // cover_score is `covers` at the player plus two rings of eight, so on a picture
+            // this much smaller than the 15 m probe radius every ring lands off it and only
+            // the centre can score.
+            CHECK_EQ(e.cover_score(16.0, 10.0, 150.0, 0.0), 100 / mapmanifest::kCoverProbes);
+            CHECK_EQ(e.cover_score(16.0, 10.0, -50.0, 20.0), 0);
         }
 
         // --- a /6 file whose index is unusable keeps its chapter, loses the tiebreak ---
@@ -2999,11 +3095,11 @@ namespace
                         chid::Candidate cand[2]{};
                         cand[0].chapter = 2;
                         cand[0].count = 3;
-                        cand[0].covers = c2.covers(kX, kY, kFeetZ, kTol);
+                        cand[0].cover_score = c2.cover_score(kX, kY, kFeetZ, kTol);
                         cand[1].chapter = 3;
                         cand[1].count = 3;
-                        cand[1].covers = c3.covers(kX, kY, kFeetZ, kTol);
-                        CHECK_EQ(chid::coverage_tiebreak(cand, 2, 2, 2), 3);
+                        cand[1].cover_score = c3.cover_score(kX, kY, kFeetZ, kTol);
+                        CHECK_EQ(chid::coverage_tiebreak(cand, 2, 2), 3);
                     }
                 }
 
@@ -5012,6 +5108,56 @@ namespace
             // 7: a twin is alive -> reset. 8: streak 1. 9: MARK. 10: streak 1.
             CHECK_EQ(marks, 2);
             CHECK_EQ(streak, 1);
+        }
+
+        section("met: seen, not merely stood next to");
+
+        {
+            const auto at = [](double metres) {
+                mdb::MetFacts f{};
+                f.player_pos_known = true;
+                f.actor_pos_known = true;
+                f.dist2 = metres * 100.0 * metres * 100.0; // 1 uu = 1 cm
+                return f;
+            };
+
+            // The radius is 30 m, and the boundary belongs to the inside.
+            CHECK(mdb::met_marks(at(0.0)));
+            CHECK(mdb::met_marks(at(29.9)));
+            CHECK(mdb::met_marks(at(30.0)));
+            CHECK(!mdb::met_marks(at(30.1)));
+            CHECK(!mdb::met_marks(at(200.0)));
+            CHECK_EQ(static_cast<long long>(mdb::kMetRadius), 3000LL);
+
+            // THE NOTE THE PLAYER NEVER READ. A consumed reading point keeps its actor and
+            // its position and is made invisible: standing on top of it is not meeting it,
+            // and the tracker file outlives the session, so this must never mark.
+            {
+                mdb::MetFacts f = at(1.0);
+                f.known_invisible = true;
+                CHECK(!mdb::met_marks(f));
+                CHECK(mdb::met_in_range(f)); // in range, and that is what the log counts
+            }
+
+            // A visibility read that could not answer counts as visible: refusing there
+            // would stop the tracker filling at all.
+            {
+                mdb::MetFacts f = at(1.0);
+                f.known_invisible = false; // `answered && hidden`, and it did not answer
+                CHECK(mdb::met_marks(f));
+            }
+
+            // Neither position known is never a distance.
+            {
+                mdb::MetFacts f = at(1.0);
+                f.player_pos_known = false;
+                CHECK(!mdb::met_marks(f));
+            }
+            {
+                mdb::MetFacts f = at(1.0);
+                f.actor_pos_known = false; // the (0,0,0) parking spot reads as no position
+                CHECK(!mdb::met_marks(f));
+            }
         }
 
         section("hide-found on the map surfaces");

@@ -147,7 +147,7 @@ namespace gamestate
         std::uint64_t g_wslice_us = 0;     // QPC of the last slice
         std::uint32_t g_wseen_round = 0;   // UserWidget instances this round has seen
         std::uint32_t g_wcand_dropped = 0; // candidates the cap refused this round
-        std::uint32_t g_wcand_round = 0;   // byte-Visible candidates this round produced
+        std::uint32_t g_wcand_round = 0;   // prefilter candidates this round produced
         // Candidates are ObjRefs, not raw pointers: a widget can die in the pump of delay,
         // and the commit issues a ProcessEvent at them. Committed on the next validated
         // pump, not at the end of the round - see scan::menu_open_from.
@@ -862,11 +862,13 @@ namespace gamestate
             return static_cast<UObject*>(target);
         }
 
-        // Only *root* widgets are ever IsInViewport() (5-6 of ~1700 instances), and every
-        // menu adds exactly one root whose visibility is ESlateVisibility::Visible, so "a
-        // menu is open" == "some in-viewport widget is Visible".
-        // UWidget::Visibility is a reflected TEnumAsByte and Visible == 0, so the byte is
-        // the prefilter. Only called with a validated gameplay pawn, outside the cooldown.
+        // Only *root* widgets are ever IsInViewport() (5-6 of ~1700 instances), and a menu
+        // adds one, so "a menu is open" == "some in-viewport root is drawing and is not on
+        // the not-a-menu list". `IsInViewport()` is the whole answer; the Visibility byte
+        // only says whether a root draws (scan::vis_shows) and which widgets are worth the
+        // cost of discovery (scan::vis_candidate) - see scan_sched.hpp for why neither of
+        // those is "the byte is Visible". Only called with a validated gameplay pawn,
+        // outside the cooldown.
 
         void set_menu_open(bool open, std::uint64_t now, const wchar_t* why, const wchar_t* route,
                            std::uint64_t lat_ms)
@@ -904,13 +906,13 @@ namespace gamestate
         bool widget_may_be_menu(UObject* obj);
         void remember_menu_class(UObject* w);
 
-        // Is this widget's reflected Visibility byte ESlateVisibility::Visible (0)? Raw read.
-        bool widget_is_visible_byte(UObject* w, bool& has_byte)
+        // The widget's reflected Visibility byte, raw. False when the class has no reflected
+        // `Visibility` at all, which is what sends the two predicates below to the getter.
+        bool widget_vis_byte(UObject* w, std::uint8_t& vis)
         {
             const uer::ClassLayout* layout = g_layouts.get(w);
-            std::uint8_t vis = 0xFF;
-            has_byte = uer::read_prop(layout, w, L"Visibility", vis, 1);
-            return has_byte && vis == 0;
+            vis = 0xFF;
+            return uer::read_prop(layout, w, L"Visibility", vis, 1);
         }
 
         // Is this widget already re-tested on every pump? A watchlisted root needs no
@@ -965,26 +967,48 @@ namespace gamestate
             return false;
         }
 
-        // ESlateVisibility::Visible, by the reflected byte where the class has one and by the
-        // getter where it does not. The FindAllOf sweep and the commit must agree on this.
-        bool widget_says_visible(UObject* w)
+        // The Visibility byte read through whichever route this class offers: the reflected
+        // property where it has one, `GetVisibility()` where it does not. `fallback` is the
+        // answer when neither route works.
+        bool widget_vis(UObject* w, std::uint8_t& vis)
         {
-            bool has_byte = false;
-            const bool byte_visible = widget_is_visible_byte(w, has_byte);
-            if (has_byte)
+            if (widget_vis_byte(w, vis))
             {
-                return byte_visible;
+                return true;
             }
-            // No reflected Visibility on this class: ask the getter instead.
             struct RetByte
             {
                 std::uint8_t v = 0xFF;
             } ret{};
-            return uer::call_getter(g_funcs, w, L"GetVisibility", ret) && ret.v == 0;
+            if (!uer::call_getter(g_funcs, w, L"GetVisibility", ret))
+            {
+                return false;
+            }
+            vis = ret.v;
+            return true;
         }
 
-        // One ProcessEvent, SEH-guarded in uer::call_getter. Asked only of widgets that
-        // already said Visible.
+        // IS IT DRAWING - the answer, asked of a root that is already in the viewport. A
+        // class whose visibility cannot be read at all is taken at its word: it is in the
+        // viewport, so it counts. The watchlist re-test, the commit and the FindAllOf
+        // fallback must agree on this.
+        bool widget_shows(UObject* w)
+        {
+            std::uint8_t vis = 0xFF;
+            return widget_vis(w, vis) ? scan::vis_shows(vis) : true;
+        }
+
+        // IS IT WORTH AN `IsInViewport()` - the discovery prefilter, asked of every widget
+        // the walk passes. A class with no reflected Visibility stays a candidate so the
+        // commit can ask the getter instead.
+        bool widget_vis_candidate(UObject* w)
+        {
+            std::uint8_t vis = 0xFF;
+            return !widget_vis_byte(w, vis) || scan::vis_candidate(vis);
+        }
+
+        // One ProcessEvent, SEH-guarded in uer::call_getter. Asked only of widgets the
+        // prefilter passed.
         bool widget_in_viewport(UObject* w)
         {
             struct RetBool
@@ -995,9 +1019,11 @@ namespace gamestate
         }
 
         // THE PER-PUMP TEST (10 Hz), over the watchlist only.
-        // The `Visibility` byte is a PREFILTER, never the answer: Wuchang takes
-        // `WB_MenuMain_C` out of the viewport but leaves its Visibility at Visible, so the
-        // byte alone latches "menu open" forever. `g_menu_roots` is REBUILT from this pass.
+        // `IsInViewport()` is the answer and the only thing that closes a menu: Wuchang
+        // takes `WB_MenuMain_C` out of the viewport but leaves its Visibility alone, so the
+        // byte alone would latch "menu open" forever - and it moves that root between
+        // Visible and HitTestInvisible WHILE the menu is open, so requiring Visible loses an
+        // open menu. `g_menu_roots` is REBUILT from this pass.
         bool menu_from_cached_roots(std::uint32_t& visible_count, std::wstring& holder)
         {
             bool menu = false;
@@ -1015,16 +1041,15 @@ namespace gamestate
                             g_menu_watch.size());
                     continue;
                 }
-                bool has_byte = false;
-                if (!widget_is_visible_byte(w, has_byte))
+                if (!widget_shows(w))
                 {
-                    ++i; // parked, just not ESlateVisibility::Visible
+                    ++i; // parked: Collapsed or Hidden
                     continue;
                 }
                 if (!widget_in_viewport(w))
                 {
-                    // Visible but not in the viewport = that menu is closed. The widget STAYS on
-                    // the watchlist: it is how the next open is caught in one pump.
+                    // Drawing but not in the viewport = that menu is closed. The widget STAYS
+                    // on the watchlist: it is how the next open is caught in one pump.
                     ++i;
                     continue;
                 }
@@ -1072,9 +1097,9 @@ namespace gamestate
                 {
                     continue; // the same deny-list the sliced walk uses
                 }
-                if (!widget_says_visible(w))
+                if (!widget_vis_candidate(w))
                 {
-                    continue; // not ESlateVisibility::Visible
+                    continue; // the same discovery prefilter the sliced walk uses
                 }
                 if (widget_in_viewport(w))
                 {
@@ -1280,12 +1305,10 @@ namespace gamestate
                 {
                     continue; // subtitles, damage numbers, toasts, the HUD - see scan_sched.hpp
                 }
-                // THE PREFILTER. `UWidget::Visibility` is a reflected TEnumAsByte and
-                // ESlateVisibility::Visible == 0. A class with no reflected Visibility stays a
-                // candidate so the commit can ask `GetVisibility()` instead.
-                bool has_byte = false;
-                const bool byte_visible = widget_is_visible_byte(obj, has_byte);
-                if (has_byte && !byte_visible)
+                // THE PREFILTER - scan::vis_candidate: Visible or HitTestInvisible, which is
+                // ~107 of this game's 1696 widgets. A class with no reflected Visibility
+                // stays a candidate so the commit can ask `GetVisibility()` instead.
+                if (!widget_vis_candidate(obj))
                 {
                     continue;
                 }
@@ -1377,8 +1400,10 @@ namespace gamestate
                 {
                     continue; // the config's list can grow between the slice and here
                 }
-                // Re-read the byte rather than trusting the slice's.
-                if (!widget_says_visible(w))
+                // Re-read the byte rather than trusting the slice's. This is the ANSWER, not
+                // the prefilter: a candidate that has gone SelfHitTestInvisible since the
+                // slice saw it is still drawing, and is still a menu.
+                if (!widget_shows(w))
                 {
                     continue;
                 }
@@ -1501,9 +1526,7 @@ namespace gamestate
                 return;
             }
             // The prefilter the slice applies, so an event does not offer a parked widget.
-            bool has_byte = false;
-            const bool byte_visible = widget_is_visible_byte(root, has_byte);
-            if (has_byte && !byte_visible)
+            if (!widget_vis_candidate(root))
             {
                 return;
             }
@@ -1534,7 +1557,7 @@ namespace gamestate
             {
                 if (rare(g_rare_wcap, ::GetTickCount64()))
                 {
-                    mm::logf(L"widget scan: {} byte-Visible widget(s) exceeded the {}-candidate "
+                    mm::logf(L"widget scan: {} candidate widget(s) exceeded the {}-candidate "
                              L"cap this round and were not tested (a menu root is constructed "
                              L"late, i.e. at a HIGH object-array index, so it is the most likely "
                              L"one to be cut){}",
@@ -1879,8 +1902,8 @@ namespace gamestate
             g_menu_holder = holder;
             set_menu_open(watch_menu,
                           now,
-                          watch_menu ? L"a watchlist root is in the viewport and Visible"
-                                     : L"no root is in the viewport and Visible",
+                          watch_menu ? L"a watchlist root is in the viewport and drawing"
+                                     : L"no root is in the viewport and drawing",
                           L"the watchlist, on a UI event",
                           0);
             if (!g_have_last_snap)
@@ -2140,10 +2163,10 @@ namespace gamestate
             const std::uint64_t lat_ms = watch_menu ? 0 : (commit_menu ? g_commit_lat_ms : 0);
             set_menu_open(menu,
                           now,
-                          menu ? (watch_menu ? L"a watchlist root is in the viewport and Visible"
+                          menu ? (watch_menu ? L"a watchlist root is in the viewport and drawing"
                                              : L"the discovery walk just confirmed a new in-viewport "
-                                               L"Visible root")
-                               : L"no root is in the viewport and Visible",
+                                               L"drawing root")
+                               : L"no root is in the viewport and drawing",
                           route,
                           lat_ms);
         }
@@ -2163,6 +2186,55 @@ namespace gamestate
             }
         }
 
+        // THE GAME'S OWN ACTIVE INPUT DEVICE. `DCSInputType` is a reflected byte on
+        // `DCSPlayerControllerBase_C`: 1 while the player is on keyboard and mouse, 0 while a
+        // pad has it, and the game flips it the moment either is touched. Measured in game
+        // against the WuchangRecon input watch. A value this mapping does not know is
+        // `Unknown` rather than a guess, and the decision is logged once per distinct raw
+        // value, so a build that renumbers the enum is visible instead of silently wrong.
+        std::uint8_t g_device_raw_logged = 0xFE; // never a real value, so the first read logs
+        bool g_device_absent_logged = false;
+
+        mm::InputDevice read_input_device()
+        {
+            if (!uer::alive(g_controller))
+            {
+                return mm::InputDevice::Unknown;
+            }
+            const uer::ClassLayout* cl = g_layouts.get(g_controller.obj);
+            std::uint8_t raw = 0xFF;
+            if (!uer::read_prop(cl, g_controller.obj, L"DCSInputType", raw, 1))
+            {
+                if (!g_device_absent_logged)
+                {
+                    g_device_absent_logged = true;
+                    mm::log(L"the player controller has no readable 'DCSInputType' - the active "
+                            L"input device stays unknown, and everything that depends on it falls "
+                            L"back to whether a pad is connected");
+                }
+                return mm::InputDevice::Unknown;
+            }
+            const mm::InputDevice dev = raw == 1   ? mm::InputDevice::Kbm
+                                        : raw == 0 ? mm::InputDevice::Pad
+                                                   : mm::InputDevice::Unknown;
+            if (raw != g_device_raw_logged)
+            {
+                g_device_raw_logged = raw;
+                if (dev == mm::InputDevice::Unknown)
+                {
+                    mm::logf(L"input device: DCSInputType = {} is not a value this build knows "
+                             L"(0 = gamepad, 1 = keyboard and mouse) - treating the device as "
+                             L"unknown",
+                             raw);
+                }
+                else
+                {
+                    MM_LOGV(L"input device: DCSInputType = {} ({})", raw, mm::device_name(dev));
+                }
+            }
+            return dev;
+        }
+
         // The snapshot: position, teleport detection, the view target, the grace timer.
         // Returns false when it published a hidden snapshot instead and the pump is done.
         bool pump_publish(std::uint64_t now)
@@ -2178,6 +2250,7 @@ namespace gamestate
                 static_cast<std::uint32_t>(scan::sweep_period_ms(g_sweep, now));
             snap.menu_change_ms = g_menu_change_ms;
             snap.pawn_is_gameplay = true;
+            snap.device = read_input_device();
             copy_to(snap.menu_holder, std::size(snap.menu_holder), g_menu_holder);
 
             UObject* pawn = g_pawn.obj;
@@ -2506,9 +2579,9 @@ namespace gamestate
             return;
         }
         mm::logf(L"state: pawn {} pos {:.0f} {:.0f} {:.0f} yaw {:.0f} ({}) | chapter {} ({} level(s), "
-                 L"map \"{}\") | pawn-view {} | menu {} "
+                 L"map \"{}\") | pawn-view {} | input {} | menu {} "
                  L"(last change {} ms ago, {} cached root(s)) | widgets {}/{} | "
-                 L"sweep every {} ms (watchlist {}) | byte-Visible {} last round, {} awaiting "
+                 L"sweep every {} ms (watchlist {}) | candidates {} last round, {} awaiting "
                  L"a commit, {} over the cap | {}{} publishes",
                  snap.has_pawn ? L"yes" : L"NO",
                  snap.x,
@@ -2525,6 +2598,7 @@ namespace gamestate
                      return std::wstring{key.begin(), key.end()};
                  }(),
                  snap.is_pawn_view ? L"yes" : L"no",
+                 mm::device_name(snap.device),
                  snap.menu_open ? L"OPEN" : L"no",
                  snap.menu_change_ms == 0 ? 0ull : ::GetTickCount64() - snap.menu_change_ms,
                  snap.menu_roots_cached,
@@ -2532,7 +2606,7 @@ namespace gamestate
                  snap.widgets_seen,
                  snap.widget_sweep_period_ms,
                  snap.menu_watch_count,
-                 // `byte-Visible` is the population the candidate cap applies to, not the roots.
+                 // The candidate population the cap applies to (scan::vis_candidate), not the roots.
                  g_wcand_round_pub.load(std::memory_order_relaxed),
                  g_wpending_pub.load(std::memory_order_relaxed),
                  g_wcand_dropped_pub.load(std::memory_order_relaxed),

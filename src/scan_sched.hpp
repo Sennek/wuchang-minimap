@@ -364,14 +364,63 @@ namespace scan
 
 
     //==================================================================================
-    // In-viewport `Visible` roots that are not menus
+    // ESlateVisibility, and the two different questions asked of it
     //==================================================================================
     //
-    // "A menu is open" == "some in-viewport widget's Visibility is
-    // ESlateVisibility::Visible". The gameplay HUD roots are all HitTestInvisible /
-    // SelfHitTestInvisible so they never qualify, but transient combat furniture such as
-    // the subtitle widget (`WB_ZiMu`, ZiMu = subtitles) is authored as plain `Visible`
-    // and does.
+    // `UWidget::Visibility` is a reflected TEnumAsByte over ESlateVisibility. Counted over
+    // the 1696 widgets of the gameplay UI dump
+    // (`tools/lua-recon/WuchangRecon/out/dump_20260902_103010_ui.txt`): NO in-viewport widget
+    // is `Visible` - the five HUD roots are `HitTestInvisible` and the area banner is
+    // `SelfHitTestInvisible` - while 35 `Visible` widgets sit outside the viewport. And
+    // `WB_MenuMain_C` enters the viewport as `HitTestInvisible`, turning `Visible` only while
+    // the mouse cursor is up, so a menu opened with a gamepad is never `Visible` at all.
+    //
+    // So the byte answers two questions, and neither of them is "is it Visible".
+    //
+    //   vis_shows()     - THE ANSWER, asked of a root already confirmed in the viewport:
+    //                     is it drawing at all. Everything except Collapsed and Hidden
+    //                     counts; an unrecognised byte counts as nothing.
+    //   vis_candidate() - THE DISCOVERY PREFILTER, asked of every widget in the object
+    //                     array, so its width is the walk's cost. `SelfHitTestInvisible`
+    //                     is the resting state of 1445 of this game's 1696 widgets and
+    //                     stays out; `Visible` plus `HitTestInvisible` is 107 of them.
+    //
+    // The asymmetry is deliberate. A root that is SelfHitTestInvisible from its first frame
+    // is never discovered, but one discovered while it was Visible or HitTestInvisible goes
+    // on keeping the menu open whatever it does afterwards, because the watchlist re-test
+    // asks vis_shows(). `IsInViewport()` is what closes a menu, never the byte.
+    enum class Vis : std::uint8_t
+    {
+        Visible = 0,
+        Collapsed = 1,
+        Hidden = 2,
+        HitTestInvisible = 3,
+        SelfHitTestInvisible = 4,
+    };
+
+    constexpr bool vis_shows(std::uint8_t v) noexcept
+    {
+        return v == static_cast<std::uint8_t>(Vis::Visible) ||
+               v == static_cast<std::uint8_t>(Vis::HitTestInvisible) ||
+               v == static_cast<std::uint8_t>(Vis::SelfHitTestInvisible);
+    }
+
+    constexpr bool vis_candidate(std::uint8_t v) noexcept
+    {
+        return v == static_cast<std::uint8_t>(Vis::Visible) ||
+               v == static_cast<std::uint8_t>(Vis::HitTestInvisible);
+    }
+
+
+    //==================================================================================
+    // In-viewport drawing roots that are not menus
+    //==================================================================================
+    //
+    // "A menu is open" == "some in-viewport widget is drawing and is not furniture". The
+    // gameplay HUD roots are in the viewport for the whole session - `WB_MainUI`, the
+    // interaction prompt, the autosave spinner, the dialogue letterbox, the pickup toast -
+    // and so is transient combat furniture such as the subtitle widget (`WB_ZiMu`, ZiMu =
+    // subtitles). None of them is a menu.
     //
     // Hence a deny-list of class-name prefixes, matched case-insensitively. It fails safe
     // - an unknown root is still a menu - and every first-time root is logged by name.
@@ -395,6 +444,7 @@ namespace scan
         {"WB_MainUI", "the gameplay HUD"},
         {"WB_HUD", "the gameplay HUD"},
         {"WB_AddressInfo", "the area-name banner"},
+        {"WB_LevelChapterInfo", "the chapter banner"},
         {"WB_NPCBG", "the dialogue letterbox"},
         {"WB_GameSaving", "the autosave spinner"},
         {"WB_BossHp", "a boss health bar"},

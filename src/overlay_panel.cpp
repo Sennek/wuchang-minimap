@@ -2154,10 +2154,13 @@ namespace overlay
                             g_mslice_counts.faint,
                             g_mslice_counts.unreachable,
                             g_mslice_ms);
-                ImGui::Text("pawn %s   pawn-view %s   menu %s   state age %llu ms",
+                ImGui::Text("pawn %s   pawn-view %s   menu %s   input %s   state age %llu ms",
                             snap.has_pawn ? "yes" : "no",
                             snap.is_pawn_view ? "yes" : "no",
                             snap.menu_open ? "OPEN" : "no",
+                            snap.device == mm::InputDevice::Kbm   ? "keyboard and mouse"
+                            : snap.device == mm::InputDevice::Pad ? "gamepad"
+                                                                  : "unknown",
                             static_cast<unsigned long long>(age));
                 ImGui::Text("widgets seen %u, visible in viewport %u   location via %s",
                             snap.widgets_seen,

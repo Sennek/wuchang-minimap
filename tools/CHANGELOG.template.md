@@ -1,5 +1,17 @@
 # WuchangMinimap - changelog
 
+## Unreleased
+
+**Fixed**
+
+- A menu opened with a gamepad hides the minimap at once, instead of only once the mouse was moved.
+- The minimap no longer comes back over a menu a second after that menu opens.
+- The chapter banner is no longer mistaken for a menu.
+
+**Notes**
+
+- Thanks to the player who reported the gamepad case and pointed at the menu detector.
+
 ## 1.1.0
 
 **Fixed**

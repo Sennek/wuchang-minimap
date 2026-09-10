@@ -30,6 +30,24 @@
 
 namespace mm
 {
+    // WHICH DEVICE THE PLAYER IS USING, from the game's own `DCSInputType` - it flips the
+    // moment either device is touched, which is what makes it different from "a pad is
+    // connected". `Unknown` is the honest answer whenever the property cannot be read or
+    // carries a value this build does not know, and every consumer must have a fallback.
+    enum class InputDevice : std::uint8_t
+    {
+        Unknown = 0,
+        Kbm,
+        Pad,
+    };
+
+    constexpr const wchar_t* device_name(InputDevice d) noexcept
+    {
+        return d == InputDevice::Kbm ? L"keyboard and mouse"
+             : d == InputDevice::Pad ? L"gamepad"
+                                     : L"unknown";
+    }
+
     // Published by the game thread. Trivially copyable: the seqlock memcpy's it.
     struct Snapshot
     {
@@ -42,7 +60,10 @@ namespace mm
         bool has_pawn = false;
         bool pawn_is_gameplay = false; // pawn class contains BP_CombatCharacter_Player
         bool is_pawn_view = false;     // view target == pawn (false in menus and cutscenes)
-        bool menu_open = true;         // some in-viewport root widget is ESlateVisibility::Visible
+        bool menu_open = true;         // some in-viewport root widget is drawing and is not furniture
+        // Which device the player is actually using, as the GAME reports it - not "a pad is
+        // plugged in". Unknown until the controller answers, and whenever a build renumbers it.
+        InputDevice device = InputDevice::Unknown;
         bool loc_from_function = false; // true: K2_GetActorLocation; false: RootComponent property
         bool transition = false;        // a level transition / pawn change cooldown is running
 
@@ -259,8 +280,8 @@ namespace mm
         char found_profile[32] = "auto";
         bool first_run_toast = true;
         // Extra widget class-name prefixes that are NOT menus, on top of `kNonMenuRoots` in
-        // scan_sched.hpp - "a menu is open" means "an in-viewport widget Visibility is Visible",
-        // which a combat subtitle also satisfies. Comma-separated, matched as a prefix.
+        // scan_sched.hpp - "a menu is open" means "an in-viewport widget is drawing", which the
+        // HUD and a combat subtitle also satisfy. Comma-separated, matched as a prefix.
         char menu_ignore_roots[192] = "";
 
         //=== The full map ==========================================================

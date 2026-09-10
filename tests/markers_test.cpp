@@ -1856,8 +1856,8 @@ namespace
             CHECK(static_cast<std::uint64_t>(slices * scan::kWidgetSlicePeriodMs) < def.unknown_ms);
             CHECK(static_cast<std::uint64_t>(slices * scan::kWidgetSlicePeriodMs) > def.fast_ms);
         }
-        // The candidate cap covers every widget whose Visibility BYTE says Visible - this game
-        // leaves it set on widgets removed from the viewport - and the list fills in index order.
+        // The candidate cap covers every widget the discovery prefilter passes - this game
+        // leaves Visibility set on widgets removed from the viewport - and it fills in index order.
         CHECK(scan::kWidgetCandidateMax >= 256);
 
         // The menu answer ORs two fresh tests: a watchlist root in the viewport, or a new root.
@@ -1866,10 +1866,44 @@ namespace
         CHECK(scan::menu_open_from(false, true));
         CHECK(scan::menu_open_from(true, true));
 
+        // ESLATEVISIBILITY: TWO QUESTIONS, NEITHER OF THEM "IS IT VISIBLE"
+        // Measured in game: no in-viewport widget is Visible during gameplay, and the pause-menu
+        // root moves between Visible and HitTestInvisible WHILE the menu is open - so requiring
+        // Visible loses an open menu, and loses it entirely when the menu was opened with a pad.
+        const auto vis = [](scan::Vis v) { return static_cast<std::uint8_t>(v); };
+
+        // The ANSWER: a root already in the viewport is a menu unless it is parked.
+        CHECK(scan::vis_shows(vis(scan::Vis::Visible)));
+        CHECK(scan::vis_shows(vis(scan::Vis::HitTestInvisible)));
+        CHECK(scan::vis_shows(vis(scan::Vis::SelfHitTestInvisible)));
+        CHECK(!scan::vis_shows(vis(scan::Vis::Collapsed)));
+        CHECK(!scan::vis_shows(vis(scan::Vis::Hidden)));
+
+        // The DISCOVERY PREFILTER is narrower, and it is narrower for one reason only: cost.
+        // SelfHitTestInvisible is the resting state of 1445 of this game's 1696 widgets.
+        CHECK(scan::vis_candidate(vis(scan::Vis::Visible)));
+        CHECK(scan::vis_candidate(vis(scan::Vis::HitTestInvisible)));
+        CHECK(!scan::vis_candidate(vis(scan::Vis::SelfHitTestInvisible)));
+        CHECK(!scan::vis_candidate(vis(scan::Vis::Collapsed)));
+        CHECK(!scan::vis_candidate(vis(scan::Vis::Hidden)));
+
+        // Anything the prefilter admits must also count as drawing, or a root could be
+        // discovered and then refused by the commit that follows it.
+        for (std::uint8_t v = 0; v < 8; ++v)
+        {
+            CHECK(!scan::vis_candidate(v) || scan::vis_shows(v));
+        }
+        // A byte that is not a value of the enum counts as nothing at all.
+        CHECK(!scan::vis_shows(5));
+        CHECK(!scan::vis_shows(0xFF));
+        CHECK(!scan::vis_candidate(0xFF));
+
 
         // THE NOT-A-MENU DENY-LIST
-        // Furniture the game authors as plain Visible - ZiMu is its own name for SUBTITLES -
-        // needs a named exception to the "in-viewport and Visible" rule.
+        // The HUD roots are in the viewport for the whole session and the answer no longer
+        // asks for Visible, so this list is the only thing keeping them from hiding the
+        // minimap - as it always was for furniture the game authors as plain Visible
+        // (ZiMu is its own name for SUBTITLES).
         std::printf("-- the not-a-menu deny-list --\n");
 
         // Both character widths: the runtime matches a wchar_t class name, the table is ASCII.
@@ -1888,13 +1922,15 @@ namespace
         CHECK(scan::builtin_non_menu_reason(L"WB_PlumeTransit_C") == nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_Setting_C") == nullptr);
 
-        // The HUD roots. All HitTestInvisible, so the Visibility test already excludes them.
+        // The HUD roots. All HitTestInvisible or SelfHitTestInvisible and permanently in the
+        // viewport, so nothing but this list excludes them.
         CHECK(scan::builtin_non_menu_reason(L"WB_MainUI_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_InteractionTips_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_ShowAddItemMain_New_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_NPCBG_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_GameSaving_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_AddressInfo_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_LevelChapterInfo_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_AnimationSlot_Fade_C") != nullptr);
 
         // Every entry needs a reason and a non-empty prefix: an empty prefix matches EVERY widget.

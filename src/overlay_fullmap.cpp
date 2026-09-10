@@ -1611,7 +1611,12 @@ namespace overlay
             //--------------------------------------------------------------------------
             //
             // Two columns, built from the config so a rebound key is what the player is
-            // told, with the gamepad column present only while a pad is connected.
+            // told. The gamepad column is dropped only when the GAME says the player is on
+            // keyboard and mouse (mm::Snapshot::device): a connected pad is not evidence that
+            // anyone is holding it, and an unknown device keeps the column rather than
+            // hiding controls from a pad player.
+            const bool pad_help = cfg.map_gamepad && gp.connected &&
+                                  snap.device != mm::InputDevice::Kbm;
             if (g_map_help)
             {
                 struct Row
@@ -1647,7 +1652,7 @@ namespace overlay
                                    cfg.waypoint_nearest_key, cfg.highlight_key,
                                    cfg.highlight_enabled,
                                    cfg.highlight_mode == mm::HighlightMode::Hold,
-                                   cfg.map_gamepad && gp.connected};
+                                   pad_help};
                 static std::vector<Row> left;
                 static std::vector<Row> right;
                 static HelpKey have{};
@@ -1680,7 +1685,7 @@ namespace overlay
                 add(left, "Stats", "collection statistics");
                 add(left, "F1 or H", "this legend");
                 add(left, key_name_ascii(cfg.map_key) + ", Esc", "close the map");
-                if (cfg.map_gamepad && gp.connected)
+                if (pad_help)
                 {
                     add(right, "gamepad", "");
                     add(right, "left stick", "pan");

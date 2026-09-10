@@ -1,79 +1,60 @@
 # WuchangMinimap — developer documentation
 
-A UE4SS C++ mod for **Wuchang: Fallen Feathers** (Unreal Engine 5.1.1, Windows x64, DX12).
-Toolchain, build, the navmesh and marker pipelines, and the runtime internals. For
-installing and using the mod, see the [user README](../README.md).
+A UE4SS C++ mod for **Wuchang: Fallen Feathers** (Unreal Engine 5.1.1, Windows x64, DX12): a
+minimap, a full chapter map, a compass strip, an x-ray highlight and a collection tracker, drawn
+by the mod's own Dear ImGui context on a MinHook'd DX12 `Present`. The map background is generated
+offline from the game's own Recast navmesh.
 
-The mod ships a minimap, a [full map](#the-full-map-m), [markers](#markers), a collection
-tracker, a [compass](#the-compass-strip) and an [x-ray highlight](#the-x-ray-highlight-tab);
-the map background is built offline from the game's own navmesh. It also carries the opt-in
-[`navmesh_dump`](#navmesh-dumper) module, which locates the game's Recast/Detour navmesh in
-memory and writes the streamed-in tiles out as JSON.
+**This file is the toolchain, the two offline pipelines and the map of the source.** Everything
+else is documented where it lives and is not repeated here: how a module works is the prose block
+at the top of its own file, what a config key does is the comment beside it in the config file,
+and how to use the mod is the [user README](../README.md). Cutting a release is `docs/RELEASE.md`.
 
-Paths here (`src\...`, `tools\...`, `markers\...`, `maps\...`) are relative to the
-**repository root**, the parent of this `docs\` folder.
-
-The version is one `#define` in **`src/version.hpp`** — the DLL's `ModVersion`, the start-up
-log line, the F2 panel header and `tools/package.ps1` all read it, and
-`package.ps1 -Version x.y.z` is the only thing that changes it.
+Paths (`src\...`, `tools\...`, `maps\...`) are relative to the **repository root**, the parent of
+this `docs\` folder.
 
 ---
 
 ## Build
 
-The order matters, and none of it is discoverable: this project cannot `include("RE-UE4SS")`
-the way the UE4SS docs describe (see [Why an import library?](#why-an-import-library)), so
-the toolchain is assembled by hand once. A clean Windows 10/11 x64 box is steps 1-6; after
-that, `.\build.ps1`.
+Steps 1-6 once per machine; after that, `.\build.ps1`. This project cannot `include("RE-UE4SS")`
+the way the UE4SS docs describe — see [The UE4SS pin](#the-ue4ss-pin) — so the toolchain is
+assembled by hand.
+
+Machine paths come from parameters or environment variables, never from a hardcoded default:
+`WUCHANG_UE4SS_ROOT`, `WUCHANG_XMAKE`, `WUCHANG_MSVC_TOOLSET`, `WUCHANG_GAME_ROOT`,
+`WUCHANG_UE4SS_DLL`, `WUCHANG_VS_PATH`, `WUCHANG_PAK`.
 
 ### 1. Visual Studio with the C++ toolchain
 
-<https://visualstudio.microsoft.com/downloads/> — any edition. Install the **"Desktop
-development with C++"** workload, which also brings the Windows SDK (`d3d12.h` / `dxgi.h`).
+<https://visualstudio.microsoft.com/downloads/> — any edition, with the **"Desktop development
+with C++"** workload, which also brings the Windows SDK (`d3d12.h` / `dxgi.h`).
 
-The mod is built and tested with **MSVC toolset 14.40.33807**. `build.ps1` prefers that
-toolset and otherwise takes the newest on the box, warning that the choice is untested
-(`tools\vs_detect.ps1` does the discovery, via `vswhere`). To pin it:
+**MSVC toolset 14.40.33807** is the tested one; `build.ps1` prefers it and otherwise takes the
+newest on the box with a warning (`tools\vs_detect.ps1` does the discovery, via `vswhere`). Pin it
+with `-Toolset 14.40.33807` or `$env:WUCHANG_MSVC_TOOLSET`. If it is not offered, it is under
+*Individual components* as "MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.40-17.10)".
 
-```powershell
-.\build.ps1 -Toolset 14.40.33807
-$env:WUCHANG_MSVC_TOOLSET = '14.40.33807'    # or set it once for the session
-```
-
-If 14.40.33807 is not offered, it is under *Individual components* in the VS Installer as
-"MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.40-17.10)".
-
-> VS 2026 Insiders ships **no `vcvars64.bat`**, so `gen_ue4ss_importlib.ps1` enters the
-> developer environment through `Microsoft.VisualStudio.DevShell.dll` + `Enter-VsDevShell`
-> rather than a batch file. It works the same on a normal VS install.
+> VS 2026 Insiders ships no `vcvars64.bat`, so `gen_ue4ss_importlib.ps1` enters the developer
+> environment through `Microsoft.VisualStudio.DevShell.dll` + `Enter-VsDevShell` instead. It works
+> the same on a normal install.
 
 ### 2. xmake 3.1.1
 
-<https://github.com/xmake-io/xmake/releases/tag/v3.1.1> — the portable
-`xmake-v3.1.1.win64.zip` is enough. **3.1.1 is the only version this project builds with**,
-and `xmake.lua` pins it with `set_xmakever("3.1.1")`.
-
-`build.ps1` looks for `xmake.exe` at `F:\Tools\xmake\xmake.exe` and then on `PATH`. Point it
-at yours with either:
-
-```powershell
-.\build.ps1 -Xmake xmake.exe            # anything on PATH
-$env:WUCHANG_XMAKE = 'C:\tools\xmake\xmake.exe'
-```
+<https://github.com/xmake-io/xmake/releases/tag/v3.1.1> — the portable `xmake-v3.1.1.win64.zip` is
+enough. **3.1.1 is the only version this project builds with**; `xmake.lua` pins it with
+`set_xmakever("3.1.1")`. `build.ps1` looks for `xmake.exe` at `F:\Tools\xmake\xmake.exe`, then on
+`PATH`; point it at yours with `-Xmake` or `$env:WUCHANG_XMAKE`.
 
 ### 3. Install UE4SS into the game
 
-**UE4SS for Wuchang: Fallen Feathers**, Nexus mod **384**, file version **1.79**
-(26 Feb 2026) — build **`v3.0.1-934-gcac01ee2`**, which is what `ue4ss\UE4SS.log` calls
-`UE4SS - v3.0.1 Beta #0 - Git SHA #cac01ee2`. It is not interchangeable: the mod links
-against this DLL's export table, so any other build fails to load. Unzip it into
+**UE4SS for Wuchang: Fallen Feathers**, Nexus mod **384**, file version **1.79** — build
+**`v3.0.1-934-gcac01ee2`**, which `ue4ss\UE4SS.log` calls `UE4SS - v3.0.1 Beta #0 - Git SHA
+#cac01ee2`. It is not interchangeable: the mod links against this DLL's export table, so **any
+other build fails to load, silently**. Unzip it into `<Game>\Project_Plague\Binaries\Win64\`.
 
-```
-<Game>\Project_Plague\Binaries\Win64\
-```
-
-Then check that `HookInitGameState = 0` in `ue4ss\UE4SS-settings.ini` — 1.79 already ships
-it set — or the game crashes a third of a second into loading with or without this mod.
+Then check that `HookInitGameState = 0` in `ue4ss\UE4SS-settings.ini` — 1.79 ships it set — or the
+game crashes a third of a second into loading, with or without this mod.
 
 Step 5 needs the installed `UE4SS.dll` whether or not you intend to run the game.
 
@@ -88,52 +69,24 @@ cd F:\Tools\RE-UE4SS
 git checkout --recurse-submodules=no cac01ee29ca2e2fa723ae3a4e14f0d52b70b226d
 ```
 
-**No submodules are needed.** RE-UE4SS has two — `deps/first/Unreal` and
-`deps/first/patternsleuth` — and neither is on this project's include path; every directory
-`xmake.lua` asks for (`UE4SS/include`, `UE4SS/generated_include`, `deps/first/*/include`) is
-tracked directly in the repository (`git ls-files --error-unmatch deps/first/DynamicOutput/include`).
-
-`deps/first/Unreal` **cannot be cloned** by anyone outside the Epic Games GitHub
-organisation: it points at the private `Re-UE4SS/UEPseudo`, derived from Unreal Engine
-source. That is why this project links against a synthesised import library
-(see [Why an import library?](#why-an-import-library)).
-
-To take the submodules anyway, rewrite the protocol rather than editing your global git
-config, and expect `Unreal` to fail:
-
-```powershell
-git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init --recursive
-```
-
-`build.ps1` checks for `UE4SS/include/Mod/CppUserModBase.hpp` under the root and reports a
-wrong path. Point it at your clone with:
-
-```powershell
-.\build.ps1 -Ue4ssRoot D:\src\RE-UE4SS
-$env:WUCHANG_UE4SS_ROOT = 'D:\src\RE-UE4SS'
-```
+**No submodules are needed** — every directory `xmake.lua` asks for (`UE4SS/include`,
+`UE4SS/generated_include`, `deps/first/*/include`) is tracked directly in the repository, and
+`deps/first/Unreal` cannot be cloned by anyone outside the Epic Games GitHub organisation anyway.
+`build.ps1` checks for `UE4SS/include/Mod/CppUserModBase.hpp` under the root and reports a wrong
+path; point it at your clone with `-Ue4ssRoot` or `$env:WUCHANG_UE4SS_ROOT`.
 
 ### 5. Generate the import library (once per UE4SS build)
 
-No UE4SS release asset carries an import library, so one is synthesised from the installed
-DLL's export table:
+No UE4SS release asset carries an import library, so one is synthesised from the installed DLL's
+export table — `vswhere`, then `dumpbin /exports`, then `lib.exe` over the generated `.def`:
 
 ```powershell
 .\tools\gen_ue4ss_importlib.ps1 -Ue4ssDll '<Game>\Project_Plague\Binaries\Win64\ue4ss\UE4SS.dll'
 ```
 
-It finds Visual Studio itself (`vswhere`; override with `-VsPath` or `WUCHANG_VS_PATH`), runs
-`dumpbin /exports`, writes a `.def` and feeds it to `lib.exe`:
-
-```
-Wrote <repo>\sdk\UE4SS.def (4239 exports)
-Wrote <repo>\sdk\lib\UE4SS.lib (2213 KB)
-```
-
-`-Ue4ssDll` has **no default**: it must be the DLL from the game folder you will run.
-`WUCHANG_UE4SS_DLL` works instead of the parameter. Both outputs are committed, so this step
-is only needed when moving to a different UE4SS build — see
-[Why `sdk/lib/UE4SS.lib` is committed](#why-sdklibue4sslib-is-committed).
+`-Ue4ssDll` has **no default**: it must be the DLL from the game folder you will run
+(`WUCHANG_UE4SS_DLL` works instead). Both outputs — `sdk\UE4SS.def` and `sdk\lib\UE4SS.lib` — are
+committed, so this step is only needed when moving UE4SS builds.
 
 ### 6. Build
 
@@ -151,32 +104,14 @@ xmake build markers_test
 xmake run markers_test <repo>\markers
 ```
 
-| Want | Command |
-|---|---|
-| Debug configuration | `.\build.ps1 -Mode Game__Debug__Win64` |
-| Full rebuild | `.\build.ps1 -Rebuild` |
-| Skip the offline tests | `.\build.ps1 -NoTests` |
+`-Mode Game__Debug__Win64` for the debug configuration, `-Rebuild` for a full rebuild, `-NoTests`
+to skip the offline tests. Output is `build\windows\x64\<Mode>\main.dll` plus its `.pdb`, and `0
+failure(s)` from the tests; `main.dll` exports `start_mod` / `uninstall_mod`.
 
-> `xmake clean --all` discards xmake's cached Visual Studio environment along with the
-> intermediates, so it must run **before** `xmake f`, never after — otherwise the next
-> compile starts with an empty `INCLUDE` and dies on `#include <memory>`.
-> `.\build.ps1 -Rebuild` does it in that order.
-
-### Expected output
-
-```
-build\windows\x64\Game__Shipping__Win64\main.dll     4.0 MB
-build\windows\x64\Game__Shipping__Win64\main.pdb    24.3 MB
-```
-
-and, from the tests, `0 failure(s)`. A full rebuild takes about 20 seconds. `main.dll`
-exports `start_mod` / `uninstall_mod` and imports 16 symbols from `UE4SS.dll`.
-
-Our own targets are built with `set_warnings("all", "error")` — `/W3 /WX`, so a warning in
-`src/` or `tests/` fails the build. `third_party/` is compiled by its own targets at the
-default warning level. The mod DLL also gets `/guard:cf`, `/DYNAMICBASE`, `/HIGHENTROPYVA`
-and `/PDBALTPATH:%_PDB%`; see `hardened_link()` in `xmake.lua` for why CFG is safe in a
-process we hook, and for two xmake flag-plumbing traps.
+`src/` and `tests/` build with `set_warnings("all", "error")` — `/W3 /WX`, so **a new warning
+fails the build**; do not drop `/WX`. `third_party/` is compiled by its own targets at the default
+level. The mod DLL also gets `/guard:cf`, `/DYNAMICBASE`, `/HIGHENTROPYVA` and
+`/PDBALTPATH:%_PDB%`; see `hardened_link()` in `xmake.lua`.
 
 ### Troubleshooting a first build
 
@@ -190,26 +125,38 @@ process we hook, and for two xmake flag-plumbing traps.
 | `static_assert ... requires compiling with /utf-8` | building without `xmake.lua`'s flags; fmt's `base.h` hard-requires `/utf-8` |
 | Link errors on `RC::` symbols | the RE-UE4SS checkout and `sdk/lib/UE4SS.lib` are from different UE4SS builds; redo steps 4 and 5 together |
 
-### The offline tests
+## The offline tests
 
-`build.ps1` also builds and runs them (`-NoTests` skips). They link only the pure sources, so
-they need neither UE4SS nor Direct3D and run with the game closed:
+`tests/markers_test.cpp` links only the PURE sources, so it needs neither UE4SS nor Direct3D and
+runs with the game closed. `build.ps1` builds and runs it (`-NoTests` skips):
 
-```
+```powershell
 xmake build markers_test
-xmake run   markers_test markers      # the repo's markers\ dir
+xmake run   markers_test markers      # argv[1] is the marker dir
 ```
 
-They cover the `markers/<chapter>.json` loader (the shipped files, plus every way a file can
-be wrong), the category-name <-> bitmask mapping shared by the config file and the F2
-filters, the found-file round-trip, the config tier tables and the in-place config rewrite,
-the `maps.json` parser and the sparse height-plane store decoded from the shipped PNGs, the
-full map's viewport transform and its inverse, the zoom clamp and step, the waypoint file,
-the x-ray projection against hand-computed screen coordinates, the compass arithmetic, the
-scan scheduler and the label layout. Anything checkable without launching the game is checked
-there.
+**New testable logic belongs in a PURE module** — that is what keeps it linkable here. Beyond
+covering every one of them, the suite is the **drift guard** for three things that would otherwise
+diverge silently:
 
-## Install (development)
+* **the config tiers** — `keys(config_wuchang_minimap.txt) == Player ∪ Advanced`,
+  `keys(config_wuchang_minimap_dev.txt) == Dev`, the `key == "..."` literals scraped out of
+  `mmstate.cpp` equal every tier plus Legacy, the tiers pairwise disjoint, the shipped file's
+  banner order matching the tier tags key for key, and a byte-identical round trip of the in-place
+  rewrite over both real files;
+* **the shipped marker data** — every `markers/*.json` on each build: each parses with
+  `skipped == 0` and `unknown_cat == 0`, no marker id repeats within or across files, every
+  `(chapter, category)` clears a floor from a table in the test *including the explicit zeros* (so
+  "chapter 5 has no ladder" is a recorded decision rather than a blind spot), every item id a
+  pickup references is a row of `items.json`, every shrine marker has a row in `shrines.json`, and
+  no single name accounts for more than half of a `(chapter, category)`'s named entries;
+* **the shipped map assets** — `maps.json` parses at the current schema and the sparse height-plane
+  store decodes from the shipped PNGs, with `z_requantise_worst_uu` under 20 uu.
+
+So a change to the config keys, the marker data or the asset format that skips this suite fails
+the build.
+
+## Install and deploy
 
 Two install paths, not interchangeable:
 
@@ -222,43 +169,21 @@ Two install paths, not interchangeable:
 | Extras | leaves the mod's runtime output alone | asserts none of it is in the package |
 | Checks | none | full smoke check + zip round-trip |
 
-```powershell
-.\deploy.ps1
-```
-
-copies the DLL to
-
-```
-E:\Program Files (x86)\Steam\steamapps\common\Wuchang Fallen Feathers\
-    Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangMinimap\dlls\main.dll
-```
-
-and creates an empty `enabled.txt` in `...\Mods\WuchangMinimap\`, which is UE4SS's "load this
-without touching `mods.txt`" opt-in. `deploy\ue4ss\Mods\WuchangMinimap\` mirrors the same
-layout so the repo shows what gets installed. `-GameRoot` points it elsewhere; `-Force`
-installs before UE4SS is present.
-
----
+`.\deploy.ps1` copies the DLL into
+`...\Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangMinimap\dlls\` and creates an empty
+`enabled.txt` beside it, which is UE4SS's "load this without touching `mods.txt`" opt-in.
+`deploy\ue4ss\Mods\WuchangMinimap\` mirrors the same layout, and the shipped config files live
+there. `-GameRoot` points it elsewhere, `-Force` installs before UE4SS is present, `-NoMaps` skips
+the map assets, `-Pull` copies in-game navmesh dumps back.
 
 ## Release packaging
 
-The full procedure is **`docs/RELEASE.md`**:
-
-```powershell
-.\tools\package.ps1 -StampOnly -Version 1.0.1   # rewrite version.hpp + xmake.lua, stop
-git commit -am "release 1.0.1"; git tag v1.0.1
-.\tools\package.ps1                             # build, assemble, check, zip
-```
-
-`-StampOnly` exists because the script refuses a dirty tree (`BUILD_INFO.txt` names a commit
-hash) while `-Version` dirties it, so stamping and packaging in one run records the commit
-from *before* the stamp.
-
-`package.ps1` runs `build.ps1`, then assembles `dist\WuchangMinimap-<version>\` — a tree that
-mirrors exactly what a player copies into `...\Project_Plague\Binaries\Win64\` — and zips it:
+The procedure — preconditions, stamp, tag, smoke test, upload — is **`docs/RELEASE.md`**. What
+`tools\package.ps1` assembles is a tree mirroring exactly what a player copies into
+`...\Project_Plague\Binaries\Win64\`:
 
 ```
-WuchangMinimap-1.0.0\
+WuchangMinimap-<version>\
   CHANGELOG.md                         from tools\CHANGELOG.template.md
   README.md  LICENSE  THIRD_PARTY_NOTICES.md    copied from the repo root
   BUILD_INFO.txt                       version, commit, branch, mode, DLL size, UE4SS build
@@ -266,1202 +191,413 @@ WuchangMinimap-1.0.0\
     dlls\main.dll                      no .pdb
     maps\maps.json, maps\chapter1..5\*.png
     markers\chapter{1..5,dlc}.json     chapter1.sample.json is excluded
-    markers\shrines.json               required; markers\items.json when present
+    markers\shrines.json, markers\items.json
     config_wuchang_minimap.txt
     enabled.txt                        empty; UE4SS's "load me" opt-in
 ```
 
-**`dist\WuchangMinimap-<version>-symbols.zip`** comes out beside it with `main.pdb` and the
-same `BUILD_INFO.txt`. It is the only way to read a crash dump from that build, since
-`main.pdb` otherwise lives only in the gitignored `build\` folder. It is staged in a temp
-folder so a `.pdb` never touches the package tree, and it is never the main upload.
+`main.pdb` goes into a separate `-symbols.zip`, staged in a temp folder so it never touches the
+package tree. Three gates run before either zip is written and any failure stops the run: a
+**smoke check** (every shipped data file parses at its current schema, everything `maps.json`
+names exists, and an **allow-list** over the package tree makes any file the script has not been
+taught about a leak by definition), the **consistency check** `tools\check_release.ps1` (one
+version and one UE4SS build string across every file that states either, no unfilled placeholders,
+every relative link resolving inside the package), and a **zip round-trip** against the tree on
+disk.
 
-Nothing else ships: no `main.pdb`, no `navmesh\` dumps, no player-state files
-(`wuchang_minimap_found.txt`, `wuchang_minimap_waypoint.txt`) — the script fails if any turn
-up in the tree.
-
-**Smoke check**, before the zip is created:
-
-* `maps.json` parses, is schema `wuchang-minimap-maps/5` and lists five chapters;
-* every `image` and every `height_planes` entry it names exists and is non-empty — the list
-  `mapdata.cpp` walks at start-up — and a PNG in `maps\` the manifest does *not* name is
-  warned about as dead download weight;
-* the five chapter marker manifests are present and are schema `wuchang-minimap-markers/1`;
-* `shrines.json` is present, is schema `wuchang-minimap-shrines/1` and holds at least 40 real
-  shrines;
-* `main.dll`, both config files and `enabled.txt` are present;
-* an **allow-list** on the package root and the mod folder, so any file the script has not
-  been taught about is a leak by definition.
-
-**Consistency check** (`tools\check_release.ps1`), over the assembled tree as part of the same
-step and runnable on its own against the repo:
-
-* one version across `src\version.hpp`, `xmake.lua`'s `set_version`, the top `## x.y.z`
-  changelog heading and the package folder name;
-* one UE4SS build string across `BUILD_INFO.txt`, `README.md`, `THIRD_PARTY_NOTICES.md`
-  and `docs\NEXUS.md` — a *different* `v3.0.x-...-g...` string anywhere is a failure,
-  not just a missing one;
-* no unfilled placeholders: `@@...@@`, `<ALLCAPS>` template slots, `TODO`/`FIXME`;
-* every relative link in a shipped document resolves to a file in the package.
-
-**Zip round-trip**: entry count and every entry's uncompressed length are compared against the
-tree on disk, and `maps.json` is decompressed and re-parsed, so a corrupt stream cannot pass
-on metadata alone.
-
-`-Version x.y.z` rewrites `src/version.hpp` and `xmake.lua`'s `set_version` together; without
-it the script reads the header and warns if the two have drifted. `-NoBuild` packages the
-existing `build\` output, for iterating on the packaging script. `-OutDir` writes somewhere
-other than `dist\`; both `dist\` and `dist-test\` are gitignored.
+`.\make_rar.cmd` runs all of it and adds a tested `.rar`. `-NoBuild` packages the existing
+`build\` output; `-OutDir` writes somewhere other than `dist\`.
 
 ---
 
 ## Layout
 
-```
-src/dllmain.cpp            RC::CppUserModBase subclass, start_mod/uninstall_mod
-src/overlay.hpp            the module's public surface: start/stop, on_update, selftest
-src/overlay_internal.hpp   the state and helpers the overlay_*.cpp units share (`overlay::ovl`)
-src/overlay.cpp            the shared state, UI scale, font, HUD placement, and the
-                           loop-thread side: start/stop, stall watchdog, hotkey debounce
-src/overlay_d3d12.cpp      device objects, the four swapchain hooks, the render entry point
-src/overlay_input.cpp      the WndProc hook and the game-thread message replay
-src/overlay_slice.cpp      map texture upload and the two height slicers
-src/overlay_hud.cpp        the minimap, its markers, the toasts, the x-ray, the compass
-src/overlay_extras.cpp     the shrine list and the collection statistics page
-src/overlay_fullmap.cpp    the pannable, zoomable full map
-src/overlay_panel.cpp      the F2 settings panel
-src/gamestate.{hpp,cpp}    game-thread reader (pawn, view target, widgets)
-src/mmstate.{hpp,cpp}      snapshot seqlock, config file, cross-thread log queue
-src/mapdata.{hpp,cpp}      chapter residency + the sparse height-plane store
-src/mapmanifest.hpp        maps.json parser (pure; tested offline)
-src/pngdecode.hpp          the WIC PNG decode, shared with markers_test
-src/markers_db.{hpp,cpp}   PURE marker model: markers/<chapter>.json, category masks,
-                           the found-file round-trip. No Windows, no UE4SS - which is
-                           what lets tests/markers_test.cpp link it
-src/markers.{hpp,cpp}      the runtime half: the chunked game-thread object sweep, the merge
-                           with the static DB, the found tracker's file I/O
-src/scan_sched.hpp         PURE scan scheduler: which object-array slots this pump,
-                           has the round wrapped, is it time yet
-src/mapview.{hpp,cpp}      PURE full-map layer: the north-up viewport transform and its
-                           exact inverse, the zoom clamp / step, zoom-to-fit, the
-                           minimap's zoom-preset ladder, the waypoint file round-trip
-src/textmatch.hpp          PURE case-insensitive substring match: the full map's marker
-                           name filter
-src/exchange.hpp           PURE found-list + waypoint export file: serialize, parse
-src/glyphs.hpp             PURE shape-per-category and hue-per-category tables plus the
-                           themes; markers_test asserts that no two categories share a
-                           shape AND a colour, for every palette
-src/label_layout.hpp       PURE greedy label placement for the x-ray highlight: an
-                           occupied-rectangle list, push each box down until it clears,
-                           refuse past a cap
-src/gamepad.{hpp,cpp}      XInput, dynamically loaded, polled on the LOOP thread only
-src/projection.hpp         PURE world -> camera -> NDC -> screen math for the x-ray
-                           highlight (UE basis, horizontal FOV, behind-camera case)
-src/compass.{hpp,cpp}      PURE compass arithmetic: yaw wrap, bearings, strip positions,
-                           cardinal ticks
-src/highlight.{hpp,cpp}    the x-ray highlight's game-thread half: finds the
-                           PlayerCameraManager, calibrates the POV offset inside
-                           CameraCachePrivate against the camera getters, then publishes
-                           the pose through its own seqlock
-src/version.hpp            the single WUCHANG_MINIMAP_VERSION define
-src/config_keys.hpp        the one key -> tier table
-src/config_rewrite.hpp     PURE in-place config rewrite: values only
-src/json.hpp               the one JSON reader, shared by mapdata and markers
-src/uereflect.hpp          cached property offsets and UFunction calls
-src/navmesh_dump.{hpp,cpp} dtNavMesh discovery + tile walker + JSON writer
-src/mem.{hpp,cpp}          VirtualQuery + SEH guarded raw reads
-src/ue_min.hpp             hand-written RC::Unreal ABI declarations, see below
-sdk/shim/GUI/GUI.hpp       stand-in header, see below
-sdk/UE4SS.def              UE4SS.dll export table, generated
-sdk/lib/UE4SS.lib          import library, generated
-third_party/imgui/         Dear ImGui v1.92.9b + backends/{dx12,win32} + misc/cpp
-third_party/minhook/       MinHook v1.3.3
-third_party/fmt/           fmt 11.2.0, headers only (FMT_HEADER_ONLY)
-tools/gen_ue4ss_importlib.ps1
-tools/package.ps1          the RELEASE packager: build + assemble + smoke check + zip
-tools/make_rar.ps1         package.ps1 + a RAR5 of the package tree (make_rar.cmd: double-click)
-tools/check_release.ps1    version, UE4SS build string, placeholder and link consistency
-tools/CHANGELOG.template.md the changelog dropped at the package root
-tools/navmesh/render.py    tile JSON -> top-down floor PNGs + bounds.json
-tools/navmesh/build_map.py tile JSON -> composite + multi-surface height planes + maps/maps.json
-tools/navmesh/mapfmt.py    the ON-DISK format: schema, palette PNG, 12-bit height codes + reach bit
-tools/navmesh/repack_maps.py re-encode a shipped maps/ tree (no dumps needed)
-tools/navmesh/slice_preview.py the runtime's height-slicing rule, offline, for any (x, y, z)
-maps/                      the shipped map assets (deployed into the mod folder)
-markers/                   the static marker database (deployed into the mod folder);
-                           chapter1.sample.json documents the schema by hand
-tests/markers_test.cpp     offline tests - `xmake run markers_test markers`
-tools/lua-recon/           WuchangRecon Lua recon mod + its offline mock harness
-deploy/ue4ss/Mods/WuchangMinimap/
-```
+Grouped by role. The authoritative description of any module is the prose block at the top of its
+own file.
+
+| | |
+|---|---|
+| **entry / lifecycle** | `dllmain.cpp` (`RC::CppUserModBase` subclass, `start_mod` / `uninstall_mod`), `modswitch.*` (the `mod_enabled` master switch; starts and stops every subsystem), `version.hpp`, `breadcrumb.*` |
+| **overlay** | one `overlay` namespace across `overlay.cpp` (shared state, UI scale, font, HUD placement, the loop-thread half), `overlay_d3d12.cpp` (device objects, the swapchain hooks, the render entry point, the visibility choke point), `overlay_dcomp.cpp` (the mod's own queue, composition swapchain and DirectComposition visual), `overlay_input.cpp`, `overlay_slice.cpp`, `overlay_hud.cpp`, `overlay_extras.cpp`, `overlay_fullmap.cpp`, `overlay_panel.cpp`, all sharing `overlay_internal.hpp` (`overlay::ovl` holds the state) |
+| **game-thread readers** | `gamestate.*` (pawn, view target, menu detection), `markers.*` (the `GUObjectArray` sweep and the found tracker), `highlight.*` (the camera pose), `shrines.*`, `saveslot.*`, `gamebinds.*`, `recon.*`, `navmesh_dump.*` |
+| **cross-thread state** | `mmstate.*` (the snapshot seqlock, the config file, the log queue), `spinlock.hpp`, `atomicfile.hpp`, `perf.hpp` |
+| **map data** | `mapmanifest.hpp` (PURE `maps.json` parser), `mapdata.*` (chapter residency + the sparse 128-px-block height store), `slicerule.hpp` (PURE; the rule both maps slice and shade by), `pngdecode.hpp` (WIC, shared with `markers_test`) |
+| **marker model** | `markers_db.*` (PURE: the chapter JSON, category masks, item quality, the found-file round trip), `shrines_db.hpp`, `marker_dedupe.hpp`, `scriptmap.hpp` (PURE `FScriptMap` decode), `scan_sched.hpp` (PURE slice / wrap / rate arithmetic) |
+| **PURE UI logic** | `mapview.*` (the full map's viewport transform and its exact inverse, the zoom ladder, the waypoint file), `compass.*`, `projection.hpp`, `glyphs.hpp`, `label_layout.hpp`, `textmatch.hpp`, `exchange.hpp`, `gamebinds_map.hpp`, `typing_gate.hpp`, `chapterid.hpp` |
+| **config** | `config_keys.hpp` (the one key → tier table), `config_rewrite.hpp` (PURE in-place rewrite: values only), `json.hpp` |
+| **engine access** | `ue_min.hpp` (hand-written `RC::Unreal` ABI declarations), `uereflect.hpp` (cached property offsets, `UFunction` calls), `mem.*` (`VirtualQuery` + SEH-guarded raw reads), `gamepad.*` (XInput, dynamically loaded, LOOP thread only) |
+| **sdk** | `sdk/UE4SS.def` + `sdk/lib/UE4SS.lib` (both generated, both committed), `sdk/shim/GUI/GUI.hpp` (hand-written stand-in) |
+| **third_party** | `imgui/` + the dx12 and win32 backends, `minhook/`, `fmt/` (header-only). Unmodified; provenance in `third_party/VENDORING.md` |
+| **build / release** | `build.ps1`, `deploy.ps1`, `tools/vs_detect.ps1`, `tools/gen_ue4ss_importlib.ps1`, `tools/package.ps1`, `tools/make_rar.ps1`, `tools/check_release.ps1`, `tools/CHANGELOG.template.md` |
+| **map pipeline** | `tools/navmesh/`: `offline/` (paks → tile JSON), `render.py`, `build_map.py`, `mapfmt.py` (the ON-DISK format), `repack_maps.py`, `slice_preview.py`, `marker_coverage.py` |
+| **marker pipeline** | `tools/markers/`, driven by `tools/regen_all.py`; `class_graph.json` is a cached artifact |
+| **recon** | `tools/lua-recon/` — the WuchangRecon Lua mod and its mock harness. Its `out/` dumps are committed evidence that cannot be re-taken |
+| **data** | `maps/` and `markers/`, both **generated**, both deployed into the mod folder. `markers/chapter1.sample.json` is the one hand-written file there and documents the schema |
+| **tests** | `tests/markers_test.cpp` — the whole offline suite, one file, `CHECK*` macros |
 
 ### Vendored versions
 
-Upstream URLs, tags, the files copied and how to re-verify a tree against upstream:
-**`third_party/VENDORING.md`**. None of the three is modified.
-
-| Library | Version | Why that one |
+| Library | Version | Constraint |
 |---|---|---|
-| Dear ImGui | **v1.92.9b** | Our own ImGui context on our own DX12 Present hook, independent of the v1.92.1 UE4SS links internally. |
-| MinHook | **v1.3.3** | Statically linked, so `MH_ALL_HOOKS` can never touch UE4SS's own hooks. |
-| fmt | **11.2.0** | `DynamicOutput/Output.hpp` includes `<fmt/core.h>`, and UE4SS pins fmt 11.2.0. |
+| Dear ImGui | **v1.92.9b** | free — the mod runs its own ImGui context on its own Present hook |
+| MinHook | **v1.3.3** | statically linked, so `MH_ALL_HOOKS` can never touch UE4SS's own hooks |
+| fmt | **11.2.0** | must equal the version UE4SS pins: `DynamicOutput/Output.hpp` includes `<fmt/core.h>` |
+
+Upstream tags, the files copied and how to re-verify a tree: `third_party/VENDORING.md`.
 
 ---
 
-## Why an import library?
+## The UE4SS pin
 
-The official flow is to `add_subdirectory(RE-UE4SS)` / `includes("RE-UE4SS")` and link
-against a `UE4SS` target built from source. **That is not possible here.**
-`RE-UE4SS/deps/first/Unreal` points at `git@github.com:Re-UE4SS/UEPseudo.git`, a private
-repository derived from Unreal Engine source that needs Epic Games GitHub organisation
-membership. Without it UE4SS cannot be compiled at all. The `zDEV-UE4SS_*.zip` release asset
-does not help: it is the normal release plus `UE4SS.pdb`, with no headers and no import
-library.
+The official flow — `includes("RE-UE4SS")` against a `UE4SS` target built from source — is not
+possible here: `RE-UE4SS/deps/first/Unreal` points at the private `Re-UE4SS/UEPseudo`, so UE4SS
+cannot be compiled outside the Epic Games GitHub organisation, and the `zDEV-UE4SS_*.zip` release
+asset carries no headers and no import library. So **headers** come from a plain clone of RE-UE4SS
+at `cac01ee2` and **linking** goes through `sdk/lib/UE4SS.lib`, synthesised from that same build's
+`UE4SS.dll`. One commit for both, so the ABI matches by construction.
 
-So instead:
+Both `sdk/UE4SS.def` and `sdk/lib/UE4SS.lib` are **committed**, because regenerating them needs
+the exact `UE4SS.dll` from an installed copy of the game — a file that is not in this repo and
+does not exist on a CI runner. Committing the library is what makes `git clone` + `.\build.ps1`
+work.
 
-1. **Headers** come from a plain `git clone` of RE-UE4SS at `cac01ee2`, the commit the
-   installed `UE4SS.dll` was built from. Only `deps/first/Unreal` and
-   `deps/first/patternsleuth` fail to clone, and nothing on the C++ mod API path needs them.
-2. **Linking** goes through `sdk/lib/UE4SS.lib`, synthesised by
-   `tools/gen_ue4ss_importlib.ps1`: `dumpbin /exports` on that same `UE4SS.dll` (4081
-   exports), a `.def`, then `lib /def: /machine:x64`.
+**Moving to a different UE4SS build** means all of: re-checkout RE-UE4SS at the new commit (step
+4), re-run `gen_ue4ss_importlib.ps1` against the new `UE4SS.dll` (step 5), rebuild, and re-check
+every declaration in `src/ue_min.hpp` against the new `sdk/UE4SS.def`. Headers and import library
+from different builds is an ABI mismatch, not a warning. `UE4SS.def` regenerates byte-identically
+from the same DLL, so a diff on it means the DLL changed; `UE4SS.lib` does not (`lib.exe` embeds a
+timestamp), so **diff the `.def`, never the `.lib`**.
 
-Headers and DLL come from one commit, so the ABI matches by construction, and
-`RC::CppUserModBase` is used verbatim from the real header.
+Three consequences, all load-bearing:
 
-### Why `sdk/lib/UE4SS.lib` is committed
+* **`sdk/shim` must stay first on the include path.** `<Mod/CppUserModBase.hpp>` includes
+  `<GUI/GUITab.hpp>` → `<GUI/GUI.hpp>` → `<GUI/LiveView.hpp>` → UEPseudo. `GUITab.hpp` uses nothing
+  from `GUI.hpp`, so `sdk/shim/GUI/GUI.hpp` is a near-empty stand-in that breaks the chain.
+* **The CRT must be `/MD`.** The mod API passes `std::string_view`, `std::vector` and
+  `std::unique_ptr` across the DLL boundary, and `UE4SS.dll` imports `MSVCP140.dll`. A `/MT` mod
+  gets its own heap and its own `std::` internals, and crashes. `xmake.lua` pins
+  `set_runtimes("MD")` for every target.
+* **`UE4SS_ENABLE_IMGUI()` is unusable** — sharing UE4SS's own ImGui context needs
+  `UE4SSProgram.hpp`, which needs UEPseudo, and would pin the vendored ImGui to UE4SS's version.
+  `Output::send<LogLevel>` is a header template, so the formatting runs inside `main.dll`; that is
+  why fmt is vendored header-only at UE4SS's own version.
 
-Both `sdk/UE4SS.def` (374 KB of text) and `sdk/lib/UE4SS.lib` (2.2 MB) are tracked, because
-regenerating them needs **the exact `UE4SS.dll` from an installed copy of the game** — a file
-that is not in this repo, is not downloadable without Nexus, and does not exist on a CI
-runner. Committing the library is what makes `git clone` + `.\build.ps1` work. The `.def` is
-also a greppable record of the ABI this build is tied to: `src/ue_min.hpp` names the symbols
-it must match.
-
-`sdk/lib/UE4SS.exp` is a `lib.exe` byproduct, is not needed to link, and is gitignored.
-
-**To regenerate**, when moving to a different UE4SS build:
-
-```powershell
-.\tools\gen_ue4ss_importlib.ps1 -Ue4ssDll '<Game>\Project_Plague\Binaries\Win64\ue4ss\UE4SS.dll'
-```
-
-Do it **together with** re-checking out RE-UE4SS at the new build's commit (step 4): headers
-and import library must come from the same UE4SS, or the result is link errors on `RC::`
-symbols at best and an ABI mismatch at worst.
-
-`UE4SS.def` regenerates **byte-identically** from the same DLL, so a diff on it means the DLL
-changed. `UE4SS.lib` does not — `lib.exe` embeds a timestamp — so a `.lib` diff is not
-evidence of anything; read the `.def`.
-
-### Two things this setup depends on
-
-**`sdk/shim/GUI/GUI.hpp`.** `<Mod/CppUserModBase.hpp>` includes `<GUI/GUITab.hpp>` ->
-`<GUI/GUI.hpp>` -> `<GUI/LiveView.hpp>` -> `<Unreal/UFunctionStructs.hpp>`, i.e. UEPseudo.
-`GUITab.hpp` uses nothing from `GUI.hpp`, so `sdk/shim` sits **first** on the include path
-with a near-empty `GUI/GUI.hpp` that breaks the chain. Every other UE4SS header resolves to
-the real checkout. If UE4SS ever becomes buildable here, drop `"sdk/shim"` from
-`ue4ss_includedirs()` in `xmake.lua`.
-
-**The CRT must be `/MD`.** `UE4SS.dll` imports `MSVCP140.dll`, `VCRUNTIME140.dll` and
-`VCRUNTIME140_1.dll`, and the mod API passes `std::string_view`, `std::vector` and
-`std::unique_ptr` across the DLL boundary. A `/MT` mod gets its own heap and its own `std::`
-internals and crashes. `xmake.lua` pins `set_runtimes("MD")` for every target.
-
-### Consequences to keep in mind
-
-- The mod is tied to UE4SS `v3.0.1-934-gcac01ee2`. Upgrading means: re-checkout
-  `F:\Tools\RE-UE4SS` at the new commit, re-run `tools\gen_ue4ss_importlib.ps1` against the
-  new `UE4SS.dll`, rebuild, and re-check `src/ue_min.hpp` against the new `sdk/UE4SS.def` —
-  every declaration there names the symbol it must match.
-- `UE4SS_ENABLE_IMGUI()` (sharing UE4SS's own ImGui context, e.g. for `register_tab`) is
-  unusable: it lives in `UE4SSProgram.hpp`, which needs UEPseudo, and it would require our
-  vendored ImGui to be exactly v1.92.1.
-- `Output::send<LogLevel>(...)` is a header template: the formatting runs inside `main.dll`
-  and only `Output::DefaultTargets::get_default_devices_ref()` is imported. That is why fmt
-  is vendored header-only and why its version has to match UE4SS's.
+**`src/ue_min.hpp`** is how the mod uses the full `RC::Unreal` reflection API without the headers
+for it: an MSVC mangled name depends only on namespace, class name, function name, parameter
+types, cv/ref qualifiers and the **access specifier** — never on class layout — so the file
+re-declares the members the mod calls inside deliberately empty classes, each annotated with the
+exact symbol from `sdk/UE4SS.def` it must match. Two rules for extending it: mirror the real
+single, non-virtual, offset-0 inheritance chain so `this` needs no adjustment, and keep
+`FField::GetNext` **private** behind a friend accessor, because it is private in UEPseudo and `A…`
+vs `Q…` is part of the symbol.
 
 ---
 
-## Navmesh dumper
+## Threads
 
-`src/navmesh_dump.cpp` finds the game's Recast/Detour navmesh in memory and writes the
-currently streamed-in tiles to
+Three, with a strict split; `src/mmstate.hpp` states the invariants.
 
-```
-ue4ss\Mods\WuchangMinimap\navmesh\<agent>\tiles_<yyyymmdd_hhmmss>.json
-```
-
-one directory per `ARecastNavMesh` actor (`Small` / `Big` / `BitFat` / `Giant`, agent radii
-34 / 60 / 90 / 120).
-
-> **The runtime dumper is off by default.** The map background is built offline from the paks
-> (`tools/navmesh/offline`) — the whole game in ~2 minutes, with 0 % false positives against
-> the game's own navigation probes — so the runtime path covers only cells the paks do not
-> carry and navmesh carved at runtime. It is a Dev key, read once at start-up, so arming it
-> takes a restart. In `ue4ss\Mods\WuchangMinimap\config_wuchang_minimap_dev.txt`:
->
-> ```ini
-> navmesh_dump = 1
-> ```
->
-> With it on, **Dump the live navmesh tiles** on the F2 panel's Debug tab forces a dump.
-> There is no hotkey: a memory scan that writes files must not be startable by a stray key
-> press.
-
-When enabled, a dump happens 3 s after the set of live tiles stops changing — once per area
-as you walk — and on demand on **F3** (or `CTRL+F3`), which also writes a `probe_<ts>.json`
-diagnostics file when it found nothing. `navmesh\last_stage.txt` records the stage the dumper
-is in, rewritten and closed at every stage so it survives a crash that eats the log buffer.
-Only 4-6 of the game's 10 240-uu streaming cells are ever resident, so a full map is the
-union of many dumps and the renderer merges them.
-
-### Threading rules (these bind the overlay too)
-
-`CppUserModBase::on_update` runs on **UE4SS's event-loop thread**, not the game thread. So:
-
-* every UObject traversal (`FindAllOf`, reflection) and every raw read of an engine
-  allocation happens in a game-thread pump registered with
-  `RC::Unreal::Hook::RegisterProcessEventPreCallback`;
-* that pump does **raw memory work only** — it queues log text and parks results, because C++
-  iostreams and the C++ locale fault when touched from this game's game thread;
-* `on_update` drains the log queue and does all file and JSON writing;
-* there is **no `std::mutex`** anywhere in the mod — `std::mutex::try_lock` faults against the
-  MSVCP140 loaded in this process. Locking is a header-only `std::atomic_flag` spinlock plus a
-  non-blocking `std::atomic<bool>` single-flight exchange.
-
-### Nothing is hardcoded, everything is validated
-
-No struct offset is assumed. Each step derives a candidate, proves it against something the
-recon pass measured, and logs the decision:
-
-| Step | How it is found | How it is validated |
+| thread | what runs there | what it must not touch |
 |---|---|---|
-| the actors | `UObjectGlobals::FindAllOf("RecastNavMesh")`, re-polled every 2 s | 0 results is normal (main menu) and reported once |
-| `AgentRadius`, `TileSizeUU`, `PolyRef*Bits` | reflection: `FProperty::GetOffset_Internal()` by name | printed; `TileSizeUU` becomes the tile-size expectation below |
-| `FPImplRecastNavMesh*` | scan the actor from the end of its reflected properties (`max(offset+size)` over the super-struct chain) to `GetStructureSize()`, 8 bytes at a time | the target's **second** pointer must be the actor itself — that is `FPImplRecastNavMesh::NavMeshOwner` |
-| `dtNavMesh*` | first field of that struct | `dtNavMeshParams`: `tileWidth == tileHeight == TileSizeUU`, `maxTiles ∈ [1, 65536]`, finite origin — **float and double (`dtReal`) layouts both tried**, the winner logged |
-| `dtMeshTile[]` and `sizeof(dtMeshTile)` | scan the pointer slots after `m_params` for an array containing pointers to `DNAV` headers; the **gcd of the hit spacing** gives the stride | stride in [96, 1024], 8-aligned, and every hit ≡ 8 mod stride (the `header` field is always at `+8`) |
-| `dtMeshHeader.bmin/bmax` | search for six consecutive `dtReal` forming a box no bigger than one tile | scored: +4 each for `bmin.x/y == orig + index * tileWidth`, +3 each for the preceding `walkableHeight/Radius` matching `AgentHeight`/`AgentRadius` |
-| `polyCount` / `vertCount` | search the int block before `bmin` | accepted **only** if every vertex lies inside `bmin..bmax` and every `dtPoly` has 3..6 vertices with in-range indices; `DT_VERTS_PER_POLYGON` 6/8/4 all tried |
+| **UE4SS loop** (`CppUserModBase::on_update`) | hotkeys, all file and JSON I/O, PNG decode, the log drain, XInput | — |
+| **game** (a `RegisterProcessEventPreCallback` pump) | every `UObject` traversal, reflection and raw read | D3D12; C++ iostreams and the C++ locale, which fault when touched from this game's game thread — it queues log text and parks results |
+| **render** (the hooked `Present`) | everything ImGui and everything D3D12; the only thread that may release a D3D12 object | any `UObject` |
 
-UE modifies `dtMeshTile` and `dtMeshHeader` (off-mesh segments, clusters, the `layer` field),
-so the stride and the field offsets are measured rather than taken from the Recast headers.
-Once learned they are cached per agent, re-validated cheaply, and printed as a single
-`PIN LINE`.
+The game thread publishes an `mm::Snapshot` through a seqlock and the render thread reads it.
+Because only the render thread may release a D3D12 object, `modswitch`'s stop is a three-step
+state machine.
 
-Every raw read goes through `mem::read` — `VirtualQuery`, then an SEH-guarded `memcpy`
-(`src/mem.cpp`) — so a wrong guess yields a log line, never a crash.
+**There is no `std::mutex` anywhere** — `std::mutex::try_lock` faults against the MSVCP140 loaded
+in this process. Locking is `spinlock.hpp`'s `std::atomic_flag` spinlock plus non-blocking
+`std::atomic` exchanges.
 
-### `src/ue_min.hpp` — reflection without UEPseudo
+Errors are logged and survived, never thrown across a boundary: every raw engine read goes through
+`mem::read` (`VirtualQuery` + an SEH-guarded `memcpy`), and the Present hook wraps the frame in
+`catch (...)` so nothing unwinds into DXGI. **Nothing derives a struct offset without validating
+it against something independently measured, and logging the decision.** Logging is `mm::log` /
+`mm::logf` (wide, always emitted) plus `MM_LOGV` / `MM_LOGT` gated on the `log_level` key. ---
 
-The mod uses the full `RC::Unreal` reflection API without the headers for it. `UE4SS.dll`
-exports the whole API, and an MSVC mangled name depends only on namespace, class name,
-function name, parameter types, cv/ref qualifiers and the **access specifier** — never on
-class layout. So `ue_min.hpp` re-declares the members we call inside deliberately empty
-classes in `namespace RC::Unreal`, each annotated with the exact symbol from `sdk/UE4SS.def`
-it must match. Two rules for extending it: mirror the real single, non-virtual, offset-0
-inheritance chain so `this` needs no adjustment, and keep `FField::GetNext` **private** with
-a friend accessor, because it is private in UEPseudo and `A…` vs `Q…` is part of the symbol.
+## Runtime map
 
-`FArrayProperty::GetInner`, `FStructProperty::GetStruct` and `FName::ToString` are declared the
-same way, which is what lets `src/gamebinds.cpp` reach the `UScriptStruct` behind a
-`TArray<FStruct>` and turn an `FKey`'s name into text. `TObjectPtr<T>` is there only so
-`GetStruct`'s mangled name matches; like every class in the file it is empty, and the pointer
-it holds is read through `mem::read`.
+What each subsystem is, which file owns it, and the one thing about it that is not obvious from
+reading that file's code. The file's own header comment is the full account.
 
-## Rendering the dumps
+**The overlay's hooks** — `overlay_d3d12.cpp`. `Present`, `Present1` and `ResizeBuffers`,
+MinHook'd at addresses read off a throwaway device + queue + swapchain, because the game's
+swapchain is not reachable from a UE4SS mod. *Discovery runs on every launch and must:* creating
+those objects drives a ReShade proxy, its addons, Streamline's interposer and the Steam overlay
+through their own creation interposers before MinHook writes a byte, and a launch that hooks
+addresses cached in a file instead **intermittently black-screens from the first frame**, with the
+mod presenting normally and nothing in any log.
+
+**The surface it draws on** — `overlay_dcomp.cpp`. The game's swapchain is *followed* for geometry
+and the frame tick; the queue and the surface are the mod's own (a DIRECT queue, a
+`CreateSwapChainForComposition` swapchain, a DirectComposition visual). *The game's back buffers
+are never written and nothing of the game's is submitted on*, which is what makes the overlay
+survive frame generation and capture layers, and why nothing has to be probed before the first
+frame. The three hooks still call the original unconditionally for **every** swapchain, so nothing
+else in the process loses a frame to us.
+
+**Device loss** — `overlay_d3d12.cpp`. `GetDeviceRemovedReason()` is asked on whichever thread
+presented, because the removal that matters most is the one after which no Present ever arrives to
+ask in. *Nothing is ever rebuilt on a dead device*: ImGui's font upload waits on a fence with no
+timeout and would wedge the render thread inside the game's own recovery. A recoverable failure
+asks for a re-adoption instead, capped per stretch.
+
+**Visibility** — `set_hide_reason()` in `overlay_d3d12.cpp` is the single choke point, and
+`hud_gate()` in `overlay_internal.hpp` is the one evaluation the minimap, the compass and the
+highlight all ask. *Nothing latches anywhere in the path* — every condition is re-evaluated from
+the live snapshot every frame. The F2 panel prints the current reason and every transition goes to
+the log.
+
+**Menu detection** — `gamestate.cpp` + `scan_sched.hpp`. `IsInViewport()` on a root `UserWidget`
+whose `Visibility` is `Visible` is the whole decision; three finders supply the roots (a
+watchlist, a UI-event path on the `ProcessEvent` context itself, and a sliced `GUObjectArray` walk
+as the fallback) and none of them latches. *The UI-event path does raw reads only* — it runs
+outside the re-entrancy guard, so it may never issue a `ProcessEvent`, and it decides nothing.
+Pointer-keyed caches are dropped with the pawn, because a recycled address would answer from the
+wrong entry; confirmed menu-root **class names** survive, so the same class is recognised at once
+after a level load.
+
+**The marker sweep** — `markers.cpp` + `scan_sched.hpp`. `FindAllOf` walks the whole object array,
+so one call per class is one full walk per class; the sweep inverts that into one walk per round
+in slices of `markers_scan_chunk` slots per pump, with the `UClass* -> marker spec` table memoised
+per class so the super-chain name walk happens once per class per level. *Positions are read raw*
+(`RootComponent` → `RelativeLocation`), never through `K2_GetActorLocation`: a `ProcessEvent` per
+actor inside the engine's own call stack is not affordable. The slice is called from every
+`ProcessEvent` pre-callback, not from the 10 Hz position pump, and throttles on
+`QueryPerformanceCounter` because `GetTickCount64`'s ~15.6 ms granularity is coarser than a
+one-frame slice period.
+
+**The camera pose** — `highlight.cpp`. The `FMinimalViewInfo` offset inside `CameraCachePrivate`
+is **discovered, not assumed**: the three camera getters are called once and the struct's first
+bytes are scanned for the offset whose six doubles and following float match what they said. *A
+pinned offset that produces eight insane reads in a row is dropped and re-discovered.* Reads cost
+nothing at all while the highlight is disarmed and the compass is off.
+
+**Height slicing** — `slicerule.hpp`, pure C++, so the offline tests run the same code both maps
+do. Per pixel: a surface within `floor_z_tolerance` of your feet wins outright and opaque; failing
+that the lowest surface up to `shade_above_band_uu` overhead; failing that the highest surface
+below, however deep. *The full map always slices as if the band were infinite* —
+`shade_above_band_uu` is the minimap's key only — and the priority order is what keeps that safe,
+since a floor underfoot still wins and no ceiling is ever drawn over the player. Colour is
+**absolute height** on one ramp for all three classes, its ends percentiles of the Z the cut
+actually drew; the full map equalises that ramp against its own cut (`shade_map_equalize`), the
+minimap keeps it linear.
+
+**The full map** — `overlay_fullmap.cpp` + `mapview.*`. *It adds no copy of the asset*: it cuts
+its own small decimated RGBA texture out of the same height planes the minimap slices, covering
+the viewport plus a 30 % margin, and re-cuts only when the view leaves that region, the zoom or
+floor slice changes, or the player crosses a storey. The live sweep still owns the truth —
+un-marking a chest the game reports as `Used` is undone on the next round, because the tracker
+follows the save, not the mod. Waypoints live in one fixed-capacity POD behind a spinlock, because
+every draw site copies the whole set inside Present and a `std::vector` there would allocate.
+
+**The x-ray highlight** — `overlay_hud.cpp` + `projection.hpp` + `highlight.*`. "Through walls" is
+free: the overlay is composited on the finished frame, so there is no occlusion test, no
+CustomDepth and no material. *The toggle is the one piece of latched input state in the mod*, so
+it is cleared from live state and never remembered — `hl::drop_caches()` turns it off on every
+level transition and every dropped pawn. Item-quality colours are the game's own pickup-beam
+grouping, not a rarity ladder the game does not have; `markers_db.hpp` documents the three tiers
+and why tier 0 keeps its category colour.
+
+**The player's own key bindings** — `gamebinds.*` + `gamebinds_map.hpp` (PURE). The Keys tab
+warns when a mod hotkey lands on a key the game already wants, read out of the running game rather
+than guessed. *The game is stock UE 5.1 Enhanced Input with no user-settings object*, so a remap
+made in the options menu is visible in exactly one place, and `gamebinds.hpp`'s header comment is
+the map of the chain to it.
+
+**The compass strip** — `compass.*`, pure. The heading is the **camera's** yaw when a pose is
+fresh and the pawn's yaw otherwise, so it works with `highlight_enabled = 0` and during the camera
+reader's warm-up.
+
+**The save-slot ladder** — `saveslot.*`. Four rungs — the game's own KV accessor, its
+settings-saver path string, the newest `.sav` on disk, then a shared file — each logged with the
+route that answered. *Rungs 2 and 3 must answer with the same key for the same save* (the slot
+name alone, never the Steam account id the filesystem path carries), or one playthrough splits
+across two files mid-session as one rung's answer replaces the other's. A slot with no file of its
+own is seeded once from the shared file.
+
+**The collection tracker** — `markers.cpp` + `markers_db.*`. Found state is merged with the live
+sweep on a **stable id**: the game's own shrine id for shrines, `<level short name>/<actor object
+name>` for everything else. *Absence from the object array is not evidence of a collect* — an
+unloaded level looks identical — so only state flags auto-mark, plus one guarded absence rule
+whose safety rail is that a marker whose owning level cannot be matched to a loaded level is
+**never** marked. The predicate is pure and its truth table is in the test suite.
+
+| category | "found" means |
+|---|---|
+| shrine | the save's global `UnlockedFirepoints` list, not a per-actor flag. Never auto-marked: the tracker follows collectables, not rest points |
+| chest, door | the actor's `Used` / `DoorOpen` flag |
+| pickup, hidden | `dying`, or the actor parked at `(0,0,0)` |
+| fog gate | `Active` |
+| npc, note | MET — seen loaded near the player. A used-up NPC is made invisible, not moved, so the live twin is tested for visibility |
+| boss | DEFEATED — zero health, or the arena's `bossdoor_*` point unlocked in the save |
+| enemy | never written. A static entry is a **spawn point**; the live pawn overwrites its position under the same id |
+| ladder, lift | never — navigation aids |
+
+**The navmesh dumper** — `navmesh_dump.*`, **off by default** behind the `navmesh_dump` Dev key
+(read once at start-up, so arming it takes a restart; there is deliberately no hotkey for arming a
+memory scan that writes files). The map background comes from the paks, so this covers only cells
+the paks do not carry and navmesh carved at runtime. *UE modifies `dtMeshTile` and
+`dtMeshHeader`*, so the tile stride and every field offset are measured against something
+independently known — the reflected `TileSizeUU` and `AgentRadius`, the owner back-pointer, the
+gcd of the `DNAV` header spacing, every vertex inside `bmin..bmax` — with both the float and the
+double `dtReal` layouts tried and the winner logged as one `PIN LINE`.
+
+### Settings
+
+`config_wuchang_minimap.txt`, plain `key = value`, `;` or `#` starts a comment. **Every key is
+documented inline in the file itself**; that file and `config_wuchang_minimap_dev.txt` are the
+reference for what a key does and what its default is. `src/config_keys.hpp` is the one table that
+says which **tier** each key is in:
+
+| tier | where it lives | what it is |
+|---|---|---|
+| **Player** | `config_wuchang_minimap.txt` under `; ---- PLAYER SETTINGS ----`; the F2 panel's player tabs | something a person tuning the HUD would plausibly change |
+| **Advanced** | the same file under `; ---- ADVANCED ----`; F2 → *Debug* → *Tuning* | correct as shipped; changed to answer a symptom |
+| **Dev** | `config_wuchang_minimap_dev.txt`; F2 → *Debug* | a dial that exists because a developer needed one |
+| **Removed** | nowhere | a single warning naming it, then ignored |
+| **Legacy** | nowhere | renamed; `cfgkeys::renamed_to` maps it to its current name |
+
+**`config_wuchang_minimap_dev.txt` is not part of a release.** It is read only if it exists, in
+the same folder, **after** the player config — so a key set in both wins there — and `package.ps1`
+throws if it finds one in the staged package. `deploy.ps1` copies it. The 1 Hz timestamp watch and
+F5 look at **both** files, so editing either reloads both.
+
+Three keys take effect only on restart or on a `mod_enabled` off/on cycle, because each is read
+once during start-up: `overlay_hooks`, `srv_heap_size` and `navmesh_dump`.
+
+**Two off switches, and they are the first thing to ask a bug reporter for.** `mod_enabled = 0`
+makes the whole DLL inert — the hooks are not installed (and are cleanly disabled if they already
+were, the trampolines kept so turning it back on can never double-hook), the `ProcessEvent`
+callback returns on its first statement (UE4SS exports no *Unregister*, so that early return is
+the mechanism), no scan runs, the height maps are freed. All that keeps running is one
+`GetFileAttributesEx` of the config per second, so setting the key back to `1` restarts the mod
+within a second — but **F5 does not work while the mod is off**, because nothing samples the
+keyboard. `overlay_hooks = 0` is narrower: nothing of the mod goes near DirectX, while the
+game-thread reader, the tracker, the found file and the log carry on. That splits the render half
+off from everything else in one line and a restart.
+
+There is no Save button: every place that publishes a UI-edited config raises a flag the loop
+thread consumes on a 750 ms debounce, and `mm::save_config_file()` rewrites **only the values** of
+both files through `cfgrw::rewrite`, so comments, ordering and keys this build does not know
+survive it.
+
+Accepted hotkey names are F1-F5, F7, F8, any single letter or digit, TAB, SPACE, ENTER, BACKSPACE,
+the arrows, INSERT/DELETE/HOME/END/PAGEUP/PAGEDOWN, NUM0-NUM9 and the numpad operators,
+MOUSE3-MOUSE5, the L/R modifier keys and `none`, with one optional `ctrl+` / `shift+` / `alt+`
+prefix. **F6** (RenoDX), **F9**/**F11** (engine binds), **F10** (game console) and **F12** (Steam)
+are rejected in code, not merely discouraged in a comment.
+
+---
+
+## Traps
+
+- **The map schema string lives in six files** — `src/mapdata.hpp`, `src/mapmanifest.hpp`,
+  `tools/navmesh/build_map.py`, `tools/navmesh/mapfmt.py`, `tools/navmesh/slice_preview.py` and
+  `tools/package.ps1`. Grep it and change them together.
+- **A height code is 12 bits of Z plus bit 12 = reachable.** Always mask with `mapdata::z_code()`
+  and ask `HeightMaps::reachable()` for the flag. The layout, the coverage index and which schemas
+  are accepted are specified in `src/mapmanifest.hpp`'s header comment.
+- **Keep `slice_preview.py`'s `slice_window()` and `overlay_slice.cpp`'s in step.** They are the
+  same rule, offline and online.
+- **Regenerate, never hand-edit:** `maps/`, `markers/*.json` (except `chapter1.sample.json`),
+  `sdk/UE4SS.def`, `sdk/lib/UE4SS.lib`, `tools/markers/class_graph.json`.
+- **`xmake clean --all` drops the cached VS environment**, so it runs *before* `xmake f`, never
+  after — otherwise the next compile starts with an empty `INCLUDE`. `build.ps1 -Rebuild` gets the
+  order right.
+- **`src/version.hpp` is the single source of the version.** `package.ps1 -Version x.y.z` rewrites
+  it and `xmake.lua`'s `set_version` together, and nothing else may touch either.
+- **`.gitattributes`:** text is LF in the repo and CRLF on checkout; `*.png`, `*.lib`, `*.pak` and
+  friends are `-text`. No Git LFS — the map PNGs are irreplaceable without another extraction run.
+- **Conventions:** one short lowercase namespace per module; `snake_case` functions and variables,
+  `kPascalCase` constants, `enum class`, Allman braces at 4 spaces with braces even on
+  single-statement `if`s, lines under ~100 columns, no `.clang-format`. Comments are a prose block
+  at the top of each file — what the module is, which thread it runs on, what it must not do — plus
+  short notes above non-obvious declarations, present tense, no change history.
+- **No art assets.** Category glyphs are `ImDrawList` primitives, and every category is
+  distinguished by shape as well as colour (asserted in the tests for every palette).
+
+---
+
+## The map asset pipeline
+
+`maps/` is one palette-PNG composite plus eight 16-bit height planes per chapter, and one
+`maps.json`. `mapfmt.py` **owns the on-disk format** — schema string, palette encoder, height
+quantisation — so a fresh build and a re-encode cannot disagree; `build_map.py` imports
+`render.py`, so the loader, the richest-copy dedupe and the flat-plane filter are shared with the
+raw renderer. Plane *k* holds, at every pixel, the Z of the *k*-th walkable surface from the
+bottom.
 
 ```powershell
-.\deploy.ps1 -Pull    # game -> tools\navmesh\dumps\<agent>\*.json
-
-python tools\navmesh\render.py --input tools\navmesh\dumps --out tools\navmesh\out --debug
-python tools\navmesh\render.py --synthetic --out out_synthetic --debug   # self-test
-```
-
-`tools/navmesh/render.py` (Pillow only) merges every dump — the richer copy wins per
-`(tile x, tile y, layer)` — fills the polygons, splits stacked geometry into floors and
-writes `out\<agent>_floor<i>.png` plus `out\bounds.json`. North-up mapping:
-`u = (world_Y - min_y) * px_per_uu`, `v = (max_x - world_X) * px_per_uu`. A polygon's floor
-index is the rank of its Z band inside its own streaming cell, so floor 0 is the lowest
-surface everywhere. `--probe out\navprobe_*.csv` renders the Lua mod's F11
-`ProjectPointToNavigation` grids through the identical mapping, for checking alignment.
-
-## The map assets
-
-```powershell
-# offline: paks -> tile JSON  (see .workspace/.../context/navmesh-offline.md)
+# paks -> tile JSON
 python tools\navmesh\offline\pak.py unpack "<...>\Project_Plague-Windows.pak" `
        --grep "Maps/Generate/Chapter1/EX0/" --out <scratch>
 python tools\navmesh\offline\navchunk.py "<scratch>\...\Chapter1\EX0\*.umap" `
        --out tools\navmesh\dumps_offline --stamp 20260902_ch1
 
-# tile JSON -> the shipped assets
+# tile JSON -> the shipped assets  (needs ~400 MB of tile JSON that is NOT in the repo)
 cd tools\navmesh
 python build_map.py --input dumps_offline --chapter chapter1 --out ..\..\maps
-```
 
-`build_map.py` imports `render.py`, so the loader, the richest-copy dedupe and the flat-plane
-filter are shared, and `mapfmt.py`, which owns the on-disk format (schema string, palette
-encoder, height quantisation) so a fresh build and a re-encode cannot disagree. It writes
-three things (schema `wuchang-minimap-maps/5`):
+# format-only changes need no dumps at all
+python tools\navmesh\repack_maps.py --dry-run     # measure, write nothing
+python tools\navmesh\repack_maps.py               # re-encode maps\ in place
 
-1. **`chapter1/small.png`** — the Z-shaded composite of every storey, transparent background,
-   as a **256-colour palette PNG** with a tRNS array. The render is flat-filled from a
-   five-stop grey ramp with a darkened outline per polygon, so the picture only ever uses
-   643..651 distinct RGBA values and its alpha is binary (0 background, 235 fill):
-   quantising to 255 colours + transparent costs at most 3/255 on one channel (0.19/255
-   mean) and saves 44 % of the bytes. Chapter 1 at 0.06 px/uu is 4947 x 4333 px, **1.5 MB
-   PNG**, 82 MB as RGBA8 in VRAM. It is the *fallback* for a chapter with no height planes
-   and is not loaded unless `fallback_use_composite = 1`.
-2. **`chapter1/small_h0.png` .. `_h7.png`** — the **multi-surface height map**: eight 16-bit
-   grayscale PNGs where plane k holds, at every pixel, the Z of the k-th walkable surface
-   from the bottom. Bits 0..11 are the Z:
-   `code = 1 + round((Z - z_min) / (z_max - z_min) * 4094)`, and **code 0 means "no
-   surface"**. **Bit 12 (0x1000) means the surface is REACHABLE** (below). All eight share
-   one size, one `px_per_uu` and one set of bounds.
-   Chapter 1: **4947 x 4333, 5.2 MB of PNG, 86 MB of RAM** (`z_min` -11649, `z_max` 38871,
-   12.34 uu per step). Properties that matter:
-   * **Fill only, no outlines.** Coverage is "the sample point is inside the polygon, or
-     within `--seam-px` (0.5) of its boundary", which closes the sub-pixel gaps. The ~1 px
-     overlap that creates is absorbed by `--merge-tol` (120 uu): a polygon's pixels *join*
-     the surface already at that pixel when the Z is that close, instead of opening a new
-     slot, so no phantom storey appears along an edge.
-   * **Z is interpolated per vertex** (barycentric over the polygon's fan triangles, clamped
-     to the polygon's own vertex Z range), so a ramp stores a smoothly varying Z and the
-     runtime's gradient comes out smooth rather than per-polygon flat.
-   * Slots are sorted ascending, so `z0 <= z1 <= ... <= z7` per pixel. **Eight** slots: four
-     hold 93 % of a chapter's lit pixels but only 50 % in the Digong-spiral /
-     Hanguang-temple block (up to eleven surfaces at one pixel), where slicing at the
-     temple's feet Z then costs two thirds of the floor. Eight is within 2 % of sixteen. The
-     top slot is the **overflow** slot and keeps the *highest* Z. `--max-surfaces 4` halves
-     the RAM.
-3. **`maps.json`** — per chapter the bounds, scale, mapping, `z_min` / `z_max` / `z_bits` /
-   `z_code_max` / `z_step_uu`, `max_surfaces`, the `height_planes` list (the array index IS
-   the surface slot) and the measured tile-store cost (`height_tiles_128`,
-   `height_tile_ram_bytes`). 11 kB.
-
-### Formats and sizes (schema /5)
-
-| | chapter 1 | 2 | 3 | 4 | 5 |
-|---|---|---|---|---|---|
-| `px_per_uu` | 0.0600 | 0.0553 | 0.0483 | 0.0523 | 0.0320 |
-| pixels | 4947x4333 | 4821x4613 | 3812x5835 | 4898x4541 | 3029x7342 |
-| composite PNG | 1.51 MiB | 1.24 | 1.35 | 1.00 | 0.79 |
-| height planes, PNG | 5.22 MiB | 4.13 | 4.19 | 3.11 | 3.82 |
-| Z step | 12.34 uu | 12.23 | 12.44 | 7.26 | 3.98 |
-| 128-px blocks lit | 2766/10608 | 2215/11248 | 2366/11040 | 1644/11232 | 1515/11136 |
-| **RAM resident** | **86 MiB** | 69 | 74 | 51 | 47 |
-| (dense would be) | 327 MiB | 339 | 339 | 339 | 339 |
-
-`maps/` is **26.4 MiB** in total.
-
-**A height code is 12 bits of Z plus one flag.** Bits 0..11 are the Z code (1..4095, 0 = no
-surface), bit 12 is `reachable` — set by the marker-seeded walk-and-fall flood on every
-surface a player can actually get to — and bits 13..15 are zero. Every reader masks with
-`mapdata::z_code()` before decoding and asks `HeightMaps::reachable()` for the flag; a
-schema /4 asset has no bit 12, `has_reachability` is false and every surface counts as
-reachable. What the runtime does with an unreachable surface is the player's call
-(`map_unreachable`).
-
-**Why 12 bits.** The slicer's decision is `|Z - feetZ| <= floor_z_tolerance` with a 200 uu
-tolerance and an 800 uu fade, and the pipeline's own storey separator (`--floor-band-gap`) is
-250 uu. 12-bit codes give a 3.98..12.44 uu step, at worst 3.1 % of the tolerance and 2.5 % of
-a storey gap. 10-bit (49 uu, a quarter of the tolerance) would start to matter.
-`repack_maps.py` measures the error it introduced over every lit pixel and stamps it into the
-manifest as `z_requantise_worst_uu`; `markers_test` fails if it exceeds 20 uu.
-
-### Reachability: bit 12
-
-The map background is every walkable Recast polygon the game cooked, and Recast walks
-wall tops, roof ridges, cliff ledges, rubble under scenery and the outside faces of arena
-walls. That is 34..63 % of the walkable area and 98 % of the visually separate blobs on the
-map — the shipped assets carry 670..931 of them per chapter, which is what the player sees
-as one arena in a field of scraps.
-
-`build_map.py` marks what a player can get to, right after the rasterisation and before the
-quantisation. The surfaces of the height planes are the nodes of a directed 8-neighbour
-graph, with an edge from surface *s* to a neighbouring surface *t* when
-`Z_t <= Z_s + --reach-step-up` (default **60 uu**) — a walk, a small step up, or a fall of
-any depth — and it is flooded by one BFS from a virtual super-source over every seed. The
-seeds are **every marker in `markers/<chapter>.json`, every category**, snapped to the
-surface within 400 uu of its own Z, which is `marker_coverage.py`'s own criterion: enemy
-spawns alone are 40..60 % of them, and an AI stands where the floor is real. Everything the
-flood reaches gets bit 12; nothing is deleted, and the runtime decides what to do with the
-rest (`map_unreachable`).
-
-| | chapter 1 | 2 | 3 | 4 | 5 |
-|---|---|---|---|---|---|
-| seeds (of all markers) | 728 of 916 | 707 of 905 | 565 of 740 | 289 of 341 | 324 of 359 |
-| reached area | 66 % | 54 % | 44 % | 40 % | 37 % |
-| blobs, 8-connected | 763 -> 13 | 931 -> 10 | 931 -> 22 | 670 -> 16 | 771 -> 8 |
-| markers stranded | 0 | 0 | 0 | 0 | 0 |
-| unreached blobs >= 400 m2 | 22 | 24 | 47 | 31 | 31 |
-
-The parameters are measured insensitive: 60 -> 300 uu of step-up moves chapter 2 by 0.8 pp
-and a 3-px neighbour radius by 1.7 pp. **The seeds are the whole lever**, so the risk is an
-area whose only access is a ladder, a lift or a jump *and* which holds no marker at all;
-every unreached blob of 400 m2 or more is listed in `maps.json` under
-`reachability.big_unreached` with its centre and Z, so "why is there a hole here" starts
-from a table. `--reach-seeds-extra <json>` adds seed points from a recorded player track,
-and `--no-reach` flags every surface instead.
-
-**Why 128-px blocks.** The planes are read by a CPU loop, never sampled by the GPU, so they
-live in ordinary RAM — and three quarters of a dense plane is code 0, because a chapter's
-walkable area is a quarter of its bounding box and deeper surfaces are rarer still (plane 0
-lights 62 % of the blocks, plane 7 lights 3 %). `mapdata::build_plane()` allocates only the
-non-empty 128-px blocks plus an int32 index per slot. Cropping to a bounding box and 512-px
-tiling both measure worse: the lit pixels are scattered through every building on the map
-rather than clustered. Consequence for readers: a row of the picture crosses several blocks,
-so there is no row pointer — gather a row with
-`HeightMaps::gather_row(k, sy, col_x, n, dst)`, which returns `false` for a row with no
-surface at all so the caller can skip it.
-
-**The version is enforced in both directions.** `mapmanifest::parse()` accepts only the
-schemas the build implements: a /3 plane read by a /4 decoder puts every surface sixteen
-times too low and a /5 plane read by a /4 decoder puts every reachable surface 4096 codes
-too high — both look like an empty map rather than like an error. A **/4 asset stays
-readable**: it carries no flag bit, which means "every surface is reachable". In the other
-direction, /4 renamed the manifest key (`height_maps` -> `height_planes`) and the files
-(`_z<k>.png` -> `_h<k>.png`), so an older parser finds no list, guesses the `_z` names, finds
-nothing on disk and logs `NO height plane decoded ... build them with build_map.py`. Change
-the schema string in `tools/navmesh/mapfmt.py`, `src/mapmanifest.hpp` and
-`tools/package.ps1` together.
-
-### Re-encoding what already ships: `repack_maps.py`
-
-```powershell
-python tools\navmesh\repack_maps.py --dry-run          # measure, write nothing
-python tools\navmesh\repack_maps.py --skip-heights     # composites only
-python tools\navmesh\repack_maps.py                    # in place, maps\
-```
-
-`build_map.py` needs `tools/navmesh/dumps_offline/`, 400 MB of extracted tile JSON that is
-not in the repo. A pure **format** change does not: the composite is re-palettised from its
-own pixels and the planes are re-scaled from their own codes, so `repack_maps.py` re-encodes
-a `maps/` tree in about 45 seconds with nothing else on disk, verifying every PNG by decoding
-the bytes back before they land. Bit 12 rides through a repack untouched — it is a flag, not
-a number — and a tree that carries no flag at all is repacked with every surface flagged,
-which is what a flagless asset means. Use it when only the encoding changes; use `build_map.py`
-when the geometry, the filters or the resolution change.
-
-### Resolution is per chapter
-
-Each chapter is scaled to its own RAM budget, so `px_per_uu` runs 0.032 (chapter 5) to 0.060
-(chapter 1) — chapter 5 has half chapter 1's detail. A uniform scale does not fit:
-
-| uniform `px_per_uu` | `maps/` | worst chapter RAM |
-|---|---|---|
-| as shipped (0.032..0.060) | 26.1 MiB | 86 MiB (ch 1) |
-| 0.060 everywhere | **42.8 MiB** | **166 MiB** (ch 5 at 5674x13754) |
-| 0.049 everywhere (the most that fits 30 MB) | 28.6 MiB | 114 MiB (ch 3) |
-
-0.060 is over both the 30 MB download budget and the ~90-100 MB resident target, and the
-largest uniform scale that fits 30 MB would *reduce* chapters 1, 2 and 4. Spending the whole
-remaining budget on chapter 5 alone takes it from 0.032 to 0.0398 (+24 % linear, 73 MiB
-resident) for 4 MB of download:
-`python build_map.py --input dumps_offline --chapter chapter5 --px-per-uu 0.0398 --max-ram-mb 1200`
-(the `--max-ram-mb` fitter assumes a dense store, so it has to be raised for the sparse one).
-
-`--legacy-layers` still produces the per-pixel surface-ordinal layers (`small_f0..f7.png`,
-8-bit coverage masks) plus the 640-uu surface-band grid. They separate storeys exactly, but
-the runtime can only guess which ordinal its storey is from a band table that names up to
-three of them; the height map answers the same question exactly, per pixel.
-
-### `slice_preview.py` — the runtime's rule, offline
-
-```powershell
+# reproduce "the floor looks wrong at X" without launching the game
 python tools\navmesh\slice_preview.py --x 19537 --y 4587 --z 2505 --out temple.png
+
+# raw runtime dumps -> floor PNGs, for checking the offline path against the game
+.\deploy.ps1 -Pull
+python tools\navmesh\render.py --input tools\navmesh\dumps --out tools\navmesh\out --debug
+python tools\navmesh\render.py --synthetic --out out_synthetic --debug   # self-test
 ```
 
-Renders what the overlay would draw at that world position, straight from the shipped height
-maps, so a "the floor looks wrong at X" report can be reproduced without launching the game.
-`slice_window()` + `shade()` are the reference implementation of the slicing rule; keep them
-and `overlay_slice.cpp`'s `slice_window()` in step.
-
-`--px-per-uu` is a request: it is first scaled continuously to fit `--max-ram-mb`, then halved
-until neither dimension exceeds `--max-dim` (8192). That order matters — clamping first
-charges a chapter a full halving and then leaves it under budget.
-
-`deploy.ps1` copies `maps\` into the mod folder every time (`-NoMaps` skips it).
-
-## The overlay
-
-`src/overlay_d3d12.cpp` installs three MinHook hooks whose addresses come from a throwaway device +
-queue + swapchain (the hudhook trick, since the game's swapchain is not reachable from a UE4SS
-mod):
-
-| slot | function |
-|---|---|
-| swapchain vtable 8 | `IDXGISwapChain::Present` |
-| swapchain vtable 13 | `IDXGISwapChain::ResizeBuffers` |
-| swapchain vtable 22 | `IDXGISwapChain1::Present1` |
-
-The throwaway queue exists only because `CreateSwapChainForHwnd` needs one; nothing of the
-game's queue is hooked, because the overlay submits on a DIRECT queue of its own
-(`overlay_dcomp.cpp`).
-
-**On this install all three land inside ReShade's `dxgi.dll`**, a 5.6 MB proxy next to the exe.
-The dummy objects are created through our own import table, so we get the same wrappers the
-game holds; the module+offset of every hooked address is logged. The overlay therefore draws
-before ReShade's effects. Two consequences: `swapchain->GetDevice(IID_ID3D12Device)` **fails**
-on the wrapper, so the device is taken off back buffer 0 instead — `GetBuffer` only *reads*
-the buffer, which is the one link every wrapper forwards and the one that answers even where
-writing that buffer is denied; and the game presents a decoy **144x8 D3D11** swapchain every
-frame next to the real **1920x1080 R10G10B10A2_UNORM** one, so the overlay picks one swapchain
-(`GetBuffer(0, IID_ID3D12Resource)` is the test) and ignores Presents from any other. A
-foreign swapchain is ignored for *drawing* only: `hk_Present`, `hk_Present1` and
-`hk_ResizeBuffers` call the original unconditionally, for every swapchain, so nothing else in
-the process loses a frame to us.
-
-**Discovery runs on every launch**, ~60 ms of it, and creating those throwaway objects is the
-point rather than a cost: the `D3D12CreateDevice` / `CreateDXGIFactory1` /
-`CreateSwapChainForHwnd` calls drive ReShade's `dxgi` proxy, its addons, Streamline's
-interposer and the Steam overlay through their own creation interposers before MinHook writes
-a byte. The addresses themselves are a property of the DLLs and could be cached in a file
-(older builds cached them in `wuchang_minimap_hookaddr.txt`, which is deleted on sight now) -
-but a launch that hooks them out of a file skips that ordering and **intermittently black-
-screens from the first frame**, with the mod presenting normally and nothing in any log. What
-this costs is Steam's `GameOverlayRenderer64.dll`, which hooks the same creation entry points
-and re-targets its overlay onto what it sees created, so a Steam FPS counter can end up
-pointing at the objects we destroyed again.
-
-The log also answers *who else is on this function*: before a byte is written, the first 8
-bytes at each address are read and, if a `jmp` is already there, its target is resolved to
-`module+offset` (`ALREADY DETOURED -> GameOverlayRenderer64.dll+0x...`). MinHook is a
-trampoline on the function and never a vtable patch, so a detour installed before ours ends up
-*downstream* of ours and one installed after ours *upstream*; either way the chain is intact.
-
-Rendering owns its own SRV descriptor heap (ImGui 1.92's `ImGui_ImplDX12_InitInfo` allocates
-through callbacks), one command allocator per back buffer fenced against reuse, and RTVs
-recreated lazily after `ResizeBuffers`. The map texture is created and uploaded by us
-(`CopyTextureRegion` + a barrier to `PIXEL_SHADER_RESOURCE`) and its GPU descriptor handle is
-passed to ImGui as the `ImTextureID`.
-
-The minimap is drawn on the foreground draw list: player-centred crop, north-up or
-rotate-with-player, round (a UV'd triangle fan, no mask) or square, configurable zoom, size,
-anchor, offsets and opacity, with a yellow player arrow. It hides itself when a menu is open,
-when the camera's view target is not the pawn, when the state snapshot is stale, or when the
-player is outside every mapped chapter — and the F2 panel prints which.
-
-`src/gamestate.cpp` reads the state on the **game thread** inside UE4SS's ProcessEvent
-pre-callback: pawn location and yaw at 10 Hz via `K2_GetActorLocation` /
-`K2_GetActorRotation`, the pawn and controller re-resolved at 2 Hz, and the menu test
-(`UWidget::Visibility == Visible` prefiltered from the reflected byte, then `IsInViewport()`).
-It publishes an `mm::Snapshot` through a seqlock; the render thread never touches a UObject.
-
-#### How a menu is found
-
-`IsInViewport()` on a root `UserWidget` whose `Visibility` is `Visible` is the whole
-decision. It is asked on the validated 10 Hz pump, and also between pumps whenever a UI event
-names a watchlisted root — `pump_menu_retest`, at most once every 16 ms, the one thing on the
-fast path that issues a ProcessEvent. Three finders supply the roots it is asked about, and
-none of them latches anything:
-
-| Finder | What it costs | Latency of a menu it answers |
-|---|---|---|
-| the **watchlist** — every root that has ever confirmed, re-tested in full each pump and on a UI event naming one of them | 5-6 `IsInViewport()` per re-test | ~1 frame with an event, ≤ 1 pump (~100 ms) without; opening *and* closing |
-| the **UI-event path** — `note_ui_event`, on the ProcessEvent context itself | one hash lookup on the class pointer per event; a widget event adds ≤ 6 outer reads | ≤ 1 pump (~100 ms) from the game's first touch of the widget |
-| the **discovery walk** — a sliced `GUObjectArray` sweep on `scan::SweepSched` | 8192 slots per slice at 8 ms | one quiet period + one round + the commit, ~1-3 s |
-
-The **UI-event path** is what makes an unseen menu near-instant. ProcessEvent already names
-the object it is about, so a widget event is a free hint: `note_ui_event` looks the context's
-`UClass*` up in the memoised kind table (`0` not a widget, `1` may be a menu, `2` deny-listed,
-`3` a class that has already held a menu), walks up to six `Outer` hops — a widget's chain is
-`child -> WidgetTree -> the owning UserWidget -> … -> the game instance` — to the topmost
-`UserWidget`, and offers that root as a candidate. It does **raw reads only**: it runs outside
-the re-entrancy guard, so it may never issue a ProcessEvent, and it decides nothing. The
-candidate is confirmed by the same `IsInViewport()` commit as any other, at most 32
-event-sourced candidates per pump, each widget re-offered at most once a second.
-
-The same path is what makes a menu **close** promptly: the game touches a menu's own widgets
-as it takes them out of the viewport, so an event whose root is already watchlisted asks for
-an immediate re-test instead of waiting out the remaining phase of the 10 Hz pump. Nothing
-else about that event is acted on.
-
-Three bounds keep an event storm — holding Esc, say — from making the detector worse than no
-event path at all. The sweep is armed at most once per `scan::kSweepArmMinGapMs` (250 ms), so
-rounds cannot run back to back and refill the candidate list faster than the 128-per-pump
-commit drains it. The slice never offers a widget that is already on the watchlist, since it
-is re-tested every pump anyway. And the 512-candidate cap no longer refuses a known menu
-class: it displaces the last unknown entry instead (`scan::candidate_evict_at`), because the
-list fills in object-array index order and a menu root is constructed late.
-
-The pointer-keyed caches — the watchlist, the class kind memo, the pending candidates, the
-offer memo — are all cleared by `drop_pawn`, because a recycled address would answer from the
-wrong entry. Confirmed menu root **class names** are not: `scan::MenuRootNames` keeps a
-bounded, round-robin set of them (`scan_sched.hpp`, covered by `markers_test`), so after a
-level load the same class is recognised at once and its candidates lead the pending list
-(`scan::candidate_insert_at`) rather than being cut by the per-pump commit cap.
-
-`scan::kNonMenuRoots` stays authoritative over all three: a deny-listed class never reaches
-kind 1 or 3, so neither the walk nor an event can offer it.
-
-At verbose the flip line names which finder answered, how long after the triggering UI event,
-and the state that would explain a late flip — the watchlist size, the depth of the untested
-candidate queue, how many the cap refused, and the sweep's current period.
-
-### The F2 panel
-
-Four tabs, one home per concept — a surface's on/off, its size and its categories are never
-on different tabs:
-
-- **Overview** — *What is on* (minimap, compass and x-ray, each with the handful of dials that
-  decide how it looks, plus show-markers and hide-in-menus), *Placement* (`hud_preset`, with
-  the anchors revealed under `custom`, the minimap offset and the UI scale) and *Look* (theme,
-  palette, font).
-- **Categories** — the fourteen categories as rows against the three masks as columns
-  (`markers_categories` / `highlight_categories` / `compass_categories`), each row carrying the
-  category's glyph, colour and live found / known count, each column header an *all* / *none*
-  pair, a click on a row label toggling it everywhere. Under it the rules that are about every
-  surface at once: show found and how faint, the three glyph sizes, the item-quality combo with
-  its tier colours, and clamp-to-rim.
-- **Map & tracker** — the collection tracker first, with its clear-this-save button, backup and
-  statistics page, then the full map and the waypoint list.
-- **Keys** — every hotkey, rebound by clicking a row and pressing a key, plus the three gamepad
-  chords.
-- **Debug** — present only while `debug_readout = 1`, a Dev key in a file a player does not
-  have. It carries the Dev keys, a *Tuning* section holding the whole Advanced tier (map
-  background, minimap, full map, x-ray, compass, floors, sweep & tracker, the visibility gate
-  and diagnostics), the collection-file readout, the per-activity performance table and every
-  read-only diagnostic (marker sweep, gamepad, map slice, x-ray camera, game state).
-
-Section folds are one bit each in `wuchang_minimap_panel.txt` (`sections3 = 0x...`; the bits
-are positional, so the enum in `overlay_panel.cpp` is the file format — a token bump is how a
-changed enum invalidates an old file). The **Reload map data** / **Reset to defaults** row and
-the master switch live outside the tabs, at the bottom, and never scroll away.
-
-#### Everything saves itself
-
-There is no Save button. Both places that publish a UI-edited config — the full map and the F2
-panel, each doing `if (before != cfg) mm::set_config(cfg)` — also raise
-`mm::g_save_config_soon`, and so do the two settings the game itself moves: the minimap zoom
-ladder (loop thread, `overlay.cpp`) and the full map's zoom, written back un-DPI-scaled on the
-frame the map closes (`overlay_d3d12.cpp`).
-
-The loop thread consumes the flag in the same file-writes block as the waypoint file: raising it
-stamps a deadline 750 ms out, so a dragged slider or a run of legend clicks costs one write, and
-a change arriving while a save is pending re-stamps it. The write is `mm::save_config_file()`,
-which rewrites *only the values* of both files through `cfgrw::rewrite` — comments, ordering and
-keys this build does not know survive it — and writes the dev file only when one exists or a Dev
-key is off its default.
-
-One save stays synchronous, `mm::g_save_config`: unticking the master switch, which must have
-`mod_enabled = 0` on disk before the 1 Hz watcher acts on it.
-
-### Settings
-
-`ue4ss\Mods\WuchangMinimap\config_wuchang_minimap.txt`, plain `key = value`, `;` or `#` starts
-a comment, every key documented inline in the file itself. `src/config_keys.hpp` is the one
-table that says which **tier** each key is in:
-
-| tier | where it lives | what it is |
-|---|---|---|
-| **Player** | `config_wuchang_minimap.txt`, under `; ---- PLAYER SETTINGS ----`; the F2 panel's four player tabs | something a person tuning the HUD would plausibly change |
-| **Advanced** | the same file, under `; ---- ADVANCED ----`; F2 → *Debug* → *Tuning* | correct as shipped; changed to answer a symptom |
-| **Dev** | `config_wuchang_minimap_dev.txt`; F2 → *Debug* | a dial that exists because a developer needed one during bring-up |
-
-Further keys are **removed** — sanity caps that are hard-coded constants, and toggles for
-behaviour the mod simply has (`overlay_enabled` and its older name `enabled`, both answered by
-`overlay_hooks`; `found_tracker`, `markers_absence_marks`, `map_waypoint_persist`,
-`shrine_list`). A removed key gets a single
-warning naming it and is then ignored. `cfgkeys::renamed_to` keeps the **legacy** rename path
-alive for the next one; nothing is renamed right now.
-
-**`config_wuchang_minimap_dev.txt` is not part of a release.** It is read only if it exists,
-in the same folder, **after** the player config — so a key set in both wins there — and
-`tools\package.ps1` throws if it finds one in the staged package. `deploy.ps1` copies it. The
-1 Hz timestamp watch and F5 look at **both** files, so editing either reloads both. The Debug
-tab saves into the dev file, never into the player one; if the file does not exist and every
-Dev key is at its default, it stays that way.
-
-Three keys take effect on restart, or on a `mod_enabled` off/on cycle — `modswitch::enable()`
-re-reads the whole file and calls `overlay::start()` again: `overlay_hooks`, which
-`overlay::start()` reads once before the hooks go in, `srv_heap_size`, because the descriptor
-heap is created once, when the overlay first initialises, and `navmesh_dump`, which the dumper
-reads once when it starts.
-
-**The master switch, `mod_enabled` (default 1).** `mod_enabled = 0` makes the DLL inert: the
-DX12 hooks are not installed (and are cleanly disabled if they already were — the render
-thread tears ImGui and every D3D12 object down inside one Present, then the MinHook
-trampolines are disabled but kept, so turning it back on can never double-hook), the
-ProcessEvent game-thread callback returns on its first statement (UE4SS exports no
-*Unregister*, so that early return is the mechanism), no object-array scan runs, the chapter's
-height maps are freed and XInput is never polled. What keeps running is one
-`GetFileAttributesEx` of the config file per second on the loop thread, so setting the key back
-to `1` restarts the mod within a second. **F5 does not work while the mod is off** — nothing
-samples the keyboard — and the panel's checkbox can only turn it *off*. Every flip writes one
-`master switch:` line into `UE4SS.log`. It stops the whole mod; the Debug tab's *Disable for
-this session* stops the same way without writing anything.
-
-**The DirectX off switch, `overlay_hooks` (default 1).** `overlay_hooks = 0` runs the mod with
-nothing of it anywhere near DirectX: `install_hooks` is never called, so there is no throwaway
-device, no vtable discovery and no Present / Present1 / ResizeBuffers trampoline, and nothing is
-drawn. The game-thread reader, the collection tracker, the found file
-and the mod's own log all carry on, and the breadcrumb reads `dx12 hooks off by config`. That is
-what makes it the answer to a report of a hang or a crash at start-up: it splits the render half
-off from everything else in one line and a restart. It takes effect on restart, or on a
-`mod_enabled` off/on cycle — the 1 Hz watch and F5 ignore it on their own.
-
-### Surviving a swapchain that is not the game's own
-
-The gates between the hook and the first thing the overlay submits each write the reason they
-opened or closed into `wuchang_minimap.log`. They exist because Present is reached by every
-renderer in the process — a frame-generation interposer, a ReShade proxy, another overlay — and
-because the mod's own first submission is what killed a reporter's D3D12 device.
-
-**Which swapchain, and what the overlay draws on.** The swapchain is the game's, followed for its
-geometry and its frame tick; the queue and the surface are the mod's own (`overlay_dcomp.cpp`
-creates a DIRECT queue, a `CreateSwapChainForComposition` swapchain and a DirectComposition visual
-over the game's window). Nothing of the game's is submitted on, so no queue has to be elected, and
-the game's back buffers are never written — which is what makes this work under frame generation
-and capture layers. `create_render_targets` is what stores that queue in `g_queue`.
-
-**Nothing is tested before the first frame, because there is nothing to test.** Earlier versions
-submitted a probe frame - one `PRESENT -> RENDER_TARGET -> PRESENT` barrier pair and no draw - to
-find out whether the game's back buffer could be written at all, because D3D12 cannot be asked what
-state a resource is in, nor whether this process may write it. On a machine where the answer was no,
-asking cost the game its device. The overlay now writes only buffers it created, in states it chose,
-so the question does not arise. If the surface cannot be created the overlay simply does not start,
-says so in one line, and the rest of the mod - the tracker, the marker sweep, the waypoint files -
-keeps running.
-
-**A removed device is terminal.** `note_present_result` runs on whichever thread presented. It asks
-the device its `GetDeviceRemovedReason()` there and then, through `describe_device_state`, and logs
-it by name in the same line as the HRESULT - not left to the render thread, because the removal that
-matters most is the one that stops the game presenting for good, and then no later Present ever
-arrives to ask in. Acting on the answer is still the render thread's: `device_alive` sets
-`g_device_removed`, which releases the objects once inside the next Present and returns from every
-Present after that. Nothing is ever rebuilt on a dead device, because ImGui's font upload waits on
-a fence with no timeout and would wedge the render thread inside the game's own recovery. A
-recoverable failure asks for a re-adoption instead, capped at `kMaxReadoptions` per stretch: a
-successful adoption clears the count, so a player cycling video settings does not spend it.
-
-`tests/markers_test.cpp` is the drift guard, in both directions:
-`keys(config_wuchang_minimap.txt) == Player ∪ Advanced`,
-`keys(config_wuchang_minimap_dev.txt) == Dev`,
-`{key == "..." literals scraped out of mmstate.cpp} == Player ∪ Advanced ∪ Dev ∪ Legacy`, the
-tiers pairwise disjoint, no removed or renamed key in either file, the shipped file's
-`; ---- PLAYER SETTINGS ----` / `; ---- ADVANCED ----` banner order matching the tier tags key
-for key, and a byte-identical round trip of the in-place rewrite over both real files. So no
-layout, no table and no parser branch can drift away from the others.
-
-#### Absence as evidence of a collect
-
-An item picked up **before the mod was installed** leaves nothing to read: the game parks a
-collected pickup at `(0, 0, 0)` when its level loads and frees it at the next GC, so neither
-`dying` nor the `(0,0,0)` test has an actor to speak for. Absence on its own is *not* evidence
-here — an unloaded level and a collected pickup are indistinguishable from the object array —
-so the absence rule adds the facts that make it one:
-
-1. the marker's owning level (its `level` field) is in the set `gamestate` reports as loaded.
-   **A marker whose level cannot be matched is never marked** — that is the safety rail;
-2. at least one **full** pass over the object array has completed since that level was first
-   seen loaded, so "I did not see it" means "I looked at every object in the game while its
-   level was streamed in";
-3. that pass found no live twin with a usable position and no collected flag (a twin at the
-   origin or flagged `dying` is itself collected, so it does not block the rule);
-4. and the same held for `markers_absence_rounds` passes in a row.
-
-The mark goes through the normal found tracker, so it persists and can be undone by clicking
-the marker on the full map. The F2 panel shows `absence marks N   levels loaded M`; `M = 0`
-means the rule can never fire. The predicate (`mdb::absence_round_confirms` /
-`mdb::absence_marks`) is pure and its truth table is in `tests/markers_test.cpp`.
-
-### The save-slot ladder (`src/saveslot.*`)
-
-Which save is loaded decides which collection file is used. Four rungs, each **logged with the
-route that answered**:
-
-1. **uuid** — `GameSaveExecutor`'s own KV accessor. The `UFunction` is resolved by name over
-   three candidate spellings and its **reflected parameter list is read and compared** to the
-   predicted shape before anything happens; the signature is logged either way, and the call
-   itself stays behind `saveslot_uuid_call`.
-2. **slot path** — `Impl_GameSettingsSaver_C::TickCountSavPath`, a raw `FString` read with no
-   `ProcessEvent`, parsed for its `GameSlots\<slot>` component.
-3. **sav file** — the newest `*.sav` under `%LOCALAPPDATA%\Project_Plague\Saved\*\GameSlots\*`,
-   giving `<slot>` from the path. It runs on the loop thread before the game thread pumps, so
-   the first load already has a key.
-4. **shared** — the global `wuchang_minimap_found.txt`.
-
-Rungs 2 and 3 answer with the **same key for the same save** — the slot name alone. Rung 2 only
-ever sees an engine-relative `GameSaved/GameSlots/<slot>`, so the Steam account id the
-filesystem path carries is no part of the key; a key that varied by rung would split one
-playthrough across two files as rung 3's answer was replaced by rung 2's mid-session. Files
-left behind by a build that did key on the account id are reconciled on adoption: every
-`<digits>_<slot>` found tracker is unioned into `<slot>`'s and removed, and the waypoint files
-are merged the same way (`reconcile_legacy_found` / `reconcile_legacy_waypoints`).
-
-On first sight of a slot with no file of its own the shared file is **copied** into it once,
-and the copy is logged. A slot switch drops every cache, which re-arms the resolution, so the
-tracker swaps files with no restart; a pending write goes to the *old* file first.
-
-### The player's key bindings (`src/gamebinds.*`)
-
-The Keys tab warns when a mod hotkey lands on a key the game already wants. That warning is
-read out of the running game rather than guessed.
-
-This build is stock UE 5.1 Enhanced Input with **no** user-settings object
-(`EnhancedInputUserSettings`, `PlayerMappableKeySettings` and friends are all absent), so a
-remap made in the game's own options menu is visible in exactly one place: the flattened
-`UEnhancedPlayerInput::EnhancedActionMappings` array on the local player's `PlayerInput`. The
-shipped `UInputMappingContext` assets keep the *defaults* and are never read.
-
-`src/gamebinds.cpp` walks it on the **game thread** at 1 Hz, from `markers::game_thread_pump`
-next to `src/shrines.cpp`:
-
-1. `APlayerController.PlayerInput` (or `FindFirstOf(EnhancedPlayerInput)`), captured as a
-   `uer::ObjRef` so its death re-arms the whole resolution — the object is recreated with the
-   controller and the array is rebuilt on every remap, so nothing is cached by index.
-2. `EnhancedActionMappings`' offset from the class walk; the element **stride** from
-   `UScriptStruct::GetPropertiesSize()` of `FEnhancedActionKeyMapping`, never a hand-written
-   mirror; `Action`, `Key` and `Key.KeyName` from walking that struct
-   (`uer::walk_struct`). The route to the `UScriptStruct` is `FArrayProperty::GetInner()` then
-   `FStructProperty::GetStruct()`, and the answer is validated by making the struct capture as
-   a live object and name itself. The whole derived layout is logged once and every offset is
-   checked to fit inside the stride before a row is read.
-3. Per element: the `UInputAction*` for the identity of the binding (`IP_FlashAtk`) and the
-   `FName` inside the `FKey` for the key (`NumPadFour`). `FKey` is not eight bytes — it caches
-   a `TSharedPtr<FKeyDetails>` — so only that `FName` is touched, and `FName::ToString()` runs
-   on **our copy** of its eight bytes.
-
-`PlayerMappableOptions.Name` lies (`gamePadFlashAttack` sits on a keyboard row), so a binding
-is identified by the action object's name alone. Rows repeat in both directions — one action
-holds several keys, one key drives several actions — and 18 of the 76 rows are unbound
-`key=None` slots, which are dropped. The table is published under a spinlock with a generation
-counter; the panel copies its ~9 KB only when that moves.
-
-`src/gamebinds_map.hpp` is the PURE dictionary: FKey name ↔ virtual key ↔ label, the friendly
-action names, the clash line, and `gb::kFallbackBinds` — the guess the Keys tab shows until the
-live table answers, and the only place the keys *other injected DLLs* own can live. The Keys
-tab says which of the two it is using. `tests/markers_test.cpp` round-trips the dictionary,
-checks every fallback key is one the game can actually name, and runs the clash line over the
-58 bound rows of the recon dump.
-
-### The recon dump (`src/recon.cpp`)
-
-**Dump the fast-travel / save-slot recon** on the Debug tab writes the game mode's
-components, every property of `RebornManagerComponent_C` with the three firepoint arrays, the
-reflected parameter lists of the ten functions the game's own fire-point and save-slot routes
-name, and the save-slot fallback strings — calling nothing. Reflection lookups and raw reads
-only, so the output file is the only side effect; when a name does not resolve it prints the
-names that did. This dump is how `markers/shrines.json` and the save-slot ladder were built.
-
-### `markers/shrines.json` (schema `wuchang-minimap-shrines/1`)
-
-`tools/markers/extract_shrines.py` reads the game's `DT_FirePoint` DataTable with no `.usmap`:
-88 contiguous rows, all named from `MMGame.locres`, all with a `BirthPosition`, 50 of them
-joined to a shrine marker by id (the rest are the `bossdoor_*` / `Task*` pseudo-rows, flagged
-`"shrine": false`). Three things make it safe: `BirthPosition` is schema slot 0, so it needs
-no walk over variable-sized values; the row scan is validated by **contiguity** (all 38 787
-payload bytes accounted for), which rejects the ~54 spurious matches on its own; and the
-display name is found by its own evidence — `ShowName`'s locres key survives in the row as
-ASCII and the locres either has it or it does not. `src/shrines_db.hpp` is the pure parser and
-the shipped file's counts are asserted offline.
-
-### The full map (`M`)
-
-The same asset, the same slicing rule and the same markers as the minimap, at map scale: a
-north-up window over the chapter with a dark backdrop, pannable and zoomable. While it is open
-**the minimap is hidden** and the mod takes the mouse and the keyboard.
-
-| input | mouse / keyboard | gamepad |
-|---|---|---|
-| pan | drag, `WASD`, arrows | left stick |
-| zoom | wheel, `+` / `-` | triggers, right stick Y |
-| floor slice up / down | `ctrl`+wheel, `E` / `Q`, PageUp / PageDown | RB / LB |
-| recentre on the player | `R` (`map_recenter_key`), the Recentre button | Y |
-| drop / remove a waypoint | right-click, `Space` / `Enter` | A (at the view centre) |
-| toggle "found" by hand | left-click a marker, `F` (nearest to the centre) | X |
-| close | `M`, `Esc`, the Close button | B |
-
-Every control has a keyboard **and** a gamepad route: the mouse cursor is the one part that
-depends on what the game does with the OS cursor while we hold the input.
-
-**Memory: the map adds no copy of the asset.** The height planes (86 MB of RAM for Chapter 1,
-in 128-px blocks) are read in place; the map cuts its own small dynamic RGBA texture
-(768 x ~430 x 2 buffers, ~2.6 MB) out of the same planes the minimap slices. The cut is
-*decimated* — one texture pixel covers `step` source pixels — and covers the visible viewport
-plus a 30 % margin, so a small pan needs no new cut. Unlike the minimap, which re-cuts 12 times
-a second because the player is always moving, the map re-cuts only when the view left the cut
-region, the zoom changed, the floor slice moved, or the player moved far enough to be on
-another storey — capped at `map_slice_hz`. An idle open map costs nothing per frame beyond the
-draw, and the buffer being written is never one the GPU is still sampling (the same fence rule
-as the minimap; a busy buffer skips the update instead of stalling Present).
-
-**Height slicing at map scale** is the minimap's rule plus an offset. Per pixel a surface within
-`floor_z_tolerance` of `feetZ + floor offset` wins — the *nearest* one, opaque — and everything
-above it at that pixel is a ceiling nobody draws. With none, the *lowest* surface up to
-`shade_above_band_uu` over the feet is drawn at `shade_above_alpha`: a ledge, or the upper
-terrain a ramp leads to, and it hides whatever lies under it. With none of those, the *highest*
-surface below, at `shade_below_alpha`, however deep. The floor adjustment nudges the offset so
-you can look at the storey above or the dungeon below without walking there.
-
-**The full map's band is unbounded.** `shade_above_band_uu` is the minimap's key; the full map
-always slices as if it were infinite, so away from the player each pixel takes the ground of the
-nearest storey at or above the feet. The priority is what keeps that safe — a floor underfoot
-still wins outright, so no ceiling is ever drawn over the player. A one-storey band applied to a
-whole chapter culls it: at the chapter-3 spot X 88715 Y -9996, feet -10005, it dropped 92 % of
-the pixels that have a reachable surface.
-
-**Colour is absolute height**, not distance from the player: the surface's own world Z on the
-`shade_lo_color` → `shade_hi_color` ramp, through `t ** shade_gamma`. One ramp serves all three
-classes at full opacity, so a height is the same colour whoever is standing where and the cut
-reads as a floor plan; the player marker at the centre says which storey is yours.
-
-**The ramp's ends are percentiles of the Z the cut actually drew** — `p(shade_range_pct_lo)` to
-`p(100 - shade_range_pct_lo)`, out of a 128-bin histogram over the asset's own Z range — never
-the drawn min and max, and never the chapter's `z_min..z_max`: a chapter spans tens of thousands
-of uu between one peak and one pit, which would leave every playable storey inside a colour level
-or two. The minimap widens that span to `shade_min_range_uu` so flat ground does not explode to
-full contrast and eases it over `shade_range_smooth_ms` so walking a staircase does not make the
-picture breathe (a teleport resets it).
-
-**The full map equalises instead** (`shade_map_equalize`, on by default): `t` is the CDF of the Z
-its cut drew — `srule::ZHistogram::cdf`, the same 128 bins, interpolated inside the bin — so every
-tenth of the ramp holds a tenth of the drawn pixels and a stretch of Z nothing sits at costs no
-contrast at all. A chapter is ten kilometres of Z with the playable storeys in a few hundred of
-them: under a linear p3..p97 ramp 58 % of chapter 3's drawn pixels landed inside one 0.10-wide
-band of `t`. Setting the key to 0 puts the linear ramp back, to compare the two in place. The
-minimap stays linear — its window already tracks one storey, and an equalised ramp would recolour
-the ground under the player as they walk. The rule itself is pure C++ in
-`src/slicerule.hpp`, so the offline tests run the same code the two maps do:
-
-| key | tier | default | what it does |
-|---|---|---|---|
-| `floor_z_tolerance` | Player | 200 | uu: within this of your feet is *your* floor, opaque |
-| `show_adjacent_floors` | Player | 1 | 0 forces both alphas below to 0: your storey only |
-| `shade_lo_color` | Dev | `88 84 78` | the ramp's low end, `R G B` |
-| `shade_hi_color` | Dev | `244 240 232` | its high end |
-| `shade_gamma` | Dev | 0.80 | `t -> pow(t, gamma)` along the ramp; < 1 lifts the low ground |
-| `shade_below_alpha` | Dev | 1.00 | opacity of the storey below you |
-| `shade_above_alpha` | Dev | 1.00 | opacity of a ledge or upper terrain overhead |
-| `shade_above_band_uu` | Dev | 600 | uu above your feet a ledge may sit and show; 0 = nothing |
-| `shade_range_pct_lo` | Dev | 3 | the ramp's low percentile; the high one is 100 minus it |
-| `shade_min_range_uu` | Dev | 400 | narrowest Z span the minimap's ramp is stretched over |
-| `shade_range_smooth_ms` | Dev | 400 | easing on that span |
-| `shade_map_equalize` | Dev | 1 | the full map's ramp is the CDF of its own cut, not a linear span |
-| `map_unreachable` | Dev | `hide` | a surface the flood never reached: `hide` \| `dim` \| `show` |
-
-`shade_above_band_uu` is 600 on the minimap — one storey — because ground that close overhead is ground the
-player walks up to, not a ceiling: on the chapter-3 courtyard at X 63506 Y 24472 the above class
-is the surrounding walkway. Anything higher is culled outright, so the roof over a corridor never
-covers the corridor. The cost of that cull is that a deck over a *solid* floor of yours shows
-only through the holes in it; the band is deliberately one storey rather than trying to fix
-that. Every `shade_*` key is a Dev key with a live
-control on the F2 panel's *Debug* tab, under *Developer settings > Height shading*. `map_unreachable` lives on the same
-tab under *Tuning*, as a three-way control, disabled with `maps without reachability data` when
-the asset tree is /4. `dim` draws an unreachable surface one rung further down the same opacity
-ladder — no second colour ramp.
-
-**Markers** are the same published draw buffer, the same glyphs and the same category mask the
-minimap uses — the legend column toggles the *same* `markers_categories` setting the F2 chips
-and the config file drive, and the click is
-[written back to the config on its own](#everything-saves-itself). Hovering a
-marker shows its class, category, found state and
-distance; a left-click toggles found by hand, which goes through the tracker mailbox to the
-loop thread and into the found file. The live sweep still owns the truth: un-marking a chest
-the game reports as `Used` is undone on the next sweep round, because the tracker follows the
-save, not the mod.
-
-**Waypoints** — up to `mv::kMaxWaypoints` (16) of them. A right-click (or `Space`, or gamepad
-A) drops one, and the same gesture on one already there removes it; the map's `Waypoints`
-window lists them with a per-row `X` and a `Clear all`, and `waypoint_nearest_key` (unbound as shipped — `G` is the game's) sets
-one on the nearest marker not yet found among the categories switched on. They are drawn on
-the map and, edge-clamped, on the minimap and the compass; only the one **nearest the player**
-carries the distance readout.
-
-They persist in `wuchang_minimap_waypoint_<key>.txt` next to the config — one file per save slot,
-on the same `slotid` key and the same one-time seeding from the shared `wuchang_minimap_waypoint.txt`
-as the found tracker (`mm::waypoint_slot_poll`, loop thread, 1 Hz: flush to the old file, adopt the
-new key, reload) — one hand-editable line each:
-
-```
-waypoint = <x> <y> <z>
-```
-
-written by the loop thread (the render thread only sets the value). The older single-waypoint
-format — a `set` / `x` / `y` / `z` block — is still read, as a list of one. The file is
-deliberately **not** part of `config_wuchang_minimap.txt`: it is play state, not a setting, and
-it is written on its own debounce as the player drags a pin around.
-
-The set lives in one fixed-capacity POD (`mv::WaypointSet`) behind a spinlock: every draw site
-copies the whole thing inside Present, and a `std::vector` there would allocate.
-
-**Search** — the full map's header carries a name box. While it is not empty only markers whose
-display name contains the text (case-insensitively, `src/textmatch.hpp`) are drawn, the header
-says how many matched, and a `Search results` window lists them nearest-first with a click to
-waypoint one. The match count is one pass over the published buffer taken before the header
-prints it; the rows are built and sorted only while the results window is up. `Esc` empties the
-box before it closes the map.
-
-Two mechanisms keep a typed letter out of the bindings, one per thread that samples keys. The
-map's own bare keys (`WASD`, `E`/`Q`, `F`, `Home`, ...) test `io.WantTextInput` on the render
-thread. The configured bindings (`map_key`, `screenshot_key`, `zoom_key`, ...) are sampled with
-`GetAsyncKeyState` on the loop thread, which cannot see a caret, so they test the same flag
-published as `g_imgui_want_text`. Deliberately not `WantCaptureKeyboard` (what the WndProc
-swallow uses): keyboard navigation raises that too, and `M` has to keep closing a map the arrow
-keys have just panned.
-
-**Export / import** — the F2 panel's Collection tracker section writes the found list and the waypoints of
-the profile in force to `wuchang_minimap_export_<date>_<time>.json` (`src/exchange.hpp`; a
-counter is appended when that name is taken), and reads one back as a **merge**: found ids are
-unioned and nothing is ever removed. Waypoints are appended by `xch::merge_waypoints`, which
-skips any within `kWaypointEpsilon` (25 uu) of one already set and counts what does not fit
-under the 16-waypoint cap — the toast reports both. An import whose `profile` is not the one in
-force is merged and flagged as such in the toast and the log, and an import before the save slot
-is resolved (`slotid::Route::None`) is refused, because its ids would land in the wrong file.
-The path box is UTF-8 and the file system is UTF-16 (`WideCharToMultiByte`/`CP_UTF8`); a
-relative path is taken under the mod folder, an absolute one as typed. Both buttons only raise a
-flag; the loop thread does every read, write and directory walk, through the same atomic
-temp-plus-rename as every other file here.
-
-**Nothing latches.** The map closes itself the moment the state that allows it stops being true
-— a menu opening, the pawn going away, a level transition, a stale snapshot — and the input
-swallow condition *is* `g_map_open`, so closing hands the mouse and the keyboard back on the
-very next message. The map key itself is sampled with `GetAsyncKeyState` on the loop thread,
-precisely because the WndProc hook is swallowing every key while the map is up.
-
-### Why the minimap is (not) on screen
-
-`overlay_d3d12.cpp`'s `set_hide_reason()` is the single choke point for visibility, and every show
-condition is re-evaluated from the live snapshot on **every frame** — there is no latch
-anywhere in the path. The F2 Overview tab prints the current reason as
-`hidden because: <reason>` (or `minimap: visible`) with how long that state has held, and
-every transition goes to the log as `minimap HIDDEN: <reason> (previous state held N ms)`,
-rate-limited to one line per 2 s. When the reason is a menu, the readout names the in-viewport
-widget holding it open.
-
-Accepted hotkey names are F1-F5, F7, F8, any single letter or digit, TAB, SPACE, ENTER,
-BACKSPACE, the arrows, INSERT/DELETE/HOME/END/PAGEUP/PAGEDOWN, NUM0-NUM9 and the numpad
-operators, MOUSE3-MOUSE5, the L/R modifier keys and `none`, with one optional `ctrl+` /
-`shift+` / `alt+` prefix. F6 (RenoDX DLSS 5), F9/F11 (engine binds), F10 (game console) and
-F12 (Steam) are rejected in code, not merely discouraged in a comment. The panel and the full
-map print the live binding list, built from the config, so a rebound key is what you are told.
-
-## The x-ray highlight (`TAB`)
-
-Arm the key (or the gamepad chord, `LB+RB` by default) and every marker of the enabled
-categories within `highlight_radius` of the player is drawn **at its position on screen** —
-category glyph, name, distance in metres — fading with distance, over the scene. "Through
-walls" is free: the overlay is composited on the finished frame, so there is no occlusion
-test, no CustomDepth and no material. Anything off screen or behind the camera gets an arrow
-on the screen edge (`highlight_edge_arrows`).
-
-`highlight_show_found = 0` (the default) hides **collected loot** — chests, pickups and hidden
-items, the three categories where finding a thing consumes it — and a **defeated boss**, which
-is gone the same way. Shrines, NPCs, notes, doors and fog gates are landmarks and are
-highlighted whatever their found state.
-
-**Item quality colours.** Wuchang has **no rarity ladder**: no `E_ItemQuality` / `Rarity` /
-`Grade` enum anywhere in the paks, no quality word in `MMGame.locres`, and no such field on any
-of the six item row structs. What it has is the colour of the beam a pickup gives off:
-`BP_PickupActor_C` picks a `DT_Particle` row (`PickupEffect`, `PickupEffect4..6`,
-`PickupEffect7..9`) whose `LightColor` is blue, pink or gold, and which row it picks follows the
-item's `ItemType` (`E_ItemType`). `tools/markers/build_items.py` decodes that enum out of the
-cooked item DataTables and `extract_markers.py` bakes the tier into every pickup marker as
-`"rarity"`:
-
-| tier | name | items | default colour (the game's own beam colour, sRGB) |
-|---|---|---|---|
-| 0 | Common | tools, consumables, arrows, enchanting materials | `ADAFDA` blue |
-| 1 | Equipment | weapons, armour, accessories, gems, spells, skills | `DAADC5` pink |
-| 2 | Key | quest items and red-mercury upgrade materials | `DAD6AD` gold |
-
-While the highlight is armed, a marker with a tier above 0 is drawn — glyph, label and edge
-arrow — in that tier's colour instead of its category colour
-(`xray_rarity_colors_enabled = 1`). **Tier 0 keeps its category colour**: it is every chest,
-every live actor the offline database does not know and every ordinary consumable, so tinting
-it would recolour most of the screen to say nothing. `markers_rarity_tint = 1` extends the
-tint to the minimap, the full map and the compass pips. Of chapter 1's 287 pickups, 18 are
-Equipment and 21 are Key; over all six chapters 47 of 1 086 are Equipment and 85 are Key.
-
-The derivation is checked against the game's own behaviour: every `BP_PickupActor_C` whose
-live `PickupEffectName` was captured in the WuchangRecon world dumps agrees — 11/11
-non-default beams and 7/7 default ones.
-
-**Toggle or hold** (`highlight_mode`). `toggle` is the default. The toggle is the one piece of
-latched input state in the mod, so it obeys the rule that goes with that: it is **cleared from
-live state, never remembered** — `hl::drop_caches()` (which `markers::drop_caches()` calls on
-every level transition and every dropped pawn) turns it off, and so does turning the feature
-off or switching to hold mode. The highlight is gated by exactly the same evaluation as the
-minimap (`hud_gate()` in `overlay_internal.hpp`, asked by the minimap, the compass and the highlight;
-the minimap keeps ownership of the `hidden because:` readout).
-
-**The projection.** `src/projection.hpp` is dependency-free math with hand-computed tests in
-`markers_test`: UE's `FRotationMatrix` basis written out row by row, the horizontal FOV with
-the aspect applied to the vertical axis exactly as `FSceneView` does it
-(`tan(vfov/2) = tan(hfov/2) / aspect` whenever the viewport is wider than tall), and a
-behind-the-camera case that never produces a screen position — a naive divide by a negative
-depth mirrors the point onto the opposite side of the screen — but does produce the direction
-an edge arrow must point.
-
-**The camera.** `src/highlight.cpp` reads it on the game thread from the local
-`APlayerCameraManager` and publishes it through its own seqlock. `CameraCachePrivate` is an
-`FCameraCacheEntry` whose `FMinimalViewInfo` starts with Location (3 doubles), Rotation (3
-doubles) and FOV (float) — documented, but not verifiable on this build without launching it,
-and a non-reflected engine struct must never be recognised by an assumed field order. So the
-offset is **discovered**:
-
-1. call `GetCameraLocation` / `GetCameraRotation` / `GetFOVAngle` once (one SEH-guarded
-   `ProcessEvent` each);
-2. scan the first bytes of `CameraCachePrivate` for the offset whose six doubles and following
-   float match what the getters said, to 2 uu / 0.5 degrees / 0.5 degrees of FOV;
-3. pin it. Every read after that is 56 bytes at a cached offset — cheap enough for
-   `highlight_camera_hz` while the highlight is armed, and **nothing at all** while it is
-   disarmed and the compass is off.
-
-If the getters are unavailable the offset is accepted on sanity ranges alone, and a pinned
-offset that produces eight insane reads in a row is dropped and re-discovered. The F2 panel's
-*X-ray highlight* block names the route, the two offsets, the live pose and the read/reject
-counts.
-
-The camera reader is driven from **one clearly-marked hook** inside
-`markers::game_thread_pump()`, which runs only while `gamestate` has a validated gameplay pawn
-outside the transition cooldown; its caches are dropped from `markers::drop_caches()`.
-
-## The compass strip
-
-A heading strip across the top of the screen: N / NE / E ... with 15-degree ticks, a centre
-reticle, and bearing pips for nearby markers of `compass_categories` plus the waypoint, which
-clamps to the strip's edge with an arrow rather than being culled. `compass_span_deg` decides
-how much of the world the strip covers; 360 makes it a full ring.
-
-Each pip carries the **horizontal distance in metres** just outside the strip, nearest first,
-each label reserving its own x range so two never overlap (`compass_pip_labels = 0` turns them
-off). A marker more than `compass_pip_height_uu` off the player's own height also gets an up or
-down arrow beside its glyph, on the compass pip and on the minimap glyph alike.
-
-The heading is the **camera's** yaw when a pose is fresh and the pawn's yaw otherwise, so the
-compass works with `highlight_enabled = 0` and during the camera reader's warm-up; the F2 panel
-says which is in use. The arithmetic — wrap into `(-180, 180]`, bearings in the mod's `+X`
-north / `+Y` east frame, strip positions, tick ranks — is pure and lives in `src/compass.cpp`,
-which `markers_test` links.
+`repack_maps.py` re-palettises the composite from its own pixels and re-scales the planes from
+their own codes, verifying every PNG by decoding the bytes back before they land, and stamps the
+requantisation error into the manifest as `z_requantise_worst_uu` (the tests fail above 20 uu).
+Use it when only the encoding changes; use `build_map.py` when the geometry, the filters or the
+resolution change.
+
+`px_per_uu` is **per chapter**, each scaled to its own RAM budget (0.032 to 0.060). `--px-per-uu`
+is a request: it is scaled continuously to fit `--max-ram-mb`, then halved until neither dimension
+exceeds `--max-dim`. The planes live in ordinary RAM, read by a CPU loop and never sampled by the
+GPU, so `mapdata::build_plane()` allocates only the non-empty **128-px blocks**; a row of the
+picture therefore crosses several blocks and there is no row pointer — gather one with
+`HeightMaps::gather_row()`, which returns `false` for a row with no surface at all.
+
+**Reachability (bit 12).** The background is every walkable Recast polygon the game cooked, which
+includes wall tops, roof ridges and the outside faces of arena walls. `build_map.py` floods a
+directed 8-neighbour surface graph — an edge wherever the neighbour is no more than
+`--reach-step-up` higher, so a walk, a small step up or a fall of any depth — from **every marker
+in `markers/<chapter>.json`, every category**, and flags what it reaches. Nothing is deleted; the
+runtime decides what to do with the rest (`map_unreachable`: `hide` | `dim` | `show`). *The seeds
+are the whole lever*, so the risk is an area whose only access is a ladder, a lift or a jump and
+which holds no marker at all — every unreached blob of 400 m² or more is listed in `maps.json`
+under `reachability.big_unreached` with its centre and Z, so "why is there a hole here" starts
+from a table. `--reach-seeds-extra <json>` adds seeds from a recorded player track; `--no-reach`
+flags everything.
 
 ## The marker data pipeline
 
-Everything under `markers\` except `chapter1.sample.json` is **generated** from the game's paks
-by `tools\markers\*.py` (Python 3.10+, `pycryptodome` for the AES-encrypted pak index).
-One command regenerates all of it:
+Everything under `markers\` except `chapter1.sample.json` is generated from the game's paks by
+`tools\markers\*.py` (Python 3.10+, `pycryptodome` for the AES-encrypted pak index). One command
+regenerates all of it:
 
 ```powershell
 python tools\regen_all.py                 # every step, all six chapters
 python tools\regen_all.py --verify        # + score the result against the recon dumps
-python tools\regen_all.py --no-pak-hash   # skip the 63 GB of sha256 while iterating
+python tools\regen_all.py --no-pak-hash   # skip the sha256 of the pak set while iterating
 python tools\regen_all.py --list          # the step graph
-python tools\regen_all.py --only extract  # one step (repeatable)
+python tools\regen_all.py --only extract  # one step (repeatable); --skip is the inverse
 ```
 
-It finds the game through `WUCHANG_PAK` (the base `.pak`), `WUCHANG_GAME_ROOT` (the install
-folder) or `--pak`; there is no hardcoded install path in the pipeline. Before the first step
-it checks that the paks exist and are readable, that both `_N_P` patch paks are present (the
-DLC levels and the patched `DT_FirePoint` live in them), that `pycryptodome` imports and that
-`markers\` is writable. A failing step **stops** the run: every later step reads what an
-earlier one wrote, so continuing would leave a half-updated `markers\` that no diff can be
-trusted against.
-
-### The step graph
+It finds the game through `WUCHANG_PAK`, `WUCHANG_GAME_ROOT` or `--pak`, and before the first step
+checks that the paks are readable, that **both `_N_P` patch paks are present** (the DLC levels and
+the patched `DT_FirePoint` live in them), that `pycryptodome` imports and that `markers\` is
+writable. A failing step **stops** the run: every later step reads what an earlier one wrote, so
+continuing would leave a half-updated `markers\` that no diff can be trusted against.
 
 | step | script | writes | needs |
 |---|---|---|---|
@@ -1478,256 +614,85 @@ trusted against.
 | `recount` | `build_enemies.py` | `markers/enemies.json` | `extract` |
 | `verify` | `verify_markers.py` | nothing (reports) | `--verify` |
 
-Only `chapter*.json`, `shrines.json` and `items.json` are **shipped**; `categories.json`,
-`enemies.json`, `bosses.json`, `npcs.json`, `bossdoors.json` and `class_graph.json` are
-toolchain artifacts baked into the chapter files, so the runtime reads three files rather than
-nine.
+Only `chapter*.json`, `shrines.json` and `items.json` are **shipped**; the rest are toolchain
+artifacts baked into the chapter files, so the runtime reads three files rather than nine. Two
+things about the order are the reason the driver exists:
 
-Two things about the order are the reason the driver exists:
+* **`bossdoors` is a genuine cycle.** It joins the level scripts' `ST_LevelScriptBossData` to the
+  boss marker ids `extract_markers.py` writes, and `extract_markers.py` bakes the resulting
+  `bossdoor` id back onto those markers — so a full run is extract → bossdoors → extract. The driver
+  skips the second extraction when `bossdoors.json` came out byte-identical, the normal case.
+* **`categories` and `enemies` must precede `extract`**, because `marker_classes.py` reads both at
+  import time. Running `extract` first falls back to a hand-written class list that ships **fewer**
+  markers, and says so on stderr.
 
-* **`bossdoors` is a genuine cycle.** `build_bossdoors.py` joins the level scripts'
-  `ST_LevelScriptBossData` to the *boss marker ids* `extract_markers.py` writes, and
-  `extract_markers.py` bakes the resulting `bossdoor` id back onto those markers. So a full run
-  is extract → bossdoors → extract. The driver skips the second extraction when
-  `bossdoors.json` came out byte-identical, which is the normal case.
-* **`categories` and `enemies` must precede `extract`.** `marker_classes.py` reads both at
-  import time: `categories.json` is the class → category table and `enemies.json` carries the
-  elite split. Running `extract` first falls back to a hand-written class list that ships
-  **fewer** markers, and says so on stderr.
+The run ends with a summary table and the delta against whatever was in `markers\` before. **A
+regeneration should move names, items, categories and new entries, and no coordinate of an
+existing marker.**
 
-The run ends with a summary table — per step the status, wall time and outputs, then markers
-per chapter and category, and the delta against whatever was in `markers\` before. A
-regeneration should move names, items, categories and new entries, and **no coordinate of an
-existing marker**.
+**Category assignment is a class-graph question.** `markers/categories.json` is the descendants of
+one base class per category, read out of every cooked `.uasset` export map's `super` field
+(`class_graph.py`, cached and committed). `build_categories.py` holds the choice of bases and the
+precedence; everything below a base is data. **The precedence is load-bearing**: five `BP_NPC_C`
+descendants have a category of their own, `BP_PickUpActor_Trap_C` is a `BP_PickupActor_C`
+descendant that must be `hidden`, and `boss` precedes `enemy` because the boss classes are
+`BP_BaseAI_C` descendants too. `BP_BaseAI_C` having zero overlap with `BP_NPC_C` is what makes
+`enemy` a class question rather than a level-name one; the `*_AI` sublevel heuristic survives as a
+counted fallback, and the extractor prints the rule mix plus **every class in a `_logic` level
+that matched no category**.
 
-### Category assignment is a class-graph question
+**Three answers are simply absent from the game data**, so do not go looking for them again:
+ordinary enemies have no name anywhere (`build_enemies.py --prove` re-runs all four checks that
+establish this, so they read "Enemy" rather than a tidied Pinyin class name); the DLC has no
+fire-point rows, so its shrines carry the marker's own label and no `BirthPosition`; and every
+configured DLC pickup holds the same placeholder item id, the default index of the blueprint's own
+editor tool, which `extract_markers.PLACEHOLDER_ITEM_IDS` suppresses.
 
-`markers/categories.json` is the descendants of one base class per category, read out of every
-cooked `.uasset` export map's `super` field (`class_graph.py`, ~40 s for 81 353 assets, cached
-and committed as `tools/markers/class_graph.json`). `build_categories.py` holds the *choice of
-bases* and the precedence; everything below a base is data:
+**Provenance.** Every generated file carries `game_build`, `exe`, `pak` and `extractor_commit`.
+Know what `game_build` is worth on this title: Leenzee ship no game build number, so it is the
+*engine* version and does not move across game patches — **the identifiers that do move are the
+digests**, cached in `tools/markers/.provenance-cache.json` because hashing the pak set is slow
+(`--no-pak-hash` records sizes only). Every field is optional to a reader, which keeps the schema
+at `.../1`.
 
-```
-shrine  BP_RebornFire_C          door      BP_InteractionObject_Door_C, BP_NewPuzzlesDoor_C
-hidden  BP_PickUpActor_Trap_C    fog_gate  BP_Wumen_C + its two siblings
-chest   BP_ItemBox_C             ladder    BP_LadderV2_C, BP_InteractionLadder_C
-pickup  BP_PickupActor_C, BP_PickUpPT_C, ItemCollectionBox_C
-note    DKDC_NPC_C, ReadPointSP_NPC_C, Letter01_NPC_C
-boss    BP_PlacedBossAI_C        lift      BP_ElevatorBase_C, BP_ElevatorBox_C
-npc     BP_NPC_C                 enemy     BP_BaseAI_C
-```
-
-The order is load-bearing. Five `BP_NPC_C` descendants have a category of their own
-(`BP_RebornFire_C` is a shrine, the three read-points are notes, `ItemCollectionBox_C` is a
-pickup), and `BP_PickUpActor_Trap_C` is a `BP_PickupActor_C` descendant that must be `hidden`.
-`boss` precedes `enemy` because the 32 boss classes are `BP_BaseAI_C` descendants too.
-
-`BP_BaseAI_C` (314 descendants, **zero** overlap with `BP_NPC_C`'s 78) is what makes `enemy` a
-class question rather than a level-name one. The `*_AI` sublevel heuristic survives only as a
-counted fallback for classes whose `super` the graph never recorded, and the extractor prints
-the rule mix (`rule:table`, `rule:ai-level`, `rule:noise`, `rule:unmatched`) plus **every class
-placed in a `_logic` level that matched no category**.
-
-### What the data cannot tell you
-
-Three answers are absent from the game:
-
-* **Ordinary enemies have no name.** `MMGame.locres` has 30 `boss_name_*` keys and 61 `npc_*`
-  keys and no `monster_*` / `enemy_*` / `ai_name_*` family at all; a `DT_AiTable` row carries
-  no text but the class `FName`; the `FText`-in-the-blueprint route that names every NPC
-  returns nothing for six representative enemy blueprints (with the NPC asset as the positive
-  control in the same run); and `help_noun_*` is a mechanics glossary, not a bestiary.
-  `python tools\markers\build_enemies.py --prove` re-runs all four. So 8 enemy classes get a
-  real name — variants and phases of named characters, which own a `boss_name_<id>` — and the
-  rest read "Enemy", deliberately not a tidied Pinyin class name.
-* **The DLC has no fire-point rows.** `DT_FirePoint`'s 88 rows cover chapters 1-5 and its name
-  map does not contain `BaiYS01`, `BaiYS02`, `borencl01`, `borencl02`, `LiuHKK01` or
-  `pinmingk01`. There is no second fire-point table in the paks, no `ChapterDLC` folder under
-  `Content/Scene/3D/Others/FirePoint/`, and no DLC area name among the `ui_*` keys. So the
-  seven DLC shrines go into `shrines.json` from the marker DB with the marker's own
-  `Shrine <fire-point id>` label and no `BirthPosition`, and the same absence is why the DLC
-  boss is one of the two `bosses_without_a_door` in `bossdoors.json`.
-* **The DLC pickups carry no item.** All 77 configured `BP_PickupActor_C` instances in the DLC
-  hold `[{20001, 1}]`, and the whole `ChapterDLC_*_logic` set contains exactly **one** distinct
-  valid item id where one Chapter-1 sublevel carries 19. 20001 is the *first row* of
-  `DT_Item_ToolTable` and appears zero times across chapters 1-5, i.e. it is the default index
-  of the blueprint's own editor tool (`BP_PickupActor_C` exposes `GetItemsByEditorTool` and
-  `ReplaceItemIDByGamePlus`). `extract_markers.PLACEHOLDER_ITEM_IDS` suppresses it, so those
-  markers read "Pickup".
-
-### Provenance
-
-Every generated file carries the same four fields, so a marker database is auditable against
-the build it came from:
-
-```json
-"game_build": "5.1.1.0",
-"exe":  {"name": "Project_Plague-Win64-Shipping.exe", "size": 141464648, "sha256": "..."},
-"pak":  [{"name": "Project_Plague-Windows.pak", "size": 44740955247, "sha256": "..."}, ...],
-"extractor_commit": "9a46681"
-```
-
-`game_build` is the exe's `FILEVERSION`, which a running mod can read cheaply and compare.
-Know what it is worth on this title: Leenzee ship no game build number, so that string is the
-*engine* version (`ProductVersion` is `++UE5+Release-5.1-CL-0`) and it does not move across
-game patches. The identifiers that do move are the digests. They are cached in
-`tools/markers/.provenance-cache.json` (gitignored, keyed on path + size + mtime) because
-hashing the pak set is ~45 s; `--no-pak-hash` records sizes only and writes `"sha256": null`.
-Every field is optional to a reader, which keeps the schema at `.../1`.
-
-### Verifying against the game
-
-`verify_markers.py` scores the extracted coordinates against the WuchangRecon **F8 world
-dumps** — the same `(level short name, cooked object name)` join key `FindAllOf` reports
-in-game — and defaults to the dumps committed to this repo
-(`tools/lua-recon/WuchangRecon/out/dump_*_world.txt`, kept by an explicit `.gitignore`
-exception), so it runs on a fresh clone with no game installed:
-
-```powershell
-python tools\markers\verify_markers.py                # every chapter, repo dumps
-python tools\markers\verify_markers.py --require      # non-zero exit on a disagreement
-```
-
-The dumps cover only what was streamed in when F8 was pressed, so most chapters report "not
-loaded in any dump" and that is not a failure. Of the 255 markers the committed dumps do cover,
-252 agree with a **median error of 0.000 uu**; the three that do not are all
-`BP_WoodenElevator_C`, a moving platform whose cooked transform is its authored start. That is
-why the regen driver runs this as a report and not as a gate.
-
-### Data invariants in the test suite
-
-`tests/markers_test.cpp`'s `test_data_invariants` runs over **every** shipped `markers/*.json`
-on each build (`build.ps1` passes the repo's `markers\` directory as `argv[1]`): each file
-parses with `skipped == 0`, `unknown_cat == 0` and the expected chapter label; no marker id
-repeats within a file or across files (the loader globs them into one id-keyed database, so a
-collision is a marker that can never be marked found); every `(chapter, category)` clears a
-floor from a table in the test — including the explicit zeros, so "chapter 5 has no ladder" is
-a recorded decision rather than a blind spot; every item id a pickup references is a row of
-`items.json`; every shrine marker has a row in `shrines.json`; and no single name accounts for
-more than half of a `(chapter, category)`'s **named** entries.
+**Verification.** `verify_markers.py` scores the extracted coordinates against the WuchangRecon F8
+world dumps on the same `(level short name, cooked object name)` join key the engine reports
+in-game, defaulting to the dumps committed to this repo, so it runs on a fresh clone with no game
+installed. The dumps cover only what was streamed in when F8 was pressed, so most chapters report
+"not loaded in any dump" and that is not a failure; the markers they do cover agree at a median
+error of 0 uu, the exceptions all being a moving platform whose cooked transform is its authored
+start. That is why the regen driver runs this as a report and not as a gate.
 
 ---
 
-## Markers
+## The files the mod writes
 
-Markers come from two halves merged by a **stable id**, and the id is the whole design:
+All next to the mod's own DLL, all gitignored, and the packager fails if any reach the package
+tree.
 
-* the **static database**, `markers\<chapter>.json` (schema `wuchang-minimap-markers/1`), built
-  offline from the cooked levels by `tools/markers`, so a marker exists for an area you have
-  never visited;
-* the **live sweep**, a chunked walk of `GUObjectArray` that classifies every object against a
-  table of marker classes and supplies the position and the *state* of every actor currently
-  streamed in.
+| file | what it is |
+|---|---|
+| `wuchang_minimap_found[_<slot>].txt` | the collection tracker: one stable id per line, sorted, comments allowed, debounced, written through a temp file swapped into place so the real file is either the old one or the new one. Keeps one `.bak`. One per save game; the suffixless one is shared, used when no slot can be identified and seeded into a new slot's file once |
+| `wuchang_minimap.log` | the mod's **own** copy of everything it logs, rotated per launch (`.1`, `.2`, `.3`), because UE4SS truncates `UE4SS.log` on every launch. Always on, no config key. **This is the file to ask for in a bug report** |
+| `wuchang_minimap_watchdog.txt` | written **only** when the game stops responding: the loop thread watches the Present and pump counters and after six seconds of either not moving appends one line naming which thread stopped and the stage each was last in |
+| `wuchang_minimap_last_stage.txt` | the crash breadcrumb. The log is flushed at every stage transition, so the two always agree about the last thing that happened |
+| `wuchang_minimap_waypoint[_<slot>].txt` | play state, not settings: one hand-editable `waypoint = <x> <y> <z>` line each |
+| `wuchang_minimap_panel.txt` | the F2 fold bits. **Positional**, so the enum in `overlay_panel.cpp` is the file format — a token bump is how a changed enum invalidates an old file |
+| `wuchang_minimap_export_<date>_<time>.json` | on demand; imported back as a **merge**, never a replacement |
 
-The id is the game's own shrine id for shrines (`digong01` — `BP_RebornFire_C`'s CJK-named
-"sitting-Buddha point ID", the only property that distinguishes sibling shrines) and
-`<owning level short name>/<actor object name>` for everything else, because that object name
-is what `FindAllOf` hands back at runtime.
-
-| category | classes swept | "found" means |
-|---|---|---|
-| shrine | `BP_RebornFire_C` | not a per-actor flag: **`RebornManagerComponent_C::UnlockedFirepoints`**, a global `TArray<FString>` of shrine ids persisted under `lockqueue`, read raw at 1 Hz by `src/shrines.cpp`. That is what "shrines lit" and the shrine list's `Lit` column show. Shrine markers are never *auto-marked found*: the tracker follows collectables, not rest points. |
-| chest | `BP_treasurebox_C`, `BP_ItemRedBox_C` | `Used == true` (persisted under `SavedStatuKey = statu_use`) |
-| pickup | `BP_PickupActor_C` and subclasses (incl. `BP_DropItem_C`) | `dying == true` **or** the actor is parked at `(0,0,0)` |
-| door | `BP_NewPuzzlesDoor_C` (`DoorOpen`), `BP_DoorZhong_C` (`Used`) | the door is open |
-| fog gate | `BP_Wumen_C` | `Active == true` (inferred from `SavedStatuKey = status_active`) |
-| ladder / lift | `BP_LadderV2_C`, `BP_WoodenElevator_C` | never — they are navigation aids |
-| npc / note | `BP_NPC_C` descendants | MET: seen loaded within 3 000 uu of the player. A used-up NPC is made **invisible**, not moved, so a mobile marker's live twin is tested for visibility |
-| boss | `BP_PlacedBossAI_C` descendants | DEFEATED: `pawn -> Controller -> Health -> CurrentValue <= 0`, or the arena's `bossdoor_*` point unlocked in the save (`boss_defeat_from_save`, derived on every publish, never persisted) |
-| enemy | pawns possessed by `Impl_BaseAIController_C` | n/a — never written to the tracker. A static `enemy` entry is a **spawn point**; the live pawn overwrites its position under the same id, so the two are one marker. The same health read drops a corpse from the live view |
-
-Absence from `FindAllOf` is **not** evidence of a collect: an unloaded level looks exactly the
-same. Only the state flags auto-mark, plus the guarded absence rule above.
-
-A pickup the static DB does not know — loot an enemy drops — is labelled from the actor itself.
-Its contents are a `TMap<int32 ItemID, int32 Amount>` UPROPERTY: `AddItems` on `BP_DropItem_C`,
-`Items` / `首次拾取道具内容` / `ItemResult` / `CustomedItems` on the placed
-`BP_PickupActor_C` family, with a TArray of the same pairs on the classes that use one.
-`src/scriptmap.hpp` (PURE, covered by `markers_test`) decodes the 80-byte `FScriptMap` — a
-sparse array whose *allocation bits*, not its bytes, say which slots are entries, since a free
-slot unions the pair with the free-list link. The property is accepted only when reflection
-reports 80 bytes with 4-byte key and value properties, and the answer only when
-`markers/items.json` knows the id; the label is the first item's name plus ` +N` for further
-distinct items, exactly what the offline extractor writes. The winning property is memoised per
-class and logged once, so `wuchang_minimap.log` names the route each class took.
-
-### Cost control
-
-`UObjectGlobals::FindAllOf` walks the **whole** object array, so one `FindAllOf` per class is
-one full walk per class — measured at **28.30 ms mean / 51.05 ms peak per game-thread pump**
-for a single class.
-
-The sweep inverts the loop. It walks `GUObjectArray` **once per round**, in slices of
-`markers_scan_chunk` slots per pump (`src/scan_sched.hpp` holds the pure slice / wrap / rate
-arithmetic and `markers_test` covers it). Per slot the cost is a bounds-checked
-`FUObjectArray::IndexToObject`, an `FUObjectItem::IsValid(false)`, the object's `UClass*`, and
-one lookup in a `UClass* -> marker spec` table memoised per class — so the super-chain name walk
-that decides "is this a marker class, or a subclass of one" happens once per class per level,
-not once per object per round. Everything expensive (`RootComponent` location, the state flag,
-the `GetFullName` id) runs only for the handful of objects that matched. The menu-widget sweep
-in `gamestate.cpp` uses the same slicer, with the raw reads on the slice and the
-`IsInViewport()` confirmation on the validated 10 Hz pump — it is the *fallback* finder there,
-behind the watchlist and the UI-event path described above.
-
-The slice is called from **every** `ProcessEvent` pre-callback while the last validated state
-stands, not from the 10 Hz position pump, and it throttles itself on
-`QueryPerformanceCounter`, because `GetTickCount64`'s ~15.6 ms granularity is coarser than a
-one-frame slice period.
-
-Positions are read raw (`RootComponent` -> `RelativeLocation`), not through
-`K2_GetActorLocation`: a `ProcessEvent` per actor for ~130 pickups plus ~95 enemies inside the
-engine's own call stack is not affordable.
-
-The F2 panel prints the two numbers that tune this: `scan pump <last> ms (avg, peak, max)` —
-what one pump costs the game thread — and `round <ms> / <pumps> / <objects> of <total>
-chunk N`. A `! FindAllOf fallback` suffix means `FUObjectArray::GetNumElements()` answered 0
-and the per-class path took over.
-
-Glyphs are drawn with `ImDrawList` primitives — no image atlas, so there is no art to keep in
-sync with the category list — and each category gets a **shape as well as a colour**, so a
-dimmed "found" marker keeps its shape after it has lost its colour contrast.
-
-### The files the mod writes
-
-`wuchang_minimap_found_<slot>.txt` (mod folder, next to the config) is the collection tracker:
-one stable id per line, sorted, comments allowed, rewritten from the loop thread
-`found_save_debounce_ms` after the last change, through a temporary file swapped into place so
-the real file is either the old one or the new one. It keeps one `.bak`. There is one per save
-game; `wuchang_minimap_found.txt` without a suffix is the shared file, used when no slot can be
-identified and seeded into a new slot's file once. A deploy never touches either.
-
-`wuchang_minimap.log` is the mod's **own** copy of everything it logs, rotated on every launch:
-the live file plus `.1`, `.2`, `.3`. It exists because UE4SS truncates `UE4SS.log` on every
-launch, so the evidence from an in-game session is gone as soon as the game is started again.
-Writes are buffered and flushed on every crash-breadcrumb stage transition — so the log and
-`wuchang_minimap_last_stage.txt` always agree about the last thing that happened — and every
-three seconds from the loop thread. There is no config key: it is always on, and it is the file
-to ask for in a bug report.
-
-`wuchang_minimap_watchdog.txt` is written ONLY when the game stops responding. The loop thread
-watches two counters — Presents on the render thread and ProcessEvent position pumps on the
-game thread — and after six seconds of either not moving it appends one line naming which
-thread stopped, how long ago, and the coarse stage each was last in (`build_ui`,
-`imgui: ImplWin32_NewFrame (user32)`, `pawn validate`, ...). When the render thread is the silent
-one the line also carries `dev=` and what the adopted device answers, which is the only way a device
-that died while the overlay sat between frames gets named: no Present arrives to report it. The
-question goes through `g_device_lock` with a 50 ms budget - a lock the watchdog gives up on rather
-than wait behind the thread it is reporting. It is a second file with its own
-writer: the line is assembled in a stack buffer and written with flat `CreateFileW` /
-`WriteFile` / `FILE_FLAG_WRITE_THROUGH` and no allocation at all, because the failure it
-describes can be a wedged process heap, in which case `std::format` would hang the last thread
-still running. The mod log is flushed straight afterwards. A crash leaves a
-`CrashContext.runtime-xml`; a hang leaves nothing, which is what this is for.
+The watchdog line is assembled in a stack buffer and written with flat `CreateFileW` / `WriteFile`
+/ `FILE_FLAG_WRITE_THROUGH` and **no allocation at all**, because the failure it describes can be
+a wedged process heap, in which case `std::format` would hang the last thread still running. A
+crash leaves a `CrashContext.runtime-xml`; a hang leaves nothing, which is what that file is for.
 
 ## Not implemented
 
 - **X-ray highlight v2**: true silhouettes through `SetRenderCustomDepth` plus a post-process
   material shipped in a tiny pak. The game ships no outline material to reuse.
-- **The slicing loop as a pixel shader.** It needs its own root signature, PSO, `D3DCompile`
-  and `ImDrawList::AddCallback` juggling on a ReShade-wrapped swapchain, and it would save only
-  a few ms per update and the ~1 MB upload; the CPU slicer already has the exactly-correct
-  semantics.
-- **A DLC map.** The paks carry no navmesh cells for it; it would need a runtime cell sweep or
-  the ortho-capture fallback.
-- **A whole-region runtime navmesh dump.** Only the 4-6 cells around the player are resident,
-  so it needs a sweep over all streaming cells.
+- **The slicing loop as a pixel shader.** Its own root signature, PSO, `D3DCompile` and
+  `ImDrawList::AddCallback` juggling on a wrapped swapchain, to save a few ms per update and the
+  upload; the CPU slicer already has the exactly-correct semantics.
+- **A DLC map.** The paks carry no navmesh cells for it; it would need a runtime cell sweep or an
+  ortho-capture fallback.
+- **A whole-region runtime navmesh dump.** Only the cells around the player are resident, so it
+  needs a sweep over all streaming cells.

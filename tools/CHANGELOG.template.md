@@ -3,9 +3,9 @@
 ## Unreleased
 
 Fixed
-- Where two chapters meet, the map stays on the chapter the player is standing in instead of swapping back and forth and going blank: the chapter is chosen by which map has ground around the player, not under a single pixel of it.
-- Resting at a shrine no longer hides the minimap and the full map for the rest of the session.
-- A note or a person the player cannot see is no longer marked as found when he walks past it.
+- Where two chapters meet, the map stays on one of them instead of swapping back and forth and going blank: the chapter is chosen by how much ground its map has around the player, not by one spot under his feet.
+- Resting at a shrine no longer leaves the minimap and the full map hidden until the next area load.
+- A note the player can neither see nor read is no longer counted as found when he walks past it.
 
 ## 1.1.1
 

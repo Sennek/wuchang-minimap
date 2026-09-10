@@ -2,140 +2,50 @@
 
 ## 1.1.1
 
-**Fixed**
-
+Fixed
 - A menu opened with a gamepad hides the minimap at once, instead of only once the mouse was moved.
 - The minimap no longer comes back over a menu a second after that menu opens.
 - The chapter banner is no longer mistaken for a menu.
 
-**Notes**
-
-- Thanks to the player who reported the gamepad case and pointed at the menu detector.
-
 ## 1.1.0
 
-**Fixed**
+Fixed
+- The minimap works with NVIDIA frame generation instead of crashing the game.
+- The overlay submits on a command queue it creates, never on the game's or another overlay's.
 
-- **The minimap works with NVIDIA frame generation instead of crashing the game.** Where DLSS frame
-  generation is available, the frame buffers stop being the game's; the mod drew into them anyway,
-  DirectX refused, the graphics device was lost and the game froze. It now draws on a surface of its
-  own that Windows composes over the game. Nothing to set.
-- The game's Frame Generation setting was never the switch. It read **Off** on both machines that
-  reported this: the runtime loads whenever the PC can run it and holds the buffers either way.
-- The overlay submits nothing on a command queue belonging to the game or to anything else in the
-  process. It creates its own.
-
-**Changed**
-
-- ReShade and RenoDX no longer tint the minimap - it is composed after the game's frame, not into it.
+Changed
+- ReShade and RenoDX no longer tint the minimap: it is composed after the game's frame, not into it.
 - Three DirectX hooks instead of four.
-
-**Notes**
-
-- Where a display cannot compose an extra plane, the overlay can cost the game about one frame of
-  latency; on current hardware it costs nothing measurable. The log line `hardware composition (MPO)`
-  says which yours is.
-- Thanks to the two players who reported the crash and kept sending logs and test runs until it was
-  found.
 
 ## 1.0.2
 
-**Added**
-
+Added
 - `overlay_hooks = 0` (Advanced): the mod loads with no DirectX hooks and no overlay at all.
-  The tracker, the found file and the log keep working.
-- The log records the GPU and driver version, the display's colour space and peak brightness,
-  the present mode, every graphics-related module in the game's process, and the size and link
-  stamp of the game executable and of `UE4SS.dll`.
+- The log records the GPU and driver, the display's colour space and peak brightness, the present mode and every graphics module in the process.
 - The log names where the game's own logs and crash dumps are written.
 
-**Fixed**
-
-- A lost D3D12 device no longer hangs the game: the mod logs the reason DirectX gives, releases
-  its objects once, and stays off for the rest of the session instead of rebuilding on the dead
-  device.
-- The overlay picks the command queue the game presents from by how much work each queue
-  submits, instead of the first one it sees - with frame generation or another overlay in play,
-  the wrong queue meant a minimap that tore, lagged a frame or never appeared.
+Fixed
+- A lost D3D12 device no longer hangs the game: the mod logs the reason, releases its objects once and stays off for the session.
+- The overlay picks the command queue the game presents from by how much work each queue submits, instead of the first one it sees.
 - The overlay waits for the GPU to complete one empty test frame before it builds anything else.
-- `wuchang_minimap_last_stage.txt` no longer names a start-up stage that was already passed, and
-  says `mod off` while the mod is off.
-- The freeze watchdogs fire on a start-up freeze and on a stopped frame counter; a long level
-  load is no longer reported as a freeze.
-- `game-state reader: the ProcessEvent pump is not firing` no longer prints on every machine a
-  second after the game starts.
+- `wuchang_minimap_last_stage.txt` no longer names a start-up stage that was already passed, and says `mod off` while the mod is off.
+- The freeze watchdogs fire on a start-up freeze and on a stopped frame counter, and a long level load is no longer reported as a freeze.
+- `the ProcessEvent pump is not firing` no longer prints a second after the game starts.
 - Log lines from the render and game threads carry the time they were written.
-
-**Notes**
-
-- This release does not fix the start-up device loss reported on one machine - it is not
-  reproducible on any machine here. It fails fast instead of freezing, and logs what is needed
-  to find the cause.
-- `overlay_enabled` is not a setting and has not been one since 1.0.0. If you were told to set
-  it, that test did nothing; the line can be deleted.
-- Not caused by this mod: clicking or dragging in UE4SS's console window puts it in selection
-  mode, which freezes UE4SS mid-start-up and hangs the game before this mod loads. Press `Esc`
-  in that window, or set `ConsoleEnabled = 0` in `ue4ss\UE4SS-settings.ini`. The tell is that
-  `wuchang_minimap.log` was never created.
 
 ## 1.0.0
 
-What you get in this build.
-
-**The map**
-
-- **A minimap, a compass strip and a full chapter map** on `M`: drag or `WASD` to pan,
-  wheel to zoom, `Q`/`E` for the floor, `Home` to fit, `C` to copy the map to the clipboard.
-  A controller drives all of it.
-- **The map is the game's own navigation data** - ground you can stand on, not a drawing.
-  Surfaces the game walks but a player cannot reach (wall tops, roof ridges, the outside
-  faces of arena walls) are left out, so a boss arena is the arena and its entrance.
-- **Height is drawn as colour.** One shading ramp runs from the chapter's low ground to its
-  high ground, so a slope reads as a slope and a gallery overhead reads as overhead. The
-  floor you are standing on always wins over anything above it, and the full map shades the
-  whole chapter at once instead of following your feet.
-- **The chapter changes when the ground under your feet does**, so standing at a border -
-  the passage into Hillswatch, say - shows the chapter you are actually in.
-- **The overlay finds its DX12 hook addresses fresh every launch**, never from a cache.
-
-**Markers and the tracker**
-
-- **The game's own names** on chests, pickups, shrines, bosses, NPCs and notes, for all five
-  chapters and the DLC, plus a name search on the full map with a nearest-first list.
-- **Loot dropped in front of you is named too** - a drop reads the item it is holding, so it
-  arrives as itself instead of a nameless pickup.
-- **A marker off your own floor carries an up or down arrow** on the minimap, the full map
-  and the compass alike; `compass_pip_height_uu` is how far off counts.
-- **Shrines stay on the map** even with `Hide found` on - lit solid, unlit hollow.
-- **Up to 16 waypoints**, kept per save slot. Right-click a marker (on the map or on a
-  search row) to waypoint it and again to take it off; right-click bare ground to drop one.
-  A key you bind marks the nearest thing you have not collected - unbound as shipped,
-  because the game itself uses `G`.
-- **A collection tracker per save slot** with export / import as one JSON file, and a button
-  to clear a save's list for NG+.
-- **An x-ray key on `TAB`** (`LB`+`RB` on a controller) drawing loot through walls, tinted
-  by item quality.
-
-**Settings**
-
-- **The `F2` panel is the whole configuration**: Overview, Categories, Map & tracker, Keys.
-  Every change applies on the spot and is written to `config_wuchang_minimap.txt` by itself
-  - there is no Save button and nothing to remember.
-- **The Keys tab reads your real in-game bindings**, so it names the action a key would take
-  away from the game and follows a remap you made in the game's own options. `Back`+`RS`
-  opens the panel on a controller, `Back`+`Y` the map.
-- Typing in a search or name box never fires a hotkey.
-
-**Known issues**
-
-- **The DLC has no map.** The game ships no navigation data for it. Markers work there,
-  but its 7 shrines keep their internal ids: the DLC's fire points have no row in the
-  game's fire-point table.
-- **A boss read from your save may be one you fought rather than one you beat.** For a
-  boss killed before the mod was installed the world holds nothing to read, so the mod
-  uses the arena's respawn point, which the save remembers unlocking. It is recomputed
-  every launch and never written to the collection file, so `boss_defeat_from_save = 0`
-  undoes it.
-- **The overlay draws underneath ReShade's effects**, so a heavy preset tints it.
-- **Enemy markers are off by default.** The live sweep refreshes them about once a
-  second, so they lag behind anything that moves.
+Added
+- A minimap, a compass strip and a full chapter map on `M`, with pan, zoom, floor stepping and copy to clipboard; a controller drives all of it.
+- The map is the game's own navigation data, with the surfaces it walks but a player cannot reach left out.
+- Height is drawn as colour on one ramp per chapter, and the floor you are standing on wins over anything above it.
+- The chapter changes when the ground under your feet does.
+- The game's own names on chests, pickups, shrines, bosses, NPCs and notes, for all five chapters and the DLC, with a nearest-first name search.
+- Loot dropped in front of you is named by the item it is holding.
+- A marker off your own floor carries an up or down arrow on the minimap, the full map and the compass.
+- Shrines stay on the map with `Hide found` on: lit solid, unlit hollow.
+- Up to 16 waypoints per save slot, dropped and removed by right-click, plus a bindable key for the nearest thing you have not collected.
+- A collection tracker per save slot, with JSON export and import and a per-save clear for NG+.
+- An x-ray key on `TAB` drawing loot through walls, tinted by item quality.
+- The `F2` panel configures everything and writes the config by itself.
+- The Keys tab reads your real in-game bindings, so it names what a key would take from the game and follows a remap made in the game's own options.

@@ -98,7 +98,6 @@ namespace mv
         {
             return z;
         }
-        // Positive notches zoom in, i.e. fewer world units per pixel.
         return clamp_zoom(z * std::pow(factor, -notches), lo, hi);
     }
 

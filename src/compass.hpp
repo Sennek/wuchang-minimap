@@ -3,9 +3,9 @@
 //
 // compass - the pure arithmetic behind the heading strip. Drawing stays in overlay.cpp.
 //
-// Unreal yaw is degrees about +Z with 0 = +X; the mod renders +X as north and +Y as
-// east, so yaw 0 = N, 90 = E, 180 = S, 270 = W. A bearing is atan2(dy, dx) in the same
-// units, hence bearing_deg()'s (x = north, y = east) argument order.
+// Unreal yaw is degrees about +Z with 0 = +X, north-up (src/mapview.hpp), so yaw 0 = N,
+// 90 = E, 180 = S, 270 = W. A bearing is atan2(dy, dx) in the same units, hence
+// bearing_deg()'s (x = north, y = east) argument order.
 //
 
 namespace cmp

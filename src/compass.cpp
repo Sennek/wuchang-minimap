@@ -67,7 +67,6 @@ namespace cmp
     {
         const double b = wrap360(bearing);
         const int idx = static_cast<int>(std::lround(b / 45.0)) % 8;
-        // Only a true multiple of 45 gets a label; anything else is a minor tick.
         if (std::fabs(wrap180(b - static_cast<double>(idx) * 45.0)) > 0.001)
         {
             return "";

@@ -88,10 +88,9 @@ namespace modswitch
             return L"unknown";
         }
 
-        // The size of a loaded module's file on disk. UE4SS carries no version resource
-        // at all, and the game's executable changes between patches while its version
-        // resource does not, so the byte count is the only thing in reach that tells two
-        // builds apart in a bug report.
+        // The size of a loaded module's file on disk. UE4SS carries no version resource, and the
+        // game's executable changes between patches while its version resource does not, so the
+        // byte count is the only thing in reach that tells two builds apart in a bug report.
         std::wstring module_bytes(const wchar_t* module_name)
         {
             wchar_t path[MAX_PATH]{};
@@ -114,9 +113,8 @@ namespace modswitch
             return std::format(L"{} bytes", bytes);
         }
 
-        // The PE TimeDateStamp of a loaded module, read out of the mapped image. Two
-        // game patches can carry the same version resource; they cannot carry the same
-        // link timestamp, so this is what actually names a build.
+        // The PE TimeDateStamp of a loaded module, read from the mapped image. Two game patches
+        // can share a version resource but not a link timestamp, so this is what names a build.
         std::uint32_t module_stamp(const wchar_t* module_name)
         {
             const HMODULE mod = module_name == nullptr ? ::GetModuleHandleW(nullptr)
@@ -139,9 +137,9 @@ namespace modswitch
             return nt->FileHeader.TimeDateStamp;
         }
 
-        // Where the GAME keeps its own log and its crash dumps. Named here because a
-        // report about a crash needs them and asking for them costs a round trip; the
-        // path is the one saveslot already resolves for the save files.
+        // Where the GAME keeps its own log and crash dumps. Named here because a crash report
+        // needs them and asking costs a round trip; it is the path saveslot already resolves for
+        // the saves.
         std::wstring game_saved_dir()
         {
             wchar_t buf[MAX_PATH]{};
@@ -197,9 +195,6 @@ namespace modswitch
         };
 
         State g_state = State::Off;
-        // "Disable for this session" from the F2 panel: the same three-step stop as
-        // mod_enabled = 0, writing nothing, so the mtime watch turns the mod back on
-        // when the config is next saved.
         std::atomic<bool> g_session_disable{false};
         bool g_ever_started = false;
         std::uint64_t g_last_watch = 0;
@@ -210,8 +205,8 @@ namespace modswitch
         {
             // Order matters:
             //   overlay  - config-driven assets + the DX12 hooks (no UObject work);
-            //   markers  - the static DB and the found tracker, read on this thread,
-            //              before anything can pump the live half;
+            //   markers  - the static DB + found tracker, read on this thread before anything
+            //              can pump the live half;
             //   gamestate- registers the ProcessEvent game-thread pump (idempotent);
             //   navmesh  - opt-in, registers its own pump (idempotent).
             overlay::start();
@@ -226,14 +221,12 @@ namespace modswitch
             {
                 return;
             }
-            // A flip back on re-reads the whole file, picking up every other edit made
-            // while the mod was off.
+            // A flip back on re-reads the whole file, taking every edit made while it was off.
             mm::load_config_file();
             mm::g_mod_active.store(true, std::memory_order_release);
             g_state = State::Running;
-            // Nothing measured across the off period means anything: the loop thread was
-            // not calling the game-state reader's on_update, so its watchdog window would
-            // otherwise be stale by however long the mod was off.
+            // Nothing measured across the off period means anything: gamestate's on_update did not
+            // run, so its watchdog window is stale by however long the mod was off.
             gamestate::reset_watchdog();
             mm::logf(L"master switch: mod_enabled = 1 ({}) - starting up", std::wstring{why});
             if (!g_ever_started)
@@ -243,8 +236,8 @@ namespace modswitch
             }
             else
             {
-                // gamestate / navmesh are already registered and guard themselves; the
-                // overlay re-enables its hooks and re-reads the assets from disk.
+                // gamestate / navmesh are registered and self-guard; the overlay re-enables its
+                // hooks and re-reads the assets from disk.
                 overlay::start();
                 markers::reload();
             }
@@ -257,7 +250,7 @@ namespace modswitch
             {
                 return;
             }
-            // Step 1: nothing new starts anywhere from this store on.
+            // Step 1.
             mm::g_mod_active.store(false, std::memory_order_release);
             g_state = State::Stopping;
             g_stop_deadline = ::GetTickCount64() + kStopTimeoutMs;
@@ -271,8 +264,7 @@ namespace modswitch
         void finish_disable(bool timed_out)
         {
             overlay::finish_stop(); // step 3a: the hooks come out
-            // The found tracker's write is debounced by a couple of seconds, so it is
-            // flushed before anything is torn down.
+            // The found tracker's write is debounced a couple of seconds; flushed before teardown.
             markers::flush_found_tracker();
             mapdata::unload();      // step 3b: the chapter's height planes are freed
             g_state = State::Off;
@@ -287,9 +279,9 @@ namespace modswitch
                      L"resident; set mod_enabled = 1 in {} to turn it back on (checked once a second).",
                      mm::config_path());
             mm::drain_log();
-            // The very last thing the stop does, so the breadcrumb names the state the mod
-            // stays in. Anything earlier is overwritten by step 3b's chapter unload, and a
-            // crash while the mod is off would then be reported against a chapter swap.
+            // Last thing the stop does, so the breadcrumb names the state the mod stays in: any
+            // earlier, step 3b's chapter unload overwrites it and a crash while the mod is off is
+            // reported against a chapter swap.
             crumb::stage(crumb::kModOff);
         }
 
@@ -336,11 +328,10 @@ namespace modswitch
         g_config_mtime = mm::config_mtime();
         g_last_watch = ::GetTickCount64();
 
-        // The crash breadcrumb goes as early as possible: it reads what the previous
-        // session left before overwriting it, and a non-terminal stage there is the only
-        // evidence that survives a process that died with the log buffer unflushed. The
-        // flush hook is wired first so every breadcrumb stage also flushes the log and
-        // the two files cannot disagree.
+        // The crash breadcrumb goes as early as possible: it reads the previous session's value
+        // before overwriting it, and a non-terminal stage is the only evidence surviving a process
+        // that died with the log buffer unflushed. The flush hook is wired first so every stage
+        // flushes the log too, and the two files cannot disagree.
         crumb::set_flush_hook(&mm::modlog_flush);
         crumb::init(mm::mod_dir().c_str(), mm::config().crash_breadcrumb);
         log_bug_report_header();

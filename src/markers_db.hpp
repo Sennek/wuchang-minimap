@@ -68,7 +68,6 @@ namespace mdb
     // Exact, case-insensitive match against cat_name(). False for an unknown name.
     bool cat_from_name(std::string_view name, Cat& out);
 
-    // The RENAMED categories of past releases, so a config file or a marker manifest
     // Accepts the RENAMED categories of past releases (`merchant` -> `Note`). Callers take the
     // value AND warn, once, so Save rewrites the file with the current name.
     bool cat_from_legacy_name(std::string_view name, Cat& out);
@@ -310,15 +309,13 @@ namespace mdb
 
     // Should this static marker be dropped from the published set entirely?
     //
-    //   (a) locatable live twin     -> KEEP; the publish point draws the live position
-    //   (b) UNLOCATABLE live twin   -> HIDE. A live actor answering is itself proof the level is
-    //                                  loaded, and this game parks a used-up actor at (0,0,0)
-    //   (c) no twin, level loaded,
-    //       full round passed       -> HIDE (nobody answered, so nobody is there)
-    //   (d) no twin, level unknown  -> KEEP. We have not looked; a hint is all we have
-    //   (e) locatable live twin that
-    //       is HIDDEN in the game   -> HIDE, tested before (a). A used-up NPC is made invisible
-    //                                  rather than moved, so it is neither drawn nor counted MET
+    //   (a) locatable live twin     - the publish point draws the live position
+    //   (b) UNLOCATABLE live twin   - a live actor answering is itself proof the level is loaded,
+    //                                 and this game parks a used-up actor at (0,0,0)
+    //   (c) no twin, level loaded, full round passed - nobody answered, so nobody is there
+    //   (d) no twin, level unknown  - we have not looked; a hint is all we have
+    //   (e) locatable live twin that is HIDDEN in the game - tested before (a). A used-up NPC is
+    //       made invisible rather than moved, so it is neither drawn nor counted MET
     constexpr bool mobile_twin_is_stale(const MobileTwinFacts& f)
     {
         if (!f.mobile)
@@ -344,12 +341,11 @@ namespace mdb
     //
     // The x-ray draws from the same published buffer as the minimap, plus a few extra
     // conditions. The gate NAMES its reason and the drawing code counts the reasons per round.
-    //   * `Category` - `highlight_categories`, its own key: a different question from the map;
-    //   * `Found`    - only LOOT and a DEFEATED BOSS, and only while "Hide collected loot" is
-    //                  on; a lit shrine, a met NPC and a read note stay landmarks;
-    //   * `Live`     - people only; a hint for somebody who walked away is never drawn;
-    //   * `Radius`   - 3D distance from the PLAYER, the one gate the minimap has not got.
-    // Nothing else may be added here without a counter to go with it.
+    // `Category` uses `highlight_categories`, a different question from the map's; `Radius` is
+    // the one gate the minimap has not got. `Found` is only LOOT and a DEFEATED BOSS, and only
+    // while "Hide collected loot" is on; a lit shrine, a met NPC and a read note stay landmarks.
+    // `Live` is people only: a hint for somebody who walked away is never drawn. Nothing else
+    // may be added here without a counter to go with it.
     enum class XrayDrop : std::uint8_t
     {
         Drawn = 0,

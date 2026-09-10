@@ -3,16 +3,13 @@
 //
 // markers - the runtime half of the marker feature.
 //
-// Three threads touch this module, each allowed exactly one thing:
-//
-//   UE4SS event-loop thread  on_unreal_init / on_update / reload: all file access
-//                            (markers/<chapter>.json, the found tracker) and all
-//                            logging. NEVER touches a UObject.
-//   game thread              game_thread_pump(), from gamestate's ProcessEvent
-//                            pre-callback: object traversal + raw property reads only.
-//                            Publishes a POD draw buffer and pushes newly-found ids
-//                            into an outbox for the loop thread.
-//   render thread            view() / stats(), inside the hooked Present.
+// Three threads touch this module, each allowed exactly one thing. The loop thread
+// (on_unreal_init / on_update / reload) owns all file access (markers/<chapter>.json, the
+// found tracker) and all logging, and NEVER touches a UObject. The game thread
+// (game_thread_pump(), from gamestate's ProcessEvent pre-callback) does object traversal and
+// raw property reads only, publishing a POD draw buffer and pushing newly-found ids into an
+// outbox for the loop thread. The render thread calls view() / stats(), inside the hooked
+// Present.
 //
 // Constraints: no std::mutex anywhere (it faults against the process's MSVCP140 on the
 // game thread), no iostreams / locale off the loop thread, no UObject traversal outside
@@ -144,10 +141,9 @@ namespace markers
     // Loop thread, once. Loads markers/<chapter>.json and the found tracker.
     void on_unreal_init();
 
-    // ANY THREAD (in practice the render thread, from the full map's click handler):
-    // manually mark a marker found or not found. Queued and applied by the loop thread,
-    // which owns the master set and the file. The live sweep still owns the truth:
-    // un-marking a chest the game reports as `Used` is undone on the next round.
+    // ANY THREAD (render thread, the full map's click handler): mark a marker found or not.
+    // Queued and applied by the loop thread, which owns the master set and the file. The live
+    // sweep owns the truth: un-marking a chest the game reports as `Used` is undone next round.
     void request_toggle_found(const char* id, bool found);
 
     // ANY THREAD (in practice the render thread, from the F2 panel): empty the found set

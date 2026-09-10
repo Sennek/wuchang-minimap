@@ -1,9 +1,8 @@
 //
 // WuchangMinimap - a UE4SS C++ mod for Wuchang: Fallen Feathers (UE 5.1.1, DX12).
 //
-// The UE4SS mod skeleton only: both entry points go straight to modswitch, which owns
-// the `mod_enabled` master switch and starts or stops every other subsystem. Rendering
-// (Dear ImGui + a MinHook'd DX12 Present) lives in overlay.cpp.
+// The UE4SS mod skeleton only: both entry points go to modswitch, which owns `mod_enabled` and
+// starts/stops every subsystem; rendering (Dear ImGui + MinHook'd DX12 Present) is overlay.cpp.
 //
 // The navmesh dumper is opt-in and off by default; the map background is built offline
 // from the paks. `navmesh_dump = 1` in the dev config turns it on.
@@ -75,11 +74,10 @@ class WuchangMinimap : public CppUserModBase
 
 #define WUCHANG_MINIMAP_API __declspec(dllexport)
 
-// ALT+F4 and every other "the player closed the game" route. None of the mod's teardown
-// paths run when the window closes from outside: `~WuchangMinimap()` is not called and
-// neither is the render thread's ImGui teardown. DLL_PROCESS_DETACH is the last thing
-// this module hears about; the WndProc hook covers the window messages before it. Both
-// call the same idempotent `crumb::mark_closing()`.
+// ALT+F4 and every other "the player closed the game" route: `~WuchangMinimap()` is not
+// called and neither is the render thread's ImGui teardown. DLL_PROCESS_DETACH is the last
+// thing this module hears about; the WndProc hook covers the window messages before it.
+// Both call the same idempotent `crumb::mark_closing()`.
 //
 // DllMain runs under the loader lock, so this is flat Win32 calls only: no allocation,
 // no engine access, no thread synchronisation.

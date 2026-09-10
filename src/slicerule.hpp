@@ -16,20 +16,19 @@
 // Per pixel, over the surfaces stored under it, with feet = the player's feet Z:
 //
 //     any surface with |Z - feet| <= tol
-//         -> class FLOOR, the one NEAREST the feet. Everything above that pixel is a
-//            ceiling and is ignored.
+//         -> class FLOOR, the one NEAREST the feet. Everything above is a ceiling, ignored.
 //     else any surface in (feet + tol, feet + above_band]
-//         -> class ABOVE, the LOWEST such one: a ledge or a piece of upper terrain the
-//            player walks up to. Surfaces below it are ignored - the ledge hides them.
+//         -> class ABOVE, the LOWEST such one: a ledge or upper terrain the player walks up
+//            to. Surfaces below it are ignored - the ledge hides them.
 //     else any surface below feet - tol
 //         -> class BELOW, the HIGHEST one. No lower bound: its colour says how deep it is.
 //     else nothing is drawn.
 //
-// A floor underfoot wins outright, so an upper deck over the player's own storey shows
-// only through the holes in that storey - a gallery running over a solid floor is
-// invisible from under it. That is the price of never drawing a ceiling over the player,
-// and it is why the band overhead is one storey (600 uu): what it is for is the ledge or
-// the piece of upper terrain the player can see across, not a whole floor above.
+// A floor underfoot wins outright, so an upper deck over the player's own storey shows only
+// through the holes in that storey - a gallery over a solid floor is invisible from under it.
+// That is the price of never drawing a ceiling over the player, and why the band overhead is
+// one storey (600 uu): it is for the ledge or upper terrain the player sees across, not a
+// whole floor above.
 //
 // Class priority is FLOOR > ABOVE > BELOW, which is the order of the class constants; a
 // REACHABLE surface beats an unreachable one of the same class, so the rank is
@@ -144,8 +143,7 @@ namespace srule
     };
 
     // 3 = my floor, 2 = a ledge above, 1 = below, 0 = out of range. The numbers ARE the
-    // priority: with a floor underfoot nothing else is considered, and a ledge overhead
-    // hides whatever lies under it.
+    // priority (see the per-pixel table in the file header).
     constexpr std::uint8_t kClassNone = 0;
     constexpr std::uint8_t kClassBelow = 1;
     constexpr std::uint8_t kClassAbove = 2;
@@ -356,16 +354,16 @@ namespace srule
         return out_hi >= out_lo;
     }
 
-    // Where a world Z lands on the ramp, 0 at the low end and 1 at the high one. Two
-    // modes, chosen by `st.equalize`:
+    // Where a world Z lands on the ramp, 0 at the low end and 1 at the high one. Two modes,
+    // chosen by `st.equalize`:
     //
     //     linear     - (z - z_lo) / (z_hi - z_lo), clamped. `eq` is ignored.
-    //     equalised  - the cut's own CDF at z, so the ramp is spent in proportion to the
-    //                  area at each height instead of to the height itself.
+    //     equalised  - the cut's own CDF at z, so the ramp is spent in proportion to the area
+    //                  at each height instead of to the height itself.
     //
-    // `eq` is the histogram of the cut being painted, already through build_cdf(); a
-    // null one (or an empty cut) falls back to linear, so a caller that has no histogram
-    // still gets a picture. Gamma applies to both.
+    // `eq` is the histogram of the cut being painted, already through build_cdf(); a null one
+    // (or an empty cut) falls back to linear, so a caller with no histogram still gets a
+    // picture. Gamma applies to both.
     inline float shade_t(float z, const SliceStyle& st, const ZHistogram* eq = nullptr)
     {
         float t = 0.5f;

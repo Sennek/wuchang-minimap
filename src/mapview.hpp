@@ -1,25 +1,22 @@
 #pragma once
 
 //
-// mapview - the pure half of the full map: the viewport transform and its exact
-// inverse, the zoom clamp / zoom step, and the waypoint file round-trip. Plain C++ over
-// doubles and strings, with no dependency on Windows, UE4SS, Dear ImGui or mm::log, so
-// tests/markers_test.cpp links it into a console exe. Anything needing D3D12 or ImGui
-// lives in overlay.cpp.
+// mapview - the pure half of the full map: the viewport transform and its exact inverse,
+// the zoom clamp / zoom step, and the waypoint file round-trip. Plain C++ over doubles
+// and strings, no Windows / UE4SS / Dear ImGui / mm::log, so tests/markers_test.cpp links
+// it into a console exe; anything needing D3D12 or ImGui lives in overlay.cpp.
 //
-// The full map is always north-up, so the mapping is the minimap's at yaw 0, which is
-// also build_map.py / render.py's convention:
+// North-up always: the minimap's mapping at yaw 0, and build_map.py / render.py's convention:
 //
 //     screen right  ->  world +Y  (east)
 //     screen up     ->  world +X  (north)
 //
-// With the view centred on (cx, cy) at `uu_per_px` world units per screen pixel and
-// the map occupying the screen rectangle `r`:
+// View centred on (cx, cy), `uu_per_px` world units per screen pixel, map rect `r`:
 //
 //     sx = r.cx() + (wy - cy) / uu_per_px
 //     sy = r.cy() - (wx - cx) / uu_per_px
 //
-// and the inverse, exactly:
+// Inverse, exactly:
 //
 //     wx = cx - (sy - r.cy()) * uu_per_px
 //     wy = cy + (sx - r.cx()) * uu_per_px
@@ -97,9 +94,8 @@ namespace mv
     int parse_zoom_presets(std::string_view text, float out[kMaxZoomPresets], std::string* rejected = nullptr);
 
     // One rung along the ladder: `dir > 0` up, `dir < 0` down, both wrapping round.
-    // `presets` must be ascending. Returns `current` when there is nothing to cycle.
-    // "Above" and "below" carry a 0.1 % margin, so a zoom sitting exactly on a rung
-    // moves off it.
+    // `presets` must be ascending; returns `current` when there is nothing to cycle.
+    // "Above" / "below" carry a 0.1 % margin, so a zoom exactly on a rung moves off it.
     float step_zoom_preset(const float* presets, int count, float current, int dir);
 
     // step_zoom_preset(..., +1): what `zoom_key` does.

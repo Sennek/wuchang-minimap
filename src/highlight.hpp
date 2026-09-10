@@ -5,17 +5,14 @@
 // and publishes it. Drawing lives in overlay.cpp.
 //
 // The POV block offset inside `APlayerCameraManager::CameraCachePrivate` (an
-// FCameraCacheEntry: float timestamp + FMinimalViewInfo) is discovered at runtime:
-// call GetCameraLocation / GetCameraRotation / GetFOVAngle once, scan the cache for
-// the offset whose 6 doubles + float match, pin it and read raw from then on. Without
-// the getters the first merely-sane offset (finite, in-world, pitch in range, FOV
-// 5..170) is accepted instead. A pinned offset that stops producing sane values is
-// dropped and rediscovered.
+// FCameraCacheEntry: float timestamp + FMinimalViewInfo) is discovered at runtime: call
+// GetCameraLocation / GetCameraRotation / GetFOVAngle once, scan the cache for the offset
+// whose 6 doubles + float match, pin it and read raw from then on. Without the getters the
+// first merely-sane offset (finite, in-world, pitch in range, FOV 5..170) is accepted
+// instead. A pinned offset that stops producing sane values is dropped and rediscovered.
 //
-// THREADS
-//   game thread   game_thread_pump(), drop_caches()  - reflection and raw reads only
-//   loop thread   set_demand()                       - the hotkey sampler's answer
-//   any thread    camera(), stats()                  - lock-free reads of the seqlock
+// THREADS: game thread = reflection and raw reads only; loop thread = set_demand(), the hotkey
+// sampler's answer; any thread = camera() / stats(), lock-free reads of the seqlock.
 //
 
 #include <cstdint>

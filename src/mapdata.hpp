@@ -20,19 +20,17 @@
 // decision it feeds. The divisor comes from the manifest (`z_code_max`). See
 // src/mapmanifest.hpp for the schemas that are accepted and why /3 is not.
 //
-// Eight slots, not four: four hold 93 % of a chapter's lit pixels but only 50 % of them in
-// the Digong-spiral / Hanguang-temple block, where a pixel can carry up to eleven
-// surfaces. Eight is within 2 % of sixteen. The top slot is the OVERFLOW slot and holds
-// the highest Z where a stack is deeper than eight, so the top of a deep stack is never
-// what gets dropped.
+// Eight slots, not four: four hold 93 % of a chapter's lit pixels but only 50 % in the
+// Digong-spiral / Hanguang-temple block, where a pixel can carry up to eleven surfaces, and
+// eight is within 2 % of sixteen. The top slot is the OVERFLOW slot and holds the highest Z
+// where a stack is deeper than eight, so the top of a deep stack is never what gets dropped.
 //
 // Sampling must be POINT/nearest: interpolating a quantised height code across a storey
 // boundary invents a floor halfway between two real ones. (The RGBA slice the runtime
 // produces from it is a colour, so the GPU may filter that one freely.)
 //
-// The runtime knows the actual Z of every pixel and slices `|Z - feetZ| <= tolerance` on
-// the CPU - the exact semantics a shader path would give, without a custom PSO on a
-// ReShade-wrapped swapchain.
+// The runtime knows every pixel's Z and slices `|Z - feetZ| <= tolerance` on the CPU: a
+// shader path's exact semantics, without a custom PSO on a ReShade-wrapped swapchain.
 //
 // ONE CHAPTER AT A TIME
 // ---------------------
@@ -45,8 +43,7 @@
 //   1. the outgoing chapter's `heights` pointer is cleared (readers see "no height maps"
 //      from the very next frame),
 //   2. the planes are freed only after `kRetireGraceMs` - a render thread that had already
-//      dereferenced the pointer finishes its ~4 ms slice a hundred times over inside that
-//      window,
+//      dereferenced the pointer finishes its ~4 ms slice a hundred times over in that window,
 //   3. only then are the incoming chapter's planes decoded (~1-3 s of WIC).
 //
 // A chapter change happens at a loading screen, where the overlay is hidden by the
@@ -54,19 +51,17 @@
 //
 // Threading: everything here runs on the UE4SS event-loop thread - parsing, file reads and
 // the WIC PNG decode - except `set_detected_chapter()` (game thread, one atomic store) and
-// the two reader functions the render thread uses. The height planes are published as a
-// raw `const HeightMaps*` the render thread reads directly (no per-frame copy, no
-// shared_ptr refcount traffic in the frame path); the pointer is a single aligned 8-byte
-// slot, so a reader sees either the old planes or none, never a torn value. The composite
-// is handed over as a decoded RGBA buffer through an atomic queue so Present never blocks
-// on the decode.
+// the two reader functions the render thread uses. The height planes are published as a raw
+// `const HeightMaps*` the render thread reads directly (no per-frame copy, no shared_ptr
+// refcount traffic in the frame path); the pointer is a single aligned 8-byte slot, so a
+// reader sees either the old planes or none, never a torn value. The composite is handed over
+// as a decoded RGBA buffer through an atomic queue so Present never blocks on the decode.
 //
-// The chapter list and the coverage index are published the same lock-free way and freed
-// on a TWO-GENERATION scheme: an F5 reload swaps a fresh snapshot in and keeps the one it
-// replaced alive until the NEXT publish or unload(), because a reader may be walking it at
-// that instant. A read is one microsecond-long walk inside a single call - no caller holds
-// a `const Chapter*` past its frame - so the generation freed by a later reload, seconds
-// away, has no reader left. Only one spare snapshot is ever resident.
+// The chapter list and the coverage index publish the same lock-free way, freed on a
+// TWO-GENERATION scheme: an F5 reload swaps in a fresh snapshot and keeps the replaced one
+// alive until the NEXT publish or unload(), because a reader may be walking it. A read is one
+// microsecond-long walk inside a single call - no caller holds a `const Chapter*` past its
+// frame - so a generation freed by a later reload, seconds away, has no reader. One spare only.
 //
 
 #include <atomic>
@@ -460,7 +455,7 @@ namespace mapdata
             return wx >= min_x && wx <= max_x && wy >= min_y && wy <= max_y;
         }
 
-        // The north-up mapping, in normalised uv.
+        // to_px()'s mapping, in normalised uv.
         void to_uv(double wx, double wy, float& u, float& v) const
         {
             const double upx = (wy - min_y) * px_per_uu;
@@ -541,15 +536,15 @@ namespace mapdata
     // Chapter whose world bounds contain (wx, wy) - empty key if none.
     Chapter chapter_for(double wx, double wy);
 
-    // THE MAP THE OVERLAY SHOULD DRAW at (wx, wy). A pointer into the published chapter
-    // list, so the render thread reads the height planes every frame without a copy.
-    // nullptr if nothing matches. Valid for the frame that fetched it - a reload retires
-    // the snapshot for a whole generation before freeing it - and never cached past that.
+    // THE MAP THE OVERLAY SHOULD DRAW at (wx, wy). A pointer into the published chapter list,
+    // so the render thread reads the height planes every frame without a copy. nullptr if
+    // nothing matches. Valid for the frame that fetched it - a reload retires the snapshot for
+    // a whole generation before freeing it - and never cached past that.
     //
-    // Once a chapter is ACTIVE this answers with that chapter and no other: the chapters'
-    // world bounds overlap (chapter 4 covers nearly all of chapter 1), so a bounds test
-    // would hand back the wrong map. Before anything is known it falls back to "first
-    // chapter whose bounds contain the point".
+    // Once a chapter is ACTIVE this answers with that chapter and no other: the chapters' world
+    // bounds overlap (chapter 4 covers nearly all of chapter 1), so a bounds test would hand
+    // back the wrong map. Before anything is known it falls back to "first chapter whose bounds
+    // contain the point".
     const Chapter* chapter_ptr_for(double wx, double wy);
 
     bool loaded();

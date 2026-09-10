@@ -18,10 +18,8 @@
 // Reflection lookups and raw property reads only: no `ProcessEvent`, no travel, no
 // writes to the game. The output file is the only side effect.
 //
-// THREADS
-//   loop thread   on_update()  - writes wuchang_minimap_recon_<timestamp>.txt
-//   game thread   game_thread_pump()  - gathers, and queues the text as lines
-//   any thread    request(), status()
+// THREADS: loop thread on_update() writes wuchang_minimap_recon_<timestamp>.txt; game thread
+// game_thread_pump() gathers and queues the text as lines; any thread request(), status().
 //
 
 #include <cstdint>

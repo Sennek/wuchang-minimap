@@ -15,11 +15,10 @@ namespace overlay
         // HOTKEY SWALLOW
         //==============================================================================
         //
-        // UE reads its keyboard from window messages, so a key bound to a mod action is
-        // denied to the game here (GetAsyncKeyState is kernel-side and cannot be).
-        // The loop thread publishes a 256-bit set of virtual keys - it alone knows the
-        // live bindings and their modifiers - and this tests one bit. The other half is
-        // publish_swallow_set() in the hotkey block.
+        // UE reads its keyboard from window messages, so a key bound to a mod action is denied to
+        // the game here (GetAsyncKeyState is kernel-side and cannot be). The loop thread publishes
+        // a 256-bit set of virtual keys - it alone knows the live bindings and their modifiers -
+        // and this tests one bit. The other half is publish_swallow_set() in the hotkey block.
 
         void swallow_set_clear()
         {
@@ -95,10 +94,9 @@ namespace overlay
             return (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == VK_ESCAPE;
         }
 
-        // The two chords the overlay must never eat: ALT+F4 (closes the game, and its
-        // WM_CLOSE is what drives crumb::mark_closing()) and ALT+ENTER (fullscreen).
-        // Both arrive as WM_SYSKEYDOWN / WM_SYSKEYUP / WM_SYSCHAR, which
-        // is_keyboard_message() matches.
+        // The two chords the overlay must never eat: ALT+F4 (closes the game, and its WM_CLOSE is
+        // what drives crumb::mark_closing()) and ALT+ENTER (fullscreen). Both arrive as
+        // WM_SYSKEYDOWN / WM_SYSKEYUP / WM_SYSCHAR, which is_keyboard_message() matches.
         bool is_system_chord(UINT msg, WPARAM wparam)
         {
             if (msg != WM_SYSKEYDOWN && msg != WM_SYSKEYUP && msg != WM_SYSCHAR)
@@ -108,10 +106,9 @@ namespace overlay
             return wparam == VK_F4 || wparam == VK_RETURN;
         }
 
-        // UE reads the mouse through WM_INPUT as well as WM_MOUSEMOVE, so the camera
-        // turns under an open overlay unless raw input is swallowed too. One RID_HEADER
-        // read says which device a message came from, so the panel can take the mouse
-        // and leave the keyboard with the game.
+        // UE reads the mouse through WM_INPUT and WM_MOUSEMOVE, so the camera turns under an open
+        // overlay unless raw input is swallowed too. One RID_HEADER read says which device a
+        // message came from, so the panel can take the mouse and leave the keyboard with the game.
 
         RawKind raw_kind(UINT msg, LPARAM lparam, bool want_key)
         {
@@ -153,26 +150,23 @@ namespace overlay
         // The game thread's window messages, REPLAYED on the render thread
         //==============================================================================
         //
-        // ONLY THE RENDER THREAD MAY TOUCH THE IMGUI CONTEXT. The backend's WndProc
-        // handler pushes onto `ImGuiContext::InputEventsQueue`, an unsynchronised
-        // ImVector that `ImGui::NewFrame()` reads and resizes - two threads growing and
-        // clearing it corrupts the CRT heap and hangs the process with no dump. So the
-        // hook only RECORDS into a fixed-size ring (no allocation, no ImGui call, a
-        // memcpy under a spinlock) and `replay_imgui_messages()` feeds the backend at
-        // the top of the frame, before `ImGui_ImplWin32_NewFrame()`. The swallow
-        // decision stays on the game thread and reads an atomic copy of
-        // `WantCaptureKeyboard` published once per frame.
+        // ONLY THE RENDER THREAD MAY TOUCH THE IMGUI CONTEXT. The backend's WndProc handler
+        // pushes onto `ImGuiContext::InputEventsQueue`, an unsynchronised ImVector that
+        // `ImGui::NewFrame()` reads and resizes - two threads growing and clearing it corrupt the
+        // CRT heap and hang the process, with no dump. The hook only RECORDS into a fixed ring (no
+        // allocation, no ImGui call, a memcpy under a spinlock); `replay_imgui_messages()` feeds
+        // the backend at the top of the frame, before `ImGui_ImplWin32_NewFrame()`. The swallow
+        // decision stays on the game thread, reading an atomic copy of `WantCaptureKeyboard`
+        // published each frame.
         //
-        // Three thread-affine behaviours of the backend answer differently, all
-        // cosmetic: `::GetMessageExtraInfo()` reports every mouse event as a mouse (no
-        // pen/touch); `::SetCapture()` / `::GetCapture()` fail across threads, so a drag
-        // leaving the client area is untracked (the game is fullscreen); and
-        // `::TrackMouseEvent()` may refuse, dropping WM_MOUSELEAVE. Input lags by one
-        // frame, replayed in order.
+        // Three thread-affine behaviours of the backend answer differently, all cosmetic:
+        // `::GetMessageExtraInfo()` reports every mouse event as a mouse (no pen/touch);
+        // `::SetCapture()` / `::GetCapture()` fail across threads, so a drag leaving the client
+        // area is untracked (the game is fullscreen); `::TrackMouseEvent()` may refuse, dropping
+        // WM_MOUSELEAVE. Input lags by one frame, replayed in order.
 
-        // Does the backend's handler do anything with this message? Recording only what
-        // it handles keeps the ring from filling with WM_TIMER / WM_PAINT traffic. The
-        // list is `ImGui_ImplWin32_WndProcHandlerEx`'s switch, verbatim.
+        // What the backend's handler acts on: recording only those keeps the ring clear of WM_TIMER
+        // / WM_PAINT traffic. It is `ImGui_ImplWin32_WndProcHandlerEx`'s switch, verbatim.
         bool imgui_handles(UINT msg)
         {
             switch (msg)
@@ -232,9 +226,8 @@ namespace overlay
             ++g_msg_count;
         }
 
-        // Render thread, at the top of the frame and before ImGui_ImplWin32_NewFrame.
-        // Bounded by the count read at entry, so a game thread that keeps posting
-        // cannot keep this loop alive.
+        // Render thread, at the top of the frame, before ImGui_ImplWin32_NewFrame. Bounded by
+        // the count read at entry, so a posting game thread cannot keep this loop alive.
         void replay_imgui_messages()
         {
             int budget = 0;
@@ -261,9 +254,8 @@ namespace overlay
 
         LRESULT CALLBACK hooked_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
-            // ALT+F4 / the close button: the terminal crash-breadcrumb stage, written
-            // while there is still a process to write it from - no teardown path of the
-            // mod runs on this route. Idempotent; never swallows the message.
+            // ALT+F4 / the close button: the terminal crash-breadcrumb stage, written while a
+            // process still exists to write it from. Idempotent; never swallows the message.
             if (msg == WM_CLOSE || msg == WM_DESTROY || msg == WM_QUIT)
             {
                 crumb::mark_closing();
@@ -273,10 +265,9 @@ namespace overlay
                 // Record only - the ImGui context belongs to the render thread.
                 record_imgui_message(hwnd, msg, wparam, lparam);
 
-                // Input is taken from the game only while the F2 panel or the full map
-                // is up; with both closed every message goes straight through. The test
-                // is a plain read of the two flags, so closing either hands input back
-                // on the next message. Nothing is latched here.
+                // Input is taken only while the F2 panel or the full map is up; with both closed
+                // every message passes through. The test is a plain read of the two flags, so
+                // closing either restores input on the next message; nothing is latched.
                 const bool sys_chord = is_system_chord(msg, wparam);
                 if (sys_chord)
                 {
@@ -285,13 +276,12 @@ namespace overlay
                 }
                 else if (mm::g_map_open.load(std::memory_order_relaxed))
                 {
-                    // The map owns the whole keyboard and mouse: WASD pans it and a
-                    // click on a marker must not also swing the camera. io.WantCapture*
-                    // is only true over an ImGui window, and the canvas reads raw keys
-                    // rather than focusing a widget. The map's toggle key comes from
-                    // GetAsyncKeyState on the loop thread, so it still closes the map.
-                    // Esc closes it too, by a store on the flag the swallow condition
-                    // reads - input is back on the next message.
+                    // The map owns the whole keyboard and mouse: WASD pans it, and a marker click
+                    // must not also swing the camera. io.WantCapture* is only true over an ImGui
+                    // window, and the canvas reads raw keys rather than focusing a widget. The
+                    // map's toggle key comes from GetAsyncKeyState on the loop thread, so it still
+                    // closes the map. Esc closes it too, by a store on the flag the swallow
+                    // condition reads - input is back on the next message.
                     if (is_escape_key_down(msg, wparam) &&
                         !g_map_search_active.load(std::memory_order_relaxed))
                     {
@@ -305,21 +295,19 @@ namespace overlay
                 }
                 else if (mm::g_panel_open.load(std::memory_order_relaxed))
                 {
-                    // The panel owns the whole mouse, raw input included -
-                    // io.WantCaptureMouse is only true over an ImGui window, which lets
-                    // a drag starting a pixel outside it turn the game camera. The
-                    // keyboard goes to the game except while ImGui wants it (a text
-                    // field), so the panel key from the loop thread always closes it.
-                    // want_keys is published by the render thread at the end of its
-                    // frame; the context is never read from this thread.
+                    // The panel owns the whole mouse, raw input included - io.WantCaptureMouse is
+                    // only true over an ImGui window, which lets a drag starting a pixel outside
+                    // it turn the game camera. The keyboard goes to the game except while ImGui
+                    // wants it (a text field), so the panel key from the loop thread always closes
+                    // it. want_keys is published by the render thread at the end of its frame; the
+                    // context is never read from this thread.
                     const bool want_keys = g_imgui_want_keyboard.load(std::memory_order_relaxed);
                     const bool capturing = mm::g_key_capture.load(std::memory_order_relaxed);
 
-                    // Esc closes the panel and the game must not see it, so it is
-                    // swallowed in all four shapes it arrives in - WM_KEYDOWN / WM_KEYUP
-                    // / WM_CHAR and a raw-input keyboard packet - and the key-down
-                    // closes. While a binding capture is armed Esc instead cancels the
-                    // capture (on the render thread) and the panel stays open.
+                    // Esc closes the panel and the game must not see it, so it is swallowed in all
+                    // four shapes it arrives in - WM_KEYDOWN / WM_KEYUP / WM_CHAR and a raw-input
+                    // keyboard packet - and the key-down closes. While a binding capture is armed,
+                    // Esc cancels the capture (on the render thread) and the panel stays open.
                     const RawKind raw = raw_kind(msg, lparam, true);
                     const bool esc = is_escape_message(msg, wparam) || raw.escape;
                     if (esc && !capturing && is_escape_key_down(msg, wparam))
@@ -348,9 +336,8 @@ namespace overlay
             return ::CallWindowProcW(prev, hwnd, msg, wparam, lparam);
         }
 
-        // Refuses to hook a window that is already ours: `ensure_initialised` runs again
-        // after a re-adoption, and saving our own proc as the "previous" one would make
-        // `hooked_wndproc` recurse for ever.
+        // Refuses to hook a window already ours: `ensure_initialised` re-runs after re-adoption,
+        // and saving our own proc as "previous" would make `hooked_wndproc` recurse for ever.
         void hook_wndproc()
         {
             if (g_hwnd == nullptr)
@@ -373,11 +360,10 @@ namespace overlay
             }
         }
 
-        // Removes the hook only while we are the outermost proc - restoring the saved
-        // pointer over a later subclass (ReShade, the Steam overlay) would uninstall
-        // theirs. Otherwise the chain is left as it is: `hooked_wndproc` does nothing
-        // once `g_imgui_ready` is false, and the saved pointer is kept so a call still
-        // inside it has something to chain to.
+        // Removes the hook only while we are the outermost proc - restoring the saved pointer over
+        // a later subclass (ReShade, the Steam overlay) would uninstall theirs. Otherwise the
+        // chain is left as it is: `hooked_wndproc` does nothing once `g_imgui_ready` is false, and
+        // the saved pointer is kept so a call still inside it has something to chain to.
         void unhook_wndproc()
         {
             const WNDPROC prev = g_prev_wndproc.load(std::memory_order_acquire);

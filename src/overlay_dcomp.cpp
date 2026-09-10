@@ -2,25 +2,23 @@
 // overlay_dcomp.cpp - the overlay's own composition surface
 //==============================================================================
 //
-// RENDER THREAD only, like the rest of the D3D12 layer. Owns everything the mod
-// draws into when it does not draw into the game's back buffer: a DIRECT queue
-// of its own, a swapchain created with CreateSwapChainForComposition, and the
-// DirectComposition target and visual that put that swapchain over the game's
-// window.
+// RENDER THREAD only, like the rest of the D3D12 layer. Owns what the mod draws into
+// when it does not draw into the game's back buffer: a DIRECT queue of its own, a
+// swapchain from CreateSwapChainForComposition, and the DirectComposition target and
+// visual that put it over the game's window.
 //
-// Why it exists. Drawing into the game's back buffer requires permission this
-// process cannot ask for: D3D12 has no way to ask a resource whether it may be
-// written, so the only test is to write it, and where a frame-generation layer
-// owns the buffers that test removes the D3D12 device and hangs the game. Every
-// resource here is one this module created, so the question does not arise.
+// Why it exists. Drawing into the game's back buffer needs permission this process
+// cannot ask for: D3D12 cannot ask a resource whether it may be written, so the only
+// test is to write it, and where a frame-generation layer owns the buffers that test
+// removes the D3D12 device and hangs the game. Every resource here is one this module
+// created, so the question does not arise.
 //
-// It does NOT create a device. Resources are made on the game's own
-// ID3D12Device, which was never the problem - only the buffers of the game's
-// swapchain are - and using it keeps ImGui, the map textures and the height
-// slicer on the device they are already on.
+// It does NOT create a device: resources are made on the game's own ID3D12Device -
+// never the problem, only the game swapchain's buffers are - which keeps ImGui, the map
+// textures and the height slicer on the device they are already on.
 //
-// It must not: touch a UObject, touch the game's swapchain or its queue, or run
-// on any thread but the one inside the Present hook.
+// It must not: touch a UObject, touch the game's swapchain or its queue, or run on any
+// thread but the one inside the Present hook.
 
 #include "overlay_internal.hpp"
 
@@ -32,10 +30,9 @@ namespace overlay
     {
         namespace
         {
-            // dcomp.dll is looked up rather than imported. A static import would
-            // make the whole mod fail to load if it were ever absent, and a
-            // silent load-time failure is a failure mode this project has already
-            // paid for once.
+            // dcomp.dll is looked up, not imported: a static import would make the whole mod fail
+            // to load if it were ever absent - a silent load-time failure this project has paid
+            // for once.
             using DCompositionCreateDeviceFn = HRESULT(WINAPI*)(IDXGIDevice*, REFIID, void**);
 
             HMODULE g_dcomp_dll = nullptr;
@@ -48,9 +45,8 @@ namespace overlay
             UINT g_comp_height = 0;
             bool g_comp_logged = false;
 
-            // The format the visual is composed in. BGRA because that is what a
-            // composition swapchain takes everywhere, and premultiplied because
-            // that is what ImGui's DX12 blend state already emits.
+            // The format the visual is composed in. BGRA because every composition swapchain
+            // takes it, premultiplied because ImGui's DX12 blend state already emits it.
             constexpr DXGI_FORMAT kCompFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
             // Two is enough: this swapchain presents with no vertical sync and
             // carries one overlay, not a game.
@@ -84,9 +80,8 @@ namespace overlay
 
         void comp_release()
         {
-            // Order matters only in that the visual must stop referencing the
-            // swapchain before the swapchain goes. Everything here is released on
-            // the render thread, which is the only thread allowed to.
+            // Order matters only in that the visual must stop referencing the swapchain before the
+            // swapchain goes; the render thread is the only one allowed to release these.
             if (g_comp_visual != nullptr)
             {
                 g_comp_visual->SetContent(nullptr);
@@ -110,9 +105,8 @@ namespace overlay
             // was already resident, and this module may be created again.
         }
 
-        // Creates the queue, the swapchain and the composition chain. `device` is
-        // the game's; `hwnd` is the game's window, which belongs to this process,
-        // which is what CreateTargetForHwnd requires.
+        // Creates the queue, the swapchain and the composition chain. `device` is the game's;
+        // `hwnd` is the game's window (this process's), which CreateTargetForHwnd requires.
         bool comp_create(ID3D12Device* device, HWND hwnd, UINT width, UINT height)
         {
             if (device == nullptr || hwnd == nullptr || width == 0 || height == 0)
@@ -210,10 +204,9 @@ namespace overlay
                 return false;
             }
             // Topmost is where an overlay belongs, and the window must belong to this
-            // process - it does, because the mod is loaded into the game. A window
-            // holds at most one topmost target and one below it, so if something
-            // else in this process already took the topmost slot the only honest
-            // answer is the other one: drawn under whatever that is, but drawn.
+            // process - it does, since the mod is loaded into the game. A window holds at most one
+            // topmost target and one below it, so if something else in this process took the
+            // topmost slot, the other one is the only honest answer: drawn under it, but drawn.
             hr = g_comp_device->CreateTargetForHwnd(hwnd, TRUE, &g_comp_target);
             if (FAILED(hr) || g_comp_target == nullptr)
             {

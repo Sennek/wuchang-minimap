@@ -8,9 +8,8 @@ namespace overlay
     // main.dll. Returns a version report. Installs nothing.
     auto selftest() -> RC::StringType;
 
-    // Loop thread. Loads the waypoint and map assets, installs the DX12 hooks
-    // (Present / Present1 / ResizeBuffers). Idempotent; called by modswitch, and the
-    // config must already be loaded.
+    // Loop thread. Loads the waypoint and map assets, installs the DX12 hooks (Present, Present1,
+    // ResizeBuffers). Idempotent; called by modswitch, and the config must already be loaded.
     void start();
 
     //==================================================================================

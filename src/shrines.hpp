@@ -18,9 +18,7 @@
 // `Task1`, ...) which are not shrines, so its count is not "shrines lit" - the stats page
 // counts only ids that join to a shrine marker in the static DB.
 //
-// THREADS
-//   game thread   game_thread_pump(), drop_caches()  - raw reads only
-//   any thread    state(), is_unlocked()             - spinlocked copy / lookup
+// THREADS: the game thread does raw reads only; any thread a spinlocked copy / lookup.
 //
 
 #include <cstdint>

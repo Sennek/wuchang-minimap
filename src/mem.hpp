@@ -22,9 +22,8 @@ namespace mem
     // object unwinding (MSVC C2712).
     bool copy(const void* src, void* dst, std::size_t n) noexcept;
 
-    // SEH-guarded call into foreign code, e.g. a trampoline issuing a
-    // UObject::ProcessEvent. `fn` must be a plain function needing no C++ unwinding
-    // (MSVC C2712). False when the call faulted.
+    // SEH-guarded call into foreign code, e.g. a trampoline issuing a UObject::ProcessEvent.
+    // `fn` must be a plain function needing no C++ unwinding (MSVC C2712). False when it faulted.
     using GuardedFn = void (*)(void*, void*, void*);
     bool guarded_call(GuardedFn fn, void* a, void* b, void* c) noexcept;
 
@@ -50,15 +49,13 @@ namespace mem
         return read<T>(static_cast<const std::uint8_t*>(base) + byte_offset, out);
     }
 
-    // A pointer-sized read that also rejects null, low, non-canonical and unaligned
-    // values.
+    // A pointer-sized read that also rejects null, low, non-canonical and unaligned values.
     bool read_ptr(const void* p, void*& out) noexcept;
 
-    // Stronger than readable(): the target must sit in a committed, writable, PRIVATE
-    // region - a heap allocation, not an image section, mapped file or read-only data -
-    // whose remaining size from `p` is inside [min_size, max_size]. Engine structs such
-    // as FPImplRecastNavMesh / dtNavMesh are always private RW heap blocks, so this is
-    // what bounds the pointer chase in the navmesh discovery scan.
+    // Stronger than readable(): the target must sit in a committed, writable, PRIVATE region
+    // - a heap allocation, not an image section, mapped file or read-only data - whose
+    // remaining size from `p` is in [min_size, max_size]. FPImplRecastNavMesh / dtNavMesh are
+    // always private RW heap blocks, so this bounds the navmesh discovery scan's pointer chase.
     bool region_ok(const void* p, std::size_t min_size, std::size_t max_size) noexcept;
 
     inline bool plausible_ptr(const void* p) noexcept

@@ -13,21 +13,24 @@ namespace mdb
         // Order must match enum Cat exactly - both directions of the mapping and the
         // config file's spelling depend on it.
         constexpr const char* kCatNames[kCatCount] = {
-            "shrine", "chest", "pickup", "boss",   "elite",  "enemy",  "npc",
-            "note",   "door",  "ladder", "lift",   "fog_gate", "hidden", "other",
+            "shrine", "chest", "pickup",       "boss",   "elite",    "enemy",  "npc",
+            "note",   "door",  "mystery_gate", "benediction_door",
+            "ladder", "lift",  "fog_gate",     "hidden", "other",
         };
 
         constexpr const char* kCatLabels[kCatCount] = {
-            "Shrines", "Chests", "Pickups", "Bosses", "Elites",  "Enemies", "NPCs",
-            "Notes",   "Doors",  "Ladders", "Lifts",  "Fog gates", "Traps", "Other",
+            "Shrines", "Chests", "Pickups",       "Bosses",  "Elites",  "Enemies", "NPCs",
+            "Notes",   "Doors",  "Mystery gates", "Benediction doors",
+            "Ladders", "Lifts",  "Fog gates",     "Traps",   "Other",
         };
 
         // The last-resort SINGULAR word for one marker. `cat_label` is the plural filter
         // title ("Chests") and reads wrong on a single glyph; "Marker" is vague for
         // `other`, the bucket the classifier could not place.
         constexpr const char* kCatWords[kCatCount] = {
-            "Shrine", "Chest", "Item",  "Boss", "Elite",     "Enemy",  "NPC",
-            "Note",   "Door",  "Ladder", "Lift", "Fog gate", "Hidden item", "Marker",
+            "Shrine", "Chest", "Item",         "Boss", "Elite", "Enemy", "NPC",
+            "Note",   "Door",  "Mystery gate", "Benediction door",
+            "Ladder", "Lift",  "Fog gate",     "Hidden item", "Marker",
         };
 
         // Renamed categories: {what an older file says, what it means now}.

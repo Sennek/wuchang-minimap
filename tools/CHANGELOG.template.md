@@ -2,7 +2,11 @@
 
 ## Unreleased
 
+Added
+- The 3 red riddle doors and the 7 yellow chisel doors are their own marker categories, Mystery gates and Benediction doors, each with its own glyph, colour, filter checkbox and count. The seven chisel doors were never on the map before.
+
 Fixed
+- A riddle door you have answered now counts as opened. The mod read the flag that drives the door's opening animation, which is false again the moment the area reloads; it reads the one the save restores.
 - Where two chapters meet, the map stays on one of them instead of swapping back and forth and going blank: the chapter is chosen by how much ground its map has around the player, not by one spot under his feet.
 - Resting at a shrine no longer leaves the minimap and the full map hidden until the next area load.
 - A note the player can neither see nor read is no longer counted as found when he walks past it.

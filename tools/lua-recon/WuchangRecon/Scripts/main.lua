@@ -126,8 +126,12 @@ local MARKER_CLASSES = {
     "BP_RebornFire_C",
     -- fog gates
     "BP_Wumen_C",
-    -- doors / shortcuts
-    "BP_NewPuzzlesDoor_C", "BP_Door_C", "BP_DoorBase_C",
+    -- doors / shortcuts. The two special doors are here for their OPEN-STATE bools:
+    -- `BP_NewGetGeemDoor_C` declares both `DoorOpen` and `Used`, and only values say
+    -- which one an opened door actually carries. `BP_NewFriePointDoor_C` is the third,
+    -- still-unidentified door class - if one is ever loaded, this dumps it.
+    "BP_NewPuzzlesDoor_C", "BP_NewGetGeemDoor_C", "BP_NewFriePointDoor_C",
+    "BP_Door_C", "BP_DoorBase_C",
 }
 
 -- The pickup family: actors that carry an item identity somewhere. Scalar values are

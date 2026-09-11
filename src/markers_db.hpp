@@ -38,6 +38,11 @@ namespace mdb
         // The game's readable notes / inscriptions (`DKDC_NPC_C` and friends).
         Note,
         Door,
+        // The two special doors, one category each because "which riddle is unanswered" and
+        // "which chisel door is unopened" are different questions. Red riddle gate
+        // (`BP_NewPuzzlesDoor_C`, 3) and gold chisel door (`BP_NewGetGeemDoor_C`, 7).
+        MysteryGate,
+        BenedictionDoor,
         Ladder,
         Lift,
         FogGate,

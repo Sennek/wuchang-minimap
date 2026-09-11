@@ -471,7 +471,7 @@ namespace overlay
         // The Categories tab
         //==============================================================================
         //
-        // One grid instead of four chip rows: the fourteen categories down the side,
+        // One grid instead of four chip rows: the sixteen categories down the side,
         // the three surfaces across the top, one mask per column. A row label is the
         // legend - the category's own glyph and colour, and its live found / known
         // count - and clicking it turns the whole row on or off.

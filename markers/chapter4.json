@@ -21,13 +21,25 @@
    "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
   }
  ],
- "extractor_commit": "9a46681+dirty",
+ "extractor_commit": "2304e23+dirty",
  "exe": {
   "name": "Project_Plague-Win64-Shipping.exe",
   "size": 141464648,
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9"
  },
  "markers": [
+  {
+   "id": "Chapter4_TangWangXG_logic/BP_NewGetGeemDoor_C_3",
+   "cat": "benediction_door",
+   "cls": "BP_NewGetGeemDoor_C",
+   "name": "Benediction door",
+   "obj": "BP_NewGetGeemDoor_C_3",
+   "x": -3034.8,
+   "y": 10085.45,
+   "z": 2255.0,
+   "cell": "B4EX0_L0_X-1_Y0",
+   "level": "Chapter4_TangWangXG_logic"
+  },
   {
    "id": "Chapter4_DiGong_NW_AI/B_NW_C_0",
    "cat": "boss",

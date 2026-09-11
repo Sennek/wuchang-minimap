@@ -766,7 +766,7 @@ namespace overlay
                     // the row afterwards, so the Selectable owns the whole width.
                     //
                     // Cached, keyed on exactly what the text is made of: otherwise these
-                    // are fourteen std::format allocations per frame inside Present for
+                    // are sixteen std::format allocations per frame inside Present for
                     // text that changes when a marker is found or the chapter changes.
                     static char row_text[mdb::kCatCount][64]{};
                     static int row_found[mdb::kCatCount]{};

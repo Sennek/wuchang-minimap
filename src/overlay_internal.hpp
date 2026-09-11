@@ -782,7 +782,7 @@ namespace overlay
             }
             return g_stats_cache;
         }
-        // The six of the map's fourteen categories a player collects or ticks off.
+        // The six of the map's sixteen categories a player collects or ticks off.
         // Fixed, not derived from the DB, so a chapter with none of a category still
         // gets its column and the layout does not move between chapters.
         constexpr mdb::Cat kStatsCats[] = {

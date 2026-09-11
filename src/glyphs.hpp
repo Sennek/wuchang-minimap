@@ -19,7 +19,7 @@
 
 namespace gly
 {
-    // Shapes: one per category, all fourteen distinct. overlay.cpp's
+    // Shapes: one per category, all sixteen distinct. overlay.cpp's
     // draw_marker_glyph() switches on this enum, so a category with no shape is a
     // compile error there.
     enum class Shape : std::uint8_t
@@ -33,6 +33,8 @@ namespace gly
         Pentagon,        // npc      - a filled 5-gon, point up
         NotePage,        // note     - a page with a folded top-right corner + two rules
         DoorBox,         // door     - a tall narrow box
+        ArchPip,         // mystery gate     - a domed arch with a centre pip
+        ArchSplit,       // benediction door - a domed arch split down the middle
         Ladder,          // ladder   - two rails and three rungs
         Lift,            // lift     - a flat box under an up arrow
         RingBar,         // fog gate - a hollow ring with a bar across it
@@ -65,6 +67,10 @@ namespace gly
             return "folded page";
         case Shape::DoorBox:
             return "door";
+        case Shape::ArchPip:
+            return "arch with a pip";
+        case Shape::ArchSplit:
+            return "split arch";
         case Shape::Ladder:
             return "ladder";
         case Shape::Lift:
@@ -92,6 +98,8 @@ namespace gly
         Shape::Pentagon,        // Npc
         Shape::NotePage,        // Note
         Shape::DoorBox,         // Door
+        Shape::ArchPip,         // MysteryGate
+        Shape::ArchSplit,       // BenedictionDoor
         Shape::Ladder,          // Ladder
         Shape::Lift,            // Lift
         Shape::RingBar,         // FogGate
@@ -113,6 +121,8 @@ namespace gly
         case Shape::ChestBox:      // half-extents 0.95 x 0.75 -> corner at 1.21
         case Shape::NotePage:      // 0.62 x 0.88             -> 1.08
         case Shape::DoorBox:       // 0.55 x 0.95             -> 1.10
+        case Shape::ArchPip:       // 0.58 x 0.95 at the base -> 1.11
+        case Shape::ArchSplit:
         case Shape::Lift:          // box 0.85 x 0.5, arrow to 1.35
         case Shape::Cross:         // arms to 0.85 x 0.85     -> 1.20
         case Shape::Diamond:       // vertices on the axes at 1.15
@@ -148,7 +158,7 @@ namespace gly
     //
     // `colorblind` is derived from Okabe-Ito: eight hues that stay distinguishable under
     // deuteranopia / protanopia / tritanopia, plus a near-white for the two traversal
-    // categories. Fourteen categories cannot have fourteen safe hues, so the shape
+    // categories. Sixteen categories cannot have sixteen safe hues, so the shape
     // carries the identity and the palette only has to keep neighbours apart;
     // palette_is_separable() checks that.
 
@@ -205,6 +215,8 @@ namespace gly
         mdb::Rgb{140, 235, 140}, // Npc
         mdb::Rgb{238, 232, 205}, // Note  - parchment
         mdb::Rgb{172, 194, 224}, // Door
+        mdb::Rgb{224, 66, 78},   // MysteryGate     - the riddle door's own red
+        mdb::Rgb{255, 212, 64},  // BenedictionDoor - the chisel door's own gold
         mdb::Rgb{206, 184, 142}, // Ladder
         mdb::Rgb{206, 184, 142}, // Lift  - ladder's hue, different shape
         mdb::Rgb{198, 150, 255}, // FogGate
@@ -230,6 +242,10 @@ namespace gly
         mdb::Rgb{0, 158, 115},   // Npc      - bluish green
         mdb::Rgb{0, 114, 178},   // Note     - blue, used by nothing else
         mdb::Rgb{86, 180, 233},  // Door     - sky blue (tall box vs the pickup dot)
+        // The two special doors keep a red and a gold here too: they are told apart from
+        // each other by hue, so they cannot both fall back on the plain door's blue.
+        mdb::Rgb{213, 94, 0},    // MysteryGate     - vermillion (arch vs the boss triangle)
+        mdb::Rgb{240, 228, 66},  // BenedictionDoor - yellow (arch vs the chest box)
         mdb::Rgb{235, 235, 235}, // Ladder   - near-white
         mdb::Rgb{235, 235, 235}, // Lift     - near-white
         mdb::Rgb{204, 121, 167}, // FogGate  - reddish purple (barred ring vs the elite triangle)
@@ -356,8 +372,9 @@ namespace gly
     //==================================================================================
     //
     // The categories a player compares in one glance: three kinds of hostile, three
-    // kinds of loot. At the ~13-pixel draw size the hue has to carry the difference
-    // inside such a group, so palette_competing_hues_ok() asserts these pairs differ.
+    // kinds of loot, three kinds of door. At the ~13-pixel draw size the hue has to
+    // carry the difference inside such a group, so palette_competing_hues_ok() asserts
+    // these pairs differ.
     struct CatPair
     {
         mdb::Cat a;
@@ -375,6 +392,12 @@ namespace gly
         {mdb::Cat::Pickup, mdb::Cat::Hidden},
         // The map's landmark must not read as a chest.
         {mdb::Cat::Shrine, mdb::Cat::Chest},
+        // The doors. Three kinds sit side by side in one area and the question is which
+        // one this is, so the hue has to answer it - the arches differ only in their
+        // centre detail.
+        {mdb::Cat::MysteryGate, mdb::Cat::BenedictionDoor},
+        {mdb::Cat::MysteryGate, mdb::Cat::Door},
+        {mdb::Cat::BenedictionDoor, mdb::Cat::Door},
     };
 
     inline bool palette_competing_hues_ok(Palette pal)

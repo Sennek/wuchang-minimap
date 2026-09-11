@@ -46,7 +46,6 @@ namespace markers
         {
             None,          // no known state flag - never auto-marked
             UsedBool,      // chests / doors / mechanisms: `Used` (SavedStatuKey=statu_use)
-            DoorOpenBool,  // BP_NewPuzzlesDoor_C: `DoorOpen`
             PickupDying,   // pickups: `dying` (early) or parked at (0,0,0) (durable)
             ActiveBool,    // fog gates: SavedStatuKey=status_active, so `Active` is the flag
             ControllerPawn, // AI controller: the marker is its possessed Pawn
@@ -74,8 +73,17 @@ namespace markers
             // Pickups: `dying` flips true, then the actor moves to (0,0,0) ~2 s later and
             // lingers until a GC. Absence never auto-marks: an unloaded level looks identical.
             {L"BP_PickupActor_C", mdb::Cat::Pickup, Rule::PickupDying, true},
-            // BP_NewPuzzlesDoor_C also carries `GeemID` and `New Fire Point ID`.
-            {L"BP_NewPuzzlesDoor_C", mdb::Cat::Door, Rule::DoorOpenBool, true},
+            // The two special doors, one `GeemID` system with two front ends - a riddle and
+            // a chisel - and a category each. Categories match
+            // tools/markers/build_categories.ROOTS, so live actor and static twin agree.
+            //
+            // `Used`, not the blueprints' own `DoorOpen`: both dump
+            // `Used=true DoorOpen=false SavedStatuKey=statu_use` once opened (recon world
+            // dumps, Mt. Zhenwu and Tang Palace, 2026-09-11). `DoorOpen` drives the dissolve
+            // animation and is false again after a reload; `Used` is the base
+            // `BP_InteractionObject_C` flag that `SavedStatuKey` names, so the save restores it.
+            {L"BP_NewPuzzlesDoor_C", mdb::Cat::MysteryGate, Rule::UsedBool, true},
+            {L"BP_NewGetGeemDoor_C", mdb::Cat::BenedictionDoor, Rule::UsedBool, true},
             {L"BP_DoorZhong_C", mdb::Cat::Door, Rule::UsedBool, true},
             // Fog gates. Inferred, not observed in the passed state.
             {L"BP_Wumen_C", mdb::Cat::FogGate, Rule::ActiveBool, true},
@@ -90,7 +98,9 @@ namespace markers
             // tools/markers/marker_classes.py, so live actor and static twin agree.
             {L"ItemCollectionBox_C", mdb::Cat::Pickup, Rule::PickupDying, true},
             {L"BP_KlesaCleaner_C", mdb::Cat::Other, Rule::None, false},
-            {L"BP_PuzzlesDoor_C", mdb::Cat::Door, Rule::UsedBool, true},
+            // The superseded riddle door: a `BP_NPC_C` descendant, so without this entry the
+            // name walk would file it under `npc`. Nothing is placed as one.
+            {L"BP_PuzzlesDoor_C", mdb::Cat::MysteryGate, Rule::UsedBool, true},
             // `BP_PlacedBossAI_C` is the base of all 32 boss blueprints. "Found" means
             // DEFEATED: the pawn's `Controller` carries a `Health` ExtendedStatComponent_C.
             {L"BP_PlacedBossAI_C", mdb::Cat::Boss, Rule::BossPawn, true},
@@ -1502,15 +1512,6 @@ namespace markers
                 if (read_bool_prop(actor, L"Used", used))
                 {
                     e.found = used;
-                }
-                break;
-            }
-            case Rule::DoorOpenBool:
-            {
-                bool open = false;
-                if (read_bool_prop(actor, L"DoorOpen", open))
-                {
-                    e.found = open;
                 }
                 break;
             }

@@ -147,8 +147,9 @@ diverge silently:
 * **the shipped marker data** — every `markers/*.json` on each build: each parses with
   `skipped == 0` and `unknown_cat == 0`, no marker id repeats within or across files, every
   `(chapter, category)` clears a floor from a table in the test *including the explicit zeros* (so
-  "chapter 5 has no ladder" is a recorded decision rather than a blind spot), every item id a
-  pickup references is a row of `items.json`, every shrine marker has a row in `shrines.json`, and
+  "chapter 5 has no ladder" is a recorded decision rather than a blind spot), the categories the
+  game itself pins to a number match it exactly (3 mystery gates, 7 benediction doors - the Sage
+  and Discerning Eye achievements), every item id a pickup references is a row of `items.json`, every shrine marker has a row in `shrines.json`, and
   no single name accounts for more than half of a `(chapter, category)`'s named entries;
 * **the shipped map assets** — `maps.json` parses at the current schema and the sparse height-plane
   store decodes from the shipped PNGs, with `z_requantise_worst_uu` under 20 uu.
@@ -428,7 +429,7 @@ whose safety rail is that a marker whose owning level cannot be matched to a loa
 | category | "found" means |
 |---|---|
 | shrine | the save's global `UnlockedFirepoints` list, not a per-actor flag. Never auto-marked: the tracker follows collectables, not rest points |
-| chest, door | the actor's `Used` / `DoorOpen` flag |
+| chest, door, mystery gate, benediction door | the actor's `Used` flag, the one `SavedStatuKey=statu_use` names, so the save restores it. The special doors' own `DoorOpen` drives the dissolve animation and is false again after a reload |
 | pickup, hidden | `dying`, or the actor parked at `(0,0,0)` |
 | fog gate | `Active` |
 | npc, note | MET — seen loaded near the player. A used-up NPC is made invisible, not moved, so the live twin is tested for visibility |

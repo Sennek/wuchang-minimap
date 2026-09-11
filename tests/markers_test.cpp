@@ -4733,10 +4733,32 @@ namespace
         {1, mdb::Cat::FogGate, 17}, {2, mdb::Cat::FogGate, 8},
         {3, mdb::Cat::FogGate, 10}, {4, mdb::Cat::FogGate, 3},
         {5, mdb::Cat::FogGate, 2},  {0, mdb::Cat::FogGate, 2},
+        // Chapter 5 has no plain door at all: its one door is the Bo Capital riddle gate,
+        // and that is a mystery_gate now.
         {1, mdb::Cat::Door, 20}, {2, mdb::Cat::Door, 14}, {3, mdb::Cat::Door, 8},
-        {4, mdb::Cat::Door, 2},  {5, mdb::Cat::Door, 1},  {0, mdb::Cat::Door, 2},
+        {4, mdb::Cat::Door, 2},  {5, mdb::Cat::Door, 0},  {0, mdb::Cat::Door, 2},
         {1, mdb::Cat::Note, 30}, {2, mdb::Cat::Note, 13}, {3, mdb::Cat::Note, 20},
         {4, mdb::Cat::Note, 5},  {5, mdb::Cat::Note, 9},
+    };
+
+    // Categories the GAME pins to a number, where a floor would be the weaker statement:
+    // the Sage achievement is the 3 riddle gates and Discerning Eye the 7 Benediction
+    // Doors, so any other count means a regen found a class the guides do not know about,
+    // or dropped one. Per chapter, because which chapter holds which is just as fixed.
+    struct CatExact
+    {
+        int chapter;      // 0 = DLC
+        mdb::Cat cat;
+        int count;
+    };
+
+    constexpr CatExact kCatExact[] = {
+        {1, mdb::Cat::MysteryGate, 1}, {2, mdb::Cat::MysteryGate, 1},
+        {3, mdb::Cat::MysteryGate, 0}, {4, mdb::Cat::MysteryGate, 0},
+        {5, mdb::Cat::MysteryGate, 1}, {0, mdb::Cat::MysteryGate, 0},
+        {1, mdb::Cat::BenedictionDoor, 0}, {2, mdb::Cat::BenedictionDoor, 1},
+        {3, mdb::Cat::BenedictionDoor, 1}, {4, mdb::Cat::BenedictionDoor, 1},
+        {5, mdb::Cat::BenedictionDoor, 4}, {0, mdb::Cat::BenedictionDoor, 0},
     };
 
     // The generic label `tools/markers/marker_classes.LABEL` writes when nothing better is
@@ -4747,6 +4769,8 @@ namespace
             {"Shrine", "Shrine"},   {"Chest", "Chest"},   {"Pickup", "Item"},
             {"Boss", "Boss"},       {"Elite", "Elite"},   {"Enemy", "Enemy"},
             {"NPC", "NPC"},         {"Note", "Note"},     {"Door", "Door"},
+            {"Mystery gate", "Mystery gate"},
+            {"Benediction door", "Benediction door"},
             {"Ladder", "Ladder"},   {"Lift", "Lift"},     {"Fog gate", "Fog gate"},
             {"Trap", "Hidden item"}, {"Object", "Marker"},
         };
@@ -4922,6 +4946,16 @@ namespace
                     {
                         std::printf("  FAIL  chapter %s: %d %s marker(s), floor is %d\n",
                                     cf.label, total, mdb::cat_name(cat), f.least);
+                        ++g_failures;
+                        ++g_checks;
+                    }
+                }
+                for (const CatExact& e : kCatExact)
+                {
+                    if (e.chapter == cf.chapter && e.cat == cat && total != e.count)
+                    {
+                        std::printf("  FAIL  chapter %s: %d %s marker(s), the game has %d\n",
+                                    cf.label, total, mdb::cat_name(cat), e.count);
                         ++g_failures;
                         ++g_checks;
                     }

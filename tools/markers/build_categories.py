@@ -71,7 +71,16 @@ ROOTS: dict[str, list[str]] = {
     # mesh, its only interaction string is `ui_263` = "Check", and it spawns the
     # `NS_Hint01` hint particle.
     "note":     ["DKDC_NPC_C", "ReadPointSP_NPC_C", "Letter01_NPC_C"],
-    "door":     ["BP_InteractionObject_Door_C", "BP_NewPuzzlesDoor_C"],
+    # The two special doors, one category each: "which riddle is unanswered" and
+    # "which chisel door is unopened" are different questions. Both are siblings of
+    # the door base rather than descendants, which is why `door` never claimed
+    # `BP_NewGetGeemDoor_C` at all and the mod showed none of the seven.
+    # `BP_PuzzlesDoor_C` is the superseded riddle door, 0 placements and a `BP_NPC_C`
+    # descendant, so without it here the graph files it under `npc` while
+    # `markers.cpp` calls it a gate.
+    "mystery_gate":     ["BP_NewPuzzlesDoor_C", "BP_PuzzlesDoor_C"],
+    "benediction_door": ["BP_NewGetGeemDoor_C"],
+    "door":     ["BP_InteractionObject_Door_C"],
     # The three fog-gate blueprints are siblings, not a hierarchy.
     "fog_gate": ["BP_Wumen_C", "BP_Wumen_NetworkRang_C", "BP_Wumen_ClientOnly_C"],
     "ladder":   ["BP_LadderV2_C", "BP_InteractionLadder_C"],
@@ -106,8 +115,9 @@ ROOTS: dict[str, list[str]] = {
 }
 
 # Most specific first. The first category to claim a class keeps it.
-ORDER = ["shrine", "hidden", "chest", "pickup", "note", "door", "fog_gate",
-         "ladder", "lift", "boss", "other", "npc", "enemy"]
+ORDER = ["shrine", "hidden", "chest", "pickup", "note", "mystery_gate",
+         "benediction_door", "door", "fog_gate", "ladder", "lift", "boss",
+         "other", "npc", "enemy"]
 
 # Classes the graph would hand to a category but that are not markers. Each one
 # needs a reason, and "it is not a marker" is not a reason - say what it is.

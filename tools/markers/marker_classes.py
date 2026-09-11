@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Actor class -> marker category, for schema `wuchang-minimap-markers/1`.
 
-Categories: shrine, chest, pickup, boss, elite, enemy, npc, note, door,
-ladder, lift, fog_gate, hidden, other.
+Categories: shrine, chest, pickup, boss, elite, enemy, npc, note,
+mystery_gate, benediction_door, door, ladder, lift, fog_gate, hidden, other.
 
 WHERE THE TABLE COMES FROM (review item C.10)
 ---------------------------------------------
@@ -191,6 +191,7 @@ def categorise(class_name: str, level_short: str) -> str | None:
 LABEL = {
     "shrine": "Shrine", "chest": "Chest", "pickup": "Pickup",
     "boss": "Boss", "elite": "Elite", "enemy": "Enemy", "npc": "NPC",
-    "note": "Note", "door": "Door", "ladder": "Ladder",
+    "note": "Note", "mystery_gate": "Mystery gate",
+    "benediction_door": "Benediction door", "door": "Door", "ladder": "Ladder",
     "lift": "Lift", "fog_gate": "Fog gate", "hidden": "Trap", "other": "Object",
 }

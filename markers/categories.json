@@ -1,5 +1,8 @@
 {
  "by_category": {
+  "benediction_door": [
+   "BP_NewGetGeemDoor_C"
+  ],
   "boss": [
    "AI_YHJS_BP_C",
    "BP_Anim_ZXZ_StepA_C",
@@ -52,7 +55,6 @@
    "BP_DoorZhong4_C",
    "BP_DoorZhong_C",
    "BP_InteractionObject_Door_C",
-   "BP_NewPuzzlesDoor_C",
    "BP_ShiTiQiao_C"
   ],
   "enemy": [
@@ -357,6 +359,10 @@
    "BP_ElevatorBox_C",
    "BP_WoodenElevator_C"
   ],
+  "mystery_gate": [
+   "BP_NewPuzzlesDoor_C",
+   "BP_PuzzlesDoor_C"
+  ],
   "note": [
    "DKDC_NPC_C",
    "Letter01_NPC_C",
@@ -370,7 +376,6 @@
    "BP_NPC_xuanyangzi_1_C",
    "BP_NPC_xuanyangzi_yandou_1_C",
    "BP_NPC_xuanyangzi_yandou_C",
-   "BP_PuzzlesDoor_C",
    "BP_WeaponRefrom_C",
    "BRWZ_N_NPC_C",
    "BRWZ_N_NPC_Fazhang_C",
@@ -562,7 +567,8 @@
   "BP_NSC_AI_C": "enemy",
   "BP_NSC_AI_Friend_C": "enemy",
   "BP_N_CSBMG_AI_C": "enemy",
-  "BP_NewPuzzlesDoor_C": "door",
+  "BP_NewGetGeemDoor_C": "benediction_door",
+  "BP_NewPuzzlesDoor_C": "mystery_gate",
   "BP_Nongbao01_AI_C": "enemy",
   "BP_Nongbao02_AI_C": "enemy",
   "BP_Nongbao03_AI_C": "enemy",
@@ -574,7 +580,7 @@
   "BP_PickUpPT_Red_C": "pickup",
   "BP_PickupActor_C": "pickup",
   "BP_PickupActor_New_C": "pickup",
-  "BP_PuzzlesDoor_C": "npc",
+  "BP_PuzzlesDoor_C": "mystery_gate",
   "BP_QLYC_AI_C": "enemy",
   "BP_QQHZ_AI_C": "enemy",
   "BP_QiCaiShi_2_C": "other",
@@ -901,7 +907,7 @@
   "guanziguai_C": "enemy",
   "guanziguai_chapter_4_C": "enemy"
  },
- "count": 436,
+ "count": 437,
  "excluded": {
   "BP_BaseAI_C": "abstract AI base, never placed",
   "BP_ElevatorBlockBox_C": "elevator collision blocker, no mesh",
@@ -913,7 +919,7 @@
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
   "size": 141464648
  },
- "extractor_commit": "9a46681+dirty",
+ "extractor_commit": "2304e23+dirty",
  "game_build": "5.1.1.0",
  "generated_by": "tools/markers/build_categories.py",
  "missing_roots": {},
@@ -923,6 +929,8 @@
   "chest",
   "pickup",
   "note",
+  "mystery_gate",
+  "benediction_door",
   "door",
   "fog_gate",
   "ladder",
@@ -950,6 +958,9 @@
   }
  ],
  "roots": {
+  "benediction_door": [
+   "BP_NewGetGeemDoor_C"
+  ],
   "boss": [
    "BP_PlacedBossAI_C"
   ],
@@ -957,8 +968,7 @@
    "BP_ItemBox_C"
   ],
   "door": [
-   "BP_InteractionObject_Door_C",
-   "BP_NewPuzzlesDoor_C"
+   "BP_InteractionObject_Door_C"
   ],
   "enemy": [
    "BP_BaseAI_C"
@@ -978,6 +988,10 @@
   "lift": [
    "BP_ElevatorBase_C",
    "BP_ElevatorBox_C"
+  ],
+  "mystery_gate": [
+   "BP_NewPuzzlesDoor_C",
+   "BP_PuzzlesDoor_C"
   ],
   "note": [
    "DKDC_NPC_C",

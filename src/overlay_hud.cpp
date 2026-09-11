@@ -347,6 +347,54 @@ namespace overlay
             case gly::Shape::DoorBox:
                 rect(0.55f, 0.95f);
                 break;
+            case gly::Shape::ArchPip:
+            case gly::Shape::ArchSplit:
+            {
+                // A doorway with a domed head: the two special doors, apart from the plain
+                // door's square-topped box and from each other. The interior mark is ONE
+                // primitive, like the chest's lid line, so it survives the simplified form,
+                // where it and the hue are all that separate the two.
+                const float hw = r * 0.58f;
+                const float foot = p.y + r * 0.95f;
+                const float spring = p.y - r * 0.25f; // where the straight jambs end
+                // Two feet, two springing points, and the dome's interior vertices.
+                constexpr int kDomeSegs = 8;
+                ImVec2 pts[4 + kDomeSegs - 1];
+                int n = 0;
+                pts[n++] = ImVec2{p.x - hw, foot};
+                pts[n++] = ImVec2{p.x - hw, spring};
+                // The dome, left jamb to right jamb.
+                for (int i = 1; i < kDomeSegs; ++i)
+                {
+                    const float a = kPi * (1.0f - static_cast<float>(i) /
+                                                      static_cast<float>(kDomeSegs));
+                    pts[n++] = ImVec2{p.x + hw * std::cos(a), spring - hw * std::sin(a)};
+                }
+                pts[n++] = ImVec2{p.x + hw, spring};
+                pts[n++] = ImVec2{p.x + hw, foot};
+                if (hollow)
+                {
+                    dl->AddPolyline(pts, n, col, ImDrawFlags_Closed, w);
+                }
+                else
+                {
+                    dl->AddConvexPolyFilled(pts, n, col);
+                    dl->AddPolyline(pts, n, edge, ImDrawFlags_Closed, w);
+                }
+                if (shape == gly::Shape::ArchPip)
+                {
+                    // The gem socket: the riddle door answers with a stone in its centre.
+                    dl->AddCircleFilled(ImVec2{p.x, p.y + r * 0.15f}, r * 0.26f,
+                                        hollow ? col : edge, 8);
+                }
+                else
+                {
+                    // Split down the middle: the chisel door opens as two leaves.
+                    dl->AddLine(ImVec2{p.x, spring - hw * 0.7f}, ImVec2{p.x, foot},
+                                hollow ? col : edge, w);
+                }
+                break;
+            }
             case gly::Shape::Ladder:
                 dl->AddLine(ImVec2{p.x - r * 0.5f, p.y - r}, ImVec2{p.x - r * 0.5f, p.y + r}, col, 1.6f);
                 dl->AddLine(ImVec2{p.x + r * 0.5f, p.y - r}, ImVec2{p.x + r * 0.5f, p.y + r}, col, 1.6f);

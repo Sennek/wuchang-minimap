@@ -64,8 +64,10 @@ floor_z_tolerance = 200
 markers_enabled = 1
 
 ; Categories to draw: comma-separated list of shrine, chest, pickup, boss, elite, enemy,
-; npc, note, door, ladder, lift, fog_gate, hidden, other - or `all` / `none`.
-markers_categories = shrine,chest,pickup,boss,elite,npc,note,door,ladder,lift,fog_gate,hidden,other
+; npc, note, door, mystery_gate, benediction_door, ladder, lift, fog_gate, hidden, other
+; - or `all` / `none`. mystery_gate is the 3 red riddle doors, benediction_door the 7
+; yellow chisel doors.
+markers_categories = shrine,chest,pickup,boss,elite,npc,note,door,mystery_gate,benediction_door,ladder,lift,fog_gate,hidden,other
 
 ; Found markers: 0 = draw dimmed and hollow, 1 = hide. Shrines always stay on the map.
 markers_hide_found = 1

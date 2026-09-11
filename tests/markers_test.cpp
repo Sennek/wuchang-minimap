@@ -5399,12 +5399,19 @@ namespace
 
         // An enemy is in the published buffer twice - authored spawn point and the live pawn - and
         // both halves have to go, or the marker jumps back to the spawn point on the next publish.
-        CHECK(mdb::static_twin_is_hidden_by_corpse(true, true));
-        // A live twin that is alive does not hide its spawn point: the live position wins.
-        CHECK(!mdb::static_twin_is_hidden_by_corpse(true, false));
-        // No live twin at all: nothing is known, so the authored hint stays.
-        CHECK(!mdb::static_twin_is_hidden_by_corpse(false, true));
-        CHECK(!mdb::static_twin_is_hidden_by_corpse(false, false));
+        {
+            mdb::TwinFacts f{};
+            f.live_twin = true;
+            f.live_twin_dead = true;
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Corpse);
+            // A live twin that is alive does not hide its spawn point: the live position wins.
+            f.live_twin_dead = false;
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Keep);
+            // No live twin at all: nothing is known, so the authored hint stays.
+            f = mdb::TwinFacts{};
+            f.live_twin_dead = true;
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Keep);
+        }
 
         // The live half: a corpse is never drawn where it fell, nor an actor with no usable position.
         CHECK(mdb::live_only_is_drawn(true, false));
@@ -5414,10 +5421,11 @@ namespace
 
         // A dead enemy is in NEITHER half of the published buffer, so every view agrees: one buffer.
         {
-            const bool has_twin = true;
-            const bool dead = true;
-            CHECK(mdb::static_twin_is_hidden_by_corpse(has_twin, dead));
-            CHECK(!mdb::live_only_is_drawn(/*pos_valid=*/false, dead));
+            mdb::TwinFacts f{};
+            f.live_twin = true;
+            f.live_twin_dead = true;
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Corpse);
+            CHECK(!mdb::live_only_is_drawn(/*pos_valid=*/false, /*live_dead=*/true));
         }
 
         // A defeated boss stays in the buffer for the hollow found glyph and leaves via the found gate.
@@ -5428,7 +5436,44 @@ namespace
             b.within_radius = true;
             b.found = true;
             CHECK(mdb::xray_gate(b) == mdb::XrayDrop::Found);
-            CHECK(!mdb::static_twin_is_hidden_by_corpse(false, false));
+            CHECK(mdb::twin_drop(mdb::TwinFacts{}) == mdb::TwinDrop::Keep);
+        }
+
+        section("a hidden actor is not there");
+
+        // A STAGED PICKUP. The actor answers from exactly where the static DB says it is, and the
+        // game keeps it hidden until a quest switches it on: no mesh, no prompt, nothing on the
+        // ground. The marker over that empty spot is what this rule removes, and the rule is
+        // category-blind - nothing here says `pickup`.
+        {
+            mdb::TwinFacts f{};
+            f.live_twin = true;
+            f.live_twin_this_round = true;
+            f.live_twin_invisible = true;
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Invisible);
+            // With no help from the level table, which both mobility rules below need.
+            CHECK(!f.level_known && !f.full_round_since_level_load);
+            // Switched on, and the marker comes back.
+            f.live_twin_invisible = false;
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Keep);
+            // The same fact about a person, which is where the rule came from. It is asked BEFORE
+            // the mobility rules, or this located answer would keep the marker drawn.
+            f.live_twin_invisible = true;
+            f.mobile = true;
+            CHECK(f.live_twin_this_round);
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Invisible);
+            // A corpse is the more specific answer and is named first.
+            f.live_twin_dead = true;
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Corpse);
+        }
+
+        // "Could not ask" is not "hidden": a class no visibility route reads leaves the flag false
+        // and the marker drawn.
+        {
+            mdb::TwinFacts f{};
+            f.live_twin = true;
+            f.live_twin_this_round = true;
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Keep);
         }
 
         section("npc markers that have walked away");
@@ -5444,71 +5489,63 @@ namespace
         CHECK(!mdb::is_mobile_category(mdb::Cat::Note));
 
         {
-            mdb::MobileTwinFacts f{};
+            mdb::TwinFacts f{};
             f.mobile = true;
-            f.live_twin_this_round = false;
             f.level_known = true;
             f.full_round_since_level_load = true;
-            CHECK(mdb::mobile_twin_is_stale(f)); // case (c): nobody answered
+            CHECK(mdb::twin_drop(f) == mdb::TwinDrop::Absent); // nobody answered
 
-            // Case (a): a locatable live actor answered - its position wins and the entry stays.
-            mdb::MobileTwinFacts g = f;
+            // A locatable live actor answered - its position wins and the entry stays.
+            mdb::TwinFacts g = f;
+            g.live_twin = true;
             g.live_twin_this_round = true;
-            CHECK(!mdb::mobile_twin_is_stale(g));
+            CHECK(mdb::twin_drop(g) == mdb::TwinDrop::Keep);
 
-            // Case (d): the level is not resident, so absence means nothing - keep it.
+            // The level is not resident, so absence means nothing - keep the hint.
             g = f;
             g.level_known = false;
-            CHECK(!mdb::mobile_twin_is_stale(g));
+            CHECK(mdb::twin_drop(g) == mdb::TwinDrop::Keep);
 
             g = f;
             g.full_round_since_level_load = false;
-            CHECK(!mdb::mobile_twin_is_stale(g));
+            CHECK(mdb::twin_drop(g) == mdb::TwinDrop::Keep);
 
+            // Absence is a rule about people only: a chest whose level is loaded and whose actor
+            // has not streamed in yet must stay on the map.
             g = f;
             g.mobile = false;
-            CHECK(!mdb::mobile_twin_is_stale(g));
+            CHECK(mdb::twin_drop(g) == mdb::TwinDrop::Keep);
 
-            // Case (b): a live actor answered for the id but could NOT be located - this game parks a
-            // used-up actor at (0,0,0). It hides with NO help from the level table.
-            g = mdb::MobileTwinFacts{};
+            // A live actor answered for the id but could NOT be located - this game parks a used-up
+            // actor at (0,0,0). It fires with no help from the level table.
+            g = mdb::TwinFacts{};
             g.mobile = true;
+            g.live_twin = true;
             g.live_twin_unlocatable = true;
-            CHECK(!g.level_known);
-            CHECK(!g.full_round_since_level_load);
-            CHECK(mdb::mobile_twin_is_stale(g));
+            CHECK(!g.level_known && !g.full_round_since_level_load);
+            CHECK(mdb::twin_drop(g) == mdb::TwinDrop::WalkedAway);
 
             // It must not override a live actor we CAN locate: this round's locatable answer wins.
             g.live_twin_this_round = true;
-            CHECK(!mdb::mobile_twin_is_stale(g));
+            CHECK(mdb::twin_drop(g) == mdb::TwinDrop::Keep);
 
             // Unlocatable is only a rule about people: a note that has not streamed in must not vanish.
-            g = mdb::MobileTwinFacts{};
+            g = mdb::TwinFacts{};
+            g.live_twin = true;
             g.live_twin_unlocatable = true;
-            CHECK(!mdb::mobile_twin_is_stale(g)); // mobile == false
-
-            // Case (e): the actor is neither parked nor destroyed - it is made INVISIBLE while still
-            // answering with its authored position, so (b), (c) and (d) are all unreachable.
-            g = mdb::MobileTwinFacts{};
-            g.mobile = true;
-            g.live_twin_this_round = true; // located, at its authored position
-            g.live_twin_invisible = true;
-            CHECK(mdb::mobile_twin_is_stale(g));
-            // (e) is tested BEFORE (a), or the located answer would win.
-            CHECK(g.live_twin_this_round && mdb::mobile_twin_is_stale(g));
-            g.level_known = false;
-            g.full_round_since_level_load = false;
-            CHECK(mdb::mobile_twin_is_stale(g));
-            g.live_twin_invisible = false;
-            CHECK(!mdb::mobile_twin_is_stale(g));
-            // Invisibility is a rule about people only: a note's flags are not evidence about anybody.
-            g = mdb::MobileTwinFacts{};
-            g.live_twin_invisible = true;
-            g.live_twin_this_round = true;
-            CHECK(!mdb::mobile_twin_is_stale(g)); // mobile == false
+            CHECK(mdb::twin_drop(g) == mdb::TwinDrop::Keep); // mobile == false
         }
-        // Nothing is hidden by default: a zeroed fact set must be a no-op.
-        CHECK(!mdb::mobile_twin_is_stale(mdb::MobileTwinFacts{}));
+        // Nothing is dropped by default: a zeroed fact set must be a no-op.
+        CHECK(mdb::twin_drop(mdb::TwinFacts{}) == mdb::TwinDrop::Keep);
+
+        // Every reason has a name of its own, and the publish point counts them into an array of
+        // kTwinDropCount slots indexed by the enum.
+        CHECK_STR(mdb::twin_drop_name(mdb::TwinDrop::Keep), "drawn");
+        CHECK_STR(mdb::twin_drop_name(mdb::TwinDrop::Corpse), "corpse");
+        CHECK_STR(mdb::twin_drop_name(mdb::TwinDrop::Invisible), "invisible");
+        CHECK_STR(mdb::twin_drop_name(mdb::TwinDrop::WalkedAway), "walked away");
+        CHECK_STR(mdb::twin_drop_name(mdb::TwinDrop::Absent), "absent");
+        CHECK_EQ(static_cast<int>(mdb::TwinDrop::Absent) + 1, mdb::kTwinDropCount);
 
         // The join key: the level short name out of a ULevel's full name.
         CHECK_STR(mdb::level_from_full_name(

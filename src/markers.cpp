@@ -319,7 +319,8 @@ namespace markers
             // The health read answered "zero". KEPT rather than erased: the enemy's spawn
             // point is in the static DB, and a dead entry suppresses both halves at publish.
             bool dead = false;
-            // Filled for every Rule::Proximity actor - see actor_is_invisible.
+            // Filled for every marker actor - see actor_is_invisible. `invisible` is only
+            // true when a route ANSWERED and said hidden.
             bool invisible_known = false;
             bool invisible = false;
             std::uint64_t round = 0;
@@ -355,8 +356,14 @@ namespace markers
         std::atomic<int> g_boss_defeated{0};  // boss markers marked as defeated
         std::atomic<int> g_health_unknown{0}; // characters whose health could not be read
         std::atomic<int> g_shrine_lit_marks{0}; // shrine markers marked from UnlockedFirepoints
-        // Static NPC markers hidden this round because the person has moved on.
-        std::atomic<int> g_mobile_hidden{0};
+        // Static markers dropped this round, by mdb::twin_drop's reason. Index 0 (Keep) counts
+        // the ones that survived, so the row adds up to every static marker considered.
+        std::atomic<int> g_twin_drop[mdb::kTwinDropCount]{};
+        // The visibility read, over every static marker with a live twin this round: how many
+        // could be ASKED at all, and how many answered "hidden". Zero asked means no visibility
+        // route reads on this build, which would make the whole rule silent.
+        std::atomic<int> g_vis_asked{0};
+        std::atomic<int> g_vis_hidden{0};
 
         // Per-round censuses. Each is a GAUGE - "how many right now", not a total.
         std::atomic<int> g_shrine_lit_found{0}; // shrines in this chapter that are lit AND found
@@ -371,18 +378,10 @@ namespace markers
         std::atomic<int> g_mobile_live{0};        // npc live entries held
         std::atomic<int> g_mobile_joined{0};      // static markers whose live twin answered
         std::atomic<int> g_mobile_superseded{0};  // ... and stands more than kMovedUu away
-        std::atomic<int> g_mobile_walked{0};      // a live twin answered but is unlocatable
-        // Invisible live twins, over how many could be asked at all.
-        std::atomic<int> g_mobile_invisible{0};
-        std::atomic<int> g_mobile_vis_known{0};
-        std::atomic<int> g_mobile_hidden_invis{0};  // ... and was hidden for it
-        std::atomic<int> g_mobile_hidden_walked{0}; // ... and was hidden for it
-        std::atomic<int> g_mobile_hidden_absent{0}; // hidden because nobody answered at all
         std::atomic<int> g_mobile_level_known{0}; // ... whose own level is resident
         // People and notes in this chapter that are in the found set, over the total.
         std::atomic<int> g_met_found{0};
         std::atomic<int> g_met_total{0};
-        std::atomic<int> g_dead_hidden{0};        // markers suppressed because they are dead
 
         // How far a live person must stand from their authored position before the
         // census calls the static hint superseded. Unreal units; 300 uu = 3 m.
@@ -1487,6 +1486,14 @@ namespace markers
                 e.pos_valid = !(e.x == 0.0 && e.y == 0.0 && e.z == 0.0);
             }
 
+            // A HIDDEN ACTOR IS NOT THERE. This game hides rather than destroys, and hides
+            // before it spawns, so every category is asked: the answer decides both whether the
+            // marker is drawn at all (mdb::twin_drop) and whether a Proximity actor counts as met.
+            bool vis_answered = false;
+            const bool vis_hidden = actor_is_invisible(actor, vis_answered);
+            e.invisible_known = vis_answered;
+            e.invisible = vis_answered && vis_hidden;
+
             switch (s.rule)
             {
             case Rule::UsedBool:
@@ -1535,13 +1542,6 @@ namespace markers
             }
             case Rule::Proximity:
             {
-                // A used-up NPC and a read note both keep their actor, position and id and are
-                // made INVISIBLE, so the visibility read comes first: `mdb::met_marks` needs it,
-                // and for a mobile category it also hides the marker at the publish point.
-                bool answered = false;
-                const bool hidden = actor_is_invisible(actor, answered);
-                e.invisible_known = answered;
-                e.invisible = answered && hidden;
                 const double dx = e.x - g_player_x;
                 const double dy = e.y - g_player_y;
                 const double dz = e.z - g_player_z;
@@ -1843,23 +1843,18 @@ namespace markers
                     g_level_round[i] = lit != g_levels.end() ? lit->second : 0;
                 }
 
-                g_mobile_hidden.store(0, std::memory_order_relaxed);
                 // The per-round censuses, all gauges.
                 int lit_found = 0;
                 int lit_total = 0;
+                int twin_drop[mdb::kTwinDropCount]{}; // by mdb::twin_drop's reason
+                int vis_asked = 0;                    // twins whose visibility could be READ
+                int vis_hidden = 0;                   // ... and answered "hidden"
                 int mobile_static = 0;
                 int mobile_joined = 0;
                 int mobile_superseded = 0;
-                int mobile_walked = 0;         // a live twin answered but is unlocatable
-                int mobile_invisible = 0;      // a live twin is standing there, invisible
-                int mobile_vis_known = 0;      // ... twins whose visibility could be READ
-                int mobile_hidden_walked = 0;  // ... and was therefore hidden
-                int mobile_hidden_absent = 0;  // hidden because nobody answered at all
-                int mobile_hidden_invis = 0;   // hidden because the actor is invisible
                 int mobile_level_known = 0;
                 int met_found = 0;
                 int met_total = 0;
-                int dead_hidden = 0;
                 int boss_total = 0;
                 int boss_found = 0;
                 int boss_from_save = 0;
@@ -1919,64 +1914,46 @@ namespace markers
                     }
                     const LiveEntry* live = g_live_of_static[idx];
 
-                    // A corpse hides its spawn point too: the enemy's authored position is in the
-                    // static DB, so a dead entry takes both off the map until it ages out.
-                    if (mdb::static_twin_is_hidden_by_corpse(live != nullptr,
-                                                             live != nullptr && live->dead))
-                    {
-                        ++dead_hidden;
-                        continue;
-                    }
-
-                    // kFlagLive means an actor answered THIS round with a usable position. For a
-                    // category that does not move a twin from a round or two ago is as good, and that
-                    // debounce stops a chest flickering; for a MOBILE one a stale entry must not
-                    // carry the x-ray's permission to draw a person through a wall.
-                    const bool live_here = live != nullptr && live->pos_valid &&
-                                           (live->round == g_round || !mdb::is_mobile_category(sm.cat));
-                    if (live != nullptr)
-                    {
-                        if (live->found)
-                        {
-                            d.flags |= kFlagFound;
-                        }
-                        if (live_here)
-                        {
-                            d.flags |= kFlagLive;
-                            d.x = live->x;
-                            d.y = live->y;
-                            d.z = live->z;
-                        }
-                    }
-
-                    // A PERSON WHO HAS WALKED AWAY IS NOT DRAWN WHERE THEY WERE. A quest NPC
-                    // relocates to another placed actor under another id; when the marker's own level
-                    // is loaded and a full round has passed, "no live twin" is proof and the hint is
-                    // dropped. The met state lives in the found set and is untouched.
+                    // WHETHER THIS MARKER IS DRAWN AT ALL. One question, asked once:
+                    // mdb::twin_drop() holds the reasons and names each of them. A dead enemy
+                    // takes its authored spawn point off the map with it, a hidden actor is not
+                    // there to find, and a person who has walked away is not drawn where they were.
                     const int mli = db->marker_level[idx];
-                    mdb::MobileTwinFacts mob{};
-                    mob.mobile = mdb::is_mobile_category(sm.cat);
+                    mdb::TwinFacts tw{};
+                    tw.mobile = mdb::is_mobile_category(sm.cat);
+                    tw.live_twin = live != nullptr;
+                    tw.live_twin_dead = live != nullptr && live->dead;
                     // A twin that answered but could not be located is NOT an answer.
-                    mob.live_twin_this_round = live != nullptr && live->round == g_round && live->pos_valid;
+                    tw.live_twin_this_round = live != nullptr && live->round == g_round && live->pos_valid;
                     // It is an answer of its own: an actor answering proves its level is loaded, and
                     // a used-up actor is parked at (0,0,0). No level table needed.
-                    mob.live_twin_unlocatable =
+                    tw.live_twin_unlocatable =
                         live != nullptr && live->round == g_round && !live->pos_valid;
-                    // Case (e): the actor is standing right there and is invisible.
-                    mob.live_twin_invisible =
+                    tw.live_twin_invisible =
                         live != nullptr && live->round == g_round && live->invisible;
                     if (mli >= 0 && g_level_known[static_cast<std::size_t>(mli)] != 0)
                     {
-                        mob.level_known = true;
-                        mob.full_round_since_level_load =
+                        tw.level_known = true;
+                        tw.full_round_since_level_load =
                             g_round > g_level_round[static_cast<std::size_t>(mli)];
                     }
+                    // The visibility gauge, over every static marker whose twin answered this
+                    // round: "answered for 0" in the log means no route reads on this build, while
+                    // a high count with `0 hidden` means the flags really are all false.
+                    if (live != nullptr && live->round == g_round && live->invisible_known)
+                    {
+                        ++vis_asked;
+                        if (live->invisible)
+                        {
+                            ++vis_hidden;
+                        }
+                    }
                     // The census behind the `people -` log line: statics with no joins means the ids
-                    // do not match; level_known 0 means the hide rule can never fire.
-                    if (mob.mobile)
+                    // do not match; level resident 0 means the walked-away rule can never fire.
+                    if (tw.mobile)
                     {
                         ++mobile_static;
-                        if (mob.live_twin_this_round)
+                        if (tw.live_twin_this_round)
                         {
                             ++mobile_joined;
                             const double dx = live->x - sm.x;
@@ -1987,41 +1964,48 @@ namespace markers
                                 ++mobile_superseded;
                             }
                         }
-                        if (mob.live_twin_unlocatable)
-                        {
-                            ++mobile_walked;
-                        }
-                        if (mob.live_twin_invisible)
-                        {
-                            ++mobile_invisible;
-                        }
-                        // How many twins could be ASKED at all. `invisible 0` with `visibility known 0`
-                        // means no route reads on this build; with 21 it means the flags are all false.
-                        if (live != nullptr && live->round == g_round && live->invisible_known)
-                        {
-                            ++mobile_vis_known;
-                        }
-                        if (mob.level_known)
+                        if (tw.level_known)
                         {
                             ++mobile_level_known;
                         }
                     }
-                    if (mdb::mobile_twin_is_stale(mob))
+                    const mdb::TwinDrop drop = mdb::twin_drop(tw);
+                    ++twin_drop[static_cast<int>(drop)];
+                    if (drop != mdb::TwinDrop::Keep)
                     {
-                        g_mobile_hidden.fetch_add(1, std::memory_order_relaxed);
-                        if (mob.live_twin_invisible)
+                        // WHICH marker the hidden-actor rule took away, once per id: the count
+                        // alone cannot say whether something lawful went with it.
+                        if (drop == mdb::TwinDrop::Invisible &&
+                            first_time(L"hidden", std::wstring(sm.id.begin(), sm.id.end())))
                         {
-                            ++mobile_hidden_invis;
-                        }
-                        else if (mob.live_twin_unlocatable)
-                        {
-                            ++mobile_hidden_walked;
-                        }
-                        else
-                        {
-                            ++mobile_hidden_absent;
+                            const std::string& word = sm.name.empty() ? sm.cls : sm.name;
+                            const std::string_view cat{mdb::cat_name(sm.cat)};
+                            MM_LOGV(L"markers: not drawn - {} ({}) '{}' - the actor is there and "
+                                    L"the game has it hidden",
+                                    std::wstring(sm.id.begin(), sm.id.end()),
+                                    std::wstring(cat.begin(), cat.end()),
+                                    std::wstring(word.begin(), word.end()));
                         }
                         continue;
+                    }
+
+                    // kFlagLive means an actor answered THIS round with a usable position. For a
+                    // category that does not move a twin from a round or two ago is as good, and that
+                    // debounce stops a chest flickering; for a MOBILE one a stale entry must not
+                    // carry the x-ray's permission to draw a person through a wall.
+                    if (live != nullptr)
+                    {
+                        if (live->found)
+                        {
+                            d.flags |= kFlagFound;
+                        }
+                        if (live->pos_valid && (live->round == g_round || !tw.mobile))
+                        {
+                            d.flags |= kFlagLive;
+                            d.x = live->x;
+                            d.y = live->y;
+                            d.z = live->z;
+                        }
                     }
                     // The `met` gauge, over the chapter's people and notes.
                     if (sm.cat == mdb::Cat::Npc || sm.cat == mdb::Cat::Note)
@@ -2045,8 +2029,8 @@ namespace markers
                     facts.feature_on = true; // the rule is always armed
                     facts.cat_selected = mdb::cat_enabled(g_absence_cats, sm.cat);
                     facts.already_found = (d.flags & kFlagFound) != 0;
-                    facts.level_known = mob.level_known;
-                    facts.full_round_since_level_load = mob.full_round_since_level_load;
+                    facts.level_known = tw.level_known;
+                    facts.full_round_since_level_load = tw.full_round_since_level_load;
                     // AN ACTOR THAT ANSWERED IS PRESENT, wherever it stands: requiring `pos_valid`
                     // would auto-mark a chest whose position read failed. (0,0,0) is `!live->found`.
                     facts.twin_alive = live != nullptr && live->round == g_round && !live->found;
@@ -2081,16 +2065,15 @@ namespace markers
                 g_mobile_static.store(mobile_static, std::memory_order_relaxed);
                 g_mobile_joined.store(mobile_joined, std::memory_order_relaxed);
                 g_mobile_superseded.store(mobile_superseded, std::memory_order_relaxed);
-                g_mobile_walked.store(mobile_walked, std::memory_order_relaxed);
-                g_mobile_invisible.store(mobile_invisible, std::memory_order_relaxed);
-                g_mobile_vis_known.store(mobile_vis_known, std::memory_order_relaxed);
-                g_mobile_hidden_invis.store(mobile_hidden_invis, std::memory_order_relaxed);
-                g_mobile_hidden_walked.store(mobile_hidden_walked, std::memory_order_relaxed);
-                g_mobile_hidden_absent.store(mobile_hidden_absent, std::memory_order_relaxed);
+                for (int r = 0; r < mdb::kTwinDropCount; ++r)
+                {
+                    g_twin_drop[r].store(twin_drop[r], std::memory_order_relaxed);
+                }
+                g_vis_asked.store(vis_asked, std::memory_order_relaxed);
+                g_vis_hidden.store(vis_hidden, std::memory_order_relaxed);
                 g_mobile_level_known.store(mobile_level_known, std::memory_order_relaxed);
                 g_met_found.store(met_found, std::memory_order_relaxed);
                 g_met_total.store(met_total, std::memory_order_relaxed);
-                g_dead_hidden.store(dead_hidden, std::memory_order_relaxed);
                 g_boss_total.store(boss_total, std::memory_order_relaxed);
                 g_boss_found.store(boss_found, std::memory_order_relaxed);
                 g_boss_from_save.store(boss_from_save, std::memory_order_relaxed);
@@ -3226,7 +3209,7 @@ namespace markers
                          L"met {} of {} ({} marked this session, {} in range but unseen), "
                          L"bosses defeated {} of {} ({} from save, {} with no door, "
                          L"{} killed this session), "
-                         L"dead hidden {} ({} newly dead), health unknown {} (health field width {})",
+                         L"newly dead {}, health unknown {} (health field width {})",
                          g_shrine_lit_found.load(std::memory_order_relaxed),
                          g_shrine_total.load(std::memory_order_relaxed),
                          g_shrine_lit_marks.load(std::memory_order_relaxed),
@@ -3239,28 +3222,38 @@ namespace markers
                          g_boss_from_save.load(std::memory_order_relaxed),
                          g_boss_no_door.load(std::memory_order_relaxed),
                          g_boss_defeated.load(std::memory_order_relaxed),
-                         g_dead_hidden.load(std::memory_order_relaxed),
                          g_dead_dropped.load(std::memory_order_relaxed),
                          g_health_unknown.load(std::memory_order_relaxed),
                          g_health_width);
+                // WHICH RULE TOOK A MARKER OFF THE MAP, in mdb::twin_drop's own words - the names
+                // are the enum's, not this line's - plus the visibility read behind `invisible`:
+                // `answered for 0` means no route reads on this build.
+                std::wstring by_reason;
+                for (int r = 0; r < mdb::kTwinDropCount; ++r)
+                {
+                    const std::string_view name{mdb::twin_drop_name(static_cast<mdb::TwinDrop>(r))};
+                    if (!by_reason.empty())
+                    {
+                        by_reason += L", ";
+                    }
+                    by_reason += std::to_wstring(g_twin_drop[r].load(std::memory_order_relaxed));
+                    by_reason += L' ';
+                    by_reason.append(name.begin(), name.end());
+                }
+                mm::logf(L"markers: twins - {}; the visibility read answered for {} twin(s), "
+                         L"{} hidden",
+                         by_reason, g_vis_asked.load(std::memory_order_relaxed),
+                         g_vis_hidden.load(std::memory_order_relaxed));
                 // THE NPC CENSUS, one line naming which half of the join fails. joined = static
                 // markers a live actor answered for THIS round with a usable position;
                 // superseded = those more than kMovedUu from where they were authored.
                 mm::logf(L"markers: people - static {}, live {}, joined {}, superseded {}, "
-                         L"walked away {}, invisible {} of {} asked, level resident {}, "
-                         L"hidden {} ({} invisible + {} walked + {} absent)",
+                         L"level resident {}",
                          g_mobile_static.load(std::memory_order_relaxed),
                          g_mobile_live.load(std::memory_order_relaxed),
                          g_mobile_joined.load(std::memory_order_relaxed),
                          g_mobile_superseded.load(std::memory_order_relaxed),
-                         g_mobile_walked.load(std::memory_order_relaxed),
-                         g_mobile_invisible.load(std::memory_order_relaxed),
-                         g_mobile_vis_known.load(std::memory_order_relaxed),
-                         g_mobile_level_known.load(std::memory_order_relaxed),
-                         g_mobile_hidden.load(std::memory_order_relaxed),
-                         g_mobile_hidden_invis.load(std::memory_order_relaxed),
-                         g_mobile_hidden_walked.load(std::memory_order_relaxed),
-                         g_mobile_hidden_absent.load(std::memory_order_relaxed));
+                         g_mobile_level_known.load(std::memory_order_relaxed));
             }
         }
 

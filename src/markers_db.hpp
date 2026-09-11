@@ -296,16 +296,9 @@ namespace mdb
     //
     // An enemy exists twice in the published buffer: its authored spawn point (a STATIC marker)
     // and the pawn the live sweep found (a LIVE entry). Erasing only the live one makes the
-    // marker jump back to the spawn point on the next publish. Both predicates are called at the
-    // single publish point. `live_dead` is `LiveEntry::dead`; the entry is kept while the corpse
-    // is in the object array and ages out once a GC takes the body.
-    constexpr bool static_twin_is_hidden_by_corpse(bool has_live_twin, bool live_dead)
-    {
-        return has_live_twin && live_dead;
-    }
-
-    // ...and the live half. `pos_valid` is false both for an actor parked at the origin and for
-    // a corpse, so a dead entry is never drawn where it fell.
+    // marker jump back to the spawn point on the next publish. The static half is `twin_drop`'s
+    // `Corpse`; this is the live one. `pos_valid` is false both for an actor parked at the
+    // origin and for a corpse, so a dead entry is never drawn where it fell.
     constexpr bool live_only_is_drawn(bool pos_valid, bool live_dead)
     {
         return pos_valid && !live_dead;
@@ -315,59 +308,94 @@ namespace mdb
     //
     // The static DB records where an NPC was AUTHORED; the game relocates them, usually to a
     // different sublevel with a different marker id, so the authored position is only a hint.
-    // For these categories a live actor's position wins; with the marker's own level loaded and
-    // a full sweep round finished and still no live actor, the static twin is not drawn; with
-    // the level unloaded the hint is kept. The found ("met") state is untouched. `Note` is
-    // excluded: a reading point is a thing on a wall.
+    // For these categories a live actor's position wins and no live actor is evidence. `Note`
+    // is excluded: a reading point is a thing on a wall.
     constexpr bool is_mobile_category(Cat cat)
     {
         return cat == Cat::Npc;
     }
 
-    struct MobileTwinFacts
+    // ---- What the live twin says about drawing the static marker ----
+    //
+    // Every reason the publish point drops a static marker, named once and counted by name.
+
+    enum class TwinDrop : std::uint8_t
     {
-        bool mobile = false;                   // is_mobile_category(marker.cat)
+        Keep = 0,
+        Corpse,     // a dead enemy: the body and the spawn point go together
+        Invisible,  // the game has the actor hidden
+        WalkedAway, // mobile only: an actor answered but cannot be located
+        Absent,     // mobile only: nobody answered with the marker's own level loaded
+    };
+
+    constexpr int kTwinDropCount = 5;
+
+    struct TwinFacts
+    {
+        bool mobile = false;         // is_mobile_category(marker.cat)
+        bool live_twin = false;      // an entry exists for this id, of any age
+        bool live_twin_dead = false; // LiveEntry::dead - a corpse still in the object array
         // A live actor answered for this id THIS round and we know where it stands.
         bool live_twin_this_round = false;
         // A live actor answered this round but we do NOT know where it stands: the position read
-        // failed, or it read the (0,0,0) parking spot. Case (b) below.
+        // failed, or it read the (0,0,0) parking spot.
         bool live_twin_unlocatable = false;
-        // A live actor answered this round, we know where it stands, and it is INVISIBLE
-        // (`bHidden` / `bLocalHidden`, or the root component's `bHiddenInGame` / `!bVisible`).
+        // A live actor answered this round and the visibility read said HIDDEN (`bHidden` /
+        // `bLocalHidden`, or the root component's `bHiddenInGame` / `!bVisible`). False when no
+        // route reads on that class: "could not ask" is not "visible".
         bool live_twin_invisible = false;
-        bool level_known = false;              // the marker's level is in the loaded set
+        bool level_known = false; // the marker's level is in the loaded set
         bool full_round_since_level_load = false;
     };
 
-    // Should this static marker be dropped from the published set entirely?
+    // A HIDDEN ACTOR IS NOT THERE, whatever category it is. This game hides rather than
+    // destroys, and it hides before it spawns: a used-up NPC, a note already read and loot a
+    // quest has yet to switch on all keep their actor, their id and their authored position and
+    // are simply not rendered. None of them is a thing the player can see, reach or take, so
+    // none of them is drawn. Only the actor's OWN flags count - `bPerformanceHidden`, the
+    // distance cull, is deliberately not among them.
     //
-    //   (a) locatable live twin     - the publish point draws the live position
-    //   (b) UNLOCATABLE live twin   - a live actor answering is itself proof the level is loaded,
-    //                                 and this game parks a used-up actor at (0,0,0)
-    //   (c) no twin, level loaded, full round passed - nobody answered, so nobody is there
-    //   (d) no twin, level unknown  - we have not looked; a hint is all we have
-    //   (e) locatable live twin that is HIDDEN in the game - tested before (a). A used-up NPC is
-    //       made invisible rather than moved, so it is not drawn. Whether it counts as MET is
-    //       `met_marks`'s answer, for every Proximity category and not only the mobile ones
-    constexpr bool mobile_twin_is_stale(const MobileTwinFacts& f)
+    // Everything after it is about MOBILITY and fires for mobile categories only: a locatable
+    // answer wins, an unlocatable one means the actor was parked, and silence is proof only once
+    // the marker's own level is loaded and a full sweep round has passed. With the level
+    // unloaded nothing has been looked at and the authored hint stays.
+    constexpr TwinDrop twin_drop(const TwinFacts& f)
     {
-        if (!f.mobile)
+        if (f.live_twin && f.live_twin_dead)
         {
-            return false;
+            return TwinDrop::Corpse;
         }
         if (f.live_twin_invisible)
         {
-            return true; // (e)
+            return TwinDrop::Invisible;
         }
-        if (f.live_twin_this_round)
+        if (!f.mobile || f.live_twin_this_round)
         {
-            return false; // (a)
+            return TwinDrop::Keep;
         }
         if (f.live_twin_unlocatable)
         {
-            return true; // (b)
+            return TwinDrop::WalkedAway;
         }
-        return f.level_known && f.full_round_since_level_load; // (c) / (d)
+        return f.level_known && f.full_round_since_level_load ? TwinDrop::Absent : TwinDrop::Keep;
+    }
+
+    constexpr const char* twin_drop_name(TwinDrop d)
+    {
+        switch (d)
+        {
+        case TwinDrop::Corpse:
+            return "corpse";
+        case TwinDrop::Invisible:
+            return "invisible";
+        case TwinDrop::WalkedAway:
+            return "walked away";
+        case TwinDrop::Absent:
+            return "absent";
+        case TwinDrop::Keep:
+        default:
+            return "drawn";
+        }
     }
 
     // ---- Which gate dropped this marker from the x-ray? ----

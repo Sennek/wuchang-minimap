@@ -6,6 +6,7 @@ Fixed
 - Where two chapters meet, the map stays on one of them instead of swapping back and forth and going blank: the chapter is chosen by how much ground its map has around the player, not by one spot under his feet.
 - Resting at a shrine no longer leaves the minimap and the full map hidden until the next area load.
 - A note the player can neither see nor read is no longer counted as found when he walks past it.
+- Loot that is not in the world yet - an item a quest or an NPC has still to hand over - is no longer drawn on the map and the x-ray over empty ground.
 
 ## 1.1.1
 

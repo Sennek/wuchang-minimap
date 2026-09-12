@@ -2062,7 +2062,7 @@ namespace overlay
         // wuchang_minimap_hookaddr.txt is where older builds cached the addresses.
         void remove_stale_hook_cache()
         {
-            const std::wstring path = mm::mod_dir() + L"\\wuchang_minimap_hookaddr.txt";
+            const std::wstring path = mm::state_dir() + L"\\wuchang_minimap_hookaddr.txt";
             if (::DeleteFileW(path.c_str()) != 0)
             {
                 mm::logf(L"deleted {} - an older build's address cache. The addresses are discovered "

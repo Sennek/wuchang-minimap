@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <cwchar>
 #include <string_view>
 #include <type_traits>
 #include <vector>
@@ -79,6 +80,92 @@ namespace mm
                 }
             }
             return L".";
+        }
+
+        std::wstring g_state_dir;
+        unsigned g_state_moved = 0;
+        unsigned g_state_move_failed = 0;
+
+        // The state folder is a user folder, not the install: a Game Pass mod folder under
+        // C:\Program Files\WindowsApps is read-only, and reinstalling the mod elsewhere would
+        // take the found tracker and the log with it. mod_dir() answers only when there is no
+        // LOCALAPPDATA to speak of.
+        std::wstring resolve_state_dir()
+        {
+            const std::wstring local = local_app_data();
+            if (local.empty())
+            {
+                return mod_dir();
+            }
+            const std::wstring dir = local + L"\\WuchangMinimap";
+            if (::CreateDirectoryW(dir.c_str(), nullptr) == 0 &&
+                ::GetLastError() != ERROR_ALREADY_EXISTS)
+            {
+                return mod_dir();
+            }
+            return dir;
+        }
+
+        // Play state a previous build wrote next to the DLL, carried across once. Diagnostics -
+        // the breadcrumb, the watchdog line, the hook addresses, the recon dumps - are worthless
+        // a session later and stay behind. A name already present in the state folder wins, so
+        // this can never overwrite live state. Loop thread, before the log opens.
+        void migrate_state_files(const std::wstring& state)
+        {
+            const std::wstring mod = mod_dir();
+            if (state == mod)
+            {
+                return;
+            }
+            static const wchar_t* const kCarried[] = {
+                L"wuchang_minimap_found",
+                L"wuchang_minimap_waypoint",
+                L"wuchang_minimap_panel.txt",
+                L"wuchang_minimap_firstrun.txt",
+                L"wuchang_minimap_export_",
+                L"wuchang_minimap.log",
+            };
+            WIN32_FIND_DATAW fd{};
+            const HANDLE h = ::FindFirstFileW((mod + L"\\wuchang_minimap*").c_str(), &fd);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return;
+            }
+            do
+            {
+                if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                {
+                    continue;
+                }
+                const std::wstring name{fd.cFileName};
+                bool carried = false;
+                for (const wchar_t* prefix : kCarried)
+                {
+                    if (name.compare(0, std::wcslen(prefix), prefix) == 0)
+                    {
+                        carried = true;
+                        break;
+                    }
+                }
+                if (!carried)
+                {
+                    continue;
+                }
+                const std::wstring to = state + L"\\" + name;
+                if (::GetFileAttributesW(to.c_str()) != INVALID_FILE_ATTRIBUTES)
+                {
+                    continue;
+                }
+                if (::MoveFileExW((mod + L"\\" + name).c_str(), to.c_str(), MOVEFILE_COPY_ALLOWED) != 0)
+                {
+                    ++g_state_moved;
+                }
+                else
+                {
+                    ++g_state_move_failed;
+                }
+            } while (::FindNextFileW(h, &fd) != 0);
+            ::FindClose(h);
         }
 
         // Text file I/O: plain Win32, no iostreams anywhere in this mod.
@@ -1584,6 +1671,36 @@ namespace mm
         return g_mod_dir;
     }
 
+    std::wstring local_app_data()
+    {
+        wchar_t buf[MAX_PATH]{};
+        const DWORD n = ::GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH)
+        {
+            return {};
+        }
+        return std::wstring{buf};
+    }
+
+    // Resolved once, lazily, on the first caller - the UE4SS loop thread, which opens the log
+    // before anything else writes state. The one-time migration runs with it.
+    std::wstring state_dir()
+    {
+        if (g_state_dir.empty())
+        {
+            g_state_dir = resolve_state_dir();
+            migrate_state_files(g_state_dir);
+        }
+        return g_state_dir;
+    }
+
+    void state_dir_migration(unsigned& moved, unsigned& failed)
+    {
+        state_dir();
+        moved = g_state_moved;
+        failed = g_state_move_failed;
+    }
+
     std::wstring key_name(int vk)
     {
         const std::string n = vk_name(vk);
@@ -2542,7 +2659,7 @@ namespace mm
             {
                 wide.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
             }
-            return mod_dir() + L"\\" + wide;
+            return state_dir() + L"\\" + wide;
         }
 
         bool wp_file_exists(const std::wstring& path)
@@ -2561,7 +2678,7 @@ namespace mm
             {
                 return;
             }
-            const std::wstring dir = mod_dir();
+            const std::wstring dir = state_dir();
             std::wstring wpattern;
             for (char c : std::string{slotid::kWaypointPrefix} + "*_" + key + ".txt")
             {
@@ -2900,7 +3017,7 @@ namespace mm
                 return;
             }
             g_modlog_opened = true; // one attempt per session, success or not
-            const std::wstring base = mod_dir() + kModLogName;
+            const std::wstring base = state_dir() + kModLogName;
             modlog_rotate(base);
             g_modlog = ::CreateFileW(base.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
                                      FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -3140,7 +3257,7 @@ namespace mm
 
     std::wstring modlog_path()
     {
-        return mod_dir() + kModLogName;
+        return state_dir() + kModLogName;
     }
 
     void log(const std::wstring& line)

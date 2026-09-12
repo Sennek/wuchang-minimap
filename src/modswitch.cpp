@@ -142,13 +142,12 @@ namespace modswitch
         // the saves.
         std::wstring game_saved_dir()
         {
-            wchar_t buf[MAX_PATH]{};
-            const DWORD n = ::GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
-            if (n == 0 || n >= MAX_PATH)
+            const std::wstring local = mm::local_app_data();
+            if (local.empty())
             {
                 return {};
             }
-            return std::wstring{buf} + L"\\Project_Plague\\Saved";
+            return local + L"\\Project_Plague\\Saved";
         }
 
         void log_bug_report_header()
@@ -171,8 +170,20 @@ namespace modswitch
                      L"are asked to reproduce something)",
                      level_w);
             mm::logf(L"  config   {}", mm::config_path());
+            mm::logf(L"  state    {}", mm::state_dir());
             mm::logf(L"  log      {} (plus .1 / .2 / .3, the three previous sessions)", mm::modlog_path());
-            mm::logf(L"  crash breadcrumb {} | waypoint {}", mm::mod_dir() + crumb::file_name(),
+            unsigned moved = 0;
+            unsigned move_failed = 0;
+            mm::state_dir_migration(moved, move_failed);
+            if (moved != 0 || move_failed != 0)
+            {
+                mm::logf(L"  moved {} state file(s) from {} to {}, {} failed",
+                         moved,
+                         mm::mod_dir(),
+                         mm::state_dir(),
+                         move_failed);
+            }
+            mm::logf(L"  crash breadcrumb {} | waypoint {}", mm::state_dir() + crumb::file_name(),
                      mm::waypoint_path());
             const std::wstring saved = game_saved_dir();
             if (!saved.empty())
@@ -333,7 +344,7 @@ namespace modswitch
         // that died with the log buffer unflushed. The flush hook is wired first so every stage
         // flushes the log too, and the two files cannot disagree.
         crumb::set_flush_hook(&mm::modlog_flush);
-        crumb::init(mm::mod_dir().c_str(), mm::config().crash_breadcrumb);
+        crumb::init(mm::state_dir().c_str(), mm::config().crash_breadcrumb);
         log_bug_report_header();
         if (crumb::previous_suspicious())
         {

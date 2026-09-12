@@ -859,7 +859,7 @@ namespace overlay
         {
             std::wstring best;
             WIN32_FIND_DATAW find{};
-            const std::wstring pattern = mm::mod_dir() + L"\\" + std::wstring{kExportPrefix} + L"*.json";
+            const std::wstring pattern = mm::state_dir() + L"\\" + std::wstring{kExportPrefix} + L"*.json";
             const HANDLE h = ::FindFirstFileW(pattern.c_str(), &find);
             if (h != INVALID_HANDLE_VALUE)
             {
@@ -873,7 +873,7 @@ namespace overlay
                 } while (::FindNextFileW(h, &find) != 0);
                 ::FindClose(h);
             }
-            const std::string narrow = best.empty() ? std::string{} : wide_to_utf8(mm::mod_dir() + L"\\" + best);
+            const std::string narrow = best.empty() ? std::string{} : wide_to_utf8(mm::state_dir() + L"\\" + best);
             {
                 spin::SpinGuard guard(g_exchange_lock);
                 ::strncpy_s(g_latest_export, sizeof(g_latest_export), narrow.c_str(), _TRUNCATE);
@@ -892,7 +892,7 @@ namespace overlay
                                 static_cast<unsigned>(st.wYear), static_cast<unsigned>(st.wMonth),
                                 static_cast<unsigned>(st.wDay), static_cast<unsigned>(st.wHour),
                                 static_cast<unsigned>(st.wMinute), static_cast<unsigned>(st.wSecond));
-            const std::wstring base = mm::mod_dir() + L"\\" + std::wstring{kExportPrefix} + stamp;
+            const std::wstring base = mm::state_dir() + L"\\" + std::wstring{kExportPrefix} + stamp;
             std::wstring path = base + L".json";
             for (int n = 2; n < 1000 && ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; ++n)
             {
@@ -955,7 +955,7 @@ namespace overlay
             }
             mm::perf_note_stall(L"a found-list import", 1000);
             // Absolute as typed, anything else under the mod folder where exports land.
-            const std::wstring path = xch::resolve_import_path(mm::mod_dir(), utf8_to_wide(narrow));
+            const std::wstring path = xch::resolve_import_path(mm::state_dir(), utf8_to_wide(narrow));
 
             std::string text;
             // A few MB is a huge export; the parse runs here, on the loop thread.
@@ -1643,7 +1643,7 @@ namespace overlay
         if (!first_run_checked && cfg.first_run_toast && g_hud_gate_ever_open.load(std::memory_order_acquire))
         {
             first_run_checked = true;
-            const std::wstring sentinel = mm::mod_dir() + L"\\wuchang_minimap_firstrun.txt";
+            const std::wstring sentinel = mm::state_dir() + L"\\wuchang_minimap_firstrun.txt";
             if (::GetFileAttributesW(sentinel.c_str()) == INVALID_FILE_ATTRIBUTES)
             {
                 const std::string text =

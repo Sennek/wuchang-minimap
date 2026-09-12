@@ -12,6 +12,9 @@ Fixed
 - A note the player can neither see nor read is no longer counted as found when he walks past it.
 - Loot that is not in the world yet - an item a quest or an NPC has still to hand over - is no longer drawn on the map and the x-ray over empty ground.
 
+Changed
+- The log, the found-items file, the waypoint and the rest of the mod's state live in %LOCALAPPDATA%\WuchangMinimap. They survive reinstalling the mod, and they work on the Game Pass build, where the mod folder is read-only. Existing files are moved there on the first launch.
+
 ## 1.1.1
 
 Fixed

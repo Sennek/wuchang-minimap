@@ -767,6 +767,15 @@ namespace mm
     bool dev_config_active();
     std::wstring mod_dir();
 
+    // %LOCALAPPDATA%, or empty when the variable is not set.
+    std::wstring local_app_data();
+    // Where every state and diagnostic file the mod writes goes: %LOCALAPPDATA%\WuchangMinimap,
+    // and mod_dir() only when that cannot be had. Resolved on the first call, from the loop
+    // thread, which also carries older state files over from the mod folder.
+    std::wstring state_dir();
+    // How that carry went, for the bug-report header.
+    void state_dir_migration(unsigned& moved, unsigned& failed);
+
     // Every setting as `key` -> its text form, in cfgkeys order. The single source of the
     // VALUES; the layout of the files is owned by config_rewrite.hpp. Any thread (pure).
     std::vector<std::pair<std::string, std::string>> config_kv(const Config& cfg);

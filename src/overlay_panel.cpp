@@ -946,7 +946,7 @@ namespace overlay
 
         std::wstring panel_state_path()
         {
-            return mm::mod_dir() + L"\\wuchang_minimap_panel.txt";
+            return mm::state_dir() + L"\\wuchang_minimap_panel.txt";
         }
 
         // Loop thread. Plain CreateFileW/ReadFile and a hand-rolled hex parse: this mod

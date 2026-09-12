@@ -98,7 +98,7 @@ PDB-bearing layout and cannot catch a packaging mistake. Then launch the game an
 - [ ] **F2** opens the settings panel; the version in its title matches.
 - [ ] **M** opens the full map; the chapter you are in is drawn and shrines are listed.
 - [ ] The x-ray toggle turns marker see-through mode on and off.
-- [ ] Quit and confirm `wuchang_minimap.log` in the mod folder has no errors and no per-frame spam.
+- [ ] Quit and confirm `wuchang_minimap.log` in `%LOCALAPPDATA%\WuchangMinimap` has no errors and no per-frame spam.
 
 If anything here fails, the release does not ship — fix, re-tag.
 

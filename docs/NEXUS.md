@@ -85,13 +85,13 @@ None of these stops the mod working, except where the last one says otherwise.
 [/list]
 
 [size=5]Reporting a bug[/size]
-Attach [font=Courier New]ue4ss\Mods\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first lines carry every version, file size, the GPU and driver, the display's colour space and the graphics modules loaded in the game - everything a report needs about the machine. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font].
+Attach [font=Courier New]%LOCALAPPDATA%\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first lines carry every version, file size, the GPU and driver, the display's colour space and the graphics modules loaded in the game - everything a report needs about the machine. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font] — that one is in the mod folder, [font=Courier New]ue4ss\Mods\WuchangMinimap\[/font].
 
 [b]If there is no wuchang_minimap.log at all[/b], this mod never ran, so it cannot be the cause. Check [font=Courier New]ue4ss\UE4SS.log[/font]: [font=Courier New]Failed to load dll ... [0x7f] The specified procedure could not be found[/font] means the mod does not match your UE4SS build, and a log that simply stops mid-startup usually means the console window above.
 
 If the game hangs or crashes at start with the mod enabled, set [font=Courier New]overlay_hooks = 0[/font] in [font=Courier New]config_wuchang_minimap.txt[/font] and restart: the mod then never touches DirectX and draws nothing, while the tracker and the log keep running. Send me that log too — with and without, the pair says which half is at fault.
 
-If the minimap simply is not on screen, send me [font=Courier New]wuchang_minimap.log[/font] from the mod's own folder — it names the exact reason it stayed hidden. If I ask you to reproduce something, add the line [font=Courier New]log_level = verbose[/font] to [font=Courier New]config_wuchang_minimap.txt[/font] first, press [b]F5[/b], and reproduce it.
+If the minimap simply is not on screen, send me [font=Courier New]wuchang_minimap.log[/font] from that folder — it names the exact reason it stayed hidden. If I ask you to reproduce something, add the line [font=Courier New]log_level = verbose[/font] to [font=Courier New]config_wuchang_minimap.txt[/font] first, press [b]F5[/b], and reproduce it.
 
 [size=5]Permissions and credits[/size]
 [b]MIT licensed[/b] — fork it, reuse it, translate it; the licence has to travel with it. Credit appreciated, not required. Third-party components: Dear ImGui (MIT), MinHook (BSD-2-Clause), fmt (MIT), RE-UE4SS (MIT); full notices ship in [font=Courier New]THIRD_PARTY_NOTICES.md[/font].

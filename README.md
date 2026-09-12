@@ -92,11 +92,12 @@ None of these stops the mod working.
 
 ## Reporting a bug
 
-Attach `ue4ss\Mods\WuchangMinimap\wuchang_minimap.log` — the mod's own log, rotated per launch.
+Attach `%LOCALAPPDATA%\WuchangMinimap\wuchang_minimap.log` — the mod's own log, rotated per launch.
 Its first lines carry every version, file size, the GPU and driver, the display's colour space
 and the graphics modules loaded in the game - everything a report needs about the machine. Add
 `wuchang_minimap_last_stage.txt` if the game crashed, `wuchang_minimap_watchdog.txt` if it froze,
-and your `config_wuchang_minimap.txt`.
+and your `config_wuchang_minimap.txt` — that one is in the mod folder,
+`ue4ss\Mods\WuchangMinimap\`.
 
 **If there is no `wuchang_minimap.log` at all**, this mod never ran, so it cannot be the cause.
 Check `ue4ss\UE4SS.log`: `Failed to load dll ... [0x7f] The specified procedure could not be found`
@@ -108,7 +109,7 @@ If the game hangs or crashes at start with the mod enabled, set `overlay_hooks =
 while the tracker and the log keep running. Send me that log too — with and without, the pair
 says which half is at fault.
 
-If the minimap simply is not on screen, send me `wuchang_minimap.log` from the mod's own folder —
+If the minimap simply is not on screen, send me `wuchang_minimap.log` from that folder —
 it names the exact reason it stayed hidden. If I ask you to reproduce something, add the line
 `log_level = verbose` to `config_wuchang_minimap.txt` first, press `F5`, and reproduce it.
 

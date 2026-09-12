@@ -402,7 +402,7 @@ namespace recon
         wchar_t stamp[32]{};
         ::swprintf_s(stamp, L"%04u%02u%02u_%02u%02u%02u", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute,
                      t.wSecond);
-        const std::wstring path = mm::mod_dir() + L"\\wuchang_minimap_recon_" + stamp + L".txt";
+        const std::wstring path = mm::state_dir() + L"\\wuchang_minimap_recon_" + stamp + L".txt";
 
         std::string blob;
         for (const std::string& line : lines)

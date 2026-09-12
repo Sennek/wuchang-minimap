@@ -668,8 +668,13 @@ start. That is why the regen driver runs this as a report and not as a gate.
 
 ## The files the mod writes
 
-All next to the mod's own DLL, all gitignored, and the packager fails if any reach the package
-tree.
+All in `%LOCALAPPDATA%\WuchangMinimap` (`mm::state_dir()`; the mod folder only when there is no
+`LOCALAPPDATA`), all gitignored, and the packager fails if any reach the package tree. A user
+folder, so they survive reinstalling the mod and a Game Pass install's read-only
+`C:\Program Files\WindowsApps`. The config files are the exception and stay next to the DLL,
+where the player edits them. State files still next to the DLL are moved across on the first
+launch; diagnostics — the breadcrumb, the watchdog line, the hook addresses, the recon dumps —
+are left behind.
 
 | file | what it is |
 |---|---|

@@ -2207,7 +2207,7 @@ namespace markers
             {
                 wide.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
             }
-            return mm::mod_dir() + L"\\" + wide;
+            return mm::state_dir() + L"\\" + wide;
         }
 
         std::wstring found_path()
@@ -2231,7 +2231,7 @@ namespace markers
             {
                 return;
             }
-            const std::wstring dir = mm::mod_dir();
+            const std::wstring dir = mm::state_dir();
             const std::string pattern = std::string{slotid::kFoundPrefix} + "*_" + key + ".txt";
             std::wstring wpattern;
             for (char c : pattern)

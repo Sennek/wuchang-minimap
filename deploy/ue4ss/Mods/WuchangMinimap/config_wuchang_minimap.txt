@@ -64,13 +64,14 @@ floor_z_tolerance = 200
 markers_enabled = 1
 
 ; Categories to draw: comma-separated list of shrine, chest, consumable, item, harvest,
-; ammo, armour, amulet, weapon, jade, spell, material, key, boss, elite, enemy, npc, note,
-; door, mystery_gate, benediction_door, ladder, lift, fog_gate, hidden, other - or
-; `all` / `none`. The eleven from consumable to key are what a pickup grants, one bucket
-; each, drawn as a disc in their quality tier's colour with the bucket's mark inside it;
-; `pickup` from an older file still means all eleven. mystery_gate is the 3 red riddle
-; doors, benediction_door the 7 yellow chisel doors.
-markers_categories = shrine,chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,boss,elite,npc,note,door,mystery_gate,benediction_door,ladder,lift,fog_gate,hidden,other
+; ammo, armour, amulet, weapon, jade, spell, material, key, boss, elite, enemy,
+; bamboozling, npc, note, door, mystery_gate, benediction_door, ladder, lift, fog_gate,
+; hidden, other - or `all` / `none`. The eleven from consumable to key are what a pickup
+; grants, one bucket each, drawn as a disc in their quality tier's colour with the
+; bucket's mark inside it; `pickup` from an older file still means all eleven.
+; mystery_gate is the 3 red riddle doors, benediction_door the 7 yellow chisel doors,
+; bamboozling the 20 bamboo-shoot creatures that flee when startled.
+markers_categories = shrine,chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,boss,elite,bamboozling,npc,note,door,mystery_gate,benediction_door,ladder,lift,fog_gate,hidden,other
 
 ; Found markers: 0 = draw dimmed and hollow, 1 = hide. Shrines always stay on the map.
 markers_hide_found = 1
@@ -110,7 +111,7 @@ highlight_pad_chord = LB+RB
 highlight_radius = 3000
 
 ; Categories to highlight; same names as markers_categories, or `all` / `none`.
-highlight_categories = chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,shrine,boss,npc,note
+highlight_categories = chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,shrine,boss,bamboozling,npc,note
 
 ; Draw the name and distance next to each glyph.
 highlight_labels = 1
@@ -232,6 +233,8 @@ found_save_debounce_ms = 2000
 
 ; A loaded-but-unseen chest or pickup counts as collected after this many rounds in a
 ; row, in these categories. Undo a mark by clicking the marker on the full map.
+; Do not add `bamboozling`: a startled one burrows and comes back after a rest at a
+; shrine, so its absence would be read as a kill it is not.
 markers_absence_rounds = 2
 markers_absence_categories = chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key
 

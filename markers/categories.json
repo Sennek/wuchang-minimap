@@ -3,6 +3,9 @@
   "ammo": [
    "BP_BombsBox_C"
   ],
+  "bamboozling": [
+   "BP_M_ZSG_C"
+  ],
   "benediction_door": [
    "BP_NewGetGeemDoor_C"
   ],
@@ -103,7 +106,6 @@
    "BP_M_SKG_C",
    "BP_M_ShiXinDog_C",
    "BP_M_XBSN_AI_C",
-   "BP_M_ZSG_C",
    "BP_Monster_Dog_C",
    "BP_Monster_Dog_chapter_4_C",
    "BP_NPC_XYZ_AI_C",
@@ -556,7 +558,7 @@
   "BP_M_SKG_C": "enemy",
   "BP_M_ShiXinDog_C": "enemy",
   "BP_M_XBSN_AI_C": "enemy",
-  "BP_M_ZSG_C": "enemy",
+  "BP_M_ZSG_C": "bamboozling",
   "BP_Monster_Dog_C": "enemy",
   "BP_Monster_Dog_chapter_4_C": "enemy",
   "BP_NPC_C": "npc",
@@ -923,7 +925,7 @@
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
   "size": 141464648
  },
- "extractor_commit": "0b510c1+dirty",
+ "extractor_commit": "676ba00+dirty",
  "game_build": "5.1.1.0",
  "generated_by": "tools/markers/build_categories.py",
  "missing_roots": {},
@@ -942,6 +944,7 @@
   "ladder",
   "lift",
   "boss",
+  "bamboozling",
   "other",
   "npc",
   "enemy"
@@ -966,6 +969,9 @@
  "roots": {
   "ammo": [
    "BP_BombsBox_C"
+  ],
+  "bamboozling": [
+   "BP_M_ZSG_C"
   ],
   "benediction_door": [
    "BP_NewGetGeemDoor_C"

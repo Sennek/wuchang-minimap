@@ -277,7 +277,9 @@ namespace mm
         // for it is in the save's `UnlockedFirepoints`. Derived on every publish.
         bool boss_defeat_from_save = true;
         // Chests keep a `Used` flag and pickups a `dying` flag, so absence means "taken" only for
-        // those; shrines, doors and fog gates are not in the default set.
+        // those; shrines, doors and fog gates are not in the default set. Neither is the
+        // Bamboozling: a startled one burrows and comes back, so absence cannot tell "it got
+        // away" from "it is dead" - only its health can, in markers.cpp's Rule::PawnHealth.
         std::uint32_t markers_absence_categories = mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats;
 
         // The found tracker: wuchang_minimap_found.txt, one stable id per line. Always on; the
@@ -334,10 +336,11 @@ namespace mm
         std::uint32_t highlight_categories =
             mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats |
             mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Boss) |
-            mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note);
-        // Draw collected loot too. Only chests, pickups, hidden items and a defeated boss are
-        // suppressed by this; shrines, NPCs and notes are landmarks and show whatever their
-        // found state.
+            mdb::cat_bit(mdb::Cat::Bamboozling) | mdb::cat_bit(mdb::Cat::Npc) |
+            mdb::cat_bit(mdb::Cat::Note);
+        // Draw collected loot too. Only what finding uses up is suppressed by this
+        // (mdb::consumed_when_found); shrines, NPCs and notes are landmarks and show whatever
+        // their found state.
         bool highlight_show_found = false;
         int highlight_max_draw = 60;       // nearest first
         float highlight_alpha_near = 1.0f; // at the camera

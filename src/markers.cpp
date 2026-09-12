@@ -50,7 +50,7 @@ namespace markers
             ActiveBool,    // fog gates: SavedStatuKey=status_active, so `Active` is the flag
             ControllerPawn, // AI controller: the marker is its possessed Pawn
             Proximity,     // note: "met" = seen loaded within mdb::kMetRadius of the player
-            BossPawn       // boss character: defeated when its controller's Health.Current <= 0
+            PawnHealth     // a character whose marker is FOUND once its Health.Current <= 0
         };
 
         // Rounds a LIVE-ONLY entry (enemies, persist == false) may go unanswered before it
@@ -112,7 +112,14 @@ namespace markers
             {L"BP_PuzzlesDoor_C", mdb::Cat::MysteryGate, Rule::UsedBool, true},
             // `BP_PlacedBossAI_C` is the base of all 32 boss blueprints. "Found" means
             // DEFEATED: the pawn's `Controller` carries a `Health` ExtendedStatComponent_C.
-            {L"BP_PlacedBossAI_C", mdb::Cat::Boss, Rule::BossPawn, true},
+            {L"BP_PlacedBossAI_C", mdb::Cat::Boss, Rule::PawnHealth, true},
+            // The Bamboozling: a pawn of its own, so it beats the controller entry below
+            // the way a boss does. FOUND = SLAIN, read off its health - never off absence.
+            // A startled one burrows and despawns, and the game puts it back at its
+            // original spot after a rest at a shrine, so absence means "it got away" as
+            // often as "it is gone"; only a slain one never returns for that journey.
+            // That is why the shipped `markers_absence_categories` leaves it out.
+            {L"BP_M_ZSG_C", mdb::Cat::Bamboozling, Rule::PawnHealth, true},
             // Enemies are LIVE ONLY and never persisted; the marker is the pawn the
             // controller possesses.
             {L"Impl_BaseAIController_C", mdb::Cat::Enemy, Rule::ControllerPawn, false},
@@ -1603,7 +1610,7 @@ namespace markers
                 }
                 break;
             }
-            case Rule::BossPawn:
+            case Rule::PawnHealth:
             {
                 // Defeated = zero health. The stat component sits on the AI CONTROLLER, so
                 // `APawn::Controller` is the first hop; the pawn is asked too.
@@ -1663,10 +1670,15 @@ namespace markers
                     {
                         g_met_marks.fetch_add(1, std::memory_order_relaxed);
                     }
-                    else if (s.rule == Rule::BossPawn)
+                    else if (s.rule == Rule::PawnHealth)
                     {
-                        g_boss_defeated.fetch_add(1, std::memory_order_relaxed);
-                        mm::logf(L"markers: boss defeated - {} marked as found",
+                        // The session counter is the boss gauge's; a Bamboozling's own
+                        // tally is the panel's per-category found/total row.
+                        if (s.cat == mdb::Cat::Boss)
+                        {
+                            g_boss_defeated.fetch_add(1, std::memory_order_relaxed);
+                        }
+                        mm::logf(L"markers: {} killed - {} marked as found", s.name,
                                  std::wstring(id.begin(), id.end()));
                     }
                 }
@@ -1940,7 +1952,7 @@ namespace markers
                         }
                     }
 
-                    // A BOSS KILLED BEFORE THE MOD WAS INSTALLED: `Rule::BossPawn` needs the actor to
+                    // A BOSS KILLED BEFORE THE MOD WAS INSTALLED: `Rule::PawnHealth` needs the actor to
                     // exist, so the save speaks for those - the arena's `bossdoor_*` respawn point in
                     // `UnlockedFirepoints`. DERIVED, NEVER PERSISTED: the signal is uncertain.
                     if (sm.cat == mdb::Cat::Boss)

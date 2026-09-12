@@ -168,7 +168,7 @@
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
   "size": 141464648
  },
- "extractor_commit": "0b510c1+dirty",
+ "extractor_commit": "676ba00+dirty",
  "game_build": "5.1.1.0",
  "generated_by": "tools/markers/build_bosses.py",
  "named": 30,

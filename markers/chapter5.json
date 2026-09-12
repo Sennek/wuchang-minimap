@@ -29,6 +29,42 @@
  },
  "markers": [
   {
+   "id": "Chapter5_HaiBbaiHJS_AI/BP_M_ZSG_C_2",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_2",
+   "x": -119699.04,
+   "y": 10865.04,
+   "z": 8275.61,
+   "cell": "B5EX0_L0_X-12_Y1",
+   "level": "Chapter5_HaiBbaiHJS_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_M_ZSG_C_0",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_0",
+   "x": -85664.88,
+   "y": -31122.18,
+   "z": 7906.74,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
+   "id": "Chapter5_YuRenJT_AI/BP_M_ZSG_C_1",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_1",
+   "x": -68686.97,
+   "y": -34604.45,
+   "z": 2048.75,
+   "cell": "B5EX0_L0_X-7_Y-4",
+   "level": "Chapter5_YuRenJT_AI"
+  },
+  {
    "id": "Chapter5_HaiBbaiHJS_logic/BP_NewGetGeemDoor_C_0",
    "cat": "benediction_door",
    "cls": "BP_NewGetGeemDoor_C",
@@ -1549,18 +1585,6 @@
    "level": "Chapter5_HaiBbaiHJS_AI"
   },
   {
-   "id": "Chapter5_HaiBbaiHJS_AI/BP_M_ZSG_C_2",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_2",
-   "x": -119699.04,
-   "y": 10865.04,
-   "z": 8275.61,
-   "cell": "B5EX0_L0_X-12_Y1",
-   "level": "Chapter5_HaiBbaiHJS_AI"
-  },
-  {
    "id": "Chapter5_HaiBbaiHJS_AI/BP_SS_Ai_C_0",
    "cat": "enemy",
    "cls": "BP_SS_Ai_C",
@@ -2590,30 +2614,6 @@
    "y": -44261.57,
    "z": 3825.02,
    "cell": "B5EX0_L0_X-9_Y-5",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
-   "id": "Chapter5_YuRenJT_AI/BP_M_ZSG_C_0",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_0",
-   "x": -85664.88,
-   "y": -31122.18,
-   "z": 7906.74,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_AI"
-  },
-  {
-   "id": "Chapter5_YuRenJT_AI/BP_M_ZSG_C_1",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_1",
-   "x": -68686.97,
-   "y": -34604.45,
-   "z": 2048.75,
-   "cell": "B5EX0_L0_X-7_Y-4",
    "level": "Chapter5_YuRenJT_AI"
   },
   {
@@ -4488,7 +4488,7 @@
    "id": "Chapter5_YuRenJT_logic/XM_NPC_C_1",
    "cat": "npc",
    "cls": "XM_NPC_C",
-   "name": "Inner Demon",
+   "name": "Panda Shop",
    "obj": "XM_NPC_C_1",
    "x": -77162.07,
    "y": -20531.58,

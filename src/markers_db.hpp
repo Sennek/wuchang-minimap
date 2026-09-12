@@ -51,6 +51,11 @@ namespace mdb
         Boss,
         Elite,
         Enemy,
+        // The bamboo-shoot creature that flees and burrows when startled, and drops a
+        // Bamboo Shoot for the Panda's shop. A category of its own because it is a finite
+        // COLLECTION, not a mob: 20 in the whole game, the count of the game's own "Defeat
+        // 20 Bamboozlings" achievement, and one slain never returns for that journey.
+        Bamboozling,
         Npc,
         // The game's readable notes / inscriptions (`DKDC_NPC_C` and friends).
         Note,
@@ -462,7 +467,7 @@ namespace mdb
     // The x-ray draws from the same published buffer as the minimap, plus a few extra
     // conditions. The gate NAMES its reason and the drawing code counts the reasons per round.
     // `Category` uses `highlight_categories`, a different question from the map's; `Radius` is
-    // the one gate the minimap has not got. `Found` is only LOOT and a DEFEATED BOSS, and only
+    // the one gate the minimap has not got. `Found` is `consumed_when_found` only, and only
     // while "Hide collected loot" is on; a lit shrine and a read note stay landmarks, and a
     // person has no collected state to gate on at all.
     // `Live` is people only: a hint for somebody who walked away is never drawn. Nothing else
@@ -486,10 +491,14 @@ namespace mdb
         bool within_radius = false; // 3D distance from the player <= highlight_radius
     };
 
-    // Loot is a category where FINDING the thing consumes it, so a found one is noise.
-    constexpr bool is_loot_cat(Cat cat)
+    // FINDING the thing consumes it, so a found one is finished business and the x-ray
+    // drops it. The loot family, the two containers it comes in, the bosses and the
+    // Bamboozlings - none of them is there any more once found. Every other category's
+    // "found" is a visit: the shrine, the note and the door are all still standing.
+    constexpr bool consumed_when_found(Cat cat)
     {
-        return cat == Cat::Chest || cat == Cat::Hidden || is_loot_family(cat);
+        return cat == Cat::Chest || cat == Cat::Hidden || cat == Cat::Boss ||
+               cat == Cat::Bamboozling || is_loot_family(cat);
     }
 
     // A landmark is a place you navigate BY, so using it does not use it up and
@@ -520,7 +529,7 @@ namespace mdb
         {
             return XrayDrop::Category;
         }
-        if (!f.show_found && f.found && (is_loot_cat(f.cat) || f.cat == Cat::Boss))
+        if (!f.show_found && f.found && consumed_when_found(f.cat))
         {
             return XrayDrop::Found;
         }

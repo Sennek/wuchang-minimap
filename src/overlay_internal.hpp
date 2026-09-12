@@ -693,11 +693,6 @@ namespace overlay
         extern std::atomic<bool> g_hud_gate_ever_open;
         extern gly::Palette g_palette;
         extern mdb::Rgb g_plate;
-        // Loot categories: collecting one consumes it, so a found one is finished
-        // business. Every other category's "found" is a visit and the thing is still
-        // there. The rule lives in mdb::is_loot_cat, beside the offline test that pins
-        // it.
-        using mdb::is_loot_cat;
         struct MarkerDrawStats
         {
             int total = 0;

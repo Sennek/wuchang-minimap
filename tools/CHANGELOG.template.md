@@ -5,6 +5,7 @@
 Added
 - Loot is eleven marker categories instead of one: consumables, materials, key items, weapons, armour, amulets, jades, spells, harvest nodes, cannon ammo and plain items. Each has its own filter checkbox, count and glyph, so the map can answer "where are the amulets" instead of showing 1105 identical dots.
 - The 17 cannon resupply crates are their own category and read "Shrapnel Bomb"; they stand beside the cannon emplacements.
+- Bamboozlings are tracked. The 20 bamboo-shoot creatures that bolt and burrow when you get close are their own marker category, drawn as a green leaf, with their own filter checkbox and a count that fills as you kill them - so the legend answers "how many of the 20 are left, and where". One you have slain is marked collected and never comes back; one that got away is not, because it returns to the same spot after a rest at a shrine.
 
 Changed
 - Loot is coloured by quality tier everywhere it is drawn — minimap, full map, compass, x-ray and the F2 legend — in the game's own three pickup-beam hues: blue for common, pink for equipment, gold for key items and materials. The kind of loot is a small mark inside the disc, drawn on the full map and in the legend; the minimap shows the disc alone, where colour is the question a glance asks.
@@ -14,6 +15,7 @@ Changed
 - Loot an enemy drops is filed by what it is: a dropped chest piece draws as armour, a dropped jade as a jade. The kind comes from the item itself, so a drop and a pickup of the same thing read the same.
 
 Fixed
+- The Panda's shop is labelled "Panda Shop" on the map. It read "Inner Demon": the class is abbreviated `XM`, and that was taken for XinMo rather than XiongMao.
 - The legend's chapter and its counts follow the chapter you are in. They used to stay on the chapter that was in force when you last picked something up, so the full map could say "all chapters" while the map itself showed one.
 
 Removed

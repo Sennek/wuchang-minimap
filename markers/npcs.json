@@ -7,10 +7,10 @@
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
   "size": 141464648
  },
- "extractor_commit": "0b510c1+dirty",
+ "extractor_commit": "676ba00+dirty",
  "game_build": "5.1.1.0",
  "generated_by": "tools/markers/build_npcs.py",
- "localised": 67,
+ "localised": 68,
  "npcs": {
   "AWS_N_NPC_C": {
    "dir": "NPC_AWS",
@@ -356,9 +356,9 @@
   },
   "XM_NPC_C": {
    "dir": "NPC_XM",
-   "key": null,
-   "name": "Inner Demon",
-   "via": "pinyin"
+   "key": "help_noun13_name",
+   "name": "Panda Shop",
+   "via": "glossary"
   },
   "XP_N_NPC_C": {
    "dir": "NPC_CSB_PZ",
@@ -472,9 +472,10 @@
  "source": "cooked .uasset export maps (class graph) + the npc_Dianame_* / npc_name_* FText keys embedded in each NPC blueprint + MMGame.locres, offline pak extraction",
  "via": {
   "folder": 1,
+  "glossary": 1,
   "no-name": 1,
   "own": 63,
-  "pinyin": 3,
+  "pinyin": 2,
   "read-point": 3,
   "ref": 3
  },

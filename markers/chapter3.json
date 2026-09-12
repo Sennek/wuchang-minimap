@@ -270,6 +270,42 @@
    "rarity": 1
   },
   {
+   "id": "Chapter3_NiaoRenJL01_AI/BP_M_ZSG_C_0",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_0",
+   "x": 95686.3,
+   "y": -1369.51,
+   "z": -6565.61,
+   "cell": "B3EX0_L0_X9_Y-1",
+   "level": "Chapter3_NiaoRenJL01_AI"
+  },
+  {
+   "id": "Chapter3_NiaoRenJL01_AI/BP_M_ZSG_C_3",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_3",
+   "x": 89020.6,
+   "y": -1356.89,
+   "z": -10264.08,
+   "cell": "B3EX0_L0_X8_Y-1",
+   "level": "Chapter3_NiaoRenJL01_AI"
+  },
+  {
+   "id": "Chapter3_ZhenWuG01_AI/BP_M_ZSG_C_1",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_1",
+   "x": 70039.47,
+   "y": 30079.24,
+   "z": -3797.08,
+   "cell": "B3EX0_L0_X6_Y2",
+   "level": "Chapter3_ZhenWuG01_AI"
+  },
+  {
    "id": "Chapter3_ZhenWuG_logic/BP_NewGetGeemDoor_C_1",
    "cat": "benediction_door",
    "cls": "BP_NewGetGeemDoor_C",
@@ -4553,30 +4589,6 @@
    "level": "Chapter3_NiaoRenJL01_AI"
   },
   {
-   "id": "Chapter3_NiaoRenJL01_AI/BP_M_ZSG_C_0",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_0",
-   "x": 95686.3,
-   "y": -1369.51,
-   "z": -6565.61,
-   "cell": "B3EX0_L0_X9_Y-1",
-   "level": "Chapter3_NiaoRenJL01_AI"
-  },
-  {
-   "id": "Chapter3_NiaoRenJL01_AI/BP_M_ZSG_C_3",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_3",
-   "x": 89020.6,
-   "y": -1356.89,
-   "z": -10264.08,
-   "cell": "B3EX0_L0_X8_Y-1",
-   "level": "Chapter3_NiaoRenJL01_AI"
-  },
-  {
    "id": "Chapter3_NiaoRenJL01_AI/BP_NotDamageFalling_C_0",
    "cat": "enemy",
    "cls": "BP_NotDamageFalling_C",
@@ -6026,18 +6038,6 @@
    "y": 39471.5,
    "z": -2829.82,
    "cell": "B3EX0_L0_X6_Y3",
-   "level": "Chapter3_ZhenWuG01_AI"
-  },
-  {
-   "id": "Chapter3_ZhenWuG01_AI/BP_M_ZSG_C_1",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_1",
-   "x": 70039.47,
-   "y": 30079.24,
-   "z": -3797.08,
-   "cell": "B3EX0_L0_X6_Y2",
    "level": "Chapter3_ZhenWuG01_AI"
   },
   {
@@ -9244,7 +9244,7 @@
    "id": "Chapter3_ZhenWuG_logic/XM_NPC_C_1",
    "cat": "npc",
    "cls": "XM_NPC_C",
-   "name": "Inner Demon",
+   "name": "Panda Shop",
    "obj": "XM_NPC_C_1",
    "x": 46709.26,
    "y": 25613.39,

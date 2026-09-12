@@ -35,6 +35,7 @@ namespace gly
         Triangle,        // boss     - a big triangle
         TriangleNotched, // elite    - a smaller triangle with a bar across it
         DotRing,         // enemy    - a small dot inside a detached ring
+        Leaf,            // bamboozling - a pointed leaf with a centre vein
         Pentagon,        // npc      - a filled 5-gon, point up
         NotePage,        // note     - a page with a folded top-right corner + two rules
         DoorBox,         // door     - a tall narrow box
@@ -66,6 +67,8 @@ namespace gly
             return "notched triangle";
         case Shape::DotRing:
             return "dot in a ring";
+        case Shape::Leaf:
+            return "leaf";
         case Shape::Pentagon:
             return "pentagon";
         case Shape::NotePage:
@@ -132,6 +135,7 @@ namespace gly
         Shape::Triangle,        // Boss
         Shape::TriangleNotched, // Elite
         Shape::DotRing,         // Enemy
+        Shape::Leaf,            // Bamboozling
         Shape::Pentagon,        // Npc
         Shape::NotePage,        // Note
         Shape::DoorBox,         // Door
@@ -164,6 +168,7 @@ namespace gly
         Mark::None,    // Boss
         Mark::None,    // Elite
         Mark::None,    // Enemy
+        Mark::None,    // Bamboozling
         Mark::None,    // Npc
         Mark::None,    // Note
         Mark::None,    // Door
@@ -204,6 +209,7 @@ namespace gly
         case Shape::Triangle:      // apex at 1.5 (capped)
         case Shape::TriangleNotched:
         case Shape::Ladder:        // rails to 0.5 x 1.0      -> 1.12
+        case Shape::Leaf:          // tips on the vertical at 1.15, 0.55 wide
             return 1.25f;
         case Shape::RingBar:       // ring at exactly r
         case Shape::Pentagon:      // 1.05
@@ -327,6 +333,7 @@ namespace gly
         mdb::Rgb{255, 86, 86},   // Boss
         mdb::Rgb{255, 140, 80},  // Elite
         mdb::Rgb{232, 96, 96},   // Enemy
+        mdb::Rgb{176, 214, 60},  // Bamboozling - young bamboo
         mdb::Rgb{140, 235, 140}, // Npc
         mdb::Rgb{238, 232, 205}, // Note  - parchment
         mdb::Rgb{172, 194, 224}, // Door
@@ -367,6 +374,9 @@ namespace gly
         mdb::Rgb{213, 94, 0},    // Boss     - vermillion
         mdb::Rgb{204, 121, 167}, // Elite    - reddish purple
         mdb::Rgb{150, 150, 150}, // Enemy    - neutral grey, leaving boss the vermillion
+        // Green in both palettes, so the bamboo creature tells the same story in each; the
+        // leaf is a shape nothing else has, and the chest and the NPC differ outright.
+        mdb::Rgb{0, 158, 115},   // Bamboozling - bluish green
         mdb::Rgb{0, 158, 115},   // Npc      - bluish green
         mdb::Rgb{0, 114, 178},   // Note     - blue, used by nothing else
         mdb::Rgb{86, 180, 233},  // Door     - sky blue (tall box vs a loot disc)

@@ -55,11 +55,15 @@ lesson - a super-chain rule renamed a Chongsheng variant after another boss):
                have handed `BP_NPC_cunmin_C` (generic villagers) the name of
                `NPC_Cunminlaofu` ("Qiao Ying", the old village woman), which is
                the exact mistake the boss work already made once.
-4. `pinyin`  - a three-entry hand table for tokens whose Chinese is known and
+4. `glossary` - the class carries no `FText`, but the mechanics glossary names
+               the character: `GLOSSARY` maps the class to a `help_noun*` key
+               and the string is read from the same locres, so this is rule 1
+               by a different route.
+5. `pinyin`  - a two-entry hand table for tokens whose Chinese is known and
                whose class the data leaves anonymous.  Auditable by design:
                `via` says `pinyin`, so nothing here can be mistaken for a name
                the game supplied.
-5. `class-name` - the transliteration in the class name, tidied.
+6. `class-name` - the transliteration in the class name, tidied.
 
 `NO_NAME` classes deliberately keep the generic category label - see the
 comment on that table; a two-to-five letter initialism is not a name and
@@ -151,22 +155,33 @@ NO_NAME = {
     "BP_WeaponRefrom_C": "Workbench",
 }
 
+# A character the mechanics glossary names, keyed by the `help_noun*` entry that
+# does it.  The name is READ from the locres like every other one - the table
+# holds only the key - so this is rule 1 by a different route: the class carries
+# no `FText`, but the game still writes the name down.
+#
+# * `XM_NPC_C` = the Panda, `XM` = XiongMao 熊猫.  Its shop is the game's own
+#   `Mark_Shop_Xm02..Xm05` in `DT_ShopItemTrade` - four stalls, one of them
+#   selling item 18521 "Panda Hood" - which matches `help_noun13_content`:
+#   "The Panda ... can be found in many a location ... updates its stock ... each
+#   time it appears in a new location", and the class is placed exactly once per
+#   chapter.  Its rig is its own (`Assets/Character/npc/N_XM/new/M_XM_rig`, with
+#   fur, straw, a skirt, a vest and a stove counter) and references no XinMo
+#   asset: the Inner Demon rig (`WuCh_LanXinMo_Rig_NPC`, `FX/Par/Npc/XinMo/`)
+#   belongs to `ZNXM_N_NPC_C` instead.
+GLOSSARY = {
+    "XM_NPC_C": "help_noun13_name",
+}
+
 # Hand-mapped tokens: the Chinese behind the token is known, the data names the
-# class nowhere, and the class IS placed.  Kept to three entries and reported
-# as `via: pinyin` so a reviewer can veto any of them without reading code.
+# class nowhere, and the class IS placed.  Reported as `via: pinyin` so a
+# reviewer can veto any of them without reading code.
 #
 # * `cunmin` = 村民, villager.  23 placed instances of generic crowd villagers
 #   in five levels; the game gives them no dialogue and no name key.
-# * `XM` = XinMo = 心魔, the inner demon.  Two steps, both from asset naming:
-#   this project abbreviates XinMo as XM (`.../mat/XinMo/M_XM_ANQ_Body`, and
-#   `SFX_NPC/SFX_NPC_XM` + `Voice_NPC/NPC_XM` show it is a voiced NPC), and
-#   `XM_NPC_C` is placed exactly ONCE per chapter in all five chapters' `_logic`
-#   level, which is the Inner Demon's story role.  `npc_Dianame_30` is the
-#   game's own "Inner Demon".
 PINYIN = {
     "cunmin": "Villager",
     "cunmin2": "Villager",
-    "XM": "Inner Demon",
 }
 
 
@@ -327,6 +342,11 @@ def resolve(classes: list[str], keys, refs, paths, loc) -> dict[str, dict]:
     for cls in classes:
         if cls in out:
             continue
+        if cls in GLOSSARY:
+            nm = display(loc, GLOSSARY[cls])
+            if nm:
+                out[cls] = {"name": nm, "key": GLOSSARY[cls], "via": "glossary"}
+                continue
         if cls in READ_POINT:
             out[cls] = {"name": READ_POINT[cls], "key": None, "via": "read-point"}
         elif cls in NO_NAME:

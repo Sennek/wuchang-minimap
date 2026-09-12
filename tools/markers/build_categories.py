@@ -103,6 +103,12 @@ ROOTS: dict[str, list[str]] = {
     "ladder":   ["BP_LadderV2_C", "BP_InteractionLadder_C"],
     "lift":     ["BP_ElevatorBase_C", "BP_ElevatorBox_C"],
     "boss":     ["BP_PlacedBossAI_C"],
+    # The Bamboozling (`help_noun12_name`): the bamboo-shoot creature that flees,
+    # burrows when startled and drops a `Bamboo Shoot` for the Panda's shop.  A
+    # `BP_PlacedAI_C` descendant with no attack animation and 20 placements in
+    # the whole game - the count of the "Defeat 20 Bamboozlings" achievement - so
+    # it is a finite collection, not a mob, and it is claimed before `enemy`.
+    "bamboozling": ["BP_M_ZSG_C"],
     # World mechanisms worth a pin but not a category of their own. Leaves, not
     # bases: each of these sits directly under `DSCActor` or
     # `BP_InteractionObject_C` alongside dozens of things that are not markers.
@@ -137,7 +143,7 @@ ROOTS: dict[str, list[str]] = {
 ORDER = ["shrine", "hidden", "chest", "ammo", "harvest", "item", "note",
          "mystery_gate",
          "benediction_door", "door", "fog_gate", "ladder", "lift", "boss",
-         "other", "npc", "enemy"]
+         "bamboozling", "other", "npc", "enemy"]
 
 # The three pickup roots must be exactly the buckets an item-less pickup can
 # land in; the bucket registry is the single reference for that list.

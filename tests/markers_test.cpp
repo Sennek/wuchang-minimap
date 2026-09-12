@@ -106,6 +106,10 @@ namespace
     void section(const char* name)
     {
         std::printf("%s\n", name);
+        // Flushed, so a run that dies mid-section still says which section it was in:
+        // block-buffered stdout otherwise loses the last 4 KB, which is the part that
+        // names the crash.
+        std::fflush(stdout);
     }
 
     bool read_file(const std::string& path, std::string& out)
@@ -784,7 +788,7 @@ namespace
                     continue;
                 }
                 CHECK(mdb::is_loot_family(cat));
-                CHECK(mdb::is_loot_cat(cat));
+                CHECK(mdb::consumed_when_found(cat));
                 loot |= mdb::cat_bit(cat);
                 per_tier[static_cast<int>(tier)] += 1;
             }
@@ -792,10 +796,15 @@ namespace
             CHECK_EQ(per_tier[0], 4); // consumable, item, harvest, ammo
             CHECK_EQ(per_tier[1], 5); // armour, amulet, weapon, jade, spell
             CHECK_EQ(per_tier[2], 2); // material, key
-            // The peers that are loot without a tier, and one that is neither.
-            CHECK(mdb::is_loot_cat(mdb::Cat::Chest) && !mdb::is_loot_family(mdb::Cat::Chest));
-            CHECK(mdb::is_loot_cat(mdb::Cat::Hidden) && !mdb::is_loot_family(mdb::Cat::Hidden));
-            CHECK(!mdb::is_loot_cat(mdb::Cat::Shrine));
+            // Used up by finding it without being loot at all, and one that is neither: a
+            // shrine is still standing after you light it.
+            CHECK(mdb::consumed_when_found(mdb::Cat::Chest) && !mdb::is_loot_family(mdb::Cat::Chest));
+            CHECK(mdb::consumed_when_found(mdb::Cat::Hidden) && !mdb::is_loot_family(mdb::Cat::Hidden));
+            CHECK(mdb::consumed_when_found(mdb::Cat::Boss) && !mdb::is_loot_family(mdb::Cat::Boss));
+            CHECK(mdb::consumed_when_found(mdb::Cat::Bamboozling));
+            CHECK(!mdb::consumed_when_found(mdb::Cat::Shrine));
+            CHECK(!mdb::consumed_when_found(mdb::Cat::Npc));
+            CHECK(!mdb::consumed_when_found(mdb::Cat::Note));
         }
 
         // The buckets' wire names and tiers, exactly as context/buckets.md pins them.
@@ -4347,12 +4356,13 @@ namespace
             const bool have_header = read_file(root + "/src/mmstate.hpp", header);
             CHECK(have_header);
             CHECK(shipped.find("highlight_categories = chest,consumable,item,harvest,ammo,armour,"
-                               "amulet,weapon,jade,spell,material,key,shrine,boss,npc,note") !=
-                  std::string::npos);
+                               "amulet,weapon,jade,spell,material,key,shrine,boss,bamboozling,"
+                               "npc,note") != std::string::npos);
             CHECK(header.find("mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats |") !=
                   std::string::npos);
-            CHECK(header.find("mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note);") !=
+            CHECK(header.find("mdb::cat_bit(mdb::Cat::Bamboozling) | mdb::cat_bit(mdb::Cat::Npc) |") !=
                   std::string::npos);
+            CHECK(header.find("mdb::cat_bit(mdb::Cat::Note);") != std::string::npos);
         }
 
         const std::vector<std::string> player = cfgkeys::keys_of(cfgkeys::Tier::Player);
@@ -4804,6 +4814,11 @@ namespace
         {1, mdb::Cat::BenedictionDoor, 0}, {2, mdb::Cat::BenedictionDoor, 1},
         {3, mdb::Cat::BenedictionDoor, 1}, {4, mdb::Cat::BenedictionDoor, 1},
         {5, mdb::Cat::BenedictionDoor, 4}, {0, mdb::Cat::BenedictionDoor, 0},
+        // 6 + 4 + 3 + 4 + 3 = 20, and the game's own achievement is "Defeat 20
+        // Bamboozlings". A regen that moves this number found or lost one of the set.
+        {1, mdb::Cat::Bamboozling, 6}, {2, mdb::Cat::Bamboozling, 4},
+        {3, mdb::Cat::Bamboozling, 3}, {4, mdb::Cat::Bamboozling, 4},
+        {5, mdb::Cat::Bamboozling, 3}, {0, mdb::Cat::Bamboozling, 0},
     };
 
     // The generic label `tools/markers/marker_classes.LABEL` writes when nothing better is
@@ -4823,6 +4838,7 @@ namespace
             {"Spell", "Spell"},     {"Material", "Material"},
             {"Key item", "Key item"},
             {"Boss", "Boss"},       {"Elite", "Elite"},   {"Enemy", "Enemy"},
+            {"Bamboozling", "Bamboozling"},
             {"NPC", "NPC"},         {"Note", "Note"},     {"Door", "Door"},
             {"Mystery gate", "Mystery gate"},
             {"Benediction door", "Benediction door"},
@@ -4832,6 +4848,16 @@ namespace
         const int i = static_cast<int>(cat);
         if (i < 0 || i >= mdb::kCatCount)
         {
+            return true;
+        }
+        // A row left off the table above is a null pointer, not a short table: a new
+        // category would otherwise be read as the NEXT one's labels and the last row as
+        // nullptr. Say so here rather than fault inside the comparison.
+        if (kGeneric[i][0] == nullptr || kGeneric[i][1] == nullptr)
+        {
+            std::printf("  FAIL  kGeneric has no row for %s\n", mdb::cat_name(cat));
+            ++g_failures;
+            ++g_checks;
             return true;
         }
         if (name == kGeneric[i][0] || name == kGeneric[i][1])
@@ -5525,7 +5551,7 @@ namespace
             g.show_found = true;
             CHECK(mdb::xray_gate(g) == mdb::XrayDrop::Drawn);
 
-            // Found only hides loot and a defeated boss: a lit shrine, a met NPC and a read note stay.
+            // Found hides only what finding used up: a lit shrine, a met NPC and a read note stay.
             for (int c = 0; c < mdb::kCatCount; ++c)
             {
                 const auto cat = static_cast<mdb::Cat>(c);
@@ -5535,7 +5561,7 @@ namespace
                 h.within_radius = true;
                 h.found = true;
                 h.live = true; // so the people rule is not what answers
-                const bool expect_hidden = mdb::is_loot_cat(cat) || cat == mdb::Cat::Boss;
+                const bool expect_hidden = mdb::consumed_when_found(cat);
                 CHECK_EQ(mdb::xray_gate(h) == mdb::XrayDrop::Found, expect_hidden);
             }
 

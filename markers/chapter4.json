@@ -97,6 +97,54 @@
    "rarity": 1
   },
   {
+   "id": "Chapter4_DanQingY_AI/BP_M_ZSG_C_0",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_0",
+   "x": 22627.14,
+   "y": 25977.56,
+   "z": 3547.16,
+   "cell": "B4EX0_L0_X2_Y2",
+   "level": "Chapter4_DanQingY_AI"
+  },
+  {
+   "id": "Chapter4_FoYuanZ_AI/BP_M_ZSG_C_0",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_0",
+   "x": 37915.56,
+   "y": 3087.86,
+   "z": 185.07,
+   "cell": "B4EX0_L0_X3_Y0",
+   "level": "Chapter4_FoYuanZ_AI"
+  },
+  {
+   "id": "Chapter4_HuiLiuT_AI/BP_M_ZSG_C_2",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_2",
+   "x": -7389.21,
+   "y": -16329.44,
+   "z": -1820.22,
+   "cell": "B4EX0_L0_X-1_Y-2",
+   "level": "Chapter4_HuiLiuT_AI"
+  },
+  {
+   "id": "Chapter4_TangWangXG_AI/BP_M_ZSG_C_1",
+   "cat": "bamboozling",
+   "cls": "BP_M_ZSG_C",
+   "name": "Bamboozling",
+   "obj": "BP_M_ZSG_C_1",
+   "x": -480.42,
+   "y": -10105.31,
+   "z": 1637.02,
+   "cell": "B4EX0_L0_X-1_Y-1",
+   "level": "Chapter4_TangWangXG_AI"
+  },
+  {
    "id": "Chapter4_TangWangXG_logic/BP_NewGetGeemDoor_C_3",
    "cat": "benediction_door",
    "cls": "BP_NewGetGeemDoor_C",
@@ -1733,18 +1781,6 @@
    "level": "Chapter4_DanQingY_AI"
   },
   {
-   "id": "Chapter4_DanQingY_AI/BP_M_ZSG_C_0",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_0",
-   "x": 22627.14,
-   "y": 25977.56,
-   "z": 3547.16,
-   "cell": "B4EX0_L0_X2_Y2",
-   "level": "Chapter4_DanQingY_AI"
-  },
-  {
    "id": "Chapter4_DanQingY_AI/BP_ZGN_C_1",
    "cat": "enemy",
    "cls": "BP_NAA_ZGN_C",
@@ -2093,18 +2129,6 @@
    "level": "Chapter4_DiGong_AI"
   },
   {
-   "id": "Chapter4_FoYuanZ_AI/BP_M_ZSG_C_0",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_0",
-   "x": 37915.56,
-   "y": 3087.86,
-   "z": 185.07,
-   "cell": "B4EX0_L0_X3_Y0",
-   "level": "Chapter4_FoYuanZ_AI"
-  },
-  {
    "id": "Chapter4_FoYuanZ_AI/BP_SYR_C_0",
    "cat": "enemy",
    "cls": "BP_SYR_C",
@@ -2353,18 +2377,6 @@
    "x": -8721.37,
    "y": -15007.25,
    "z": -1453.49,
-   "cell": "B4EX0_L0_X-1_Y-2",
-   "level": "Chapter4_HuiLiuT_AI"
-  },
-  {
-   "id": "Chapter4_HuiLiuT_AI/BP_M_ZSG_C_2",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_2",
-   "x": -7389.21,
-   "y": -16329.44,
-   "z": -1820.22,
    "cell": "B4EX0_L0_X-1_Y-2",
    "level": "Chapter4_HuiLiuT_AI"
   },
@@ -3281,18 +3293,6 @@
    "level": "Chapter4_TangWangXG_AI"
   },
   {
-   "id": "Chapter4_TangWangXG_AI/BP_M_ZSG_C_1",
-   "cat": "enemy",
-   "cls": "BP_M_ZSG_C",
-   "name": "Enemy",
-   "obj": "BP_M_ZSG_C_1",
-   "x": -480.42,
-   "y": -10105.31,
-   "z": 1637.02,
-   "cell": "B4EX0_L0_X-1_Y-1",
-   "level": "Chapter4_TangWangXG_AI"
-  },
-  {
    "id": "Chapter4_TangWangXG_AI/BP_SYR_C_0",
    "cat": "enemy",
    "cls": "BP_SYR_C",
@@ -4117,7 +4117,7 @@
    "id": "Chapter4_DanQingY_logic/XM_NPC_C_1",
    "cat": "npc",
    "cls": "XM_NPC_C",
-   "name": "Inner Demon",
+   "name": "Panda Shop",
    "obj": "XM_NPC_C_1",
    "x": 38887.54,
    "y": 26023.76,

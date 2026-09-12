@@ -346,6 +346,33 @@ namespace overlay
                 dl->AddCircleFilled(p, r * 0.34f, col, 8);
                 dl->AddCircle(p, r * 0.92f, col, 12, w);
                 break;
+            case gly::Shape::Leaf:
+            {
+                // A bamboo leaf: pointed at both ends, widest across the middle, with a
+                // vein down it. Tall and narrow, so it never reads as the NPC's pentagon
+                // or a loot disc at glyph size.
+                const ImVec2 pts[8] = {
+                    ImVec2{p.x, p.y - r * 1.15f},
+                    ImVec2{p.x + r * 0.33f, p.y - r * 0.62f},
+                    ImVec2{p.x + r * 0.55f, p.y},
+                    ImVec2{p.x + r * 0.33f, p.y + r * 0.62f},
+                    ImVec2{p.x, p.y + r * 1.15f},
+                    ImVec2{p.x - r * 0.33f, p.y + r * 0.62f},
+                    ImVec2{p.x - r * 0.55f, p.y},
+                    ImVec2{p.x - r * 0.33f, p.y - r * 0.62f},
+                };
+                dl->AddConvexPolyFilled(pts, 8, fill);
+                dl->AddPolyline(pts, 8, edge, ImDrawFlags_Closed, ew);
+                if (hollow)
+                {
+                    dl->AddPolyline(pts, 8, col, ImDrawFlags_Closed, w);
+                }
+                if (!simple)
+                {
+                    dl->AddLine(pts[0], pts[4], ink, w);
+                }
+                break;
+            }
             case gly::Shape::Pentagon:
                 ngon(r * 1.05f, 5);
                 break;

@@ -16,7 +16,7 @@ namespace mdb
             "shrine",   "chest",
             "consumable", "item",   "harvest", "ammo",  "armour", "amulet",
             "weapon",   "jade",   "spell",   "material", "key",
-            "boss",     "elite",  "enemy",   "npc",
+            "boss",     "elite",  "enemy",   "bamboozling", "npc",
             "note",     "door",   "mystery_gate", "benediction_door",
             "ladder",   "lift",   "fog_gate",     "hidden", "other",
         };
@@ -28,7 +28,7 @@ namespace mdb
             "Shrines",    "Chests",
             "Consumable", "Item",   "Harvest", "Cannon ammo", "Armour", "Amulet",
             "Weapon",     "Jade",   "Spell",   "Material",    "Key item",
-            "Bosses",     "Elites", "Enemies", "NPCs",
+            "Bosses",     "Elites", "Enemies", "Bamboozlings", "NPCs",
             "Notes",      "Doors",  "Mystery gates", "Benediction doors",
             "Ladders",    "Lifts",  "Fog gates",     "Traps",  "Other",
         };
@@ -40,7 +40,7 @@ namespace mdb
             "Shrine",     "Chest",
             "Consumable", "Item",   "Harvest", "Cannon ammo", "Armour", "Amulet",
             "Weapon",     "Jade",   "Spell",   "Material",    "Key item",
-            "Boss",       "Elite",  "Enemy",   "NPC",
+            "Boss",       "Elite",  "Enemy",   "Bamboozling", "NPC",
             "Note",       "Door",   "Mystery gate", "Benediction door",
             "Ladder",     "Lift",   "Fog gate",     "Hidden item", "Marker",
         };

@@ -367,10 +367,10 @@ namespace markers
             mdb::Cat cat = mdb::Cat::Count; // Count = nothing resolved, keep the class rule
         };
 
-        // UObject* -> what it grants (an empty label = nothing resolved).
+        // UObject* -> what it grants. Only a RESOLVED drop is ever in here.
         std::unordered_map<const void*, ItemDrop> g_drop;
-        // UClass* -> the property that reached the item id.
-        std::unordered_map<const void*, int> g_item_prop;
+        // UClass* -> which of `kItemProps` the class declares, a bit per index.
+        std::unordered_map<const void*, std::uint32_t> g_item_prop;
 
         const void* g_world = nullptr;
         std::uint64_t g_round = 0;
@@ -943,7 +943,8 @@ namespace markers
         // with ids in the 10000..40000 band; a few classes expose a TArray of the same
         // pairs instead, so both shapes are tried per property. Neither the shape nor the
         // position of `ID` is knowable offline, so an answer is accepted only when
-        // `markers/items.json` knows the id. The winning property is cached per class.
+        // `markers/items.json` knows the id. Which property carries them is a per-ACTOR
+        // question: a placed pickup and one a chest spawns need not fill the same one.
         constexpr const wchar_t* kItemProps[] = {
             L"AddItems",                 // BP_DropItem_C: what an enemy drops
             L"Items",                    // what BP_PickupActor_C writes (1044/1046)
@@ -1150,8 +1151,34 @@ namespace markers
             return false;
         }
 
+        // Which of `kItemProps` a class DECLARES, as a bit per index. A fact of the class
+        // layout, which is why it is the only part of the answer that may be cached: an
+        // empty mask is a real never - no actor of this class can carry an item id.
+        // The element size reflection reports rides along in the log: 80 is an FScriptMap,
+        // 16 a TArray header.
+        std::uint32_t item_prop_mask(const uer::ClassLayout* layout, std::wstring& seen)
+        {
+            std::uint32_t mask = 0;
+            for (int i = 0; i < kItemPropCount; ++i)
+            {
+                const uer::Prop* p = uer::find_prop(layout, kItemProps[i]);
+                if (p != nullptr)
+                {
+                    mask |= 1u << i;
+                    seen += std::format(L" {}={}B", kItemProps[i], p->size);
+                }
+            }
+            return mask;
+        }
+
         // What a pickup-family actor grants - the label to draw and the bucket of its first
-        // item - or an empty answer. Memoised per actor and class.
+        // item - or an empty answer.
+        //
+        // AN EMPTY ANSWER IS NOT AN ANSWER. A chest spawns its loot actor and fills the item
+        // map a moment afterwards, so a pickup first met inside that window holds nothing yet.
+        // Memoising that would leave it nameless for the rest of the session, and memoising it
+        // per CLASS would do the same to every pickup of the class. So only a RESOLVED drop is
+        // kept, per actor; the class cache holds the candidate mask, which cannot go stale.
         const ItemDrop& resolve_item_drop(UObject* actor)
         {
             static const ItemDrop kNone{};
@@ -1166,75 +1193,66 @@ namespace markers
             }
             const uer::ClassLayout* layout = g_layouts.get(actor);
             UClass* cls = actor->GetClassPrivate();
-            ItemDrop drop{};
-            int winner = -1;
-            const wchar_t* kind = L"?";
             const auto known = cls != nullptr ? g_item_prop.find(cls) : g_item_prop.end();
+            std::uint32_t mask = 0;
             if (known != g_item_prop.end())
             {
-                if (known->second >= 0 &&
-                    item_drop_from_prop(layout, actor, kItemProps[known->second], drop, kind))
-                {
-                    winner = known->second;
-                }
+                mask = known->second;
             }
             else
             {
-                for (int i = 0; i < kItemPropCount; ++i)
-                {
-                    if (item_drop_from_prop(layout, actor, kItemProps[i], drop, kind))
-                    {
-                        winner = i;
-                        break;
-                    }
-                }
+                std::wstring seen;
+                mask = item_prop_mask(layout, seen);
                 if (cls != nullptr)
                 {
                     if (g_item_prop.size() > g_class_cache_max)
                     {
                         g_item_prop.clear();
                     }
-                    g_item_prop.emplace(cls, winner);
-                    if (first_time(L"itemname", safe_class_name(actor)))
-                    {
-                        if (winner >= 0)
-                        {
-                            const std::string_view bucket{
-                                drop.cat != mdb::Cat::Count ? mdb::cat_name(drop.cat) : "(none)"};
-                            mm::logf(L"markers: item-name route on '{}' is '{}' as a {} (first "
-                                     L"resolved name '{}', bucket {})",
-                                     safe_class_name(actor),
-                                     kItemProps[winner],
-                                     kind,
-                                     widen(drop.label),
-                                     std::wstring(bucket.begin(), bucket.end()));
-                        }
-                        else
-                        {
-                            // The candidates this class does have, with the element size
-                            // reflection reports: 80 is an FScriptMap, 16 a TArray header.
-                            std::wstring seen;
-                            for (int i = 0; i < kItemPropCount; ++i)
-                            {
-                                const uer::Prop* p = uer::find_prop(layout, kItemProps[i]);
-                                if (p != nullptr)
-                                {
-                                    seen += std::format(L" {}={}B", kItemProps[i], p->size);
-                                }
-                            }
-                            mm::logf(L"markers: item-name route on '{}' is (none - no map or array "
-                                     L"holds a known item id); candidates present:{}",
-                                     safe_class_name(actor),
-                                     seen.empty() ? std::wstring{L" (none)"} : seen);
-                        }
-                    }
+                    g_item_prop.emplace(cls, mask);
+                }
+                if (first_time(L"itemprops", safe_class_name(actor)))
+                {
+                    mm::logf(L"markers: item-name candidates on '{}':{}",
+                             safe_class_name(actor),
+                             seen.empty() ? std::wstring{L" (none - the class declares no item "
+                                                         L"property)"}
+                                          : seen);
                 }
             }
-            if (g_drop.size() > g_id_cache_max)
+            if (mask == 0)
             {
-                g_drop.clear();
+                return kNone;
             }
-            return g_drop.emplace(actor, winner >= 0 ? std::move(drop) : ItemDrop{}).first->second;
+            ItemDrop drop{};
+            const wchar_t* kind = L"?";
+            for (int i = 0; i < kItemPropCount; ++i)
+            {
+                if ((mask & (1u << i)) == 0 ||
+                    !item_drop_from_prop(layout, actor, kItemProps[i], drop, kind))
+                {
+                    continue;
+                }
+                if (first_time(L"itemname", safe_class_name(actor)))
+                {
+                    const std::string_view bucket{
+                        drop.cat != mdb::Cat::Count ? mdb::cat_name(drop.cat) : "(none)"};
+                    mm::logf(L"markers: item-name route on '{}' is '{}' as a {} (first resolved "
+                             L"name '{}', bucket {})",
+                             safe_class_name(actor),
+                             kItemProps[i],
+                             kind,
+                             widen(drop.label),
+                             std::wstring(bucket.begin(), bucket.end()));
+                }
+                if (g_drop.size() > g_id_cache_max)
+                {
+                    g_drop.clear();
+                }
+                return g_drop.emplace(actor, std::move(drop)).first->second;
+            }
+            // Nothing yet. The next round asks again.
+            return kNone;
         }
 
         // Is this shrine marker's id in the save's UnlockedFirepoints list? The offline
@@ -3384,7 +3402,8 @@ namespace markers
         g_health_fields.clear();
         g_hidden_route.clear();
         g_drop.clear();          // keyed on the ACTOR: a recycled allocation must not
-        g_item_prop.clear();     // hand a new drop the old one's item name
+                                 // hand a new drop the old one's item name
+        g_item_prop.clear();     // a candidate mask keyed to a UClass* of that world
         g_id_cache.clear();
         g_live.clear();
         // A level name means nothing in the next world; absence streaks must not survive.

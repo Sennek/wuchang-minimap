@@ -899,7 +899,8 @@ namespace overlay
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("writes wuchang_minimap_export_<date>_<time>.json next to the DLL\n"
+                ImGui::SetTooltip("writes wuchang_minimap_export_<date>_<time>.json into the mod's state folder,\n"
+                                  "%%LOCALAPPDATA%%\\WuchangMinimap\n"
                                   "(a counter is added when that name is taken)");
             }
             if (!import_path_seeded && import_path[0] == '\0' &&

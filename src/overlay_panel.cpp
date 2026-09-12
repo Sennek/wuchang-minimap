@@ -2205,10 +2205,11 @@ namespace overlay
             ImGui::TextDisabled("       this state has held for %llu ms",
                                 static_cast<unsigned long long>(
                                     g_reason_since_ms == 0 ? 0 : ::GetTickCount64() - g_reason_since_ms));
-            ImGui::Text("backbuffer %ux%u, %u buffer(s), composite %dx%d %s   ui scale %.2f",
+            ImGui::Text("overlay targets %ux%u, %u of them, %s, composite %dx%d %s   ui scale %.2f",
                         g_width,
                         g_height,
-                        g_buffer_count,
+                        kTargets,
+                        wide_to_ascii(format_name(comp_format())).c_str(),
                         g_map.width,
                         g_map.height,
                         g_map.ready ? "ready" : "NOT ready",

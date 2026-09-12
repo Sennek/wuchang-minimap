@@ -5747,70 +5747,34 @@ namespace
         CHECK(!slotid::is_legacy_account_key("", "36053875_maingame0"));      // shared file
     }
 
-    // Map -> clipboard: the pixel unpack and the DIB layout
-    // A wrong unpack shifts channels and a wrong DIB pastes upside down. This game's back
-    // buffer is R10G10B10A2_UNORM.
+    // Map -> clipboard: the opaque row copy and the DIB layout
+    // A wrong copy shifts channels and a wrong DIB pastes upside down. There is one
+    // source format: the overlay's own BGRA8 render target.
 
     void test_clipimg()
     {
-        std::printf("map screenshot: pixel unpack and DIB layout\n");
-
-        CHECK(clipimg::fmt_from_dxgi(24) == clipimg::Fmt::R10G10B10A2); // the real one here
-        CHECK(clipimg::fmt_from_dxgi(28) == clipimg::Fmt::R8G8B8A8);
-        CHECK(clipimg::fmt_from_dxgi(29) == clipimg::Fmt::R8G8B8A8); // _SRGB
-        CHECK(clipimg::fmt_from_dxgi(87) == clipimg::Fmt::B8G8R8A8);
-        CHECK(clipimg::fmt_from_dxgi(91) == clipimg::Fmt::B8G8R8A8);
-        // A float back buffer needs tone mapping, not unpacking: refused, not guessed.
-        CHECK(clipimg::fmt_from_dxgi(10) == clipimg::Fmt::Unknown); // R16G16B16A16_FLOAT
-        CHECK(clipimg::fmt_from_dxgi(0) == clipimg::Fmt::Unknown);
-
-        // Rounded, not shifted: `v >> 2` makes white 252, a visible grey cast.
-        CHECK_EQ(clipimg::from10(0), 0);
-        CHECK_EQ(clipimg::from10(1023), 255);
-        CHECK_EQ(clipimg::from10(512), 128);
-        // Round-to-nearest against the real range: 1020/1023 is 254.25 and lands on 254,
-        // where `v >> 2` gives 255.
-        CHECK_EQ(clipimg::from10(1020), 254);
-        CHECK(clipimg::from10(1020) != (1020u >> 2));
+        std::printf("map screenshot: the opaque row copy and the DIB layout\n");
 
         {
-            // R = 1023, G = 0, B = 512, A = 3  ->  bits: R 0-9, G 10-19, B 20-29, A 30-31.
-            const std::uint32_t px = 1023u | (0u << 10) | (512u << 20) | (3u << 30);
-            std::uint8_t src[4];
-            std::memcpy(src, &px, 4);
-            std::uint8_t dst[4]{};
-            CHECK(clipimg::unpack_row(clipimg::Fmt::R10G10B10A2, src, dst, 1));
-            CHECK_EQ(dst[0], 128); // B
-            CHECK_EQ(dst[1], 0);   // G
-            CHECK_EQ(dst[2], 255); // R
-            CHECK_EQ(dst[3], 255); // alpha is forced opaque, never the buffer's 2 bits
-        }
-        {
-            const std::uint8_t src[8] = {1, 2, 3, 4, 5, 6, 7, 8}; // RGBA, two pixels
+            const std::uint8_t src[8] = {9, 8, 7, 0, 1, 2, 3, 4}; // BGRA, two pixels
             std::uint8_t dst[8]{};
-            CHECK(clipimg::unpack_row(clipimg::Fmt::R8G8B8A8, src, dst, 2));
-            CHECK_EQ(dst[0], 3); // B
-            CHECK_EQ(dst[1], 2); // G
-            CHECK_EQ(dst[2], 1); // R
-            CHECK_EQ(dst[3], 255);
-            CHECK_EQ(dst[4], 7);
-            CHECK_EQ(dst[6], 5);
-        }
-        {
-            const std::uint8_t src[4] = {9, 8, 7, 0}; // already BGRA
-            std::uint8_t dst[4]{};
-            CHECK(clipimg::unpack_row(clipimg::Fmt::B8G8R8A8, src, dst, 1));
+            CHECK(clipimg::to_dib_row(src, dst, 2));
             CHECK_EQ(dst[0], 9);
             CHECK_EQ(dst[1], 8);
             CHECK_EQ(dst[2], 7);
+            // The target's alpha is the overlay's coverage; a clipboard bitmap is opaque.
             CHECK_EQ(dst[3], 255);
+            CHECK_EQ(dst[4], 1);
+            CHECK_EQ(dst[5], 2);
+            CHECK_EQ(dst[6], 3);
+            CHECK_EQ(dst[7], 255);
         }
         {
             std::uint8_t dst[4]{};
             const std::uint8_t src[4]{};
-            CHECK(!clipimg::unpack_row(clipimg::Fmt::Unknown, src, dst, 1));
-            CHECK(!clipimg::unpack_row(clipimg::Fmt::R8G8B8A8, nullptr, dst, 1));
-            CHECK(!clipimg::unpack_row(clipimg::Fmt::R8G8B8A8, src, dst, 0));
+            CHECK(!clipimg::to_dib_row(nullptr, dst, 1));
+            CHECK(!clipimg::to_dib_row(src, nullptr, 1));
+            CHECK(!clipimg::to_dib_row(src, dst, 0));
         }
 
         {

@@ -6,14 +6,16 @@
 // mod's public surface, which is overlay.hpp.
 //
 // The globals keep the order the overlay uses them in, and the thread that owns each
-// one is named next to it. Three threads reach this state:
+// one is named next to it. Four threads reach this state:
 //
-//   RENDER thread - Present / Present1 / ResizeBuffers. Creates and releases every
-//                   D3D12 object and builds every draw list.
-//   LOOP thread   - UE4SS on_update: hotkeys, config and waypoint I/O, both height
-//                   slicers, the map asset load.
-//   GAME thread   - never enters this file; its state arrives through
-//                   mm::read_snapshot() and markers::publish().
+//   RENDER thread  - Present / Present1 / ResizeBuffers. Creates and releases every
+//                    D3D12 object and builds every draw list.
+//   LOOP thread    - UE4SS on_update: hotkeys, config and waypoint I/O, both height
+//                    slicers, the map asset load.
+//   SURFACE thread - overlay_dcomp.cpp. Reads the published target index and fence
+//                    value, `g_fence`, and nothing else of this file's.
+//   GAME thread    - never enters this file; its state arrives through
+//                    mm::read_snapshot() and markers::publish().
 //
 // Every `extern` here is defined in overlay.cpp.
 //
@@ -77,7 +79,11 @@ namespace overlay
     {
         constexpr float kPi = 3.14159265358979323846f;
         constexpr int kSrvHeapSize = 64;
-        constexpr int kMaxBuffers = 8;
+        // The mod's own render targets, and the size of every per-target array here.
+        // Two is what keeps the render thread from ever waiting: one is being copied into
+        // the composition surface while the next frame is drawn into the other. It must
+        // fit in `kMailboxIndexBits` (overlay_dcomp.cpp).
+        constexpr UINT kTargets = 2;
         // ImGui 1.92's font atlas is dynamic (ImGuiBackendFlags_RendererHasTextures), so
         // `style.FontScaleMain` re-rasterises the glyphs: no atlas rebuild, no texture
         // of ours to release.
@@ -295,12 +301,16 @@ namespace overlay
         // and that thread need not be the render thread: the master switch releases from
         // the loop thread when no frame is coming.
         //
-        // Three protocols keep a dereference off a released pointer, and which one
+        // Four protocols keep a dereference off a released pointer, and which one
         // applies is a property of the caller:
         //   * the render path derefs on the mutator's own side, and cannot race itself;
         //   * the loop thread's slicer (overlay_slice.cpp) derefs under the
         //     `g_slicer_pause` / `g_slicer_busy` handshake, which the release performs
         //     before it lets go;
+        //   * the surface thread (overlay_dcomp.cpp) never derefs it - it holds only
+        //     objects built on it, plus `g_fence`, and it is stopped and joined before
+        //     the release touches any of them. If it will not stop it is marked wedged
+        //     and everything it reads, `g_fence` included, is leaked instead;
         //   * everyone else may ask ONE question, the removal reason, under the lock
         //     below.
         extern ID3D12Device* g_device;
@@ -321,14 +331,15 @@ namespace overlay
         extern std::atomic<ID3D12CommandQueue*> g_queue;
         extern ID3D12GraphicsCommandList* g_cmd_list;
         extern ID3D12DescriptorHeap* g_rtv_heap;
-        extern ID3D12Resource* g_backbuffers[kMaxBuffers];
-        extern D3D12_CPU_DESCRIPTOR_HANDLE g_rtv[kMaxBuffers];
-        extern FrameCtx g_frames[kMaxBuffers];
+        // The `kTargets` textures the overlay draws into. The mod created them, they are
+        // never anything the game or a layer owns, and they stay in RENDER_TARGET for
+        // their whole life - the frame records no transition on them.
+        extern ID3D12Resource* g_targets[kTargets];
+        extern D3D12_CPU_DESCRIPTOR_HANDLE g_rtv[kTargets];
+        extern FrameCtx g_frames[kTargets];
         extern ID3D12Fence* g_fence;
         extern HANDLE g_fence_event;
         extern UINT64 g_fence_value;
-        extern UINT g_buffer_count;
-        extern DXGI_FORMAT g_format;
         extern UINT g_width;
         extern UINT g_height;
         extern HWND g_hwnd;
@@ -351,6 +362,16 @@ namespace overlay
         // critical section before giving up on (re)allocating buffers this frame. The
         // slice is 1-4 ms and never blocks, so a timeout means something is badly wrong.
         constexpr unsigned kSlicerPauseMs = 50;
+        // The teardown's own budget for the same handshake, larger because it is paid
+        // once and a slice that is mid-cut must be allowed to finish.
+        constexpr unsigned kSlicerStopMs = 1000;
+        // How long any of the render thread's fence waits gives the GPU. Every wait on
+        // this path is bounded and says so when the bound is what ended it.
+        constexpr unsigned kGpuWaitMs = 1000;
+        // How long `finish_stop` waits for the render lock before refusing to disable a
+        // hook. A thread holding it is inside the detour, and MinHook rewrites the code
+        // it is standing in.
+        constexpr unsigned kFinishStopLockMs = 1000;
         constexpr int kSliceBufs = 2;
         // Here rather than with the full map's block below: the slicer handshake arrays
         // need both counts.
@@ -512,6 +533,12 @@ namespace overlay
         // per process: it is cleared together with `g_device_removed`, so a second
         // removal after a master-switch cycle gets its own line.
         extern std::atomic<bool> g_removal_logged;
+        // Whether a failing Present that did NOT remove a device has been reported, for
+        // the adopted swapchain and for every other one in the process. One line per
+        // class, cleared with the removal latch above, so a foreign renderer's failure is
+        // never read as the mod's and neither drowns the log.
+        extern std::atomic<bool> g_present_fail_ours;
+        extern std::atomic<bool> g_present_fail_other;
         // Set by whatever thread saw a Present of the adopted swapchain fail with
         // DEVICE_REMOVED / DEVICE_RESET. Any thread may ask the device its reason for the
         // log, but only the render thread may ACT on the answer, so it is the one that
@@ -529,10 +556,12 @@ namespace overlay
         extern std::atomic<bool> g_hooks_installed;
         // Master-switch state. `g_hooks_created` is set once the MinHook trampolines
         // exist, so a re-enable only has to MH_EnableHook them and no address can be
-        // hooked twice. `g_render_stopped` is the render thread's answer to "you have
-        // been switched off" (see shutdown_render()).
+        // hooked twice. `g_render_shutdown` is the render thread's answer to "you have
+        // been switched off" and the ONE place that answer lives: `shutdown_render()`
+        // advances it NotStarted -> InProgress -> Done, and `overlay::stop_phase()` is
+        // what the loop thread reads.
         extern bool g_hooks_created; // loop thread only
-        extern std::atomic<bool> g_render_stopped; // render -> loop
+        extern std::atomic<StopPhase> g_render_shutdown; // render -> loop
         extern std::atomic<bool> g_watchdog_reported;
         extern std::uint64_t g_hook_install_ms;
         // Written by the render thread and read by the F2 panel on the same thread; also
@@ -560,11 +589,6 @@ namespace overlay
         extern PresentFn o_Present;
         extern Present1Fn o_Present1;
         extern ResizeBuffersFn o_ResizeBuffers;
-        // Frames in flight the ImGui backend keeps per-frame buffers for. A fullscreen
-        // toggle can raise the swapchain's BufferCount, and a stale count here reuses
-        // the descriptor and vertex buffers of a frame the GPU has not finished. Beside
-        // the allocators because both are grown by the same event.
-        extern int g_imgui_frames_in_flight;
         // The set of virtual keys the window messages of which are swallowed. Raw-input
         // (WM_INPUT) keyboard packets are NOT filtered here.
         extern std::atomic<std::uint32_t> g_swallow_bits[8];
@@ -719,8 +743,7 @@ namespace overlay
         extern UINT g_shot_w;
         extern UINT g_shot_h;
         extern UINT g_shot_pitch;
-        extern clipimg::Fmt g_shot_fmt;
-        // The canvas rect of the last full-map frame, in back-buffer pixels. Written by
+        // The canvas rect of the last full-map frame, in overlay-target pixels. Written by
         // draw_full_map every frame it draws, read by the render thread in the same
         // frame - same thread, no synchronisation needed.
         extern mv::Rect g_shot_canvas;
@@ -1078,21 +1101,43 @@ namespace overlay
         //--------------------------------------------------------------------------
         // overlay_dcomp.cpp - the overlay's own composition surface
         //--------------------------------------------------------------------------
-        // A swapchain and a DirectComposition visual of this module's own, over the
-        // game's window. What the overlay draws into when it does not draw into the
-        // game's back buffer, which is a buffer it cannot ask permission for. RENDER
-        // THREAD only, and it creates no device - the game's own is used.
-        bool comp_create(ID3D12Device* device, HWND hwnd, UINT width, UINT height);
-        bool comp_resize(UINT width, UINT height);
+        // A DirectComposition surface of this module's own, over the game's window, and
+        // the surface thread that copies finished frames into it through D3D11On12.
+        // There is no swapchain and no Present: a process carrying Streamline supports
+        // exactly one IDXGISwapChain. Everything but `comp_stop_thread` belongs to
+        // whoever holds `g_render_lock`, and no device is created - the game's own is
+        // used.
+        bool comp_create(ID3D12Device* device, HWND hwnd);
+        // Makes the surface for the freshly created render targets and wraps them, then
+        // lets the surface thread run. `comp_unbind_targets` stands the thread down and
+        // drops both again, and is what `release_render_targets` calls.
+        bool comp_bind_targets(ID3D12Resource* const* targets, UINT width, UINT height);
+        bool comp_unbind_targets();
         void comp_release();
         bool comp_ready();
-        // The surface is presented by overlay_d3d12.cpp through the Present trampoline,
-        // not from this module and never through the vtable: the hook is on one dxgi
-        // function that every swapchain in the process shares, ours included.
-        IDXGISwapChain3* comp_swapchain();
+        // ANY THREAD. Stops and joins the surface thread; releases nothing. Two
+        // concurrent callers are safe: one joins and the other waits for that join
+        // rather than racing past it.
+        void comp_stop_thread();
+        // True only when the surface thread is provably gone, which is the one licence
+        // to free anything it reads. False while it runs, while another thread is
+        // joining it, and for ever once it refused to exit within its join budget - in
+        // which case everything it reads, the render fence included, is leaked and the
+        // overlay does not come back this session.
+        bool comp_thread_stopped();
+        // The index of a target whose last copy has completed, or -1 when the compositor
+        // is behind - which drops the overlay's frame and bumps the skipped counter.
+        int comp_pick_target();
+        // Hands a finished frame to the surface thread: latest wins, and the render
+        // thread never waits.
+        void comp_publish(int index, std::uint64_t fence_value);
+        // Frames the render thread never drew for want of a free target, and frames the
+        // surface thread took but could not compose. Both belong to one adoption.
+        std::uint64_t comp_skipped_frames();
+        std::uint64_t comp_dropped_frames();
+        void comp_reset_counters();
         ID3D12CommandQueue* comp_queue();
         DXGI_FORMAT comp_format();
-        UINT comp_buffer_count();
         // The sync interval and flags of the most recent Present of the adopted
         // swapchain, recorded by the hook so the line above can report them.
         extern std::atomic<unsigned> g_present_sync;
@@ -1115,7 +1160,7 @@ namespace overlay
         void request_readoption(const wchar_t* why);
         std::wstring stage_w(const char* s);
         void set_hide_reason(const wchar_t* text);
-        void release_render_targets();
+        bool release_render_targets();
         void wait_for_gpu();
         bool ensure_frame_allocators();
         bool create_render_targets(IDXGISwapChain* swapchain);
@@ -1253,7 +1298,7 @@ namespace overlay
         void post_toast(const char* text, unsigned ms);
         void shot_fail(const char* why);
         void shot_reset();
-        bool record_shot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* backbuffer, UINT index);
+        bool record_shot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* target, UINT index);
         void shot_collect();
         void draw_shrine_list(const mm::Snapshot& snap, bool have_state, int filter_chapter);
         void draw_collection_stats(std::uint64_t now, bool compact);

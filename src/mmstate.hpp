@@ -1,15 +1,23 @@
 #pragma once
 
-// mmstate - state shared across the mod's three threads: the UE4SS event-loop thread
+// mmstate - state shared across the mod's four threads: the UE4SS event-loop thread
 // (on_update: hotkeys, config file I/O, maps.json + PNG decoding, log draining), the game
 // thread (ProcessEvent pre-callback: reads the pawn, the view target and the widgets, and
-// publishes a Snapshot) and the render thread (the hooked IDXGISwapChain::Present).
+// publishes a Snapshot), the render thread (the hooked IDXGISwapChain::Present) and the
+// surface thread (overlay_dcomp.cpp: copies a finished overlay frame into the mod's
+// DirectComposition surface, off the game's present).
 //
 // Invariants:
 //   * no std::mutex anywhere (it faults against the process's MSVCP140 from the game
 //     thread) - a Snapshot goes through a seqlock, everything else is a plain atomic;
 //   * no iostreams / locale off the loop thread - file I/O is CreateFileW + ReadFile;
-//   * the render thread never touches a UObject, the game thread never touches D3D12.
+//   * the render thread never touches a UObject, the game thread never touches D3D12;
+//   * the surface thread touches no UObject and takes no lock. Of the render path it
+//     dereferences exactly `g_fence` - GetCompletedValue and SetEventOnCompletion -
+//     plus its own objects, which it signals its own copy fence on, and it is stopped
+//     and joined before `g_fence` is released. If it will not exit it is marked wedged:
+//     everything it can reach is leaked rather than freed under it and the overlay goes
+//     terminally off for the session.
 
 #include <atomic>
 #include <cstddef>
@@ -159,7 +167,7 @@ namespace mm
         bool show_minimap = true;
 
         //=== UI scale, HUD placement, theme and palette ============================
-        // `ui_scale = auto` derives the factor from the back buffer's height
+        // `ui_scale = auto` derives the factor from the overlay target's height
         // (clamp(h / 1080, 1, 4)). Every PIXEL key below is multiplied by it at read time;
         // minimap_size and compass_width are fractions and are not.
         // `theme` is the chrome, `palette` the marker hue set - independent axes; a colour key

@@ -103,6 +103,9 @@ extern "C"
 
     WUCHANG_MINIMAP_API void uninstall_mod(RC::CppUserModBase* mod)
     {
+        // Before the module can go: the overlay's surface thread runs a procedure that
+        // lives in this DLL.
+        overlay::stop_surface_thread();
         delete mod;
     }
 }

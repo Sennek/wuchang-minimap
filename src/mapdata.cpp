@@ -397,9 +397,10 @@ namespace mapdata
             return hm.release();
         }
 
-        // Clears the active chapter's `heights` pointer and parks the planes for a
-        // delayed free. Loop thread.
-        void retire_active(std::uint64_t now)
+        // Clears the active chapter's `heights` pointer and frees the planes - after a
+        // grace period while a render thread can still be inside a slice, at once when
+        // the caller knows it cannot. Loop thread.
+        void retire_active(std::uint64_t now, bool free_now)
         {
             const int active = g_active.exchange(-1, std::memory_order_release);
             if (g_chapters_mut == nullptr || active < 0 ||
@@ -421,14 +422,24 @@ namespace mapdata
             crumb::stage(crumb::kChapterSwapStart);
             delete g_retired;
             g_retired = const_cast<HeightMaps*>(planes);
+            const std::uint64_t mb = g_retired->bytes() / (1024 * 1024);
+            if (free_now)
+            {
+                delete g_retired;
+                g_retired = nullptr;
+                g_retire_at = 0;
+                mm::logf(L"maps: chapter \"{}\" unloaded, {} MB freed", widen(ch.key), mb);
+                return;
+            }
             // `map_asset_retire_grace_ms` (default kRetireGraceMs), read here rather than
             // baked in: it decides whether a render thread still inside a slice can be
-            // handed freed memory.
+            // handed freed memory. It is a delay before the free, not how long one took.
             const std::uint64_t grace = static_cast<std::uint64_t>(mm::config().map_asset_retire_grace_ms);
             g_retire_at = now + grace;
-            mm::logf(L"maps: chapter \"{}\" unloaded ({} MB freed in {} ms)",
+            mm::logf(L"maps: chapter \"{}\" retired - its {} MB are freed {} ms from now, once no "
+                     L"render thread can still be inside a slice of it",
                      widen(ch.key),
-                     g_retired->bytes() / (1024 * 1024),
+                     mb,
                      grace);
         }
     } // namespace
@@ -471,7 +482,7 @@ namespace mapdata
         // An F5 reload publishes a fresh chapter list; the planes hanging off the old one
         // are retired here or leaked with it (327 MB a press).
         const std::uint64_t now = ::GetTickCount64();
-        retire_active(now);
+        retire_active(now, false);
         pending_clear(); // an F5 reload must not upload the previous composite
 
         std::vector<Chapter> parsed;
@@ -570,11 +581,13 @@ namespace mapdata
 
     void unload()
     {
-        // LOOP THREAD, master switch only, and only AFTER overlay::stop_complete(): with
-        // the render side torn down nobody can be inside a height slice, so the planes are
-        // freed here and now rather than through the kRetireGraceMs path.
-        const std::uint64_t now = ::GetTickCount64();
-        retire_active(now);
+        // LOOP THREAD, master switch only, and only once the render side has torn itself
+        // down: nobody can be inside a height slice, so the planes go now rather than
+        // through the grace path.
+        retire_active(::GetTickCount64(), true);
+        // `retire_active` frees what was ACTIVE. A retirement from the grace path may
+        // still be parked - up to ~340 MB - and there is no reader left to wait for, so
+        // this is the one place that says what OFF means: nothing resident.
         delete g_retired;
         g_retired = nullptr;
         g_retire_at = 0;
@@ -691,7 +704,7 @@ namespace mapdata
                     want >= 0 ? widen(g_manifest.chapters[static_cast<std::size_t>(want)].key)
                               : std::wstring{L"(no map asset for this chapter)"};
                 mm::logf(L"maps: chapter switch {} -> {}", from, to);
-                retire_active(now);
+                retire_active(now, false);
                 g_pending_chapter = want;
                 return;
             }

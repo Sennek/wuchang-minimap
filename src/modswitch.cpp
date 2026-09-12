@@ -28,9 +28,16 @@ namespace modswitch
         // parsed only when the timestamp moved.
         constexpr std::uint64_t kWatchPeriodMs = 1000;
 
-        // How long a disable waits for the render thread to tear its own D3D12 objects
-        // down before the hooks come out anyway.
+        // How long a disable waits for a Present to pick the teardown up. Past this with
+        // nothing started, no Present is arriving and the hooks come out anyway.
         constexpr std::uint64_t kStopTimeoutMs = 3000;
+
+        // How long a teardown that HAS started is given. It is generous on purpose: the
+        // render side's own bounded waits - the slicer, the GPU fence, the surface
+        // thread's join, the last copy - sum to five seconds before a single
+        // DirectComposition call has been made, and those calls have no bound at all.
+        // Past this the stop is called wedged and nothing is taken away from the thread.
+        constexpr std::uint64_t kStopWedgeMs = 10000;
 
         // A module's FILEVERSION as "a.b.c.d", or an empty string. `nullptr` asks for the
         // running executable, which is how the game's own build is named.
@@ -210,7 +217,9 @@ namespace modswitch
         bool g_ever_started = false;
         std::uint64_t g_last_watch = 0;
         std::uint64_t g_config_mtime = 0;
-        std::uint64_t g_stop_deadline = 0;
+        std::uint64_t g_stop_began = 0;    // when the disable was requested
+        std::uint64_t g_stop_deadline = 0; // the next moment the stop has something to do or say
+        std::uint64_t g_stop_wedge_at = 0; // when a teardown in progress is called wedged; 0 once it was
 
         void start_subsystems()
         {
@@ -264,7 +273,9 @@ namespace modswitch
             // Step 1.
             mm::g_mod_active.store(false, std::memory_order_release);
             g_state = State::Stopping;
-            g_stop_deadline = ::GetTickCount64() + kStopTimeoutMs;
+            g_stop_began = ::GetTickCount64();
+            g_stop_deadline = g_stop_began + kStopTimeoutMs;
+            g_stop_wedge_at = g_stop_began + kStopWedgeMs;
             mm::logf(L"master switch: mod_enabled = 0 ({}) - the game-thread pump and the overlay are "
                      L"standing down",
                      std::wstring{why});
@@ -272,18 +283,27 @@ namespace modswitch
             mm::drain_log();
         }
 
-        void finish_disable(bool timed_out)
+        // False when the hooks could not come out because a thread is still inside the
+        // detour: nothing was changed and the stop has to go on waiting.
+        bool finish_disable(bool never_started)
         {
-            overlay::finish_stop(); // step 3a: the hooks come out
+            if (!overlay::finish_stop()) // step 3a: the hooks come out
+            {
+                return false;
+            }
             // The found tracker's write is debounced a couple of seconds; flushed before teardown.
             markers::flush_found_tracker();
             mapdata::unload();      // step 3b: the chapter's height planes are freed
             g_state = State::Off;
-            if (timed_out)
+            if (never_started)
             {
-                mm::logf(L"master switch: the render thread did not answer within {} ms (no Present is "
-                         L"arriving) - the hooks were disabled anyway; ImGui and the D3D12 objects stay "
-                         L"allocated until the mod is turned back on",
+                // No Present ever reached the teardown, so no thread is inside the detour
+                // and the surface thread is still alive. Stopping a thread of the mod's
+                // own is allowed from here; releasing a D3D12 object still is not.
+                overlay::stop_surface_thread();
+                mm::logf(L"master switch: no Present reached the overlay's teardown within {} ms, so the "
+                         L"render thread never started it - the hooks came out anyway; ImGui and the "
+                         L"D3D12 objects stay allocated until the mod is turned back on",
                          kStopTimeoutMs);
             }
             mm::logf(L"master switch: the mod is OFF. Nothing is hooked, nothing is scanned and no map is "
@@ -294,6 +314,38 @@ namespace modswitch
             // earlier, step 3b's chapter unload overwrites it and a crash while the mod is off is
             // reported against a chapter swap.
             crumb::stage(crumb::kModOff);
+            return true;
+        }
+
+        // A teardown that HAS started and has not finished. Nothing may be taken away from
+        // a thread that is inside the detour and inside DirectComposition, so this waits
+        // and says so - once a second, then once for the wedge, then silently for ever,
+        // because a render thread that finishes late still finishes cleanly.
+        void report_slow_stop(std::uint64_t now)
+        {
+            g_stop_deadline = now + 1000;
+            if (g_stop_wedge_at == 0)
+            {
+                return; // already called wedged; there is nothing new to say
+            }
+            if (now < g_stop_wedge_at)
+            {
+                mm::logf(L"master switch: the render thread is still inside its teardown after {} ms. "
+                         L"The hooks stay installed and nothing is released - it is in there. Waiting "
+                         L"up to {} ms in all.",
+                         now - g_stop_began,
+                         kStopWedgeMs);
+                return;
+            }
+            g_stop_wedge_at = 0;
+            mm::logf(L"master switch: WEDGED - the render thread has been inside the overlay's teardown "
+                     L"for {} ms. It is a thread of the GAME's standing inside this mod's detour, so "
+                     L"the hooks are NOT disabled, no D3D12 object is released and the surface thread "
+                     L"is not touched: taking any of that away would fault that thread rather than free "
+                     L"it. The mod stays in this state and still finishes the stop properly if the "
+                     L"thread ever comes back. Send wuchang_minimap.log and "
+                     L"wuchang_minimap_last_stage.txt.",
+                     now - g_stop_began);
         }
 
         // The 1 Hz watcher. Reads only `mod_enabled`, and only when the file's timestamp
@@ -384,10 +436,26 @@ namespace modswitch
 
         if (g_state == State::Stopping)
         {
-            const bool done = overlay::stop_complete();
-            if (done || now >= g_stop_deadline)
+            const overlay::StopPhase phase = overlay::stop_phase();
+            bool finished = false;
+            if (phase == overlay::StopPhase::Done)
             {
-                finish_disable(!done);
+                finished = finish_disable(false);
+            }
+            else if (now >= g_stop_deadline)
+            {
+                // The two meanings of a timeout, which is the whole reason the phase
+                // exists: nothing started, so no Present is arriving and the hooks can
+                // come out; or it started and is still running, and nothing it holds may
+                // be pulled out from under it.
+                finished = phase == overlay::StopPhase::NotStarted && finish_disable(true);
+            }
+            if (!finished && now >= g_stop_deadline)
+            {
+                // Either a teardown in progress, or one whose thread is still inside the
+                // detour with the render lock. Same answer to both: wait, say so, and
+                // take nothing away.
+                report_slow_stop(now);
             }
             // Nothing else runs during a stop.
             mm::drain_log();

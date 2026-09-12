@@ -59,14 +59,12 @@ namespace overlay
         std::atomic<ID3D12CommandQueue*> g_queue{nullptr};
         ID3D12GraphicsCommandList* g_cmd_list = nullptr;
         ID3D12DescriptorHeap* g_rtv_heap = nullptr;
-        ID3D12Resource* g_backbuffers[kMaxBuffers]{};
-        D3D12_CPU_DESCRIPTOR_HANDLE g_rtv[kMaxBuffers]{};
-        FrameCtx g_frames[kMaxBuffers]{};
+        ID3D12Resource* g_targets[kTargets]{};
+        D3D12_CPU_DESCRIPTOR_HANDLE g_rtv[kTargets]{};
+        FrameCtx g_frames[kTargets]{};
         ID3D12Fence* g_fence = nullptr;
         HANDLE g_fence_event = nullptr;
         UINT64 g_fence_value = 0;
-        UINT g_buffer_count = 0;
-        DXGI_FORMAT g_format = DXGI_FORMAT_UNKNOWN;
         UINT g_width = 0;
         UINT g_height = 0;
         HWND g_hwnd = nullptr;
@@ -152,6 +150,8 @@ namespace overlay
         std::atomic<unsigned> g_present_flags{0};
         std::atomic<bool> g_removal_released{false};
         std::atomic<bool> g_removal_logged{false};
+        std::atomic<bool> g_present_fail_ours{false};
+        std::atomic<bool> g_present_fail_other{false};
         std::atomic<bool> g_present_failed{false};
         std::atomic<std::uint64_t> g_present_count{0};
         std::atomic<std::uint64_t> g_resize_count{0};
@@ -160,7 +160,7 @@ namespace overlay
         std::atomic<bool> g_drop_textures{false};
         std::atomic<bool> g_hooks_installed{false};
         bool g_hooks_created = false;                // loop thread only
-        std::atomic<bool> g_render_stopped{true};    // render -> loop
+        std::atomic<StopPhase> g_render_shutdown{StopPhase::Done}; // render -> loop
         std::atomic<bool> g_watchdog_reported{false};
         std::uint64_t g_hook_install_ms = 0;
         // Bumped by start(). Both watchdogs below keep their windows in function statics
@@ -182,7 +182,6 @@ namespace overlay
         PresentFn o_Present = nullptr;
         Present1Fn o_Present1 = nullptr;
         ResizeBuffersFn o_ResizeBuffers = nullptr;
-        int g_imgui_frames_in_flight = 0;
         std::atomic<std::uint32_t> g_swallow_bits[8]{};
         std::atomic<std::uint64_t> g_swallow_stamp{0};
         spin::Spinlock g_msg_lock;
@@ -212,7 +211,6 @@ namespace overlay
         UINT g_shot_w = 0;
         UINT g_shot_h = 0;
         UINT g_shot_pitch = 0;
-        clipimg::Fmt g_shot_fmt = clipimg::Fmt::Unknown;
         mv::Rect g_shot_canvas{};
         bool g_shot_canvas_valid = false;
         spin::Spinlock g_shot_lock;
@@ -252,7 +250,7 @@ namespace overlay
         // UI SCALE
         //==============================================================================
         //
-        // `ui_scale = auto` derives one number from the back-buffer height; a number in
+        // `ui_scale = auto` derives one number from the overlay target's height; a number in
         // the config pins it. It is applied in exactly two places, so nothing can be
         // scaled twice or missed:
         //
@@ -280,7 +278,7 @@ namespace overlay
             {
                 s = (std::max)(kUiScaleMin, (std::min)(kUiScaleMax, s));
             }
-            // Snap to a hundredth, so a back buffer of 1081 px does not rebuild the
+            // Snap to a hundredth, so a target of 1081 px does not rebuild the
             // style for an invisible difference.
             return std::round(s * 100.0f) / 100.0f;
         }
@@ -1011,7 +1009,7 @@ namespace overlay
         mapdata::load(mm::mod_dir());
 
         // The render thread is allowed to build its objects again from the next frame.
-        g_render_stopped.store(false, std::memory_order_release);
+        g_render_shutdown.store(StopPhase::NotStarted, std::memory_order_release);
         // A stop that never reached a Present leaves the objects of the old device in
         // place. Forgetting the removal without releasing them would let the next Present
         // take the "ImGui is ready" path and record a frame on a dead device. `g_device`
@@ -1027,6 +1025,8 @@ namespace overlay
         // The reason line belongs to the removal, not to the process: a second removal
         // in one session has to be able to say why it happened.
         g_removal_logged.store(false, std::memory_order_release);
+        g_present_fail_ours.store(false, std::memory_order_release);
+        g_present_fail_other.store(false, std::memory_order_release);
         g_present_failed.store(false, std::memory_order_release);
         // Neither watchdog may read the off period as a freeze.
         g_watchdog_epoch.fetch_add(1, std::memory_order_relaxed);
@@ -1090,15 +1090,15 @@ namespace overlay
     {
         // mm::g_mod_active is already false, so the next Present takes the teardown
         // path. If no frame is coming - the game is minimised, or the hooks never fired
-        // at all - stop_complete() below answers for it.
+        // at all - stop_phase() below answers for it.
         if (!g_hooks_installed.load(std::memory_order_acquire) || g_present_count.load() == 0)
         {
             // A bound, not a spin. The render thread holds this lock across
             // ImGui_ImplWin32_NewFrame, which waits on the GAME thread's message pump, so
             // a frame that is itself wedged would keep the loop thread here for ever -
             // and the loop thread is the one that still answers when the other two do
-            // not. On a timeout the stop state machine carries on: `stop_complete()` goes
-            // on returning false until a Present tears the objects down, which is the
+            // not. On a timeout the stop state machine carries on: `stop_phase()` goes
+            // on saying NotStarted until a Present tears the objects down, which is the
             // same state a game that has stopped presenting was already in.
             if (g_render_lock.try_lock_ms(2000))
             {
@@ -1116,18 +1116,38 @@ namespace overlay
         }
     }
 
-    bool stop_complete()
+    StopPhase stop_phase()
     {
-        return g_render_stopped.load(std::memory_order_acquire);
+        return g_render_shutdown.load(std::memory_order_acquire);
     }
 
-    void finish_stop()
+    void stop_surface_thread()
+    {
+        ovl::comp_stop_thread();
+    }
+
+    bool finish_stop()
     {
         if (!g_hooks_created)
         {
-            return;
+            return true;
+        }
+        // THE rule: a hook never comes out while anybody holds the render lock.
+        // `stop_phase()` answers for the thread that RAN the teardown; a second Present
+        // can still be waiting for the lock behind it, and `hk_ResizeBuffers` and the
+        // device-removed release take the same lock without touching the phase at all.
+        // MinHook rewrites the function bodies those threads are standing in.
+        if (!g_render_lock.try_lock_ms(kFinishStopLockMs))
+        {
+            mm::logf(L"master switch: the render lock was still held after {} ms, so the hooks were "
+                     L"NOT disabled. Render thread {} is at '{}'.",
+                     kFinishStopLockMs,
+                     g_render_tid.load(std::memory_order_relaxed),
+                     stage_w(g_render_stage.load(std::memory_order_relaxed)));
+            return false;
         }
         const MH_STATUS st = MH_DisableHook(MH_ALL_HOOKS);
+        g_render_lock.unlock();
         g_hooks_installed.store(false, std::memory_order_release);
         // The stop is complete, so the removal that ended the last session is history;
         // a re-enable through start() re-adopts from an empty state.
@@ -1136,6 +1156,8 @@ namespace overlay
         // The reason line belongs to the removal, not to the process: a second removal
         // in one session has to be able to say why it happened.
         g_removal_logged.store(false, std::memory_order_release);
+        g_present_fail_ours.store(false, std::memory_order_release);
+        g_present_fail_other.store(false, std::memory_order_release);
         g_present_failed.store(false, std::memory_order_release);
         mm::logf(L"master switch: the DX12 hooks were disabled (MH_DisableHook = {}); the trampolines "
                  L"stay created so turning the mod back on cannot double-hook",
@@ -1143,6 +1165,7 @@ namespace overlay
         // The `mod off` crumb belongs at the END of the whole stop, not here: step 3b
         // unloads the chapter and stamps its own stage. `modswitch::finish_disable` is
         // what writes it.
+        return true;
     }
 
     //======================================================================================

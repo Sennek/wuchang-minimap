@@ -1,11 +1,13 @@
 #pragma once
 
 //
-// clipimg - the pure half of "copy the map to the clipboard": back-buffer pixel
-// formats in, a CF_DIB payload out.
+// clipimg - the pure half of "copy the map to the clipboard": BGRA8 pixels in, a
+// CF_DIB payload out.
 //
-// Wuchang's back buffer is `R10G10B10A2_UNORM` (HDR10), not the `R8G8B8A8` every
-// screenshot example assumes.
+// There is one source format and it is a constant: the overlay draws into render
+// targets of its own, created `B8G8R8A8_UNORM` by overlay_dcomp.cpp because that is
+// what a DirectComposition surface is composed in. The game's own back buffer - HDR10
+// on this title - is never read.
 //
 // No Windows, no D3D12, no allocation beyond the output vector.
 //
@@ -17,106 +19,24 @@
 
 namespace clipimg
 {
-    // The formats this game's swapchain can present. Anything else is refused.
-    enum class Fmt
-    {
-        Unknown = 0,
-        R10G10B10A2,   // DXGI_FORMAT_R10G10B10A2_UNORM = 24  (Wuchang's back buffer)
-        R8G8B8A8,      // 28 (_UNORM) / 29 (_UNORM_SRGB)
-        B8G8R8A8,      // 87 (_UNORM) / 91 (_UNORM_SRGB)
-    };
-
-    inline Fmt fmt_from_dxgi(unsigned dxgi_format)
-    {
-        switch (dxgi_format)
-        {
-        case 24: // DXGI_FORMAT_R10G10B10A2_UNORM
-            return Fmt::R10G10B10A2;
-        case 28: // DXGI_FORMAT_R8G8B8A8_UNORM
-        case 29: // DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
-            return Fmt::R8G8B8A8;
-        case 87: // DXGI_FORMAT_B8G8R8A8_UNORM
-        case 91: // DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
-            return Fmt::B8G8R8A8;
-        default:
-            return Fmt::Unknown;
-        }
-    }
-
-    inline const char* fmt_name(Fmt f)
-    {
-        switch (f)
-        {
-        case Fmt::R10G10B10A2:
-            return "R10G10B10A2_UNORM";
-        case Fmt::R8G8B8A8:
-            return "R8G8B8A8";
-        case Fmt::B8G8R8A8:
-            return "B8G8R8A8";
-        case Fmt::Unknown:
-        default:
-            return "unsupported";
-        }
-    }
-
-    // Every supported format is 4 bytes per pixel. A function, so a 16-bit float back
-    // buffer (which needs tone mapping, not unpacking) cannot slip in.
-    inline int bytes_per_pixel(Fmt f)
-    {
-        return f == Fmt::Unknown ? 0 : 4;
-    }
-
-    // 10-bit channel -> 8-bit, rounded not shifted: `v >> 2` makes white 252, a visible
-    // grey cast.
-    inline std::uint8_t from10(std::uint32_t v)
-    {
-        return static_cast<std::uint8_t>((v * 255u + 511u) / 1023u);
-    }
-
-    // Unpacks `px` pixels into BGRA8, the byte order a Windows 32bpp DIB wants. Alpha is
-    // forced opaque; the back buffer's alpha is whatever the game left there.
-    inline bool unpack_row(Fmt f, const std::uint8_t* src, std::uint8_t* dst_bgra, int px)
+    // Copies `px` BGRA8 pixels into the byte order a Windows 32bpp DIB wants, which is
+    // the same one - so this is a copy with the alpha forced opaque. The target's alpha
+    // is the OVERLAY's coverage, transparent wherever nothing was drawn, and a clipboard
+    // bitmap of the map is wanted opaque.
+    inline bool to_dib_row(const std::uint8_t* src, std::uint8_t* dst_bgra, int px)
     {
         if (src == nullptr || dst_bgra == nullptr || px <= 0)
         {
             return false;
         }
-        switch (f)
+        for (int i = 0; i < px; ++i)
         {
-        case Fmt::R10G10B10A2:
-            for (int i = 0; i < px; ++i)
-            {
-                std::uint32_t v = 0;
-                std::memcpy(&v, src + static_cast<std::size_t>(i) * 4u, 4);
-                // Little-endian packing: R in bits 0-9, G in 10-19, B in 20-29, A in 30-31.
-                dst_bgra[i * 4 + 0] = from10((v >> 20) & 0x3FFu); // B
-                dst_bgra[i * 4 + 1] = from10((v >> 10) & 0x3FFu); // G
-                dst_bgra[i * 4 + 2] = from10(v & 0x3FFu);         // R
-                dst_bgra[i * 4 + 3] = 0xFFu;
-            }
-            return true;
-        case Fmt::R8G8B8A8:
-            for (int i = 0; i < px; ++i)
-            {
-                dst_bgra[i * 4 + 0] = src[i * 4 + 2];
-                dst_bgra[i * 4 + 1] = src[i * 4 + 1];
-                dst_bgra[i * 4 + 2] = src[i * 4 + 0];
-                dst_bgra[i * 4 + 3] = 0xFFu;
-            }
-            return true;
-        case Fmt::B8G8R8A8:
-            for (int i = 0; i < px; ++i)
-            {
-                dst_bgra[i * 4 + 0] = src[i * 4 + 0];
-                dst_bgra[i * 4 + 1] = src[i * 4 + 1];
-                dst_bgra[i * 4 + 2] = src[i * 4 + 2];
-                dst_bgra[i * 4 + 3] = 0xFFu;
-            }
-            return true;
-        case Fmt::Unknown:
-        default:
-            return false;
+            dst_bgra[i * 4 + 0] = src[i * 4 + 0];
+            dst_bgra[i * 4 + 1] = src[i * 4 + 1];
+            dst_bgra[i * 4 + 2] = src[i * 4 + 2];
+            dst_bgra[i * 4 + 3] = 0xFFu;
         }
+        return true;
     }
 
     //==================================================================================

@@ -219,7 +219,7 @@ own file.
 | | |
 |---|---|
 | **entry / lifecycle** | `dllmain.cpp` (`RC::CppUserModBase` subclass, `start_mod` / `uninstall_mod`), `modswitch.*` (the `mod_enabled` master switch; starts and stops every subsystem), `version.hpp`, `breadcrumb.*` |
-| **overlay** | one `overlay` namespace across `overlay.cpp` (shared state, UI scale, font, HUD placement, the loop-thread half), `overlay_d3d12.cpp` (device objects, the swapchain hooks, the render entry point, the visibility choke point), `overlay_dcomp.cpp` (the mod's own queue, composition swapchain and DirectComposition visual), `overlay_input.cpp`, `overlay_slice.cpp`, `overlay_hud.cpp`, `overlay_extras.cpp`, `overlay_fullmap.cpp`, `overlay_panel.cpp`, all sharing `overlay_internal.hpp` (`overlay::ovl` holds the state) |
+| **overlay** | one `overlay` namespace across `overlay.cpp` (shared state, UI scale, font, HUD placement, the loop-thread half), `overlay_d3d12.cpp` (device objects, the swapchain hooks, the render entry point, the visibility choke point), `overlay_dcomp.cpp` (the mod's own queues, D3D11On12 device, DirectComposition surface and the surface thread), `overlay_input.cpp`, `overlay_slice.cpp`, `overlay_hud.cpp`, `overlay_extras.cpp`, `overlay_fullmap.cpp`, `overlay_panel.cpp`, all sharing `overlay_internal.hpp` (`overlay::ovl` holds the state) |
 | **game-thread readers** | `gamestate.*` (pawn, view target, menu detection), `markers.*` (the `GUObjectArray` sweep and the found tracker), `highlight.*` (the camera pose), `shrines.*`, `saveslot.*`, `gamebinds.*`, `recon.*`, `navmesh_dump.*` |
 | **cross-thread state** | `mmstate.*` (the snapshot seqlock, the config file, the log queue), `spinlock.hpp`, `atomicfile.hpp`, `perf.hpp` |
 | **map data** | `mapmanifest.hpp` (PURE `maps.json` parser), `mapdata.*` (chapter residency + the sparse 128-px-block height store), `slicerule.hpp` (PURE; the rule both maps slice and shade by), `pngdecode.hpp` (WIC, shared with `markers_test`) |
@@ -296,17 +296,29 @@ vs `Q…` is part of the symbol.
 
 ## Threads
 
-Three, with a strict split; `src/mmstate.hpp` states the invariants.
+Four, with a strict split; `src/mmstate.hpp` states the invariants.
 
 | thread | what runs there | what it must not touch |
 |---|---|---|
 | **UE4SS loop** (`CppUserModBase::on_update`) | hotkeys, all file and JSON I/O, PNG decode, the log drain, XInput | — |
 | **game** (a `RegisterProcessEventPreCallback` pump) | every `UObject` traversal, reflection and raw read | D3D12; C++ iostreams and the C++ locale, which fault when touched from this game's game thread — it queues log text and parks results |
 | **render** (the hooked `Present`) | everything ImGui and everything D3D12; the only thread that may release a D3D12 object | any `UObject` |
+| **surface** (`overlay_dcomp.cpp`) | waits on the render fence, copies the finished target into the DirectComposition surface through D3D11On12, commits | any `UObject`, any lock, and any D3D12 call but a fence signal on a queue of its own |
 
 The game thread publishes an `mm::Snapshot` through a seqlock and the render thread reads it.
 Because only the render thread may release a D3D12 object, `modswitch`'s stop is a three-step
-state machine.
+state machine: the loop thread clears `mm::g_mod_active`, the next Present tears the render side
+down, and the loop thread then disables the hooks and unloads the chapter.
+
+The render thread reports where it is in that teardown with one word, `overlay::stop_phase()`, and
+the loop thread's timeout means two different things by it. **NotStarted** past three seconds means
+no Present is arriving, so the hooks come out and the surface thread is stopped from the loop
+thread. **InProgress** means a thread of the game's is standing inside the mod's detour: the loop
+thread then waits, a line a second, for up to ten seconds, and disables nothing - the teardown's own
+bounded waits already sum to five seconds, and the DirectComposition and D3D11On12 calls after them
+have no bound at all. Past ten seconds it says WEDGED once and keeps waiting silently, still
+allocated, still hooked, because pulling a hook or an object out from under that thread faults it
+rather than freeing it; a teardown that finishes late still finishes the stop properly.
 
 **There is no `std::mutex` anywhere** — `std::mutex::try_lock` faults against the MSVCP140 loaded
 in this process. Locking is `spinlock.hpp`'s `std::atomic_flag` spinlock plus non-blocking
@@ -332,12 +344,18 @@ addresses cached in a file instead **intermittently black-screens from the first
 mod presenting normally and nothing in any log.
 
 **The surface it draws on** — `overlay_dcomp.cpp`. The game's swapchain is *followed* for geometry
-and the frame tick; the queue and the surface are the mod's own (a DIRECT queue, a
-`CreateSwapChainForComposition` swapchain, a DirectComposition visual). *The game's back buffers
-are never written and nothing of the game's is submitted on*, which is what makes the overlay
-survive frame generation and capture layers, and why nothing has to be probed before the first
-frame. The three hooks still call the original unconditionally for **every** swapchain, so nothing
-else in the process loses a frame to us.
+and the frame tick; everything drawn into is the mod's own — a DIRECT queue, `kTargets` BGRA8
+textures that live in `RENDER_TARGET` for their whole life, a D3D11On12 device with a second DIRECT
+queue, and a DirectComposition surface on a visual over the game's window. *The mod creates no
+second `IDXGISwapChain` and presents nothing*: a process carrying Streamline supports exactly one,
+and presenting a second one is what killed the game for reporter 4. A **surface thread** of the
+mod's own takes the finished frame out of a latest-wins mailbox, waits on the render fence and
+copies the target into the surface through D3D11On12, so the compositor's back-pressure never lands
+on the game's present; when no target is free the overlay drops its frame rather than wait. *The
+game's back buffers are never written and nothing of the game's is submitted on*, which is what
+makes the overlay survive frame generation, capture and overlay layers, and why nothing has to be
+probed before the first frame. The three hooks still call the original unconditionally for **every**
+swapchain, so nothing else in the process loses a frame to us.
 
 **Device loss** — `overlay_d3d12.cpp`. `GetDeviceRemovedReason()` is asked on whichever thread
 presented, because the removal that matters most is the one after which no Present ever arrives to
@@ -696,8 +714,8 @@ crash leaves a `CrashContext.runtime-xml`; a hang leaves nothing, which is what 
 - **X-ray highlight v2**: true silhouettes through `SetRenderCustomDepth` plus a post-process
   material shipped in a tiny pak. The game ships no outline material to reuse.
 - **The slicing loop as a pixel shader.** Its own root signature, PSO, `D3DCompile` and
-  `ImDrawList::AddCallback` juggling on a wrapped swapchain, to save a few ms per update and the
-  upload; the CPU slicer already has the exactly-correct semantics.
+  `ImDrawList::AddCallback` juggling into the overlay's own targets, to save a few ms per update
+  and the upload; the CPU slicer already has the exactly-correct semantics.
 - **A DLC map.** The paks carry no navmesh cells for it; it would need a runtime cell sweep or an
   ortho-capture fallback.
 - **A whole-region runtime navmesh dump.** Only the cells around the player are resident, so it

@@ -515,16 +515,18 @@ namespace overlay
         // Map -> clipboard
         //==============================================================================
         //
-        // The source is the BACK BUFFER of the frame just drawn, so the picture is what
-        // the player is looking at. Spread over frames:
-        //   frame N   : after ImGui's draw call is recorded, the back buffer goes
+        // The source is the OVERLAY'S OWN RENDER TARGET of the frame just drawn, so the
+        // picture is the map as the player is looking at it. The game's back buffer is
+        // never read. Spread over frames:
+        //   frame N   : after ImGui's draw call is recorded, the target goes
         //               RENDER_TARGET -> COPY_SOURCE, one CopyTextureRegion of the
-        //               canvas rect is recorded into a readback buffer, and the fence
-        //               this frame will signal is remembered.
+        //               canvas rect is recorded into a readback buffer, the target is put
+        //               back in RENDER_TARGET, and the fence this frame will signal is
+        //               remembered.
         //   frame N+k : once GetCompletedValue() has passed that fence the readback is
-        //               mapped, unpacked to BGRA8 (clipimg - the back buffer is HDR10
-        //               R10G10B10A2 here, not R8G8B8A8) and turned into a CF_DIB payload
-        //               handed to the LOOP thread.
+        //               mapped, copied row by row into an opaque BGRA8 image (clipimg -
+        //               the target is BGRA8 by construction) and turned into a CF_DIB
+        //               payload handed to the LOOP thread.
         //   loop      : OpenClipboard / EmptyClipboard / SetClipboardData / CloseClipboard.
         //
         // Nothing is mapped before its fence has passed (a readback read early is a
@@ -567,31 +569,23 @@ namespace overlay
         }
 
         // Render thread. Records the copy into the command list the frame is already
-        // building, between ImGui's draw call and the transition back to PRESENT. The
-        // back buffer is in RENDER_TARGET state on entry and left in PRESENT state, so
-        // this replaces the caller's closing barrier when it returns true.
-        bool record_shot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* backbuffer, UINT index)
+        // building, after ImGui's draw call. The overlay's render target is in
+        // RENDER_TARGET state on entry and is handed back in it: that is the one state it
+        // lives in, and COPY_SOURCE is borrowed only for the copy itself.
+        bool record_shot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* target, UINT index)
         {
             if (g_shot_stage != ShotStage::Idle || !g_shot_request.exchange(false, std::memory_order_acquire))
             {
                 return false;
             }
             ID3D12Device* dev = g_device;
-            if (dev == nullptr || backbuffer == nullptr)
+            if (dev == nullptr || target == nullptr)
             {
                 shot_fail("screenshot: no device");
                 return false;
             }
-            const DXGI_FORMAT fmt = g_format;
-            g_shot_fmt = clipimg::fmt_from_dxgi(static_cast<unsigned>(fmt));
-            if (g_shot_fmt == clipimg::Fmt::Unknown)
-            {
-                shot_fail("screenshot: back buffer format not supported");
-                mm::logf(L"screenshot: DXGI format {} is not one this build can unpack",
-                         static_cast<int>(fmt));
-                return false;
-            }
-            // The map canvas as laid out this frame, clamped to the back buffer.
+            const DXGI_FORMAT fmt = comp_format();
+            // The map canvas as laid out this frame, clamped to the target.
             if (!g_shot_canvas_valid)
             {
                 shot_fail("screenshot: the map is not open");
@@ -637,7 +631,7 @@ namespace overlay
 
             D3D12_RESOURCE_BARRIER b{};
             b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            b.Transition.pResource = backbuffer;
+            b.Transition.pResource = target;
             b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             b.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
             b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
@@ -653,7 +647,7 @@ namespace overlay
             dst.PlacedFootprint.Footprint.Depth = 1;
             dst.PlacedFootprint.Footprint.RowPitch = g_shot_pitch;
             D3D12_TEXTURE_COPY_LOCATION src{};
-            src.pResource = backbuffer;
+            src.pResource = target;
             src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
             src.SubresourceIndex = 0;
             D3D12_BOX box{};
@@ -666,7 +660,7 @@ namespace overlay
             list->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
 
             b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-            b.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+            b.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
             list->ResourceBarrier(1, &b);
             g_shot_stage = ShotStage::Recorded;
             (void)index;
@@ -699,15 +693,15 @@ namespace overlay
                 shot_reset();
                 return;
             }
-            // Row by row into a tight BGRA image; clipimg flips it into the bottom-up
-            // DIB the clipboard wants.
+            // Row by row into a tight opaque BGRA image; clipimg flips it into the
+            // bottom-up DIB the clipboard wants.
             std::vector<std::uint8_t> bgra(static_cast<std::size_t>(g_shot_w) * 4u * g_shot_h);
             bool ok = true;
             for (UINT y = 0; y < g_shot_h && ok; ++y)
             {
                 const auto* srow = static_cast<const std::uint8_t*>(mapped) +
                                    static_cast<std::size_t>(y) * g_shot_pitch;
-                ok = clipimg::unpack_row(g_shot_fmt, srow,
+                ok = clipimg::to_dib_row(srow,
                                          bgra.data() + static_cast<std::size_t>(y) * g_shot_w * 4u,
                                          static_cast<int>(g_shot_w));
             }
@@ -715,7 +709,7 @@ namespace overlay
             g_shot_readback->Unmap(0, &none);
             if (!ok)
             {
-                shot_fail("screenshot: pixel unpack failed");
+                shot_fail("screenshot: the pixel copy failed");
                 shot_reset();
                 return;
             }
@@ -1229,7 +1223,7 @@ namespace overlay
         //   * the camera pose comes from hl::camera() (game thread, see highlight.cpp)
         //     and is required: no fresh pose, no highlight. The pawn's own position and
         //     yaw would put every label a spring-arm's length off;
-        //   * the screen size comes from the ImGui viewport, which is the swapchain's -
+        //   * the screen size comes from the ImGui viewport, the game's client rectangle -
         //     the rectangle UE built its projection matrix for;
         //   * the radius test is against the player, the projection against the camera,
         //     and the distance shown is the player's.

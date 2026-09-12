@@ -695,7 +695,7 @@ namespace mm
             }
             else if (key == "ui_scale")
             {
-                // `auto` derives the factor from the back buffer height on the render thread; a number pins it.
+                // `auto` derives the factor from the target's height on the render thread; a number pins it.
                 if (value == "auto" || value.empty())
                 {
                     cfg.ui_scale_auto = true;

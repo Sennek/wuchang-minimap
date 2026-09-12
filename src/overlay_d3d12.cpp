@@ -79,17 +79,31 @@ namespace overlay
         // the session. So a D3D12 swapchain presenting while ours has been silent for
         // kSwapchainSilentMs asks for the ordinary re-adoption.
         //
-        // `g_imgui_rtv_format` is the RTV format ImGui's DX12 backend was initialised
-        // for. Its pipeline state bakes that format in, so a back-buffer format change
-        // needs the backend rebuilt exactly as a raised buffer count does.
-        //
         // `g_display_logged` is whether the adapter / output / presenting trio has been
         // written for the current adoption: one set of lines per adopted swapchain, not
         // one per resize.
         static std::uint64_t g_adopted_present_ms = 0;
-        static DXGI_FORMAT g_imgui_rtv_format = DXGI_FORMAT_UNKNOWN;
         static bool g_display_logged = false;
         constexpr std::uint64_t kSwapchainSilentMs = 2000;
+
+        // ANY THREAD. How often the game presented through Present1.
+        static std::atomic<std::uint64_t> g_present1_count{0};
+        // The frame after which the two counters below are worth a line: long enough to
+        // be past every start-up transient, short enough to be in a short bug report.
+        constexpr std::uint64_t kCounterFrame = 600;
+
+        // The two numbers the surface path is read by: whether Present1 is ever the one
+        // this game calls, and how many frames found no free target - which in steady
+        // state is zero, and otherwise says the compositor is behind.
+        void log_frame_counters(const wchar_t* when)
+        {
+            mm::logf(L"{}: Present1 has been called {} time(s); {} overlay frame(s) were skipped "
+                     L"because no target was free and {} were dropped by the surface thread",
+                     std::wstring{when},
+                     g_present1_count.load(std::memory_order_relaxed),
+                     comp_skipped_frames(),
+                     comp_dropped_frames());
+        }
 
         //==============================================================================
         // The height-slice texture
@@ -447,10 +461,21 @@ namespace overlay
                 return;
             }
             mm::logf(L"the overlay is releasing its D3D12 objects and will adopt the swapchain again "
-                     L"on a later Present (re-adoption {} of at most {} this session): {}",
+                     L"on a later Present (re-adoption {} of at most {} this session): {}. Present1 "
+                     L"was called {} time(s) and {} frame(s) were skipped and {} dropped before this "
+                     L"point; all three counters and the Present-failure latches start again here.",
                      n,
                      kMaxReadoptions,
-                     why);
+                     why,
+                     g_present1_count.load(std::memory_order_relaxed),
+                     comp_skipped_frames(),
+                     comp_dropped_frames());
+            // The counters and the once-per-class Present-failure lines belong to an
+            // adoption: what the next one does is a different measurement.
+            comp_reset_counters();
+            g_present1_count.store(0, std::memory_order_relaxed);
+            g_present_fail_ours.store(false, std::memory_order_release);
+            g_present_fail_other.store(false, std::memory_order_release);
         }
 
         //==============================================================================
@@ -644,15 +669,27 @@ namespace overlay
         // Teardown of the swapchain-dependent objects
         //==============================================================================
 
-        void release_render_targets()
+        // False when the surface thread would not stand down: the D3D11 wrappers still
+        // hold the targets and the thread may still be reading them, so they are the
+        // wrappers' now and nothing here may free them. The caller must not build a new
+        // set either - `create_render_targets` returns on a false.
+        bool release_render_targets()
         {
-            for (UINT i = 0; i < kMaxBuffers; ++i)
+            // The D3D11 wrappers first, and with them the surface thread's standstill:
+            // they hold the very textures released below.
+            if (!comp_unbind_targets())
             {
-                safe_release(g_backbuffers[i]);
+                g_rt_ready = false;
+                return false;
+            }
+            for (UINT i = 0; i < kTargets; ++i)
+            {
+                safe_release(g_targets[i]);
                 g_rtv[i] = D3D12_CPU_DESCRIPTOR_HANDLE{};
             }
             safe_release(g_rtv_heap);
             g_rt_ready = false;
+            return true;
         }
 
         void wait_for_gpu()
@@ -665,22 +702,23 @@ namespace overlay
             {
                 return;
             }
-            if (SUCCEEDED(g_fence->SetEventOnCompletion(g_fence_value, g_fence_event)))
+            if (SUCCEEDED(g_fence->SetEventOnCompletion(g_fence_value, g_fence_event))
+                && ::WaitForSingleObject(g_fence_event, kGpuWaitMs) != WAIT_OBJECT_0)
             {
-                ::WaitForSingleObject(g_fence_event, 1000);
+                mm::logf(L"the overlay's own GPU work had still not finished after {} ms, so the "
+                         L"render thread stopped waiting for it",
+                         kGpuWaitMs);
             }
         }
 
-        // One allocator per back buffer, created for every buffer that has none - a
-        // fullscreen toggle can raise BufferCount after init. `g_buffer_count` is
-        // already clamped to kMaxBuffers.
+        // One allocator per render target, created for every target that has none.
         bool ensure_frame_allocators()
         {
             if (g_device == nullptr)
             {
                 return false;
             }
-            for (UINT i = 0; i < g_buffer_count; ++i)
+            for (UINT i = 0; i < kTargets; ++i)
             {
                 if (g_frames[i].allocator != nullptr)
                 {
@@ -699,7 +737,13 @@ namespace overlay
 
         bool create_render_targets(IDXGISwapChain* swapchain)
         {
-            release_render_targets();
+            if (!release_render_targets())
+            {
+                // The previous set belongs to the D3D11 wrappers of a surface thread that
+                // would not stand down. Building a second set on top of it would leak the
+                // first, so the overlay waits for the release that stops that thread.
+                return false;
+            }
 
             DXGI_SWAP_CHAIN_DESC desc{};
             if (FAILED(swapchain->GetDesc(&desc)))
@@ -707,37 +751,26 @@ namespace overlay
                 mm::log(L"GetDesc failed - cannot create render targets");
                 return false;
             }
-            g_buffer_count = (std::min)(desc.BufferCount, static_cast<UINT>(kMaxBuffers));
-            if (g_buffer_count == 0)
-            {
-                g_buffer_count = 2;
-            }
-            g_format = desc.BufferDesc.Format;
+            // The game's swapchain is read for its geometry and its window, and then left
+            // alone. Everything the overlay draws into is the mod's own - see
+            // overlay_dcomp.cpp for why there is no second way of doing this.
             g_width = desc.BufferDesc.Width;
             g_height = desc.BufferDesc.Height;
             g_hwnd = desc.OutputWindow;
 
-            // The game's swapchain is read for its geometry and then left alone. What the
-            // overlay draws into is a surface of its own, composed over the same window -
-            // see overlay_dcomp.cpp for why there is no second way of doing this.
-            const bool surface = comp_ready() ? comp_resize(g_width, g_height)
-                                              : comp_create(g_device, g_hwnd, g_width, g_height);
-            if (!surface)
+            if (!comp_ready() && !comp_create(g_device, g_hwnd))
             {
                 mm::log(L"the overlay has no surface to draw on, so it does not start. Nothing of the "
                         L"game is touched, and the rest of the mod - the tracker, the marker sweep, the "
                         L"waypoint files - keeps running.");
                 return false;
             }
-            IDXGISwapChain* target = comp_swapchain();
-            g_buffer_count = comp_buffer_count();
-            g_format = comp_format();
             // Our own queue, so nothing downstream has to ask whose surface this is.
             g_queue.store(comp_queue(), std::memory_order_release);
 
             D3D12_DESCRIPTOR_HEAP_DESC heap{};
             heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-            heap.NumDescriptors = g_buffer_count;
+            heap.NumDescriptors = kTargets;
             heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
             if (FAILED(g_device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&g_rtv_heap))))
             {
@@ -745,21 +778,52 @@ namespace overlay
                 return false;
             }
 
+            // Committed textures of the mod's own, born in RENDER_TARGET and left there for
+            // their whole life: the D3D11On12 wrapper declares the same state in and out, so
+            // the frame records no transition, and nothing has to assume what state a buffer
+            // somebody else owns was handed over in.
+            D3D12_HEAP_PROPERTIES hp{};
+            hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+            D3D12_RESOURCE_DESC rd{};
+            rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            rd.Width = g_width;
+            rd.Height = g_height;
+            rd.DepthOrArraySize = 1;
+            rd.MipLevels = 1;
+            rd.Format = comp_format();
+            rd.SampleDesc.Count = 1;
+            rd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+            rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+            // The same value the frame clears with, so the driver's fast clear path is
+            // the one it takes.
+            D3D12_CLEAR_VALUE clear{};
+            clear.Format = comp_format();
+
             const UINT stride = g_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
             D3D12_CPU_DESCRIPTOR_HANDLE handle = g_rtv_heap->GetCPUDescriptorHandleForHeapStart();
-            for (UINT i = 0; i < g_buffer_count; ++i)
+            for (UINT i = 0; i < kTargets; ++i)
             {
-                if (FAILED(target->GetBuffer(i, IID_PPV_ARGS(&g_backbuffers[i]))))
+                const HRESULT hr = g_device->CreateCommittedResource(
+                    &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear,
+                    IID_PPV_ARGS(&g_targets[i]));
+                if (FAILED(hr) || g_targets[i] == nullptr)
                 {
-                    mm::logf(L"GetBuffer({}) failed", i);
+                    mm::logf(L"the overlay's render target {} could not be created (0x{:08X})",
+                             i,
+                             static_cast<unsigned>(hr));
                     release_render_targets();
                     return false;
                 }
-                g_device->CreateRenderTargetView(g_backbuffers[i], nullptr, handle);
+                g_device->CreateRenderTargetView(g_targets[i], nullptr, handle);
                 g_rtv[i] = handle;
                 handle.ptr += stride;
             }
 
+            if (!comp_bind_targets(g_targets, g_width, g_height))
+            {
+                release_render_targets();
+                return false;
+            }
 
             if (!ensure_frame_allocators())
             {
@@ -768,13 +832,13 @@ namespace overlay
             }
 
             g_rt_ready = true;
-            mm::logf(L"render targets: the overlay's own {} buffer(s), {}x{}, {}, composed over hwnd "
+            mm::logf(L"render targets: the overlay's own {} texture(s), {}x{}, {}, composed over hwnd "
                      L"0x{:X} whose own swapchain has flags 0x{:X} and swap effect {}. The game's back "
                      L"buffers are not touched.",
-                     g_buffer_count,
+                     kTargets,
                      g_width,
                      g_height,
-                     format_name(g_format),
+                     format_name(comp_format()),
                      reinterpret_cast<std::uintptr_t>(g_hwnd),
                      static_cast<unsigned>(desc.Flags),
                      static_cast<int>(desc.SwapEffect));
@@ -987,7 +1051,7 @@ namespace overlay
         }
 
         // The D3D12 half of the start-up: the device, the composition surface and its
-        // render targets, one allocator per back buffer, the command list and the fence.
+        // render targets, one allocator per target, the command list and the fence.
         // Nothing here draws and nothing here is ImGui.
         //
         // Called on every Present until ImGui is up, so every object is created only
@@ -1043,8 +1107,7 @@ namespace overlay
                 return false;
             }
 
-            // One allocator per back buffer, and grown again after any resize that
-            // raises BufferCount (see ensure_frame_allocators).
+            // One allocator per render target (see ensure_frame_allocators).
             if (!ensure_frame_allocators())
             {
                 g_failed = true;
@@ -1126,8 +1189,8 @@ namespace overlay
             ImGui_ImplDX12_InitInfo info{};
             info.Device = g_device;
             info.CommandQueue = queue;
-            info.NumFramesInFlight = static_cast<int>(g_buffer_count);
-            info.RTVFormat = g_format;
+            info.NumFramesInFlight = static_cast<int>(kTargets);
+            info.RTVFormat = comp_format();
             info.DSVFormat = DXGI_FORMAT_UNKNOWN;
             info.SrvDescriptorHeap = g_srv_heap.heap();
             info.SrvDescriptorAllocFn = &srv_alloc_cb;
@@ -1178,8 +1241,6 @@ namespace overlay
 
             hook_wndproc();
 
-            g_imgui_frames_in_flight = static_cast<int>(g_buffer_count);
-            g_imgui_rtv_format = g_format;
             g_imgui_ready = true;
             crumb::stage(crumb::kImGuiUp);
             mm::logf(L"ImGui {} initialised on the overlay's own surface: device {:p}, queue {:p}, {} frames in flight, "
@@ -1187,8 +1248,8 @@ namespace overlay
                      std::wstring(IMGUI_VERSION, IMGUI_VERSION + std::strlen(IMGUI_VERSION)),
                      static_cast<void*>(g_device),
                      static_cast<void*>(queue),
-                     g_buffer_count,
-                     format_name(g_format));
+                     kTargets,
+                     format_name(comp_format()));
             slice_selftest();
             return true;
         }
@@ -1290,8 +1351,14 @@ namespace overlay
         // Two callers, one body. The master switch (shutdown_render) and a lost device /
         // replaced swapchain (the re-adoption path in render()) release the same
         // objects; only the master switch also answers the loop thread's handshake with
-        // `g_render_stopped`, which a re-adoption must not touch or the loop thread
+        // `g_render_shutdown`, which a re-adoption must not touch or the loop thread
         // believes a disable it never asked for has completed.
+        //
+        // Every wait in here is bounded and logs its bound when it is what ended the
+        // wait: the slicer handshake, the GPU fence, the surface thread's join and the
+        // last copy sum to five seconds worst case. The DirectComposition and D3D11On12
+        // calls that follow them have no bound at all, which is why the loop thread
+        // waits for this to finish rather than taking anything away from it.
         //
         // The invariant is the LOCK, not a thread id: whoever holds `g_render_lock` may
         // release these objects. Present arrives on whichever thread the game or a
@@ -1305,12 +1372,13 @@ namespace overlay
                 crumb::stage(crumb::kTeardownBegin);
                 // The slicer writes into mapped upload heaps about to be released. On a
                 // timeout the buffers are leaked rather than freed under a live writer.
-                const bool paused = slicer_pause_begin(1000);
+                const bool paused = slicer_pause_begin(kSlicerStopMs);
                 wait_for_gpu();
                 if (!paused)
                 {
-                    mm::log(L"slice: the loop-thread slicer did not stand down in 1 s - "
-                            L"the slice buffers are left allocated on purpose");
+                    mm::logf(L"slice: the loop-thread slicer did not stand down in {} ms - "
+                             L"the slice buffers are left allocated on purpose",
+                             kSlicerStopMs);
                 }
                 else
                 {
@@ -1327,24 +1395,30 @@ namespace overlay
                     // The style went with the context: the next init must rebuild it.
                     g_ui_scale_applied = 0.0f;
                 }
-                release_render_targets();
-                // After the render targets, because the RTVs are views onto its buffers,
-                // and after wait_for_gpu above, because our queue is what they were
-                // submitted on.
+                // Before the render targets, because the surface thread and the D3D11
+                // wrappers hold the very textures they release, and after wait_for_gpu
+                // above, because our queue is what the frames were submitted on.
                 comp_release();
-                for (UINT i = 0; i < kMaxBuffers; ++i)
+                release_render_targets();
+                for (UINT i = 0; i < kTargets; ++i)
                 {
                     safe_release(g_frames[i].allocator);
                     g_frames[i].fence_value = 0;
                 }
                 safe_release(g_cmd_list);
-                safe_release(g_fence);
-                if (g_fence_event != nullptr)
+                if (comp_thread_stopped())
                 {
-                    ::CloseHandle(g_fence_event);
-                    g_fence_event = nullptr;
+                    // A surface thread still running is still asking this fence whether the
+                    // overlay's last frame has finished, so it is leaked with everything
+                    // else that thread reads.
+                    safe_release(g_fence);
+                    if (g_fence_event != nullptr)
+                    {
+                        ::CloseHandle(g_fence_event);
+                        g_fence_event = nullptr;
+                    }
+                    g_fence_value = 0;
                 }
-                g_fence_value = 0;
                 g_srv_heap.destroy();
                 {
                     // Under the lock, so a thread asking the device for its removal
@@ -1352,8 +1426,6 @@ namespace overlay
                     spin::SpinGuard guard(g_device_lock);
                     safe_release(g_device);
                 }
-                g_imgui_frames_in_flight = 0;
-                g_imgui_rtv_format = DXGI_FORMAT_UNKNOWN;
                 mm::log(L"the render thread has released ImGui, the descriptor heaps, "
                         L"the slice buffers and the map textures");
             }
@@ -1361,16 +1433,16 @@ namespace overlay
             // Nothing is adopted, so there is no silence to measure until the next
             // Present on a newly adopted swapchain.
             g_adopted_present_ms = 0;
-            // The cached IDXGISwapChain3 holds a reference on the swapchain being let
-            // go; keeping it would pin a dead object and answer
-            // GetCurrentBackBufferIndex for a swapchain we no longer draw on.
             g_candidates_logged = 0;
             // The queue is the composition module's, released by the `comp_release()`
             // above; this is only the overlay's handle on it.
             g_queue.store(nullptr, std::memory_order_release);
             // The display lines belong to an adoption, so the next one writes its own.
             g_display_logged = false;
-            g_failed = false;
+            // A surface thread that would not stop ends the overlay for the session:
+            // there is nothing left to rebuild on, because everything it holds was leaked
+            // rather than released, and `g_failed` stops every later frame before it tries.
+            g_failed = !comp_thread_stopped();
             // Everything a re-adoption would have released is gone already.
             g_readopt.store(false, std::memory_order_release);
             crumb::stage(crumb::kTeardownEnd);
@@ -1378,9 +1450,14 @@ namespace overlay
 
         void shutdown_render()
         {
+            // The handshake, and the one thing a re-adoption must skip. It is advanced
+            // BEFORE the first log line: from here the loop thread must see a teardown
+            // in progress, because a timeout that mistakes this for "no Present is
+            // arriving" pulls the hooks out from under this very thread.
+            g_render_shutdown.store(StopPhase::InProgress, std::memory_order_release);
+            log_frame_counters(L"at shutdown");
             release_device_objects();
-            // The master switch's handshake, and the one thing a re-adoption must skip.
-            g_render_stopped.store(true, std::memory_order_release);
+            g_render_shutdown.store(StopPhase::Done, std::memory_order_release);
         }
 
         void render(IDXGISwapChain* swapchain)
@@ -1390,15 +1467,24 @@ namespace overlay
             // teardown, because this is the only thread allowed to.
             if (!mm::mod_active())
             {
-                if (!g_render_stopped.load(std::memory_order_acquire))
+                if (g_render_shutdown.load(std::memory_order_acquire) == StopPhase::NotStarted)
                 {
                     spin::SpinGuard guard(g_render_lock);
-                    shutdown_render();
+                    // Present arrives on whichever thread the game presents from, and a
+                    // second one may have been waiting for the lock through the whole
+                    // teardown: the phase is re-read under it so the work happens once.
+                    if (g_render_shutdown.load(std::memory_order_acquire) == StopPhase::NotStarted)
+                    {
+                        shutdown_render();
+                    }
                 }
                 return;
             }
 
-            g_present_count.fetch_add(1, std::memory_order_relaxed);
+            if (g_present_count.fetch_add(1, std::memory_order_relaxed) + 1 == kCounterFrame)
+            {
+                log_frame_counters(L"frame 600");
+            }
             g_render_tid.store(::GetCurrentThreadId(), std::memory_order_relaxed);
             g_render_stage.store("prologue", std::memory_order_relaxed);
             // TERMINAL. The adopted device is gone: release what is left of ours once,
@@ -1498,74 +1584,11 @@ namespace overlay
             }
             if (!g_rt_ready && !create_render_targets(swapchain))
             {
-                // A GetBuffer / RTV failure is recoverable (a resize in flight, a device
-                // that has gone), so it goes to the re-adoption path instead of retrying
-                // the same objects every frame.
+                // A target or surface failure is recoverable (a resize in flight, a
+                // device that has gone), so it goes to the re-adoption path instead of
+                // retrying the same objects every frame.
                 request_readoption(L"the render targets could not be rebuilt");
                 return;
-            }
-            // After a resize that raised BufferCount the ImGui backend still has one set
-            // of per-frame buffers per OLD frame in flight and would reuse the vertex,
-            // index and descriptor storage of a frame the GPU has not finished.
-            // Re-initialising the DX12 backend is the only way to change that count; it
-            // happens outside a frame (before NewFrame) and with the GPU idle. A changed
-            // back-buffer FORMAT (an HDR toggle) needs the same rebuild: the backend's
-            // pipeline state bakes the RTV format in, and drawing it against a render
-            // target of another format is a debug-layer error and a wrong-looking frame.
-            if (g_imgui_ready && g_imgui_frames_in_flight != 0 &&
-                (g_imgui_frames_in_flight < static_cast<int>(g_buffer_count) ||
-                 g_imgui_rtv_format != g_format))
-            {
-                mm::logf(L"the swapchain now has {} buffer(s) in {}, ImGui was initialised for {} frames "
-                         L"in flight in {} - re-initialising the DX12 backend",
-                         g_buffer_count,
-                         format_name(g_format),
-                         g_imgui_frames_in_flight,
-                         format_name(g_imgui_rtv_format));
-                // ImGui_ImplDX12_Init uploads the font atlas behind a fence wait with no
-                // timeout, so it may only ever run on a device that answers S_OK.
-                if (!device_alive(L"the ImGui DX12 backend re-init after a resize"))
-                {
-                    return;
-                }
-                wait_for_gpu();
-                ImGui_ImplDX12_Shutdown();
-                ImGui_ImplDX12_InitInfo info{};
-                info.Device = g_device;
-                info.CommandQueue = g_queue.load(std::memory_order_acquire);
-                info.NumFramesInFlight = static_cast<int>(g_buffer_count);
-                info.RTVFormat = g_format;
-                info.DSVFormat = DXGI_FORMAT_UNKNOWN;
-                info.SrvDescriptorHeap = g_srv_heap.heap();
-                info.SrvDescriptorAllocFn = &srv_alloc_cb;
-                info.SrvDescriptorFreeFn = &srv_free_cb;
-                if (!ImGui_ImplDX12_Init(&info))
-                {
-                    mm::log(L"ImGui_ImplDX12_Init failed on the re-init after a resize - overlay off");
-                    g_failed = true;
-                    return;
-                }
-                g_imgui_frames_in_flight = static_cast<int>(g_buffer_count);
-                g_imgui_rtv_format = g_format;
-            }
-
-            // The buffer being drawn is ours, so its index comes from our own swapchain.
-            const UINT index = comp_swapchain()->GetCurrentBackBufferIndex();
-            FrameCtx& frame = g_frames[index];
-            if (frame.allocator == nullptr)
-            {
-                // A cheap guard: a missing allocator drops the frame instead of faulting
-                // in Reset().
-                request_readoption(L"a back buffer has no command allocator");
-                return;
-            }
-            g_render_stage.store("waiting for this frame's fence", std::memory_order_relaxed);
-            if (frame.fence_value != 0 && g_fence->GetCompletedValue() < frame.fence_value)
-            {
-                if (SUCCEEDED(g_fence->SetEventOnCompletion(frame.fence_value, g_fence_event)))
-                {
-                    ::WaitForSingleObject(g_fence_event, 500);
-                }
             }
 
             // A reload (F5) rebuilds the whole texture set. The old textures may only be
@@ -1594,7 +1617,7 @@ namespace overlay
                 g_pf_frame = mm::perf_register("render frame (ImGui)", perf::Thread::Render);
             }
             const std::uint64_t frame_t0 = mm::qpc_us();
-            // The UI scale, decided from the current back buffer and applied before the
+            // The UI scale, decided from the current target and applied before the
             // frame's draw lists exist. ResizeBuffers changes g_height and a config
             // change comes through cfg_cached, so both re-enter here on their own.
             apply_ui_scale(wanted_ui_scale(mm::cfg_cached(), static_cast<float>(g_height)));
@@ -1624,6 +1647,44 @@ namespace overlay
                 g_render_stage.store("imgui: ImplWin32_NewFrame (user32)", std::memory_order_relaxed);
                 ImGui_ImplWin32_NewFrame();
             }
+
+            // THE TARGET, and the last thing that can drop this frame. Everything above
+            // is housekeeping that has to happen whether or not the overlay draws - the
+            // F5 texture drop, finished uploads, the UI scale and the game thread's
+            // window messages, which would otherwise queue up unreplayed. Everything
+            // below needs the target, directly or through the command list its allocator
+            // resets: the map upload, the height-slice copy and the screenshot all record
+            // into that list.
+            //
+            // The target drawn into is one whose copy into the composition surface has
+            // completed. None free means the compositor is behind: the frame is dropped
+            // rather than waited for, because this thread is inside the game's Present.
+            const int picked = comp_pick_target();
+            if (picked < 0)
+            {
+                g_render_stage.store("no free overlay target", std::memory_order_relaxed);
+                mm::perf_record(g_pf_frame, frame_t0);
+                (void)device_alive(L"a frame the overlay dropped for want of a free target");
+                return;
+            }
+            const UINT index = static_cast<UINT>(picked);
+            FrameCtx& frame = g_frames[index];
+            if (frame.allocator == nullptr)
+            {
+                // A cheap guard: a missing allocator drops the frame instead of faulting
+                // in Reset().
+                request_readoption(L"a render target has no command allocator");
+                return;
+            }
+            g_render_stage.store("waiting for this target's fence", std::memory_order_relaxed);
+            if (frame.fence_value != 0 && g_fence->GetCompletedValue() < frame.fence_value)
+            {
+                if (SUCCEEDED(g_fence->SetEventOnCompletion(frame.fence_value, g_fence_event)))
+                {
+                    ::WaitForSingleObject(g_fence_event, 500);
+                }
+            }
+
             ImGui_ImplDX12_NewFrame();
             ImGui::NewFrame();
             {
@@ -1660,34 +1721,22 @@ namespace overlay
             // submission, no PSO of our own.
             record_slice_copy(g_cmd_list);
 
-            D3D12_RESOURCE_BARRIER barrier{};
-            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-            barrier.Transition.pResource = g_backbuffers[index];
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-            g_cmd_list->ResourceBarrier(1, &barrier);
-
+            // No transition: the target is the mod's own and lives in RENDER_TARGET.
             g_cmd_list->OMSetRenderTargets(1, &g_rtv[index], FALSE, nullptr);
             // Our surface carries the overlay and nothing else, so every frame starts
-            // fully transparent and the compositor shows the game through it.
+            // fully transparent and the compositor shows the game through it. The clear
+            // is also what makes ImGui's blend state emit the premultiplied alpha the
+            // surface is composed as.
             const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
             g_cmd_list->ClearRenderTargetView(g_rtv[index], transparent, 0, nullptr);
             ID3D12DescriptorHeap* heaps[] = {g_srv_heap.heap()};
             g_cmd_list->SetDescriptorHeaps(1, heaps);
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_cmd_list);
 
-            // The screenshot copy, if one was asked for: it takes the back buffer from
-            // RENDER_TARGET to PRESENT itself (via COPY_SOURCE), so it replaces the
-            // closing barrier below rather than adding to it.
-            const bool shot_recorded = record_shot_copy(g_cmd_list, g_backbuffers[index], index);
-            if (!shot_recorded)
-            {
-                barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-                barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-                g_cmd_list->ResourceBarrier(1, &barrier);
-            }
+            // The screenshot copy, if one was asked for. It borrows the target through
+            // COPY_SOURCE and hands it back in RENDER_TARGET, so the frame closes with the
+            // target in the one state it ever lives in.
+            const bool shot_recorded = record_shot_copy(g_cmd_list, g_targets[index], index);
             g_cmd_list->Close();
 
             g_render_stage.store("submitting the command list", std::memory_order_relaxed);
@@ -1713,25 +1762,12 @@ namespace overlay
                 }
             }
             frame.fence_value = g_fence_value;
-            // Our surface is presented by us. The game's Present, which this hook is
-            // inside, carries the game's frame and knows nothing about this one; the
-            // compositor is what puts the two together.
-            //
-            // The ORIGINAL, exactly as the command-list submission above. Present is one
-            // dxgi function shared by every swapchain in the process, ours included, so
-            // calling it through the vtable would re-enter this hook on a thread that
-            // already holds the render lock and wedge the render thread.
-            const HRESULT cp = o_Present(comp_swapchain(), 0, 0);
-            if (FAILED(cp))
-            {
-                static bool said = false;
-                if (!said)
-                {
-                    said = true;
-                    mm::logf(L"composition: presenting the overlay's own surface failed (0x{:08X})",
-                             static_cast<unsigned>(cp));
-                }
-            }
+            // The frame is handed to the surface thread, which waits for this fence and
+            // copies the target into the composition surface. Nothing of ours is ever
+            // presented: the game's Present, which this hook is inside, carries the game's
+            // frame and knows nothing about this one, and the compositor is what puts the
+            // two together.
+            comp_publish(picked, g_fence_value);
             if (shot_recorded)
             {
                 g_shot_fence = g_fence_value; // the readback may not be mapped before this
@@ -1782,8 +1818,8 @@ namespace overlay
         //
         // Not SEH: an access violation is left to crash. `__try` cannot live in a
         // function needing C++ unwinding (MSVC C2712), and swallowing an AV mid
-        // command-list recording leaves the list open and the back buffer stranded
-        // between resource states, which later frames turn into a device removal with no
+        // command-list recording leaves the list open and the target stranded between
+        // resource states, which later frames turn into a device removal with no
         // evidence. The crash breadcrumb plus CrashContext.runtime-xml is the diagnostic
         // route here.
         void render_guarded(IDXGISwapChain* sc)
@@ -1829,10 +1865,13 @@ namespace overlay
             }
         }
 
-        // Did the Present itself fail? A removal is reported for EVERY swapchain in the
-        // process, because the swapchain that reports it first need not be the one we
-        // adopted and the reason code is what a bug report is read for. Only a removal on
-        // our own device is terminal; anything else is one log line.
+        // Did the Present itself fail? EVERY failing HRESULT is reported, for every
+        // swapchain in the process - this call site sees them all, not only the game's -
+        // because a game can die of a Present that never removes a device: reporter 4's
+        // E_ABORT left the mod's log clean while the game asserted every 19 seconds. One
+        // line per class, the adopted swapchain and everything else, naming which it was,
+        // so a foreign renderer's failure is never read as the mod's. Only a removal on
+        // our own device is terminal.
         //
         // ANY THREAD - frame generation presents from its own. The device is asked for
         // its reason HERE rather than left to the render thread: the removal that matters
@@ -1842,11 +1881,25 @@ namespace overlay
         // and the check at the top of render().
         void note_present_result(HRESULT hr, IDXGISwapChain* sc)
         {
-            if (hr != DXGI_ERROR_DEVICE_REMOVED && hr != DXGI_ERROR_DEVICE_RESET)
+            if (SUCCEEDED(hr))
             {
                 return;
             }
             const bool ours = sc == g_swapchain;
+            if (hr != DXGI_ERROR_DEVICE_REMOVED && hr != DXGI_ERROR_DEVICE_RESET)
+            {
+                std::atomic<bool>& said = ours ? g_present_fail_ours : g_present_fail_other;
+                if (!said.exchange(true, std::memory_order_acq_rel))
+                {
+                    mm::logf(L"Present returned 0x{:08X} on {} swapchain {:p}. The device is not "
+                             L"removed, so nothing of the mod's acts on it; it is here because a "
+                             L"game can die of a Present that never removes a device.",
+                             static_cast<unsigned>(hr),
+                             ours ? L"OUR adopted" : L"another",
+                             static_cast<void*>(sc));
+                }
+                return;
+            }
             // Once per removal. It repeats on every Present of every swapchain from here
             // on, and the first line is the one worth having.
             if (!g_removal_logged.exchange(true, std::memory_order_acq_rel))
@@ -1922,13 +1975,6 @@ namespace overlay
 
         HRESULT STDMETHODCALLTYPE hk_Present(IDXGISwapChain* sc, UINT sync, UINT flags)
         {
-            // Our own composition surface. It is presented from inside a frame this hook
-            // is already running, so treating it as a frame of the game's would re-enter
-            // everything below on a thread that holds the render lock.
-            if (comp_ready() && sc == comp_swapchain())
-            {
-                return o_Present(sc, sync, flags);
-            }
             note_present_args(sc, sync, flags);
             render_guarded(sc);
             if (sc == g_swapchain)
@@ -1939,16 +1985,16 @@ namespace overlay
             // is one dxgi function shared by every swapchain, D3D11 and D3D12 alike, and
             // returning early for "not ours" would stop another overlay presenting.
             const HRESULT hr = o_Present(sc, sync, flags);
-            if (sc == g_swapchain || hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
-            {
-                note_present_result(hr, sc);
-            }
+            note_present_result(hr, sc);
             return hr;
         }
 
         HRESULT STDMETHODCALLTYPE hk_Present1(IDXGISwapChain1* sc, UINT sync, UINT flags,
                                               const DXGI_PRESENT_PARAMETERS* params)
         {
+            // Counted, not inferred: nothing in the tree says whether this game ever
+            // presents through Present1, and it renders a second overlay frame if it does.
+            g_present1_count.fetch_add(1, std::memory_order_relaxed);
             note_present_args(sc, sync, flags);
             render_guarded(sc);
             if (sc == g_swapchain)
@@ -1956,10 +2002,7 @@ namespace overlay
                 collect_guarded();
             }
             const HRESULT hr = o_Present1(sc, sync, flags, params);
-            if (sc == g_swapchain || hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
-            {
-                note_present_result(hr, sc);
-            }
+            note_present_result(hr, sc);
             return hr;
         }
 
@@ -2000,8 +2043,8 @@ namespace overlay
                     try
                     {
                         // The fence, not ImGui: a frame can be in flight on the GPU
-                        // before `g_imgui_ready` is set, and releasing the back buffers
-                        // out from under it is exactly the case this wait exists for.
+                        // before `g_imgui_ready` is set, and releasing the targets out
+                        // from under it is exactly the case this wait exists for.
                         if (g_fence != nullptr)
                         {
                             wait_for_gpu();

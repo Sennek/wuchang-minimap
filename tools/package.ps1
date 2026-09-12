@@ -454,9 +454,26 @@ try {
     #--------------------------------------------------------------------------------
     # 5. Zip, then round-trip it
     #--------------------------------------------------------------------------------
+    Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::CreateFromDirectory(
-        $pkgRoot, $zipPath, [System.IO.Compression.CompressionLevel]::Optimal, $true)
+    # Built entry by entry rather than with CreateFromDirectory, which records only files: an
+    # extractor that creates folders from directory records alone then drops the whole tree
+    # into one folder. Names carry '/', the only separator the zip format allows.
+    $zipOut = [System.IO.Compression.ZipFile]::Open(
+        $zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $null = $zipOut.CreateEntry($pkgName + '/')
+        foreach ($d in Get-ChildItem -LiteralPath $pkgRoot -Recurse -Directory) {
+            $rel = $d.FullName.Substring($pkgRoot.Length + 1).Replace('\', '/')
+            $null = $zipOut.CreateEntry($pkgName + '/' + $rel + '/')
+        }
+        foreach ($f in Get-ChildItem -LiteralPath $pkgRoot -Recurse -File) {
+            $rel = $f.FullName.Substring($pkgRoot.Length + 1).Replace('\', '/')
+            $null = [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $zipOut, $f.FullName, $pkgName + '/' + $rel,
+                [System.IO.Compression.CompressionLevel]::Optimal)
+        }
+    } finally { $zipOut.Dispose() }
 
     $onDisk = @{}
     foreach ($f in Get-ChildItem -LiteralPath $pkgRoot -Recurse -File) {
@@ -465,13 +482,13 @@ try {
     }
     $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
     try {
+        # A directory record has an empty Name; the round-trip weighs files against files.
         $entries = @($zip.Entries | Where-Object { $_.Name -ne '' })
         if ($entries.Count -ne $onDisk.Count) {
             throw "zip round-trip: $($entries.Count) entries, $($onDisk.Count) files on disk."
         }
         foreach ($e in $entries) {
-            # .NET Framework's ZipFile writes '\' separators on Windows; normalise.
-            $key = $e.FullName.Replace('\', '/')
+            $key = $e.FullName
             if (-not $onDisk.ContainsKey($key)) { throw "zip round-trip: unexpected entry '$key'." }
             if ($onDisk[$key] -ne $e.Length) {
                 throw "zip round-trip: size mismatch for '$key' ($($e.Length) vs $($onDisk[$key]))."

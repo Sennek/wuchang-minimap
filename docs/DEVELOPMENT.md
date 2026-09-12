@@ -206,8 +206,8 @@ version and one UE4SS build string across every file that states either, no unfi
 every relative link resolving inside the package), and a **zip round-trip** against the tree on
 disk.
 
-`.\make_rar.cmd` runs all of it and adds a tested `.rar`. `-NoBuild` packages the existing
-`build\` output; `-OutDir` writes somewhere other than `dist\`.
+`-NoBuild` packages the existing `build\` output; `-OutDir` writes somewhere other than
+`dist\`.
 
 ---
 
@@ -229,7 +229,7 @@ own file.
 | **engine access** | `ue_min.hpp` (hand-written `RC::Unreal` ABI declarations), `uereflect.hpp` (cached property offsets, `UFunction` calls), `mem.*` (`VirtualQuery` + SEH-guarded raw reads), `gamepad.*` (XInput, dynamically loaded, LOOP thread only) |
 | **sdk** | `sdk/UE4SS.def` + `sdk/lib/UE4SS.lib` (both generated, both committed), `sdk/shim/GUI/GUI.hpp` (hand-written stand-in) |
 | **third_party** | `imgui/` + the dx12 and win32 backends, `minhook/`, `fmt/` (header-only). Unmodified; provenance in `third_party/VENDORING.md` |
-| **build / release** | `build.ps1`, `deploy.ps1`, `tools/vs_detect.ps1`, `tools/gen_ue4ss_importlib.ps1`, `tools/package.ps1`, `tools/make_rar.ps1`, `tools/check_release.ps1`, `tools/CHANGELOG.template.md` |
+| **build / release** | `build.ps1`, `deploy.ps1`, `tools/vs_detect.ps1`, `tools/gen_ue4ss_importlib.ps1`, `tools/package.ps1`, `tools/check_release.ps1`, `tools/CHANGELOG.template.md` |
 | **map pipeline** | `tools/navmesh/`: `offline/` (paks → tile JSON), `render.py`, `build_map.py`, `mapfmt.py` (the ON-DISK format), `repack_maps.py`, `slice_preview.py`, `marker_coverage.py` |
 | **marker pipeline** | `tools/markers/`, driven by `tools/regen_all.py`; `class_graph.json` is a cached artifact |
 | **recon** | `tools/lua-recon/` — the WuchangRecon Lua mod and its mock harness. Its `out/` dumps are committed evidence that cannot be re-taken |

@@ -1869,10 +1869,8 @@ namespace mm
                     if (const char* instead = cfgkeys::removed_advice(key); instead != nullptr)
                     {
                         warn_once(key,
-                                  std::format(L"config: `{}` is not a setting - the overlay's own off "
-                                              L"switch is `{} = 0` (the mod then never touches DirectX), "
-                                              L"and `mod_enabled = 0` still stops the whole mod. This "
-                                              L"line is ignored and can be deleted.",
+                                  std::format(L"config: `{}` is not a setting - {}. This line is "
+                                              L"ignored and can be deleted.",
                                               widen_ascii(key),
                                               widen_ascii(instead)));
                     }

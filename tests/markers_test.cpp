@@ -4501,10 +4501,11 @@ namespace
         CHECK(cfgkeys::is_removed("enabled"));         // its own older name
         CHECK(cfgkeys::removed_advice("overlay_enabled") != nullptr);
         CHECK(cfgkeys::removed_advice("enabled") != nullptr);
-        CHECK(std::string{cfgkeys::removed_advice("overlay_enabled")} == "overlay_hooks");
         CHECK(cfgkeys::removed_advice("slice_min_px") == nullptr);
         CHECK(cfgkeys::removed_advice("overlay_hooks") == nullptr);
-        // A key the removed advice points at must be live, or the advice is a dead end.
+        // The advice is the whole sentence the loader prints, so the invariant is the one the
+        // reader meets: it names at least one key, and every key it quotes is live. A sentence
+        // written about one removed name and reused for another fails this.
         for (const std::string& k : removed)
         {
             const char* instead = cfgkeys::removed_advice(k);
@@ -4512,9 +4513,25 @@ namespace
             {
                 continue;
             }
-            const std::string msg = std::string{"the advice for a removed key names a live key: "} + k;
-            check(std::find(known.begin(), known.end(), std::string{instead}) != known.end(),
-                  msg.c_str(), __FILE__, __LINE__);
+            const std::string advice{instead};
+            int quoted = 0;
+            for (std::size_t open = advice.find('`'); open != std::string::npos;)
+            {
+                const std::size_t close = advice.find('`', open + 1);
+                if (close == std::string::npos)
+                {
+                    break;
+                }
+                const std::string name = advice.substr(open + 1, close - open - 1);
+                ++quoted;
+                const std::string msg =
+                    std::string{"the advice for `"} + k + "` quotes a live key: " + name;
+                check(std::find(known.begin(), known.end(), name) != known.end(), msg.c_str(),
+                      __FILE__, __LINE__);
+                open = advice.find('`', close + 1);
+            }
+            const std::string msg = std::string{"the advice for `"} + k + "` names a key at all";
+            check(quoted > 0, msg.c_str(), __FILE__, __LINE__);
         }
         CHECK(cfgkeys::renamed_to("mod_enabled") == nullptr);
         CHECK_EQ(static_cast<int>(cfgkeys::kConfigKeyCount), static_cast<int>(known.size()));

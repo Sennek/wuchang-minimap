@@ -242,19 +242,22 @@ namespace cfgkeys
 
     inline constexpr std::size_t kKeyCount = sizeof(kKeys) / sizeof(kKeys[0]);
 
-    // The live key a removed name should send the reader to, or nullptr when the generic
-    // "this is a hard-coded constant" line says everything. Only for names a player
-    // deliberately typed in the hope of an effect.
+    // What to do instead of a removed name, as the whole sentence the loader prints - "which
+    // key" and "why" are different questions for different names, and one word plugged into
+    // one fixed sentence can only answer for the name that sentence was written about. Every
+    // key it quotes in backticks is live. Nullptr when the generic "this is a hard-coded
+    // constant" line says everything; only names a player deliberately typed get an answer.
     inline const char* removed_advice(std::string_view key)
     {
         if (key == "overlay_enabled" || key == "enabled")
         {
-            return "overlay_hooks";
+            return "the overlay's own off switch is `overlay_hooks` = 0 (the mod then never "
+                   "touches DirectX), and `mod_enabled` = 0 still stops the whole mod";
         }
         if (key == "xray_rarity_colors_enabled" || key == "markers_rarity_tint" ||
             key == "xray_rarity_colors")
         {
-            return "palette";
+            return "loot wears the colour of its tier now, and `palette` picks the colours";
         }
         return nullptr;
     }

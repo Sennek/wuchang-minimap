@@ -15,6 +15,7 @@ Changed
 - Loot an enemy drops is filed by what it is: a dropped chest piece draws as armour, a dropped jade as a jade. The kind comes from the item itself, so a drop and a pickup of the same thing read the same.
 
 Fixed
+- An elite you have killed is marked collected, the way a boss is, and its count fills in the legend. It stayed uncollected and came back on the map as soon as the body was cleaned up.
 - The Panda's shop is labelled "Panda Shop" on the map. It read "Inner Demon": the class is abbreviated `XM`, and that was taken for XinMo rather than XiongMao.
 - The legend's chapter and its counts follow the chapter you are in. They used to stay on the chapter that was in force when you last picked something up, so the full map could say "all chapters" while the map itself showed one.
 

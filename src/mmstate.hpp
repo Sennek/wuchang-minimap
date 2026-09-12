@@ -277,9 +277,10 @@ namespace mm
         // for it is in the save's `UnlockedFirepoints`. Derived on every publish.
         bool boss_defeat_from_save = true;
         // Chests keep a `Used` flag and pickups a `dying` flag, so absence means "taken" only for
-        // those; shrines, doors and fog gates are not in the default set. Neither is the
-        // Bamboozling: a startled one burrows and comes back, so absence cannot tell "it got
-        // away" from "it is dead" - only its health can, in markers.cpp's Rule::PawnHealth.
+        // those; shrines, doors and fog gates are not in the default set. Neither is anything
+        // mdb::slain_is_found names: a startled Bamboozling burrows and comes back and an
+        // elite may not have spawned yet, so absence cannot tell "it got away" from "it is
+        // dead" - only health can, and markers.cpp's note_slain is where it does.
         std::uint32_t markers_absence_categories = mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats;
 
         // The found tracker: wuchang_minimap_found.txt, one stable id per line. Always on; the

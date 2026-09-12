@@ -342,6 +342,18 @@ namespace mdb
         return current <= 0.0 ? Health::Dead : Health::Alive;
     }
 
+    // ---- Whose death is a find ----
+    //
+    // The three character categories that are a finite COLLECTION rather than a mob: the 28
+    // bosses, the elites - the tougher `_High` / `_Special` variant of a mob, placed one or
+    // two to a level - and the 20 Bamboozlings. One killed is done with for that journey, so
+    // the kill is the found event and it is persisted. An ordinary enemy is not tracked at
+    // all: its marker is a spawn point and the spawn point keeps working.
+    constexpr bool slain_is_found(Cat cat)
+    {
+        return cat == Cat::Boss || cat == Cat::Elite || cat == Cat::Bamboozling;
+    }
+
     // ---- A boss killed before the mod existed ----
     //
     // Such a boss never spawns again, so `Rule::BossPawn` cannot see it. The only per-boss
@@ -492,13 +504,14 @@ namespace mdb
     };
 
     // FINDING the thing consumes it, so a found one is finished business and the x-ray
-    // drops it. The loot family, the two containers it comes in, the bosses and the
-    // Bamboozlings - none of them is there any more once found. Every other category's
-    // "found" is a visit: the shrine, the note and the door are all still standing.
+    // drops it. The loot family, the two containers it comes in, and everything whose
+    // "found" is a kill (slain_is_found) - none of them is there any more once found. Every
+    // other category's "found" is a visit: the shrine, the note and the door are all still
+    // standing.
     constexpr bool consumed_when_found(Cat cat)
     {
-        return cat == Cat::Chest || cat == Cat::Hidden || cat == Cat::Boss ||
-               cat == Cat::Bamboozling || is_loot_family(cat);
+        return cat == Cat::Chest || cat == Cat::Hidden || is_loot_family(cat) ||
+               slain_is_found(cat);
     }
 
     // A landmark is a place you navigate BY, so using it does not use it up and

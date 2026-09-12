@@ -800,11 +800,32 @@ namespace
             // shrine is still standing after you light it.
             CHECK(mdb::consumed_when_found(mdb::Cat::Chest) && !mdb::is_loot_family(mdb::Cat::Chest));
             CHECK(mdb::consumed_when_found(mdb::Cat::Hidden) && !mdb::is_loot_family(mdb::Cat::Hidden));
-            CHECK(mdb::consumed_when_found(mdb::Cat::Boss) && !mdb::is_loot_family(mdb::Cat::Boss));
-            CHECK(mdb::consumed_when_found(mdb::Cat::Bamboozling));
             CHECK(!mdb::consumed_when_found(mdb::Cat::Shrine));
             CHECK(!mdb::consumed_when_found(mdb::Cat::Npc));
             CHECK(!mdb::consumed_when_found(mdb::Cat::Note));
+        }
+
+        // WHOSE DEATH IS A FIND: the three finite collections of characters, and nothing
+        // else. A kill marks them permanently (markers.cpp's note_slain) and finding one
+        // uses it up, so the x-ray drops it with the loot; an ordinary enemy is a mob whose
+        // spawn point keeps working, so its death marks nothing.
+        {
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                const bool slain = cat == mdb::Cat::Boss || cat == mdb::Cat::Elite ||
+                                   cat == mdb::Cat::Bamboozling;
+                CHECK_EQ(mdb::slain_is_found(cat), slain);
+                if (slain)
+                {
+                    CHECK(mdb::consumed_when_found(cat));
+                    CHECK(!mdb::is_loot_family(cat));
+                    // A kill is written to the found file, so the category must have a
+                    // collected state to write it into.
+                    CHECK(mdb::has_found_state(cat));
+                }
+            }
+            CHECK(!mdb::consumed_when_found(mdb::Cat::Enemy));
         }
 
         // The buckets' wire names and tiers, exactly as context/buckets.md pins them.

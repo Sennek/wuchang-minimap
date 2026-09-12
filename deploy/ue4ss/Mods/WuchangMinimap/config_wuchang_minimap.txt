@@ -233,8 +233,9 @@ found_save_debounce_ms = 2000
 
 ; A loaded-but-unseen chest or pickup counts as collected after this many rounds in a
 ; row, in these categories. Undo a mark by clicking the marker on the full map.
-; Do not add `bamboozling`: a startled one burrows and comes back after a rest at a
-; shrine, so its absence would be read as a kill it is not.
+; Do not add `bamboozling` or `elite`: a startled Bamboozling burrows and comes back
+; after a rest at a shrine and an elite may not have spawned yet, so absence would be
+; read as a kill it is not. A kill of either is marked from its health.
 markers_absence_rounds = 2
 markers_absence_categories = chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key
 

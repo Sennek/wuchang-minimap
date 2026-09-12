@@ -62,7 +62,7 @@ namespace markers
             const wchar_t* name;
             mdb::Cat cat;
             Rule rule;
-            bool persist; // may be written to wuchang_minimap_found.txt
+            bool persist; // its own found flag may be written to wuchang_minimap_found.txt
         };
 
         constexpr ClassSpec kClasses[] = {
@@ -120,8 +120,9 @@ namespace markers
             // often as "it is gone"; only a slain one never returns for that journey.
             // That is why the shipped `markers_absence_categories` leaves it out.
             {L"BP_M_ZSG_C", mdb::Cat::Bamboozling, Rule::PawnHealth, true},
-            // Enemies are LIVE ONLY and never persisted; the marker is the pawn the
-            // controller possesses.
+            // Enemies are LIVE ONLY: the marker is the pawn the controller possesses and the
+            // entry carries no found flag. The one kill among them that IS written to the
+            // found file is an elite's - see note_slain.
             {L"Impl_BaseAIController_C", mdb::Cat::Enemy, Rule::ControllerPawn, false},
         };
 
@@ -1454,6 +1455,60 @@ namespace markers
             g_outbox_pending.store(true, std::memory_order_release);
         }
 
+        // The static DB's word on an id: the category of the marker it joins, or `Count` when
+        // nothing joins. The sweep classifies an actor by its class, which cannot tell an elite
+        // from the mob it is a variant of - that is decided offline, against the class graph -
+        // so for that one question the static twin is the authority.
+        mdb::Cat static_cat_of(const std::string& id)
+        {
+            const StaticDb* db = g_idx_db;
+            if (db == nullptr || id.empty())
+            {
+                return mdb::Cat::Count;
+            }
+            const auto it = db->by_id.find(id);
+            if (it == db->by_id.end() || it->second < 0 ||
+                static_cast<std::size_t>(it->second) >= db->markers.size())
+            {
+                return mdb::Cat::Count;
+            }
+            return db->markers[static_cast<std::size_t>(it->second)].cat;
+        }
+
+        // THE KILL IS THE FOUND EVENT, for every category mdb::slain_is_found names and for no
+        // other - an ordinary enemy's spawn point keeps working, so it is never marked. Marks
+        // it, moves the boss gauge and logs the kill once; a second call for an id is silent.
+        void note_slain(const std::string& id, mdb::Cat cat)
+        {
+            if (id.empty() || !mdb::slain_is_found(cat) || g_found_gt.contains(id))
+            {
+                return;
+            }
+            note_found(id);
+            if (cat == mdb::Cat::Boss)
+            {
+                g_boss_defeated.fetch_add(1, std::memory_order_relaxed);
+            }
+            // The id names the level and the actor, so it says WHICH one was killed better than
+            // any class name could; the running tally is the panel's per-category found/total.
+            const std::string_view word{mdb::cat_word(cat)};
+            mm::logf(L"markers: {} killed - {} marked as found",
+                     std::wstring(word.begin(), word.end()),
+                     std::wstring(id.begin(), id.end()));
+        }
+
+        // MEETING IT IS THE FOUND EVENT, the whole of Rule::Proximity's mark. The counter is
+        // the gauge that separates "the tracker is filling" from "nothing ever meets".
+        void note_met(const std::string& id)
+        {
+            if (id.empty() || g_found_gt.contains(id))
+            {
+                return;
+            }
+            note_found(id);
+            g_met_marks.fetch_add(1, std::memory_order_relaxed);
+        }
+
         void drain_inbox()
         {
             if (!g_inbox_pending.exchange(false, std::memory_order_acquire))
@@ -1514,6 +1569,9 @@ namespace markers
                     // MARKED DEAD, NOT ERASED (see LiveEntry::dead): erasing would bring the static
                     // spawn-point marker back. The entry ages out once a GC takes the corpse.
                     const std::string& dead_id = id_for(actor);
+                    // An elite reaches this branch as an ordinary `enemy`, so what it really is
+                    // comes from its static twin; every other enemy's kill marks nothing.
+                    note_slain(dead_id, static_cat_of(dead_id));
                     const auto it = g_live.find(dead_id);
                     if (it != g_live.end())
                     {
@@ -1675,30 +1733,21 @@ namespace markers
             {
                 return;
             }
-            // Enemies are NOT namespaced: the static DB holds an enemy's spawn point under
-            // the same id. `persist == false` keeps them out of the collection tracker.
-
+            // Enemies are NOT namespaced: the static DB holds an enemy's spawn point under the
+            // same id, which is what lets the branch above recognise an elite it has killed.
             if (e.found && e.persist)
             {
-                const bool fresh = !g_found_gt.contains(id);
-                note_found(id);
-                if (fresh)
+                switch (s.rule)
                 {
-                    if (s.rule == Rule::Proximity)
-                    {
-                        g_met_marks.fetch_add(1, std::memory_order_relaxed);
-                    }
-                    else if (s.rule == Rule::PawnHealth)
-                    {
-                        // The session counter is the boss gauge's; a Bamboozling's own
-                        // tally is the panel's per-category found/total row.
-                        if (s.cat == mdb::Cat::Boss)
-                        {
-                            g_boss_defeated.fetch_add(1, std::memory_order_relaxed);
-                        }
-                        mm::logf(L"markers: {} killed - {} marked as found", s.name,
-                                 std::wstring(id.begin(), id.end()));
-                    }
+                case Rule::PawnHealth:
+                    note_slain(id, s.cat);
+                    break;
+                case Rule::Proximity:
+                    note_met(id);
+                    break;
+                default:
+                    note_found(id);
+                    break;
                 }
             }
             if (g_live.size() < g_live_max || g_live.contains(id))

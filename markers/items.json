@@ -12908,8 +12908,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Bu - Blocking Clash +1",
-   "des": "Increases the potency of blocks and clashes."
+   "name": "Vorpal Blade",
+   "des": "Unleash a blade that deals Magic damage."
   },
   "24002": {
    "table": "DT_SpellData",
@@ -12938,8 +12938,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Shi - Rising Defense +1",
-   "des": "While below a certain health threshold, you gain increased defense against Slashing, Blunt and Stab attacks."
+   "name": "Waspomancy",
+   "des": "Call upon venomous wasps to attack enemies and cause Blight buildup."
   },
   "24006": {
    "table": "DT_SpellData",
@@ -12966,8 +12966,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Wei - Area Damage +1",
-   "des": "Increases the damage of attacks that deal damage in a large area, such as explosions."
+   "name": "Divine Ward",
+   "des": "Pray to the divine, reducing your damage taken for a time."
   },
   "24010": {
    "table": "DT_SpellData",
@@ -13022,8 +13022,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Wei - Backstab Force +1",
-   "des": "Increases the potency of Backstab attacks."
+   "name": "Echo of Vermillion Feathers",
+   "des": "Gather energy to absorb any incoming spell directed at you and gain [Skyborn Might], then unleash it in a powerful explosion that damages all nearby foes."
   },
   "24018": {
    "table": "DT_SpellData",
@@ -13102,8 +13102,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Fa - Corruptive Feathers +1",
-   "des": "If a nearby enemy suffers Corruption, gain increased potency for Feathering attacks for a time."
+   "name": "Lotus Lantern",
+   "des": "Conjure a golden lotus that explodes to deal damage."
   },
   "24030": {
    "table": "DT_Item_ToolTable",
@@ -13190,8 +13190,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Wei - Blood Force +1",
-   "des": "Increases damage dealt while below a certain HP threshold."
+   "name": "Crimson Edge Incantation",
+   "des": "Send forth a Feathering-type blade that makes you recover health on hit."
   },
   "24042": {
    "table": "DT_SpellData",
@@ -13218,8 +13218,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Bu - Combo Ward +1",
-   "des": "Consecutive attacks reduce damage taken for a short time."
+   "name": "Echo of Xuanyangzi",
+   "des": "Release a Feathering-type blade force forward, along with five orbs. Can trigger [Alacrity] if you're attacked while casting."
   },
   "24046": {
    "table": "DT_SpellData",
@@ -13244,8 +13244,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Wei - Poise Force +1",
-   "des": "If a nearby enemy suffers Poise Break, deal increased damage for a time."
+   "name": "Demonbane Strike",
+   "des": "Conjure forth a spear to stab upward and cause Feathering damage."
   },
   "24050": {
    "table": "DT_SpellData",
@@ -13300,8 +13300,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "  Wei - Tri-Disciplinary Force +1",
-   "des": "Increases damage dealt if 3 Discipline skills are known."
+   "name": "Echo of Honglan",
+   "des": "Strike swiftly and send forth a blade wave that pierces enemies and deals Slashing damage. Can trigger [Alacrity] if you're attacked while casting."
   },
   "24058": {
    "table": "DT_Item_ToolTable",
@@ -13332,8 +13332,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Wei - Vitality Force +1",
-   "des": "Increases damage dealt while at full health."
+   "name": "Plume Vortex",
+   "des": "Send forth a vortex that explodes, dealing damage while also sending enemies flying and causing great stagger. Can trigger [Alacrity] if you're attacked while casting."
   },
   "24062": {
    "table": "DT_Item_ToolTable",
@@ -13364,8 +13364,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Shan - Blight Defense +1",
-   "des": "If a nearby enemy suffers Blight, take reduced damage for a time."
+   "name": "Echo of Honglan",
+   "des": "Unfurl your wings and release seven blood-hued feathers that home in on enemies, inflicting Feathering damage. Can trigger [Alacrity] if you're attacked while casting."
   },
   "24066": {
    "table": "DT_Item_ToolTable",
@@ -13392,8 +13392,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Wei - Vitality Power +1",
-   "des": "Increases damage dealt while at full health, but also increases Stamina usage."
+   "name": "Echo of Lu Hongliu",
+   "des": "Raise your left hand and unleash a piercing shriek, sending nearby enemies flying. Deals Feathering damage but also causes Despair buildup to the caster."
   },
   "24070": {
    "table": "DT_Item_ToolTable",
@@ -13476,8 +13476,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Echo of the Avian",
-   "des": "Tap into ancient avian power to summon a barrage of water needles, striking your foes."
+   "name": "Echo of the Bo Magus",
+   "des": "Invoke the God of Shu to create a barrier around you that can withstand damage."
   },
   "24082": {
    "table": "DT_SpellData",
@@ -15852,7 +15852,7 @@
    "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
   }
  ],
- "extractor_commit": "0b510c1+dirty",
+ "extractor_commit": "676ba00+dirty",
  "exe": {
   "name": "Project_Plague-Win64-Shipping.exe",
   "size": 141464648,

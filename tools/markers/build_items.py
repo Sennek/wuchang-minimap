@@ -22,8 +22,9 @@ display names, entirely from the paks:
      game string in the **empty namespace**, keyed `<prefix>_<ID>_name` with a
      matching `_des` (long description) and `_sum` (short one).  The prefix is
      the item's *kind*, not its table: `item`, `weapon`, `armor`, `ring`, `gem`,
-     `spell`, `styleskill`, `weaponskill`, `CuiYu`.  They never collide on a
-     referenced id, so a fixed priority order resolves every one.
+     `spell`, `styleskill`, `weaponskill`, `CuiYu`.  Prefixes do collide on an
+     id -- 46 of them -- so the kind the row's own `ItemType` decodes to picks
+     the prefix (`TYPE_KEY_PREFIX`).
 
 English only, on purpose: the mod's UI is English (task `CLAUDE.md § Goal`).
 `--lang` is there for a future translation pass, nothing more.
@@ -70,9 +71,44 @@ MIRROR = "Content/DynamicCombatSystem/DataTables/"
 
 # Localisation key prefixes, highest priority first.  Measured key counts in
 # `en`: weapon 374, armor 216, item 201, gem 107, spell 39, ring 36,
-# weaponskill 34, styleskill 30, CuiYu 26.
+# weaponskill 34, styleskill 30, CuiYu 26.  Only the fallback for a row whose
+# `ItemType` did not decode -- `TYPE_KEY_PREFIX` answers first.
 KEY_PREFIXES = ("item", "weapon", "armor", "ring", "gem", "spell",
                 "styleskill", "weaponskill", "CuiYu")
+
+# `E_ItemType` display name -> the key prefix that names that kind of item.
+#
+# 46 ids carry a `_name` under two prefixes, in two families.  A melee weapon
+# also has `weaponskill_<id>_name`, its weapon skill (33 ids); and the thirteen
+# spells of `DT_Item_ToolTable` in 24001..24081 share their id with a `+1` gem
+# or a tool -- `gem_24041_name` is "Wei - Blood Force +1" where
+# `spell_24041_name` is "Crimson Edge Incantation".  A fixed prefix order gets
+# the second family wrong every time, so the item's own type picks the prefix.
+#
+# Total over `E_ItemType`: a new type stops the run rather than silently taking
+# whatever the fallback order hands back.  `weaponskill` and `CuiYu` are never
+# an item's own kind and appear only in `KEY_PREFIXES`.
+TYPE_KEY_PREFIX = {
+    "None": "item",
+    "Tool": "item",
+    "Arrows": "item",
+    "Material": "item",
+    "EnchantingMaterial": "item",
+    "SpecialItem": "item",
+    "MeleeWeapon": "weapon",
+    "RangeWeapon": "weapon",
+    "Shield": "weapon",
+    "Head": "armor",
+    "Top": "armor",
+    "Legs": "armor",
+    "Hands": "armor",
+    "Feet": "armor",
+    "Ring": "ring",
+    "Necklace": "ring",
+    "Gem": "gem",
+    "Spell": "spell",
+    "StyleSkill": "styleskill",
+}
 
 LOCRES = "Content/Localization/MMGame/{lang}/MMGame.locres"
 LOCRES_MAGIC = bytes.fromhex("0e147475674a03fc4a15909dc3377f1b")
@@ -351,9 +387,25 @@ def table_item_types(ms, name, stem, enum):
 # driver
 # ---------------------------------------------------------------------------
 
+def localise(loc, rid: int, type_name: str | None):
+    """`(prefix, name, description)` of one item id, or `None` when no prefix
+    names it.  The item's own kind is asked first; `KEY_PREFIXES` then covers
+    the ids whose `ItemType` did not decode."""
+    first = TYPE_KEY_PREFIX.get(type_name or "None")
+    order = (first,) + tuple(p for p in KEY_PREFIXES if p != first)
+    for pre in order:
+        nm = loc.get(f"{pre}_{rid}_name")
+        if nm:
+            return pre, nm, loc.get(f"{pre}_{rid}_des") or loc.get(f"{pre}_{rid}_sum")
+    return None
+
+
 def build(ms, lang: str = "en", verbose: bool = True):
     loc = read_locres(ms.read(LOCRES.format(lang=lang)))
     enum = enum_values(ms)
+    unmapped = sorted(set(enum.values()) - set(TYPE_KEY_PREFIX))
+    if unmapped:
+        raise SystemExit(f"E_ItemType has no key prefix for {unmapped}")
 
     owner: dict[int, str] = {}
     per_table: dict[str, set[int]] = {}
@@ -385,15 +437,13 @@ def build(ms, lang: str = "en", verbose: bool = True):
         # one by the first item it grants, off this same field.
         rec["bucket"] = pickup_buckets.bucket_of_type(type_name)
         rarities[rec["rarity"]] += 1
-        for pre in KEY_PREFIXES:
-            nm = loc.get(f"{pre}_{rid}_name")
-            if nm:
-                rec["name"] = nm
-                des = loc.get(f"{pre}_{rid}_des") or loc.get(f"{pre}_{rid}_sum")
-                if des:
-                    rec["des"] = des
-                named_by_prefix[pre] += 1
-                break
+        found = localise(loc, rid, type_name)
+        if found:
+            pre, nm, des = found
+            rec["name"] = nm
+            if des:
+                rec["des"] = des
+            named_by_prefix[pre] += 1
         items[rid] = rec
 
     named = sum(1 for r in items.values() if r.get("name"))

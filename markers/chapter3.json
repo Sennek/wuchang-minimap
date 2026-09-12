@@ -21,7 +21,7 @@
    "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
   }
  ],
- "extractor_commit": "0b510c1+dirty",
+ "extractor_commit": "676ba00+dirty",
  "exe": {
   "name": "Project_Plague-Win64-Shipping.exe",
   "size": 141464648,
@@ -9704,7 +9704,7 @@
    "id": "Chapter3_NiaoRenJL_logic/BP_AutoPickUp_C_1",
    "cat": "spell",
    "cls": "BP_AutoPickUp_C",
-   "name": "Wei - Vitality Force +1",
+   "name": "Plume Vortex",
    "obj": "BP_AutoPickUp_C_1",
    "x": 0.0,
    "y": 0.0,
@@ -9736,7 +9736,7 @@
    "id": "Chapter3_WuChangJZ_logic/BP_AutoPickUp_C_1",
    "cat": "spell",
    "cls": "BP_AutoPickUp_C",
-   "name": "Wei - Poise Force +1",
+   "name": "Demonbane Strike",
    "obj": "BP_AutoPickUp_C_1",
    "x": 20241.9,
    "y": 39854.91,

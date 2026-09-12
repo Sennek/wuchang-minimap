@@ -141,11 +141,6 @@ namespace overlay
             return out;
         }
 
-        bool is_raw_mouse_message(UINT msg, LPARAM lparam)
-        {
-            return raw_kind(msg, lparam, false).mouse;
-        }
-
         //==============================================================================
         // The game thread's window messages, REPLAYED on the render thread
         //==============================================================================

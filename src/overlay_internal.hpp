@@ -395,9 +395,6 @@ namespace overlay
         extern double g_slice_ms_peak;
         extern std::uint64_t g_slice_updates;
         extern std::uint64_t g_slice_skipped;
-        // The window the SHOWN buffer covers, as a world->uv mapping.
-        extern double g_slice_min_y;
-        extern double g_slice_max_x;
         // Feet Z, EMA-smoothed so a jump or a step does not snap the whole picture.
         extern float g_feet_z;
         extern bool g_feet_z_valid;
@@ -484,8 +481,6 @@ namespace overlay
         extern int g_mr_h;
         extern double g_mr_zoom;
         extern float g_mr_feet;
-        extern double g_mr_px; // the player position the cut was made at
-        extern double g_mr_py;
         extern std::string g_mr_chapter;
         // The view itself. Render thread only.
         extern mv::View g_mv;
@@ -1022,7 +1017,6 @@ namespace overlay
         struct HighlightDebug
         {
             bool active = false;
-            bool have_camera = false;
             int gated = 0;      // rows the gate looked at (= the published buffer)
             int considered = 0; // rows that passed the gate
             int drawn = 0;
@@ -1046,7 +1040,6 @@ namespace overlay
             bool from_camera = false;
             double heading = 0.0;
             int pips = 0;
-            int deduped = 0; // pips left after the 3-px dedupe
         };
         extern CompassDebug g_compass_debug;
         // Which panel sections are open. The render thread owns the bits (it draws the
@@ -1194,7 +1187,6 @@ namespace overlay
         bool is_escape_key_down(UINT msg, WPARAM wparam);
         bool is_system_chord(UINT msg, WPARAM wparam);
         RawKind raw_kind(UINT msg, LPARAM lparam, bool want_key);
-        bool is_raw_mouse_message(UINT msg, LPARAM lparam);
         bool imgui_handles(UINT msg);
         void record_imgui_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
         void replay_imgui_messages();
@@ -1305,7 +1297,6 @@ namespace overlay
 
         std::string wide_to_ascii(const std::wstring& wide);
         std::string key_name_ascii(int binding);
-        std::string bindings_hint(const mm::Config& cfg);
         ImU32 marker_color(mdb::Cat cat, int alpha);
         ImU32 plate_color(int alpha);
         // `fill_alpha` applies to a hollow (found) glyph only: it fades the fill under

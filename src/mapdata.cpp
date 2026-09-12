@@ -798,12 +798,6 @@ namespace mapdata
         return list == nullptr ? std::vector<Chapter>{} : *list;
     }
 
-    Chapter chapter_for(double wx, double wy)
-    {
-        const Chapter* ch = chapter_ptr_for(wx, wy);
-        return ch == nullptr ? Chapter{} : *ch;
-    }
-
     const Chapter* chapter_ptr_for(double wx, double wy)
     {
         // Safe to hand out a pointer: a reload retires the published vector for one whole

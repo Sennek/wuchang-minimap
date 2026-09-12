@@ -1783,17 +1783,6 @@ namespace mm
 
     namespace
     {
-        // Written by load_config_file() / save_config_file() (loop thread), read by the F2 panel (render thread).
-        std::atomic<bool> g_dev_config_active{false};
-    } // namespace
-
-    bool dev_config_active()
-    {
-        return g_dev_config_active.load(std::memory_order_relaxed);
-    }
-
-    namespace
-    {
         // One warning per key per process: every F5 and every 1 Hz mtime reload re-parses the file.
         bool g_warned[cfgkeys::kKeyCount] = {};
 
@@ -2137,10 +2126,6 @@ namespace mm
         set_config(cfg);
         if (have_dev)
         {
-            g_dev_config_active.store(true, std::memory_order_relaxed);
-        }
-        if (have_dev)
-        {
             logf(L"config: loaded {} setting(s) from {} + {} dev setting(s) from {}", lines, path, dev_lines,
                  dev_config_path());
         }
@@ -2466,8 +2451,6 @@ namespace mm
         // default. Dev keys never leak into the player file - the filter above cannot see them.
         std::string dev_existing;
         const bool have_dev = read_whole_file(dev_config_path(), dev_existing);
-        // What the F2 Save button's label promises. Set BEFORE the write.
-        g_dev_config_active.store(have_dev || dev_values_differ(kv), std::memory_order_relaxed);
         if (have_dev || dev_values_differ(kv))
         {
             const std::vector<cfgrw::Pair> mine = cfgrw::filter(
@@ -2800,11 +2783,6 @@ namespace mm
             }
         }
         return path;
-    }
-
-    std::string waypoint_file_name()
-    {
-        return slotid::waypoint_filename(g_wp_key);
     }
 
     // The save-slot watch, mirroring the found tracker's: a pending write goes to the OLD

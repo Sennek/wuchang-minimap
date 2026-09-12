@@ -1104,33 +1104,5 @@ namespace overlay
             return wide_to_ascii(mm::key_name(binding));
         }
 
-        // The key hints, built from the config and never from the defaults, so a
-        // rebound key is what the player is told. One builder for both the F2 panel and
-        // the full map's footer.
-        std::string bindings_hint(const mm::Config& cfg)
-        {
-            std::string s = std::format("{} panel   {} full map ({} recentres)   {} minimap zoom   "
-                                        "{} reload",
-                                        key_name_ascii(cfg.panel_key),
-                                        key_name_ascii(cfg.map_key),
-                                        key_name_ascii(cfg.map_recenter_key),
-                                        key_name_ascii(cfg.zoom_key),
-                                        key_name_ascii(cfg.reload_key));
-            if (cfg.highlight_enabled)
-            {
-                s += std::format("   {} {} x-ray",
-                                 cfg.highlight_mode == mm::HighlightMode::Hold ? "hold" : "press",
-                                 key_name_ascii(cfg.highlight_key));
-                if (cfg.highlight_gamepad &&
-                    (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt))
-                {
-                    s += " (pad " +
-                         wide_to_ascii(mm::pad_chord_name(cfg.highlight_pad_mask, cfg.highlight_pad_lt,
-                                                          cfg.highlight_pad_rt)) +
-                         ")";
-                }
-            }
-            return s;
-        }
     } // namespace ovl
 } // namespace overlay

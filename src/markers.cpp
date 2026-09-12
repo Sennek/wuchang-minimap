@@ -2568,15 +2568,11 @@ namespace markers
             }
         s.absence_marks = g_absence_marks.load(std::memory_order_relaxed);
         s.levels_loaded = g_levels_loaded.load(std::memory_order_relaxed);
-            s.shrine_lit_marks = g_shrine_lit_marks.load(std::memory_order_relaxed);
             s.met_marks = g_met_marks.load(std::memory_order_relaxed);
-            s.boss_defeated = g_boss_defeated.load(std::memory_order_relaxed);
             s.boss_found = g_boss_found.load(std::memory_order_relaxed);
             s.boss_total = g_boss_total.load(std::memory_order_relaxed);
             s.boss_from_save = g_boss_from_save.load(std::memory_order_relaxed);
             s.boss_no_door = g_boss_no_door.load(std::memory_order_relaxed);
-            s.dead_dropped = g_dead_dropped.load(std::memory_order_relaxed);
-            s.health_unknown = g_health_unknown.load(std::memory_order_relaxed);
             s.filter_chapter = filter_chapter_now();
             s.published = g_published_count.load(std::memory_order_relaxed);
             s.live_entries = g_live_count.load(std::memory_order_relaxed);

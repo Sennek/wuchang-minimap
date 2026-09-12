@@ -398,7 +398,6 @@ namespace hl
         s.fails = g_fails.load(std::memory_order_relaxed);
         s.last_ms = g_last_ms.load(std::memory_order_relaxed);
         s.have_manager = g_have_manager.load(std::memory_order_relaxed);
-        s.demanded = g_held.load(std::memory_order_relaxed) || g_compass.load(std::memory_order_relaxed);
         return s;
     }
 

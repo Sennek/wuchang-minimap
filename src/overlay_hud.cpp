@@ -1360,7 +1360,6 @@ namespace overlay
             {
                 return;
             }
-            g_hl_debug.have_camera = true;
 
             proj::Camera cam{};
             cam.x = pose.x;
@@ -1885,7 +1884,6 @@ namespace overlay
                     }
                 }
                 pips.resize(kept);
-                g_compass_debug.deduped = static_cast<int>(pips.size());
 
                 // Back to front, so the nearest pip of a cluster ends up on top.
                 for (std::size_t pi = pips.size(); pi-- > 0;)

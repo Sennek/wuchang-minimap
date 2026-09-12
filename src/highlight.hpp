@@ -56,7 +56,6 @@ namespace hl
         std::uint64_t fails = 0; // reads rejected by the sanity gate
         std::uint64_t last_ms = 0;
         bool have_manager = false;
-        bool demanded = false; // something on screen currently wants the camera
     };
 
     // Any thread. False when nothing usable has ever been published.

@@ -79,19 +79,13 @@ namespace markers
         // F2 diagnostics: "0 levels" means the absence rule can never fire.
         int absence_marks = 0; // marks from the absence rule rather than a state flag
         int levels_loaded = 0;
-        // F2 diagnostics: "0 met / 0 dead dropped with health unknown climbing" means
-        // the health property name is wrong.
-        int shrine_lit_marks = 0; // shrine markers marked from UnlockedFirepoints
-        int met_marks = 0;        // note markers marked as met
-        int boss_defeated = 0;    // boss markers marked as defeated THIS SESSION
+        int met_marks = 0; // note markers marked as met
         // Boss gauge over the current chapter. `boss_from_save` counts the `bossdoor_*`
         // rule, the only thing that answers for a boss killed before the mod existed.
         int boss_found = 0;
         int boss_total = 0;
         int boss_from_save = 0;
         int boss_no_door = 0;
-        int dead_dropped = 0;     // live enemies dropped because their health read 0
-        int health_unknown = 0;   // characters whose Health.Current could not be read
         // Chapter the published buffer is filtered to, or chid::kNone when unfiltered. The
         // `chapter[]` counts below are the ones to read for it; the census is retaken as
         // soon as the publish point sees this change, so the two always name one chapter.

@@ -533,9 +533,6 @@ namespace mapdata
     // Both threads: the chapter list is written once at load and then only read.
     std::vector<Chapter> chapters();
 
-    // Chapter whose world bounds contain (wx, wy) - empty key if none.
-    Chapter chapter_for(double wx, double wy);
-
     // THE MAP THE OVERLAY SHOULD DRAW at (wx, wy). A pointer into the published chapter list,
     // so the render thread reads the height planes every frame without a copy. nullptr if
     // nothing matches. Valid for the frame that fetched it - a reload retires the snapshot for

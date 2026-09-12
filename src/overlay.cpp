@@ -81,8 +81,6 @@ namespace overlay
         double g_slice_ms_peak = 0.0;
         std::uint64_t g_slice_updates = 0;
         std::uint64_t g_slice_skipped = 0;
-        double g_slice_min_y = 0.0;
-        double g_slice_max_x = 0.0;
         float g_feet_z = 0.0f;
         bool g_feet_z_valid = false;
         std::uint32_t g_slice_opaque = 0;
@@ -128,8 +126,6 @@ namespace overlay
         int g_mr_h = 0;
         double g_mr_zoom = 0.0;
         float g_mr_feet = 0.0f;
-        double g_mr_px = 0.0; // the player position the cut was made at
-        double g_mr_py = 0.0;
         std::string g_mr_chapter;
         mv::View g_mv{};
         bool g_mv_init = false;

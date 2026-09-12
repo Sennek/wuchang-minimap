@@ -765,8 +765,6 @@ namespace mm
     std::wstring config_path();
     // config_wuchang_minimap_dev.txt - the Tier::Dev overlay, parsed after the main file.
     std::wstring dev_config_path();
-    // "a Save will write the dev file too", the condition save_config_file() uses. Any thread.
-    bool dev_config_active();
     std::wstring mod_dir();
 
     // %LOCALAPPDATA%, or empty when the variable is not set.
@@ -844,7 +842,6 @@ namespace mm
     // Loop thread, 1 Hz: notices a save-slot change, flushes to the old file, loads the new.
     void waypoint_slot_poll();
     std::wstring waypoint_path();               // the file the waypoints are read from
-    std::string waypoint_file_name();           // the slot's own file name, no directory
 
     //=== Cross-thread flags ========================================================
 
@@ -912,17 +909,6 @@ namespace mm
     void logf(std::wformat_string<Args...> fmt, Args&&... args)
     {
         log(std::format(fmt, std::forward<Args>(args)...));
-    }
-
-    // Level-checked form for a site where a macro will not do. The format never runs when the
-    // level is off, but the ARGUMENTS still do - hence the macros as the default.
-    template <typename... Args>
-    void logf_at(LogLv lv, std::wformat_string<Args...> fmt, Args&&... args)
-    {
-        if (log_enabled(lv))
-        {
-            log(std::format(fmt, std::forward<Args>(args)...));
-        }
     }
 } // namespace mm
 

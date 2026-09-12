@@ -1141,28 +1141,6 @@ namespace overlay
         void tune_sweep(mm::Config& cfg, float wrap)
         {
             ImGui::Checkbox("Live actor sweep", &cfg.markers_live);
-            ImGui::SameLine();
-            ImGui::Checkbox("Only this chapter's markers", &cfg.markers_filter_chapter);
-            ImGui::SameLine();
-            {
-                const markers::Stats fs = markers::stats();
-                if (!cfg.markers_filter_chapter)
-                {
-                    ImGui::TextDisabled("(off - all chapters drawn)");
-                }
-                else if (fs.filter_chapter == chid::kNone)
-                {
-                    ImGui::TextDisabled("(chapter not detected yet - all drawn)");
-                }
-                else if (fs.filter_chapter == chid::kDlc)
-                {
-                    ImGui::TextDisabled("(showing DLC)");
-                }
-                else
-                {
-                    ImGui::Text("(showing chapter %d)", fs.filter_chapter);
-                }
-            }
             // The two knobs that trade game-thread time for marker freshness. The "scan
             // pump" line on the Debug tab is the read-out that says which way to move
             // them.

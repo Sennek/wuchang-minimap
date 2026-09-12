@@ -753,7 +753,37 @@ namespace overlay
                 const markers::Stats lst = markers::stats();
                 const int fch = lst.filter_chapter;
                 const bool per_chapter = fch >= 0 && fch <= 8;
-                ImGui::TextDisabled(per_chapter ? "legend - chapter" : "legend - all chapters");
+                // The header is the scope switch and the only home of
+                // `markers_filter_chapter`: it names the chapter the glyphs and the
+                // counts below cover, and clicking it swaps between that chapter and
+                // every chapter. The label is what is actually drawn, so with the
+                // filter on and no chapter detected it says so rather than claiming a
+                // chapter. `###` keeps the id stable while the text changes.
+                char scope[64]{};
+                if (!cfg.markers_filter_chapter)
+                {
+                    (void)std::snprintf(scope, sizeof(scope), "all chapters###scope");
+                }
+                else if (fch == chid::kDlc)
+                {
+                    (void)std::snprintf(scope, sizeof(scope), "DLC only###scope");
+                }
+                else if (per_chapter)
+                {
+                    (void)std::snprintf(scope, sizeof(scope), "chapter %d only###scope", fch);
+                }
+                else
+                {
+                    (void)std::snprintf(scope, sizeof(scope), "chapter not detected###scope");
+                }
+                if (ImGui::SmallButton(scope))
+                {
+                    cfg.markers_filter_chapter = !cfg.markers_filter_chapter;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("markers and counts: this chapter only, or every chapter");
+                }
                 ImDrawList* ldl = ImGui::GetWindowDrawList();
                 const float glyph_r = (std::max)(4.0f, ImGui::GetTextLineHeight() * 0.34f);
                 for (int i = 0; i < mdb::kCatCount; ++i)
@@ -1694,6 +1724,7 @@ namespace overlay
                 add(left, "Waypoints", "the waypoint list (remove one, or all)");
                 add(left, "left-click, F", "toggle found");
                 add(left, "click a legend row", "filter that category (remembered)");
+                add(left, "the legend header", "this chapter's markers only, or every chapter");
                 add(left, key_name_ascii(cfg.screenshot_key),
                     "copy the map to the clipboard (keyboard)");
                 add(left, "Shrines", "shrine list (click = waypoint, double-click = centre)");

@@ -1,11 +1,15 @@
 # WuchangMinimap - changelog
 
-## Unreleased
+## 1.2.0
 
 Added
 - The 3 red riddle doors and the 7 yellow chisel doors are their own marker categories, Mystery gates and Benediction doors, each with its own glyph, colour, filter checkbox and count. The seven chisel doors were never on the map before.
 
 Fixed
+- The game no longer crashes at the title screen with RivaTuner Statistics Server or MSI Afterburner installed alongside ReShade: the overlay presents no swapchain of its own, it draws into a composition surface beside the game's frame.
+- Changing the resolution no longer freezes the game for two seconds.
+- Turning the mod off can no longer hang the game when the overlay takes too long to shut down.
+- A Present that fails is logged whatever the reason, not only when the graphics device is lost.
 - A riddle door you have answered now counts as opened. The mod read the flag that drives the door's opening animation, which is false again the moment the area reloads; it reads the one the save restores.
 - Where two chapters meet, the map stays on one of them instead of swapping back and forth and going blank: the chapter is chosen by how much ground its map has around the player, not by one spot under his feet.
 - Resting at a shrine no longer leaves the minimap and the full map hidden until the next area load.

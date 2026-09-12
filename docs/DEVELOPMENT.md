@@ -607,6 +607,19 @@ python tools\navmesh\render.py --input tools\navmesh\dumps --out tools\navmesh\o
 python tools\navmesh\render.py --synthetic --out out_synthetic --debug   # self-test
 ```
 
+**Checking an extraction.** Three tools under `tools/navmesh/offline/` answer whether the tile JSON
+is faithful. No pipeline runs them — a human does, when a game patch or a new chapter makes the
+question live again. Each carries its own worked command line in its module docstring.
+
+| Tool | Answers |
+|---|---|
+| `coverage.py` | is every package in the pak index decoded, did `navchunk.py` get as many tiles as the chunk claims, and do the two copies of a shared overlap ring agree? Writes a markdown table and a per-cell PNG |
+| `align.py` | how well does the offline extraction score against the in-game `ProjectPointToNavigation` probe grids and a recorded walk — four numbers, weakest to strongest |
+| `zslice.py` | one world window clipped to a Z band, drawn at the probe's own scale: the apples-to-apples picture to put beside an F11 probe grid |
+
+The probe CSVs the last two read are committed evidence in `tools/lua-recon/WuchangRecon/out/`;
+`coverage.py` needs a pak index listing, which is not in the repo.
+
 `repack_maps.py` re-palettises the composite from its own pixels and re-scales the planes from
 their own codes, verifying every PNG by decoding the bytes back before they land, and stamps the
 requantisation error into the manifest as `z_requantise_worst_uu` (the tests fail above 20 uu).

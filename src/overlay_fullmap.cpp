@@ -78,7 +78,9 @@ namespace overlay
 
         void toggle_found(const markers::DrawMarker& m)
         {
-            if (m.id[0] == '\0')
+            // A category with no collected state has nothing to toggle, and the override would
+            // never be answered by a publish: it would latch a found look on a person forever.
+            if (m.id[0] == '\0' || !mdb::has_found_state(static_cast<mdb::Cat>(m.cat)))
             {
                 return;
             }
@@ -1393,24 +1395,35 @@ namespace overlay
                 const double ddy = hover->y - snap.y;
                 const double ddz = hover->z - snap.z;
                 const double dz_m = ddz / 100.0;
+                // A person has no collected state, so the line carries the distance alone and
+                // the hint below offers no toggle.
+                const bool collectible = mdb::has_found_state(cat);
+                const char* state = "";
+                if (collectible)
+                {
+                    state = marker_found_now(*hover) ? "FOUND   " : "not found   ";
+                }
                 if (std::fabs(dz_m) < 0.5)
                 {
-                    ImGui::Text("%s   %.0f m away, same level",
-                                marker_found_now(*hover) ? "FOUND" : "not found",
+                    ImGui::Text("%s%.0f m away, same level", state,
                                 std::sqrt(ddx * ddx + ddy * ddy) / 100.0);
                 }
                 else
                 {
-                    ImGui::Text("%s   %.0f m away, %.0f m %s",
-                                marker_found_now(*hover) ? "FOUND" : "not found",
+                    ImGui::Text("%s%.0f m away, %.0f m %s", state,
                                 std::sqrt(ddx * ddx + ddy * ddy) / 100.0, std::fabs(dz_m),
                                 dz_m > 0.0 ? "above" : "below");
                 }
                 const bool hover_wp =
                     mv::waypoint_toggle_at(wps, hover->x, hover->y, hover->z, mv::kWaypointSamePlace)
                         .action == mv::WaypointToggle::Remove;
-                ImGui::TextDisabled(hover_wp ? "left-click toggles found - right-click removes the waypoint"
-                                             : "left-click toggles found - right-click toggles waypoint");
+                const char* toggle_hint =
+                    collectible
+                        ? (hover_wp ? "left-click toggles found - right-click removes the waypoint"
+                                    : "left-click toggles found - right-click toggles waypoint")
+                        : (hover_wp ? "right-click removes the waypoint"
+                                    : "right-click toggles waypoint");
+                ImGui::TextDisabled("%s", toggle_hint);
                 ImGui::EndTooltip();
             }
 

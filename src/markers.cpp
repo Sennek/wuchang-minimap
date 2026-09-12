@@ -49,7 +49,7 @@ namespace markers
             PickupDying,   // pickups: `dying` (early) or parked at (0,0,0) (durable)
             ActiveBool,    // fog gates: SavedStatuKey=status_active, so `Active` is the flag
             ControllerPawn, // AI controller: the marker is its possessed Pawn
-            Proximity,     // NPC / note: "met" = seen loaded within mdb::kMetRadius of the player
+            Proximity,     // note: "met" = seen loaded within mdb::kMetRadius of the player
             BossPawn       // boss character: defeated when its controller's Health.Current <= 0
         };
 
@@ -90,10 +90,13 @@ namespace markers
             {L"BP_LadderV2_C", mdb::Cat::Ladder, Rule::None, false},
             {L"BP_WoodenElevator_C", mdb::Cat::Lift, Rule::None, false},
             // `BP_NPC_C` is the interactable-character base and covers its 78 descendants;
-            // an exact entry below beats it. "Found" means MET: seen loaded within
-            // mdb::kMetRadius of the player. `DKDC_NPC_C` is a readable note, not a merchant.
+            // an exact entry below beats it. `DKDC_NPC_C` is a readable note, not a merchant:
+            // for a note "found" means MET, seen loaded within mdb::kMetRadius of the player.
+            // A PERSON HAS NO FOUND STATE (mdb::has_found_state): walking past a merchant does
+            // not use them up, and the merchant is who one comes back for. `persist` stays true
+            // - it is also what buys a mobile actor the full `markers_live_grace_rounds` debounce.
             {L"DKDC_NPC_C", mdb::Cat::Note, Rule::Proximity, true},
-            {L"BP_NPC_C", mdb::Cat::Npc, Rule::Proximity, true},
+            {L"BP_NPC_C", mdb::Cat::Npc, Rule::None, true},
             // Not people, despite deriving from BP_NPC_C. Categories match
             // tools/markers/marker_classes.py, so live actor and static twin agree.
             {L"ItemCollectionBox_C", mdb::Cat::Pickup, Rule::PickupDying, true},
@@ -358,9 +361,9 @@ namespace markers
         bool g_player_ok = false;
 
         // Diagnostics that tell "the rule never fired" from "the property is not there".
-        std::atomic<int> g_met_marks{0};      // NPC/note markers marked as met
-        // In range and NOT marked, because the actor is invisible: a used-up NPC or a note
-        // already read. Climbing while `met` stands still is this rule working.
+        std::atomic<int> g_met_marks{0};      // note markers marked as met
+        // In range and NOT marked, because the actor is invisible: a note already read.
+        // Climbing while `met` stands still is this rule working.
         std::atomic<int> g_met_unseen{0};
         std::atomic<int> g_dead_dropped{0};   // live enemies dropped because health == 0
         std::atomic<int> g_boss_defeated{0};  // boss markers marked as defeated
@@ -1367,6 +1370,28 @@ namespace markers
             return g_id_cache.emplace(obj, IdEntry{std::move(id), name, ref}).first->second.id;
         }
 
+        // The join from a found id to the interned per-marker flag, and the one place that
+        // decides a static marker may carry it: a category with no collected state
+        // (mdb::has_found_state) never lights, whatever an older build left in the found file.
+        void light_found_static(const StaticDb* db, const std::string& id)
+        {
+            if (db == nullptr)
+            {
+                return;
+            }
+            const auto it = db->by_id.find(id);
+            if (it == db->by_id.end() || it->second < 0 ||
+                static_cast<std::size_t>(it->second) >= g_found_static.size())
+            {
+                return;
+            }
+            const std::size_t idx = static_cast<std::size_t>(it->second);
+            if (mdb::has_found_state(db->markers[idx].cat))
+            {
+                g_found_static[idx] = 1;
+            }
+        }
+
         void note_found(const std::string& id)
         {
             if (id.empty() || g_found_gt.contains(id))
@@ -1375,15 +1400,7 @@ namespace markers
             }
             g_found_gt.insert(id);
             // Keep the interned found flags in step: one hash lookup per find.
-            if (g_idx_db != nullptr)
-            {
-                const auto it = g_idx_db->by_id.find(id);
-                if (it != g_idx_db->by_id.end() && it->second >= 0 &&
-                    static_cast<std::size_t>(it->second) < g_found_static.size())
-                {
-                    g_found_static[static_cast<std::size_t>(it->second)] = 1;
-                }
-            }
+            light_found_static(g_idx_db, id);
             {
                 spin::SpinGuard guard(g_outbox_lock);
                 if (g_outbox.size() < 8192)
@@ -1736,12 +1753,7 @@ namespace markers
             std::fill(g_found_static.begin(), g_found_static.end(), static_cast<std::uint8_t>(0));
             for (const std::string& id : g_found_gt)
             {
-                const auto it = db->by_id.find(id);
-                if (it != db->by_id.end() && it->second >= 0 &&
-                    static_cast<std::size_t>(it->second) < g_found_static.size())
-                {
-                    g_found_static[static_cast<std::size_t>(it->second)] = 1;
-                }
+                light_found_static(db, id);
             }
         }
 
@@ -2008,8 +2020,9 @@ namespace markers
                             d.z = live->z;
                         }
                     }
-                    // The `met` gauge, over the chapter's people and notes.
-                    if (sm.cat == mdb::Cat::Npc || sm.cat == mdb::Cat::Note)
+                    // The `met` gauge, over the chapter's notes - the only thing Rule::Proximity
+                    // still marks.
+                    if (sm.cat == mdb::Cat::Note)
                     {
                         ++met_total;
                         if ((d.flags & kFlagFound) != 0)
@@ -2028,7 +2041,8 @@ namespace markers
                     // round has walked the whole object array and the level table is current.
                     mdb::AbsenceFacts facts{};
                     facts.feature_on = true; // the rule is always armed
-                    facts.cat_selected = mdb::cat_enabled(g_absence_cats, sm.cat);
+                    facts.cat_selected = mdb::cat_enabled(g_absence_cats, sm.cat) &&
+                                         mdb::has_found_state(sm.cat);
                     facts.already_found = (d.flags & kFlagFound) != 0;
                     facts.level_known = tw.level_known;
                     facts.full_round_since_level_load = tw.full_round_since_level_load;
@@ -2112,7 +2126,10 @@ namespace markers
                 d.z = kv.second.z;
                 d.cat = static_cast<std::uint8_t>(kv.second.cat);
                 d.flags = kFlagLive;
-                if (kv.second.found || g_found_gt.contains(kv.first))
+                // A person carries no collected state, so an id an older build wrote into the
+                // found file must not dim or hide the actor standing there.
+                if (mdb::has_found_state(kv.second.cat) &&
+                    (kv.second.found || g_found_gt.contains(kv.first)))
                 {
                     d.flags |= kFlagFound;
                 }
@@ -2415,7 +2432,7 @@ namespace markers
                         continue;
                     }
                     const bool found =
-                        g_found_master.contains(m.id) ||
+                        (mdb::has_found_state(m.cat) && g_found_master.contains(m.id)) ||
                         (m.cat == mdb::Cat::Boss &&
                          mdb::boss_found_from_save(boss_save_on, true, !m.bossdoor.empty(),
                                                    !m.bossdoor.empty() &&

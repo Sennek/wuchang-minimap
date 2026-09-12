@@ -5194,6 +5194,34 @@ namespace
             }
         }
 
+        section("a person is never collected");
+
+        {
+            // Walking past a merchant does not use them up, so a person has no collected state
+            // at all: no rule marks one (`BP_NPC_C` carries Rule::None), an id an older build
+            // left in the found file does not light one, and the full map offers no toggle.
+            // Every other category keeps its found state.
+            for (int c = 0; c < mdb::kCatCount; ++c)
+            {
+                const auto cat = static_cast<mdb::Cat>(c);
+                CHECK_EQ(mdb::has_found_state(cat), cat != mdb::Cat::Npc);
+            }
+
+            // Nor can the absence rule reach one: the publish point conjoins the category mask
+            // with has_found_state() before it asks, so a person selected there still confirms
+            // nothing. The same facts for a chest DO confirm.
+            const auto facts = [](mdb::Cat cat) {
+                mdb::AbsenceFacts f{};
+                f.feature_on = true;
+                f.cat_selected = mdb::cat_enabled(mdb::kAllCats, cat) && mdb::has_found_state(cat);
+                f.level_known = true;
+                f.full_round_since_level_load = true;
+                return f;
+            };
+            CHECK(!mdb::absence_round_confirms(facts(mdb::Cat::Npc)));
+            CHECK(mdb::absence_round_confirms(facts(mdb::Cat::Chest)));
+        }
+
         section("hide-found on the map surfaces");
 
         {

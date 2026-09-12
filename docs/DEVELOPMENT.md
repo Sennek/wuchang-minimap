@@ -450,7 +450,8 @@ whose safety rail is that a marker whose owning level cannot be matched to a loa
 | chest, door, mystery gate, benediction door | the actor's `Used` flag, the one `SavedStatuKey=statu_use` names, so the save restores it. The special doors' own `DoorOpen` drives the dissolve animation and is false again after a reload |
 | pickup, hidden | `dying`, or the actor parked at `(0,0,0)` |
 | fog gate | `Active` |
-| npc, note | MET — seen loaded near the player. A used-up NPC is made invisible, not moved, so the live twin is tested for visibility |
+| note | MET — seen loaded near the player. A note already read is made invisible, not moved, so the live twin is tested for visibility |
+| npc | never — walking past a merchant does not use them up. `mdb::has_found_state()` says so once, and every place that composes or offers the found flag asks it: no rule marks a person, an id an older build left in the found file does not light one, `markers_hide_found` never takes one off the map and the full map offers no toggle. Mobility (`twin_drop`) is the only rule that drops an NPC marker |
 | boss | DEFEATED — zero health, or the arena's `bossdoor_*` point unlocked in the save |
 | enemy | never written. A static entry is a **spawn point**; the live pawn overwrites its position under the same id |
 | ladder, lift | never — navigation aids |

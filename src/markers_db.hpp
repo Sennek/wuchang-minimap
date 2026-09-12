@@ -183,6 +183,19 @@ namespace mdb
         return detected == chid::kNone || marker_chapter == detected;
     }
 
+    // ---- Categories with no COLLECTED state ----
+    //
+    // Meeting a person does not use them up: an NPC stands where they stand whether or not the
+    // player has walked past, and a merchant is the marker one most needs to find again. So an
+    // NPC has no collected state at all - no rule marks one, an id left in the found file by an
+    // older build does not light one, and `markers_hide_found` never has anything to act on. The
+    // only rule that takes an NPC off the map is mobility, in twin_drop(). Every place that
+    // composes or offers the found flag asks this.
+    constexpr bool has_found_state(Cat cat)
+    {
+        return cat != Cat::Npc;
+    }
+
     // ---- Absence as evidence of a collect ----
     //
     // An item collected before the mod existed leaves a static DB entry and no live actor: the
@@ -198,7 +211,7 @@ namespace mdb
     struct AbsenceFacts
     {
         bool feature_on = false;               // the absence rule is armed
-        bool cat_selected = false;             // markers_absence_categories
+        bool cat_selected = false;             // markers_absence_categories, and has_found_state()
         bool already_found = false;
         bool level_known = false;              // the marker's level is in the loaded set
         bool full_round_since_level_load = false;
@@ -221,11 +234,11 @@ namespace mdb
         return absence_round_confirms(f) && required_rounds >= 1 && streak >= required_rounds;
     }
 
-    // ---- Has the player MET this NPC or note? ----
+    // ---- Has the player MET this note? ----
     //
-    // The whole of `Rule::Proximity`, and the only thing that writes an NPC or a note into
-    // the collection tracker. "Met" is SEEN, not spoken to or read: an actor loaded within
-    // `kMetRadius` of the player.
+    // The whole of `Rule::Proximity`, and the only thing that writes a note into the collection
+    // tracker. "Met" is SEEN, not read: an actor loaded within `kMetRadius` of the player. People
+    // are not asked - see has_found_state().
     //
     // A used-up one keeps its actor, its id and its position and is made INVISIBLE, so an
     // actor the player cannot see is never met, however close they stand - a consumed note
@@ -409,7 +422,8 @@ namespace mdb
     // conditions. The gate NAMES its reason and the drawing code counts the reasons per round.
     // `Category` uses `highlight_categories`, a different question from the map's; `Radius` is
     // the one gate the minimap has not got. `Found` is only LOOT and a DEFEATED BOSS, and only
-    // while "Hide collected loot" is on; a lit shrine, a met NPC and a read note stay landmarks.
+    // while "Hide collected loot" is on; a lit shrine and a read note stay landmarks, and a
+    // person has no collected state to gate on at all.
     // `Live` is people only: a hint for somebody who walked away is never drawn. Nothing else
     // may be added here without a counter to go with it.
     enum class XrayDrop : std::uint8_t

@@ -85,7 +85,7 @@ namespace markers
         // F2 diagnostics: "0 met / 0 dead dropped with health unknown climbing" means
         // the health property name is wrong.
         int shrine_lit_marks = 0; // shrine markers marked from UnlockedFirepoints
-        int met_marks = 0;        // NPC / note markers marked as met
+        int met_marks = 0;        // note markers marked as met
         int boss_defeated = 0;    // boss markers marked as defeated THIS SESSION
         // Boss gauge over the current chapter. `boss_from_save` counts the `bossdoor_*`
         // rule, the only thing that answers for a boss killed before the mod existed.

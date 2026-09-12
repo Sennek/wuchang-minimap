@@ -1209,26 +1209,6 @@ namespace mm
             {
                 cfg.highlight_edge_arrows = parse_bool(value, cfg.highlight_edge_arrows);
             }
-            else if (key == "xray_rarity_colors_enabled")
-            {
-                cfg.xray_rarity_colors_enabled = parse_bool(value, cfg.xray_rarity_colors_enabled);
-            }
-            else if (key == "xray_rarity_colors")
-            {
-                std::string rejected;
-                mdb::parse_rarity_colors(value, cfg.xray_rarity_colors, &rejected);
-                if (!rejected.empty())
-                {
-                    logf(L"config: xray_rarity_colors - bad entr(ies) '{}' ignored. Expected "
-                         L"{} hex colours, e.g. {}",
-                         std::wstring(rejected.begin(), rejected.end()), mdb::kRarityCount,
-                         L"ADAFDA, DAADC5, DAD6AD");
-                }
-            }
-            else if (key == "markers_rarity_tint")
-            {
-                cfg.markers_rarity_tint = parse_bool(value, cfg.markers_rarity_tint);
-            }
             else if (key == "highlight_camera_hz")
             {
                 cfg.highlight_camera_hz = parse_int(value, cfg.highlight_camera_hz);
@@ -2004,15 +1984,6 @@ namespace mm
             {
                 cfg.minimap_backdrop = tc.backdrop_alpha;
             }
-            // The item-quality tiers follow the PALETTE, not the theme.
-            if (!mentioned("xray_rarity_colors"))
-            {
-                const mdb::Rgb* src = gly::rarity_colors(cfg.palette);
-                for (int i = 0; i < mdb::kRarityCount; ++i)
-                {
-                    cfg.xray_rarity_colors[i] = src[i];
-                }
-            }
         }
 
         void clamp_config(Config& cfg)
@@ -2259,8 +2230,6 @@ namespace mm
         add("highlight_categories", mdb::format_category_mask(cfg.highlight_categories));
         add("highlight_labels", b(cfg.highlight_labels));
         add("highlight_size", f1(cfg.highlight_size));
-        add("xray_rarity_colors_enabled", b(cfg.xray_rarity_colors_enabled));
-        add("markers_rarity_tint", b(cfg.markers_rarity_tint));
         add("compass_enabled", b(cfg.compass_enabled));
         add("compass_width", f3(cfg.compass_width));
         add("compass_plate", b(cfg.compass_plate));
@@ -2352,7 +2321,6 @@ namespace mm
         add("highlight_alpha_far", f2(cfg.highlight_alpha_far));
         add("highlight_edge_arrows", b(cfg.highlight_edge_arrows));
         add("highlight_camera_hz", std::to_string(cfg.highlight_camera_hz));
-        add("xray_rarity_colors", mdb::format_rarity_colors(cfg.xray_rarity_colors));
         add("compass_anchor", cfg.compass_anchor == VAnchor::Bottom ? "bottom" : "top");
         add("compass_height", f0(cfg.compass_height));
         add("compass_marker_distance", f0(cfg.compass_marker_distance));

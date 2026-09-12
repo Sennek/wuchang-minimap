@@ -293,14 +293,14 @@ namespace overlay
                 ImGui::TableSetupColumn("Total");
                 ImGui::TableSetupColumn("%");
                 ImGui::TableHeadersRow();
-                for (const mdb::Cat cat : kStatsCats)
+                for (const StatsGroup& grp : kStatsGroups)
                 {
-                    const int i = static_cast<int>(cat);
+                    const markers::CatStat cs = group_stat(st.cat, grp.cats);
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
-                    ImGui::Text("%s", mdb::cat_label(cat));
+                    ImGui::Text("%s", grp.label);
                     ImGui::TableNextColumn();
-                    if (st.cat[i].total == 0)
+                    if (cs.total == 0)
                     {
                         ImGui::TextDisabled("-");
                         ImGui::TableNextColumn();
@@ -309,12 +309,12 @@ namespace overlay
                         ImGui::TextDisabled("-");
                         continue;
                     }
-                    ImGui::Text("%d", st.cat[i].found);
+                    ImGui::Text("%d", cs.found);
                     ImGui::TableNextColumn();
-                    ImGui::Text("%d", st.cat[i].total);
+                    ImGui::Text("%d", cs.total);
                     ImGui::TableNextColumn();
-                    ImGui::Text("%.0f%%", 100.0 * static_cast<double>(st.cat[i].found) /
-                                              static_cast<double>(st.cat[i].total));
+                    ImGui::Text("%.0f%%", 100.0 * static_cast<double>(cs.found) /
+                                              static_cast<double>(cs.total));
                 }
                 ImGui::EndTable();
             }
@@ -326,19 +326,19 @@ namespace overlay
 
             // ---- per chapter x category ----------------------------------------------
             //
-            // The six collectable categories only - the full 15-column enum scrolls
+            // The six collectable groups only - the full 25-column enum scrolls
             // sideways inside a 1080p panel.
             ImGui::Spacing();
             ImGui::TextDisabled("per chapter");
-            if (ImGui::BeginTable("stats_matrix", kStatsCatCount + 1,
+            if (ImGui::BeginTable("stats_matrix", kStatsGroupCount + 1,
                                   ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
                                       ImGuiTableFlags_BordersInnerV,
                                   ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 11.0f)))
             {
                 ImGui::TableSetupColumn("Chapter");
-                for (const mdb::Cat cat : kStatsCats)
+                for (const StatsGroup& grp : kStatsGroups)
                 {
-                    ImGui::TableSetupColumn(mdb::cat_label(cat));
+                    ImGui::TableSetupColumn(grp.label);
                 }
                 ImGui::TableHeadersRow();
 
@@ -394,9 +394,9 @@ namespace overlay
                     {
                         ImGui::TextUnformatted(label);
                     }
-                    for (const mdb::Cat cat : kStatsCats)
+                    for (const StatsGroup& grp : kStatsGroups)
                     {
-                        cell(st.chapter[ch][static_cast<int>(cat)]);
+                        cell(group_stat(st.chapter[ch], grp.cats));
                     }
                 }
                 ImGui::EndTable();
@@ -532,7 +532,6 @@ namespace overlay
                 c.d2_xy = static_cast<float>(dx * dx + dy * dy);
                 c.d2_3d = static_cast<float>(dx * dx + dy * dy + dz * dz);
                 c.cat = m.cat;
-                c.rarity = m.rarity;
                 c.flags = m.flags;
                 c.found = (m.flags & markers::kFlagFound) != 0;
                 g_frame_cands.push_back(c);

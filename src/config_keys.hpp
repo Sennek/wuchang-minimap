@@ -80,8 +80,6 @@ namespace cfgkeys
         {"highlight_labels", Tier::Player},
         {"highlight_show_found", Tier::Player},
         {"highlight_size", Tier::Player},
-        {"xray_rarity_colors_enabled", Tier::Player},
-        {"markers_rarity_tint", Tier::Player},
         {"compass_enabled", Tier::Player},
         {"compass_anchor", Tier::Player},
         {"compass_width", Tier::Player},
@@ -146,7 +144,6 @@ namespace cfgkeys
         {"highlight_alpha_far", Tier::Advanced},
         {"highlight_edge_arrows", Tier::Advanced},
         {"highlight_camera_hz", Tier::Advanced},
-        {"xray_rarity_colors", Tier::Advanced},
         {"compass_plate", Tier::Advanced},
         {"compass_height", Tier::Advanced},
         {"compass_marker_distance", Tier::Advanced},
@@ -221,6 +218,13 @@ namespace cfgkeys
         {"markers_absence_marks", Tier::Removed},
         {"map_waypoint_persist", Tier::Removed},
         {"shrine_list", Tier::Removed},
+        // The quality tier is a property of the CATEGORY now: the eleven loot categories
+        // take their tier's hue from the marker palette, on every surface. There is no
+        // longer a tint to switch on, a surface to switch it on for, or a second set of
+        // three colours beside the palette's own.
+        {"xray_rarity_colors_enabled", Tier::Removed},
+        {"markers_rarity_tint", Tier::Removed},
+        {"xray_rarity_colors", Tier::Removed},
         // The height slice shades by ABSOLUTE Z: the colour of a pixel is its surface's own
         // height on the shade_* ramp, whichever storey it belongs to.
         {"adjacent_floor_opacity", Tier::Removed},  // shade_below_alpha / shade_above_alpha
@@ -246,6 +250,11 @@ namespace cfgkeys
         if (key == "overlay_enabled" || key == "enabled")
         {
             return "overlay_hooks";
+        }
+        if (key == "xray_rarity_colors_enabled" || key == "markers_rarity_tint" ||
+            key == "xray_rarity_colors")
+        {
+            return "palette";
         }
         return nullptr;
     }

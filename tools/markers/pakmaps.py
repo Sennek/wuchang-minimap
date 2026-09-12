@@ -57,12 +57,18 @@ class MapSource:
         return sorted(k for k in self.owner
                       if k.startswith(prefix) and k.endswith(".umap"))
 
-    def package(self, umap_key: str) -> "uasset.Package":
-        """Parse a cooked package straight out of the paks (no files on disk)."""
-        head = self.read(umap_key)
-        uexp_key = umap_key[:-len(".umap")] + ".uexp"
+    def package(self, key: str) -> "uasset.Package":
+        """Parse a cooked package straight out of the paks (no files on disk).
+
+        `.umap` (a level) and `.uasset` (a blueprint, so a caller can read a
+        class' `Default__<class>` object) are the same shape: a header entry
+        plus the `.uexp` beside it that holds every export's payload, which is
+        why the extension is split off rather than assumed.
+        """
+        head = self.read(key)
+        uexp_key = os.path.splitext(key)[0] + ".uexp"
         uexp = self.read(uexp_key) if uexp_key in self.owner else b""
-        return _package_from_bytes(umap_key, head, uexp)
+        return _package_from_bytes(key, head, uexp)
 
 
 def _package_from_bytes(name: str, head: bytes, uexp: bytes) -> "uasset.Package":

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Actor class -> marker category, for schema `wuchang-minimap-markers/1`.
 
-Categories: shrine, chest, pickup, boss, elite, enemy, npc, note,
-mystery_gate, benediction_door, door, ladder, lift, fog_gate, hidden, other.
+Categories: shrine, chest, boss, elite, enemy, npc, note, mystery_gate,
+benediction_door, door, ladder, lift, fog_gate, hidden, other, plus the eleven
+pickup buckets of `pickup_buckets.BUCKETS`.  A class can only name the three of
+those an item-less pickup lands in (`item`, `harvest`, `ammo`); the other eight
+come from the item the pickup grants, decided in `extract_markers`.
 
 WHERE THE TABLE COMES FROM (review item C.10)
 ---------------------------------------------
@@ -24,7 +27,7 @@ answer is not.
 `elite` and `hidden` (review item C.9) are produced now:
   * `hidden` = `BP_PickUpActor_Trap_C` and its descendants - the trap that
     looks like an item.  It is a `BP_PickupActor_C` descendant, so the category
-    order in `categories.json` claims it before `pickup` does.
+    order in `categories.json` claims it before `item` does.
   * `elite` = an enemy class whose name is another enemy class' name plus a
     `_High` / `_Special` / `_S` suffix (`MingBing_Dao_High_C` next to
     `MingBing_Dao_C`).  `build_enemies.py` decides that against the class graph
@@ -37,6 +40,8 @@ import json
 import os
 import re
 
+import pickup_buckets
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MARKERS = os.path.join(_HERE, "..", "..", "markers")
 
@@ -48,10 +53,9 @@ HAND_FALLBACK = {
     "BP_treasurebox_C": "chest",
     "BP_ItemRedBox_C": "chest",
 
-    "BP_PickupActor_C": "pickup",
-    "BP_PickUpPT_C": "pickup",
-    "BP_AutoPickUp_C": "pickup",
-    "ItemCollectionBox_C": "pickup",
+    "BP_PickupActor_C": "item",
+    "BP_PickUpPT_C": "harvest",
+    "BP_AutoPickUp_C": "harvest",
 
     "BP_NewPuzzlesDoor_C": "door",
 
@@ -83,6 +87,8 @@ HAND_FALLBACK = {
     "BP_WoodenExternalPushRod_C": "other",
     "BP_KlesaCleaner_C": "other",
     "BP_StonePillar_C": "other",
+    # The player's storage box, not loot: no `Items`, contents from the save.
+    "ItemCollectionBox_C": "other",
 }
 
 
@@ -187,11 +193,13 @@ def categorise(class_name: str, level_short: str) -> str | None:
     return categorise_ex(class_name, level_short)[0]
 
 
-# Human-facing label per category, used to build the `name` field.
+# Human-facing label per category, used to build the `name` field. The eleven
+# pickup labels come from the bucket registry rather than being repeated here.
 LABEL = {
-    "shrine": "Shrine", "chest": "Chest", "pickup": "Pickup",
+    "shrine": "Shrine", "chest": "Chest",
     "boss": "Boss", "elite": "Elite", "enemy": "Enemy", "npc": "NPC",
     "note": "Note", "mystery_gate": "Mystery gate",
     "benediction_door": "Benediction door", "door": "Door", "ladder": "Ladder",
     "lift": "Lift", "fog_gate": "Fog gate", "hidden": "Trap", "other": "Object",
+    **pickup_buckets.LABELS,
 }

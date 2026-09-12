@@ -277,9 +277,8 @@ namespace mm
         // for it is in the save's `UnlockedFirepoints`. Derived on every publish.
         bool boss_defeat_from_save = true;
         // Chests keep a `Used` flag and pickups a `dying` flag, so absence means "taken" only for
-        // those two; shrines, doors and fog gates are not in the default set.
-        std::uint32_t markers_absence_categories =
-            mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup);
+        // those; shrines, doors and fog gates are not in the default set.
+        std::uint32_t markers_absence_categories = mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats;
 
         // The found tracker: wuchang_minimap_found.txt, one stable id per line. Always on; the
         // panel's "Clear this save's found list" is the only way to empty it.
@@ -333,7 +332,7 @@ namespace mm
         float highlight_radius = 3000.0f; // uu (30 m)
         // Every category mdb knows is selectable; this is the shipped starting point.
         std::uint32_t highlight_categories =
-            mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup) |
+            mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats |
             mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Boss) |
             mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note);
         // Draw collected loot too. Only chests, pickups, hidden items and a defeated boss are
@@ -349,12 +348,6 @@ namespace mm
         // highlight_size x 2, laid out by src/label_layout.hpp so no two boxes overlap.
         int highlight_labels_max = 12;
         bool highlight_edge_arrows = true; // off-screen / behind: an arrow on the rim
-        // Under the x-ray, a marker whose DB entry carries a rarity tier above 0 is drawn in that
-        // tier's colour instead of its category colour. Tier 0 keeps the category colour.
-        bool xray_rarity_colors_enabled = true;
-        mdb::Rgb xray_rarity_colors[mdb::kRarityCount] = {
-            mdb::kDefaultRarityColors[0], mdb::kDefaultRarityColors[1], mdb::kDefaultRarityColors[2]};
-        bool markers_rarity_tint = false;
         int highlight_camera_hz = 60;
         // Camera reader bounds (src/highlight.cpp): `resolve_ms` how often APlayerCameraManager is
         // re-found, `compass_period_ms` the rate when only the compass wants a heading,
@@ -614,9 +607,6 @@ namespace mm
         a.highlight_labels == b.highlight_labels &&
         a.highlight_labels_max == b.highlight_labels_max &&
         a.highlight_edge_arrows == b.highlight_edge_arrows &&
-        a.xray_rarity_colors_enabled == b.xray_rarity_colors_enabled &&
-        detail::eq(a.xray_rarity_colors, b.xray_rarity_colors) &&
-        a.markers_rarity_tint == b.markers_rarity_tint &&
         a.highlight_camera_hz == b.highlight_camera_hz &&
         a.highlight_camera_resolve_ms == b.highlight_camera_resolve_ms &&
         a.highlight_compass_period_ms == b.highlight_compass_period_ms &&

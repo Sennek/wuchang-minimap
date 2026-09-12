@@ -717,7 +717,6 @@ namespace overlay
             float d2_xy = 0.0f; // squared horizontal distance from the player, uu^2
             float d2_3d = 0.0f; // squared 3D distance from the player
             std::uint8_t cat = 0;
-            std::uint8_t rarity = 0;
             std::uint8_t flags = 0; // markers::kFlag* of the published row
             bool found = false;
         };
@@ -805,14 +804,40 @@ namespace overlay
             }
             return g_stats_cache;
         }
-        // The six of the map's sixteen categories a player collects or ticks off.
-        // Fixed, not derived from the DB, so a chapter with none of a category still
-        // gets its column and the layout does not move between chapters.
-        constexpr mdb::Cat kStatsCats[] = {
-            mdb::Cat::Shrine, mdb::Cat::Chest, mdb::Cat::Pickup,
-            mdb::Cat::Boss,   mdb::Cat::Npc,   mdb::Cat::Note,
+        // The six things a player collects or ticks off, as the collection tables show
+        // them. Fixed, not derived from the DB, so a chapter with none of a group still
+        // gets its column and the layout does not move between chapters; and a GROUP, so
+        // the eleven loot categories are one column of a table a 1080p panel can hold.
+        struct StatsGroup
+        {
+            const char* label;
+            std::uint32_t cats;
         };
-        constexpr int kStatsCatCount = static_cast<int>(std::size(kStatsCats));
+        constexpr StatsGroup kStatsGroups[] = {
+            {"Shrines", mdb::cat_bit(mdb::Cat::Shrine)},
+            {"Chests", mdb::cat_bit(mdb::Cat::Chest)},
+            {"Loot", mdb::kLootCats},
+            {"Bosses", mdb::cat_bit(mdb::Cat::Boss)},
+            {"NPCs", mdb::cat_bit(mdb::Cat::Npc)},
+            {"Notes", mdb::cat_bit(mdb::Cat::Note)},
+        };
+        constexpr int kStatsGroupCount = static_cast<int>(std::size(kStatsGroups));
+
+        // One row of a stats table: the per-category counts of `row` summed over `cats`.
+        inline markers::CatStat group_stat(const markers::CatStat (&row)[mdb::kCatCount],
+                                           std::uint32_t cats)
+        {
+            markers::CatStat out{};
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                if ((cats & (1u << i)) != 0u)
+                {
+                    out.total += row[i].total;
+                    out.found += row[i].found;
+                }
+            }
+            return out;
+        }
         // The found-ring watch. The render thread already walks the published buffer
         // every frame, so it keeps the found flags of the markers near the player and
         // diffs them whenever the marker sweep publishes a round (~1 Hz). No
@@ -1288,10 +1313,10 @@ namespace overlay
         std::string bindings_hint(const mm::Config& cfg);
         ImU32 marker_color(mdb::Cat cat, int alpha);
         ImU32 plate_color(int alpha);
-        ImU32 marker_color_q(mdb::Cat cat, std::uint8_t rarity, int alpha, bool use_rarity,
-                             const mdb::Rgb* palette);
+        // `fill_alpha` applies to a hollow (found) glyph only: it fades the fill under
+        // the outline, which keeps `col`'s own alpha.
         void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge,
-                               bool hollow = false);
+                               bool hollow = false, float fill_alpha = 1.0f);
         float hud_fade_step(bool target_on, std::uint64_t now);
         void toast_for(const char* text, unsigned ms);
         void toast(const char* text);

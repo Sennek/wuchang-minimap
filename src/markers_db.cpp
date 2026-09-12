@@ -13,35 +13,52 @@ namespace mdb
         // Order must match enum Cat exactly - both directions of the mapping and the
         // config file's spelling depend on it.
         constexpr const char* kCatNames[kCatCount] = {
-            "shrine", "chest", "pickup",       "boss",   "elite",    "enemy",  "npc",
-            "note",   "door",  "mystery_gate", "benediction_door",
-            "ladder", "lift",  "fog_gate",     "hidden", "other",
+            "shrine",   "chest",
+            "consumable", "item",   "harvest", "ammo",  "armour", "amulet",
+            "weapon",   "jade",   "spell",   "material", "key",
+            "boss",     "elite",  "enemy",   "npc",
+            "note",     "door",   "mystery_gate", "benediction_door",
+            "ladder",   "lift",   "fog_gate",     "hidden", "other",
         };
 
+        // The loot family's labels are the bucket names of `context/buckets.md`: the same
+        // word names the F2 filter row, the glyph's tooltip and the marker a pickup with no
+        // readable item gets from the extractor, so the three never disagree.
         constexpr const char* kCatLabels[kCatCount] = {
-            "Shrines", "Chests", "Pickups",       "Bosses",  "Elites",  "Enemies", "NPCs",
-            "Notes",   "Doors",  "Mystery gates", "Benediction doors",
-            "Ladders", "Lifts",  "Fog gates",     "Traps",   "Other",
+            "Shrines",    "Chests",
+            "Consumable", "Item",   "Harvest", "Cannon ammo", "Armour", "Amulet",
+            "Weapon",     "Jade",   "Spell",   "Material",    "Key item",
+            "Bosses",     "Elites", "Enemies", "NPCs",
+            "Notes",      "Doors",  "Mystery gates", "Benediction doors",
+            "Ladders",    "Lifts",  "Fog gates",     "Traps",  "Other",
         };
 
         // The last-resort SINGULAR word for one marker. `cat_label` is the plural filter
         // title ("Chests") and reads wrong on a single glyph; "Marker" is vague for
         // `other`, the bucket the classifier could not place.
         constexpr const char* kCatWords[kCatCount] = {
-            "Shrine", "Chest", "Item",         "Boss", "Elite", "Enemy", "NPC",
-            "Note",   "Door",  "Mystery gate", "Benediction door",
-            "Ladder", "Lift",  "Fog gate",     "Hidden item", "Marker",
+            "Shrine",     "Chest",
+            "Consumable", "Item",   "Harvest", "Cannon ammo", "Armour", "Amulet",
+            "Weapon",     "Jade",   "Spell",   "Material",    "Key item",
+            "Boss",       "Elite",  "Enemy",   "NPC",
+            "Note",       "Door",   "Mystery gate", "Benediction door",
+            "Ladder",     "Lift",   "Fog gate",     "Hidden item", "Marker",
         };
 
-        // Renamed categories: {what an older file says, what it means now}.
+        // Renamed categories: what an older file says, the bit(s) it selects in a config
+        // list, and the single category one marker of that name becomes.
         struct LegacyCatName
         {
             const char* name;
+            std::uint32_t mask;
             Cat cat;
         };
 
         constexpr LegacyCatName kLegacyCatNames[] = {
-            {"merchant", Cat::Note},
+            {"merchant", cat_bit(Cat::Note), Cat::Note},
+            // `pickup` split into the eleven buckets: a filter list means all of them, and
+            // a marker still spelling it is one whose contents nothing resolved.
+            {"pickup", kLootCats, Cat::Item},
         };
 
         char lower(char c)
@@ -164,14 +181,15 @@ namespace mdb
         return false;
     }
 
-    bool cat_from_legacy_name(std::string_view name, Cat& out)
+    bool cat_from_legacy_name(std::string_view name, Cat& cat, std::uint32_t& mask)
     {
         const std::string_view n = trim(name);
         for (const LegacyCatName& l : kLegacyCatNames)
         {
             if (iequal(n, l.name))
             {
-                out = l.cat;
+                cat = l.cat;
+                mask = l.mask;
                 return true;
             }
         }
@@ -221,11 +239,11 @@ namespace mdb
                 mask |= cat_bit(cat);
                 any = true;
             }
-            else if (cat_from_legacy_name(token, cat))
+            else if (std::uint32_t legacy_mask = 0u; cat_from_legacy_name(token, cat, legacy_mask))
             {
-                // A renamed category still selects its slot, and is reported so the caller
-                // can say so once.
-                mask |= cat_bit(cat);
+                // A renamed category still selects its slot - every slot, where the name
+                // split - and is reported so the caller can say so once.
+                mask |= legacy_mask;
                 any = true;
                 if (legacy != nullptr)
                 {
@@ -275,140 +293,21 @@ namespace mdb
     }
 
     //======================================================================================
-    // Item quality ("rarity")
+    // Item quality tier
     //======================================================================================
 
-    const char* rarity_name(int rarity)
+    const char* tier_name(int tier)
     {
-        switch (static_cast<Rarity>(rarity_clamp(rarity)))
+        switch (static_cast<Tier>(tier))
         {
-        case Rarity::Equipment:
+        case Tier::Equipment:
             return "Equipment";
-        case Rarity::Key:
+        case Tier::Key:
             return "Key";
-        case Rarity::Common:
+        case Tier::Common:
         default:
             return "Common";
         }
-    }
-
-    namespace
-    {
-        bool is_list_sep(char c)
-        {
-            return c == ',' || c == ';' || is_space(c);
-        }
-
-        // -1 when `c` is not a hex digit.
-        int hex_digit(char c)
-        {
-            if (c >= '0' && c <= '9')
-            {
-                return c - '0';
-            }
-            if (c >= 'a' && c <= 'f')
-            {
-                return c - 'a' + 10;
-            }
-            if (c >= 'A' && c <= 'F')
-            {
-                return c - 'A' + 10;
-            }
-            return -1;
-        }
-
-        bool parse_hex_rgb(std::string_view token, Rgb& out)
-        {
-            if (!token.empty() && token.front() == '#')
-            {
-                token.remove_prefix(1);
-            }
-            if (token.size() != 3 && token.size() != 6)
-            {
-                return false;
-            }
-            int d[6]{};
-            for (std::size_t i = 0; i < token.size(); ++i)
-            {
-                d[i] = hex_digit(token[i]);
-                if (d[i] < 0)
-                {
-                    return false;
-                }
-            }
-            if (token.size() == 3)
-            {
-                // CSS shorthand: "ABC" == "AABBCC".
-                out.r = static_cast<std::uint8_t>(d[0] * 17);
-                out.g = static_cast<std::uint8_t>(d[1] * 17);
-                out.b = static_cast<std::uint8_t>(d[2] * 17);
-                return true;
-            }
-            out.r = static_cast<std::uint8_t>(d[0] * 16 + d[1]);
-            out.g = static_cast<std::uint8_t>(d[2] * 16 + d[3]);
-            out.b = static_cast<std::uint8_t>(d[4] * 16 + d[5]);
-            return true;
-        }
-    } // namespace
-
-    int parse_rarity_colors(std::string_view text, Rgb out[kRarityCount], std::string* rejected)
-    {
-        int set = 0;
-        int slot = 0;
-        std::size_t pos = 0;
-        while (pos < text.size() && slot < kRarityCount)
-        {
-            while (pos < text.size() && is_list_sep(text[pos]))
-            {
-                ++pos;
-            }
-            const std::size_t start = pos;
-            while (pos < text.size() && !is_list_sep(text[pos]))
-            {
-                ++pos;
-            }
-            if (pos == start)
-            {
-                break;
-            }
-            const std::string_view token = text.substr(start, pos - start);
-            Rgb parsed{};
-            if (parse_hex_rgb(token, parsed))
-            {
-                out[slot] = parsed;
-                ++set;
-            }
-            else if (rejected != nullptr)
-            {
-                if (!rejected->empty())
-                {
-                    *rejected += ",";
-                }
-                rejected->append(token);
-            }
-            ++slot;
-        }
-        return set;
-    }
-
-    std::string format_rarity_colors(const Rgb in[kRarityCount])
-    {
-        static constexpr char kHex[] = "0123456789ABCDEF";
-        std::string out;
-        for (int i = 0; i < kRarityCount; ++i)
-        {
-            if (i != 0)
-            {
-                out += ", ";
-            }
-            const std::uint8_t channels[3] = {in[i].r, in[i].g, in[i].b};
-            for (const std::uint8_t v : channels)
-            {
-                out += kHex[(v >> 4) & 0x0F];
-                out += kHex[v & 0x0F];
-            }
-        }
-        return out;
     }
 
     //======================================================================================
@@ -511,7 +410,8 @@ namespace mdb
             {
                 // Accept the old spelling for one release rather than dumping 76 markers
                 // into `other`.
-                if (cat_from_legacy_name(cat_text, m.cat))
+                std::uint32_t legacy_mask = 0u;
+                if (cat_from_legacy_name(cat_text, m.cat, legacy_mask))
                 {
                     ++report.legacy_cat;
                 }
@@ -521,11 +421,6 @@ namespace mdb
                     ++report.unknown_cat;
                 }
             }
-
-            // Item quality tier. Optional: extract_markers.py omits it when it is 0.
-            const mjson::JValue* rv = entry.find("rarity");
-            m.rarity = static_cast<std::uint8_t>(
-                rv != nullptr ? rarity_clamp(static_cast<int>(rv->number_or(0.0))) : 0);
 
             // The boss' save-backed defeat signal. Optional: a manifest built without
             // build_bossdoors.py has no boss doors.
@@ -616,7 +511,7 @@ namespace mdb
         return std::string{tail};
     }
 
-    bool parse_items_json(std::string_view text, std::unordered_map<int, std::string>& out,
+    bool parse_items_json(std::string_view text, std::unordered_map<int, ItemInfo>& out,
                           std::string& error)
     {
         error.clear();
@@ -634,8 +529,9 @@ namespace mdb
         }
         const mjson::JValue* schema = root.find("schema");
         const std::string schema_str = schema != nullptr ? schema->string_or("") : "";
-        // Any minor of the item database: this reader only wants {id -> name}, which
-        // schema /1 and /2 both carry.
+        // Any minor of the item database. The name is in every minor; the `bucket` field
+        // arrived in /3 and an entry without one simply has no bucket, which leaves a live
+        // pickup on its class rule.
         constexpr std::string_view kWant = "wuchang-minimap-items/";
         if (schema_str.compare(0, kWant.size(), kWant) != 0)
         {
@@ -667,7 +563,18 @@ namespace mdb
             {
                 continue;
             }
-            out.emplace(static_cast<int>(id), name->str);
+            ItemInfo info{};
+            info.name = name->str;
+            const mjson::JValue* bucket = kv.second.find("bucket");
+            if (bucket != nullptr && bucket->kind == mjson::JValue::Kind::String)
+            {
+                Cat cat = Cat::Other;
+                if (cat_from_name(bucket->str, cat) && cat_enabled(kLootCats, cat))
+                {
+                    info.cat = cat;
+                }
+            }
+            out.emplace(static_cast<int>(id), std::move(info));
         }
         if (out.empty())
         {

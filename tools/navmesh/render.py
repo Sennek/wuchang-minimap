@@ -185,16 +185,6 @@ DEFAULT_ISLAND_CLUSTER_AREA = 400000.0  # uu2 (40 m2)
 # component back. Same 400 uu as marker_coverage.py's --z-tol, on purpose: the audit's
 # criterion is the filter's own invariant, so the pass cannot strand a marker.
 DEFAULT_ISLAND_COVER_Z = 400.0  # uu
-# marker categories that are evidence "a player can get here" (ladder / lift / door
-# reach places the navmesh graph cannot, because off-mesh links are not in our data).
-# Kept for callers that want the narrow set; the filter itself takes every category,
-# because an enemy or a trap standing on a surface also proves the surface is real.
-# `note` (what `merchant` was renamed to) is deliberately NOT in here: a reading
-# point hangs on a wall, which is why 25 of chapter 1's 33 of them had no walkable
-# surface within 400 uu in the first place.
-ISLAND_SEED_CATEGORIES = (
-    "shrine", "chest", "pickup", "npc", "boss", "ladder", "lift", "door", "fog_gate",
-)
 MAX_IMAGE_PX = 16000  # guard against a --px-per-uu typo eating all the RAM
 
 COL_BG = (16, 18, 22)
@@ -731,7 +721,9 @@ def load_marker_seeds(paths: Iterable[Path], categories: Iterable[str] | None = 
 
     `categories=None` (the default) takes every category, `enemy` and `trap` included: an
     enemy spawn or a trap standing on a surface is as good a proof that the surface is real
-    as a chest is. Pass `ISLAND_SEED_CATEGORIES` for the narrow "the player goes here" set.
+    as a chest is. A caller wanting the narrow "the player walks here" set passes its own
+    categories - but note `note`, which hangs on a wall: 25 of chapter 1's 33 reading points
+    have no walkable surface within 400 uu.
     """
     cats = set(categories) if categories is not None else None
     seeds: list[dict] = []

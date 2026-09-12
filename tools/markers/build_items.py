@@ -50,6 +50,7 @@ import pakmaps                                              # noqa: E402
 import provenance                          # noqa: E402
 import uasset                                               # noqa: E402
 import itemdb                                               # noqa: E402
+import pickup_buckets                                       # noqa: E402
 from itemdb import SCHEMA                                   # noqa: E402
 from uprops import parse_header                             # noqa: E402
 
@@ -378,6 +379,11 @@ def build(ms, lang: str = "en", verbose: bool = True):
         if type_name:
             rec["type"] = type_name
         rec["rarity"] = itemdb.rarity_of_type(type_name)
+        # The marker bucket this item puts a pickup in. Written per ITEM so both
+        # sides of the pipeline read one answer: the extractor buckets a placed
+        # pickup by `items[0]`, and the mod's live sweep buckets a runtime-spawned
+        # one by the first item it grants, off this same field.
+        rec["bucket"] = pickup_buckets.bucket_of_type(type_name)
         rarities[rec["rarity"]] += 1
         for pre in KEY_PREFIXES:
             nm = loc.get(f"{pre}_{rid}_name")

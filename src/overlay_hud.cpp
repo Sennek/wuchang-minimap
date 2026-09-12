@@ -183,28 +183,15 @@ namespace overlay
             return IM_COL32(g_plate.r, g_plate.g, g_plate.b, alpha);
         }
 
-        // Category colour, or the item-quality colour when the caller asked for it and
-        // this marker has a tier. Tier 0 falls through to the category colour - it is
-        // what every chest, live-only actor and ordinary consumable is. Tiers and the
-        // default palette come from mdb::Rarity.
-        ImU32 marker_color_q(mdb::Cat cat, std::uint8_t rarity, int alpha, bool use_rarity,
-                             const mdb::Rgb* palette)
-        {
-            const int tier = mdb::rarity_clamp(static_cast<int>(rarity));
-            if (!use_rarity || tier == 0 || palette == nullptr)
-            {
-                return marker_color(cat, alpha);
-            }
-            const mdb::Rgb& c = palette[tier];
-            return IM_COL32(c.r, c.g, c.b, alpha);
-        }
-
-        // One glyph. `hollow` is how a FOUND marker is drawn - an outline keeps the
-        // shape where dimming would leave a grey blob. Every glyph gets a dark halo
-        // first, at the glyph's own alpha, so it has an edge over any scene.
+        // One glyph. `hollow` is how a FOUND marker is drawn: the same geometry, its fill
+        // faded to `fill_alpha` while the outline keeps the marker's own alpha, so what
+        // the player loses is the area and not the hue. Every glyph gets a dark halo
+        // first, and the `edge` contour runs under the outline in both states - a dark
+        // line around a coloured one is what makes a small patch of colour readable over
+        // any scene. Every glyph gets a dark halo first, at the glyph's own alpha.
 
         void draw_marker_glyph(ImDrawList* dl, mdb::Cat cat, ImVec2 p, float r, ImU32 col, ImU32 edge,
-                               bool hollow)
+                               bool hollow, float fill_alpha)
         {
             const int ca = static_cast<int>((col >> IM_COL32_A_SHIFT) & 0xFFu);
             // gly::shape_extent() is how far this shape reaches, so the halo covers
@@ -217,61 +204,62 @@ namespace overlay
             // silhouette, so the three complex shapes have a simplified form.
             const bool simple = r < gly::kSimpleGlyphRadius;
             const float w = hollow ? 1.7f : 1.2f;
-            // Filled when live, the same geometry as an outline when found, so nothing
-            // moves when one state becomes the other.
+            // The contour is drawn wider than the outline it sits under, so a hollow
+            // glyph reads as a coloured ring inside a dark one.
+            const float ew = hollow ? w + 1.2f : w;
+            // The faded fill of a found glyph. `col` itself never fades: the hue is the
+            // marker's whole identity once the shape is shared.
+            const ImU32 fill =
+                hollow ? IM_COL32(static_cast<int>((col >> IM_COL32_R_SHIFT) & 0xFFu),
+                                  static_cast<int>((col >> IM_COL32_G_SHIFT) & 0xFFu),
+                                  static_cast<int>((col >> IM_COL32_B_SHIFT) & 0xFFu),
+                                  static_cast<int>(static_cast<float>(ca) * fill_alpha))
+                       : col;
+            // One geometry for both states: only the fill's alpha and the extra outline
+            // change, so nothing moves when one state becomes the other.
             const auto ngon = [&](float rad, int n) {
+                dl->AddNgonFilled(p, rad, fill, n);
+                dl->AddNgon(p, rad, edge, n, ew);
                 if (hollow)
                 {
                     dl->AddNgon(p, rad, col, n, w);
                 }
-                else
-                {
-                    dl->AddNgonFilled(p, rad, col, n);
-                    dl->AddNgon(p, rad, edge, n, w);
-                }
             };
             const auto circle = [&](ImVec2 c, float rad, int n) {
+                dl->AddCircleFilled(c, rad, fill, n);
+                dl->AddCircle(c, rad, edge, n, ew);
                 if (hollow)
                 {
                     dl->AddCircle(c, rad, col, n, w);
-                }
-                else
-                {
-                    dl->AddCircleFilled(c, rad, col, n);
-                    dl->AddCircle(c, rad, edge, n, w);
                 }
             };
             const auto rect = [&](float hw, float hh) {
                 const ImVec2 a{p.x - r * hw, p.y - r * hh};
                 const ImVec2 b{p.x + r * hw, p.y + r * hh};
+                dl->AddRectFilled(a, b, fill, 1.5f);
+                dl->AddRect(a, b, edge, 1.5f, 0, ew);
                 if (hollow)
                 {
                     dl->AddRect(a, b, col, 1.5f, 0, w);
-                }
-                else
-                {
-                    dl->AddRectFilled(a, b, col, 1.5f);
-                    dl->AddRect(a, b, edge, 1.5f, 0, w);
                 }
             };
             const auto tri = [&](float scale) {
                 const ImVec2 a{p.x, p.y - r * scale};
                 const ImVec2 b{p.x - r * scale * 0.92f, p.y + r * scale * 0.72f};
                 const ImVec2 c{p.x + r * scale * 0.92f, p.y + r * scale * 0.72f};
+                dl->AddTriangleFilled(a, b, c, fill);
+                dl->AddTriangle(a, b, c, edge, ew);
                 if (hollow)
                 {
                     dl->AddTriangle(a, b, c, col, w);
                 }
-                else
-                {
-                    dl->AddTriangleFilled(a, b, c, col);
-                    dl->AddTriangle(a, b, c, edge, w);
-                }
             };
-            // The dark centre that tells a shrine from a plain diamond. On a hollow
-            // glyph it takes the marker's own colour - there is no fill to contrast with.
+            // What an interior detail is drawn in: dark on a filled glyph, the marker's
+            // own colour on a hollow one, whose fill is too faint to contrast with.
+            const ImU32 ink = hollow ? col : edge;
+            // The dark centre that tells a shrine from a plain diamond.
             const auto pip = [&](float rad) {
-                dl->AddCircleFilled(p, r * rad, hollow ? col : edge, 8);
+                dl->AddCircleFilled(p, r * rad, ink, 8);
             };
 
             switch (shape)
@@ -283,18 +271,76 @@ namespace overlay
             case gly::Shape::ChestBox:
                 rect(0.95f, 0.75f);
                 dl->AddLine(ImVec2{p.x - r * 0.95f, p.y}, ImVec2{p.x + r * 0.95f, p.y},
-                            hollow ? col : edge, w);
+                            ink, w);
                 break;
-            case gly::Shape::Dot:
-                circle(p, r * 0.72f, 10);
+            case gly::Shape::LootDisc:
+            {
+                // The whole loot family: one disc in the quality tier's colour, and a mark
+                // inside it naming the bucket. The mark is told from the marks of its own
+                // tier only, of which there are at most five, and it is dropped in the
+                // simplified form - at r = 6.5 it is 3 px across and reads as dirt on the
+                // disc, where the tier colour still answers "worth the detour".
+                circle(p, r * 0.82f, 12);
+                const gly::Mark mark = gly::mark_of(cat);
+                if (simple || mark == gly::Mark::None)
+                {
+                    break;
+                }
+                const float mw = w * 1.5f;
+                const auto at = [&](float x, float y) { return ImVec2{p.x + r * x, p.y + r * y}; };
+                switch (mark)
+                {
+                case gly::Mark::Pip:
+                    dl->AddCircleFilled(p, r * 0.25f, ink, 8);
+                    break;
+                case gly::Mark::Sprout:
+                    dl->AddLine(at(0.0f, 0.45f), at(0.0f, -0.15f), ink, mw);
+                    dl->AddLine(at(0.0f, -0.15f), at(-0.4f, -0.4f), ink, mw);
+                    dl->AddLine(at(0.0f, -0.15f), at(0.4f, -0.4f), ink, mw);
+                    break;
+                case gly::Mark::Square:
+                    dl->AddRectFilled(at(-0.35f, -0.35f), at(0.35f, 0.35f), ink);
+                    break;
+                case gly::Mark::Blade:
+                    dl->AddLine(at(-0.45f, 0.45f), at(0.45f, -0.45f), ink, mw);
+                    break;
+                case gly::Mark::Chevron:
+                    dl->AddLine(at(-0.45f, 0.25f), at(0.0f, -0.4f), ink, mw);
+                    dl->AddLine(at(0.0f, -0.4f), at(0.45f, 0.25f), ink, mw);
+                    break;
+                case gly::Mark::Ring:
+                    dl->AddCircle(p, r * 0.35f, ink, 10, mw);
+                    break;
+                case gly::Mark::Gem:
+                    dl->AddNgon(p, r * 0.45f, ink, 4, mw);
+                    break;
+                case gly::Mark::Plus:
+                    dl->AddLine(at(-0.5f, 0.0f), at(0.5f, 0.0f), ink, mw);
+                    dl->AddLine(at(0.0f, -0.5f), at(0.0f, 0.5f), ink, mw);
+                    break;
+                case gly::Mark::Grains:
+                    dl->AddCircleFilled(at(0.0f, -0.28f), r * 0.18f, ink, 6);
+                    dl->AddCircleFilled(at(-0.3f, 0.22f), r * 0.18f, ink, 6);
+                    dl->AddCircleFilled(at(0.3f, 0.22f), r * 0.18f, ink, 6);
+                    break;
+                case gly::Mark::Key:
+                    dl->AddLine(at(-0.45f, 0.0f), at(0.3f, 0.0f), ink, mw);
+                    dl->AddCircleFilled(at(0.35f, 0.0f), r * 0.2f, ink, 8);
+                    break;
+                case gly::Mark::None:
+                case gly::Mark::Count:
+                default:
+                    break;
+                }
                 break;
+            }
             case gly::Shape::Triangle:
                 tri(1.5f);
                 break;
             case gly::Shape::TriangleNotched:
                 tri(1.15f);
                 dl->AddLine(ImVec2{p.x - r * 0.62f, p.y + r * 0.30f},
-                            ImVec2{p.x + r * 0.62f, p.y + r * 0.30f}, hollow ? col : edge, w + 0.3f);
+                            ImVec2{p.x + r * 0.62f, p.y + r * 0.30f}, ink, w + 0.3f);
                 break;
             case gly::Shape::DotRing:
                 dl->AddCircleFilled(p, r * 0.34f, col, 8);
@@ -327,7 +373,6 @@ namespace overlay
                     dl->AddConvexPolyFilled(pts, 5, col);
                     dl->AddPolyline(pts, 5, edge, ImDrawFlags_Closed, w);
                 }
-                const ImU32 ink = hollow ? col : edge;
                 dl->AddLine(ImVec2{p.x + hw - fold, p.y - hh}, ImVec2{p.x + hw - fold, p.y - hh + fold},
                             ink, w);
                 dl->AddLine(ImVec2{p.x + hw - fold, p.y - hh + fold}, ImVec2{p.x + hw, p.y - hh + fold},
@@ -384,14 +429,13 @@ namespace overlay
                 if (shape == gly::Shape::ArchPip)
                 {
                     // The gem socket: the riddle door answers with a stone in its centre.
-                    dl->AddCircleFilled(ImVec2{p.x, p.y + r * 0.15f}, r * 0.26f,
-                                        hollow ? col : edge, 8);
+                    dl->AddCircleFilled(ImVec2{p.x, p.y + r * 0.15f}, r * 0.26f, ink, 8);
                 }
                 else
                 {
                     // Split down the middle: the chisel door opens as two leaves.
                     dl->AddLine(ImVec2{p.x, spring - hw * 0.7f}, ImVec2{p.x, foot},
-                                hollow ? col : edge, w);
+                                ink, w);
                 }
                 break;
             }
@@ -792,7 +836,6 @@ namespace overlay
                 float d2 = 0.0f;
                 float dz = 0.0f; // marker Z minus player Z, uu (signed)
                 std::uint8_t cat = 0;
-                std::uint8_t rarity = 0;
                 bool found = false;
                 bool clamped = false;
                 int count = 1; // how many markers this glyph stands for
@@ -835,7 +878,6 @@ namespace overlay
                 cand.d2 = fc.d2_xy;
                 cand.dz = static_cast<float>(m.z - player_z);
                 cand.cat = fc.cat;
-                cand.rarity = fc.rarity;
                 cand.found = found;
                 cand.clamped = off.clamped;
                 cand.id = m.id;
@@ -897,19 +939,23 @@ namespace overlay
                 const Cand& cand = cands[ci];
                 const bool hollow =
                     mdb::drawn_as_found(static_cast<mdb::Cat>(cand.cat), cand.found);
-                const float a = op * (hollow ? cfg.markers_found_alpha : 1.0f);
-                if (a <= 0.01f)
+                if (op <= 0.01f)
                 {
                     continue;
                 }
-                const int alpha = static_cast<int>((std::min)(1.0f, a) * 255.0f + 0.5f);
-                const ImU32 col = marker_color_q(static_cast<mdb::Cat>(cand.cat), cand.rarity, alpha,
-                                                 cfg.markers_rarity_tint, cfg.xray_rarity_colors);
+                const int alpha = static_cast<int>((std::min)(1.0f, op) * 255.0f + 0.5f);
+                const ImU32 col = marker_color(static_cast<mdb::Cat>(cand.cat), alpha);
                 const ImU32 edge = IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f));
                 const ImVec2 p{g.center.x + cand.dx, g.center.y + cand.dy};
                 const float gr = cand.clamped ? r * 0.72f : r;
-                draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, gr, col, edge, hollow);
-                draw_count_badge(dl, p, r, cand.count, alpha);
+                draw_marker_glyph(dl, static_cast<mdb::Cat>(cand.cat), p, gr, col, edge, hollow,
+                                  cfg.markers_found_alpha);
+                // The badge and the height arrow describe the marker, not its state, and
+                // follow the glyph's fill so a found one does not shout as loud as a live.
+                const int alpha_deco =
+                    hollow ? static_cast<int>(static_cast<float>(alpha) * cfg.markers_found_alpha)
+                           : alpha;
+                draw_count_badge(dl, p, r, cand.count, alpha_deco);
                 // Above / below, the same rule the compass uses: a marker more than
                 // compass_pip_height_uu off the player's own Z gets an arrow beside its
                 // glyph, so a chest on the floor overhead is not walked into a wall.
@@ -925,7 +971,7 @@ namespace overlay
                     const ImVec2 tip{ax, p.y + up * ar};
                     const ImVec2 bl{ax - ar * 0.8f, p.y - up * ar * 0.55f};
                     const ImVec2 br{ax + ar * 0.8f, p.y - up * ar * 0.55f};
-                    dl->AddTriangleFilled(tip, bl, br, IM_COL32(246, 246, 250, alpha));
+                    dl->AddTriangleFilled(tip, bl, br, IM_COL32(246, 246, 250, alpha_deco));
                     dl->AddTriangle(tip, bl, br, edge, 1.0f);
                 }
                 ++g_marker_draw.drawn;
@@ -1423,8 +1469,7 @@ namespace overlay
                 sh.alpha = alpha;
                 // While the key is held quality wins over category, so a weapon and a
                 // key item stand out from the consumables.
-                sh.col = marker_color_q(cat, m.rarity, alpha, cfg.xray_rarity_colors_enabled,
-                                        cfg.xray_rarity_colors);
+                sh.col = marker_color(cat, alpha);
                 sh.cat = m.cat;
                 sh.found = (m.flags & markers::kFlagFound) != 0;
                 sh.m = &m;
@@ -1473,16 +1518,14 @@ namespace overlay
                 {
                     const bool hollow = mdb::drawn_as_found(cat, sh.found);
                     draw_marker_glyph(dl, cat, ImVec2{sh.sx, sh.sy}, hollow ? r * 0.75f : r, sh.col, edge,
-                                      hollow);
+                                      hollow, cfg.markers_found_alpha);
                     ++g_hl_debug.on_screen;
                 }
                 else
                 {
                     const int dim = static_cast<int>(sh.alpha * 0.8f);
                     add_edge_arrow(dl, ImVec2{sh.sx, sh.sy}, sh.nx, sh.ny, r * 1.15f,
-                                   marker_color_q(cat, sh.m->rarity, dim, cfg.xray_rarity_colors_enabled,
-                                                  cfg.xray_rarity_colors),
-                                   IM_COL32(10, 12, 16, dim));
+                                   marker_color(cat, dim), IM_COL32(10, 12, 16, dim));
                     ++g_hl_debug.edge;
                 }
                 ++g_hl_debug.drawn;
@@ -1734,7 +1777,6 @@ namespace overlay
                     double x = 0.0;  // where on the strip it lands, in screen px
                     float dz = 0.0f; // marker Z minus player Z, uu (signed)
                     std::uint8_t cat = 0;
-                    std::uint8_t rarity = 0;
                     bool found = false;
                 };
                 static std::vector<Pip> pips; // render thread only
@@ -1774,7 +1816,6 @@ namespace overlay
                     p.x = px;
                     p.dz = static_cast<float>(m.z - snap.z);
                     p.cat = fc.cat;
-                    p.rarity = fc.rarity;
                     p.found = fc.found;
                     pips.push_back(p);
                 }
@@ -1824,13 +1865,12 @@ namespace overlay
                 {
                     const Pip& p = pips[pi];
                     const bool hollow = mdb::drawn_as_found(static_cast<mdb::Cat>(p.cat), p.found);
-                    const int a = hollow ? alpha(cfg.markers_found_alpha) : alpha(1.0f);
-                    const ImU32 col = marker_color_q(static_cast<mdb::Cat>(p.cat), p.rarity, a,
-                                                     cfg.markers_rarity_tint, cfg.xray_rarity_colors);
+                    const int a = alpha(1.0f);
+                    const ImU32 col = marker_color(static_cast<mdb::Cat>(p.cat), a);
                     const ImVec2 at{static_cast<float>(p.x), y1 - height * 0.30f};
                     const float gr = height * 0.22f;
                     draw_marker_glyph(dl, static_cast<mdb::Cat>(p.cat), at, gr, col,
-                                      IM_COL32(10, 12, 16, a), hollow);
+                                      IM_COL32(10, 12, 16, a), hollow, cfg.markers_found_alpha);
                     // Above / below: a bearing alone sends the player at a wall when the
                     // chest is on the floor over their head, so a marker further than
                     // compass_pip_height_uu off the player's own Z gets an arrow beside
@@ -1841,7 +1881,10 @@ namespace overlay
                         const float ar = (std::max)(2.5f, height * 0.15f);
                         const float ax = at.x + gr + ar * 0.9f;
                         const float up = p.dz > 0.0f ? -1.0f : 1.0f;
-                        const ImU32 acol = IM_COL32(246, 246, 250, a);
+                        const ImU32 acol = IM_COL32(
+                            246, 246, 250,
+                            hollow ? static_cast<int>(static_cast<float>(a) * cfg.markers_found_alpha)
+                                   : a);
                         dl->AddTriangleFilled(ImVec2{ax, at.y + up * ar},
                                               ImVec2{ax - ar * 0.8f, at.y - up * ar * 0.55f},
                                               ImVec2{ax + ar * 0.8f, at.y - up * ar * 0.55f}, acol);

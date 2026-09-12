@@ -30,7 +30,24 @@ namespace mdb
     {
         Shrine = 0,
         Chest,
-        Pickup,
+        // ---- the loot family, in tier order ----
+        //
+        // One category per pickup bucket, decided offline from the first item the pickup
+        // grants (`tools/markers/pickup_buckets.py`) or, for a pickup that grants none,
+        // from its actor class. They share a glyph silhouette and their tier's colour;
+        // tier_of() below is the one place that says which tier a category is in.
+        Consumable,
+        Item,    // contents unresolved: an ordinary pickup the extraction could not read
+        Harvest, // a respawning resource node
+        Ammo,    // the cannon resupply box
+        Armour,
+        Amulet,
+        Weapon,
+        Jade,
+        Spell,
+        Material,
+        Key,
+        // ---- end of the loot family ----
         Boss,
         Elite,
         Enemy,
@@ -54,6 +71,81 @@ namespace mdb
     constexpr int kCatCount = static_cast<int>(Cat::Count);
     constexpr std::uint32_t kAllCats = (1u << kCatCount) - 1u;
 
+    constexpr std::uint32_t cat_bit(Cat cat)
+    {
+        return 1u << static_cast<int>(cat);
+    }
+
+    constexpr bool cat_enabled(std::uint32_t mask, Cat cat)
+    {
+        return (mask & cat_bit(cat)) != 0u;
+    }
+
+    // The eleven pickup buckets as one mask: what `pickup` used to select, and what the
+    // x-ray, the absence rule and the legacy config name mean by "loot the player picks up".
+    constexpr std::uint32_t kLootCats =
+        cat_bit(Cat::Consumable) | cat_bit(Cat::Item) | cat_bit(Cat::Harvest) |
+        cat_bit(Cat::Ammo) | cat_bit(Cat::Armour) | cat_bit(Cat::Amulet) |
+        cat_bit(Cat::Weapon) | cat_bit(Cat::Jade) | cat_bit(Cat::Spell) |
+        cat_bit(Cat::Material) | cat_bit(Cat::Key);
+
+    // ---- Item quality tier ----
+    //
+    // Wuchang has no rarity ladder. The tier is the three-way pickup-beam grouping
+    // `BP_PickupActor_C` picks from `DT_Particle` by `E_ItemType`: the player reads it in
+    // the world as the colour of the beam over a dropped item. Every loot bucket sits in
+    // exactly one tier, so the tier is a coarsening of the category and needs no per-marker
+    // field; the glyph palette gives the whole family its tier's hue.
+
+    enum class Tier : std::uint8_t
+    {
+        Common = 0, // consumables, unresolved pickups, harvest nodes, cannon ammo - blue
+        Equipment,  // weapons, armour, amulets, jades, spells                      - pink
+        Key,        // materials and key items (quest and upgrade)                  - gold
+        Count
+    };
+
+    constexpr int kTierCount = static_cast<int>(Tier::Count);
+
+    // Which tier a category's colour comes from. False for every peer category: a chest's
+    // contents are not resolved in the data and a door has no quality at all, so they keep
+    // a palette row of their own.
+    constexpr bool tier_of(Cat cat, Tier& out)
+    {
+        switch (cat)
+        {
+        case Cat::Consumable:
+        case Cat::Item:
+        case Cat::Harvest:
+        case Cat::Ammo:
+            out = Tier::Common;
+            return true;
+        case Cat::Armour:
+        case Cat::Amulet:
+        case Cat::Weapon:
+        case Cat::Jade:
+        case Cat::Spell:
+            out = Tier::Equipment;
+            return true;
+        case Cat::Material:
+        case Cat::Key:
+            out = Tier::Key;
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // Is this category one of the eleven the former `pickup` split into?
+    constexpr bool is_loot_family(Cat cat)
+    {
+        Tier t = Tier::Common;
+        return tier_of(cat, t);
+    }
+
+    // Display name of a tier ("Common"); anything out of range reads as "Common".
+    const char* tier_name(int tier);
+
     // The wire names used by markers.json AND by the config file, in Cat order.
     const char* cat_name(Cat cat);
 
@@ -73,21 +165,15 @@ namespace mdb
     // Exact, case-insensitive match against cat_name(). False for an unknown name.
     bool cat_from_name(std::string_view name, Cat& out);
 
-    // Accepts the RENAMED categories of past releases (`merchant` -> `Note`). Callers take the
-    // value AND warn, once, so Save rewrites the file with the current name.
-    bool cat_from_legacy_name(std::string_view name, Cat& out);
+    // Accepts the RENAMED categories of past releases. `cat` is what ONE marker of that
+    // name becomes and `mask` is what a config list of that name selects; the two differ
+    // where a name SPLIT, as `pickup` did into the eleven loot buckets - a config line
+    // selects all eleven, a single marker becomes `Item`, the bucket for a pickup whose
+    // contents are unresolved. Callers take the value AND warn, once, so Save rewrites
+    // the file with the current names.
+    bool cat_from_legacy_name(std::string_view name, Cat& cat, std::uint32_t& mask);
 
-    inline std::uint32_t cat_bit(Cat cat)
-    {
-        return 1u << static_cast<int>(cat);
-    }
-
-    inline bool cat_enabled(std::uint32_t mask, Cat cat)
-    {
-        return (mask & cat_bit(cat)) != 0u;
-    }
-
-    // "shrine,chest, pickup" (spaces / semicolons also separate) -> mask. "all" and "none" are
+    // "shrine,chest, weapon" (spaces / semicolons also separate) -> mask. "all" and "none" are
     // accepted as the whole value. Unknown names are collected into `rejected` and never change
     // the result; an empty / all-unknown list yields `fallback`. A legacy spelling DOES set its
     // bit and is reported in `legacy`.
@@ -96,31 +182,6 @@ namespace mdb
 
     // The inverse, for save_config_file(): "all", "none", or a comma-separated list.
     std::string format_category_mask(std::uint32_t mask);
-
-    // ---- Item quality ("rarity") ----
-    //
-    // Wuchang has no rarity ladder. "Rarity" is the three-way pickup-beam grouping
-    // `BP_PickupActor_C` picks from `DT_Particle` by `E_ItemType`, baked offline into an
-    // optional `"rarity"` field by tools/markers/build_items.py. Absent == tier 0.
-
-    enum class Rarity : std::uint8_t
-    {
-        Common = 0, // Tool / Arrows / EnchantingMaterial - the blue beam
-        Equipment,  // weapons, armour, accessories, gems, spells - the pink beam
-        Key,        // Material / SpecialItem (quest and upgrade items) - the gold beam
-        Count
-    };
-
-    constexpr int kRarityCount = static_cast<int>(Rarity::Count);
-
-    // Display name of a tier ("Common"); anything out of range reads as "Common".
-    const char* rarity_name(int rarity);
-
-    // Clamp an untrusted tier (a JSON field, a config index) into range.
-    constexpr int rarity_clamp(int rarity)
-    {
-        return (rarity < 0 || rarity >= kRarityCount) ? 0 : rarity;
-    }
 
     struct Rgb
     {
@@ -133,24 +194,6 @@ namespace mdb
     {
         return a.r == b.r && a.g == b.g && a.b == b.b;
     }
-
-    // The GAME's own palette: the `LightColor` of `DT_Particle`'s `PickupEffect`,
-    // `PickupEffect4` and `PickupEffect7` rows, converted from linear to sRGB
-    // (0.420, 0.428, 0.700) / (0.700, 0.420, 0.560) / (0.701, 0.672, 0.418).
-    inline constexpr Rgb kDefaultRarityColors[kRarityCount] = {
-        Rgb{0xAD, 0xAF, 0xDA}, // Common    - blue
-        Rgb{0xDA, 0xAD, 0xC5}, // Equipment - pink
-        Rgb{0xDA, 0xD6, 0xAD}, // Key       - gold
-    };
-
-    // "ADAFDA, DAADC5, DAD6AD" -> `out`. Accepts a `#` prefix, either case, comma / semicolon /
-    // whitespace separators, and the CSS 3-digit form. Extra entries are ignored, missing ones
-    // keep `out`; a malformed entry still consumes its tier and is appended to `rejected`.
-    // Returns how many tiers were set.
-    int parse_rarity_colors(std::string_view text, Rgb out[kRarityCount], std::string* rejected = nullptr);
-
-    // The inverse, for save_config_file(): "ADAFDA, DAADC5, DAD6AD".
-    std::string format_rarity_colors(const Rgb in[kRarityCount]);
 
     // ---- The static marker database ----
 
@@ -165,8 +208,6 @@ namespace mdb
         double z = 0.0;
         int chapter = 0; // 1..8, from the file's "chapter" field
         Cat cat = Cat::Other;
-        // Item quality tier of what a pickup grants. Absent from the JSON == 0 == Common.
-        std::uint8_t rarity = 0;
         // BOSS MARKERS ONLY: the `bossdoor_<abbr>` firepoint id the level script names for this
         // boss, and the id to look for in the save's `UnlockedFirepoints`. Empty for 2 of the 28
         // boss markers and for every other category. See boss_found_from_save().
@@ -448,7 +489,7 @@ namespace mdb
     // Loot is a category where FINDING the thing consumes it, so a found one is noise.
     constexpr bool is_loot_cat(Cat cat)
     {
-        return cat == Cat::Chest || cat == Cat::Pickup || cat == Cat::Hidden;
+        return cat == Cat::Chest || cat == Cat::Hidden || is_loot_family(cat);
     }
 
     // A landmark is a place you navigate BY, so using it does not use it up and
@@ -531,13 +572,41 @@ namespace mdb
     // when the text is not a usable manifest.
     bool parse_markers_json(std::string_view text, std::vector<StaticMarker>& out, ParseReport& report);
 
-    // ---- markers/items.json - the item display-name database, at RUNTIME ----
+    // ---- markers/items.json - the item database, at RUNTIME ----
     //
-    // Names an enemy's dropped loot: a `BP_DropItem_C` is spawned while you play and has no
-    // static twin. The actor carries its item id, so {id -> name} in memory gives the label.
-    // Only the names are kept; the file's descriptions are drawn nowhere.
-    bool parse_items_json(std::string_view text, std::unordered_map<int, std::string>& out,
+    // Describes an enemy's dropped loot: a `BP_DropItem_C` is spawned while you play and has
+    // no static twin. The actor carries its item id, so {id -> name + bucket} in memory gives
+    // both the label and the category. The file's descriptions are drawn nowhere.
+
+    struct ItemInfo
+    {
+        std::string name;
+        // The loot bucket this item puts a pickup in, straight from the file's own `bucket`
+        // field (`tools/markers/pickup_buckets.py` decides it, once, offline). `Cat::Count`
+        // when the file predates the field or spells a name this build does not know.
+        Cat cat = Cat::Count;
+    };
+
+    // Only NAMED items are kept: an id that has no display name is what rejects a misread of
+    // an actor's item array, so it must not become a known id.
+    bool parse_items_json(std::string_view text, std::unordered_map<int, ItemInfo>& out,
                           std::string& error);
+
+    // The category a live pickup carries. `class_cat` is what the class table gave the actor
+    // and `item_cat` is the bucket of the first item it grants (`Cat::Count` when nothing
+    // resolved).
+    //
+    // `Item` IS "contents unresolved", so it is the one answer an item can improve on: the
+    // first item wins there, exactly as it does offline in `extract_markers.py`, and an
+    // enemy's dropped armour draws as armour rather than as a nameless pickup. Every other
+    // category is already an answer - a harvest node is a harvest node and a cannon resupply
+    // box is ammo whatever it hands out (the offline class rule, `context/buckets.md`) - so
+    // nothing else is re-categorised and a peer category is never touched at all.
+    constexpr Cat live_loot_cat(Cat class_cat, Cat item_cat)
+    {
+        const bool to_loot = item_cat != Cat::Count && cat_enabled(kLootCats, item_cat);
+        return class_cat == Cat::Item && to_loot ? item_cat : class_cat;
+    }
 
     // ---- The found tracker file - wuchang_minimap_found.txt ----
     //

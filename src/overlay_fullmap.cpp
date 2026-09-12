@@ -1204,15 +1204,17 @@ namespace overlay
                     const markers::DrawMarker& m = *c.m;
                     const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
                     const bool hollow = mdb::drawn_as_found(cat, c.found);
-                    const int alpha =
-                        static_cast<int>((hollow ? cfg.markers_found_alpha : 1.0f) * 255.0f + 0.5f);
+                    constexpr int alpha = 255;
                     const ImU32 edge = IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f));
                     const ImVec2 p{c.sx, c.sy};
-                    draw_marker_glyph(dl, cat, p, mr,
-                                      marker_color_q(cat, m.rarity, alpha, cfg.markers_rarity_tint,
-                                                     cfg.xray_rarity_colors),
-                                      edge, hollow);
-                    draw_count_badge(dl, p, mr, c.count, alpha);
+                    draw_marker_glyph(dl, cat, p, mr, marker_color(cat, alpha), edge, hollow,
+                                      cfg.markers_found_alpha);
+                    // The badge and the height arrow follow the glyph's fill, so a found
+                    // marker does not shout as loud as a live one.
+                    const int alpha_deco =
+                        hollow ? static_cast<int>(static_cast<float>(alpha) * cfg.markers_found_alpha)
+                               : alpha;
+                    draw_count_badge(dl, p, mr, c.count, alpha_deco);
                     // Above / below, the same rule the minimap and the compass use: a
                     // marker more than compass_pip_height_uu off the player's own Z gets
                     // an arrow beside its glyph. Within that band it counts as this floor
@@ -1228,7 +1230,7 @@ namespace overlay
                         const ImVec2 tip{ax, p.y + up * ar};
                         const ImVec2 bl{ax - ar * 0.8f, p.y - up * ar * 0.55f};
                         const ImVec2 br{ax + ar * 0.8f, p.y - up * ar * 0.55f};
-                        dl->AddTriangleFilled(tip, bl, br, IM_COL32(246, 246, 250, alpha));
+                        dl->AddTriangleFilled(tip, bl, br, IM_COL32(246, 246, 250, alpha_deco));
                         dl->AddTriangle(tip, bl, br, edge, 1.0f);
                     }
                     ++g_map_markers_drawn;

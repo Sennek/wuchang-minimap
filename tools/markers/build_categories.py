@@ -18,7 +18,7 @@ WHAT THE GRAPH FOUND THAT THE HAND LIST DID NOT
     lift     + BP_CylinderElevator_C, BP_CylinderElevator_02_C
     door     + 12 descendants of BP_InteractionObject_Door_C, where the hand
                list had BP_NewPuzzlesDoor_C and a `^BP_Door` regex
-    pickup   + BP_PickupActor_New_C, BP_DropItem_C, BP_BombsBox_C,
+    pickups  + BP_PickupActor_New_C, BP_DropItem_C, BP_BombsBox_C,
                BP_SoulPackage_C, BP_AutoPickUp_Child_C, BP_PickUpPT_DSG_C,
                BP_PickUpPT_Red_C
     chest      BP_ItemBox_C is the base of both known chests, so a third
@@ -28,9 +28,9 @@ PRECEDENCE, AND WHY IT IS NOT COSMETIC
 --------------------------------------
 Three of the game's marker classes derive from `BP_NPC_C`, which has 78
 descendants: `BP_RebornFire_C` (a shrine), `DKDC_NPC_C` / `ReadPointSP_NPC_C` /
-`Letter01_NPC_C` (the readable notes), `ItemCollectionBox_C` (a pickup) and
-`BP_KlesaCleaner_C` (a world mechanism).  `BP_PickUpActor_Trap_C` derives from
-`BP_PickupActor_C` and must be `hidden`, not `pickup` - it is the trap that
+`Letter01_NPC_C` (the readable notes), `ItemCollectionBox_C` (the player's
+storage box) and `BP_KlesaCleaner_C` (a world mechanism).  `BP_PickUpActor_Trap_C` derives from
+`BP_PickupActor_C` and must be `hidden`, not a pickup - it is the trap that
 looks like an item.  So the roots are applied in a fixed order, most specific
 first, and the first category that claims a class keeps it.  `ORDER` below IS
 that decision; a class' own explicit entry always wins over any root.
@@ -51,6 +51,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 import class_graph                                          # noqa: E402
+import pickup_buckets                                       # noqa: E402
 import pakmaps                                              # noqa: E402
 import provenance                                           # noqa: E402
 
@@ -62,10 +63,26 @@ SCHEMA = "wuchang-minimap-categories/1"
 ROOTS: dict[str, list[str]] = {
     "shrine":   ["BP_RebornFire_C"],
     # The trap that looks like an item. A `BP_PickupActor_C` descendant, so it
-    # has to be claimed before `pickup`.
+    # has to be claimed before the pickup roots.
     "hidden":   ["BP_PickUpActor_Trap_C"],
     "chest":    ["BP_ItemBox_C"],
-    "pickup":   ["BP_PickupActor_C", "BP_PickUpPT_C", "ItemCollectionBox_C"],
+    # The pickup family: three class roots, one per bucket an item-less pickup
+    # can land in (`pickup_buckets.CLASS_BUCKETS`).  A pickup that carries an
+    # `Items` array is re-typed by `extract_markers` from the item's own
+    # `E_ItemType`, so these three decide only the ones whose contents the
+    # extraction found nothing for.
+    #   ammo    - `BP_BombsBox_C`, the cannon resupply box. A `BP_PickupActor_C`
+    #             descendant, so it has to be claimed before `item`.
+    #   harvest - `BP_PickUpPT_C` and its descendants carry a recovery interval
+    #             and a gain amount: resource nodes that respawn.
+    #   item    - everything else placed as a pickup.
+    # `ItemCollectionBox_C` is NOT one of them: it derives from `BP_NPC_C`, has
+    # no `Items` property, and its `ItemCollectionBoxData` map is filled from
+    # the save. It is the player's own storage box - a thing to walk back to,
+    # not loot - so it sits in `other`.
+    "ammo":     ["BP_BombsBox_C"],
+    "harvest":  ["BP_PickUpPT_C"],
+    "item":     ["BP_PickupActor_C"],
     # The game's readable notes. Not merchants: every placed instance carries a
     # read-point id (`NPC_DG_READ08`), the blueprint references no character
     # mesh, its only interaction string is `ui_263` = "Check", and it spawns the
@@ -91,9 +108,11 @@ ROOTS: dict[str, list[str]] = {
     # `BP_InteractionObject_C` alongside dozens of things that are not markers.
     # `BP_FireReed_C` is a lightable reed prop - it only ever looked like a boss
     # because 8 of them sit in `Chapter1_Wanrenk_BOSS_AI`.
+    # `ItemCollectionBox_C` is the player's storage box: a `BP_NPC_C`
+    # descendant, so it has to be claimed before `npc`.
     "other":    ["BP_FireReed_C", "BP_zhuanjingta_C", "BP_QiCaiShi_2_C",
                  "BP_WoodenExternalPushRod_C", "BP_KlesaCleaner_C",
-                 "BP_StonePillar_C"],
+                 "BP_StonePillar_C", "ItemCollectionBox_C"],
     # 78 descendants, and a root that must come after the five of them that are
     # claimed above.
     "npc":      ["BP_NPC_C"],
@@ -115,9 +134,14 @@ ROOTS: dict[str, list[str]] = {
 }
 
 # Most specific first. The first category to claim a class keeps it.
-ORDER = ["shrine", "hidden", "chest", "pickup", "note", "mystery_gate",
+ORDER = ["shrine", "hidden", "chest", "ammo", "harvest", "item", "note",
+         "mystery_gate",
          "benediction_door", "door", "fog_gate", "ladder", "lift", "boss",
          "other", "npc", "enemy"]
+
+# The three pickup roots must be exactly the buckets an item-less pickup can
+# land in; the bucket registry is the single reference for that list.
+assert set(pickup_buckets.CLASS_BUCKETS) == set(ROOTS) & set(pickup_buckets.BUCKETS)
 
 # Classes the graph would hand to a category but that are not markers. Each one
 # needs a reason, and "it is not a marker" is not a reason - say what it is.
@@ -180,9 +204,9 @@ def build(ms, verbose: bool = True, want_hash: bool = True,
 # the `marker_classes.EXACT` of 1.0.0.
 HAND = {
     "BP_RebornFire_C": "shrine", "BP_treasurebox_C": "chest",
-    "BP_ItemRedBox_C": "chest", "BP_PickupActor_C": "pickup",
-    "BP_PickUpPT_C": "pickup", "BP_AutoPickUp_C": "pickup",
-    "ItemCollectionBox_C": "pickup", "BP_NewPuzzlesDoor_C": "door",
+    "BP_ItemRedBox_C": "chest", "BP_PickupActor_C": "item",
+    "BP_PickUpPT_C": "harvest", "BP_AutoPickUp_C": "harvest",
+    "ItemCollectionBox_C": "item", "BP_NewPuzzlesDoor_C": "door",
     "BP_Wumen_C": "fog_gate", "BP_Wumen_NetworkRang_C": "fog_gate",
     "BP_Wumen_ClientOnly_C": "fog_gate", "BP_LadderV2_C": "ladder",
     "BP_Ladder_Child_C": "ladder", "BP_WoodenElevator_C": "lift",

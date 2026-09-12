@@ -1,5 +1,24 @@
 # WuchangMinimap - changelog
 
+## Unreleased
+
+Added
+- Loot is eleven marker categories instead of one: consumables, materials, key items, weapons, armour, amulets, jades, spells, harvest nodes, cannon ammo and plain items. Each has its own filter checkbox, count and glyph, so the map can answer "where are the amulets" instead of showing 1105 identical dots.
+- The 17 cannon resupply crates are their own category and read "Shrapnel Bomb"; they stand beside the cannon emplacements.
+
+Changed
+- Loot is coloured by quality tier everywhere it is drawn — minimap, full map, compass, x-ray and the F2 legend — in the game's own three pickup-beam hues: blue for common, pink for equipment, gold for key items and materials. The kind of loot is a small mark inside the disc, drawn on the full map and in the legend; the minimap shows the disc alone, where colour is the question a glance asks.
+- A marker you have already collected keeps its colour: it is drawn as a hollow ring at full strength over a faded fill, so what fades is the fill and not the identity. `markers_found_alpha` fades the fill.
+- The eleven names replace `pickup` in `markers_categories`, `highlight_categories` and `markers_absence_categories`. A config file that still says `pickup` still means all eleven, and the F2 panel rewrites it into the current names when it next saves.
+- The player's storage box is filed under Other, not as loot.
+- Loot an enemy drops is filed by what it is: a dropped chest piece draws as armour, a dropped jade as a jade. The kind comes from the item itself, so a drop and a pickup of the same thing read the same.
+
+Fixed
+- The legend's chapter and its counts follow the chapter you are in. They used to stay on the chapter that was in force when you last picked something up, so the full map could say "all chapters" while the map itself showed one.
+
+Removed
+- `xray_rarity_colors_enabled`, `markers_rarity_tint` and `xray_rarity_colors`. The quality tint is no longer an alternative to the category colour, it is the loot colour on every surface; the three hues come from `palette` like every other marker colour. A config file that still carries one of these keys gets a warning naming it.
+
 ## 1.2.0
 
 Added

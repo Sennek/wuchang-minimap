@@ -72,7 +72,13 @@ namespace markers
             {L"BP_ItemRedBox_C", mdb::Cat::Chest, Rule::UsedBool, true},
             // Pickups: `dying` flips true, then the actor moves to (0,0,0) ~2 s later and
             // lingers until a GC. Absence never auto-marks: an unloaded level looks identical.
-            {L"BP_PickupActor_C", mdb::Cat::Pickup, Rule::PickupDying, true},
+            // The category here is only the FALLBACK: a pickup that grants a readable item
+            // takes that item's bucket out of markers/items.json (mdb::live_loot_cat), the
+            // same first-item rule the offline extractor follows. `item` IS the unresolved
+            // case, so the fallback and the static data agree by construction.
+            {L"BP_PickupActor_C", mdb::Cat::Item, Rule::PickupDying, true},
+            {L"BP_BombsBox_C", mdb::Cat::Ammo, Rule::PickupDying, true},
+            {L"BP_PickUpPT_C", mdb::Cat::Harvest, Rule::PickupDying, true},
             // The two special doors, one `GeemID` system with two front ends - a riddle and
             // a chisel - and a category each. Categories match
             // tools/markers/build_categories.ROOTS, so live actor and static twin agree.
@@ -99,7 +105,7 @@ namespace markers
             {L"BP_NPC_C", mdb::Cat::Npc, Rule::None, true},
             // Not people, despite deriving from BP_NPC_C. Categories match
             // tools/markers/marker_classes.py, so live actor and static twin agree.
-            {L"ItemCollectionBox_C", mdb::Cat::Pickup, Rule::PickupDying, true},
+            {L"ItemCollectionBox_C", mdb::Cat::Other, Rule::None, false},
             {L"BP_KlesaCleaner_C", mdb::Cat::Other, Rule::None, false},
             // The superseded riddle door: a `BP_NPC_C` descendant, so without this entry the
             // name walk would file it under `npc`. Nothing is placed as one.
@@ -343,10 +349,19 @@ namespace markers
 
         std::unordered_map<std::string, LiveEntry> g_live;
 
-        // markers/items.json, {item id -> display name}. Written once per DB load.
-        std::unordered_map<int, std::string> g_item_names;
-        // UObject* -> its resolved item name (empty = there is none).
-        std::unordered_map<const void*, std::string> g_drop_name;
+        // markers/items.json, {item id -> name + loot bucket}. Written once per DB load.
+        std::unordered_map<int, mdb::ItemInfo> g_items;
+
+        // What a pickup-family actor grants, as far as reflection could read it: the label to
+        // draw and the bucket of the FIRST item, which is the category the marker takes.
+        struct ItemDrop
+        {
+            std::string label;
+            mdb::Cat cat = mdb::Cat::Count; // Count = nothing resolved, keep the class rule
+        };
+
+        // UObject* -> what it grants (an empty label = nothing resolved).
+        std::unordered_map<const void*, ItemDrop> g_drop;
         // UClass* -> the property that reached the item id.
         std::unordered_map<const void*, int> g_item_prop;
 
@@ -405,8 +420,7 @@ namespace markers
         // actor and must not each take the config spinlock.
         std::uint64_t g_grace_rounds = 2;
         int g_absence_rounds = 2;
-        std::uint32_t g_absence_cats =
-            mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup);
+        std::uint32_t g_absence_cats = mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats;
         std::size_t g_live_max = 8192;
         std::size_t g_id_cache_max = 8192;
         std::size_t g_class_cache_max = 262144;
@@ -937,30 +951,28 @@ namespace markers
         // serialized order; 4 covers a struct that leads with the amount.
         constexpr int kItemIdOffsets[] = {0, 4};
 
-        bool lookup_item_name(int id, std::string& out)
+        // The row `markers/items.json` holds for an item id, or nullptr.
+        const mdb::ItemInfo* lookup_item(int id)
         {
-            const auto it = g_item_names.find(id);
-            if (it == g_item_names.end())
-            {
-                return false;
-            }
-            out = it->second;
-            return true;
+            const auto it = g_items.find(id);
+            return it != g_items.end() ? &it->second : nullptr;
         }
 
-        // The label the offline extractor writes for a pickup: the first KNOWN item's
-        // name, plus ` +N` when the property grants N further distinct known items. An
-        // unknown id is what rejects a misread, so it is skipped rather than counted.
-        bool label_from_ids(const std::int32_t* ids, int count, std::string& out)
+        // What the offline extractor writes for a pickup: the first KNOWN item's name, plus
+        // ` +N` when the property grants N further distinct known items, and that same first
+        // item's bucket as the marker's category. An unknown id is what rejects a misread,
+        // so it is skipped rather than counted.
+        bool drop_from_ids(const std::int32_t* ids, int count, ItemDrop& out)
         {
             std::string first;
+            mdb::Cat first_cat = mdb::Cat::Count;
             bool have_first = false;
             int distinct = 0;
             std::int32_t seen[smap::kMaxSlots]{};
             for (int i = 0; i < count && distinct < static_cast<int>(std::size(seen)); ++i)
             {
-                std::string name;
-                if (ids[i] <= 0 || !lookup_item_name(ids[i], name))
+                const mdb::ItemInfo* info = ids[i] > 0 ? lookup_item(ids[i]) : nullptr;
+                if (info == nullptr)
                 {
                     continue;
                 }
@@ -976,7 +988,8 @@ namespace markers
                 seen[distinct++] = ids[i];
                 if (!have_first)
                 {
-                    first = std::move(name);
+                    first = info->name;
+                    first_cat = info->cat;
                     have_first = true;
                 }
             }
@@ -984,7 +997,8 @@ namespace markers
             {
                 return false;
             }
-            out = distinct > 1 ? std::format("{} +{}", first, distinct - 1) : first;
+            out.label = distinct > 1 ? std::format("{} +{}", first, distinct - 1) : first;
+            out.cat = first_cat;
             return true;
         }
 
@@ -1074,8 +1088,8 @@ namespace markers
         }
 
         // Pulls a KNOWN item id out of the first element of `prop` read as a TArray.
-        bool item_name_from_array(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
-                                  std::string& out)
+        bool item_drop_from_array(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
+                                  ItemDrop& out)
         {
             struct TArrayRaw
             {
@@ -1100,7 +1114,7 @@ namespace markers
                 {
                     continue;
                 }
-                if (id > 0 && lookup_item_name(id, out))
+                if (id > 0 && drop_from_ids(&id, 1, out))
                 {
                     return true;
                 }
@@ -1108,20 +1122,20 @@ namespace markers
             return false;
         }
 
-        // A label from `prop` in whichever shape it has; `kind` names the shape that
+        // What `prop` grants, in whichever shape it has; `kind` names the shape that
         // answered, for the log.
-        bool item_name_from_prop(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
-                                 std::string& out, const wchar_t*& kind)
+        bool item_drop_from_prop(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
+                                 ItemDrop& out, const wchar_t*& kind)
         {
             std::int32_t ids[smap::kMaxSlots]{};
             const int n =
                 item_ids_from_map(layout, actor, prop, ids, static_cast<int>(std::size(ids)));
-            if (n > 0 && label_from_ids(ids, n, out))
+            if (n > 0 && drop_from_ids(ids, n, out))
             {
                 kind = L"TMap<int32,int32>";
                 return true;
             }
-            if (item_name_from_array(layout, actor, prop, out))
+            if (item_drop_from_array(layout, actor, prop, out))
             {
                 kind = L"TArray";
                 return true;
@@ -1129,29 +1143,30 @@ namespace markers
             return false;
         }
 
-        // The display name of a pickup-family actor, or empty. Memoised per actor and class.
-        const std::string& resolve_item_name(UObject* actor)
+        // What a pickup-family actor grants - the label to draw and the bucket of its first
+        // item - or an empty answer. Memoised per actor and class.
+        const ItemDrop& resolve_item_drop(UObject* actor)
         {
-            static const std::string kNone{};
-            if (actor == nullptr || g_item_names.empty())
+            static const ItemDrop kNone{};
+            if (actor == nullptr || g_items.empty())
             {
                 return kNone;
             }
-            const auto cached = g_drop_name.find(actor);
-            if (cached != g_drop_name.end())
+            const auto cached = g_drop.find(actor);
+            if (cached != g_drop.end())
             {
                 return cached->second;
             }
             const uer::ClassLayout* layout = g_layouts.get(actor);
             UClass* cls = actor->GetClassPrivate();
-            std::string name;
+            ItemDrop drop{};
             int winner = -1;
             const wchar_t* kind = L"?";
             const auto known = cls != nullptr ? g_item_prop.find(cls) : g_item_prop.end();
             if (known != g_item_prop.end())
             {
                 if (known->second >= 0 &&
-                    item_name_from_prop(layout, actor, kItemProps[known->second], name, kind))
+                    item_drop_from_prop(layout, actor, kItemProps[known->second], drop, kind))
                 {
                     winner = known->second;
                 }
@@ -1160,7 +1175,7 @@ namespace markers
             {
                 for (int i = 0; i < kItemPropCount; ++i)
                 {
-                    if (item_name_from_prop(layout, actor, kItemProps[i], name, kind))
+                    if (item_drop_from_prop(layout, actor, kItemProps[i], drop, kind))
                     {
                         winner = i;
                         break;
@@ -1177,12 +1192,15 @@ namespace markers
                     {
                         if (winner >= 0)
                         {
+                            const std::string_view bucket{
+                                drop.cat != mdb::Cat::Count ? mdb::cat_name(drop.cat) : "(none)"};
                             mm::logf(L"markers: item-name route on '{}' is '{}' as a {} (first "
-                                     L"resolved name '{}')",
+                                     L"resolved name '{}', bucket {})",
                                      safe_class_name(actor),
                                      kItemProps[winner],
                                      kind,
-                                     widen(name));
+                                     widen(drop.label),
+                                     std::wstring(bucket.begin(), bucket.end()));
                         }
                         else
                         {
@@ -1205,11 +1223,11 @@ namespace markers
                     }
                 }
             }
-            if (g_drop_name.size() > g_id_cache_max)
+            if (g_drop.size() > g_id_cache_max)
             {
-                g_drop_name.clear();
+                g_drop.clear();
             }
-            return g_drop_name.emplace(actor, winner >= 0 ? std::move(name) : std::string{}).first->second;
+            return g_drop.emplace(actor, winner >= 0 ? std::move(drop) : ItemDrop{}).first->second;
         }
 
         // Is this shrine marker's id in the save's UnlockedFirepoints list? The offline
@@ -1554,8 +1572,13 @@ namespace markers
                 {
                     e.found = true;
                 }
-                // The item's own name, for loot with no entry in the static DB.
-                e.label = resolve_item_name(actor);
+                // What this pickup grants: its name, for loot with no entry in the static DB,
+                // and the bucket of its first item, which is the category the marker draws in
+                // - the same rule the offline extractor applies to a placed pickup, so an
+                // enemy's dropped armour is `armour` and not the class table's `item`.
+                const ItemDrop& drop = resolve_item_drop(actor);
+                e.label = drop.label;
+                e.cat = mdb::live_loot_cat(s.cat, drop.cat);
                 break;
             }
             case Rule::Proximity:
@@ -1782,6 +1805,10 @@ namespace markers
         int g_pf_publish = -1;
         int g_pf_scan = -1;
 
+        // The census behind markers::stats(). Defined below; publish_round() retakes it when
+        // the chapter in force changes.
+        void recompute_stats();
+
         void publish_round()
         {
             const std::uint64_t t0 = qpc_us();
@@ -1826,6 +1853,12 @@ namespace markers
                 if (!g_subset_valid || g_subset_chapter != filter_chapter)
                 {
                     refresh_chapter_subset(db, filter_chapter);
+                    // THE COUNTS ARE FOR THE CHAPTER IN FORCE, so the census has to be
+                    // retaken when that chapter changes. This is the one place that knows
+                    // it did: a detected chapter moves no found id and fires no level
+                    // event, so without this the legend's header and every per-chapter
+                    // count stay on the previous chapter until the next found or reload.
+                    recompute_stats();
                 }
 
                 // One hash lookup per LIVE actor instead of one per STATIC marker.
@@ -1883,7 +1916,6 @@ namespace markers
                     d.y = sm.y;
                     d.z = sm.z;
                     d.cat = static_cast<std::uint8_t>(sm.cat);
-                    d.rarity = sm.rarity;
                     d.flags = kFlagStatic;
                     if (g_found_static[idx] != 0)
                     {
@@ -2487,11 +2519,11 @@ namespace markers
             g_stats = s;
         }
 
-        // markers/items.json -> {item id -> display name}. A missing file is not an
-        // error: those drops fall back to their category label.
+        // markers/items.json -> {item id -> name + loot bucket}. A missing file is not an
+        // error: those drops fall back to their class's category and its label.
         void load_item_names(const std::wstring& dir)
         {
-            g_item_names.clear();
+            g_items.clear();
             const std::wstring path = dir + L"\\items.json";
             std::string text;
             if (!read_whole_file(path, text))
@@ -2502,13 +2534,19 @@ namespace markers
                 return;
             }
             std::string error;
-            if (!mdb::parse_items_json(text, g_item_names, error))
+            if (!mdb::parse_items_json(text, g_items, error))
             {
                 mm::logf(L"markers: {} rejected - {}", path, widen(error));
-                g_item_names.clear();
+                g_items.clear();
                 return;
             }
-            mm::logf(L"markers: {} -> {} item name(s) for runtime drops", path, g_item_names.size());
+            std::size_t bucketed = 0;
+            for (const auto& kv : g_items)
+            {
+                bucketed += kv.second.cat != mdb::Cat::Count ? 1 : 0;
+            }
+            mm::logf(L"markers: {} -> {} item name(s) for runtime drops, {} of them bucketed",
+                     path, g_items.size(), bucketed);
         }
 
         // Cap on *.json files read from the markers folder. Hitting it is logged.
@@ -3333,7 +3371,7 @@ namespace markers
         g_health_prop.clear();   // routes keyed to a UClass* of that world
         g_health_fields.clear();
         g_hidden_route.clear();
-        g_drop_name.clear();     // keyed on the ACTOR: a recycled allocation must not
+        g_drop.clear();          // keyed on the ACTOR: a recycled allocation must not
         g_item_prop.clear();     // hand a new drop the old one's item name
         g_id_cache.clear();
         g_live.clear();

@@ -106,12 +106,12 @@ KEY_STR = re.compile(r"^npc_(?:Dianame|name)_\d+$")
 REF_RX = re.compile(rb"/Game/Game/AI/npc/(NPC_[A-Za-z0-9_]+)/")
 
 # Descendants of `BP_NPC_C` that are not people: they have their own marker
-# category (`shrine`, `pickup`, `door`, `other`) via `marker_classes.EXACT`, so
+# category (`shrine`, `door`, `other`) via `marker_classes.EXACT`, so
 # a name from this file would never be used and listing them would only make
 # the roster look incomplete.
 NOT_PEOPLE = {
     "BP_RebornFire_C",          # shrine
-    "ItemCollectionBox_C",      # pickup
+    "ItemCollectionBox_C",      # other - the player's storage box
     "BP_PuzzlesDoor_C",         # door
     "BP_KlesaCleaner_C",        # other - world mechanism
 }

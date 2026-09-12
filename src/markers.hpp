@@ -42,9 +42,6 @@ namespace markers
         double z = 0.0;
         std::uint8_t cat = static_cast<std::uint8_t>(mdb::Cat::Other);
         std::uint8_t flags = 0;
-        // Item quality tier (mdb::Rarity) of what a pickup grants, from the static DB.
-        // 0 for everything else, including every live-only actor.
-        std::uint8_t rarity = 0;
         char id[54]{}; // truncated stable id, for the F2 "nearest marker" readout
         // Blueprint class ("BP_ItemRedBox_C"), or the manifest's display name when there
         // is no class. Used by the full map's hover tooltip.
@@ -95,7 +92,9 @@ namespace markers
         int boss_no_door = 0;
         int dead_dropped = 0;     // live enemies dropped because their health read 0
         int health_unknown = 0;   // characters whose Health.Current could not be read
-        // Chapter the published buffer is filtered to, or chid::kNone when unfiltered.
+        // Chapter the published buffer is filtered to, or chid::kNone when unfiltered. The
+        // `chapter[]` counts below are the ones to read for it; the census is retaken as
+        // soon as the publish point sees this change, so the two always name one chapter.
         int filter_chapter = chid::kNone;
         int published = 0;                          // markers in the last draw buffer
         int live_entries = 0;                       // live actors currently tracked

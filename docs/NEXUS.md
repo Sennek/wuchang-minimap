@@ -33,9 +33,10 @@ A minimap, a full chapter map and a compass, built from the game's own navmesh. 
 [size=5]What it is[/size]
 [list]
 [*][b]Minimap[/b] and [b]compass strip[/b] in-world, [b]full chapter map[/b] on M
-[*][b]Markers[/b] for chests, pickups, shrines, bosses, NPCs and notes, with the game's own names, all five chapters and the DLC
+[*][b]Markers[/b] for chests, loot, shrines, bosses, NPCs and notes, with the game's own names, all five chapters and the DLC
+[*][b]Loot in eleven kinds[/b] — consumables, materials, key items, weapons, armour, amulets, jades, spells, harvest nodes, cannon ammo and plain items — each with its own filter checkbox, so "where are the amulets" is one tick away
 [*][b]Collection tracker[/b] per save slot, up to 16 waypoints, name search on the full map
-[*][b]X-ray[/b] on TAB: loot through walls, tinted by item quality
+[*][b]X-ray[/b] on TAB: loot through walls, in the game's own three pickup-beam colours — blue, pink, gold
 [*]Everything configured from the [b]F2[/b] panel, saved by itself
 [*]Keyboard, mouse and gamepad; English UI
 [/list]
@@ -84,14 +85,13 @@ None of these stops the mod working, except where the last one says otherwise.
 [*][b]UE4SS's own console window[/b] — not a mod conflict, but it looks exactly like one. Clicking or dragging in that black console window puts it in selection mode, which blocks whoever writes to it: UE4SS stops mid-startup and the game hangs before this mod has run a single line. Press [b]Esc[/b] in the console to release it, or set [font=Courier New]ConsoleEnabled = 0[/font] in [font=Courier New]ue4ss\UE4SS-settings.ini[/font]. The tell is that [font=Courier New]wuchang_minimap.log[/font] was never written and [font=Courier New]UE4SS.log[/font] stops in the middle.
 [/list]
 
-[size=5]Reporting a bug[/size]
-Attach [font=Courier New]%LOCALAPPDATA%\WuchangMinimap\wuchang_minimap.log[/font] — the mod's own log, rotated per launch. Its first lines carry every version, file size, the GPU and driver, the display's colour space and the graphics modules loaded in the game - everything a report needs about the machine. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font] — that one is in the mod folder, [font=Courier New]ue4ss\Mods\WuchangMinimap\[/font].
-
-[b]If there is no wuchang_minimap.log at all[/b], this mod never ran, so it cannot be the cause. Check [font=Courier New]ue4ss\UE4SS.log[/font]: [font=Courier New]Failed to load dll ... [0x7f] The specified procedure could not be found[/font] means the mod does not match your UE4SS build, and a log that simply stops mid-startup usually means the console window above.
-
-If the game hangs or crashes at start with the mod enabled, set [font=Courier New]overlay_hooks = 0[/font] in [font=Courier New]config_wuchang_minimap.txt[/font] and restart: the mod then never touches DirectX and draws nothing, while the tracker and the log keep running. Send me that log too — with and without, the pair says which half is at fault.
-
-If the minimap simply is not on screen, send me [font=Courier New]wuchang_minimap.log[/font] from that folder — it names the exact reason it stayed hidden. If I ask you to reproduce something, add the line [font=Courier New]log_level = verbose[/font] to [font=Courier New]config_wuchang_minimap.txt[/font] first, press [b]F5[/b], and reproduce it.
+[size=5]Something went wrong[/size]
+[list]
+[*][b]Crash on start-up[/b] — [font=Courier New]HookInitGameState = 0[/font], see Requirements. Still crashing: [font=Courier New]overlay_hooks = 0[/font] in [font=Courier New]config_wuchang_minimap.txt[/font] turns the drawing off entirely while the tracker and the log keep running; send that log too, the pair says which half is at fault.
+[*][b]Nothing on screen[/b] — press [b]F2[/b]. If the panel opens, the [b]Overview[/b] tab says in orange why the minimap is hidden. If even the panel does not appear, turn frame generation off and try again.
+[*][b]No wuchang_minimap.log at all[/b] — the mod never ran, so it cannot be the cause. Look in [font=Courier New]ue4ss\UE4SS.log[/font]: [font=Courier New]Failed to load dll ... [0x7f] The specified procedure could not be found[/font] is the wrong UE4SS build, a log that stops mid-startup is usually the console window above.
+[/list]
+[b]Bug reports[/b]: [font=Courier New]wuchang_minimap.log[/font] from [font=Courier New]%LOCALAPPDATA%\WuchangMinimap\[/font] — its header already carries your GPU, driver and every version. Add [font=Courier New]wuchang_minimap_last_stage.txt[/font] from the same folder if the game crashed, [font=Courier New]wuchang_minimap_watchdog.txt[/font] if it froze, and your [font=Courier New]config_wuchang_minimap.txt[/font] from the mod folder. If I ask you to reproduce something, add the line [font=Courier New]log_level = verbose[/font] to the config first, press [b]F5[/b], and reproduce it.
 
 [size=5]Permissions and credits[/size]
 [b]MIT licensed[/b] — fork it, reuse it, translate it; the licence has to travel with it. Credit appreciated, not required. Third-party components: Dear ImGui (MIT), MinHook (BSD-2-Clause), fmt (MIT), RE-UE4SS (MIT); full notices ship in [font=Courier New]THIRD_PARTY_NOTICES.md[/font].
@@ -108,7 +108,7 @@ not cropped.
 
 - [ ] **1 — The minimap in the world (thumbnail).** A lit area with real structure,
   minimap top-left at its default size, several marker categories at once (shrine, a
-  chest or two, a pickup, an NPC), the compass strip in frame.
+  chest or two, a loot disc or two, an NPC), the compass strip in frame.
 - [ ] **2 — The full map on `M`.** A chapter fitted to the screen (`Home`), the legend
   column visible, a waypoint placed, the floor offset showing. Chapter 1 or 3.
 - [ ] **3 — The x-ray highlight.** In front of a wall with loot behind it, highlight on,

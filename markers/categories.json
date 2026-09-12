@@ -1,5 +1,8 @@
 {
  "by_category": {
+  "ammo": [
+   "BP_BombsBox_C"
+  ],
   "benediction_door": [
    "BP_NewGetGeemDoor_C"
   ],
@@ -344,8 +347,21 @@
    "BP_Wumen_ClientOnly_C",
    "BP_Wumen_NetworkRang_C"
   ],
+  "harvest": [
+   "BP_AutoPickUp_C",
+   "BP_AutoPickUp_Child_C",
+   "BP_PickUpPT_C",
+   "BP_PickUpPT_DSG_C",
+   "BP_PickUpPT_Red_C"
+  ],
   "hidden": [
    "BP_PickUpActor_Trap_C"
+  ],
+  "item": [
+   "BP_DropItem_C",
+   "BP_PickupActor_C",
+   "BP_PickupActor_New_C",
+   "BP_SoulPackage_C"
   ],
   "ladder": [
    "BP_InteractionLadder_C",
@@ -449,19 +465,7 @@
    "BP_StonePillar_C",
    "BP_WoodenExternalPushRod_C",
    "BP_WoodenExternalPushRod_Child_C",
-   "BP_zhuanjingta_C"
-  ],
-  "pickup": [
-   "BP_AutoPickUp_C",
-   "BP_AutoPickUp_Child_C",
-   "BP_BombsBox_C",
-   "BP_DropItem_C",
-   "BP_PickUpPT_C",
-   "BP_PickUpPT_DSG_C",
-   "BP_PickUpPT_Red_C",
-   "BP_PickupActor_C",
-   "BP_PickupActor_New_C",
-   "BP_SoulPackage_C",
+   "BP_zhuanjingta_C",
    "ItemCollectionBox_C"
   ],
   "shrine": [
@@ -480,11 +484,11 @@
   "AWS_N_NPC_C": "npc",
   "BP_Anim_ZXZ_StepA_C": "boss",
   "BP_Anim_ZXZ_StepB_C": "boss",
-  "BP_AutoPickUp_C": "pickup",
-  "BP_AutoPickUp_Child_C": "pickup",
+  "BP_AutoPickUp_C": "harvest",
+  "BP_AutoPickUp_Child_C": "harvest",
   "BP_BKL_AI_C": "boss",
   "BP_BKL_AI_Special_C": "boss",
-  "BP_BombsBox_C": "pickup",
+  "BP_BombsBox_C": "ammo",
   "BP_BossSpawnedAI_C": "enemy",
   "BP_CQBR_AI_C": "enemy",
   "BP_CQBR_AI_S_C": "enemy",
@@ -516,7 +520,7 @@
   "BP_DoorSmall1_Child_C": "door",
   "BP_DoorZhong4_C": "door",
   "BP_DoorZhong_C": "door",
-  "BP_DropItem_C": "pickup",
+  "BP_DropItem_C": "item",
   "BP_E_DLSW_AI_C": "enemy",
   "BP_E_LWX_AI_C": "boss",
   "BP_E_QH_AI_C": "enemy",
@@ -575,11 +579,11 @@
   "BP_PHNR_AI_C": "enemy",
   "BP_PHNR_AI_high_C": "enemy",
   "BP_PickUpActor_Trap_C": "hidden",
-  "BP_PickUpPT_C": "pickup",
-  "BP_PickUpPT_DSG_C": "pickup",
-  "BP_PickUpPT_Red_C": "pickup",
-  "BP_PickupActor_C": "pickup",
-  "BP_PickupActor_New_C": "pickup",
+  "BP_PickUpPT_C": "harvest",
+  "BP_PickUpPT_DSG_C": "harvest",
+  "BP_PickUpPT_Red_C": "harvest",
+  "BP_PickupActor_C": "item",
+  "BP_PickupActor_New_C": "item",
   "BP_PuzzlesDoor_C": "mystery_gate",
   "BP_QLYC_AI_C": "enemy",
   "BP_QQHZ_AI_C": "enemy",
@@ -597,7 +601,7 @@
   "BP_ShiTiQiao_C": "door",
   "BP_ShuGen01_AI_C": "enemy",
   "BP_ShuGen02_AI_C": "enemy",
-  "BP_SoulPackage_C": "pickup",
+  "BP_SoulPackage_C": "item",
   "BP_SpawnedAI_C": "enemy",
   "BP_SpawnedNpcFriend_C": "enemy",
   "BP_StonePillar_C": "other",
@@ -763,7 +767,7 @@
   "HY_N_NPC_C": "npc",
   "Heyouzai_NPC_C": "npc",
   "HuangJianE_NPC_C": "npc",
-  "ItemCollectionBox_C": "pickup",
+  "ItemCollectionBox_C": "other",
   "LDG_N_NPC_C": "npc",
   "LLS_N_NPC_C": "npc",
   "LWS_N_NPC_C": "npc",
@@ -919,7 +923,7 @@
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
   "size": 141464648
  },
- "extractor_commit": "2304e23+dirty",
+ "extractor_commit": "0b510c1+dirty",
  "game_build": "5.1.1.0",
  "generated_by": "tools/markers/build_categories.py",
  "missing_roots": {},
@@ -927,7 +931,9 @@
   "shrine",
   "hidden",
   "chest",
-  "pickup",
+  "ammo",
+  "harvest",
+  "item",
   "note",
   "mystery_gate",
   "benediction_door",
@@ -958,6 +964,9 @@
   }
  ],
  "roots": {
+  "ammo": [
+   "BP_BombsBox_C"
+  ],
   "benediction_door": [
    "BP_NewGetGeemDoor_C"
   ],
@@ -978,8 +987,14 @@
    "BP_Wumen_NetworkRang_C",
    "BP_Wumen_ClientOnly_C"
   ],
+  "harvest": [
+   "BP_PickUpPT_C"
+  ],
   "hidden": [
    "BP_PickUpActor_Trap_C"
+  ],
+  "item": [
+   "BP_PickupActor_C"
   ],
   "ladder": [
    "BP_LadderV2_C",
@@ -1007,11 +1022,7 @@
    "BP_QiCaiShi_2_C",
    "BP_WoodenExternalPushRod_C",
    "BP_KlesaCleaner_C",
-   "BP_StonePillar_C"
-  ],
-  "pickup": [
-   "BP_PickupActor_C",
-   "BP_PickUpPT_C",
+   "BP_StonePillar_C",
    "ItemCollectionBox_C"
   ],
   "shrine": [

@@ -41,7 +41,9 @@ THE STEP GRAPH
     rebake      extract_markers.py      -> markers/chapter*.json       [bossdoors]
     shrines     extract_shrines.py      -> markers/shrines.json        [extract]
     recount     build_enemies.py        -> markers/enemies.json        [extract]
-    verify      verify_markers.py       (reports only, --verify)
+    verify      verify_markers.py       (--verify; scores the chapters against
+                                           the recon dumps, and FAILS the run on a
+                                           marker whose category is not a known one)
 
 `rebake` is the second half of the bossdoors cycle and is skipped when
 `bossdoors.json` came out byte-identical, which is the normal case once the

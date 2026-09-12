@@ -62,8 +62,8 @@ CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "class_graph.js
 def load_or_build(src=None, path: str = CACHE, verbose: bool = True) -> dict:
     """`{class: super}` from the cache, building and saving it if it is absent.
 
-    Returns the bare `class_super` mapping, which is what every caller wants;
-    the `asset` half of the document is only useful for auditing.
+    Returns the bare `class_super` mapping, which is what most callers want;
+    `load_assets()` is the other half of the same document.
     """
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
@@ -81,6 +81,25 @@ def load_or_build(src=None, path: str = CACHE, verbose: bool = True) -> dict:
     if verbose:
         print(f"  class graph: built and cached {len(doc['class_super'])} classes")
     return doc["class_super"]
+
+
+def load_assets(path: str = CACHE) -> dict[str, str]:
+    """`{class: the .uasset key that defines it}` from the cached document.
+
+    The sweep already recorded where every class lives, so a caller that needs
+    a class' own package - to read its `Default__<class>` object, say - asks
+    here instead of searching the paks for it again.  Empty when the cache is
+    absent; the caller then has no CDO to read and falls back on its own.
+    """
+    if path not in _ASSETS:
+        if not os.path.exists(path):
+            return {}
+        with open(path, encoding="utf-8") as f:
+            _ASSETS[path] = json.load(f).get("asset", {})
+    return _ASSETS[path]
+
+
+_ASSETS: dict[str, dict[str, str]] = {}
 
 
 def chain(graph: dict, name: str, cap: int = 32) -> list[str]:

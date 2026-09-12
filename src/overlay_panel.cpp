@@ -441,24 +441,7 @@ namespace overlay
             const char* pals[] = {"default", "colorblind"};
             if (ImGui::Combo("Marker palette", &pal_i, pals, 2))
             {
-                const gly::Palette was = cfg.palette;
                 cfg.palette = static_cast<gly::Palette>(pal_i);
-                // The item-quality tiers follow the palette only while they are still
-                // the other palette's set, so a hand-picked xray_rarity_colors survives.
-                bool untouched = true;
-                const mdb::Rgb* old_set = gly::rarity_colors(was);
-                for (int i = 0; i < mdb::kRarityCount; ++i)
-                {
-                    untouched = untouched && cfg.xray_rarity_colors[i] == old_set[i];
-                }
-                if (untouched)
-                {
-                    const mdb::Rgb* now = gly::rarity_colors(cfg.palette);
-                    for (int i = 0; i < mdb::kRarityCount; ++i)
-                    {
-                        cfg.xray_rarity_colors[i] = now[i];
-                    }
-                }
             }
             // The whole overlay's typeface. Empty or unreadable falls back to the
             // built-in font, which the log says.
@@ -471,7 +454,8 @@ namespace overlay
         // The Categories tab
         //==============================================================================
         //
-        // One grid instead of four chip rows: the sixteen categories down the side,
+        // One grid instead of four chip rows: every category down the side, the loot ones
+        // as one indented block under their tier,
         // the three surfaces across the top, one mask per column. A row label is the
         // legend - the category's own glyph and colour, and its live found / known
         // count - and clicking it turns the whole row on or off.
@@ -530,6 +514,22 @@ namespace overlay
             {
                 const mdb::Cat cat = static_cast<mdb::Cat>(i);
                 const std::uint32_t bit = mdb::cat_bit(cat);
+                // The eleven loot categories are one block under three tier headings, in
+                // tier order, and indented: they are kinds of one thing, not eleven peers
+                // of `shrine`. The Cat enum holds them contiguously, so "the first of its
+                // tier" is the whole test.
+                mdb::Tier tier = mdb::Tier::Common;
+                const bool loot = mdb::tier_of(cat, tier);
+                mdb::Tier prev_tier = mdb::Tier::Common;
+                const bool prev_loot =
+                    i > 0 && mdb::tier_of(static_cast<mdb::Cat>(i - 1), prev_tier);
+                if (loot && (!prev_loot || prev_tier != tier))
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("Loot - %s", mdb::tier_name(static_cast<int>(tier)));
+                }
+                const float indent = loot ? ImGui::GetTextLineHeight() : 0.0f;
                 const markers::CatStat& cs = per_chapter ? st.chapter[fch][i] : st.cat[i];
                 int on_count = 0;
                 for (std::uint32_t* m : masks)
@@ -551,6 +551,7 @@ namespace overlay
                 {
                     (void)std::snprintf(label, sizeof(label), "      %s", mdb::cat_label(cat));
                 }
+                ImGui::Indent(indent);
                 const ImVec2 row = ImGui::GetCursorScreenPos();
                 ImGui::PushStyleColor(ImGuiCol_Text,
                                       on_count > 0 ? marker_color(cat, 255) : IM_COL32(150, 150, 150, 170));
@@ -566,6 +567,7 @@ namespace overlay
                                   ImVec2{row.x + glyph_r + 4.0f, row.y + ImGui::GetTextLineHeight() * 0.5f},
                                   glyph_r, marker_color(cat, on_count > 0 ? 255 : 90),
                                   IM_COL32(14, 16, 20, on_count > 0 ? 220 : 80));
+                ImGui::Unindent(indent);
                 for (int c = 0; c < 3; ++c)
                 {
                     ImGui::TableNextColumn();
@@ -604,7 +606,8 @@ namespace overlay
             ImGui::SameLine();
             ImGui::SetNextItemWidth(dial_w);
             ImGui::SliderFloat("how faint", &cfg.markers_found_alpha, 0.0f, 1.0f, "%.2f");
-            text_disabled_wrapped("found ones are drawn hollow; shrines always stay, lit ones solid");
+            text_disabled_wrapped("a found one is drawn hollow and its FILL fades by this much - the "
+                                  "outline keeps its colour; shrines always stay, lit ones solid");
 
             ImGui::TextUnformatted("Glyph size");
             ImGui::SameLine();
@@ -616,42 +619,6 @@ namespace overlay
             ImGui::SameLine();
             ImGui::SetNextItemWidth(dial_w);
             ImGui::SliderFloat("x-ray##glyph", &cfg.highlight_size, 2.0f, 32.0f, "%.1f px");
-
-            // Two booleans that only make sense together; both keys are still written.
-            int quality = cfg.markers_rarity_tint ? 2 : (cfg.xray_rarity_colors_enabled ? 1 : 0);
-            ImGui::SetNextItemWidth(160.0f * g_chrome_scale);
-            if (ImGui::Combo("Item quality colours", &quality, "off\0x-ray only\0everywhere\0"))
-            {
-                cfg.xray_rarity_colors_enabled = quality >= 1;
-                cfg.markers_rarity_tint = quality == 2;
-            }
-            text_disabled_wrapped("pickups take the colour of the game's own item-type grouping");
-            // The tier colours themselves, beside the switch that turns them on.
-            ImGui::BeginDisabled(quality == 0);
-            for (int i = 1; i < mdb::kRarityCount; ++i)
-            {
-                mdb::Rgb& c = cfg.xray_rarity_colors[i];
-                float rgb[3] = {static_cast<float>(c.r) / 255.0f, static_cast<float>(c.g) / 255.0f,
-                                static_cast<float>(c.b) / 255.0f};
-                ImGui::PushID(i + 700);
-                if (ImGui::ColorEdit3(mdb::rarity_name(i), rgb,
-                                      ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha))
-                {
-                    const auto to_byte = [](float v) {
-                        const float clamped = (v < 0.0f) ? 0.0f : ((v > 1.0f) ? 1.0f : v);
-                        return static_cast<std::uint8_t>(clamped * 255.0f + 0.5f);
-                    };
-                    c.r = to_byte(rgb[0]);
-                    c.g = to_byte(rgb[1]);
-                    c.b = to_byte(rgb[2]);
-                }
-                ImGui::PopID();
-                if (i + 1 < mdb::kRarityCount)
-                {
-                    ImGui::SameLine();
-                }
-            }
-            ImGui::EndDisabled();
 
             ImGui::Checkbox("Keep off-map markers on the rim", &cfg.markers_clamp_to_edge);
         }

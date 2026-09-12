@@ -35,6 +35,15 @@ export for the inline `Items` array and `markers/items.json` (built by
 reads "Purple Camellia" instead of "Pickup".  See `item_ids()` and
 `context/item-names-research.md`.
 
+The same first id decides the marker's CATEGORY: the pickup family is eleven
+buckets, not one, and every item carries the bucket its `E_ItemType` maps to
+(`Gem` -> `jade`, `Tool` -> `consumable`) as a field of `items.json`, written
+there by `build_items.py` from `pickup_buckets.bucket_of_type()`.  The mod's
+live sweep reads that same field for a runtime-spawned drop.  A pickup with
+no items keeps the bucket its actor class was given by the class graph -
+`item`, `harvest` or `ammo` - and takes its name from the class default's own
+grant where there is one (`class_default_ids()`).
+
 The same join gives each pickup a `rarity` tier (0 Common / 1 Equipment / 2 Key)
 -- Wuchang has no rarity ladder, so this is the grouping the game itself colours
 the pickup beam by; `itemdb.ITEM_TYPE_RARITY` documents the derivation.  The
@@ -57,8 +66,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 import pakmaps                                              # noqa: E402
+import class_graph                                          # noqa: E402
 import marker_classes                                       # noqa: E402
 import itemdb                                               # noqa: E402
+import pickup_buckets                                       # noqa: E402
 import extract_shrines                                      # noqa: E402
 import provenance                                         # noqa: E402
 from uprops import (Schema, compose, find_strings, finite_vec, parse_header,   # noqa: E402
@@ -530,6 +541,43 @@ def item_ids(pkg, actor, items: "itemdb.ItemDB") -> list[int]:
     return []
 
 
+# `Default__<class>` item grants, one pak read per class, memoised for the
+# process.  Four classes are ever asked, and only once each.
+_CLASS_DEFAULT_IDS: dict[str, list[int]] = {}
+
+
+def class_default_ids(ms, class_name: str, items: "itemdb.ItemDB") -> list[int]:
+    """The item ids the CLASS grants, read from its `Default__<class>` object.
+
+    A placed actor that overrides nothing serialises no `Items` array, so the
+    grant lives only in the class default - which is a plain export of the
+    blueprint's own `.uasset`, found through the class graph's `asset` map and
+    scanned by the same `item_ids()` that reads an instance.  This is what
+    makes the 17 `BP_BombsBox_C` read "Shrapnel Bomb": every one of them takes
+    the default `{22140 x5}`.
+
+    It names the marker; it does NOT choose its bucket.  22140's `E_ItemType`
+    is `Material`, and a cannon resupply box is not a material - the class rule
+    (`build_categories.ROOTS`) has already decided, and it wins.
+    """
+    got = _CLASS_DEFAULT_IDS.get(class_name)
+    if got is not None:
+        return got
+    ids: list[int] = []
+    key = class_graph.load_assets().get(class_name)
+    if key:
+        try:
+            pkg = ms.package(key)
+            for e in pkg.exports:
+                if e.name == "Default__" + class_name:
+                    ids = item_ids(pkg, e, items)
+                    break
+        except Exception as exc:                            # noqa: BLE001
+            print(f"  ! class default {class_name}: {exc}", file=sys.stderr)
+    _CLASS_DEFAULT_IDS[class_name] = ids
+    return ids
+
+
 def item_name(ids: list[int], items: "itemdb.ItemDB") -> str | None:
     """Display name for a pickup: the first item's name, plus `+N` when the
     pickup grants more than one distinct item."""
@@ -782,18 +830,39 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                     stats["boss-door:" + d.get("via", "?")] += 1
                 else:
                     stats["boss-no-door:" + actor.class_name] += 1
-            ids = item_ids(lvl.pkg, actor, items) if cat == "pickup" else []
+            # The pickup family. The class graph put this actor in one of the
+            # three class buckets (`pickup_buckets.CLASS_BUCKETS`); a pickup
+            # that carries an `Items` array is re-typed from the first item's
+            # own `E_ItemType`, the same item that gives the marker its name
+            # and its rarity, so all three read the same row of `items.json`.
+            # One that carries none keeps its class bucket and borrows the
+            # class default's grant for its name and contents.
+            ids = (item_ids(lvl.pkg, actor, items)
+                   if cat in pickup_buckets.CLASS_BUCKETS else [])
             rarity = 0
-            if cat == "pickup":
+            if cat in pickup_buckets.CLASS_BUCKETS:
                 stats["pickup-items" if ids else "pickup-no-items"] += 1
+                if ids:
+                    cat = items.bucket(ids[0]) or cat
+                    label = marker_classes.LABEL.get(cat, cat)
+                    name = label
+                    # Quality tier of what the pickup grants, from the first
+                    # item (`itemdb.rarity_of_type`).
+                    rarity = items.rarity(ids[0])
+                else:
+                    # The instance configures nothing, so the CLASS speaks: its
+                    # `Default__<class>` grant, where it has one, is what every
+                    # instance hands out.  The bucket and the tier stay the
+                    # class rule's - only the name and the contents come from
+                    # here, so a `BP_BombsBox_C` reads "Shrapnel Bomb" and is
+                    # still `ammo` rather than the item's own `material`.
+                    ids = class_default_ids(ms, actor.class_name, items)
+                    stats["pickup-class-default" if ids
+                          else "pickup-unknown-contents"] += 1
                 iname = item_name(ids, items)
                 if iname:
                     name = iname
                     stats["pickup-named"] += 1
-                # Quality tier of what the pickup grants, from the first item
-                # (`itemdb.rarity_of_type`).  A pickup whose ids are unknown is
-                # Common, which is exactly what the runtime draws by default.
-                rarity = items.rarity(ids[0]) if ids else 0
                 stats[f"pickup-rarity{rarity}"] += 1
             markers.append({
                 "id": mid,

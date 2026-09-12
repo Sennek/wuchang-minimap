@@ -9,6 +9,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 #include <thread>
 #include <type_traits>
@@ -20,6 +21,7 @@
 #include "compass.hpp"
 #include "gamebinds_map.hpp"
 #include "glyphs.hpp"
+#include "json.hpp"
 #include "label_layout.hpp"
 #include "mapmanifest.hpp"
 #include "mapdata.hpp"
@@ -137,7 +139,7 @@ namespace
      "x":18214.0,"y":5505.0,"z":-1579.0,"cell":"B1EX0_L0_X1_Y0","level":"Chapter1_DGong_logic"},
     {"id":"Chapter1_DGong_logic/BP_ItemRedBox_C_0","cat":"chest","cls":"BP_ItemRedBox_C",
      "x":18852,"y":7322,"z":-1079,"level":"Chapter1_DGong_logic"},
-    {"id":"Chapter1_Shuwang_logic/BP_PickupActor_C_36","cat":"pickup","x":17489,"y":5523,"z":946},
+    {"id":"Chapter1_Shuwang_logic/BP_PickupActor_C_36","cat":"consumable","x":17489,"y":5523,"z":946},
     {"id":"Chapter1_X/thing","cat":"totally_made_up","x":1,"y":2,"z":3},
     {"id":"","cat":"chest","x":1,"y":2,"z":3},
     {"id":"no_coords","cat":"chest"},
@@ -146,7 +148,8 @@ namespace
 }
 )JSON";
 
-    // `merchant` is the legacy name for `note`; such markers must land in `note`.
+    // `merchant` is the legacy name for `note` and `pickup` for the loot family; markers
+    // spelling either must land in a live category, not in `other`.
     const char* const kLegacyCatJson = R"JSON(
 {
   "schema": "wuchang-minimap-markers/1",
@@ -155,7 +158,9 @@ namespace
     {"id":"Chapter1_DGong_logic/DKDC_NPC_C_0","cat":"merchant","cls":"DKDC_NPC_C",
      "name":"Reading point","x":1,"y":2,"z":3,"level":"Chapter1_DGong_logic"},
     {"id":"Chapter1_DGong_logic/DKDC_NPC_C_1","cat":"note","cls":"DKDC_NPC_C",
-     "name":"Reading point","x":4,"y":5,"z":6,"level":"Chapter1_DGong_logic"}
+     "name":"Reading point","x":4,"y":5,"z":6,"level":"Chapter1_DGong_logic"},
+    {"id":"Chapter1_DGong_logic/BP_PickupActor_C_9","cat":"pickup","cls":"BP_PickupActor_C",
+     "name":"Pickup","x":7,"y":8,"z":9,"level":"Chapter1_DGong_logic"}
   ]
 }
 )JSON";
@@ -182,7 +187,7 @@ namespace
         CHECK(db[0].x == 18214.0 && db[0].y == 5505.0 && db[0].z == -1579.0);
         CHECK_EQ(db[0].chapter, 1);
         CHECK(db[1].cat == mdb::Cat::Chest);
-        CHECK(db[2].cat == mdb::Cat::Pickup);
+        CHECK(db[2].cat == mdb::Cat::Consumable);
         // An unknown category degrades to `other`, never drops the marker.
         CHECK(db[3].cat == mdb::Cat::Other);
         CHECK_EQ(db[4].chapter, 4);
@@ -562,7 +567,9 @@ namespace
     {
         section("glyph shapes and marker palettes");
 
-        // Every category has its OWN shape: shape survives dimming, 6 px and a recoloured palette.
+        // A silhouette survives dimming, 6 px and a recoloured palette, so it is what
+        // separates the families: every peer category owns its shape outright, and the
+        // eleven loot categories share the one shape that is theirs alone.
         int seen[gly::kShapeCount] = {};
         for (int i = 0; i < mdb::kCatCount; ++i)
         {
@@ -573,8 +580,15 @@ namespace
         }
         for (int i = 0; i < gly::kShapeCount; ++i)
         {
-            CHECK(seen[i] == 1); // every shape used exactly once
+            const int want = static_cast<gly::Shape>(i) == gly::Shape::LootDisc ? 11 : 1;
+            CHECK(seen[i] == want);
         }
+        // Inside the family the mark does the separating, and only inside it: marks are
+        // distinct within a tier, and no peer draws one.
+        CHECK(gly::loot_family_marks_ok());
+        CHECK(gly::mark_of(mdb::Cat::Consumable) == gly::Mark::None); // the quietest sign
+        CHECK(gly::mark_of(mdb::Cat::Chest) == gly::Mark::None);
+        CHECK(gly::mark_of(static_cast<mdb::Cat>(200)) == gly::Mark::None);
 
         // An out-of-range category byte must never index off the end of the table.
         CHECK(gly::shape_of(static_cast<mdb::Cat>(mdb::kCatCount)) == gly::Shape::SmallSquare);
@@ -583,12 +597,24 @@ namespace
         const gly::Palette palettes[] = {gly::Palette::Default, gly::Palette::Colorblind};
         for (const gly::Palette pal : palettes)
         {
-            // Two categories may share a hue or a shape, never both.
+            // Two categories may share a hue, a shape or a mark, never all three.
             CHECK(gly::palette_is_separable(pal));
 
-            // All shapes are distinct, so the pairs a player compares in one glance (listed as data
-            // in glyphs.hpp) must differ by HUE.
+            // The pairs a player compares in one glance (listed as data in glyphs.hpp),
+            // plus the three tier hues against each other and against the other loot,
+            // must differ by HUE.
             CHECK(gly::palette_competing_hues_ok(pal));
+
+            // The loot family's rows ARE the tier colours: one fact, not eleven.
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                mdb::Tier tier = mdb::Tier::Common;
+                if (mdb::tier_of(cat, tier))
+                {
+                    CHECK(gly::marker_rgb(cat, pal) == gly::tier_colors(pal)[static_cast<int>(tier)]);
+                }
+            }
 
             for (int i = 0; i < mdb::kCatCount; ++i)
             {
@@ -613,7 +639,7 @@ namespace
         for (const gly::Palette pal : palettes)
         {
             const mdb::Cat near[] = {mdb::Cat::Npc, mdb::Cat::Door, mdb::Cat::Chest,
-                                     mdb::Cat::Pickup, mdb::Cat::Ladder, mdb::Cat::Other};
+                                     mdb::Cat::Consumable, mdb::Cat::Ladder, mdb::Cat::Other};
             for (const mdb::Cat other : near)
             {
                 CHECK(!(gly::marker_rgb(mdb::Cat::Note, pal) == gly::marker_rgb(other, pal)));
@@ -674,13 +700,17 @@ namespace
             CHECK(t2.backdrop_alpha > 0.0f && t2.backdrop_alpha <= 1.0f);
         }
 
-        // The default set is the game's own pickup-beam palette; the colour-blind set is
+        // The tier hues are pinned: they are the loot family's colour everywhere, and a
+        // change to one alters the look of every existing config. The colour-blind set is
         // three genuinely different colours.
-        CHECK(gly::rarity_colors(gly::Palette::Default) == mdb::kDefaultRarityColors);
-        const mdb::Rgb* cb = gly::rarity_colors(gly::Palette::Colorblind);
-        for (int i = 0; i < mdb::kRarityCount; ++i)
+        CHECK(gly::tier_colors(gly::Palette::Default) == gly::kTierDefault);
+        CHECK(gly::kTierDefault[0] == (mdb::Rgb{0x4F, 0x7F, 0xE6}));
+        CHECK(gly::kTierDefault[1] == (mdb::Rgb{0xE0, 0x55, 0x9A}));
+        CHECK(gly::kTierDefault[2] == (mdb::Rgb{0xE6, 0xB4, 0x22}));
+        const mdb::Rgb* cb = gly::tier_colors(gly::Palette::Colorblind);
+        for (int i = 0; i < mdb::kTierCount; ++i)
         {
-            for (int j = i + 1; j < mdb::kRarityCount; ++j)
+            for (int j = i + 1; j < mdb::kTierCount; ++j)
             {
                 const int d = std::abs(static_cast<int>(cb[i].r) - static_cast<int>(cb[j].r)) +
                               std::abs(static_cast<int>(cb[i].g) - static_cast<int>(cb[j].g)) +
@@ -697,12 +727,15 @@ namespace
         std::vector<mdb::StaticMarker> db;
         mdb::ParseReport rep{};
         CHECK(mdb::parse_markers_json(kLegacyCatJson, db, rep));
-        CHECK_EQ(rep.added, 2);
+        CHECK_EQ(rep.added, 3);
         CHECK_EQ(rep.unknown_cat, 0); // NOT dumped into `other`
-        CHECK_EQ(rep.legacy_cat, 1);  // counted, so the loader can say so once
-        CHECK_EQ(db.size(), 2);
+        CHECK_EQ(rep.legacy_cat, 2);  // counted, so the loader can say so once
+        CHECK_EQ(db.size(), 3);
         CHECK(db[0].cat == mdb::Cat::Note);
         CHECK(db[1].cat == mdb::Cat::Note);
+        // A single marker cannot be in eleven buckets: `pickup` on ONE marker means the
+        // bucket for a pickup whose contents nothing resolved, which is `item`.
+        CHECK(db[2].cat == mdb::Cat::Item);
     }
 
     void test_categories()
@@ -732,8 +765,68 @@ namespace
         CHECK_EQ(mdb::parse_category_mask("none", mdb::kAllCats), 0u);
         CHECK_EQ(mdb::parse_category_mask("shrine,chest", 0u),
                  mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Chest));
-        CHECK_EQ(mdb::parse_category_mask("shrine chest;pickup", 0u),
-                 mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup));
+        CHECK_EQ(mdb::parse_category_mask("shrine chest;weapon", 0u),
+                 mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Chest) |
+                     mdb::cat_bit(mdb::Cat::Weapon));
+
+        // The loot family: eleven categories, each in exactly one tier, and kLootCats is
+        // exactly their union - the mask every "is this loot" question is asked through.
+        {
+            std::uint32_t loot = 0u;
+            int per_tier[mdb::kTierCount]{};
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                mdb::Tier tier = mdb::Tier::Common;
+                if (!mdb::tier_of(cat, tier))
+                {
+                    CHECK(!mdb::is_loot_family(cat));
+                    continue;
+                }
+                CHECK(mdb::is_loot_family(cat));
+                CHECK(mdb::is_loot_cat(cat));
+                loot |= mdb::cat_bit(cat);
+                per_tier[static_cast<int>(tier)] += 1;
+            }
+            CHECK_EQ(loot, mdb::kLootCats);
+            CHECK_EQ(per_tier[0], 4); // consumable, item, harvest, ammo
+            CHECK_EQ(per_tier[1], 5); // armour, amulet, weapon, jade, spell
+            CHECK_EQ(per_tier[2], 2); // material, key
+            // The peers that are loot without a tier, and one that is neither.
+            CHECK(mdb::is_loot_cat(mdb::Cat::Chest) && !mdb::is_loot_family(mdb::Cat::Chest));
+            CHECK(mdb::is_loot_cat(mdb::Cat::Hidden) && !mdb::is_loot_family(mdb::Cat::Hidden));
+            CHECK(!mdb::is_loot_cat(mdb::Cat::Shrine));
+        }
+
+        // The buckets' wire names and tiers, exactly as context/buckets.md pins them.
+        {
+            const struct
+            {
+                mdb::Cat cat;
+                const char* name;
+                mdb::Tier tier;
+            } kBuckets[] = {
+                {mdb::Cat::Consumable, "consumable", mdb::Tier::Common},
+                {mdb::Cat::Item, "item", mdb::Tier::Common},
+                {mdb::Cat::Harvest, "harvest", mdb::Tier::Common},
+                {mdb::Cat::Ammo, "ammo", mdb::Tier::Common},
+                {mdb::Cat::Armour, "armour", mdb::Tier::Equipment},
+                {mdb::Cat::Amulet, "amulet", mdb::Tier::Equipment},
+                {mdb::Cat::Weapon, "weapon", mdb::Tier::Equipment},
+                {mdb::Cat::Jade, "jade", mdb::Tier::Equipment},
+                {mdb::Cat::Spell, "spell", mdb::Tier::Equipment},
+                {mdb::Cat::Material, "material", mdb::Tier::Key},
+                {mdb::Cat::Key, "key", mdb::Tier::Key},
+            };
+            CHECK_EQ(static_cast<int>(sizeof(kBuckets) / sizeof(kBuckets[0])), 11);
+            for (const auto& b : kBuckets)
+            {
+                CHECK_STR(mdb::cat_name(b.cat), b.name);
+                mdb::Tier tier = mdb::Tier::Common;
+                CHECK(mdb::tier_of(b.cat, tier));
+                CHECK(tier == b.tier);
+            }
+        }
 
         std::string rejected;
         CHECK_EQ(mdb::parse_category_mask("shrine,wombat,chest", 0u, &rejected),
@@ -748,19 +841,32 @@ namespace
         // `merchant` is the legacy name for `note`: it sets Note's bit and is reported in `legacy`.
         CHECK(!mdb::cat_from_name("merchant", unused)); // not a current name
         mdb::Cat legacy_cat = mdb::Cat::Other;
-        CHECK(mdb::cat_from_legacy_name("merchant", legacy_cat));
+        std::uint32_t legacy_mask = 0u;
+        CHECK(mdb::cat_from_legacy_name("merchant", legacy_cat, legacy_mask));
         CHECK(legacy_cat == mdb::Cat::Note);
-        CHECK(mdb::cat_from_legacy_name("  MERCHANT ", legacy_cat) && legacy_cat == mdb::Cat::Note);
-        CHECK(!mdb::cat_from_legacy_name("note", legacy_cat));  // current names are not aliases
-        CHECK(!mdb::cat_from_legacy_name("wombat", legacy_cat));
+        CHECK_EQ(legacy_mask, mdb::cat_bit(mdb::Cat::Note));
+        CHECK(mdb::cat_from_legacy_name("  MERCHANT ", legacy_cat, legacy_mask) &&
+              legacy_cat == mdb::Cat::Note);
+        CHECK(!mdb::cat_from_legacy_name("note", legacy_cat, legacy_mask)); // no current name is an alias
+        CHECK(!mdb::cat_from_legacy_name("wombat", legacy_cat, legacy_mask));
+
+        // `pickup` is the legacy name of a category that SPLIT: as a filter list it means
+        // all eleven buckets, as one marker's category it means `item`.
+        CHECK(!mdb::cat_from_name("pickup", unused));
+        CHECK(mdb::cat_from_legacy_name("pickup", legacy_cat, legacy_mask));
+        CHECK(legacy_cat == mdb::Cat::Item);
+        CHECK_EQ(legacy_mask, mdb::kLootCats);
 
         std::string legacy;
         CHECK_EQ(mdb::parse_category_mask("chest,pickup,shrine,boss,npc,merchant", 0u, &rejected, &legacy),
-                 mdb::cat_bit(mdb::Cat::Chest) | mdb::cat_bit(mdb::Cat::Pickup) |
+                 mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats |
                      mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Boss) |
                      mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note));
-        CHECK_STR(legacy, "merchant");
+        CHECK_STR(legacy, "pickup,merchant");
         CHECK_STR(rejected, "");
+        // And Save rewrites it as the eleven current names, so the warning clears itself.
+        CHECK_STR(mdb::format_category_mask(mdb::parse_category_mask("pickup", 0u)),
+                  "consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key");
         // A legacy-only value is a usable value, so it must NOT fall back.
         CHECK_EQ(mdb::parse_category_mask("merchant", mdb::kAllCats, &rejected, &legacy),
                  mdb::cat_bit(mdb::Cat::Note));
@@ -777,8 +883,10 @@ namespace
         CHECK_STR(mdb::format_category_mask(mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Chest)),
                   "shrine,chest");
 
-        // format -> parse -> format is the config file's save/load path: exact for every mask.
-        for (std::uint32_t mask = 0; mask <= mdb::kAllCats; mask += 37u)
+        // format -> parse -> format is the config file's save/load path: exact for every
+        // mask. A coprime stride rather than every one of the 2^kCatCount masks - each
+        // step builds a list of up to 26 names.
+        for (std::uint32_t mask = 0; mask <= mdb::kAllCats; mask += 4099u)
         {
             const std::string text = mdb::format_category_mask(mask);
             CHECK_EQ(mdb::parse_category_mask(text, ~mask & mdb::kAllCats), mask);
@@ -1928,6 +2036,15 @@ namespace
         CHECK(scan::builtin_non_menu_reason(L"WB_AddressInfo_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_LevelChapterInfo_C") != nullptr);
         CHECK(scan::builtin_non_menu_reason(L"WB_AnimationSlot_Fade_C") != nullptr);
+        // The combat notice banners, WB_NoticeBase and its two children. MADNESS DESCENDS is
+        // a WB_LongNotice and is over gameplay, not over a menu.
+        CHECK(scan::builtin_non_menu_reason(L"WB_LongNotice_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_TopNotice_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_Notice_C") != nullptr);
+        CHECK(scan::builtin_non_menu_reason(L"WB_NoticeBase_C") != nullptr);
+        // The match is anchored at the start, so a class that merely ends in the same word
+        // is untouched.
+        CHECK(scan::builtin_non_menu_reason(L"WB_NetworkNoticeShow_C") == nullptr);
         // The dream prompt, raised by resting at a shrine. Its sibling under the same asset
         // folder IS the archive screen and must stay a menu.
         CHECK(scan::builtin_non_menu_reason(L"WB_JoinDream_C") != nullptr);
@@ -4152,7 +4269,7 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
-        constexpr std::size_t kPaddingBytes = 64;
+        constexpr std::size_t kPaddingBytes = 67;
 
         mm::Config a{};
         mm::Config b{};
@@ -4229,7 +4346,10 @@ namespace
             std::string header;
             const bool have_header = read_file(root + "/src/mmstate.hpp", header);
             CHECK(have_header);
-            CHECK(shipped.find("highlight_categories = chest,pickup,shrine,boss,npc,note") !=
+            CHECK(shipped.find("highlight_categories = chest,consumable,item,harvest,ammo,armour,"
+                               "amulet,weapon,jade,spell,material,key,shrine,boss,npc,note") !=
+                  std::string::npos);
+            CHECK(header.find("mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats |") !=
                   std::string::npos);
             CHECK(header.find("mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note);") !=
                   std::string::npos);
@@ -4564,147 +4684,30 @@ namespace
     // Absence as evidence of a collect
     // The one auto-mark that fires on something NOT being there; every condition on its own.
 
-    // Item quality ("rarity")
-    // The JSON field is optional and defaults to 0; the palette parser survives whatever a
-    // player types, and the round-trip is exact or the F2 panel's Save rewrites the colours.
+    // Item quality tier
+    // The tier is a property of the CATEGORY: no marker carries one, and the whole loot
+    // family is drawn in its tier's hue.
 
-    void test_rarity()
+    void test_tiers()
     {
-        section("item quality (rarity) tiers and palette");
+        section("item quality tiers");
 
-        CHECK_STR(mdb::rarity_name(0), "Common");
-        CHECK_STR(mdb::rarity_name(1), "Equipment");
-        CHECK_STR(mdb::rarity_name(2), "Key");
+        CHECK_STR(mdb::tier_name(0), "Common");
+        CHECK_STR(mdb::tier_name(1), "Equipment");
+        CHECK_STR(mdb::tier_name(2), "Key");
         // Out of range must not read off the end of anything.
-        CHECK_STR(mdb::rarity_name(-1), "Common");
-        CHECK_STR(mdb::rarity_name(99), "Common");
-        CHECK_EQ(mdb::rarity_clamp(-3), 0);
-        CHECK_EQ(mdb::rarity_clamp(0), 0);
-        CHECK_EQ(mdb::rarity_clamp(mdb::kRarityCount - 1), mdb::kRarityCount - 1);
-        CHECK_EQ(mdb::rarity_clamp(mdb::kRarityCount), 0);
-        CHECK_EQ(mdb::kRarityCount, 3);
+        CHECK_STR(mdb::tier_name(-1), "Common");
+        CHECK_STR(mdb::tier_name(99), "Common");
+        CHECK_EQ(mdb::kTierCount, 3);
 
-        {
-            std::vector<mdb::StaticMarker> db;
-            mdb::ParseReport rep{};
-            CHECK(mdb::parse_markers_json(
-                R"({"schema":"wuchang-minimap-markers/1","chapter":1,"markers":[)"
-                R"({"id":"a/1","cat":"pickup","x":1,"y":2,"z":3,"rarity":2},)"
-                R"({"id":"a/2","cat":"pickup","x":1,"y":2,"z":3,"rarity":1},)"
-                R"({"id":"a/3","cat":"pickup","x":1,"y":2,"z":3},)"
-                R"({"id":"a/4","cat":"chest","x":1,"y":2,"z":3,"rarity":47},)"
-                R"({"id":"a/5","cat":"pickup","x":1,"y":2,"z":3,"rarity":-2}]})",
-                db, rep));
-            CHECK_EQ(db.size(), 5);
-            CHECK_EQ(db[0].rarity, 2);
-            CHECK_EQ(db[1].rarity, 1);
-            CHECK_EQ(db[2].rarity, 0); // absent == Common, so an old file still loads
-            CHECK_EQ(db[3].rarity, 0); // out of range is clamped, never propagated
-            CHECK_EQ(db[4].rarity, 0);
-        }
-
-        const auto defaults = [](mdb::Rgb (&out)[mdb::kRarityCount]) {
-            for (int i = 0; i < mdb::kRarityCount; ++i)
-            {
-                out[i] = mdb::kDefaultRarityColors[i];
-            }
-        };
-
-        mdb::Rgb pal[mdb::kRarityCount]{};
-        defaults(pal);
-        std::string rejected;
-        CHECK_EQ(mdb::parse_rarity_colors("112233, #445566, 789abc", pal, &rejected), 3);
-        CHECK_STR(rejected, "");
-        CHECK(pal[0] == (mdb::Rgb{0x11, 0x22, 0x33}));
-        CHECK(pal[1] == (mdb::Rgb{0x44, 0x55, 0x66}));
-        CHECK(pal[2] == (mdb::Rgb{0x78, 0x9A, 0xBC})); // lower case is accepted
-
-        defaults(pal);
-        CHECK_EQ(mdb::parse_rarity_colors("F00; 0f0\t00F", pal, nullptr), 3);
-        CHECK(pal[0] == (mdb::Rgb{0xFF, 0x00, 0x00}));
-        CHECK(pal[1] == (mdb::Rgb{0x00, 0xFF, 0x00}));
-        CHECK(pal[2] == (mdb::Rgb{0x00, 0x00, 0xFF}));
-
-        // A short list leaves the remaining tiers at whatever the caller seeded.
-        defaults(pal);
-        CHECK_EQ(mdb::parse_rarity_colors("000000", pal, nullptr), 1);
-        CHECK(pal[0] == (mdb::Rgb{0, 0, 0}));
-        CHECK(pal[1] == mdb::kDefaultRarityColors[1]);
-        CHECK(pal[2] == mdb::kDefaultRarityColors[2]);
-
-        // A bad entry is reported, keeps its own tier's old value, and does not shift later colours.
-        defaults(pal);
-        rejected.clear();
-        CHECK_EQ(mdb::parse_rarity_colors("112233, nope, 445566", pal, &rejected), 2);
-        CHECK_STR(rejected, "nope");
-        CHECK(pal[0] == (mdb::Rgb{0x11, 0x22, 0x33}));
-        CHECK(pal[1] == mdb::kDefaultRarityColors[1]);
-        CHECK(pal[2] == (mdb::Rgb{0x44, 0x55, 0x66}));
-
-        // Empty text, and more entries than there are tiers, both change nothing beyond what fits.
-        defaults(pal);
-        CHECK_EQ(mdb::parse_rarity_colors("", pal, nullptr), 0);
-        CHECK(pal[1] == mdb::kDefaultRarityColors[1]);
-        CHECK_EQ(mdb::parse_rarity_colors("000, 111, 222, 333, 444", pal, nullptr), 3);
-        CHECK(pal[2] == (mdb::Rgb{0x22, 0x22, 0x22}));
-
-        defaults(pal);
-        rejected.clear();
-        CHECK_EQ(mdb::parse_rarity_colors("1234, 12345678, ABCDE", pal, &rejected), 0);
-        CHECK_STR(rejected, "1234,12345678,ABCDE");
-        for (int i = 0; i < mdb::kRarityCount; ++i)
-        {
-            CHECK(pal[i] == mdb::kDefaultRarityColors[i]);
-        }
-
-        defaults(pal);
-        CHECK_STR(mdb::format_rarity_colors(pal), "ADAFDA, DAADC5, DAD6AD");
-        mdb::Rgb back[mdb::kRarityCount]{};
-        CHECK_EQ(mdb::parse_rarity_colors(mdb::format_rarity_colors(pal), back, nullptr),
-                 mdb::kRarityCount);
-        for (int i = 0; i < mdb::kRarityCount; ++i)
-        {
-            CHECK(back[i] == pal[i]);
-        }
-
-        // ---- the shipped default palette IS the game's own pickup-beam palette -------
-        // DT_Particle LightColor of PickupEffect / PickupEffect4 / PickupEffect7, linear -> sRGB.
-        CHECK(mdb::kDefaultRarityColors[0] == (mdb::Rgb{0xAD, 0xAF, 0xDA}));
-        CHECK(mdb::kDefaultRarityColors[1] == (mdb::Rgb{0xDA, 0xAD, 0xC5}));
-        CHECK(mdb::kDefaultRarityColors[2] == (mdb::Rgb{0xDA, 0xD6, 0xAD}));
-    }
-
-    // The real database must carry tiers.
-    void test_rarity_db(const std::string& markers_dir)
-    {
-        section("item quality in the generated database");
-        std::string text;
-        if (!read_file(markers_dir + "/chapter1.json", text))
-        {
-            std::printf("  SKIP  %s/chapter1.json does not exist yet\n", markers_dir.c_str());
-            return;
-        }
-        std::vector<mdb::StaticMarker> db;
-        mdb::ParseReport rep{};
-        CHECK(mdb::parse_markers_json(text, db, rep));
-
-        int per_tier[mdb::kRarityCount]{};
-        int non_pickup_with_tier = 0;
-        for (const mdb::StaticMarker& m : db)
-        {
-            CHECK(m.rarity < mdb::kRarityCount);
-            per_tier[m.rarity] += 1;
-            if (m.cat != mdb::Cat::Pickup && m.rarity != 0)
-            {
-                ++non_pickup_with_tier;
-            }
-        }
-        // Only pickups have items, so only pickups may carry a tier.
-        CHECK_EQ(non_pickup_with_tier, 0);
-        // Both non-default tiers occur in chapter 1; "some of each" is the invariant.
-        CHECK(per_tier[1] > 0);
-        CHECK(per_tier[2] > 0);
-        CHECK(per_tier[0] > per_tier[1] + per_tier[2]);
+        // No category is in two tiers, and a peer is in none.
+        mdb::Tier tier = mdb::Tier::Common;
+        CHECK(!mdb::tier_of(mdb::Cat::Chest, tier));
+        CHECK(!mdb::tier_of(mdb::Cat::Shrine, tier));
+        CHECK(!mdb::tier_of(static_cast<mdb::Cat>(200), tier));
+        CHECK(mdb::tier_of(mdb::Cat::Key, tier) && tier == mdb::Tier::Key);
+        CHECK(mdb::tier_of(mdb::Cat::Weapon, tier) && tier == mdb::Tier::Equipment);
+        CHECK(mdb::tier_of(mdb::Cat::Ammo, tier) && tier == mdb::Tier::Common);
     }
 
     // Data invariants over EVERY shipped markers/*.json
@@ -4716,16 +4719,19 @@ namespace
         const char* label;
         int chapter;
         int min_markers;
+        // The loot family as a whole. Per chapter it is only worth stating for the family:
+        // the buckets' own floors are over all six chapters, in test_buckets_db().
+        int min_loot;
     };
 
     // The six shipped chapters. Floors are ~85 % of the extracted counts.
     constexpr ChapterFile kChapterFiles[] = {
-        {"chapter1.json", "1", 1, 780},
-        {"chapter2.json", "2", 2, 770},
-        {"chapter3.json", "3", 3, 630},
-        {"chapter4.json", "4", 4, 290},
-        {"chapter5.json", "5", 5, 305},
-        {"chapterdlc.json", "DLC", 0, 310},
+        {"chapter1.json", "1", 1, 780, 243},
+        {"chapter2.json", "2", 2, 770, 251},
+        {"chapter3.json", "3", 3, 630, 222},
+        {"chapter4.json", "4", 4, 290, 89},
+        {"chapter5.json", "5", 5, 305, 65},
+        {"chapterdlc.json", "DLC", 0, 310, 66},
     };
 
     // Per-(chapter, category) floors. Only the categories that must not vanish are listed; one
@@ -4745,10 +4751,9 @@ namespace
         // bosses: 28 in the game, every one of them authored.
         {1, mdb::Cat::Boss, 9}, {2, mdb::Cat::Boss, 5}, {3, mdb::Cat::Boss, 6},
         {4, mdb::Cat::Boss, 5}, {5, mdb::Cat::Boss, 2}, {0, mdb::Cat::Boss, 1},
-        // pickups and chests: the collection tracker's whole content.
-        {1, mdb::Cat::Pickup, 250}, {2, mdb::Cat::Pickup, 250},
-        {3, mdb::Cat::Pickup, 220}, {4, mdb::Cat::Pickup, 90},
-        {5, mdb::Cat::Pickup, 65},  {0, mdb::Cat::Pickup, 65},
+        // chests: the other half of the collection tracker's content. The loot family's
+        // own floors are per bucket over all six chapters, in test_buckets_db() - a
+        // per-chapter floor on `amulet` would be a floor of 1 or 0 and say nothing.
         {1, mdb::Cat::Chest, 10}, {2, mdb::Cat::Chest, 16},
         {3, mdb::Cat::Chest, 13}, {4, mdb::Cat::Chest, 9},
         {5, mdb::Cat::Chest, 2},  {0, mdb::Cat::Chest, 8},
@@ -4805,8 +4810,18 @@ namespace
     // known. NOT `mdb::cat_word()`, so both spellings are accepted.
     bool is_generic_name(mdb::Cat cat, const std::string& name)
     {
+        // A loot bucket's generic name IS its bucket label, by design: `item`, `harvest`
+        // and `ammo` are the buckets for pickups whose contents nothing resolves, so every
+        // one of their markers carries the label and the name-diversity cap below must not
+        // read that as 78 copies of one real name.
         static const char* kGeneric[mdb::kCatCount][2] = {
-            {"Shrine", "Shrine"},   {"Chest", "Chest"},   {"Pickup", "Item"},
+            {"Shrine", "Shrine"},   {"Chest", "Chest"},
+            {"Consumable", "Consumable"}, {"Item", "Item"},
+            {"Harvest", "Harvest"}, {"Cannon ammo", "Cannon ammo"},
+            {"Armour", "Armour"},   {"Amulet", "Amulet"},
+            {"Weapon", "Weapon"},   {"Jade", "Jade"},
+            {"Spell", "Spell"},     {"Material", "Material"},
+            {"Key item", "Key item"},
             {"Boss", "Boss"},       {"Elite", "Elite"},   {"Enemy", "Enemy"},
             {"NPC", "NPC"},         {"Note", "Note"},     {"Door", "Door"},
             {"Mystery gate", "Mystery gate"},
@@ -4908,6 +4923,176 @@ namespace
         return out;
     }
 
+    // Every bucket must be PRESENT in the shipped database, and the tier a marker is drawn
+    // in follows from its category alone.
+    void test_buckets_db(const std::string& markers_dir)
+    {
+        section("the eleven loot buckets in the generated database");
+
+        struct Bucket
+        {
+            mdb::Cat cat;
+            mdb::Tier tier;
+            int least; // over all six chapters; ~85 % of the extracted count
+        };
+        constexpr Bucket kBuckets[] = {
+            {mdb::Cat::Consumable, mdb::Tier::Common, 700},
+            {mdb::Cat::Item, mdb::Tier::Common, 65},
+            {mdb::Cat::Harvest, mdb::Tier::Common, 25},
+            {mdb::Cat::Ammo, mdb::Tier::Common, 14},
+            {mdb::Cat::Armour, mdb::Tier::Equipment, 10},
+            {mdb::Cat::Amulet, mdb::Tier::Equipment, 7},
+            {mdb::Cat::Weapon, mdb::Tier::Equipment, 7},
+            {mdb::Cat::Jade, mdb::Tier::Equipment, 6},
+            {mdb::Cat::Spell, mdb::Tier::Equipment, 6},
+            {mdb::Cat::Material, mdb::Tier::Key, 44},
+            {mdb::Cat::Key, mdb::Tier::Key, 28},
+        };
+
+        std::vector<mdb::StaticMarker> db;
+        int files = 0;
+        for (const ChapterFile& cf : kChapterFiles)
+        {
+            std::string text;
+            if (read_file(markers_dir + "/" + cf.file, text))
+            {
+                mdb::ParseReport rep{};
+                CHECK(mdb::parse_markers_json(text, db, rep));
+                ++files;
+            }
+        }
+        if (files == 0)
+        {
+            std::printf("  SKIP  no chapter manifest in %s\n", markers_dir.c_str());
+            return;
+        }
+
+        int per_cat[mdb::kCatCount]{};
+        for (const mdb::StaticMarker& m : db)
+        {
+            per_cat[static_cast<int>(m.cat)] += 1;
+        }
+        int family = 0;
+        for (const Bucket& b : kBuckets)
+        {
+            const int n = per_cat[static_cast<int>(b.cat)];
+            family += n;
+            mdb::Tier tier = mdb::Tier::Common;
+            CHECK(mdb::tier_of(b.cat, tier));
+            CHECK(tier == b.tier);
+            if (n < b.least)
+            {
+                std::printf("  FAIL  %d %s marker(s) in all chapters, floor is %d\n", n,
+                            mdb::cat_name(b.cat), b.least);
+                ++g_failures;
+            }
+            ++g_checks;
+        }
+        // The family as a whole: the 1105 markers the single `pickup` category used to
+        // hold, none of which may quietly fall out of the split.
+        CHECK(family >= 940);
+        std::printf("  %d loot marker(s) over %d file(s)\n", family, files);
+
+        // THE FIRST ITEM DECIDES THE BUCKET - the offline rule, restated over the shipped
+        // data, and the same rule mdb::live_loot_cat() applies to a runtime-spawned drop.
+        // `items.json` carries each item's bucket; every placed pickup that grants one must
+        // wear the bucket of its FIRST id.
+        std::string items_text;
+        std::unordered_map<int, mdb::ItemInfo> items;
+        std::string err;
+        if (!read_file(markers_dir + "/items.json", items_text) ||
+            !mdb::parse_items_json(items_text, items, err))
+        {
+            std::printf("  SKIP  no usable items.json in %s\n", markers_dir.c_str());
+            return;
+        }
+        int unbucketed = 0;
+        for (const auto& kv : items)
+        {
+            // Every item the runtime knows carries a bucket, and a bucket is always one of
+            // the eleven: a file that lost the field cannot pass quietly, and nothing else
+            // may reach the item DB.
+            unbucketed += kv.second.cat == mdb::Cat::Count ? 1 : 0;
+            CHECK(kv.second.cat == mdb::Cat::Count ||
+                  mdb::cat_enabled(mdb::kLootCats, kv.second.cat));
+        }
+        CHECK_EQ(unbucketed, 0);
+        CHECK(static_cast<int>(items.size()) > 800); // named rows of the six item tables
+
+        int checked = 0;
+        int mismatched = 0;
+        int class_rule = 0;
+        int unknown_first = 0;
+        for (const ChapterFile& cf : kChapterFiles)
+        {
+            std::string text;
+            if (!read_file(markers_dir + "/" + cf.file, text))
+            {
+                continue;
+            }
+            mjson::JValue root{};
+            CHECK(mjson::JParser{text}.parse(root));
+            const mjson::JValue* list = root.find("markers");
+            if (list == nullptr || list->kind != mjson::JValue::Kind::Array || !list->arr)
+            {
+                continue;
+            }
+            for (const mjson::JValue& m : *list->arr)
+            {
+                const mjson::JValue* ids = m.find("items");
+                const mjson::JValue* cat = m.find("cat");
+                if (ids == nullptr || ids->kind != mjson::JValue::Kind::Array || !ids->arr ||
+                    ids->arr->empty() || cat == nullptr)
+                {
+                    continue;
+                }
+                mdb::Cat marker_cat = mdb::Cat::Other;
+                if (!mdb::cat_from_name(cat->string_or(""), marker_cat) ||
+                    !mdb::cat_enabled(mdb::kLootCats, marker_cat))
+                {
+                    continue;
+                }
+                const auto it = items.find(static_cast<int>((*ids->arr)[0].number_or(0.0)));
+                if (it == items.end() || it->second.cat == mdb::Cat::Count)
+                {
+                    ++unknown_first; // an item with no display name is not in the map
+                    continue;
+                }
+                // THE CLASS RULE, where the class is the answer: a cannon resupply box
+                // carries the class default's grant (a `Material`) and is still `ammo` -
+                // and mdb::live_loot_cat() leaves exactly those alone at runtime, so the
+                // live actor and this static twin cannot disagree.
+                if (it->second.cat != marker_cat &&
+                    mdb::live_loot_cat(marker_cat, it->second.cat) == marker_cat)
+                {
+                    ++class_rule;
+                    CHECK(marker_cat == mdb::Cat::Ammo);
+                    continue;
+                }
+                ++checked;
+                if (it->second.cat != marker_cat)
+                {
+                    if (mismatched < 5)
+                    {
+                        std::printf("  FAIL  %s: a %s marker grants item %d, bucketed %s\n", cf.file,
+                                    mdb::cat_name(marker_cat),
+                                    static_cast<int>((*ids->arr)[0].number_or(0.0)),
+                                    mdb::cat_name(it->second.cat));
+                    }
+                    ++mismatched;
+                }
+            }
+        }
+        g_failures += mismatched;
+        g_checks += checked;
+        CHECK(checked > 900);
+        // The class rule is the measured exception, not a loophole: 17 cannon crates.
+        CHECK_EQ(class_rule, 17);
+        std::printf("  %d pickup(s) wear the bucket of items[0]; %d kept by the class rule; "
+                    "%d first id(s) not in the item map\n",
+                    checked, class_rule, unknown_first);
+    }
+
     void test_data_invariants(const std::string& markers_dir)
     {
         section("data invariants over every shipped markers/*.json");
@@ -4959,6 +5144,32 @@ namespace
             CHECK_EQ(rep.legacy_cat, 0);
             CHECK(static_cast<int>(rep.added) >= cf.min_markers);
 
+            int loot_total = 0;
+            std::vector<std::string> loot_named;
+            // Among the entries that carry a REAL name, no single name may account for
+            // more than half. Generic labels are excluded by is_generic_name().
+            const auto name_cap = [&](const char* what, std::vector<std::string>& named) {
+                if (named.size() < 8)
+                {
+                    return;
+                }
+                std::sort(named.begin(), named.end());
+                std::size_t best = 0;
+                std::size_t run = 0;
+                for (std::size_t i = 0; i < named.size(); ++i)
+                {
+                    run = (i > 0 && named[i] == named[i - 1]) ? run + 1 : 1;
+                    best = run > best ? run : best;
+                }
+                if (best * 2 > named.size())
+                {
+                    std::printf("  FAIL  chapter %s %s: %zu of %zu named entries share one "
+                                "name (\"%s\")\n", cf.label, what, best, named.size(),
+                                named[0].c_str());
+                    ++name_cap_violations;
+                }
+                ++g_checks;
+            };
             for (int c = 0; c < mdb::kCatCount; ++c)
             {
                 const mdb::Cat cat = static_cast<mdb::Cat>(c);
@@ -4980,6 +5191,7 @@ namespace
                         named.push_back(m.name);
                     }
                 }
+                loot_total += mdb::is_loot_family(cat) ? total : 0;
                 for (const CatFloor& f : kCatFloors)
                 {
                     if (f.chapter == cf.chapter && f.cat == cat && total < f.least)
@@ -5001,28 +5213,29 @@ namespace
                     }
                 }
 
-                // Among the entries that carry a REAL name, no single name may account for more than half -
-                // an unconfigured pickup carries the first row of DT_Item_ToolTable. Generic labels excluded.
-                if (named.size() >= 8)
+                // The loot family is capped as ONE set, below: the game hands out the same
+                // upgrade material a dozen times over, so 13 of a chapter's 14 `material`
+                // pickups being one Red Feather is the data, not a fault. What the cap is
+                // for - an extraction that fell back to the first row of
+                // DT_Item_ToolTable for everything - shows up across the whole family.
+                if (mdb::is_loot_family(cat))
                 {
-                    std::sort(named.begin(), named.end());
-                    std::size_t best = 0;
-                    std::size_t run = 0;
-                    for (std::size_t i = 0; i < named.size(); ++i)
-                    {
-                        run = (i > 0 && named[i] == named[i - 1]) ? run + 1 : 1;
-                        best = run > best ? run : best;
-                    }
-                    if (best * 2 > named.size())
-                    {
-                        std::printf("  FAIL  chapter %s %s: %zu of %zu named entries share one "
-                                    "name (\"%s\")\n", cf.label, mdb::cat_name(cat), best,
-                                    named.size(), named[0].c_str());
-                        ++name_cap_violations;
-                    }
-                    ++g_checks;
+                    loot_named.insert(loot_named.end(), named.begin(), named.end());
+                }
+                else
+                {
+                    name_cap(mdb::cat_name(cat), named);
                 }
             }
+            name_cap("loot", loot_named);
+
+            if (loot_total < cf.min_loot)
+            {
+                std::printf("  FAIL  chapter %s: %d loot marker(s), floor is %d\n", cf.label,
+                            loot_total, cf.min_loot);
+                ++g_failures;
+            }
+            ++g_checks;
 
             // Every item id a pickup grants must be a row of the item database.
             if (have_items)
@@ -5387,46 +5600,99 @@ namespace
         }
 
         // display_label: a real name passes through; empty and class names become the category word.
-        CHECK_STR(mdb::display_label(mdb::Cat::Pickup, "Blood of Wangdi"), "Blood of Wangdi");
-        CHECK_STR(mdb::display_label(mdb::Cat::Pickup, "BP_PickupActor_C"), "Item");
-        CHECK_STR(mdb::display_label(mdb::Cat::Pickup, ""), "Item");
-        CHECK_STR(mdb::display_label(mdb::Cat::Pickup, nullptr), "Item");
+        CHECK_STR(mdb::display_label(mdb::Cat::Item, "Blood of Wangdi"), "Blood of Wangdi");
+        CHECK_STR(mdb::display_label(mdb::Cat::Item, "BP_PickupActor_C"), "Item");
+        CHECK_STR(mdb::display_label(mdb::Cat::Item, ""), "Item");
+        CHECK_STR(mdb::display_label(mdb::Cat::Item, nullptr), "Item");
         CHECK_STR(mdb::display_label(mdb::Cat::Enemy, "Impl_BaseAIController_C"), "Enemy");
         CHECK_STR(mdb::display_label(mdb::Cat::Note, "DKDC_NPC_C"), "Note");
         CHECK_STR(mdb::display_label(mdb::Cat::Npc, "BP_NPC_C"), "NPC");
         CHECK_STR(mdb::display_label(mdb::Cat::Chest, "BP_treasurebox_C"), "Chest");
 
-        section("markers/items.json at runtime (names for loot an enemy drops)");
+        section("markers/items.json at runtime (what loot an enemy drops is, and is called)");
 
         {
-            std::unordered_map<int, std::string> names;
+            std::unordered_map<int, mdb::ItemInfo> names;
             std::string err;
             CHECK(mdb::parse_items_json(
-                R"({"schema":"wuchang-minimap-items/2","items":{
-                     "20001":{"name":"Ancient Chisel","des":"long text"},
-                     "22107":{"name":"Faint Red Feather"},
-                     "10000":{"name":"Cloudfrost's Edge","rarity":1}}})",
+                R"({"schema":"wuchang-minimap-items/3","items":{
+                     "20001":{"name":"Ancient Chisel","des":"long text","bucket":"consumable"},
+                     "22107":{"name":"Faint Red Feather","bucket":"material"},
+                     "10000":{"name":"Cloudfrost's Edge","rarity":1,"bucket":"weapon"}}})",
                 names, err));
             CHECK_STR(err.c_str(), "");
             CHECK_EQ(static_cast<int>(names.size()), 3);
-            CHECK_STR(names[20001].c_str(), "Ancient Chisel");
-            CHECK_STR(names[10000].c_str(), "Cloudfrost's Edge");
+            CHECK_STR(names[20001].name.c_str(), "Ancient Chisel");
+            CHECK_STR(names[10000].name.c_str(), "Cloudfrost's Edge");
+            CHECK(names[20001].cat == mdb::Cat::Consumable);
+            CHECK(names[22107].cat == mdb::Cat::Material);
+            CHECK(names[10000].cat == mdb::Cat::Weapon);
 
-            // Schema /1 is accepted too: this reader only wants {id -> name}, which both minors carry.
+            // A bucket that is not one of the eleven is no bucket: an item may not turn a
+            // live pickup into a door.
+            CHECK(mdb::parse_items_json(
+                R"({"schema":"wuchang-minimap-items/3","items":{
+                     "1":{"name":"a","bucket":"door"},"2":{"name":"b","bucket":"nonsense"},
+                     "3":{"name":"c","bucket":7},"4":{"name":"d"}}})",
+                names, err));
+            CHECK_EQ(static_cast<int>(names.size()), 4);
+            for (int id = 1; id <= 4; ++id)
+            {
+                CHECK(names[id].cat == mdb::Cat::Count);
+            }
+
+            // Schema /1 and /2 are accepted too: they carry the names, and an entry with no
+            // `bucket` simply leaves its live pickup on the class rule.
             CHECK(mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/1","items":{"1":{"name":"x"}}})",
                                         names, err));
+            CHECK(names[1].cat == mdb::Cat::Count);
             CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-markers/1","items":{}})", names, err));
-            CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/2"})", names, err));
+            CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/3"})", names, err));
             CHECK(!mdb::parse_items_json("not json", names, err));
             // A named entry is required: an empty table would silently disable the feature.
-            CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/2","items":{}})", names, err));
+            CHECK(!mdb::parse_items_json(R"({"schema":"wuchang-minimap-items/3","items":{}})", names, err));
             CHECK(mdb::parse_items_json(
                 R"({"schema":"wuchang-minimap-items/2","items":{
                      "notanid":{"name":"x"},"20002":{"des":"no name"},"20003":{"name":""},
                      "20004":{"name":"Real"}}})",
                 names, err));
             CHECK_EQ(static_cast<int>(names.size()), 1);
-            CHECK_STR(names[20004].c_str(), "Real");
+            CHECK_STR(names[20004].name.c_str(), "Real");
+        }
+
+        section("the category a live pickup draws in (the first item wins)");
+
+        // THE OFFLINE RULE, AT RUNTIME. The class table gives a pickup `item` / `harvest` /
+        // `ammo`; the first item it grants overrides that with its own bucket.
+        CHECK(mdb::live_loot_cat(mdb::Cat::Item, mdb::Cat::Armour) == mdb::Cat::Armour);
+        CHECK(mdb::live_loot_cat(mdb::Cat::Item, mdb::Cat::Material) == mdb::Cat::Material);
+        // Nothing resolved: the class rule stands, which is what keeps the 78 DLC pickups
+        // whose contents are not in the pak reading `item`.
+        CHECK(mdb::live_loot_cat(mdb::Cat::Item, mdb::Cat::Count) == mdb::Cat::Item);
+        CHECK(mdb::live_loot_cat(mdb::Cat::Ammo, mdb::Cat::Count) == mdb::Cat::Ammo);
+        // THE CLASS RULE WINS WHERE THE CLASS IS THE ANSWER: a cannon resupply box hands out
+        // a `Material` and is still ammo, and a harvest node is still a node. Only `item`
+        // means "contents unresolved", so only `item` is improved on.
+        CHECK(mdb::live_loot_cat(mdb::Cat::Ammo, mdb::Cat::Material) == mdb::Cat::Ammo);
+        CHECK(mdb::live_loot_cat(mdb::Cat::Harvest, mdb::Cat::Material) == mdb::Cat::Harvest);
+        CHECK(mdb::live_loot_cat(mdb::Cat::Weapon, mdb::Cat::Consumable) == mdb::Cat::Weapon);
+        // A NON-PICKUP IS NEVER RE-CATEGORISED: a chest that happens to expose an item array
+        // stays a chest, and so does every peer category.
+        CHECK(mdb::live_loot_cat(mdb::Cat::Chest, mdb::Cat::Weapon) == mdb::Cat::Chest);
+        CHECK(mdb::live_loot_cat(mdb::Cat::Npc, mdb::Cat::Consumable) == mdb::Cat::Npc);
+        CHECK(mdb::live_loot_cat(mdb::Cat::Other, mdb::Cat::Key) == mdb::Cat::Other);
+        // And it never leaves the family: an item whose bucket is not loot cannot move one.
+        CHECK(mdb::live_loot_cat(mdb::Cat::Item, mdb::Cat::Door) == mdb::Cat::Item);
+        // Every bucket is reachable from `item`, and no category ever answers with something
+        // that is not a category the data can hold.
+        for (int i = 0; i < mdb::kCatCount; ++i)
+        {
+            const mdb::Cat c = static_cast<mdb::Cat>(i);
+            if (mdb::cat_enabled(mdb::kLootCats, c))
+            {
+                CHECK(mdb::live_loot_cat(mdb::Cat::Item, c) == c);
+            }
+            CHECK(mdb::live_loot_cat(c, mdb::Cat::Count) == c);
         }
 
         section("is this character dead? (the three-way health answer)");
@@ -6370,8 +6636,8 @@ int main(int argc, char** argv)
     test_config_keys(markers_dir);
     test_config_rewrite(markers_dir);
     test_absence();
-    test_rarity();
-    test_rarity_db(markers_dir);
+    test_tiers();
+    test_buckets_db(markers_dir);
     test_data_invariants(markers_dir);
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);

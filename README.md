@@ -6,10 +6,12 @@ game's own navmesh.
 ## What it is
 
 - **Minimap** and **compass strip** in-world, **full chapter map** on `M`
-- **Markers** for chests, pickups, shrines, bosses, NPCs and notes, with the game's own names,
+- **Markers** for chests, loot, shrines, bosses, NPCs and notes, with the game's own names,
   all five chapters and the DLC
+- **Loot in eleven kinds** — consumables, materials, key items, weapons, armour, amulets, jades,
+  spells, harvest nodes, cannon ammo and plain items — each with its own filter checkbox
 - **Collection tracker** per save slot, up to 16 waypoints, name search on the full map
-- **X-ray** on `TAB`: loot through walls, tinted by item quality
+- **X-ray** on `TAB`: loot through walls, in the game's own three pickup-beam colours
 - Everything configured from the **F2** panel, saved by itself
 - Keyboard, mouse and gamepad; English UI
 
@@ -90,28 +92,23 @@ None of these stops the mod working.
   `Esc` in the console to release it, or set `ConsoleEnabled = 0` in `ue4ss\UE4SS-settings.ini`.
   The tell is that `wuchang_minimap.log` was never written and `UE4SS.log` stops in the middle.
 
-## Reporting a bug
+## Something went wrong
 
-Attach `%LOCALAPPDATA%\WuchangMinimap\wuchang_minimap.log` — the mod's own log, rotated per launch.
-Its first lines carry every version, file size, the GPU and driver, the display's colour space
-and the graphics modules loaded in the game - everything a report needs about the machine. Add
-`wuchang_minimap_last_stage.txt` if the game crashed, `wuchang_minimap_watchdog.txt` if it froze,
-and your `config_wuchang_minimap.txt` — that one is in the mod folder,
-`ue4ss\Mods\WuchangMinimap\`.
+- **Crash on start-up** — `HookInitGameState = 0`, see [Requirements](#requirements). Still
+  crashing: `overlay_hooks = 0` in `config_wuchang_minimap.txt` turns the drawing off entirely
+  while the tracker and the log keep running; send that log too, the pair says which half is at
+  fault.
+- **Nothing on screen** — press `F2`. If the panel opens, the **Overview** tab says in orange why
+  the minimap is hidden. If even the panel does not appear, turn frame generation off and try again.
+- **No `wuchang_minimap.log` at all** — the mod never ran, so it cannot be the cause. Look in
+  `ue4ss\UE4SS.log`: `Failed to load dll ... [0x7f] The specified procedure could not be found`
+  is the wrong UE4SS build, a log that stops mid-startup is usually the console window above.
 
-**If there is no `wuchang_minimap.log` at all**, this mod never ran, so it cannot be the cause.
-Check `ue4ss\UE4SS.log`: `Failed to load dll ... [0x7f] The specified procedure could not be found`
-means the mod does not match your UE4SS build, and a log that simply stops mid-startup usually
-means the console window above.
-
-If the game hangs or crashes at start with the mod enabled, set `overlay_hooks = 0` in
-`config_wuchang_minimap.txt` and restart: the mod then never touches DirectX and draws nothing,
-while the tracker and the log keep running. Send me that log too — with and without, the pair
-says which half is at fault.
-
-If the minimap simply is not on screen, send me `wuchang_minimap.log` from that folder —
-it names the exact reason it stayed hidden. If I ask you to reproduce something, add the line
-`log_level = verbose` to `config_wuchang_minimap.txt` first, press `F5`, and reproduce it.
+**Bug reports**: `wuchang_minimap.log` from `%LOCALAPPDATA%\WuchangMinimap\` — its header already
+carries your GPU, driver and every version. Add `wuchang_minimap_last_stage.txt` from the same
+folder if the game crashed, `wuchang_minimap_watchdog.txt` if it froze, and your
+`config_wuchang_minimap.txt` from the mod folder. If I ask you to reproduce something, add the
+line `log_level = verbose` to the config first, press `F5`, and reproduce it.
 
 ## Permissions and credits
 

@@ -21,7 +21,7 @@
    "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
   }
  ],
- "extractor_commit": "2304e23+dirty",
+ "extractor_commit": "0b510c1+dirty",
  "exe": {
   "name": "Project_Plague-Win64-Shipping.exe",
   "size": 141464648,
@@ -127,6 +127,1042 @@
    "cell": "B5EX0_L0_X-8_Y-2",
    "level": "Chapter5_YuRenJT_logic",
    "mark": 61072
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_0",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Fire Pot",
+   "obj": "BP_PickupActor_C_0",
+   "x": -105285.03,
+   "y": -12880.82,
+   "z": -1946.76,
+   "cell": "B5EX0_L0_X-11_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20090
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_1",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Feather Pearl",
+   "obj": "BP_PickupActor_C_1",
+   "x": -110819.72,
+   "y": -3529.49,
+   "z": -1960.0,
+   "cell": "B5EX0_L0_X-11_Y-1",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20270
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_10",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Fixed Origin Pill",
+   "obj": "BP_PickupActor_C_10",
+   "x": -107151.95,
+   "y": -24467.68,
+   "z": -1038.87,
+   "cell": "B5EX0_L0_X-11_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20042
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_11",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Health Pill",
+   "obj": "BP_PickupActor_C_11",
+   "x": -108646.15,
+   "y": -9513.21,
+   "z": -945.89,
+   "cell": "B5EX0_L0_X-11_Y-1",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20025
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_12",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Emerald Lotus Seed",
+   "obj": "BP_PickupActor_C_12",
+   "x": -107442.14,
+   "y": -10639.53,
+   "z": -1909.78,
+   "cell": "B5EX0_L0_X-11_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20061
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_13",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Crimson Lantern Fruit",
+   "obj": "BP_PickupActor_C_13",
+   "x": -92012.27,
+   "y": -22506.58,
+   "z": -1842.45,
+   "cell": "B5EX0_L0_X-9_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20036
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_14",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_14",
+   "x": -111948.74,
+   "y": -21203.79,
+   "z": -1545.46,
+   "cell": "B5EX0_L0_X-11_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_17",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Emerald Lotus Seed",
+   "obj": "BP_PickupActor_C_17",
+   "x": -89935.18,
+   "y": -18489.92,
+   "z": -1934.8,
+   "cell": "B5EX0_L0_X-9_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20061
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_18",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Fixed Origin Pill",
+   "obj": "BP_PickupActor_C_18",
+   "x": -108370.62,
+   "y": -14059.86,
+   "z": -1892.49,
+   "cell": "B5EX0_L0_X-11_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20042
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_19",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_19",
+   "x": -109921.28,
+   "y": -22271.58,
+   "z": -1951.45,
+   "cell": "B5EX0_L0_X-11_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_2",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_2",
+   "x": -110134.08,
+   "y": -9553.34,
+   "z": -1795.61,
+   "cell": "B5EX0_L0_X-11_Y-1",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_20",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Wangdi",
+   "obj": "BP_PickupActor_C_20",
+   "x": -113189.61,
+   "y": -14475.43,
+   "z": -1941.97,
+   "cell": "B5EX0_L0_X-12_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20229
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_21",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Flying Dagger",
+   "obj": "BP_PickupActor_C_21",
+   "x": -109530.29,
+   "y": -5948.8,
+   "z": -1951.25,
+   "cell": "B5EX0_L0_X-11_Y-1",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20080
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_22",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_22",
+   "x": -111595.98,
+   "y": -4124.34,
+   "z": -1963.0,
+   "cell": "B5EX0_L0_X-11_Y-1",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_23",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Wangdi",
+   "obj": "BP_PickupActor_C_23",
+   "x": -114871.21,
+   "y": -25249.61,
+   "z": -1953.01,
+   "cell": "B5EX0_L0_X-12_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20229
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_24",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soft Rush",
+   "obj": "BP_PickupActor_C_24",
+   "x": -98946.19,
+   "y": -17153.59,
+   "z": -1910.38,
+   "cell": "B5EX0_L0_X-10_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20044
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_25",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Crimson Lantern Fruit",
+   "obj": "BP_PickupActor_C_25",
+   "x": -105076.07,
+   "y": -16893.82,
+   "z": -1868.61,
+   "cell": "B5EX0_L0_X-11_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20036
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_27",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soulgrass",
+   "obj": "BP_PickupActor_C_27",
+   "x": -120870.67,
+   "y": 9140.13,
+   "z": 8330.62,
+   "cell": "B5EX0_L0_X-12_Y0",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20027
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_3",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soft Rush Flowers",
+   "obj": "BP_PickupActor_C_3",
+   "x": -129888.53,
+   "y": 7216.96,
+   "z": 9846.0,
+   "cell": "B5EX0_L0_X-13_Y0",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20045
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_31",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Corrupted Flying Dagger",
+   "obj": "BP_PickupActor_C_31",
+   "x": -100063.02,
+   "y": -15186.87,
+   "z": -1950.79,
+   "cell": "B5EX0_L0_X-10_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20083
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_4",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soulgrass",
+   "obj": "BP_PickupActor_C_4",
+   "x": -112425.46,
+   "y": -22679.06,
+   "z": -1919.87,
+   "cell": "B5EX0_L0_X-11_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20027
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_5",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_5",
+   "x": -91307.61,
+   "y": -22716.39,
+   "z": -1933.12,
+   "cell": "B5EX0_L0_X-9_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_6",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Lantern Fruit",
+   "obj": "BP_PickupActor_C_6",
+   "x": -91538.4,
+   "y": -22756.44,
+   "z": -1916.2,
+   "cell": "B5EX0_L0_X-9_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20035
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_7",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soulgrass",
+   "obj": "BP_PickupActor_C_7",
+   "x": -110231.08,
+   "y": -17640.93,
+   "z": -1808.64,
+   "cell": "B5EX0_L0_X-11_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20027
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_8",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_8",
+   "x": -87899.19,
+   "y": -20012.42,
+   "z": -1950.06,
+   "cell": "B5EX0_L0_X-9_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_New_C_1",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_New_C",
+   "name": "Avian Tear +1",
+   "obj": "BP_PickupActor_New_C_1",
+   "x": -106517.32,
+   "y": -16697.94,
+   "z": -582.67,
+   "cell": "B5EX0_L0_X-11_Y-2",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    20233,
+    22110
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_0",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Thundering Flying Dagger",
+   "obj": "BP_PickupActor_C_0",
+   "x": -85202.88,
+   "y": -43416.43,
+   "z": 5967.25,
+   "cell": "B5EX0_L0_X-9_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20085
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_1",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Crimson Lantern Fruit",
+   "obj": "BP_PickupActor_C_1",
+   "x": -89098.02,
+   "y": -37698.62,
+   "z": 2152.64,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20036
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_11",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_11",
+   "x": -89954.48,
+   "y": -32188.85,
+   "z": 1991.42,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_12",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_12",
+   "x": -66731.21,
+   "y": -35416.38,
+   "z": 2034.07,
+   "cell": "B5EX0_L0_X-7_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_13",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Stormward Pill",
+   "obj": "BP_PickupActor_C_13",
+   "x": -87492.96,
+   "y": -35001.59,
+   "z": 8038.99,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20041
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_15",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soulgrass",
+   "obj": "BP_PickupActor_C_15",
+   "x": -75555.0,
+   "y": -33728.0,
+   "z": 8671.48,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20027
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_17",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Wangdi",
+   "obj": "BP_PickupActor_C_17",
+   "x": -81808.33,
+   "y": -38798.77,
+   "z": 2169.03,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20229
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_2",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_2",
+   "x": -76741.39,
+   "y": -25815.25,
+   "z": 2069.3,
+   "cell": "B5EX0_L0_X-8_Y-3",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_22",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_22",
+   "x": -86217.22,
+   "y": -42330.31,
+   "z": 7042.09,
+   "cell": "B5EX0_L0_X-9_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_26",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_26",
+   "x": -74459.18,
+   "y": -26085.45,
+   "z": 9251.35,
+   "cell": "B5EX0_L0_X-8_Y-3",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_27",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_27",
+   "x": -84916.0,
+   "y": -33166.0,
+   "z": 2003.0,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_29",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_29",
+   "x": -88179.6,
+   "y": -34156.45,
+   "z": 2060.0,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_3",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Lantern Fruit",
+   "obj": "BP_PickupActor_C_3",
+   "x": -83748.83,
+   "y": -34721.69,
+   "z": 1996.58,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20035
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_30",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Thundering Flying Dagger",
+   "obj": "BP_PickupActor_C_30",
+   "x": -81714.0,
+   "y": -30541.91,
+   "z": 5978.0,
+   "cell": "B5EX0_L0_X-8_Y-3",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20085
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_32",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_32",
+   "x": -94164.9,
+   "y": -35250.98,
+   "z": 2675.33,
+   "cell": "B5EX0_L0_X-10_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_34",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_34",
+   "x": -86252.46,
+   "y": -41911.3,
+   "z": 1990.93,
+   "cell": "B5EX0_L0_X-9_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_36",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Feather Pearl",
+   "obj": "BP_PickupActor_C_36",
+   "x": -82861.83,
+   "y": -38836.44,
+   "z": 2133.03,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20270
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_37",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Niter Fire Pot",
+   "obj": "BP_PickupActor_C_37",
+   "x": -79466.91,
+   "y": -35335.7,
+   "z": 3195.67,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20091
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_4",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soulgrass",
+   "obj": "BP_PickupActor_C_4",
+   "x": -88255.0,
+   "y": -35380.85,
+   "z": 2015.89,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20027
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_41",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Feather Pearl",
+   "obj": "BP_PickupActor_C_41",
+   "x": -75743.51,
+   "y": -30770.54,
+   "z": 8699.59,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20270
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_44",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_44",
+   "x": -74145.11,
+   "y": -45573.9,
+   "z": 1984.16,
+   "cell": "B5EX0_L0_X-8_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_45",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Wangdi",
+   "obj": "BP_PickupActor_C_45",
+   "x": -93115.62,
+   "y": -33113.68,
+   "z": 7890.27,
+   "cell": "B5EX0_L0_X-10_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20229
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_46",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Wangdi",
+   "obj": "BP_PickupActor_C_46",
+   "x": -90397.27,
+   "y": -45779.05,
+   "z": 1939.4,
+   "cell": "B5EX0_L0_X-9_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20229
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_49",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soulgrass",
+   "obj": "BP_PickupActor_C_49",
+   "x": -78141.0,
+   "y": -47636.06,
+   "z": 1992.0,
+   "cell": "B5EX0_L0_X-8_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20027
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_5",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soulgrass",
+   "obj": "BP_PickupActor_C_5",
+   "x": -83029.54,
+   "y": -38021.51,
+   "z": 9163.84,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20027
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_50",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_50",
+   "x": -71688.98,
+   "y": -47951.46,
+   "z": 2065.98,
+   "cell": "B5EX0_L0_X-8_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_51",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_51",
+   "x": -75197.11,
+   "y": -44164.9,
+   "z": 2579.08,
+   "cell": "B5EX0_L0_X-8_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_52",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Niter Fire Pot",
+   "obj": "BP_PickupActor_C_52",
+   "x": -72256.62,
+   "y": -39707.31,
+   "z": 2018.12,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20091
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_53",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_53",
+   "x": -70307.53,
+   "y": -39199.87,
+   "z": 1996.58,
+   "cell": "B5EX0_L0_X-7_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_55",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Fiery Flying Dagger",
+   "obj": "BP_PickupActor_C_55",
+   "x": -75109.36,
+   "y": -34934.46,
+   "z": 8685.5,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20084
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_58",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Crimson Lantern Fruit",
+   "obj": "BP_PickupActor_C_58",
+   "x": -78720.12,
+   "y": -42627.97,
+   "z": 8284.06,
+   "cell": "B5EX0_L0_X-8_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20036
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_59",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Wangdi",
+   "obj": "BP_PickupActor_C_59",
+   "x": -79205.02,
+   "y": -28717.26,
+   "z": 2044.2,
+   "cell": "B5EX0_L0_X-8_Y-3",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20229
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_6",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Crimson Lantern Fruit",
+   "obj": "BP_PickupActor_C_6",
+   "x": -78711.11,
+   "y": -32457.74,
+   "z": 4771.45,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20036
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_61",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soulgrass",
+   "obj": "BP_PickupActor_C_61",
+   "x": -78147.0,
+   "y": -27056.97,
+   "z": 2081.49,
+   "cell": "B5EX0_L0_X-8_Y-3",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20027
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_62",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_62",
+   "x": -97685.5,
+   "y": -34439.42,
+   "z": 7838.43,
+   "cell": "B5EX0_L0_X-10_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_64",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Thundering Flying Dagger",
+   "obj": "BP_PickupActor_C_64",
+   "x": -87810.69,
+   "y": -27058.42,
+   "z": 7274.97,
+   "cell": "B5EX0_L0_X-9_Y-3",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20085
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_65",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_65",
+   "x": -87549.22,
+   "y": -39497.64,
+   "z": 2183.3,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_66",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Feather Pearl",
+   "obj": "BP_PickupActor_C_66",
+   "x": -76977.54,
+   "y": -25683.39,
+   "z": 2072.01,
+   "cell": "B5EX0_L0_X-8_Y-3",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20270
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_7",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_7",
+   "x": -87985.23,
+   "y": -30703.33,
+   "z": 8537.86,
+   "cell": "B5EX0_L0_X-9_Y-3",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20062
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_70",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Blood of Changhong",
+   "obj": "BP_PickupActor_C_70",
+   "x": -74043.12,
+   "y": -34793.19,
+   "z": 8831.04,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20228
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_8",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Niter Fire Pot",
+   "obj": "BP_PickupActor_C_8",
+   "x": -78758.3,
+   "y": -38791.31,
+   "z": 2985.41,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20091
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_80",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Soft Rush Flowers",
+   "obj": "BP_PickupActor_C_80",
+   "x": -77648.34,
+   "y": -18665.49,
+   "z": 8521.71,
+   "cell": "B5EX0_L0_X-8_Y-2",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20045
+   ]
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_9",
+   "cat": "consumable",
+   "cls": "BP_PickupActor_C",
+   "name": "Purple Camellia",
+   "obj": "BP_PickupActor_C_9",
+   "x": -73107.0,
+   "y": -26163.0,
+   "z": 2001.0,
+   "cell": "B5EX0_L0_X-8_Y-3",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    20062
+   ]
   },
   {
    "id": "Chapter5_HaiBbaiHJS_AI/BP_CQBR_AI_S_C_1",
@@ -2925,6 +3961,38 @@
    "level": "Chapter5_YuRenJT_logic"
   },
   {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_15",
+   "cat": "key",
+   "cls": "BP_PickupActor_C",
+   "name": "Giant Bronze Arrow",
+   "obj": "BP_PickupActor_C_15",
+   "x": -106676.4,
+   "y": -21485.3,
+   "z": -1918.66,
+   "cell": "B5EX0_L0_X-11_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    21269
+   ],
+   "rarity": 2
+  },
+  {
+   "id": "Chapter5_ZhenLiZM_logic/BP_PickupActor_C_0",
+   "cat": "key",
+   "cls": "BP_PickupActor_C",
+   "name": "Damaged Token",
+   "obj": "BP_PickupActor_C_0",
+   "x": -165838.31,
+   "y": -14077.61,
+   "z": 1552.08,
+   "cell": "B5EX0_L0_X-17_Y-2",
+   "level": "Chapter5_ZhenLiZM_logic",
+   "items": [
+    21285
+   ],
+   "rarity": 2
+  },
+  {
    "id": "Chapter5_YuRenJT_logic/BP_CylinderElevator_02_C_1",
    "cat": "lift",
    "cls": "BP_CylinderElevator_02_C",
@@ -3127,6 +4195,102 @@
    "z": 8068.42,
    "cell": "B5EX0_L0_X-8_Y-4",
    "level": "Chapter5_YuRenJT_logic"
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_26",
+   "cat": "material",
+   "cls": "BP_PickupActor_C",
+   "name": "Radiant Red Feather",
+   "obj": "BP_PickupActor_C_26",
+   "x": -107235.89,
+   "y": -3695.51,
+   "z": -1882.25,
+   "cell": "B5EX0_L0_X-11_Y-1",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    22109
+   ],
+   "rarity": 2
+  },
+  {
+   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_9",
+   "cat": "material",
+   "cls": "BP_PickupActor_C",
+   "name": "Radiant Red Feather",
+   "obj": "BP_PickupActor_C_9",
+   "x": -114973.14,
+   "y": -23929.7,
+   "z": -1931.98,
+   "cell": "B5EX0_L0_X-12_Y-3",
+   "level": "Chapter5_HaiBbaiHJS_logic",
+   "items": [
+    22109
+   ],
+   "rarity": 2
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_14",
+   "cat": "material",
+   "cls": "BP_PickupActor_C",
+   "name": "Radiant Red Feather",
+   "obj": "BP_PickupActor_C_14",
+   "x": -86181.31,
+   "y": -43562.91,
+   "z": 3212.96,
+   "cell": "B5EX0_L0_X-9_Y-5",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    22109
+   ],
+   "rarity": 2
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_35",
+   "cat": "material",
+   "cls": "BP_PickupActor_C",
+   "name": "Radiant Red Feather",
+   "obj": "BP_PickupActor_C_35",
+   "x": -85369.29,
+   "y": -35603.56,
+   "z": 2416.99,
+   "cell": "B5EX0_L0_X-9_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    22109
+   ],
+   "rarity": 2
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_63",
+   "cat": "material",
+   "cls": "BP_PickupActor_C",
+   "name": "Radiant Red Feather",
+   "obj": "BP_PickupActor_C_63",
+   "x": -75767.43,
+   "y": -33701.81,
+   "z": 4123.26,
+   "cell": "B5EX0_L0_X-8_Y-4",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    22109
+   ],
+   "rarity": 2
+  },
+  {
+   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_82",
+   "cat": "material",
+   "cls": "BP_PickupActor_C",
+   "name": "Radiant Red Feather",
+   "obj": "BP_PickupActor_C_82",
+   "x": -80846.04,
+   "y": -19310.65,
+   "z": 9017.61,
+   "cell": "B5EX0_L0_X-8_Y-2",
+   "level": "Chapter5_YuRenJT_logic",
+   "items": [
+    22109
+   ],
+   "rarity": 2
   },
   {
    "id": "Chapter5_YuRenJT_logic/BP_NewPuzzlesDoor_C_1",
@@ -3403,1170 +4567,6 @@
    "z": 8523.02,
    "cell": "B5EX0_L0_X-9_Y-3",
    "level": "Chapter5_YuRenJT_logic"
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_0",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Fire Pot",
-   "obj": "BP_PickupActor_C_0",
-   "x": -105285.03,
-   "y": -12880.82,
-   "z": -1946.76,
-   "cell": "B5EX0_L0_X-11_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20090
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_1",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Feather Pearl",
-   "obj": "BP_PickupActor_C_1",
-   "x": -110819.72,
-   "y": -3529.49,
-   "z": -1960.0,
-   "cell": "B5EX0_L0_X-11_Y-1",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20270
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_10",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Fixed Origin Pill",
-   "obj": "BP_PickupActor_C_10",
-   "x": -107151.95,
-   "y": -24467.68,
-   "z": -1038.87,
-   "cell": "B5EX0_L0_X-11_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20042
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_11",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Health Pill",
-   "obj": "BP_PickupActor_C_11",
-   "x": -108646.15,
-   "y": -9513.21,
-   "z": -945.89,
-   "cell": "B5EX0_L0_X-11_Y-1",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20025
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_12",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Emerald Lotus Seed",
-   "obj": "BP_PickupActor_C_12",
-   "x": -107442.14,
-   "y": -10639.53,
-   "z": -1909.78,
-   "cell": "B5EX0_L0_X-11_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20061
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_13",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Crimson Lantern Fruit",
-   "obj": "BP_PickupActor_C_13",
-   "x": -92012.27,
-   "y": -22506.58,
-   "z": -1842.45,
-   "cell": "B5EX0_L0_X-9_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20036
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_14",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_14",
-   "x": -111948.74,
-   "y": -21203.79,
-   "z": -1545.46,
-   "cell": "B5EX0_L0_X-11_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_15",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Giant Bronze Arrow",
-   "obj": "BP_PickupActor_C_15",
-   "x": -106676.4,
-   "y": -21485.3,
-   "z": -1918.66,
-   "cell": "B5EX0_L0_X-11_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    21269
-   ],
-   "rarity": 2
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_17",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Emerald Lotus Seed",
-   "obj": "BP_PickupActor_C_17",
-   "x": -89935.18,
-   "y": -18489.92,
-   "z": -1934.8,
-   "cell": "B5EX0_L0_X-9_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20061
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_18",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Fixed Origin Pill",
-   "obj": "BP_PickupActor_C_18",
-   "x": -108370.62,
-   "y": -14059.86,
-   "z": -1892.49,
-   "cell": "B5EX0_L0_X-11_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20042
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_19",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_19",
-   "x": -109921.28,
-   "y": -22271.58,
-   "z": -1951.45,
-   "cell": "B5EX0_L0_X-11_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_2",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_2",
-   "x": -110134.08,
-   "y": -9553.34,
-   "z": -1795.61,
-   "cell": "B5EX0_L0_X-11_Y-1",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_20",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Wangdi",
-   "obj": "BP_PickupActor_C_20",
-   "x": -113189.61,
-   "y": -14475.43,
-   "z": -1941.97,
-   "cell": "B5EX0_L0_X-12_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20229
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_21",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Flying Dagger",
-   "obj": "BP_PickupActor_C_21",
-   "x": -109530.29,
-   "y": -5948.8,
-   "z": -1951.25,
-   "cell": "B5EX0_L0_X-11_Y-1",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20080
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_22",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_22",
-   "x": -111595.98,
-   "y": -4124.34,
-   "z": -1963.0,
-   "cell": "B5EX0_L0_X-11_Y-1",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_23",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Wangdi",
-   "obj": "BP_PickupActor_C_23",
-   "x": -114871.21,
-   "y": -25249.61,
-   "z": -1953.01,
-   "cell": "B5EX0_L0_X-12_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20229
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_24",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soft Rush",
-   "obj": "BP_PickupActor_C_24",
-   "x": -98946.19,
-   "y": -17153.59,
-   "z": -1910.38,
-   "cell": "B5EX0_L0_X-10_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20044
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_25",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Crimson Lantern Fruit",
-   "obj": "BP_PickupActor_C_25",
-   "x": -105076.07,
-   "y": -16893.82,
-   "z": -1868.61,
-   "cell": "B5EX0_L0_X-11_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20036
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_26",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Radiant Red Feather",
-   "obj": "BP_PickupActor_C_26",
-   "x": -107235.89,
-   "y": -3695.51,
-   "z": -1882.25,
-   "cell": "B5EX0_L0_X-11_Y-1",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    22109
-   ],
-   "rarity": 2
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_27",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soulgrass",
-   "obj": "BP_PickupActor_C_27",
-   "x": -120870.67,
-   "y": 9140.13,
-   "z": 8330.62,
-   "cell": "B5EX0_L0_X-12_Y0",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20027
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_3",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soft Rush Flowers",
-   "obj": "BP_PickupActor_C_3",
-   "x": -129888.53,
-   "y": 7216.96,
-   "z": 9846.0,
-   "cell": "B5EX0_L0_X-13_Y0",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20045
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_31",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Corrupted Flying Dagger",
-   "obj": "BP_PickupActor_C_31",
-   "x": -100063.02,
-   "y": -15186.87,
-   "z": -1950.79,
-   "cell": "B5EX0_L0_X-10_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20083
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_4",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soulgrass",
-   "obj": "BP_PickupActor_C_4",
-   "x": -112425.46,
-   "y": -22679.06,
-   "z": -1919.87,
-   "cell": "B5EX0_L0_X-11_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20027
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_5",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_5",
-   "x": -91307.61,
-   "y": -22716.39,
-   "z": -1933.12,
-   "cell": "B5EX0_L0_X-9_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_6",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Lantern Fruit",
-   "obj": "BP_PickupActor_C_6",
-   "x": -91538.4,
-   "y": -22756.44,
-   "z": -1916.2,
-   "cell": "B5EX0_L0_X-9_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20035
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_7",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soulgrass",
-   "obj": "BP_PickupActor_C_7",
-   "x": -110231.08,
-   "y": -17640.93,
-   "z": -1808.64,
-   "cell": "B5EX0_L0_X-11_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20027
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_8",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_8",
-   "x": -87899.19,
-   "y": -20012.42,
-   "z": -1950.06,
-   "cell": "B5EX0_L0_X-9_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_C_9",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Radiant Red Feather",
-   "obj": "BP_PickupActor_C_9",
-   "x": -114973.14,
-   "y": -23929.7,
-   "z": -1931.98,
-   "cell": "B5EX0_L0_X-12_Y-3",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    22109
-   ],
-   "rarity": 2
-  },
-  {
-   "id": "Chapter5_HaiBbaiHJS_logic/BP_PickupActor_New_C_1",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_New_C",
-   "name": "Avian Tear +1",
-   "obj": "BP_PickupActor_New_C_1",
-   "x": -106517.32,
-   "y": -16697.94,
-   "z": -582.67,
-   "cell": "B5EX0_L0_X-11_Y-2",
-   "level": "Chapter5_HaiBbaiHJS_logic",
-   "items": [
-    20233,
-    22110
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_0",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Thundering Flying Dagger",
-   "obj": "BP_PickupActor_C_0",
-   "x": -85202.88,
-   "y": -43416.43,
-   "z": 5967.25,
-   "cell": "B5EX0_L0_X-9_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20085
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_1",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Crimson Lantern Fruit",
-   "obj": "BP_PickupActor_C_1",
-   "x": -89098.02,
-   "y": -37698.62,
-   "z": 2152.64,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20036
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_11",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_11",
-   "x": -89954.48,
-   "y": -32188.85,
-   "z": 1991.42,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_12",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_12",
-   "x": -66731.21,
-   "y": -35416.38,
-   "z": 2034.07,
-   "cell": "B5EX0_L0_X-7_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_13",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Stormward Pill",
-   "obj": "BP_PickupActor_C_13",
-   "x": -87492.96,
-   "y": -35001.59,
-   "z": 8038.99,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20041
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_14",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Radiant Red Feather",
-   "obj": "BP_PickupActor_C_14",
-   "x": -86181.31,
-   "y": -43562.91,
-   "z": 3212.96,
-   "cell": "B5EX0_L0_X-9_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    22109
-   ],
-   "rarity": 2
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_15",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soulgrass",
-   "obj": "BP_PickupActor_C_15",
-   "x": -75555.0,
-   "y": -33728.0,
-   "z": 8671.48,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20027
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_17",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Wangdi",
-   "obj": "BP_PickupActor_C_17",
-   "x": -81808.33,
-   "y": -38798.77,
-   "z": 2169.03,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20229
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_2",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_2",
-   "x": -76741.39,
-   "y": -25815.25,
-   "z": 2069.3,
-   "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_22",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_22",
-   "x": -86217.22,
-   "y": -42330.31,
-   "z": 7042.09,
-   "cell": "B5EX0_L0_X-9_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_26",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_26",
-   "x": -74459.18,
-   "y": -26085.45,
-   "z": 9251.35,
-   "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_27",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_27",
-   "x": -84916.0,
-   "y": -33166.0,
-   "z": 2003.0,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_29",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_29",
-   "x": -88179.6,
-   "y": -34156.45,
-   "z": 2060.0,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_3",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Lantern Fruit",
-   "obj": "BP_PickupActor_C_3",
-   "x": -83748.83,
-   "y": -34721.69,
-   "z": 1996.58,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20035
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_30",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Thundering Flying Dagger",
-   "obj": "BP_PickupActor_C_30",
-   "x": -81714.0,
-   "y": -30541.91,
-   "z": 5978.0,
-   "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20085
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_32",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_32",
-   "x": -94164.9,
-   "y": -35250.98,
-   "z": 2675.33,
-   "cell": "B5EX0_L0_X-10_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_34",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_34",
-   "x": -86252.46,
-   "y": -41911.3,
-   "z": 1990.93,
-   "cell": "B5EX0_L0_X-9_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_35",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Radiant Red Feather",
-   "obj": "BP_PickupActor_C_35",
-   "x": -85369.29,
-   "y": -35603.56,
-   "z": 2416.99,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    22109
-   ],
-   "rarity": 2
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_36",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Feather Pearl",
-   "obj": "BP_PickupActor_C_36",
-   "x": -82861.83,
-   "y": -38836.44,
-   "z": 2133.03,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20270
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_37",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Niter Fire Pot",
-   "obj": "BP_PickupActor_C_37",
-   "x": -79466.91,
-   "y": -35335.7,
-   "z": 3195.67,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20091
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_4",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soulgrass",
-   "obj": "BP_PickupActor_C_4",
-   "x": -88255.0,
-   "y": -35380.85,
-   "z": 2015.89,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20027
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_41",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Feather Pearl",
-   "obj": "BP_PickupActor_C_41",
-   "x": -75743.51,
-   "y": -30770.54,
-   "z": 8699.59,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20270
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_44",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_44",
-   "x": -74145.11,
-   "y": -45573.9,
-   "z": 1984.16,
-   "cell": "B5EX0_L0_X-8_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_45",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Wangdi",
-   "obj": "BP_PickupActor_C_45",
-   "x": -93115.62,
-   "y": -33113.68,
-   "z": 7890.27,
-   "cell": "B5EX0_L0_X-10_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20229
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_46",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Wangdi",
-   "obj": "BP_PickupActor_C_46",
-   "x": -90397.27,
-   "y": -45779.05,
-   "z": 1939.4,
-   "cell": "B5EX0_L0_X-9_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20229
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_49",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soulgrass",
-   "obj": "BP_PickupActor_C_49",
-   "x": -78141.0,
-   "y": -47636.06,
-   "z": 1992.0,
-   "cell": "B5EX0_L0_X-8_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20027
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_5",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soulgrass",
-   "obj": "BP_PickupActor_C_5",
-   "x": -83029.54,
-   "y": -38021.51,
-   "z": 9163.84,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20027
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_50",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_50",
-   "x": -71688.98,
-   "y": -47951.46,
-   "z": 2065.98,
-   "cell": "B5EX0_L0_X-8_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_51",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_51",
-   "x": -75197.11,
-   "y": -44164.9,
-   "z": 2579.08,
-   "cell": "B5EX0_L0_X-8_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_52",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Niter Fire Pot",
-   "obj": "BP_PickupActor_C_52",
-   "x": -72256.62,
-   "y": -39707.31,
-   "z": 2018.12,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20091
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_53",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_53",
-   "x": -70307.53,
-   "y": -39199.87,
-   "z": 1996.58,
-   "cell": "B5EX0_L0_X-7_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_55",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Fiery Flying Dagger",
-   "obj": "BP_PickupActor_C_55",
-   "x": -75109.36,
-   "y": -34934.46,
-   "z": 8685.5,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20084
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_58",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Crimson Lantern Fruit",
-   "obj": "BP_PickupActor_C_58",
-   "x": -78720.12,
-   "y": -42627.97,
-   "z": 8284.06,
-   "cell": "B5EX0_L0_X-8_Y-5",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20036
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_59",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Wangdi",
-   "obj": "BP_PickupActor_C_59",
-   "x": -79205.02,
-   "y": -28717.26,
-   "z": 2044.2,
-   "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20229
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_6",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Crimson Lantern Fruit",
-   "obj": "BP_PickupActor_C_6",
-   "x": -78711.11,
-   "y": -32457.74,
-   "z": 4771.45,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20036
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_61",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soulgrass",
-   "obj": "BP_PickupActor_C_61",
-   "x": -78147.0,
-   "y": -27056.97,
-   "z": 2081.49,
-   "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20027
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_62",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_62",
-   "x": -97685.5,
-   "y": -34439.42,
-   "z": 7838.43,
-   "cell": "B5EX0_L0_X-10_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_63",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Radiant Red Feather",
-   "obj": "BP_PickupActor_C_63",
-   "x": -75767.43,
-   "y": -33701.81,
-   "z": 4123.26,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    22109
-   ],
-   "rarity": 2
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_64",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Thundering Flying Dagger",
-   "obj": "BP_PickupActor_C_64",
-   "x": -87810.69,
-   "y": -27058.42,
-   "z": 7274.97,
-   "cell": "B5EX0_L0_X-9_Y-3",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20085
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_65",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_65",
-   "x": -87549.22,
-   "y": -39497.64,
-   "z": 2183.3,
-   "cell": "B5EX0_L0_X-9_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_66",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Feather Pearl",
-   "obj": "BP_PickupActor_C_66",
-   "x": -76977.54,
-   "y": -25683.39,
-   "z": 2072.01,
-   "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20270
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_7",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_7",
-   "x": -87985.23,
-   "y": -30703.33,
-   "z": 8537.86,
-   "cell": "B5EX0_L0_X-9_Y-3",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_70",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Blood of Changhong",
-   "obj": "BP_PickupActor_C_70",
-   "x": -74043.12,
-   "y": -34793.19,
-   "z": 8831.04,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20228
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_8",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Niter Fire Pot",
-   "obj": "BP_PickupActor_C_8",
-   "x": -78758.3,
-   "y": -38791.31,
-   "z": 2985.41,
-   "cell": "B5EX0_L0_X-8_Y-4",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20091
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_80",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Soft Rush Flowers",
-   "obj": "BP_PickupActor_C_80",
-   "x": -77648.34,
-   "y": -18665.49,
-   "z": 8521.71,
-   "cell": "B5EX0_L0_X-8_Y-2",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20045
-   ]
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_82",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Radiant Red Feather",
-   "obj": "BP_PickupActor_C_82",
-   "x": -80846.04,
-   "y": -19310.65,
-   "z": 9017.61,
-   "cell": "B5EX0_L0_X-8_Y-2",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    22109
-   ],
-   "rarity": 2
-  },
-  {
-   "id": "Chapter5_YuRenJT_logic/BP_PickupActor_C_9",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Purple Camellia",
-   "obj": "BP_PickupActor_C_9",
-   "x": -73107.0,
-   "y": -26163.0,
-   "z": 2001.0,
-   "cell": "B5EX0_L0_X-8_Y-3",
-   "level": "Chapter5_YuRenJT_logic",
-   "items": [
-    20062
-   ]
-  },
-  {
-   "id": "Chapter5_ZhenLiZM_logic/BP_PickupActor_C_0",
-   "cat": "pickup",
-   "cls": "BP_PickupActor_C",
-   "name": "Damaged Token",
-   "obj": "BP_PickupActor_C_0",
-   "x": -165838.31,
-   "y": -14077.61,
-   "z": 1552.08,
-   "cell": "B5EX0_L0_X-17_Y-2",
-   "level": "Chapter5_ZhenLiZM_logic",
-   "items": [
-    21285
-   ],
-   "rarity": 2
   },
   {
    "id": "borenshendian",

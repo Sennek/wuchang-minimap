@@ -458,6 +458,11 @@ namespace scan
         {"WB_HUD", "the gameplay HUD"},
         {"WB_AddressInfo", "the area-name banner"},
         {"WB_LevelChapterInfo", "the chapter banner"},
+        // DynamicCombatSystem's notice banners: one text block and a fade, raised over
+        // live gameplay. MADNESS DESCENDS arrives as a WB_LongNotice.
+        {"WB_LongNotice", "a combat notice banner"},
+        {"WB_TopNotice", "a combat notice banner"},
+        {"WB_Notice", "a combat notice banner"},
         {"WB_NPCBG", "the dialogue letterbox"},
         {"WB_GameSaving", "the autosave spinner"},
         {"WB_BossHp", "a boss health bar"},

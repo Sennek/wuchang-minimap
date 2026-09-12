@@ -63,11 +63,14 @@ floor_z_tolerance = 200
 ; Draw markers at all.
 markers_enabled = 1
 
-; Categories to draw: comma-separated list of shrine, chest, pickup, boss, elite, enemy,
-; npc, note, door, mystery_gate, benediction_door, ladder, lift, fog_gate, hidden, other
-; - or `all` / `none`. mystery_gate is the 3 red riddle doors, benediction_door the 7
-; yellow chisel doors.
-markers_categories = shrine,chest,pickup,boss,elite,npc,note,door,mystery_gate,benediction_door,ladder,lift,fog_gate,hidden,other
+; Categories to draw: comma-separated list of shrine, chest, consumable, item, harvest,
+; ammo, armour, amulet, weapon, jade, spell, material, key, boss, elite, enemy, npc, note,
+; door, mystery_gate, benediction_door, ladder, lift, fog_gate, hidden, other - or
+; `all` / `none`. The eleven from consumable to key are what a pickup grants, one bucket
+; each, drawn as a disc in their quality tier's colour with the bucket's mark inside it;
+; `pickup` from an older file still means all eleven. mystery_gate is the 3 red riddle
+; doors, benediction_door the 7 yellow chisel doors.
+markers_categories = shrine,chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,boss,elite,npc,note,door,mystery_gate,benediction_door,ladder,lift,fog_gate,hidden,other
 
 ; Found markers: 0 = draw dimmed and hollow, 1 = hide. Shrines always stay on the map.
 markers_hide_found = 1
@@ -107,7 +110,7 @@ highlight_pad_chord = LB+RB
 highlight_radius = 3000
 
 ; Categories to highlight; same names as markers_categories, or `all` / `none`.
-highlight_categories = chest,pickup,shrine,boss,npc,note
+highlight_categories = chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,shrine,boss,npc,note
 
 ; Draw the name and distance next to each glyph.
 highlight_labels = 1
@@ -117,13 +120,6 @@ highlight_show_found = 0
 
 ; Glyph radius on screen, in pixels.
 highlight_size = 7.0
-
-; 1 = colour a pickup by item-quality tier instead of category: 1 Equipment (pink beam),
-; 2 Key (gold beam). Tier 0 Common keeps its category colour.
-xray_rarity_colors_enabled = 1
-
-; 1 = use the tier colours on the minimap, the full map and the compass pips too.
-markers_rarity_tint = 0
 
 ; ---- The compass strip ----
 ; Draw the heading strip.
@@ -224,7 +220,8 @@ markers_rounds_per_sec = 1
 markers_scan_chunk = 8192
 markers_scan_period_ms = 8
 
-; How dim a found marker is, as a multiple of `opacity`.
+; How dim the FILL of a found marker is, as a multiple of `opacity`. Its outline keeps the
+; category's colour at full strength, so a collected marker stays readable at 0.
 markers_found_alpha = 0.30
 
 ; Hard cap on markers drawn per frame, nearest first.
@@ -236,7 +233,7 @@ found_save_debounce_ms = 2000
 ; A loaded-but-unseen chest or pickup counts as collected after this many rounds in a
 ; row, in these categories. Undo a mark by clicking the marker on the full map.
 markers_absence_rounds = 2
-markers_absence_categories = chest,pickup
+markers_absence_categories = chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key
 
 ; 1 = count a boss as defeated when its arena's respawn point is unlocked in the save.
 ; May mark a boss you fought and did not beat; 0 undoes it completely.
@@ -310,10 +307,6 @@ highlight_edge_arrows = 1
 
 ; How often the camera is re-read while the highlight is armed, in Hz.
 highlight_camera_hz = 60
-
-; One RRGGBB per item-quality tier, in tier order (Common, Equipment, Key). A `#` prefix
-; and the 3-digit short form are accepted.
-xray_rarity_colors = ADAFDA, DAADC5, DAD6AD
 
 ; ---- Compass tuning ----
 ; Strip height in pixels.

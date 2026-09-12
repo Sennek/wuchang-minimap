@@ -3,10 +3,15 @@
 //
 // glyphs - what shape and what colour each marker category is drawn in, as pure data.
 //
-// The rule the tables hold to: every category has its own shape, and no two categories
-// share a shape and a colour. A dimmed "found" marker loses its colour contrast first,
-// so the shape carries the identity. tests/markers_test.cpp asserts the property for
-// every palette.
+// Two families of category and one rule joining them. A PEER category (shrine, chest, a
+// door) has its own silhouette and its own hue. The eleven LOOT categories share one
+// silhouette - a filled disc - take their hue from their quality tier, and are told apart
+// by a small MARK drawn inside the disc; a mark only ever has to be read against the marks
+// of its own tier colour, of which there are at most five. The rule the tables hold to is
+// that no two categories share a shape, a mark and a colour, and that a family's
+// silhouette is used by nothing outside it. A dimmed "found" marker loses its colour
+// contrast first, so the silhouette carries the identity.
+// tests/markers_test.cpp asserts the properties for every palette.
 //
 // The drawing itself (ImDrawList primitives) is in overlay.cpp; this header knows
 // nothing about ImGui, Windows or UE4SS.
@@ -19,14 +24,14 @@
 
 namespace gly
 {
-    // Shapes: one per category, all sixteen distinct. overlay.cpp's
+    // Shapes: one per peer category and one for the whole loot family. overlay.cpp's
     // draw_marker_glyph() switches on this enum, so a category with no shape is a
     // compile error there.
     enum class Shape : std::uint8_t
     {
         Diamond = 0,     // shrine   - 4-gon on the axes with a dark centre pip
         ChestBox,        // chest    - a wide box with a lid line
-        Dot,             // pickup   - a plain filled circle
+        LootDisc,        // the eleven loot categories - a filled disc carrying a mark
         Triangle,        // boss     - a big triangle
         TriangleNotched, // elite    - a smaller triangle with a bar across it
         DotRing,         // enemy    - a small dot inside a detached ring
@@ -53,8 +58,8 @@ namespace gly
             return "diamond";
         case Shape::ChestBox:
             return "chest";
-        case Shape::Dot:
-            return "dot";
+        case Shape::LootDisc:
+            return "loot disc";
         case Shape::Triangle:
             return "triangle";
         case Shape::TriangleNotched:
@@ -87,11 +92,43 @@ namespace gly
         }
     }
 
+    // The mark drawn inside the loot family's disc, in the glyph's `edge` colour. A peer
+    // category carries `None`, and so does `consumable`: the 845 most common markers get
+    // the quietest sign. Geometry is in overlay_hud.cpp's draw_marker_glyph(), in units of
+    // the glyph radius.
+    enum class Mark : std::uint8_t
+    {
+        None = 0,
+        Pip,     // item     - a small filled circle
+        Sprout,  // harvest  - a stem with two arms
+        Square,  // ammo     - a filled square
+        Blade,   // weapon   - one diagonal stroke
+        Chevron, // armour   - an open V pointing up
+        Ring,    // amulet   - a hollow circle
+        Gem,     // jade     - a hollow 4-gon on the axes
+        Plus,    // spell    - two strokes on the axes
+        Grains,  // material - three small filled circles
+        Key,     // key item - a stroke with a bow at one end
+        Count
+    };
+
+    constexpr int kMarkCount = static_cast<int>(Mark::Count);
+
     // Cat order; the static_assert below pins the length to kCatCount.
     inline constexpr Shape kShapes[] = {
         Shape::Diamond,         // Shrine
         Shape::ChestBox,        // Chest
-        Shape::Dot,             // Pickup
+        Shape::LootDisc,        // Consumable
+        Shape::LootDisc,        // Item
+        Shape::LootDisc,        // Harvest
+        Shape::LootDisc,        // Ammo
+        Shape::LootDisc,        // Armour
+        Shape::LootDisc,        // Amulet
+        Shape::LootDisc,        // Weapon
+        Shape::LootDisc,        // Jade
+        Shape::LootDisc,        // Spell
+        Shape::LootDisc,        // Material
+        Shape::LootDisc,        // Key
         Shape::Triangle,        // Boss
         Shape::TriangleNotched, // Elite
         Shape::DotRing,         // Enemy
@@ -109,6 +146,44 @@ namespace gly
 
     static_assert(sizeof(kShapes) / sizeof(kShapes[0]) == static_cast<std::size_t>(mdb::kCatCount),
                   "every category needs exactly one glyph shape");
+
+    inline constexpr Mark kMarks[] = {
+        Mark::None,    // Shrine
+        Mark::None,    // Chest
+        Mark::None,    // Consumable - the plain disc
+        Mark::Pip,     // Item
+        Mark::Sprout,  // Harvest
+        Mark::Square,  // Ammo
+        Mark::Chevron, // Armour
+        Mark::Ring,    // Amulet
+        Mark::Blade,   // Weapon
+        Mark::Gem,     // Jade
+        Mark::Plus,    // Spell
+        Mark::Grains,  // Material
+        Mark::Key,     // Key
+        Mark::None,    // Boss
+        Mark::None,    // Elite
+        Mark::None,    // Enemy
+        Mark::None,    // Npc
+        Mark::None,    // Note
+        Mark::None,    // Door
+        Mark::None,    // MysteryGate
+        Mark::None,    // BenedictionDoor
+        Mark::None,    // Ladder
+        Mark::None,    // Lift
+        Mark::None,    // FogGate
+        Mark::None,    // Hidden
+        Mark::None,    // Other
+    };
+
+    static_assert(sizeof(kMarks) / sizeof(kMarks[0]) == static_cast<std::size_t>(mdb::kCatCount),
+                  "every category needs exactly one mark");
+
+    constexpr Mark mark_of(mdb::Cat cat)
+    {
+        const int i = static_cast<int>(cat);
+        return (i < 0 || i >= mdb::kCatCount) ? Mark::None : kMarks[i];
+    }
 
     // How far a shape reaches from its centre, as a multiple of the glyph radius `r`,
     // sizing the dark halo drawn under it. Capped at 1.25: the boss triangle's apex
@@ -133,7 +208,7 @@ namespace gly
         case Shape::RingBar:       // ring at exactly r
         case Shape::Pentagon:      // 1.05
         case Shape::DotRing:       // detached ring at 0.92
-        case Shape::Dot:
+        case Shape::LootDisc:      // the disc itself at 0.82
         case Shape::SmallSquare:
         case Shape::Count:
         default:
@@ -142,8 +217,10 @@ namespace gly
     }
 
     // Below this radius a glyph is drawn simplified: the ladder loses two of its three
-    // rungs, the note its two rules and the lift the outline inside its box. Those
-    // details sit 1-2 pixels apart at markers_size 6.5 and smudge the silhouette.
+    // rungs, the note its two rules, the lift the outline inside its box and a loot disc
+    // its mark. Those details sit 1-2 pixels apart at markers_size 6.5 and smudge the
+    // silhouette. That is the minimap, where the question is "is that dot worth the
+    // detour" and the tier colour answers it; the full map and the F2 legend draw marks.
     constexpr float kSimpleGlyphRadius = 7.0f;
 
     constexpr Shape shape_of(mdb::Cat cat)
@@ -205,10 +282,48 @@ namespace gly
         return false;
     }
 
+    //==================================================================================
+    // The quality tiers
+    //==================================================================================
+    //
+    // Saturated versions of the game's three pickup-beam hues, so the loot family reads
+    // over a lit map: blue Common, pink Equipment, gold Key. These ARE the eleven loot
+    // categories' palette rows below - the family occupies one hue slot per tier instead
+    // of eleven of its own - and they are what the F2 legend, the compass and the x-ray
+    // draw. The colour-blind set is three Okabe-Ito hues, which stay apart under
+    // deuteranopia where the beam pastels do not.
+
+    inline constexpr mdb::Rgb kTierDefault[mdb::kTierCount] = {
+        mdb::Rgb{0x4F, 0x7F, 0xE6}, // Common    - blue
+        mdb::Rgb{0xE0, 0x55, 0x9A}, // Equipment - pink
+        mdb::Rgb{0xE6, 0xB4, 0x22}, // Key       - gold
+    };
+
+    inline constexpr mdb::Rgb kTierColorblind[mdb::kTierCount] = {
+        mdb::Rgb{86, 180, 233},  // Common    - sky blue
+        mdb::Rgb{204, 121, 167}, // Equipment - reddish purple
+        mdb::Rgb{240, 228, 66},  // Key       - yellow
+    };
+
+    inline constexpr const mdb::Rgb* tier_colors(Palette pal)
+    {
+        return pal == Palette::Colorblind ? kTierColorblind : kTierDefault;
+    }
+
     inline constexpr mdb::Rgb kPaletteDefault[] = {
         mdb::Rgb{255, 186, 72},  // Shrine
         mdb::Rgb{255, 226, 120}, // Chest
-        mdb::Rgb{120, 220, 255}, // Pickup
+        kTierDefault[0],         // Consumable
+        kTierDefault[0],         // Item
+        kTierDefault[0],         // Harvest
+        kTierDefault[0],         // Ammo
+        kTierDefault[1],         // Armour
+        kTierDefault[1],         // Amulet
+        kTierDefault[1],         // Weapon
+        kTierDefault[1],         // Jade
+        kTierDefault[1],         // Spell
+        kTierDefault[2],         // Material
+        kTierDefault[2],         // Key
         mdb::Rgb{255, 86, 86},   // Boss
         mdb::Rgb{255, 140, 80},  // Elite
         mdb::Rgb{232, 96, 96},   // Enemy
@@ -230,22 +345,35 @@ namespace gly
     //   reddish purple 204 121 167
     // Assigned so that categories a player hunts for at the same time never share a hue;
     // kCompeting below lists those pairs as data and the test asserts them. The hues
-    // that do repeat - pickup/door, elite/fog gate, ladder/lift/hidden - pair a hunted
-    // thing with a piece of furniture, and their shapes differ.
+    // that do repeat - Common loot/door, Equipment loot/elite/fog gate, chest/npc,
+    // ladder/lift/hidden - pair things whose shapes differ outright.
     inline constexpr mdb::Rgb kPaletteColorblind[] = {
         mdb::Rgb{230, 159, 0},   // Shrine   - orange
-        mdb::Rgb{240, 228, 66},  // Chest    - yellow
-        mdb::Rgb{86, 180, 233},  // Pickup   - sky blue
+        // The three loot tiers take the sky blue, the reddish purple and the yellow, and
+        // the shrine the orange; bluish green is what is left for a chest, which must
+        // differ from every kind of loot. Only the NPC's pentagon shares it.
+        mdb::Rgb{0, 158, 115},   // Chest    - bluish green
+        kTierColorblind[0],      // Consumable
+        kTierColorblind[0],      // Item
+        kTierColorblind[0],      // Harvest
+        kTierColorblind[0],      // Ammo
+        kTierColorblind[1],      // Armour
+        kTierColorblind[1],      // Amulet
+        kTierColorblind[1],      // Weapon
+        kTierColorblind[1],      // Jade
+        kTierColorblind[1],      // Spell
+        kTierColorblind[2],      // Material
+        kTierColorblind[2],      // Key
         mdb::Rgb{213, 94, 0},    // Boss     - vermillion
         mdb::Rgb{204, 121, 167}, // Elite    - reddish purple
         mdb::Rgb{150, 150, 150}, // Enemy    - neutral grey, leaving boss the vermillion
         mdb::Rgb{0, 158, 115},   // Npc      - bluish green
         mdb::Rgb{0, 114, 178},   // Note     - blue, used by nothing else
-        mdb::Rgb{86, 180, 233},  // Door     - sky blue (tall box vs the pickup dot)
+        mdb::Rgb{86, 180, 233},  // Door     - sky blue (tall box vs a loot disc)
         // The two special doors keep a red and a gold here too: they are told apart from
         // each other by hue, so they cannot both fall back on the plain door's blue.
         mdb::Rgb{213, 94, 0},    // MysteryGate     - vermillion (arch vs the boss triangle)
-        mdb::Rgb{240, 228, 66},  // BenedictionDoor - yellow (arch vs the chest box)
+        mdb::Rgb{240, 228, 66},  // BenedictionDoor - yellow (arch vs a loot disc)
         mdb::Rgb{235, 235, 235}, // Ladder   - near-white
         mdb::Rgb{235, 235, 235}, // Lift     - near-white
         mdb::Rgb{204, 121, 167}, // FogGate  - reddish purple (barred ring vs the elite triangle)
@@ -266,25 +394,6 @@ namespace gly
         const int i = static_cast<int>(cat);
         const int j = (i < 0 || i >= mdb::kCatCount) ? (mdb::kCatCount - 1) : i;
         return pal == Palette::Colorblind ? kPaletteColorblind[j] : kPaletteDefault[j];
-    }
-
-    //==================================================================================
-    // The item-quality (rarity) palette, colour-blind variant
-    //==================================================================================
-    //
-    // The default tier colours (mdb::kDefaultRarityColors) are the game's own
-    // pickup-beam pastels, which are indistinguishable under deuteranopia.
-    // `palette = colorblind` swaps in three Okabe-Ito hues; an explicit
-    // `xray_rarity_colors` in the config still wins.
-    inline constexpr mdb::Rgb kRarityColorblind[mdb::kRarityCount] = {
-        mdb::Rgb{86, 180, 233},  // Common    - sky blue
-        mdb::Rgb{204, 121, 167}, // Equipment - reddish purple
-        mdb::Rgb{240, 228, 66},  // Key       - yellow
-    };
-
-    inline constexpr const mdb::Rgb* rarity_colors(Palette pal)
-    {
-        return pal == Palette::Colorblind ? kRarityColorblind : mdb::kDefaultRarityColors;
     }
 
     //==================================================================================
@@ -386,10 +495,10 @@ namespace gly
         {mdb::Cat::Boss, mdb::Cat::Elite},
         {mdb::Cat::Boss, mdb::Cat::Enemy},
         {mdb::Cat::Elite, mdb::Cat::Enemy},
-        // Loot.
-        {mdb::Cat::Chest, mdb::Cat::Pickup},
+        // Loot. The eleven loot categories are covered by the tier loop in
+        // palette_competing_hues_ok(): the three tier hues differ from these two and from
+        // each other, which is the same statement for all eleven at once.
         {mdb::Cat::Chest, mdb::Cat::Hidden},
-        {mdb::Cat::Pickup, mdb::Cat::Hidden},
         // The map's landmark must not read as a chest.
         {mdb::Cat::Shrine, mdb::Cat::Chest},
         // The doors. Three kinds sit side by side in one area and the question is which
@@ -409,10 +518,29 @@ namespace gly
                 return false;
             }
         }
+        // The other two kinds of loot against every tier of the first kind, and the tiers
+        // against each other: "gold yes, pink probably, blue no" is the minimap's whole
+        // answer, so two tiers sharing a hue would erase it.
+        const mdb::Rgb* tiers = tier_colors(pal);
+        for (int i = 0; i < mdb::kTierCount; ++i)
+        {
+            if (tiers[i] == marker_rgb(mdb::Cat::Chest, pal) ||
+                tiers[i] == marker_rgb(mdb::Cat::Hidden, pal))
+            {
+                return false;
+            }
+            for (int j = i + 1; j < mdb::kTierCount; ++j)
+            {
+                if (tiers[i] == tiers[j])
+                {
+                    return false;
+                }
+            }
+        }
         return true;
     }
 
-    // No two categories share a shape and a colour.
+    // No two categories share a shape, a mark and a colour.
     inline bool palette_is_separable(Palette pal)
     {
         for (int a = 0; a < mdb::kCatCount; ++a)
@@ -421,7 +549,43 @@ namespace gly
             {
                 const mdb::Cat ca = static_cast<mdb::Cat>(a);
                 const mdb::Cat cb = static_cast<mdb::Cat>(b);
-                if (shape_of(ca) == shape_of(cb) && marker_rgb(ca, pal) == marker_rgb(cb, pal))
+                if (shape_of(ca) == shape_of(cb) && mark_of(ca) == mark_of(cb) &&
+                    marker_rgb(ca, pal) == marker_rgb(cb, pal))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // The loot family's own rule, independent of the palette: its silhouette belongs to it
+    // alone, every one of the eleven carries it, and no two of them in the same tier - the
+    // marks a player has to tell apart at a glance - carry the same mark. A mark is drawn
+    // by nothing outside the family.
+    inline bool loot_family_marks_ok()
+    {
+        for (int a = 0; a < mdb::kCatCount; ++a)
+        {
+            const mdb::Cat ca = static_cast<mdb::Cat>(a);
+            if (mdb::is_loot_family(ca) != (shape_of(ca) == Shape::LootDisc))
+            {
+                return false;
+            }
+            if (!mdb::is_loot_family(ca) && mark_of(ca) != Mark::None)
+            {
+                return false;
+            }
+            mdb::Tier ta = mdb::Tier::Common;
+            if (!mdb::tier_of(ca, ta))
+            {
+                continue;
+            }
+            for (int b = a + 1; b < mdb::kCatCount; ++b)
+            {
+                const mdb::Cat cb = static_cast<mdb::Cat>(b);
+                mdb::Tier tb = mdb::Tier::Common;
+                if (mdb::tier_of(cb, tb) && ta == tb && mark_of(ca) == mark_of(cb))
                 {
                     return false;
                 }

@@ -149,8 +149,15 @@ diverge silently:
   `(chapter, category)` clears a floor from a table in the test *including the explicit zeros* (so
   "chapter 5 has no ladder" is a recorded decision rather than a blind spot), the categories the
   game itself pins to a number match it exactly (3 mystery gates, 7 benediction doors - the Sage
-  and Discerning Eye achievements), every item id a pickup references is a row of `items.json`, every shrine marker has a row in `shrines.json`, and
+  and Discerning Eye achievements), every item id a loot marker references is a row of `items.json`, every shrine marker has a row in `shrines.json`, and
   no single name accounts for more than half of a `(chapter, category)`'s named entries;
+  the loot family is measured as a family — a per-chapter floor on the eleven categories together,
+  a per-bucket floor over all six chapters with each bucket's tier asserted against the bucket
+  table, and the name-diversity cap over the family as one set per chapter, because
+  a per-chapter floor on `amulet` would be 1 or 0 and say nothing; every item in `items.json`
+  carries a bucket and every bucket is one of the eleven, and every placed pickup wears the bucket
+  of its `items[0]` — the offline rule restated over the shipped data, with the 17 cannon crates
+  the measured exception the class rule keeps;
 * **the shipped map assets** — `maps.json` parses at the current schema and the sparse height-plane
   store decodes from the shipped PNGs, with `z_requantise_worst_uu` under 20 uu.
 
@@ -223,7 +230,7 @@ own file.
 | **game-thread readers** | `gamestate.*` (pawn, view target, menu detection), `markers.*` (the `GUObjectArray` sweep and the found tracker), `highlight.*` (the camera pose), `shrines.*`, `saveslot.*`, `gamebinds.*`, `recon.*`, `navmesh_dump.*` |
 | **cross-thread state** | `mmstate.*` (the snapshot seqlock, the config file, the log queue), `spinlock.hpp`, `atomicfile.hpp`, `perf.hpp` |
 | **map data** | `mapmanifest.hpp` (PURE `maps.json` parser), `mapdata.*` (chapter residency + the sparse 128-px-block height store), `slicerule.hpp` (PURE; the rule both maps slice and shade by), `pngdecode.hpp` (WIC, shared with `markers_test`) |
-| **marker model** | `markers_db.*` (PURE: the chapter JSON, category masks, item quality, the found-file round trip), `shrines_db.hpp`, `marker_dedupe.hpp`, `scriptmap.hpp` (PURE `FScriptMap` decode), `scan_sched.hpp` (PURE slice / wrap / rate arithmetic) |
+| **marker model** | `markers_db.*` (PURE: the chapter JSON, category masks, the quality tier a category sits in, the found-file round trip), `shrines_db.hpp`, `marker_dedupe.hpp`, `scriptmap.hpp` (PURE `FScriptMap` decode), `scan_sched.hpp` (PURE slice / wrap / rate arithmetic) |
 | **PURE UI logic** | `mapview.*` (the full map's viewport transform and its exact inverse, the zoom ladder, the waypoint file), `compass.*`, `projection.hpp`, `glyphs.hpp`, `label_layout.hpp`, `textmatch.hpp`, `exchange.hpp`, `gamebinds_map.hpp`, `typing_gate.hpp`, `chapterid.hpp` |
 | **config** | `config_keys.hpp` (the one key → tier table), `config_rewrite.hpp` (PURE in-place rewrite: values only), `json.hpp` |
 | **engine access** | `ue_min.hpp` (hand-written `RC::Unreal` ABI declarations), `uereflect.hpp` (cached property offsets, `UFunction` calls), `mem.*` (`VirtualQuery` + SEH-guarded raw reads), `gamepad.*` (XInput, dynamically loaded, LOOP thread only) |
@@ -416,9 +423,10 @@ every draw site copies the whole set inside Present and a `std::vector` there wo
 free: the overlay is composited on the finished frame, so there is no occlusion test, no
 CustomDepth and no material. *The toggle is the one piece of latched input state in the mod*, so
 it is cleared from live state and never remembered — `hl::drop_caches()` turns it off on every
-level transition and every dropped pawn. Item-quality colours are the game's own pickup-beam
-grouping, not a rarity ladder the game does not have; `markers_db.hpp` documents the three tiers
-and why tier 0 keeps its category colour.
+level transition and every dropped pawn. The x-ray draws the same tier colours as every other
+surface — the loot family's hue is its quality tier, so there is nothing here to tint and no
+switch to tint it with; `markers_db.hpp`'s `tier_of()` is the one place that says which tier a
+category is in.
 
 **The player's own key bindings** — `gamebinds.*` + `gamebinds_map.hpp` (PURE). The Keys tab
 warns when a mod hotkey lands on a key the game already wants, read out of the running game rather
@@ -448,7 +456,7 @@ whose safety rail is that a marker whose owning level cannot be matched to a loa
 |---|---|
 | shrine | the save's global `UnlockedFirepoints` list, not a per-actor flag. Never auto-marked: the tracker follows collectables, not rest points |
 | chest, door, mystery gate, benediction door | the actor's `Used` flag, the one `SavedStatuKey=statu_use` names, so the save restores it. The special doors' own `DoorOpen` drives the dissolve animation and is false again after a reload |
-| pickup, hidden | `dying`, or the actor parked at `(0,0,0)` |
+| the eleven loot categories, hidden | `dying`, or the actor parked at `(0,0,0)` |
 | fog gate | `Active` |
 | note | MET — seen loaded near the player. A note already read is made invisible, not moved, so the live twin is tested for visibility |
 | npc | never — walking past a merchant does not use them up. `mdb::has_found_state()` says so once, and every place that composes or offers the found flag asks it: no rule marks a person, an id an older build left in the found file does not light one, `markers_hide_found` never takes one off the map and the full map offers no toggle. Mobility (`twin_drop`) is the only rule that drops an NPC marker |
@@ -487,6 +495,11 @@ F5 look at **both** files, so editing either reloads both.
 
 Three keys take effect only on restart or on a `mod_enabled` off/on cycle, because each is read
 once during start-up: `overlay_hooks`, `srv_heap_size` and `navmesh_dump`.
+
+**A new Advanced key does not reach an existing install.** Neither `deploy.ps1` nor a Nexus update
+over a player's folder adds keys to a config file that is already there, so a new key is invisible
+to an updating player until the F2 panel's auto-save appends it. Its default has to be the right
+behaviour on its own, or the release notes have to say so.
 
 **Two off switches, and they are the first thing to ask a bug reporter for.** `mod_enabled = 0`
 makes the whole DLL inert — the hooks are not installed (and are cleanly disabled if they already
@@ -536,8 +549,27 @@ are rejected in code, not merely discouraged in a comment.
   single-statement `if`s, lines under ~100 columns, no `.clang-format`. Comments are a prose block
   at the top of each file — what the module is, which thread it runs on, what it must not do — plus
   short notes above non-obvious declarations, present tense, no change history.
-- **No art assets.** Category glyphs are `ImDrawList` primitives, and every category is
-  distinguished by shape as well as colour (asserted in the tests for every palette).
+- **No art assets.** Category glyphs are `ImDrawList` primitives. A peer category (shrine, chest, a
+  door) carries its own silhouette and its own hue. The eleven loot categories share the disc,
+  take their hue from their quality tier and are told apart by a mark inside the disc, so a mark is
+  only ever read against the marks of its own colour — at most five. No two categories share a
+  shape, a mark and a colour, and no peer borrows the family's silhouette (asserted in the tests
+  for every palette).
+- **The master switch has no hotkey.** `modswitch::watch()` polls the config mtime at 1 Hz and
+  re-reads `mod_enabled` from the **player** config alone; the dev file moves the mtime but its
+  value for that key is never read. Scripted toggling is a byte-exact `1`/`0` flip in the player
+  file.
+- **A start-up "hang" with no `wuchang_minimap.log` at all** is usually the Windows console in
+  mark/selection mode blocking UE4SS's writes, not the mod. Clicking in the console window does it;
+  `Esc` clears it and init continues immediately.
+- **The game's graphics settings live in `Saved\<id>\GameConfig\GameConfig.sav`** - a 10-byte
+  marker, a UE zlib block holding a JSON `gameset`, the marker again as footer. Hand edits are
+  accepted, which makes it the lever for graphics experiments; `GameUserSettings.ini` carries only
+  resolution, fullscreen mode, vsync and HDR, and is read at boot.
+- **Minimising does not stop this game presenting** - it renders fully in the background, so a
+  minimised window is no way to fake a Present stall. Use a probe build.
+- **Under `WindowsApps` (Game Pass) the mod's file writes fail soft**, so such a player has no log,
+  no breadcrumb and no found file to attach to a bug report.
 
 ---
 
@@ -655,11 +687,37 @@ one base class per category, read out of every cooked `.uasset` export map's `su
 (`class_graph.py`, cached and committed). `build_categories.py` holds the choice of bases and the
 precedence; everything below a base is data. **The precedence is load-bearing**: five `BP_NPC_C`
 descendants have a category of their own, `BP_PickUpActor_Trap_C` is a `BP_PickupActor_C`
-descendant that must be `hidden`, and `boss` precedes `enemy` because the boss classes are
+descendant that must be `hidden`, `ammo` precedes `item` because `BP_BombsBox_C` is a
+`BP_PickupActor_C` descendant, and `boss` precedes `enemy` because the boss classes are
 `BP_BaseAI_C` descendants too. `BP_BaseAI_C` having zero overlap with `BP_NPC_C` is what makes
 `enemy` a class question rather than a level-name one; the `*_AI` sublevel heuristic survives as a
 counted fallback, and the extractor prints the rule mix plus **every class in a `_logic` level
 that matched no category**.
+
+**Loot is eleven categories, and the class graph decides only three of them.**
+`consumable material key weapon armour amulet jade spell harvest ammo item` replace the single
+`pickup`, and `tools/markers/pickup_buckets.py` is the one reference for both halves of the rule:
+`ITEM_TYPE_BUCKET` / `bucket_of_type()` maps every `E_ItemType` to a bucket, and `CLASS_BUCKETS`
+names the three buckets an item-less actor can land in (`item`, `harvest`, `ammo`), asserted
+against `build_categories.ROOTS`. `build_items.py` writes every item's bucket into
+`markers/items.json` as a `bucket` field, so the type table is consulted once and everything else
+— the extractor, and the mod's own live sweep — reads that one answer back. A loot actor that
+carries `items` takes the bucket of `items[0]` — the same first item that already decides its
+display name — and one with no `items` keeps the bucket its class graph gave it.
+
+At runtime the same rule reaches loot that has no static twin: an enemy's drop is read for its
+first item id, and `mdb::live_loot_cat()` (`src/markers_db.hpp`) turns that item's bucket into the
+marker's category. It improves on **`item` only** — the bucket that means "contents unresolved" —
+so a harvest node and a cannon crate keep the class graph's answer exactly as they do offline, and
+a static marker's category is never touched at all (the publish point draws `StaticMarker::cat`).
+An `E_ItemType` with no bucket is a `SystemExit`
+out of `bucket_of_type()`, never a silent fallback, and `verify_markers.py`'s `check_categories()`
+fails the run on any shipped `cat` that is not a category the mod knows. Each bucket sits in
+exactly one quality tier — Common, Equipment, Key — which is why the runtime needs no per-marker
+quality field. `BP_BombsBox_C` is the cannon resupply crate, not loot: its class default grants
+Shrapnel Bombs and all 17 stand within five metres of a `BP_paoche_C` emplacement, so `ammo` is its
+own bucket and the boxes read "Shrapnel Bomb". `ItemCollectionBox_C` is the player's storage box
+and belongs to `other`.
 
 **Three answers are simply absent from the game data**, so do not go looking for them again:
 ordinary enemies have no name anywhere (`build_enemies.py --prove` re-runs all four checks that

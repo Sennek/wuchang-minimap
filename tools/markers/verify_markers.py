@@ -25,6 +25,11 @@ tool runs on a fresh clone with no game installed and no environment set up.
 `WUCHANG_RECON_DUMPS` or `--dumps` override the glob when you have a newer
 session's dumps.
 
+The category invariant below needs no dumps at all: it reads the shipped
+chapter files and fails when a marker carries a category nothing in the pipeline
+can produce - the retired `pickup` among them, now split into the eleven buckets
+of `pickup_buckets.BUCKETS`.
+
 The dumps only ever cover the areas that were loaded when F8 was pressed, so a
 chapter with no overlap is reported as "no live actors in common" and is not a
 failure - `--require` turns a chapter with matches but disagreements into a
@@ -43,6 +48,9 @@ import re
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
+
+import marker_classes                                       # noqa: E402
 
 # The reference dumps committed to this repo. No machine-specific path and no
 # game install needed; `WUCHANG_RECON_DUMPS` or `--dumps` point at a newer set.
@@ -120,6 +128,32 @@ def score(path: str, live: dict, tol: float, show: int) -> tuple[int, int]:
     return matched, bad
 
 
+def check_categories(paths: list[str]) -> int:
+    """Every shipped `cat` is a category the pipeline knows how to draw.
+
+    `marker_classes.LABEL` is the full set - the class-graph categories plus the
+    eleven pickup buckets - so a marker left with the retired `pickup`, or with
+    anything else nobody registered, is a hard failure here rather than a
+    category the runtime silently drops.  Returns the number of bad markers.
+    """
+    known = set(marker_classes.LABEL)
+    bad = collections.Counter()
+    total = 0
+    for p in paths:
+        for m in json.load(open(p, encoding="utf-8"))["markers"]:
+            total += 1
+            c = m.get("cat")
+            if c not in known:
+                bad[f"{os.path.basename(p)}: {c!r}"] += 1
+    print(f"categories: {total} marker(s), {len(known)} known categor(ies)")
+    for k, n in sorted(bad.items()):
+        print(f"  UNKNOWN CATEGORY {k} x{n}")
+    if bad:
+        print(f"  {sum(bad.values())} marker(s) carry a category the pipeline "
+              f"cannot produce")
+    return sum(bad.values())
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -136,14 +170,6 @@ def main(argv=None):
                          "without it the tool only reports")
     a = ap.parse_args(argv)
 
-    live, nfiles = load_dumps(a.dumps)
-    print(f"dumps: {nfiles} file(s) matching {a.dumps}, "
-          f"{len(live)} distinct live actors")
-    if not live:
-        print("  no dumps found - nothing to score. This is not a failure: the "
-              "dumps are recorded in-game evidence, not a build input.")
-        return 0
-
     target = a.markers or MARKERS
     if os.path.isdir(target):
         paths = sorted(glob.glob(os.path.join(target, "chapter*.json")))
@@ -153,6 +179,18 @@ def main(argv=None):
     if not paths:
         print(f"  no chapter json under {target}")
         return 1
+
+    # Needs no dumps, so it runs first and always.
+    if check_categories(paths):
+        return 1
+
+    live, nfiles = load_dumps(a.dumps)
+    print(f"dumps: {nfiles} file(s) matching {a.dumps}, "
+          f"{len(live)} distinct live actors")
+    if not live:
+        print("  no dumps found - nothing to score. This is not a failure: the "
+              "dumps are recorded in-game evidence, not a build input.")
+        return 0
 
     total_matched = total_bad = 0
     for p in paths:

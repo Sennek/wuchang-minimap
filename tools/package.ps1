@@ -27,7 +27,7 @@
             dlls\main.dll
             maps\maps.json, maps\chapter<1..5>\*.png
             markers\chapter*.json          (the hand-written *.sample.json is excluded)
-            markers\items.json             (item display names, when it has been built)
+            markers\items.json             (item names and loot buckets, when it has been built)
             markers\shrines.json           (the shrine table: names, chapters, destinations)
             config_wuchang_minimap.txt
             enabled.txt
@@ -236,11 +236,11 @@ try {
     if ($markerFiles.Count -eq 0) { throw "No markers\chapter*.json - build them with tools\markers." }
     foreach ($f in $markerFiles) { Copy-Item -LiteralPath $f.FullName -Destination $markersDst -Force }
 
-    #     items.json (the item display-name database, schema wuchang-minimap-items/1) is
-    #     shipped alongside them when it exists. The runtime does not need it - the names
-    #     are already baked into chapter*.json - but it is what a later tooltip/search
-    #     feature reads, and the loader skips any file whose schema is not a marker
-    #     manifest, so shipping it is free.
+    #     items.json (the item database, schema wuchang-minimap-items/3) is shipped
+    #     alongside them when it exists. A placed pickup needs nothing from it - its name
+    #     and its bucket are baked into chapter*.json - but loot an enemy DROPS has no
+    #     static twin, and this file is what names it and puts it in its loot bucket. The
+    #     loader skips any file whose schema is not a marker manifest.
     $itemsSrc = Join-Path $repo 'markers\items.json'
     if (Test-Path $itemsSrc) { Copy-Item -LiteralPath $itemsSrc -Destination $markersDst -Force }
 

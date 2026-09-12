@@ -7,7 +7,9 @@ Shared reader for `markers/items.json` (schema `wuchang-minimap-items/1`).
   * the **membership set** -- an integer that is a real row of one of the item
     DataTables is what makes the inline `Items` array scan safe (see
     `extract_markers.item_ids`);
-  * the **display name** of an item id.
+  * the **display name** of an item id;
+  * the **bucket** an item puts a pickup in (`pickup_buckets`), computed once by
+    `build_items.py` and read back here rather than recomputed.
 
 Kept in its own module so both tools agree on the shape and neither imports the
 other.
@@ -18,7 +20,7 @@ from __future__ import annotations
 import json
 import os
 
-SCHEMA = "wuchang-minimap-items/2"
+SCHEMA = "wuchang-minimap-items/3"
 
 # --- item quality ("rarity") ------------------------------------------------
 #
@@ -110,6 +112,13 @@ class ItemDB:
     def type_name(self, item_id: int) -> str | None:
         rec = self.items.get(item_id)
         return rec.get("type") if rec else None
+
+    def bucket(self, item_id: int) -> str | None:
+        """Marker bucket of an item id (`pickup_buckets`), as `build_items.py`
+        wrote it. The one answer both the extractor and the mod's live sweep
+        read, so a pickup and a runtime drop of the same item agree."""
+        rec = self.items.get(item_id)
+        return rec.get("bucket") if rec else None
 
     def rarity(self, item_id: int) -> int:
         """Quality tier of an item id; unknown ids are Common (0)."""

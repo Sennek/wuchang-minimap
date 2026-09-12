@@ -1,3 +1,29 @@
+//
+// markers - the marker set: the static database from markers/*.json, the live actors the
+// game thread sweeps out of GUObjectArray, and the found tracker that remembers what the
+// player has already taken.
+//
+// THREE THREADS, EACH ALLOWED ONE THING - the split is markers.hpp's prose, and it is the
+// reason this file is long: the two halves share the found set and nothing else, through
+// two copies and a dirty flag rather than a lock held across a file write. Keeping them in
+// one translation unit is what keeps that state private to the pair (measured: of the
+// found tracker's 52 globals, 51 are touched by the sweep as well).
+//
+// In order:
+//
+//   1. the class table: what kind of thing a UClass is, memoised up the super chain, and
+//      which state flag answers "taken" for it
+//   2. the raw reads, GAME THREAD only - a property by name, health, location, visibility,
+//      the item a pickup carries. Every one goes through mem::read
+//   3. found-state bookkeeping: the game thread marks, the loop thread owns the master set
+//   4. the sweep: one slice of GUObjectArray per pump, the round that follows, and the POD
+//      draw buffer published at the end of it
+//   5. the found file, LOOP THREAD: its save slot, the migration out of the shared file,
+//      the debounced atomic write, and the snapshot staged for DLL_PROCESS_DETACH
+//   6. the static database and the item names, loaded once
+//   7. the public API - view(), stats(), the request queue the render thread posts into
+//
+
 #include "markers.hpp"
 
 #include <Windows.h>

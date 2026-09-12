@@ -773,6 +773,13 @@ namespace mm
     // and mod_dir() only when that cannot be had. Resolved on the first call, from the loop
     // thread, which also carries older state files over from the mod folder.
     std::wstring state_dir();
+
+    // Loop thread. A whole file in or out through atomicfile.hpp, saying in the log why a
+    // failure happened - the size cap, or who else has the file open. The write is atomic
+    // and keeps no backup. A module with its own cap or its own wording wraps
+    // `mmfile::` itself instead (markers, mapdata).
+    bool read_whole_file(const std::wstring& path, std::string& out);
+    bool write_whole_file(const std::wstring& path, const std::string& data);
     // How that carry went, for the bug-report header.
     void state_dir_migration(unsigned& moved, unsigned& failed);
 

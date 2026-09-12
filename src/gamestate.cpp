@@ -1,3 +1,28 @@
+//
+// gamestate - what the render thread is told about the world, assembled on the GAME
+// THREAD inside UE4SS's ProcessEvent pre-callback. The module's contract is in
+// gamestate.hpp; this is how the answer is found.
+//
+// Nothing here allocates on a hot path, nothing logs off the loop thread, and every read
+// of an engine object goes through mem::read. The four subjects below all end in one
+// `mm::Snapshot`, published once per pump, which is why they share a file and a pile of
+// state: the menu answer decides whether the chapter vote is allowed to count, the pawn
+// decides whether either is worth asking.
+//
+// In order:
+//
+//   1. the tunables, re-read from the config when it changes, and the caches a rare reset
+//      drops
+//   2. resolving the player controller and the pawn - several routes, each logged, because
+//      the one that works differs by build and by what the player is standing in
+//   3. the menu and widget detector: which widget classes are on screen, which of them
+//      count as a menu, and the candidate commit that turns a sighting into a decision
+//   4. chapter identification: the loaded levels, the coverage vote, and the hysteresis
+//      that stops a boundary flickering between two chapters
+//   5. the pump itself - the budget each of the above gets per callback, and the watchdog
+//      stage it records so a hang names the step it hung in
+//
+
 #include "gamestate.hpp"
 
 #include <Windows.h>

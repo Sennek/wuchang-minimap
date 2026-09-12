@@ -1,3 +1,29 @@
+//
+// mmstate - the config files, and the snapshot the game thread publishes to the render
+// thread. Everything else in `mm` lives in a file of its own: the mod's own log in
+// modlog.cpp, the player's pins in waypoints.cpp.
+//
+// LOOP THREAD for every line of file I/O here. `publish()` is the game thread's, and
+// `read_snapshot()` / `config()` answer any thread - the snapshot through a seqlock, the
+// config through a spinlock and a copy. No UObject is ever touched from this file.
+//
+// In order:
+//
+//   1. where the mod's state lives (`state_dir`), and the one-time migration out of the
+//      DLL folder into %LOCALAPPDATA%
+//   2. whole-file read and write, logging why a failure happened - shared with
+//      waypoints.cpp, declared in the header
+//   3. the seqlock: `publish()` writes, `read_snapshot()` reads, and the sequence number
+//      is odd for exactly as long as a write is in progress
+//   4. the per-frame performance counters the F2 table reads, and the stall window a
+//      resize or a level load opens
+//   5. key names, virtual-key parsing and gamepad chords
+//   6. the config: parse a line, apply it by tier, clamp it, write it back out in place,
+//      and the theme defaults that fill in what the player never picked
+//   7. the data-provenance check - which game build the shipped markers and maps came
+//      from, against the build now running
+//
+
 #include "mmstate.hpp"
 
 #include "atomicfile.hpp"
@@ -28,25 +54,6 @@ namespace mm
 
         spin::Spinlock g_cfg_lock;
         Config g_cfg{};
-
-        spin::Spinlock g_wp_lock;
-        mv::WaypointSet g_wp{};
-
-        spin::Spinlock g_log_lock;
-        // A line logged off the loop thread waits here until the loop thread drains it,
-        // which can be a whole frame later - so the wall clock is taken when the line is
-        // MADE, not when it is written. The stamp is POD beside the string, so it costs
-        // the queue entry one SYSTEMTIME and no allocation.
-        struct LogEntry
-        {
-            std::wstring line;
-            SYSTEMTIME at{};
-        };
-        std::vector<LogEntry> g_log_queue;
-        DWORD g_loop_thread = 0;
-        // Dropped, never blocked and never grown: the game thread must not wait on the loop thread.
-        constexpr std::size_t kLogQueueMax = 4096;
-        std::size_t g_log_dropped = 0;
 
         std::wstring g_mod_dir;
 
@@ -168,43 +175,48 @@ namespace mm
             ::FindClose(h);
         }
 
-        // Text file I/O: plain Win32, no iostreams anywhere in this mod.
+    } // namespace
 
-        bool read_whole_file(const std::wstring& path, std::string& out)
-        {
-            const mmfile::ReadInfo info = mmfile::read_whole_file(path, out, 64ull << 20);
-            if (info.status == mmfile::ReadStatus::Ok)
-            {
-                return true;
-            }
-            if (info.too_big)
-            {
-                logf(L"FAILED to read {} - it is {} byte(s), over the 64 MB cap this mod reads; "
-                     L"it was IGNORED",
-                     path,
-                     info.size);
-            }
-            else if (info.status == mmfile::ReadStatus::Failed)
-            {
-                logf(L"FAILED to read {} (error {}) - the file exists but could not be read, so its "
-                     L"contents were IGNORED (something else may have it open)",
-                     path,
-                     info.error);
-            }
-            return false;
-        }
+    // Text file I/O: plain Win32, no iostreams anywhere in this mod.
 
-        // Atomic: temp file, flush, rename (atomicfile.hpp). No backup.
-        bool write_whole_file(const std::wstring& path, const std::string& data)
+    bool read_whole_file(const std::wstring& path, std::string& out)
+    {
+        const mmfile::ReadInfo info = mmfile::read_whole_file(path, out, 64ull << 20);
+        if (info.status == mmfile::ReadStatus::Ok)
         {
-            unsigned err = 0;
-            if (mmfile::write_whole_file_atomic(path, data, false, &err))
-            {
-                return true;
-            }
-            ::SetLastError(err);
-            return false;
+            return true;
         }
+        if (info.too_big)
+        {
+            logf(L"FAILED to read {} - it is {} byte(s), over the 64 MB cap this mod reads; "
+                 L"it was IGNORED",
+                 path,
+                 info.size);
+        }
+        else if (info.status == mmfile::ReadStatus::Failed)
+        {
+            logf(L"FAILED to read {} (error {}) - the file exists but could not be read, so its "
+                 L"contents were IGNORED (something else may have it open)",
+                 path,
+                 info.error);
+        }
+        return false;
+    }
+
+    // Atomic: temp file, flush, rename (atomicfile.hpp). No backup.
+    bool write_whole_file(const std::wstring& path, const std::string& data)
+    {
+        unsigned err = 0;
+        if (mmfile::write_whole_file_atomic(path, data, false, &err))
+        {
+            return true;
+        }
+        ::SetLastError(err);
+        return false;
+    }
+
+    namespace
+    {
 
         std::string trim(std::string_view v)
         {
@@ -1489,7 +1501,6 @@ namespace mm
     std::atomic<bool> g_save_config_soon{false};
     std::atomic<bool> g_key_capture{false};
     std::atomic<bool> g_panel_drew_frame{false};
-    std::atomic<bool> g_waypoint_dirty{false};
 
     void publish(const Snapshot& snap)
     {
@@ -2532,537 +2543,6 @@ namespace mm
         return main_ft ^ (dev_ft * 0x9E3779B97F4A7C15ull);
     }
 
-    mv::WaypointSet waypoints()
-    {
-        spin::SpinGuard guard(g_wp_lock);
-        return g_wp;
-    }
-
-    void set_waypoints(const mv::WaypointSet& set)
-    {
-        {
-            spin::SpinGuard guard(g_wp_lock);
-            g_wp = set;
-            if (g_wp.count > mv::kMaxWaypoints)
-            {
-                g_wp.count = mv::kMaxWaypoints;
-            }
-        }
-        g_waypoint_dirty.store(true, std::memory_order_release);
-    }
-
-    bool add_waypoint(const mv::Waypoint& wp)
-    {
-        {
-            spin::SpinGuard guard(g_wp_lock);
-            if (g_wp.count >= mv::kMaxWaypoints)
-            {
-                return false;
-            }
-            g_wp.items[g_wp.count] = wp;
-            g_wp.items[g_wp.count].set = true;
-            ++g_wp.count;
-        }
-        g_waypoint_dirty.store(true, std::memory_order_release);
-        return true;
-    }
-
-    void remove_waypoint(std::size_t index)
-    {
-        {
-            spin::SpinGuard guard(g_wp_lock);
-            if (index >= g_wp.count)
-            {
-                return;
-            }
-            for (std::size_t i = index + 1; i < g_wp.count; ++i)
-            {
-                g_wp.items[i - 1] = g_wp.items[i];
-            }
-            --g_wp.count;
-            g_wp.items[g_wp.count] = mv::Waypoint{};
-        }
-        g_waypoint_dirty.store(true, std::memory_order_release);
-    }
-
-    void clear_waypoints()
-    {
-        {
-            spin::SpinGuard guard(g_wp_lock);
-            g_wp = mv::WaypointSet{};
-        }
-        g_waypoint_dirty.store(true, std::memory_order_release);
-    }
-
-    namespace
-    {
-        std::string g_wp_key;        // "" = the shared file
-        bool g_wp_key_valid = false; // has a key ever been taken from slotid?
-
-        std::wstring waypoint_path_for(const std::string& key)
-        {
-            const std::string name = slotid::waypoint_filename(key);
-            std::wstring wide;
-            wide.reserve(name.size());
-            for (char c : name)
-            {
-                wide.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
-            }
-            return state_dir() + L"\\" + wide;
-        }
-
-        bool wp_file_exists(const std::wstring& path)
-        {
-            return ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
-        }
-
-        // The waypoint half of the found tracker's legacy reconcile: builds before the
-        // save key became the slot name alone also wrote `<steam account id>_<slot>`
-        // waypoint files. Each one's waypoints are added to the canonical set (places
-        // already in it are not duplicated, and the set stops at mv::kMaxWaypoints) and
-        // the legacy file is removed. Loop thread.
-        void reconcile_legacy_waypoints(const std::string& key)
-        {
-            if (key.empty())
-            {
-                return;
-            }
-            const std::wstring dir = state_dir();
-            std::wstring wpattern;
-            for (char c : std::string{slotid::kWaypointPrefix} + "*_" + key + ".txt")
-            {
-                wpattern.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
-            }
-            std::vector<std::string> legacy_names;
-            WIN32_FIND_DATAW fd{};
-            HANDLE h = ::FindFirstFileW((dir + L"\\" + wpattern).c_str(), &fd);
-            if (h != INVALID_HANDLE_VALUE)
-            {
-                do
-                {
-                    if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
-                    {
-                        continue;
-                    }
-                    std::string name;
-                    for (const wchar_t* p = fd.cFileName; *p != 0; ++p)
-                    {
-                        name.push_back(*p < 128 ? static_cast<char>(*p) : '?');
-                    }
-                    const std::string cand = slotid::key_in_filename(name, slotid::kWaypointPrefix);
-                    if (slotid::is_legacy_account_key(key, cand))
-                    {
-                        legacy_names.push_back(name);
-                    }
-                } while (::FindNextFileW(h, &fd) != 0 && legacy_names.size() < 16);
-                ::FindClose(h);
-            }
-            if (legacy_names.empty())
-            {
-                return;
-            }
-            const std::wstring dst = waypoint_path_for(key);
-            mv::WaypointSet set{};
-            std::string text;
-            if (wp_file_exists(dst) && read_whole_file(dst, text))
-            {
-                mv::waypoints_parse(text, set);
-            }
-            for (const std::string& name : legacy_names)
-            {
-                std::wstring src = dir + L"\\";
-                for (char c : name)
-                {
-                    src.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
-                }
-                std::string legacy_text;
-                mv::WaypointSet legacy{};
-                if (!read_whole_file(src, legacy_text) || !mv::waypoints_parse(legacy_text, legacy))
-                {
-                    logf(L"waypoint: the legacy file {} could not be read - it is LEFT in place", src);
-                    continue;
-                }
-                std::size_t added = 0;
-                for (std::size_t i = 0; i < legacy.count; ++i)
-                {
-                    const mv::Waypoint& w = legacy.items[i];
-                    if (set.count >= mv::kMaxWaypoints)
-                    {
-                        break;
-                    }
-                    const mv::WaypointToggleResult hit =
-                        mv::waypoint_toggle_at(set, w.x, w.y, w.z, mv::kWaypointSamePlace);
-                    if (hit.action != mv::WaypointToggle::Add)
-                    {
-                        continue;
-                    }
-                    set.items[set.count++] = w;
-                    ++added;
-                }
-                if (!write_whole_file(dst, mv::waypoints_serialize(set)))
-                {
-                    logf(L"waypoint: could not merge the legacy file {} into {} (error {}) - both files "
-                         L"are left alone",
-                         src, dst, static_cast<unsigned>(::GetLastError()));
-                    return;
-                }
-                logf(L"waypoint: merged the legacy file {} ({} waypoint(s), {} of them new) into {} and "
-                     L"removed it",
-                     src, legacy.count, added, dst);
-                ::DeleteFileW(src.c_str());
-            }
-        }
-
-        // First sight of a slot with no waypoint file of its own: seed it from the shared
-        // one, as the found tracker does. The copy is itself the "already seeded" mark -
-        // once the file exists this is a no-op.
-        void seed_waypoints_from_shared(const std::string& key)
-        {
-            if (key.empty())
-            {
-                return;
-            }
-            const std::wstring dst = waypoint_path_for(key);
-            if (wp_file_exists(dst))
-            {
-                return;
-            }
-            const std::wstring src = waypoint_path_for(std::string{});
-            std::string text;
-            if (!wp_file_exists(src) || !read_whole_file(src, text) || text.empty())
-            {
-                return;
-            }
-            if (write_whole_file(dst, text))
-            {
-                logf(L"waypoint: first sight of save slot '{}' - copied the shared waypoints "
-                     L"({} bytes) into {}",
-                     std::wstring(key.begin(), key.end()), text.size(), dst);
-            }
-            else
-            {
-                logf(L"waypoint: could not seed {} from the shared file (error {})", dst,
-                     static_cast<unsigned>(::GetLastError()));
-            }
-        }
-
-        // Takes whatever key slotid has resolved. Loop thread. True when the file changed
-        // and the caller must reload it.
-        bool adopt_waypoint_key()
-        {
-            const slotid::Status st = slotid::status();
-            const std::string key{st.key};
-            if (g_wp_key_valid && key == g_wp_key)
-            {
-                return false;
-            }
-            const bool first = !g_wp_key_valid;
-            g_wp_key = key;
-            g_wp_key_valid = true;
-            reconcile_legacy_waypoints(key);
-            seed_waypoints_from_shared(key);
-            logf(L"waypoint: profile {} '{}' -> {}", first ? L"=" : L"changed to",
-                 std::wstring(key.begin(), key.end()), waypoint_path_for(key));
-            return true;
-        }
-    } // namespace
-
-    // The file the waypoints are READ from: the slot's own, falling back to the shared one
-    // while the slot has none of its own.
-    std::wstring waypoint_path()
-    {
-        const std::wstring path = waypoint_path_for(g_wp_key);
-        if (!g_wp_key.empty() && !wp_file_exists(path))
-        {
-            const std::wstring shared = waypoint_path_for(std::string{});
-            if (wp_file_exists(shared))
-            {
-                return shared;
-            }
-        }
-        return path;
-    }
-
-    // The save-slot watch, mirroring the found tracker's: a pending write goes to the OLD
-    // file first, because those waypoints belong to the save that was loaded when they
-    // were dropped. Loop thread, 1 Hz.
-    void waypoint_slot_poll()
-    {
-        static std::uint64_t last_check = 0;
-        const std::uint64_t now = ::GetTickCount64();
-        if (now - last_check < 1000)
-        {
-            return;
-        }
-        last_check = now;
-        if (g_wp_key_valid && std::string{slotid::status().key} == g_wp_key)
-        {
-            return;
-        }
-        if (g_wp_key_valid && g_waypoint_dirty.load(std::memory_order_acquire))
-        {
-            save_waypoint_file();
-        }
-        if (adopt_waypoint_key())
-        {
-            // Clears the dirty flag: the pending set belonged to the previous file.
-            load_waypoint_file();
-        }
-    }
-
-    void load_waypoint_file()
-    {
-        if (!g_wp_key_valid)
-        {
-            adopt_waypoint_key();
-        }
-        const std::wstring path = waypoint_path();
-        std::string text;
-        mv::WaypointSet set{};
-        if (read_whole_file(path, text))
-        {
-            if (!mv::waypoints_parse(text, set))
-            {
-                logf(L"waypoint: {} exists but carries no usable coordinates - ignored", path);
-                set = mv::WaypointSet{};
-            }
-            else if (set.count != 0)
-            {
-                logf(L"waypoint: loaded {} waypoint(s) from {}", set.count, path);
-            }
-        }
-        {
-            spin::SpinGuard guard(g_wp_lock);
-            g_wp = set;
-        }
-        // What was just read is what the file says, so nothing is pending.
-        g_waypoint_dirty.store(false, std::memory_order_release);
-    }
-
-    void save_waypoint_file()
-    {
-        const mv::WaypointSet set = waypoints();
-        // The slot's own file, never the shared one waypoint_path() may fall back to.
-        const std::wstring path = waypoint_path_for(g_wp_key);
-        if (!write_whole_file(path, mv::waypoints_serialize(set)))
-        {
-            logf(L"waypoint: FAILED to write {} (error {})", path, static_cast<unsigned>(::GetLastError()));
-            return;
-        }
-        logf(L"waypoint: saved {} waypoint(s)", set.count);
-    }
-
-    std::atomic<int> g_log_level{static_cast<int>(LogLv::Normal)};
-
-    const char* log_level_name(LogLv lv) noexcept
-    {
-        switch (lv)
-        {
-        case LogLv::Verbose:
-            return "verbose";
-        case LogLv::Trace:
-            return "trace";
-        case LogLv::Normal:
-        default:
-            return "normal";
-        }
-    }
-
-    bool log_level_from_name(std::string_view name, LogLv& out) noexcept
-    {
-        if (name == "normal")
-        {
-            out = LogLv::Normal;
-            return true;
-        }
-        if (name == "verbose")
-        {
-            out = LogLv::Verbose;
-            return true;
-        }
-        if (name == "trace")
-        {
-            out = LogLv::Trace;
-            return true;
-        }
-        return false;
-    }
-
-    void set_loop_thread()
-    {
-        g_loop_thread = ::GetCurrentThreadId();
-    }
-
-    // The mod's own rolling log - wuchang_minimap.log, keeping the last four sessions through its own
-    // `.1` / `.2` / `.3` rotation, because UE4SS truncates `UE4SS.log` on every launch.
-    // Flat `CreateFileW` / `WriteFile` over a hand-built UTF-8 buffer: the game thread must never touch
-    // C++ iostreams or the C++ locale. Writing is BUFFERED (8 KB) and flushed when the buffer fills, on
-    // every crash breadcrumb write, and every few seconds from the loop thread.
-    // `modlog_line()` runs on the loop thread only, but `modlog_flush()` is called from any thread, so the
-    // buffer and the handle sit behind a spinlock of their OWN (g_modlog_lock), never the log queue's.
-    // Nothing in here allocates while holding it.
-
-    namespace
-    {
-        constexpr std::size_t kModLogFlushAt = 8192;
-        // The longest line written verbatim. The buffer flushes at kModLogFlushAt and is reserved at twice that,
-        // so buffer + line + cap notice never reach the reserve - `append` cannot reallocate under the lock.
-        constexpr std::size_t kModLogMaxLine = 4096;
-        // Per-session cap. At the cap one line says so and writing stops; the rotation is untouched.
-        constexpr std::uint64_t kModLogMaxBytes = 20ull * 1024ull * 1024ull;
-        constexpr const wchar_t* kModLogName = L"\\wuchang_minimap.log";
-
-        // A lock of its own, not the log QUEUE's, so enqueueing a line from the game thread never waits on a file
-        // syscall. `drain_log` swaps the queue out under `g_log_lock`, releases it, then writes.
-        spin::Spinlock g_modlog_lock;
-        HANDLE g_modlog = INVALID_HANDLE_VALUE;
-        std::string g_modlog_buf;
-        bool g_modlog_opened = false;
-        bool g_modlog_capped = false;
-        std::uint64_t g_modlog_bytes = 0;
-        std::uint64_t g_modlog_last_flush_ms = 0;
-
-        std::string utf8_of(const std::wstring& w)
-        {
-            if (w.empty())
-            {
-                return {};
-            }
-            const int need = ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()),
-                                                   nullptr, 0, nullptr, nullptr);
-            if (need <= 0)
-            {
-                return {};
-            }
-            std::string out;
-            out.resize(static_cast<std::size_t>(need));
-            ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), out.data(), need,
-                                  nullptr, nullptr);
-            return out;
-        }
-
-        // Rotate, then create: `.3` is dropped, everything else shifts up one, and the live file is always `wuchang_minimap.log`.
-        void modlog_rotate(const std::wstring& base)
-        {
-            const std::wstring p1 = base + L".1";
-            const std::wstring p2 = base + L".2";
-            const std::wstring p3 = base + L".3";
-            ::DeleteFileW(p3.c_str());
-            ::MoveFileExW(p2.c_str(), p3.c_str(), MOVEFILE_REPLACE_EXISTING);
-            ::MoveFileExW(p1.c_str(), p2.c_str(), MOVEFILE_REPLACE_EXISTING);
-            ::MoveFileExW(base.c_str(), p1.c_str(), MOVEFILE_REPLACE_EXISTING);
-        }
-
-        // Loop thread, lazily on the first line. FILE_SHARE_READ so the file can be read while the game is still running.
-        void modlog_open_locked()
-        {
-            if (g_modlog_opened)
-            {
-                return;
-            }
-            g_modlog_opened = true; // one attempt per session, success or not
-            const std::wstring base = state_dir() + kModLogName;
-            modlog_rotate(base);
-            g_modlog = ::CreateFileW(base.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
-                                     FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (g_modlog == INVALID_HANDLE_VALUE)
-            {
-                return;
-            }
-            g_modlog_buf.reserve(kModLogFlushAt * 2);
-        }
-
-        void modlog_write_locked()
-        {
-            if (g_modlog == INVALID_HANDLE_VALUE || g_modlog_buf.empty())
-            {
-                return;
-            }
-            DWORD written = 0;
-            ::WriteFile(g_modlog, g_modlog_buf.data(), static_cast<DWORD>(g_modlog_buf.size()), &written,
-                        nullptr);
-            g_modlog_bytes += g_modlog_buf.size();
-            g_modlog_buf.clear();
-        }
-
-        // `at` is when the line was made. Null means now, which is right for every line
-        // written from the loop thread itself.
-        void modlog_line(const std::wstring& line, const SYSTEMTIME* at = nullptr)
-        {
-            SYSTEMTIME st{};
-            if (at != nullptr)
-            {
-                st = *at;
-            }
-            else
-            {
-                ::GetLocalTime(&st);
-            }
-            wchar_t stamp[32]{};
-            ::_snwprintf_s(stamp, std::size(stamp), _TRUNCATE, L"%02u:%02u:%02u.%03u ",
-                           static_cast<unsigned>(st.wHour), static_cast<unsigned>(st.wMinute),
-                           static_cast<unsigned>(st.wSecond), static_cast<unsigned>(st.wMilliseconds));
-            std::string text = utf8_of(std::wstring{stamp} + line);
-            // The buffer must not reallocate under g_modlog_lock: modlog_flush() takes that lock from the crash
-            // breadcrumb and the stall watchdog. Truncating on a UTF-8 character boundary keeps buffer + line +
-            // cap notice inside the 2 x kModLogFlushAt bytes reserved once at open time.
-            if (text.size() > kModLogMaxLine)
-            {
-                std::size_t cut = kModLogMaxLine;
-                while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0u) == 0x80u)
-                {
-                    --cut;
-                }
-                text.resize(cut);
-                text += " [line truncated]";
-            }
-            spin::SpinGuard guard(g_modlog_lock);
-            modlog_open_locked();
-            if (g_modlog == INVALID_HANDLE_VALUE)
-            {
-                return;
-            }
-            if (g_modlog_capped)
-            {
-                return;
-            }
-            g_modlog_buf.append(text);
-            g_modlog_buf.append("\r\n");
-            if (g_modlog_bytes + g_modlog_buf.size() >= kModLogMaxBytes)
-            {
-                g_modlog_buf.append("--- log capped at 20 MB for this session; nothing more is written "
-                                    "to this file (the .1 / .2 / .3 rotation is unaffected) ---\r\n");
-                modlog_write_locked();
-                g_modlog_capped = true;
-                return;
-            }
-            if (g_modlog_buf.size() >= kModLogFlushAt)
-            {
-                modlog_write_locked();
-            }
-        }
-    } // namespace
-
-    void modlog_flush()
-    {
-        spin::SpinGuard guard(g_modlog_lock);
-        modlog_write_locked();
-        if (g_modlog != INVALID_HANDLE_VALUE)
-        {
-            ::FlushFileBuffers(g_modlog);
-        }
-    }
-
-    void modlog_tick(std::uint64_t now_ms)
-    {
-        if (now_ms - g_modlog_last_flush_ms < 3000)
-        {
-            return;
-        }
-        g_modlog_last_flush_ms = now_ms;
-        modlog_flush();
-    }
-
     // The game build the shipped data was dumped from: every marker coordinate and map picture came out of
     // ONE cooked build. The data files may carry a top-level `"game_build"` string, compared here against
     // the running executable's FILEVERSION. A missing stamp is verbose; a disagreeing one is a warning.
@@ -3199,61 +2679,4 @@ namespace mm
              source);
     }
 
-    std::wstring modlog_path()
-    {
-        return state_dir() + kModLogName;
-    }
-
-    void log(const std::wstring& line)
-    {
-        if (g_loop_thread == 0 || ::GetCurrentThreadId() != g_loop_thread)
-        {
-            // Outside the lock: GetLocalTime is a read of shared kernel data and this is
-            // the render thread's own timestamp, not something the drain needs to serialise.
-            SYSTEMTIME at{};
-            ::GetLocalTime(&at);
-            spin::SpinGuard guard(g_log_lock);
-            if (g_log_queue.size() < kLogQueueMax)
-            {
-                g_log_queue.push_back(LogEntry{line, at});
-            }
-            else
-            {
-                ++g_log_dropped;
-            }
-            return;
-        }
-        Output::send<LogLevel::Verbose>(STR("[minimap] {}\n"), line);
-        modlog_line(line);
-    }
-
-    void drain_log()
-    {
-        std::vector<LogEntry> lines;
-        std::size_t dropped = 0;
-        {
-            spin::SpinGuard guard(g_log_lock);
-            if (g_log_queue.empty() && g_log_dropped == 0)
-            {
-                return;
-            }
-            lines.swap(g_log_queue);
-            dropped = g_log_dropped;
-            g_log_dropped = 0;
-        }
-        if (dropped != 0)
-        {
-            const std::wstring note =
-                std::format(L"log: dropped {} line(s) - the queue was full (the loop thread was not "
-                            L"draining, or something is logging far too fast)",
-                            dropped);
-            Output::send<LogLevel::Warning>(STR("[minimap] {}\n"), note);
-            modlog_line(note);
-        }
-        for (const LogEntry& e : lines)
-        {
-            Output::send<LogLevel::Verbose>(STR("[minimap] {}\n"), e.line);
-            modlog_line(e.line, &e.at);
-        }
-    }
 } // namespace mm

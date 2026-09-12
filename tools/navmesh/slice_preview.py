@@ -51,6 +51,11 @@ storey is theirs.
     t   = clamp((surfaceZ - z_lo) / (z_hi - z_lo), 0, 1) ** shade_gamma
     rgb = shade_lo_color + (shade_hi_color - shade_lo_color) * t
 
+A flat slab one storey up is a single Z and therefore a single flat tone, so the ramp
+draws no edge where two storeys abut; a pixel whose left or up neighbour is more than
+`SEAM_STEP_UU` away in Z is darkened by `SEAM_DARKEN` (`srule::seam_factor`), which is
+the only boundary cue the cut has.
+
 `z_lo`/`z_hi` are PERCENTILES of the Z of the pixels this cut actually draws -
 `p(shade_range_pct_lo) .. p(100 - shade_range_pct_lo)` out of a 128-bin histogram over
 the asset's own Z range - widened to at least `shade_min_range_uu` about their centre.
@@ -105,6 +110,9 @@ DEFAULT_ABOVE_BAND = 600.0
 DEFAULT_RANGE_PCT_LO = 3.0
 DEFAULT_MIN_RANGE = 400.0
 ALPHA_OPAQUE = 1.00
+# srule::kSeamStepUu / srule::kSeamDarken.
+SEAM_STEP_UU = 300.0
+SEAM_DARKEN = 0.45
 
 # srule's class numbers: the numbers ARE the priority.
 CLS_NONE = 0
@@ -317,6 +325,17 @@ def _cdf(counts: "np.ndarray", lo: float, hi: float, z: "np.ndarray") -> "np.nda
     return np.clip(below / total, 0.0, 1.0)
 
 
+def seam_factor(z_pick: "np.ndarray", cls: "np.ndarray") -> "np.ndarray":
+    """srule::seam_factor over the whole cut: SEAM_DARKEN where a DRAWN left or up
+    neighbour's chosen surface is more than SEAM_STEP_UU away in Z, else 1."""
+    drawn = cls != CLS_NONE
+    z = np.nan_to_num(z_pick, nan=0.0)
+    step = np.zeros(z.shape, dtype=bool)
+    step[:, 1:] |= drawn[:, :-1] & (np.abs(z[:, 1:] - z[:, :-1]) > SEAM_STEP_UU)
+    step[1:, :] |= drawn[:-1, :] & (np.abs(z[1:, :] - z[:-1, :]) > SEAM_STEP_UU)
+    return np.where(step & drawn, SEAM_DARKEN, 1.0)
+
+
 def shade(
     z_pick: "np.ndarray",
     cls: "np.ndarray",
@@ -329,8 +348,9 @@ def shade(
 ) -> "np.ndarray":
     """The colour formula from the docstring. Returns float RGB, shape (h, w, 3).
 
-    `cls` is unused: one ramp serves every class. `hist` non-None equalises - `t` is the
-    cut's own CDF (srule::SliceStyle::equalize) instead of a linear span.
+    One ramp serves every class; `cls` says only which pixels are drawn, for the seam.
+    `hist` non-None equalises - `t` is the cut's own CDF (srule::SliceStyle::equalize)
+    instead of a linear span.
     """
     z = np.nan_to_num(z_pick, nan=z_lo)
     if hist is not None:
@@ -344,6 +364,7 @@ def shade(
     lo = np.array(lo_color, dtype=np.float64)
     hi = np.array(hi_color, dtype=np.float64)
     rgb = lo[None, None, :] + (hi - lo)[None, None, :] * t[..., None]
+    rgb *= seam_factor(z_pick, cls)[..., None]
     return np.clip(rgb, 0.0, 255.0)
 
 

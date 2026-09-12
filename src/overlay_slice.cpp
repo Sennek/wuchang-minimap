@@ -272,6 +272,10 @@ namespace overlay
         // that span through srule::ease_range, the full map takes it as measured. The
         // only other hysteresis is the EMA on feetZ.
         //
+        // A storey step is then drawn as a seam - srule::seam_factor darkens a pixel whose
+        // left or up neighbour is more than kSeamStepUu away in Z - because two abutting
+        // flat slabs are two flat tones and the ramp puts no edge between them.
+        //
         // It runs on the CPU, at slice_hz, over only the window the minimap can show
         // (a ~512x512 source region), and uploads that window into a small dynamic
         // texture - the shader path's semantics without a custom root signature / PSO /
@@ -612,7 +616,24 @@ namespace overlay
                     float r = 0.0f;
                     float g = 0.0f;
                     float b = 0.0f;
-                    srule::class_rgb(feet + best_d[i], cls, style, r, g, b, eq);
+                    const float z = feet + best_d[i];
+                    srule::class_rgb(z, cls, style, r, g, b, eq);
+                    // The seam, off the two neighbours this scan has already decided:
+                    // `state` and `best_d` hold the whole window, so it costs two loads
+                    // and no second pass over the height planes.
+                    const bool has_left = col > 0;
+                    const bool has_up = row > 0;
+                    const std::size_t left = i - 1;
+                    const std::size_t up = i - static_cast<std::size_t>(w);
+                    const float seam =
+                        srule::seam_factor(z,
+                                           has_left ? feet + best_d[left] : z,
+                                           has_left && state[left] != 0,
+                                           has_up ? feet + best_d[up] : z,
+                                           has_up && state[up] != 0);
+                    r *= seam;
+                    g *= seam;
+                    b *= seam;
                     const auto ch = [](float v) {
                         const float x = v + 0.5f;
                         return static_cast<std::uint8_t>(x < 0.0f ? 0.0f : (x > 255.0f ? 255.0f : x));

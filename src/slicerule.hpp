@@ -41,6 +41,11 @@
 //     Dim  - it is drawn one rung further down the same opacity ladder
 //     Show - it is drawn exactly like a reachable one
 //
+// A flat slab one storey up is a single Z and therefore a single flat tone, so the ramp
+// draws no edge where two storeys abut. `seam_factor` is that edge: a pixel whose left or
+// up neighbour sits more than `kSeamStepUu` away in Z is darkened, which is the only
+// boundary cue the cut has and what keeps abutting slabs from reading as one surface.
+//
 // The ramp's two ends are percentiles of the Z of the pixels a cut actually DRAWS
 // (`ZHistogram` + `hist_range`), never the asset's raw Z range: one deep pit or one high
 // gallery must not push every playable storey into two colour levels. The minimap widens
@@ -158,6 +163,10 @@ namespace srule
         }
         return d >= -st.tol ? kClassFloor : kClassBelow;
     }
+
+    // The storey seam: a Z step bigger than this between drawn neighbours darkens the pixel.
+    constexpr float kSeamStepUu = 300.0f;
+    constexpr float kSeamDarken = 0.45f;
 
     inline std::uint8_t rank_of(std::uint8_t cls, bool reachable)
     {
@@ -405,6 +414,15 @@ namespace srule
     {
         (void)cls;
         shade_rgb(z, st, r, g, b, eq);
+    }
+
+    // Colour factor for the seam. Only the left and up neighbours are asked, so a step
+    // draws one line, on its far side; an undrawn neighbour is empty space and bounds nothing.
+    inline float seam_factor(float z, float left_z, bool left_drawn, float up_z, bool up_drawn)
+    {
+        const bool step = (left_drawn && std::fabs(z - left_z) > kSeamStepUu) ||
+                          (up_drawn && std::fabs(z - up_z) > kSeamStepUu);
+        return step ? kSeamDarken : 1.0f;
     }
 
     // Widens a measured span to at least `min_range_uu` about its own centre, so flat

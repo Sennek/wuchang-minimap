@@ -3425,6 +3425,46 @@ namespace
             CHECK_NEAR(static_cast<double>(b2), 250.0, 1e-4);
         }
 
+        section("a storey step is drawn as a seam, because one ramp draws no edge");
+        {
+            // The two knobs the runtime and the offline preview share.
+            CHECK_NEAR(static_cast<double>(srule::kSeamStepUu), 300.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::kSeamDarken), 0.45, 1e-6);
+
+            // One storey: a slope, a staircase and flat ground all stay untouched.
+            CHECK_NEAR(static_cast<double>(srule::seam_factor(1000.0f, 1000.0f, true,
+                                                             1000.0f, true)),
+                       1.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::seam_factor(1000.0f, 1120.0f, true,
+                                                             880.0f, true)),
+                       1.0, 1e-6);
+
+            // A step over the threshold on either neighbour, in either direction.
+            CHECK_NEAR(static_cast<double>(srule::seam_factor(1000.0f, 1400.0f, true,
+                                                             1000.0f, true)),
+                       0.45, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::seam_factor(1000.0f, 1000.0f, true,
+                                                             600.0f, true)),
+                       0.45, 1e-6);
+
+            // An undrawn neighbour is empty space and bounds nothing, however far its
+            // stale Z sits - the window's edge draws no seam either.
+            CHECK_NEAR(static_cast<double>(srule::seam_factor(1000.0f, -9000.0f, false,
+                                                             9000.0f, false)),
+                       1.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::seam_factor(1000.0f, -9000.0f, false,
+                                                             1400.0f, true)),
+                       0.45, 1e-6);
+
+            // The boundary itself: exactly kSeamStepUu is still one storey.
+            CHECK_NEAR(static_cast<double>(srule::seam_factor(1000.0f, 1300.0f, true,
+                                                             1000.0f, true)),
+                       1.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::seam_factor(1000.0f, 1300.1f, true,
+                                                             1000.0f, true)),
+                       0.45, 1e-6);
+        }
+
         section("the ramp's ends are percentiles of the drawn Z, so a pit cannot set them");
         {
             const srule::SliceStyle st{};

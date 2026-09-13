@@ -98,6 +98,10 @@ ONE_WAY_SHOWN = 200
 # rasterize_heights merges height slots with.
 SURFACE_MATCH_UU = 120.0
 
+# A marker within this much Z of the polygon its XY falls inside is STANDING on it - the strict test,
+# against `decide_islands`' seeding, which only asks for a box 300 uu wider and 600 uu taller.
+STAND_Z_UU = 200.0
+
 # Slots x pixels a piece's own height stack may take. A component is thousands of pixels and gets
 # every slot; a whole cluster is 20 Mpx of bounding box, where eight slots would be 650 MB.
 STACK_BUDGET_PX = 60_000_000
@@ -342,7 +346,8 @@ class Chapter:
         takes. It is the big end of it - judge the sample, and the small pieces follow it.
         """
         if self._oneway is None:
-            got = render.one_way_ground(self.rest, self.comps, self.keep_ids)
+            home = render.standing_components(self.rest, self.seeds)
+            got = render.one_way_ground(self.rest, self.comps, self.keep_ids, home)
             self._oneway = sorted(got, key=lambda c: -c["area"])[:ONE_WAY_SHOWN]
         return self._oneway
 
@@ -860,35 +865,57 @@ def describe(ch: Chapter, poly: dict, sel: list[dict], mode: str) -> dict:
             "has_largest": cl.get("has_largest"),
         },
         "raster": raster_stats(ch, x0, y0, m, z),
-        "markers": markers_near(ch, (min(xs), min(ys), max(xs), max(ys)), (min(zs), max(zs))),
+        "markers": markers_near(ch, sel),
         "overlay": {"x": x0, "y": y0, "w": int(m.shape[1]), "h": int(m.shape[0])},
         "mask": m,
     }
 
 
-def markers_near(ch: Chapter, bbox: tuple[float, float, float, float],
-                 zr: tuple[float, float]) -> list[dict]:
-    """The markers `decide_islands` would call this piece's seeds, named.
+def markers_near(ch: Chapter, sel: list[dict]) -> list[dict]:
+    """The game's markers that touch this piece, and how.
 
-    Same window the seeding uses - the bounding box grown by `seed_radius`, `seed_z` of the Z range -
-    so the report says WHICH marker made a piece `seeded` instead of only that one did. `dz` is the
-    marker's height over the piece: a wall note reads as a large one.
+    Two answers, never merged, because the difference is the whole question:
+
+    * **on it** - the marker's XY falls inside one of the piece's polygons and its Z is within
+      `STAND_Z_UU` of that polygon. The game put something here; the player comes here.
+    * **near** - it only passes `decide_islands`' seed test against one of them: that polygon's
+      bounding box grown by `seed_radius`, and its Z range widened by `DEFAULT_ISLAND_SEED_Z`. That
+      is what makes a component `seeded` and immune to every marker-vetoed rule, and it is not the
+      same statement at all - chapter 1's #20 is seeded by a scenery `Object` 282 uu to the side and
+      553 uu above it, with nothing standing on the piece at all.
+
+    The test runs per POLYGON, the way the seeding does. Against the piece's own bounding box it
+    reported 40 markers for that component instead of one.
     """
+    members = {p["idx"] for p in sel}
+    by_idx = {p["idx"]: p for p in sel}
     r, zt = ch.args.island_seed_radius, render.DEFAULT_ISLAND_SEED_Z
+    reach = int(math.ceil(r / PICK_GRID_UU)) + 1
     out = []
     for s in ch.seeds:
-        if not (bbox[0] - r <= s["x"] <= bbox[2] + r and bbox[1] - r <= s["y"] <= bbox[3] + r):
+        gx, gy = int(math.floor(s["x"] / PICK_GRID_UU)), int(math.floor(s["y"] / PICK_GRID_UU))
+        cand = {i for dx in range(-reach, reach + 1) for dy in range(-reach, reach + 1)
+                for i in ch.grid.get((gx + dx, gy + dy), ()) if i in members}
+        on, near = None, None
+        for i in cand:
+            p = by_idx[i]
+            x0, y0, x1, y1 = p["bbox"]
+            if (x0 <= s["x"] <= x1 and y0 <= s["y"] <= y1
+                    and abs(p["cz"] - s["z"]) <= STAND_Z_UU
+                    and render._point_in_poly(p["pts"], s["x"], s["y"])):
+                on = p
+                break
+            if near is None and (x0 - r <= s["x"] <= x1 + r and y0 - r <= s["y"] <= y1 + r
+                                 and p["_zlo"] - zt <= s["z"] <= p["_zhi"] + zt):
+                near = p
+        p = on or near
+        if p is None:
             continue
-        if not (zr[0] - zt <= s["z"] <= zr[1] + zt):
-            continue
-        dz = 0.0
-        if s["z"] > zr[1]:
-            dz = s["z"] - zr[1]
-        elif s["z"] < zr[0]:
-            dz = s["z"] - zr[0]
+        x0, y0, x1, y1 = p["bbox"]
+        gap = math.hypot(max(x0 - s["x"], 0.0, s["x"] - x1), max(y0 - s["y"], 0.0, s["y"] - y1))
         out.append({"cat": s["cat"], "name": s.get("name", ""), "z": round(s["z"]),
-                    "dz": round(dz)})
-    out.sort(key=lambda t: abs(t["dz"]))
+                    "on": on is not None, "gap": round(gap), "dz": round(s["z"] - p["cz"])})
+    out.sort(key=lambda t: (not t["on"], t["gap"], abs(t["dz"])))
     return out[:12]
 
 
@@ -1426,12 +1453,15 @@ function report(r){
   if(r.comp) h+=tr('component',`#${r.comp.id} &middot; ${r.comp.polys} polys &middot; `
     +`${r.comp.area_m2} m&sup2; &middot; ${r.comp.kept?'kept':'dropped'}`
     +`${r.comp.seeded?' &middot; seeded':''}`);
-  // What made it `seeded`, by name: the same window the seeding uses, so a wall note reads as one.
-  h+=tr('markers', r.markers&&r.markers.length
-    ? r.markers.map(m=>`${esc(m.name||m.cat)} <span class=hint>${esc(m.cat)} &middot; Z ${m.z}`
-        +`${m.dz?` &middot; ${m.dz>0?'+':''}${m.dz} uu off the piece`:' &middot; on it'}`
-        +`</span>`).join('<br>')
-    : '<span class=hint>none in the seed window</span>');
+  // Standing on the piece, or only near enough to seed it - never the same line.
+  const on=(r.markers||[]).filter(m=>m.on), near=(r.markers||[]).filter(m=>!m.on);
+  h+=tr('stands on it', on.length
+    ? on.map(m=>`${esc(m.name||m.cat)} <span class=hint>${esc(m.cat)} &middot; Z ${m.z}</span>`)
+        .join('<br>')
+    : '<span class=hint>nothing</span>');
+  if(near.length) h+=tr('<span class=hint>seeds it</span>', near.map(m=>
+      `<span class=hint>${esc(m.name||m.cat)} &middot; ${esc(m.cat)} &middot; ${m.gap} uu aside, `
+     +`${m.dz>0?'+':''}${m.dz} uu up</span>`).join('<br>'));
   if(r.cluster) h+=tr('cluster',`#${r.cluster.id} &middot; ${r.cluster.members} comps &middot; `
     +`${r.cluster.area_m2} m&sup2;<br>${esc(r.cluster.why||'')}`
     +`${r.cluster.has_largest?'<br>holds the largest component':''}`);

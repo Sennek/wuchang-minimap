@@ -166,6 +166,7 @@ DEFAULT_PLANE_Z_TOL = 20.0  # uu; planes within this Z of each other are one she
 DEFAULT_ISLAND_GRID = 64.0  # uu; XY grid the connectivity union-find runs on
 DEFAULT_ISLAND_Z_TOL = 150.0  # uu; two polys in one grid cell join if their Z ranges are this close
 DEFAULT_ISLAND_MIN_AREA = 40000.0  # uu2 (4 m2); a component smaller than this never survives on size
+DEFAULT_STAND_Z = 200.0        # uu; a marker this close above a polygon it covers STANDS on it
 DEFAULT_ESCAPE_CLIMB = 200.0   # uu; a piece you cannot leave without climbing this is one-way
 DEFAULT_ESCAPE_FALL = 800.0    # uu; a step down deeper than this is not a way home either
 DEFAULT_ISLAND_SEED_RADIUS = 300.0  # uu (3 m); a marker this close to a component keeps it
@@ -774,6 +775,42 @@ def load_oob_picks(path: str | Path, chapter: str) -> list[dict]:
     return out
 
 
+def standing_components(polys: list[dict], seeds: Iterable[dict],
+                        tol_z: float = DEFAULT_STAND_Z, cell: float = 640.0) -> set[int]:
+    """The components a marker actually STANDS on: its XY inside a polygon, within `tol_z` of it.
+
+    `seeded` is a different and much looser statement - a marker anywhere in a box 300 uu wider and
+    600 uu taller than the polygon. Measured on chapter 1: 1 461 components are seeded that way and
+    63 have something standing on them. That slack spares whole hillsides, and the worked example is
+    component #20, 1 634 m2 of it, held by a scenery `Object` 282 uu to the side and 553 uu above
+    with nothing on the piece at all.
+
+    Keeping is still decided by `seeded` - a marker near a piece is a fair reason not to throw the
+    piece away. This is for the cut, where the question is the opposite one: is the game saying the
+    player goes HERE.
+    """
+    idx: dict[tuple[int, int], list[int]] = {}
+    for i, p in enumerate(polys):
+        xs = [q[0] for q in p["pts"]]
+        ys = [q[1] for q in p["pts"]]
+        for gx in range(int(math.floor(min(xs) / cell)), int(math.floor(max(xs) / cell)) + 1):
+            for gy in range(int(math.floor(min(ys) / cell)), int(math.floor(max(ys) / cell)) + 1):
+                idx.setdefault((gx, gy), []).append(i)
+    out: set[int] = set()
+    for s in seeds:
+        key = (int(math.floor(s["x"] / cell)), int(math.floor(s["y"] / cell)))
+        for i in idx.get(key, ()):
+            p = polys[i]
+            xs = [q[0] for q in p["pts"]]
+            ys = [q[1] for q in p["pts"]]
+            if (min(xs) <= s["x"] <= max(xs) and min(ys) <= s["y"] <= max(ys)
+                    and abs(p["cz"] - s["z"]) <= tol_z
+                    and _point_in_poly(p["pts"], s["x"], s["y"])):
+                out.add(p["comp"])
+                break
+    return out
+
+
 def components_at(polys: list[dict], points: Iterable[dict], cell: float = 256.0,
                   tol_z: float = 200.0) -> set[int]:
     """The components standing under a set of world points - a verdict's anti-seeds.
@@ -993,7 +1030,8 @@ def decide_islands(
     anti = list(anti_seeds or [])
     oob: set[int] = set()
     if cut_oob:
-        oob |= {c["id"] for c in one_way_ground(polys, comps, keep_ids, grid=grid,
+        home = standing_components(polys, seeds)
+        oob |= {c["id"] for c in one_way_ground(polys, comps, keep_ids, home, grid=grid,
                                                 max_climb=escape_climb, max_fall=escape_fall)}
     oob |= components_at(polys, anti)
     oob &= keep_ids
@@ -1111,6 +1149,7 @@ def flat_shelves(polys: list[dict], comps: list[dict], keep_ids: set[int],
 
 
 def one_way_ground(polys: list[dict], comps: list[dict], keep_ids: set[int],
+                   sources: set[int],
                    grid: float = DEFAULT_ISLAND_GRID,
                    max_climb: float = DEFAULT_ESCAPE_CLIMB,
                    max_fall: float = DEFAULT_ESCAPE_FALL) -> list[dict]:
@@ -1130,9 +1169,11 @@ def one_way_ground(polys: list[dict], comps: list[dict], keep_ids: set[int],
     the cap, 104 with it at 800 uu; 1 600 buys nothing and 400 buys one mark for 1.5 points of drawn
     ground.
 
-    Two things fall out of the shape of the rule rather than being bolted on: a seeded component is
-    its own destination and is never one-way, so the marker veto needs no clause; and a boss arena
-    entered by dropping in is kept, because the shrine on it seeds it.
+    `sources` is home - the components a marker STANDS on (`standing_components`), not the ones it
+    merely passes near. Two things then fall out of the shape of the rule rather than being bolted
+    on: a component with something standing on it is its own destination and is never one-way, so
+    the marker veto needs no clause; and a boss arena entered by dropping in is kept, because the
+    shrine on it is on it.
 
     The grid pitch is load-bearing and must stay the one `connected_components` uses: at 128 uu a
     cell merges a slab's Z with its neighbour's and the step between them disappears.
@@ -1172,8 +1213,8 @@ def one_way_ground(polys: list[dict], comps: list[dict], keep_ids: set[int],
                     if a != b:
                         meet(a, az, b, bz)
 
-    # bottleneck distance home, from every seeded component outwards
-    seeded = [c["id"] for c in comps if c["id"] in keep_ids and c["seeded"]]
+    # bottleneck distance home, outwards from every component a marker stands on
+    seeded = [cid for cid in sources if cid in keep_ids]
     into: dict[int, list[tuple[int, float]]] = {}
     for a, row in out.items():
         for b, cost in row.items():

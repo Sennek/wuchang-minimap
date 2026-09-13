@@ -126,6 +126,7 @@ import argparse
 import csv
 import glob
 import json
+import heapq
 import math
 import os
 import sys
@@ -536,6 +537,36 @@ class _DSU:
             self.p[rb] = ra
 
 
+def poly_cells(p: dict, grid: float) -> set[tuple[int, int]]:
+    """The XY grid cells a polygon occupies: centres inside it, plus a walk along its edges.
+
+    The edge walk is what makes two polygons that merely share a boundary land in a common cell,
+    which is the whole basis of the geometric adjacency `connected_components` recovers.
+    """
+    pts = p["pts"]
+    cells: set[tuple[int, int]] = set()
+    xs = [q[0] for q in pts]
+    ys = [q[1] for q in pts]
+    gx0, gx1 = int(math.floor(min(xs) / grid)), int(math.floor(max(xs) / grid))
+    gy0, gy1 = int(math.floor(min(ys) / grid)), int(math.floor(max(ys) / grid))
+    if (gx1 - gx0 + 1) * (gy1 - gy0 + 1) <= 4096:
+        for gx in range(gx0, gx1 + 1):
+            cx = (gx + 0.5) * grid
+            for gy in range(gy0, gy1 + 1):
+                if _point_in_poly(pts, cx, (gy + 0.5) * grid):
+                    cells.add((gx, gy))
+    m = len(pts)
+    for k in range(m):
+        x0, y0 = pts[k][0], pts[k][1]
+        x1, y1 = pts[(k + 1) % m][0], pts[(k + 1) % m][1]
+        steps = max(1, int(math.hypot(x1 - x0, y1 - y0) / (grid * 0.5)) + 1)
+        for s in range(steps + 1):
+            t = s / steps
+            cells.add((int(math.floor((x0 + (x1 - x0) * t) / grid)),
+                       int(math.floor((y0 + (y1 - y0) * t) / grid))))
+    return cells
+
+
 def connected_components(
     polys: list[dict], grid: float = DEFAULT_ISLAND_GRID, z_tol: float = DEFAULT_ISLAND_Z_TOL
 ) -> list[dict]:
@@ -553,31 +584,9 @@ def connected_components(
     dsu = _DSU(n)
     buckets: dict[tuple[int, int], list[int]] = {}
     for i, p in enumerate(polys):
-        pts = p["pts"]
-        zs = [q[2] for q in pts]
+        zs = [q[2] for q in p["pts"]]
         p["_zlo"], p["_zhi"] = min(zs), max(zs)
-        cells = set()
-        # 1. cell centres inside the polygon
-        xs = [q[0] for q in pts]
-        ys = [q[1] for q in pts]
-        gx0, gx1 = int(math.floor(min(xs) / grid)), int(math.floor(max(xs) / grid))
-        gy0, gy1 = int(math.floor(min(ys) / grid)), int(math.floor(max(ys) / grid))
-        if (gx1 - gx0 + 1) * (gy1 - gy0 + 1) <= 4096:
-            for gx in range(gx0, gx1 + 1):
-                cx = (gx + 0.5) * grid
-                for gy in range(gy0, gy1 + 1):
-                    if _point_in_poly(pts, cx, (gy + 0.5) * grid):
-                        cells.add((gx, gy))
-        # 2. walk the boundary so edge-sharing neighbours meet in a cell
-        m = len(pts)
-        for k in range(m):
-            x0, y0 = pts[k][0], pts[k][1]
-            x1, y1 = pts[(k + 1) % m][0], pts[(k + 1) % m][1]
-            steps = max(1, int(math.hypot(x1 - x0, y1 - y0) / (grid * 0.5)) + 1)
-            for s in range(steps + 1):
-                t = s / steps
-                cells.add((int(math.floor((x0 + (x1 - x0) * t) / grid)), int(math.floor((y0 + (y1 - y0) * t) / grid))))
-        for c in cells:
+        for c in poly_cells(p, grid):
             buckets.setdefault(c, []).append(i)
 
     for members in buckets.values():
@@ -735,7 +744,8 @@ def load_marker_seeds(paths: Iterable[Path], categories: Iterable[str] | None = 
             continue
         for m in doc.get("markers", []):
             if (cats is None or m.get("cat") in cats) and all(k in m for k in ("x", "y", "z")):
-                seeds.append({"x": m["x"], "y": m["y"], "z": m["z"], "cat": m["cat"], "id": m.get("id", "")})
+                seeds.append({"x": m["x"], "y": m["y"], "z": m["z"], "cat": m["cat"],
+                              "id": m.get("id", ""), "name": m.get("name", "")})
     return seeds
 
 
@@ -806,7 +816,7 @@ def _marker_rescue(
     return len(rescues), rescues
 
 
-def filter_islands(
+def decide_islands(
     polys: list[dict],
     seeds: list[dict],
     grid: float = DEFAULT_ISLAND_GRID,
@@ -819,8 +829,8 @@ def filter_islands(
     bridge_z: float = DEFAULT_ISLAND_BRIDGE_Z,
     cluster_area: float = DEFAULT_ISLAND_CLUSTER_AREA,
     cover_z: float = DEFAULT_ISLAND_COVER_Z,
-) -> tuple[list[dict], dict]:
-    """Drop the navmesh a player cannot stand on. Three rules, in this order.
+) -> tuple[list[dict], list[dict], set[int], dict]:
+    """Decide which navmesh a player cannot stand on. Three rules, in this order.
 
     1. Components of at least `min_area` (4 m2) are BRIDGED into clusters - see
        `bridge_components`: anything within 2 m horizontally and 10 m vertically is one
@@ -839,10 +849,14 @@ def filter_islands(
 
     `bridge_xy = 0` turns the bridging off and makes the area rules run per component,
     which is what C2 shipped and why "the islands are still there".
+
+    Returns the components, the clusters and the ids of the components that survive, so a
+    caller that needs the reasoning - `oob_pick.py` - reads it off the same decision the
+    map is built from. `filter_islands` is the same pass with only its polygons kept.
     """
     comps = connected_components(polys, grid=grid, z_tol=z_tol)
     if not comps:
-        return polys, {"components": 0}
+        return [], [], set(), {"components": 0}
 
     # ---- marker seeds, per component ------------------------------------------------
     shash: dict[tuple[int, int], list[int]] = {}
@@ -951,7 +965,204 @@ def filter_islands(
             for c in sorted(dropped, key=lambda c: -c["area"])[:12]
         ],
     }
-    return out, stats
+    return comps, clusters, keep_ids, stats
+
+
+DEFAULT_SHELF_Z_TOL = 20.0      # uu; the same tolerance classify_flat_planes calls one sheet
+DEFAULT_SHELF_NEAR = 2560.0     # uu; two navmesh tiles - the XY term a Z-only grouping lacks
+DEFAULT_SHELF_DROP = 400.0      # uu; ground this far under the piece means it is a lid, not a skin
+DEFAULT_SHELF_CELL = 1280.0     # uu; one tile - the pitch the "anything underneath" test asks at
+
+
+def flat_shelves(polys: list[dict], comps: list[dict], keep_ids: set[int],
+                 z_tol: float = DEFAULT_SHELF_Z_TOL, near: float = DEFAULT_SHELF_NEAR,
+                 drop: float = DEFAULT_SHELF_DROP,
+                 cell: float = DEFAULT_SHELF_CELL) -> list[list[int]]:
+    """Kept components that stand at one height, in one place, with nothing underneath.
+
+    The out-of-bounds ground a chapter is wrapped in does not always come as the big flat quads
+    `classify_flat_planes` looks for. It also comes as a SHELF: dozens of small scraps sharing a
+    height to within `z_tol`, spread over one neighbourhood, none of them over anything. Chapter 3's
+    marks are eleven such scraps of 13-575 m², holding not one full-tile quad between them.
+
+    Grouping on Z alone is what made a "sheet" span 38 400 uu and adopt an unrelated terrace, so
+    membership needs both terms: within `z_tol` in height AND within `near` in XY of another member.
+
+    Returns the components of each shelf, largest first. The caller decides which shelves are out of
+    bounds - `oob_pick.py` proposes the ones of three or more components that carry no marker.
+    """
+    # The lowest kept ground per cell is the whole question - "is anything under this" needs a
+    # minimum, not a list, and the list made the test walk thousands of heights per component.
+    floor: dict[tuple[int, int], float] = {}
+    for p in polys:
+        if p["comp"] in keep_ids:
+            k = (int(p["cx"] // cell), int(p["cy"] // cell))
+            if p["cz"] < floor.get(k, 1e18):
+                floor[k] = p["cz"]
+
+    def over_nothing(c: dict) -> bool:
+        limit = c["min_z"] - drop
+        for gx in range(int(c["min_x"] // cell), int(c["max_x"] // cell) + 1):
+            for gy in range(int(c["min_y"] // cell), int(c["max_y"] // cell) + 1):
+                if floor.get((gx, gy), 1e18) < limit:
+                    return False
+        return True
+
+    # The marker test is `seeded` and nothing wider. Measured on chapter 3's marks: every one of the
+    # 23 pieces the player called out of bounds has marked ground within 2 560 uu at its own height,
+    # because the level's skin hugs the level. Proximity to a marker separates nothing.
+    cand = sorted((c for c in comps
+                   if c["id"] in keep_ids and not c["seeded"] and over_nothing(c)),
+                  key=lambda c: (c["min_z"] + c["max_z"]) / 2)
+    dsu = _DSU(len(cand))
+    for i, a in enumerate(cand):
+        za = (a["min_z"] + a["max_z"]) / 2
+        for j in range(i + 1, len(cand)):
+            b = cand[j]
+            if (b["min_z"] + b["max_z"]) / 2 - za > z_tol:
+                break
+            if (a["min_x"] - near <= b["max_x"] and b["min_x"] - near <= a["max_x"]
+                    and a["min_y"] - near <= b["max_y"] and b["min_y"] - near <= a["max_y"]):
+                dsu.union(i, j)
+    groups: dict[int, list[int]] = {}
+    for i, c in enumerate(cand):
+        groups.setdefault(dsu.find(i), []).append(c["id"])
+    return sorted(groups.values(), key=lambda g: -sum(comps[i]["area"] for i in g))
+
+
+DEFAULT_ESCAPE_CLIMB = 200.0   # uu; a piece you cannot leave without climbing this is one-way
+DEFAULT_ESCAPE_FALL = 800.0    # uu; a step down deeper than this is not a way home either
+
+
+def one_way_ground(polys: list[dict], comps: list[dict], keep_ids: set[int],
+                   grid: float = DEFAULT_ISLAND_GRID,
+                   max_climb: float = DEFAULT_ESCAPE_CLIMB,
+                   max_fall: float = DEFAULT_ESCAPE_FALL) -> list[dict]:
+    """Kept components you can fall onto but cannot walk back off.
+
+    Ground the player uses can be left on foot; the level's outer skin is something the navmesh lets
+    you drop onto and never leave. So the question is not what a piece looks like but what it costs
+    to get OUT of it: over the component adjacency graph, falling out of a piece is free and climbing
+    out costs the height of the step. `escape_climb` is the bottleneck - the worst climb on the
+    cheapest route home - from a component to any component a marker seeds, and a component whose
+    cheapest way home still needs a climb over `max_climb` is out of bounds.
+
+    A fall is free but not unlimited: a step down over `max_fall` is not a way home, it is another
+    place you cannot come back from. Without that cap the level's outer skin DRAINS - chapter 3's
+    #323 walks flat onto #634, which drops 280 onto #3464, which drops 1 240 onto #246, one 40 uu
+    step from seeded ground - and the rule keeps the whole sheet. Measured over 132 marks: 89 without
+    the cap, 104 with it at 800 uu; 1 600 buys nothing and 400 buys one mark for 1.5 points of drawn
+    ground.
+
+    Two things fall out of the shape of the rule rather than being bolted on: a seeded component is
+    its own destination and is never one-way, so the marker veto needs no clause; and a boss arena
+    entered by dropping in is kept, because the shrine on it seeds it.
+
+    The grid pitch is load-bearing and must stay the one `connected_components` uses: at 128 uu a
+    cell merges a slab's Z with its neighbour's and the step between them disappears.
+    """
+    # where each kept component stands, cell by cell, and how high it reaches there
+    span: dict[tuple[int, int], dict[int, list[float]]] = {}
+    for p in polys:
+        cid = p["comp"]
+        if cid not in keep_ids:
+            continue
+        for c in poly_cells(p, grid):
+            at = span.setdefault(c, {})
+            zr = at.get(cid)
+            if zr is None:
+                at[cid] = [p["_zlo"], p["_zhi"]]
+            else:
+                zr[0] = min(zr[0], p["_zlo"])
+                zr[1] = max(zr[1], p["_zhi"])
+
+    # the cheapest way out of A over B, taken over every cell where the two meet
+    out: dict[int, dict[int, float]] = {}
+    def meet(a: int, az: list[float], b: int, bz: list[float]) -> None:
+        drop = az[0] - bz[1]
+        if drop > max_fall:
+            return          # you can get down there; you cannot get home that way
+        cost = 0.0 if drop > 0.0 else max(0.0, bz[0] - az[1])
+        row = out.setdefault(a, {})
+        if cost < row.get(b, float("inf")):
+            row[b] = cost
+
+    for (gx, gy), here in span.items():
+        neighbours = [here] + [span[c] for c in ((gx + 1, gy), (gx, gy + 1), (gx - 1, gy),
+                                                 (gx, gy - 1)) if c in span]
+        for a, az in here.items():
+            for other in neighbours:
+                for b, bz in other.items():
+                    if a != b:
+                        meet(a, az, b, bz)
+
+    # bottleneck distance home, from every seeded component outwards
+    seeded = [c["id"] for c in comps if c["id"] in keep_ids and c["seeded"]]
+    into: dict[int, list[tuple[int, float]]] = {}
+    for a, row in out.items():
+        for b, cost in row.items():
+            into.setdefault(b, []).append((a, cost))
+    best: dict[int, float] = {cid: 0.0 for cid in seeded}
+    heap = [(0.0, cid) for cid in seeded]
+    heapq.heapify(heap)
+    while heap:
+        cost, b = heapq.heappop(heap)
+        if cost > best.get(b, float("inf")):
+            continue
+        for a, edge in into.get(b, ()):
+            worst = cost if cost > edge else edge
+            if worst < best.get(a, float("inf")):
+                best[a] = worst
+                heapq.heappush(heap, (worst, a))
+
+    return [c for c in comps if c["id"] in keep_ids
+            and best.get(c["id"], float("inf")) > max_climb]
+
+
+def unmarked_tile_sheets(polys: list[dict], comps: list[dict], keep_ids: set[int]) -> list[dict]:
+    """Kept components that hold a whole navmesh tile of flat quad and carry no marker.
+
+    `classify_flat_planes` drops a coplanar SHEET of such quads. A single one welded to ordinary
+    detail geometry at its own height survives it twice over - three quads is far under `sheet_min`,
+    and the ordinary navmesh it is welded to is a couple of uu away in Z against `isolation`. What is
+    left is the level's outer skin: ground the flood walks onto off a ledge, with nothing under it
+    and no marker on it, because the player is never meant to be there.
+
+    The marker is the discriminator, not the quad: a shrine, an enemy or a pickup standing on a
+    component is the marker pipeline saying the player goes there, which is what keeps the boss
+    arenas and the palace terraces - full-tile flat quads every one of them.
+
+    Nothing in the build calls this yet. `oob_pick.py` draws it as a proposal while the rule is
+    measured against the marks.
+    """
+    return [c for c in comps
+            if c["id"] in keep_ids and not c["seeded"]
+            and any(polys[i]["plane_candidate"] for i in c["members"])]
+
+
+def filter_islands(
+    polys: list[dict],
+    seeds: list[dict],
+    grid: float = DEFAULT_ISLAND_GRID,
+    z_tol: float = DEFAULT_ISLAND_Z_TOL,
+    min_area: float = DEFAULT_ISLAND_MIN_AREA,
+    seed_radius: float = DEFAULT_ISLAND_SEED_RADIUS,
+    seed_z: float = DEFAULT_ISLAND_SEED_Z,
+    require_seed: bool = False,
+    bridge_xy: float = DEFAULT_ISLAND_BRIDGE_XY,
+    bridge_z: float = DEFAULT_ISLAND_BRIDGE_Z,
+    cluster_area: float = DEFAULT_ISLAND_CLUSTER_AREA,
+    cover_z: float = DEFAULT_ISLAND_COVER_Z,
+) -> tuple[list[dict], dict]:
+    """The polygons `decide_islands` keeps."""
+    _, _, keep_ids, stats = decide_islands(
+        polys, seeds, grid=grid, z_tol=z_tol, min_area=min_area, seed_radius=seed_radius,
+        seed_z=seed_z, require_seed=require_seed, bridge_xy=bridge_xy, bridge_z=bridge_z,
+        cluster_area=cluster_area, cover_z=cover_z,
+    )
+    if not stats.get("components"):
+        return polys, stats
+    return [p for p in polys if p["comp"] in keep_ids], stats
 
 
 def describe_islands(tag: str, st: dict) -> str:

@@ -1240,7 +1240,8 @@ def dumps_manifest(manifest: dict) -> str:
     return text
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The chapter build's options. Shared with `oob_pick.py`, which reproduces a build."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--input", type=Path, default=Path("dumps_offline"), help="tile-dump root with agent subdirs")
     ap.add_argument("--agent", default="Small", help="navmesh agent to ship (default Small, the player's)")
@@ -1302,7 +1303,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-levels", type=int, default=8, help="legacy: surface ordinals to bake")
     ap.add_argument("--floor-grid-uu", type=float, default=640.0, help="legacy: XY pitch of the floor Z grid")
     ap.add_argument("--floor-band-gap", type=float, default=250.0, help="legacy: Z gap that splits two bands")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     entry = build_chapter(args)
 

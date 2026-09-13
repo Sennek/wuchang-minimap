@@ -166,6 +166,8 @@ DEFAULT_PLANE_Z_TOL = 20.0  # uu; planes within this Z of each other are one she
 DEFAULT_ISLAND_GRID = 64.0  # uu; XY grid the connectivity union-find runs on
 DEFAULT_ISLAND_Z_TOL = 150.0  # uu; two polys in one grid cell join if their Z ranges are this close
 DEFAULT_ISLAND_MIN_AREA = 40000.0  # uu2 (4 m2); a component smaller than this never survives on size
+DEFAULT_ESCAPE_CLIMB = 200.0   # uu; a piece you cannot leave without climbing this is one-way
+DEFAULT_ESCAPE_FALL = 800.0    # uu; a step down deeper than this is not a way home either
 DEFAULT_ISLAND_SEED_RADIUS = 300.0  # uu (3 m); a marker this close to a component keeps it
 DEFAULT_ISLAND_SEED_Z = 600.0  # uu; ... and within this much Z of it
 # Bridging: two components whose polygons come this close are one PLACE even though the
@@ -749,6 +751,59 @@ def load_marker_seeds(paths: Iterable[Path], categories: Iterable[str] | None = 
     return seeds
 
 
+def load_oob_picks(path: str | Path, chapter: str) -> list[dict]:
+    """The `oob` verdicts recorded for one chapter - the anti-seeds of the cut.
+
+    Each is a world point a human stood on and judged out of bounds. `components_at` resolves it
+    against the build that is running; a verdict of `ok` is ordinary ground and is never read here.
+    """
+    if not path:
+        return []
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except Exception as exc:  # pragma: no cover
+        print(f"  ! cannot read verdicts {path}: {exc}", file=sys.stderr)
+        return []
+    out = []
+    for p in doc.get("picks", []):
+        w = p.get("world") or []
+        if p.get("chapter") == chapter and p.get("verdict") == "oob" and len(w) >= 3:
+            out.append({"x": float(w[0]), "y": float(w[1]), "z": float(w[2])})
+    return out
+
+
+def components_at(polys: list[dict], points: Iterable[dict], cell: float = 256.0,
+                  tol_z: float = 200.0) -> set[int]:
+    """The components standing under a set of world points - a verdict's anti-seeds.
+
+    A verdict recorded in `tools/navmesh/oob_picks.json` is a world point, never a component id:
+    ids are load order and a regeneration renumbers them. So the point is resolved here, against
+    the geometry of the build that is running, exactly the way `oob_pick.py` resolves it for the
+    picture - the polygon containing its XY whose Z is nearest, within `tol_z`.
+    """
+    pts = [q for q in points if all(k in q for k in ("x", "y", "z"))]
+    if not pts:
+        return set()
+    idx: dict[tuple[int, int], list[int]] = {}
+    for i, p in enumerate(polys):
+        xs = [q[0] for q in p["pts"]]
+        ys = [q[1] for q in p["pts"]]
+        for gx in range(int(math.floor(min(xs) / cell)), int(math.floor(max(xs) / cell)) + 1):
+            for gy in range(int(math.floor(min(ys) / cell)), int(math.floor(max(ys) / cell)) + 1):
+                idx.setdefault((gx, gy), []).append(i)
+    out: set[int] = set()
+    for s in pts:
+        key = (int(math.floor(s["x"] / cell)), int(math.floor(s["y"] / cell)))
+        hits = [polys[i] for i in idx.get(key, ())
+                if _point_in_poly(polys[i]["pts"], s["x"], s["y"])]
+        near = [p for p in hits if abs(p["cz"] - s["z"]) <= tol_z]
+        if near:
+            out.add(min(near, key=lambda p: abs(p["cz"] - s["z"]))["comp"])
+    return out
+
+
 def _marker_rescue(
     polys: list[dict],
     comps: list[dict],
@@ -829,6 +884,10 @@ def decide_islands(
     bridge_z: float = DEFAULT_ISLAND_BRIDGE_Z,
     cluster_area: float = DEFAULT_ISLAND_CLUSTER_AREA,
     cover_z: float = DEFAULT_ISLAND_COVER_Z,
+    cut_oob: bool = True,
+    anti_seeds: Iterable[dict] | None = None,
+    escape_climb: float = DEFAULT_ESCAPE_CLIMB,
+    escape_fall: float = DEFAULT_ESCAPE_FALL,
 ) -> tuple[list[dict], list[dict], set[int], dict]:
     """Decide which navmesh a player cannot stand on. Three rules, in this order.
 
@@ -926,7 +985,23 @@ def decide_islands(
             c["keep"] = False
             c["why"] = f"sliver, area {c['area']:.0f} < {min_area:.0f}"
 
-    # ---- rule 3: never strand a marker ---------------------------------------------
+    # ---- rule 3: the ground you can fall onto but never walk back off ---------------
+    # Plus the pieces a human judged out of bounds, which reach what the rule cannot - a roof one
+    # gentle step above ordinary ground has a trivial route home and is invisible to any escape
+    # cost. This runs BEFORE the rescue on purpose: whatever it would strand, the rescue puts back,
+    # so "no marker stands on nothing" stays an invariant of the pass rather than a lucky outcome.
+    anti = list(anti_seeds or [])
+    oob: set[int] = set()
+    if cut_oob:
+        oob |= {c["id"] for c in one_way_ground(polys, comps, keep_ids, grid=grid,
+                                                max_climb=escape_climb, max_fall=escape_fall)}
+    oob |= components_at(polys, anti)
+    oob &= keep_ids
+    for cid in oob:
+        comps[cid]["keep"], comps[cid]["why"] = False, "out of bounds"
+        keep_ids.discard(cid)
+
+    # ---- rule 4: never strand a marker ---------------------------------------------
     rescued, rescues = _marker_rescue(polys, comps, keep_ids, seeds, cover_z=cover_z)
 
     kept_comps = [c for c in comps if c["keep"]]
@@ -941,6 +1016,11 @@ def decide_islands(
         "clusters_kept": len(kept_cl),
         "clusters_detached_kept": sum(1 for cl in kept_cl if not cl["has_largest"]),
         "rescued_marker_components": rescued,
+        "oob_cut_components": len(oob),
+        "oob_cut": cut_oob,
+        "oob_anti_seeds": len(anti),
+        "escape_climb_uu": escape_climb,
+        "escape_fall_uu": escape_fall,
         "rescues": rescues[:24],
         "polys_before": len(polys),
         "polys_after": len(out),
@@ -1028,10 +1108,6 @@ def flat_shelves(polys: list[dict], comps: list[dict], keep_ids: set[int],
     for i, c in enumerate(cand):
         groups.setdefault(dsu.find(i), []).append(c["id"])
     return sorted(groups.values(), key=lambda g: -sum(comps[i]["area"] for i in g))
-
-
-DEFAULT_ESCAPE_CLIMB = 200.0   # uu; a piece you cannot leave without climbing this is one-way
-DEFAULT_ESCAPE_FALL = 800.0    # uu; a step down deeper than this is not a way home either
 
 
 def one_way_ground(polys: list[dict], comps: list[dict], keep_ids: set[int],
@@ -1153,12 +1229,14 @@ def filter_islands(
     bridge_z: float = DEFAULT_ISLAND_BRIDGE_Z,
     cluster_area: float = DEFAULT_ISLAND_CLUSTER_AREA,
     cover_z: float = DEFAULT_ISLAND_COVER_Z,
+    cut_oob: bool = True,
+    anti_seeds: Iterable[dict] | None = None,
 ) -> tuple[list[dict], dict]:
     """The polygons `decide_islands` keeps."""
     _, _, keep_ids, stats = decide_islands(
         polys, seeds, grid=grid, z_tol=z_tol, min_area=min_area, seed_radius=seed_radius,
         seed_z=seed_z, require_seed=require_seed, bridge_xy=bridge_xy, bridge_z=bridge_z,
-        cluster_area=cluster_area, cover_z=cover_z,
+        cluster_area=cluster_area, cover_z=cover_z, cut_oob=cut_oob, anti_seeds=anti_seeds,
     )
     if not stats.get("components"):
         return polys, stats
@@ -1174,6 +1252,8 @@ def describe_islands(tag: str, st: dict) -> str:
         f" kept {st['clusters_kept']} ({st['clusters_detached_kept']} detached from the main one)"
         f" = {st['kept']} components ({st['rescued_marker_components']} of them put back under a marker),"
         f" dropped {st['dropped']}"
+        f" (of them {st.get('oob_cut_components', 0)} out of bounds"
+        f" from {st.get('oob_anti_seeds', 0)} verdict(s))"
         f" ({st['seeded_components']} seeded by {st['seeds']} markers); polygons"
         f" {st['polys_before']} -> {st['polys_after']}"
         f" (-{st['polys_dropped']}, -{100.0 * st['polys_dropped'] / max(1, st['polys_before']):.1f}%),"
@@ -1215,6 +1295,11 @@ def add_island_args(ap: argparse.ArgumentParser, default_on: bool = False) -> No
                     help=f"a marker this close keeps a component, uu (default {DEFAULT_ISLAND_SEED_RADIUS:g})")
     ap.add_argument("--island-require-seed", action="store_true",
                     help="keep ONLY components with a marker seed (strict reachability; drops ~56%% of Chapter 1)")
+    ap.add_argument("--no-oob-cut", dest="cut_oob", action="store_false", default=True,
+                    help="keep the one-way ground the out-of-bounds cut removes (before/after runs)")
+    ap.add_argument("--oob-picks", default=str(Path(__file__).resolve().parent / "oob_picks.json"),
+                    help="verdicts whose world points force their component out (default: the "
+                         "repo's oob_picks.json; '' to use none)")
 
 
 def add_plane_args(ap: argparse.ArgumentParser) -> None:

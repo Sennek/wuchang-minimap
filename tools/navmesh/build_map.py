@@ -998,12 +998,18 @@ def build_chapter(args: argparse.Namespace) -> dict:
         if not seeds:
             print(f"  ! no marker seeds found ({', '.join(str(p) for p in seed_files) or 'no files'}); "
                   f"the island filter falls back to the area threshold alone", file=sys.stderr)
+        # The verdicts for THIS chapter: world points a human judged out of bounds, which reach
+        # the pieces the escape rule cannot see.
+        anti = render.load_oob_picks(args.oob_picks, args.chapter)
+        if anti:
+            print(f"[{args.chapter}] {len(anti)} out-of-bounds verdict(s) from {args.oob_picks}")
         polys, islands = render.filter_islands(
             polys, seeds,
             grid=args.island_grid, z_tol=args.island_z_tol, min_area=args.island_min_area,
             seed_radius=args.island_seed_radius, require_seed=args.island_require_seed,
             bridge_xy=args.island_bridge_xy, bridge_z=args.island_bridge_z,
             cluster_area=args.island_cluster_area,
+            cut_oob=args.cut_oob, anti_seeds=anti,
         )
         print(render.describe_islands(args.chapter, islands))
         if not polys:

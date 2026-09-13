@@ -226,12 +226,15 @@ class Chapter:
         seed_files = [Path(q) for pat in (a.markers or build_map.default_marker_globs(self.key))
                       for q in sorted(glob.glob(str(pat)))]
         self.seeds = render.load_marker_seeds(seed_files)
+        # `cut_oob=False` on purpose: the build cuts the out-of-bounds ground, and this tool is
+        # where that cut is judged. It has to show the map WITHOUT it and take the pieces out as
+        # layers, or the proposals would already be missing from the picture they are proposed on.
         self.comps, self.clusters, keep_ids, self.islands = render.decide_islands(
             rest, self.seeds,
             grid=a.island_grid, z_tol=a.island_z_tol, min_area=a.island_min_area,
             seed_radius=a.island_seed_radius, require_seed=a.island_require_seed,
             bridge_xy=a.island_bridge_xy, bridge_z=a.island_bridge_z,
-            cluster_area=a.island_cluster_area,
+            cluster_area=a.island_cluster_area, cut_oob=False,
         )
         self.rest = rest              # what the island filter judged: the rule reads these
         self.keep_ids = keep_ids

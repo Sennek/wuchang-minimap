@@ -1195,27 +1195,6 @@ def one_way_ground(polys: list[dict], comps: list[dict], keep_ids: set[int],
             and best.get(c["id"], float("inf")) > max_climb]
 
 
-def unmarked_tile_sheets(polys: list[dict], comps: list[dict], keep_ids: set[int]) -> list[dict]:
-    """Kept components that hold a whole navmesh tile of flat quad and carry no marker.
-
-    `classify_flat_planes` drops a coplanar SHEET of such quads. A single one welded to ordinary
-    detail geometry at its own height survives it twice over - three quads is far under `sheet_min`,
-    and the ordinary navmesh it is welded to is a couple of uu away in Z against `isolation`. What is
-    left is the level's outer skin: ground the flood walks onto off a ledge, with nothing under it
-    and no marker on it, because the player is never meant to be there.
-
-    The marker is the discriminator, not the quad: a shrine, an enemy or a pickup standing on a
-    component is the marker pipeline saying the player goes there, which is what keeps the boss
-    arenas and the palace terraces - full-tile flat quads every one of them.
-
-    Nothing in the build calls this yet. `oob_pick.py` draws it as a proposal while the rule is
-    measured against the marks.
-    """
-    return [c for c in comps
-            if c["id"] in keep_ids and not c["seeded"]
-            and any(polys[i]["plane_candidate"] for i in c["members"])]
-
-
 def filter_islands(
     polys: list[dict],
     seeds: list[dict],

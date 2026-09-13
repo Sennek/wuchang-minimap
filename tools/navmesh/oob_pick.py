@@ -64,6 +64,7 @@ GROUPS = {
     "doubt":   {"rgb": (34, 211, 238),  "label": "seeded, or barely drawn"},
     "rules":   {"rgb": (245, 158, 11),  "label": "one-way: no walk back home"},
     "legit":   {"rgb": (34, 197, 94),   "label": "judged legit"},
+    "done":    {"rgb": (113, 122, 132), "label": "already gone from the map"},
 }
 
 # What a marker says about the ground under it. The picture paints the GROUP, not the category, so
@@ -128,15 +129,21 @@ class ChapterUnavailable(RuntimeError):
 def group_of(pick: dict, comp: dict | None, open_batch: int, drawn_pct: float) -> str:
     """Which layer a mark belongs to.
 
-    Doubt comes first because it is the one that needs answering: a marker of the game's own
-    standing on the component is the pipeline saying the player goes there, and a piece the mod
-    barely draws is a mark that changes nothing. Either way the verdict is worth a second look,
-    whichever batch it was made in.
+    `done` comes first: once the build cuts, a correct mark's ground is no longer in the height
+    planes, so the mod draws none of it and there is nothing left on screen to look at. That is the
+    mark having worked, not a reason to re-open it - and without this state every mark in a cut
+    chapter falls into `doubt` on the "barely drawn" test and the layer becomes noise.
+
+    Doubt is then only what still needs answering: a marker of the game's own stands on the
+    component - the pipeline saying the player goes there - or the mod draws a sliver of the piece
+    while the rest is hidden, so cutting it would change almost nothing.
     """
     if pick.get("verdict") == "ask":
         return "doubt"       # a piece put in front of the user; nothing is decided about it yet
     if pick.get("verdict") != "oob":
         return "legit"
+    if drawn_pct <= 0.0:
+        return "done"
     # A second verdict is a human answering the doubt, whichever way; the test has had its say.
     if not pick.get("revised") and (
             (comp is not None and comp.get("seeded")) or drawn_pct < DOUBT_DRAWN_PCT):
@@ -775,6 +782,10 @@ def mask_of(ch: Chapter, sel: list[dict]) -> tuple[int, int, np.ndarray, np.ndar
     slots = max(1, min(len(ch.plane_paths), int(STACK_BUDGET_PX // max(1, w * h))))
     z, _ = build_map.rasterize_heights(sel, sub, slots, merge_tol=SURFACE_MATCH_UU,
                                        progress=0)
+    # `Bounds.width` rounds up, so the stack can come back one pixel wider than the crop asked for.
+    # The origin is the same either way, so the extra row or column is simply trimmed - and it has
+    # to be, or a piece at the image's edge would not line up with the height planes under it.
+    z = z[:, :h, :w]
     return x0, y0, ~np.isnan(z).all(axis=0), z
 
 
@@ -790,8 +801,13 @@ def raster_masks(ch: Chapter, x0: int, y0: int, m: np.ndarray,
     h, w = m.shape
     lit = np.zeros((h, w), dtype=bool)
     reach = np.zeros((h, w), dtype=bool)
+    # A piece can hang off the edge of the picture - the cut tightens a chapter's bounds, and this
+    # tool holds the geometry from before it. Whatever falls outside reads as no surface.
+    cy, cx = max(0, min(h, ch.height - y0)), max(0, min(w, ch.width - x0))
     for i in range(len(ch.plane_paths)):
-        raw = ch.plane(i)[y0:y0 + h, x0:x0 + w].astype(np.int32)
+        raw = np.zeros((h, w), dtype=np.int32)
+        if cy and cx:
+            raw[:cy, :cx] = ch.plane(i)[y0:y0 + cy, x0:x0 + cx]
         code = raw & ch.z_code_mask
         hit = m & (code != 0) & matches_z(z, ch.z_of_code(code)) & ~lit
         reach |= hit & ((raw & ch.reach_bit) != 0)

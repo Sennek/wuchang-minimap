@@ -770,12 +770,8 @@ def load_marker_seeds(paths: Iterable[Path], categories: Iterable[str] | None = 
     return seeds
 
 
-def load_oob_picks(path: str | Path, chapter: str) -> list[dict]:
-    """The `oob` verdicts recorded for one chapter - the anti-seeds of the cut.
-
-    Each is a world point a human stood on and judged out of bounds. `components_at` resolves it
-    against the build that is running; a verdict of `ok` is ordinary ground and is never read here.
-    """
+def _oob_verdicts(path: str | Path, chapter: str) -> list[dict]:
+    """Every `oob` verdict recorded for one chapter. `ok` is ordinary ground and is never read."""
     if not path:
         return []
     try:
@@ -785,12 +781,67 @@ def load_oob_picks(path: str | Path, chapter: str) -> list[dict]:
     except Exception as exc:  # pragma: no cover
         print(f"  ! cannot read verdicts {path}: {exc}", file=sys.stderr)
         return []
+    return [p for p in doc.get("picks", [])
+            if p.get("chapter") == chapter and p.get("verdict") == "oob"]
+
+
+def load_oob_picks(path: str | Path, chapter: str) -> list[dict]:
+    """The verdicts made on a PIECE - the anti-seeds of the cut.
+
+    Each is a world point a human stood on and judged out of bounds. `components_at` resolves it
+    against the build that is running, and the whole component it lands on goes.
+    """
     out = []
-    for p in doc.get("picks", []):
+    for p in _oob_verdicts(path, chapter):
         w = p.get("world") or []
-        if p.get("chapter") == chapter and p.get("verdict") == "oob" and len(w) >= 3:
+        if not p.get("box") and len(w) >= 3:
             out.append({"x": float(w[0]), "y": float(w[1]), "z": float(w[2])})
     return out
+
+
+def load_oob_boxes(path: str | Path, chapter: str) -> list[dict]:
+    """The verdicts made on a REGION - a world box, judged at a height.
+
+    A piece verdict cannot reach ground the navmesh fused to the level: chapter 4's map runs
+    THROUGH the wall of a stone tunnel, and the floor on the far side of that wall is part of the
+    chapter's own 16 199 m2 component, so cutting the component would cut the chapter. What the
+    player can say about such ground is where it is, not which component it belongs to.
+
+    `box` is `[x0, y0, x1, y1]` in world units and `z` is `[lo, hi]`; both are inclusive.
+    """
+    out = []
+    for p in _oob_verdicts(path, chapter):
+        b, z = p.get("box"), p.get("z_range")
+        if not b or len(b) != 4 or not z or len(z) != 2:
+            continue
+        out.append({"x0": min(b[0], b[2]), "y0": min(b[1], b[3]),
+                    "x1": max(b[0], b[2]), "y1": max(b[1], b[3]),
+                    "z0": min(z), "z1": max(z)})
+    return out
+
+
+def cut_boxes(polys: list[dict], boxes: Iterable[dict]) -> list[dict]:
+    """The polygons left after the region verdicts take theirs.
+
+    A polygon goes when its CENTRE is inside a box: the region is a statement about ground, and a
+    polygon that merely reaches into the box is ground that starts outside it.
+
+    This runs before the components are found, on purpose. The rules that follow then see the shape
+    the cut leaves - what was one body across a tunnel wall becomes two, and whatever is left of the
+    far side has to earn its keep like any other island.
+    """
+    boxes = list(boxes)
+    if not boxes:
+        return polys
+    inside = {id(p) for p in polys_in_boxes(polys, boxes)}
+    return [p for p in polys if id(p) not in inside]
+
+
+def polys_in_boxes(polys: list[dict], boxes: Iterable[dict]) -> list[dict]:
+    """The polygons a region verdict takes - the other side of `cut_boxes`, for showing it."""
+    return [p for p in polys
+            if any(b["x0"] <= p["cx"] <= b["x1"] and b["y0"] <= p["cy"] <= b["y1"]
+                   and b["z0"] <= p["cz"] <= b["z1"] for b in boxes)]
 
 
 def standing_components(polys: list[dict], seeds: Iterable[dict],

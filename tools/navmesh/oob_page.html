@@ -11,7 +11,7 @@
  #rout.stale{opacity:.35}
  /* the boxes have been typed in and the map below is still the previous set's */
  #rout.unapplied{opacity:.4}
- #rout.unapplied::after{content:" 90 the map still shows the applied set - press apply";
+ #rout.unapplied::after{content:" <- the map still shows the applied set, press apply";
    color:#f0b429;opacity:1}
  button:disabled{opacity:.45;cursor:default}
  #busy{color:#f0b429;min-height:18px}
@@ -66,6 +66,7 @@
         <option value=poly>polygon</option>
         <option value=shelf>shelf</option>
         <option value=cluster>cluster</option>
+        <option value=box>region: 2 clicks</option>
       </select>
       <input type=text id=goto placeholder="world X Y [Z]" size=12>
       <button id=gob>go</button>
@@ -77,6 +78,12 @@
       <label><input type=checkbox id=seams checked> storey seams</label>
       <label><input type=checkbox id=mks> markers</label>
       <label><input type=checkbox id=wls> invisible walls</label>
+    </div>
+    <div class=row id=boxrow hidden>
+      Z from <input type=text id=bz0 size=6> to <input type=text id=bz1 size=6>
+      <button id=bzgo title="measure the region again at this height band">&#8635;</button>
+      <button id=bzoff>clear</button>
+      <span class=hint id=boxhint>click two opposite corners on the map</span>
     </div>
     <div class=hint id=mkleg></div>
     <h2>cut rules <span class=hint>tick 'rules' below to see what they take</span></h2>
@@ -270,11 +277,92 @@ function draw_marks(){
 }
 document.getElementById('mks').addEventListener('change',load_marks);
 
+// ---- a region verdict: the ground in a box, at a height ---------------------------------------
+// A piece verdict cuts the component under the point, and some ground cannot be reached that way:
+// chapter 4's map runs THROUGH the wall of a stone tunnel, and the floor beyond it belongs to the
+// chapter's own 16 199 m2 component. What the player can say about that ground is where it is.
+let boxA=null, boxNow=null;
+function toWorld(u,v){
+  const b=info.bounds;
+  return [b.max_x - v/b.px_per_uu, b.min_y + u/b.px_per_uu];
+}
+function box_mode(){ return document.getElementById('mode').value=='box'; }
+function box_hint(t){ document.getElementById('boxhint').textContent=t; }
+function box_clear(){
+  boxA=null; boxNow=null; ov.hidden=true; last=null;
+  document.getElementById('report').innerHTML='';
+  box_hint('click two opposite corners on the map');
+}
+document.getElementById('bzoff').onclick=box_clear;
+
+// The height band comes from the ground under the two corners, not from the storey the page is cut
+// at: a corner clicked on a roof and one on the floor below it are two different statements.
+async function box_click(u,v){
+  const w=toWorld(u,v);
+  busy('pick','reading the surface…');
+  const r=await fetch(`/pick?ch=${encodeURIComponent(chapter)}&u=${u}&v=${v}&mode=poly&all=1`
+                     +showq()).then(r=>r.json());
+  busy('pick',null);
+  const z=r.ok?r.world[2]:(+cutZ||0);
+  if(!boxA){
+    boxA={x:w[0],y:w[1],z:z};
+    box_hint(`corner at ${w[0].toFixed(0)}, ${w[1].toFixed(0)} (Z ${z.toFixed(0)})`
+            +' - now the opposite one');
+    return;
+  }
+  document.getElementById('bz0').value=Math.round(Math.min(boxA.z,z)-150);
+  document.getElementById('bz1').value=Math.round(Math.max(boxA.z,z)+150);
+  boxNow={x0:boxA.x,y0:boxA.y,x1:w[0],y1:w[1]};
+  boxA=null;
+  box_measure();
+}
+async function box_measure(){
+  if(!boxNow) return;
+  const q=new URLSearchParams({ch:chapter,x0:boxNow.x0,y0:boxNow.y0,x1:boxNow.x1,y1:boxNow.y1,
+                               z0:+document.getElementById('bz0').value,
+                               z1:+document.getElementById('bz1').value});
+  busy('box','measuring the region…');
+  const r=await fetch('/box?'+q).then(r=>r.json());
+  busy('box',null);
+  box_report(r);
+}
+document.getElementById('bzgo').onclick=box_measure;
+for(const id of ['bz0','bz1'])
+  document.getElementById(id).addEventListener('keydown',e=>{
+    if(e.key=='Enter') box_measure(); });
+
+function box_report(r){
+  const el=document.getElementById('report');
+  if(!r.ok){ el.innerHTML='<h2>region</h2><p class=hint>'+esc(r.why)+'</p>'; ov.hidden=true;
+             last=null; return; }
+  const b=r.box;
+  last={ok:true, box:b, region:true, area_m2:r.area_m2, polys:r.polys, raster:r.raster, z:r.z,
+        world:[Math.round((b.x0+b.x1)/2), Math.round((b.y0+b.y1)/2), Math.round((b.z0+b.z1)/2)]};
+  el.innerHTML='<h2>region</h2><table>'
+    +tr('X',`${b.x0.toFixed(0)} .. ${b.x1.toFixed(0)} <span class=hint>`
+           +`${(b.x1-b.x0).toFixed(0)} uu</span>`)
+    +tr('Y',`${b.y0.toFixed(0)} .. ${b.y1.toFixed(0)} <span class=hint>`
+           +`${(b.y1-b.y0).toFixed(0)} uu</span>`)
+    +tr('Z band',`${b.z0.toFixed(0)} .. ${b.z1.toFixed(0)}`)
+    +tr('ground in it',`${r.area_m2} m&sup2; &middot; ${r.polys} polys &middot; ${r.comps} comp`
+                      +`<br><span class=hint>Z ${r.z[0]} .. ${r.z[1]}</span>`)
+    +tr('the mod draws', r.raster.drawn
+        ? `${r.raster.drawn} px`
+        : '<b class=oobtag>nothing</b> &mdash; every pixel is hidden')
+    +'</table><p class=hint>the verdict below cuts every polygon whose centre is in this box, '
+    +'before the components are found</p>';
+  const o=r.overlay;
+  ov.src=`/overlay.png?k=${o.key}`; ov.style.left=o.x+'px'; ov.style.top=o.y+'px';
+  ov.width=o.w; ov.height=o.h; ov.hidden=false;
+  box_hint('judge it below, or click two corners again');
+}
+
 // A piece the tool has not measured yet takes seconds to rasterise, and a click during that wait
 // is the answer that matters: the newest one wins and every older reply is dropped on arrival.
 let picking=0;
 async function pick(u,v,z){
   if(!info||u<0||v<0||u>=info.width||v>=info.height) return;
+  if(box_mode()) return box_click(u,v);
   if(z!==undefined) selZ=z;
   const m=document.getElementById('mode').value;
   const all=show_all()?'1':'0';
@@ -371,6 +459,9 @@ document.getElementById('report').addEventListener('click',e=>{
   if(d&&last&&last.pixel) pick(last.pixel[0],last.pixel[1],d.dataset.z);
 });
 document.getElementById('mode').addEventListener('change',()=>{
+  document.getElementById('boxrow').hidden=!box_mode();
+  if(box_mode()){ box_clear(); return; }
+  boxA=boxNow=null;
   if(last&&last.pixel) pick(last.pixel[0],last.pixel[1]);
 });
 document.getElementById('allview').addEventListener('change',()=>{
@@ -460,6 +551,17 @@ document.getElementById('find').addEventListener('keydown',e=>{
 
 async function mark(verdict){
   if(!last||!last.ok) return;
+  if(last.region){
+    const bx=last.box;
+    const got=await fetch('/mark?ch='+encodeURIComponent(chapter), {method:'POST',
+      body:JSON.stringify({verdict, note:document.getElementById('note').value, mode:'box',
+                           box:[bx.x0,bx.y0,bx.x1,bx.y1], z_range:[bx.z0,bx.z1],
+                           world:last.world, area_m2:last.area_m2, polys:last.polys,
+                           raster:last.raster, z:last.z})}).then(r=>r.json());
+    document.getElementById('note').value=''; took(got);
+    box_clear(); reload_base(true);
+    return;
+  }
   const b={verdict, note:document.getElementById('note').value,
            world:last.world, pixel:last.pixel, mode:last.mode, surfaces:last.surfaces,
            polys:last.polys, area_m2:last.area_m2, z:last.z, bbox:last.bbox,

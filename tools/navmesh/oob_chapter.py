@@ -32,7 +32,7 @@ import slice_preview as sp
 from oob_measure import (PICK_GRID_UU, STACK_BUDGET_PX, drawn_surfaces, inner, mask_of, matches_z,
                          overlap, overlay_png, raster_masks)
 from oob_rules import RuleSet
-from oob_verdicts import GROUPS, group_of, load_doc
+from oob_verdicts import GROUPS, box_of, group_of, load_doc
 
 HERE = Path(__file__).resolve().parent
 
@@ -410,14 +410,23 @@ class Chapter:
             w = p.get("world") or []
             if p.get("chapter") != self.key or len(w) < 3:
                 continue
-            poly = self.locate(float(w[0]), float(w[1]), float(w[2]))
-            if poly is None:
-                continue
-            comp = self.comps[poly["comp"]] if "comp" in poly else None
-            pc = self._piece(
-                poly, p.get("mode", "comp"),
-                i=i, verdict=p.get("verdict", "oob"), note=p.get("note", ""),
-                world=[float(w[0]), float(w[1]), float(w[2])], batch=p["batch"])
+            common = dict(i=i, verdict=p.get("verdict", "oob"), note=p.get("note", ""),
+                          world=[float(w[0]), float(w[1]), float(w[2])], batch=p["batch"])
+            box = box_of(p)
+            if box is not None:
+                # A region says where the ground is, not which component it belongs to, so there is
+                # nothing to re-locate: the box IS the mark.
+                key, sel = self.box_sel(box)
+                if not sel:
+                    continue
+                pc = dict(self.shape_of(key, sel), mode="box", box=box, **common)
+                comp = None
+            else:
+                poly = self.locate(float(w[0]), float(w[1]), float(w[2]))
+                if poly is None:
+                    continue
+                comp = self.comps[poly["comp"]] if "comp" in poly else None
+                pc = self._piece(poly, p.get("mode", "comp"), **common)
             pc["group"] = group_of(p, comp, doc["open_batch"], pc["drawn_pct"])
             out.append(pc)
         self._pieces = (sig, out)
@@ -771,6 +780,16 @@ class Chapter:
             return f"cluster:{comp['cluster']}", out
         return f"comp:{poly['comp']}", self.comp_polys.get(poly["comp"], [poly])
 
+    def box_sel(self, box: dict) -> tuple[str, list[dict]]:
+        """The ground inside a region verdict, and the key that names that region.
+
+        `render.polys_in_boxes` decides it, the same call the build cuts with, so the picture the
+        region is judged on is the ground the build will take.
+        """
+        key = (f"box:{box['x0']:.0f},{box['y0']:.0f},{box['x1']:.0f},{box['y1']:.0f}"
+               f",{box['z0']:.0f},{box['z1']:.0f}")
+        return key, render.polys_in_boxes(self.rest, [box])
+
     def shape(self, poly: dict, mode: str) -> dict:
         """The pixels of a piece and what the height planes say about them, measured once.
 
@@ -783,6 +802,10 @@ class Chapter:
         rules already proposed, re-use the measurement instead of rasterising it again.
         """
         key, sel = self.selection(poly, mode)
+        return self.shape_of(key, sel, poly.get("comp"))
+
+    def shape_of(self, key: str, sel: list[dict], comp: int | None = None) -> dict:
+        """The same measurement over any ground that has a name - a piece, or a region."""
         got = self._shapes.pop(key, None)
         if got is not None:
             self._shapes[key] = got          # re-inserted: the cache drops the least recent first
@@ -791,7 +814,7 @@ class Chapter:
             lit, reach = raster_masks(self, x0, y0, m, z)
             px, on_map, drawn = int(m.sum()), int(lit.sum()), int(reach.sum())
             got = self._shapes[key] = dict(
-                key=key, sel=sel, comp=poly.get("comp"),
+                key=key, sel=sel, comp=comp,
                 comps=len({q.get("comp") for q in sel}),
                 area_m2=round(sum(q["xyarea"] for q in sel) / 10000.0, 1),
                 px=px, px_on_map=on_map, drawn=drawn,
@@ -803,7 +826,9 @@ class Chapter:
 
     def overlay(self, poly: dict, mode: str) -> bytes:
         """The piece's highlight, drawn on the first pick that asks to see it."""
-        sh = self.shape(poly, mode)
+        return self.overlay_of(self.shape(poly, mode))
+
+    def overlay_of(self, sh: dict) -> bytes:
         if sh["overlay"] is None:
             sh["overlay"] = overlay_png(sh["mask"])
         return sh["overlay"]

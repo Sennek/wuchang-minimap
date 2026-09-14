@@ -180,8 +180,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json({"ok": True, "markers": ch.markers(), "groups": MARKER_GROUPS})
         elif url.path == "/pick":
             self._json(self.pick(ch, q))
+        elif url.path == "/box":
+            self._json(self.box(ch, q))
         else:
             self._send(404, "text/plain", b"no")
+
+    def box(self, ch: Chapter, q: dict) -> dict:
+        """What a region verdict would take, measured before it is made.
+
+        The same measurement a piece gets, over the ground `render.polys_in_boxes` finds - which is
+        the call the build cuts with, so what the page shows is what the map loses.
+        """
+        try:
+            box = {k: float(q[k][0]) for k in ("x0", "y0", "x1", "y1", "z0", "z1")}
+        except (KeyError, ValueError):
+            return {"ok": False, "why": "a region needs x0, y0, x1, y1, z0, z1"}
+        box = {"x0": min(box["x0"], box["x1"]), "x1": max(box["x0"], box["x1"]),
+               "y0": min(box["y0"], box["y1"]), "y1": max(box["y0"], box["y1"]),
+               "z0": min(box["z0"], box["z1"]), "z1": max(box["z0"], box["z1"])}
+        key, sel = ch.box_sel(box)
+        if not sel:
+            return {"ok": False, "box": box,
+                    "why": "no navmesh in that region at that height"}
+        sh = ch.shape_of(key, sel)
+        zs = [q[2] for p in sel for q in p["pts"]]
+        rep = {"ok": True, "box": box, "polys": len(sel), "comps": sh["comps"],
+               "area_m2": sh["area_m2"], "z": [round(min(zs), 1), round(max(zs), 1)],
+               "raster": {k: sh[k] for k in ("px", "px_on_map", "drawn", "reachable_pct")},
+               "comps_touched": sorted({p["comp"] for p in sel if "comp" in p})[:12]}
+        key = f"{time.time():.6f}"
+        self.overlays[key] = ch.overlay_of(sh)
+        for stale in list(self.overlays)[:-4]:
+            self.overlays.pop(stale, None)
+        rep["overlay"] = {"key": key, "x": sh["x"], "y": sh["y"],
+                          "w": int(sh["mask"].shape[1]), "h": int(sh["mask"].shape[0])}
+        return rep
 
     def pick(self, ch: Chapter, q: dict) -> dict:
         u, v = float(q.get("u", [0])[0]), float(q.get("v", [0])[0])

@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-PICKS_SCHEMA = "wuchang-oob-picks/2"
+PICKS_SCHEMA = "wuchang-oob-picks/3"   # /3 adds the region verdict: `box` + `z_range`
 
 # Which layer a piece belongs to, and the colour it is washed with when its layer is shown. A layer
 # that is not shown is CUT from the picture - struck out of the height stack - which is the map the
@@ -28,6 +28,21 @@ GROUPS = {
     "legit":   {"rgb": (34, 197, 94),   "label": "judged legit"},
     "done":    {"rgb": (113, 122, 132), "label": "already gone from the map"},
 }
+
+def box_of(pick: dict) -> dict | None:
+    """The region a verdict names, or None when it names a piece.
+
+    A piece verdict cuts the whole component under a point, which cannot reach ground the navmesh
+    fused to the level - a map drawn through the wall of a tunnel is part of the tunnel. A region
+    verdict cuts by place instead: a world box and the height band it applies at.
+    """
+    b, z = pick.get("box"), pick.get("z_range")
+    if not b or len(b) != 4 or not z or len(z) != 2:
+        return None
+    return {"x0": min(b[0], b[2]), "y0": min(b[1], b[3]),
+            "x1": max(b[0], b[2]), "y1": max(b[1], b[3]),
+            "z0": min(z), "z1": max(z)}
+
 
 # A mark the pipeline disagrees with: its component carries a marker of the game's own - a shrine, an
 # enemy, a pickup - or the mod draws almost none of it, so cutting it changes nothing.

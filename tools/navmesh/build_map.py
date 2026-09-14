@@ -1046,6 +1046,13 @@ def build_chapter(args: argparse.Namespace) -> dict:
     # reachability flood's are the same set.
     marker_seeds = render.load_marker_seeds(seed_files)
 
+    boxes = render.load_oob_boxes(args.oob_picks, args.chapter)
+    if boxes:
+        before = len(polys)
+        polys = render.cut_boxes(polys, boxes)
+        print(f"[{args.chapter}] {len(boxes)} region verdict(s): {before - len(polys)} of {before} "
+              f"polygons cut before the filter sees them")
+
     islands = {}
     if args.drop_islands:
         seeds = marker_seeds

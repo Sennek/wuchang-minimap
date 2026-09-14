@@ -337,7 +337,10 @@ namespace overlay
             // Colour is equalised over this cut: `t` is the CDF of the drawn Z, so the
             // ramp is spent in proportion to the area at each height. A linear ramp over
             // ten kilometres of chapter puts every playable storey inside a tone or two.
+            // The cap is the other half of that: zoomed in on one near-flat expanse the
+            // CDF would hand it most of the ramp and paint its navmesh polygons in tones.
             st.equalize = cfg.shade_map_equalize;
+            st.equalize_clip = cfg.shade_map_clip;
 
             const double x1 = req.cx + half_h; // north edge
             const double y0 = req.cy - half_w; // west edge

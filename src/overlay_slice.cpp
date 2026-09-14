@@ -552,7 +552,7 @@ namespace overlay
             const srule::ZHistogram* eq = nullptr;
             if (st.equalize && hist.total > 0)
             {
-                hist.build_cdf();
+                hist.build_cdf(st.equalize_clip);
                 eq = &hist;
             }
             float raw_lo = 0.0f;

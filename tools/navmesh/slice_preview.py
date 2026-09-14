@@ -74,9 +74,14 @@ was drawn at costs no contrast. Over a ten-kilometre chapter that is the differe
 between a readable picture and one tone. The reported ramp is then the drawn min..max -
 p0..p100 - because that is what the picture actually spans.
 
+`--map-clip` (`shade_map_clip`) caps what one of those bins may claim of the ramp, as a
+multiple of the flat 1/128 share. A window filled by one near-flat expanse otherwise
+hands most of the ramp to the single bin it sits in, and the centimetres between its
+navmesh polygons come out as tones.
+
 `shade_lo_color`, `shade_hi_color`, `shade_gamma`, `shade_below_alpha`,
-`shade_above_alpha`, `shade_above_band_uu`, `shade_range_pct_lo` and
-`shade_min_range_uu` are the names these knobs carry in the runtime's config, on
+`shade_above_alpha`, `shade_above_band_uu`, `shade_range_pct_lo`, `shade_min_range_uu`
+and `shade_map_clip` are the names these knobs carry in the runtime's config, on
 purpose.
 
 The result is composited over a dark disc-less flat background (24,26,30) purely so the
@@ -109,6 +114,7 @@ DEFAULT_ABOVE_ALPHA = 1.0
 DEFAULT_ABOVE_BAND = 600.0
 DEFAULT_RANGE_PCT_LO = 3.0
 DEFAULT_MIN_RANGE = 400.0
+DEFAULT_MAP_CLIP = 16.0
 ALPHA_OPAQUE = 1.00
 # srule::kSeamStepUu / srule::kSeamDarken.
 SEAM_STEP_UU = 300.0
@@ -285,6 +291,25 @@ def zhist(
     return counts, z_min, hi_edge
 
 
+def clip_counts(counts: "np.ndarray", mult: float) -> "np.ndarray":
+    """srule::ZHistogram::build_cdf's cap: no bin holds more than `mult` times the flat
+    1 / ZHIST_BINS share, and what it loses goes to the bins that have area - never to an
+    empty one, which is also the floor under the cap. 0 = uncapped."""
+    b = counts.astype(np.float64)
+    used = counts > 0
+    total = b.sum()
+    if mult <= 0.0 or total <= 0.0 or not bool(np.any(used)):
+        return b
+    n_used = int(np.count_nonzero(used))
+    cap = max(mult * total / float(ZHIST_BINS), total / float(n_used))
+    for _ in range(4):
+        over = float(np.maximum(b - cap, 0.0).sum())
+        if over <= 0.0:
+            break
+        b = np.minimum(b, cap) + np.where(used, over / float(n_used), 0.0)
+    return b
+
+
 def ramp_range(
     cls: "np.ndarray",
     z_pick: "np.ndarray",
@@ -451,6 +476,13 @@ def main(argv: list[str] | None = None) -> int:
         help="runtime key shade_map_equalize: t is the cut's own CDF (the full map's mode)",
     )
     ap.add_argument(
+        "--map-clip",
+        type=float,
+        default=DEFAULT_MAP_CLIP,
+        help=f"runtime key shade_map_clip: the most one height may take of the equalised "
+        f"ramp, x the flat 1/128 share (default {DEFAULT_MAP_CLIP:g}; 0 = uncapped)",
+    )
+    ap.add_argument(
         "--fullmap",
         action="store_true",
         help="the full map's settings: --above-band inf --equalize over the whole chapter",
@@ -516,7 +548,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     hist = None
     if args.equalize and bool(np.any(cls != CLS_NONE)):
-        hist = zhist(cls, z_pick, float(ch["z_min"]), float(ch["z_max"]))
+        counts, h_lo, h_hi = zhist(cls, z_pick, float(ch["z_min"]), float(ch["z_max"]))
+        hist = (clip_counts(counts, args.map_clip), h_lo, h_hi)
     rgb = shade(z_pick, cls, z_lo, z_hi, lo_color, hi_color, args.gamma, hist)
 
     bg = np.array(BACKGROUND, dtype=np.float64)
@@ -576,7 +609,12 @@ def main(argv: list[str] | None = None) -> int:
             t_all = t_all ** args.gamma
         band = np.histogram(t_all, bins=10, range=(0.0, 1.0))[0]
         print(f"densest 0.1 band of t: {band.max() / float(t_all.size):.3f} of the drawn pixels")
-    ramp_kind = "equalised" if args.equalize else f"p{args.range_pct_lo:g}"
+    if not args.equalize:
+        ramp_kind = f"p{args.range_pct_lo:g}"
+    elif args.map_clip > 0.0:
+        ramp_kind = f"equalised, cap {args.map_clip:g}x"
+    else:
+        ramp_kind = "equalised, uncapped"
     print(
         f"tol {args.tol:g} uu, shade_above_band_uu {args.above_band:g} uu, map_unreachable "
         f"{args.unreachable}, ramp {z_lo:.0f}..{z_hi:.0f} ({ramp_kind}, span "

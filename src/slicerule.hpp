@@ -62,6 +62,11 @@
 //         position between the percentile ends. Over ten kilometres of chapter a linear
 //         ramp spends its contrast on the tails and leaves the playable storeys inside
 //         a couple of tones; the CDF spends it where the area is.
+//     equalize_clip - the ceiling on what one height bin may claim of that ramp. Zoomed
+//         in on one near-flat expanse the CDF hands most of the ramp to the single bin
+//         that expanse sits in, and the centimetres between its navmesh polygons come
+//         out as tones: the cut reads as a triangulation. The cap holds it to one tone
+//         and leaves the contrast for the storeys around it.
 //
 
 #include <cmath>
@@ -144,6 +149,9 @@ namespace srule
         // Spend the ramp on area rather than on height: t is the cut's own CDF at z.
         // The full map's mode; the minimap stays linear.
         bool equalize = false;
+        // The most one height bin may take of that ramp, as a multiple of the flat
+        // 1 / kBins share. 0 = uncapped. Read by build_cdf(), not by shade_t().
+        float equalize_clip = 0.0f;
         Unreachable unreachable = Unreachable::Hide;
     };
 
@@ -255,10 +263,12 @@ namespace srule
         float lo = 0.0f;
         float hi = 1.0f;
         std::uint32_t bins[kBins]{};
-        // Running sum of `bins`, cum[i] = everything below bin i. Filled by build_cdf()
-        // once a cut has counted every pixel, so cdf() costs two loads instead of a
-        // 128-bin walk per pixel.
-        std::uint32_t cum[kBins + 1]{};
+        // The area as the RAMP sees it: cum[i] is everything below bin i and
+        // cum[i + 1] - cum[i] is bin i's own share, which build_cdf()'s cap may have cut
+        // below bins[i]. Filled once a cut has counted every pixel, so cdf() costs two
+        // loads instead of a 128-bin walk per pixel. `bins` stays the raw count that
+        // percentile() reads.
+        float cum[kBins + 1]{};
         std::uint32_t total = 0;
         bool cum_ready = false;
 
@@ -271,9 +281,9 @@ namespace srule
             for (int i = 0; i < kBins; ++i)
             {
                 bins[i] = 0;
-                cum[i] = 0;
+                cum[i] = 0.0f;
             }
-            cum[kBins] = 0;
+            cum[kBins] = 0.0f;
         }
 
         void add(float z)
@@ -286,13 +296,59 @@ namespace srule
             cum_ready = false;
         }
 
-        void build_cdf()
+        // `clip_mult` is SliceStyle::equalize_clip: no bin may hold more than that many
+        // times the flat 1 / kBins share of the counted area. What a bin loses goes to
+        // the bins that HAVE area, never to an empty one, so a stretch of Z nothing was
+        // drawn at still costs no contrast - and that is also the floor under the cap,
+        // since `used` bins cannot hold the area in less than `total / used` apiece: a
+        // cut over few heights gets the flattest picture there is instead of an
+        // impossible one. 0 = uncapped, the plain CDF. Spreading lifts a capped bin back
+        // over the cap, so the pass repeats; four settle it.
+        void build_cdf(float clip_mult)
         {
-            std::uint32_t seen = 0;
+            float share[kBins];
+            int used = 0;
+            for (int i = 0; i < kBins; ++i)
+            {
+                share[i] = static_cast<float>(bins[i]);
+                used += bins[i] > 0 ? 1 : 0;
+            }
+            if (clip_mult > 0.0f && total > 0 && used > 0)
+            {
+                const float area = static_cast<float>(total);
+                const float asked = clip_mult * area / static_cast<float>(kBins);
+                const float floor_share = area / static_cast<float>(used);
+                const float cap = asked > floor_share ? asked : floor_share;
+                for (int pass = 0; pass < 4; ++pass)
+                {
+                    float over = 0.0f;
+                    for (int i = 0; i < kBins; ++i)
+                    {
+                        if (share[i] > cap)
+                        {
+                            over += share[i] - cap;
+                            share[i] = cap;
+                        }
+                    }
+                    if (over <= 0.0f)
+                    {
+                        break;
+                    }
+                    const float spread = over / static_cast<float>(used);
+                    for (int i = 0; i < kBins; ++i)
+                    {
+                        if (bins[i] > 0)
+                        {
+                            share[i] += spread;
+                        }
+                    }
+                }
+            }
+            float seen = 0.0f;
             for (int i = 0; i < kBins; ++i)
             {
                 cum[i] = seen;
-                seen += bins[i];
+                seen += share[i];
             }
             cum[kBins] = seen;
             cum_ready = true;
@@ -300,8 +356,9 @@ namespace srule
 
         // The fraction of the counted area lying below `z`, interpolated inside the bin
         // `z` falls in. This is the equalised ramp: it rises only where there is area,
-        // so a stretch of Z nothing was drawn at costs no contrast at all, and every
-        // tenth of the ramp holds a tenth of the pixels. Needs build_cdf() first.
+        // so a stretch of Z nothing was drawn at costs no contrast at all, and a tenth
+        // of the ramp holds a tenth of the pixels - up to build_cdf()'s cap, which is
+        // what one bin may not exceed. Needs build_cdf() first.
         float cdf(float z) const
         {
             if (total == 0 || !cum_ready)
@@ -314,8 +371,8 @@ namespace srule
             i = i < 0 ? 0 : (i >= kBins ? kBins - 1 : i);
             float frac = pos - static_cast<float>(i);
             frac = frac < 0.0f ? 0.0f : (frac > 1.0f ? 1.0f : frac);
-            const float below = static_cast<float>(cum[i]) + frac * static_cast<float>(bins[i]);
-            const float t = below / static_cast<float>(total);
+            const float below = cum[i] + frac * (cum[i + 1] - cum[i]);
+            const float t = below / cum[kBins];
             return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
         }
 

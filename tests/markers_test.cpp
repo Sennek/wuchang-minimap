@@ -3680,7 +3680,7 @@ namespace
             {
                 h.add(-8000.0f); // the upper one, 2500 uu higher
             }
-            h.build_cdf();
+            h.build_cdf(0.0f);
 
             srule::SliceStyle st{};
             st.gamma = 1.0f;
@@ -3729,7 +3729,7 @@ namespace
             CHECK_NEAR(static_cast<double>(srule::shade_t(-9000.0f, st, nullptr)), 0.5, 1e-6);
             srule::ZHistogram empty;
             empty.reset(-11000.0f, -7000.0f);
-            empty.build_cdf();
+            empty.build_cdf(0.0f);
             CHECK_NEAR(static_cast<double>(srule::shade_t(-9000.0f, st, &empty)), 0.5, 1e-6);
             srule::ZHistogram unbuilt;
             unbuilt.reset(-11000.0f, -7000.0f);
@@ -3743,6 +3743,95 @@ namespace
             mini.z_hi = -7000.0f;
             CHECK(!mini.equalize);
             CHECK_NEAR(static_cast<double>(srule::shade_t(-9000.0f, mini, &h)), 0.5, 1e-6);
+        }
+
+        section("the cap on the equalised ramp: one height cannot take it all");
+        {
+            // What a zoomed-in full map cuts over one near-flat expanse: 9000 of 10000
+            // drawn pixels inside a single 100 uu bin, the rest spread over ten others.
+            // Uncapped, that bin owns nine tenths of the ramp and the centimetres inside
+            // it separate into tones - the navmesh's polygons, drawn one by one.
+            const float z_min = 0.0f;
+            const float z_max = 12800.0f; // 128 bins of 100 uu
+            const float crowded = 6450.0f;
+            const auto fill = [&](srule::ZHistogram& hh) {
+                hh.reset(z_min, z_max);
+                for (int i = 0; i < 9000; ++i)
+                {
+                    hh.add(crowded);
+                }
+                for (int b = 0; b < 10; ++b)
+                {
+                    for (int i = 0; i < 100; ++i)
+                    {
+                        hh.add(8050.0f + static_cast<float>(b) * 100.0f);
+                    }
+                }
+            };
+            srule::SliceStyle st{};
+            st.gamma = 1.0f;
+            st.equalize = true;
+            const auto claimed = [&](const srule::ZHistogram& hh) {
+                return srule::shade_t(6500.0f, st, &hh) - srule::shade_t(6400.0f, st, &hh);
+            };
+
+            srule::ZHistogram raw;
+            fill(raw);
+            raw.build_cdf(0.0f);
+            CHECK_NEAR(static_cast<double>(claimed(raw)), 0.90, 0.01);
+
+            // Capped at 32 times the flat 1/128 share, that bin keeps a quarter of the
+            // ramp and the ten storeys around it divide the rest.
+            srule::ZHistogram capped;
+            fill(capped);
+            capped.build_cdf(32.0f);
+            CHECK(claimed(capped) <= 32.0f / 128.0f + 0.002f);
+            CHECK(claimed(capped) > 0.2f);
+            const float spread =
+                srule::shade_t(9050.0f, st, &capped) - srule::shade_t(8050.0f, st, &capped);
+            CHECK(spread >
+                  3.0f * (srule::shade_t(9050.0f, st, &raw) - srule::shade_t(8050.0f, st, &raw)));
+            CHECK(spread > 0.5f);
+
+            // Only eleven bins hold area, so they cannot hold it in less than a eleventh
+            // apiece: a cap tighter than that is impossible, and asking for one gets the
+            // flattest picture there is rather than a broken ramp.
+            srule::ZHistogram floored;
+            fill(floored);
+            floored.build_cdf(1.0f); // asks for 1/128, the floor gives 1/11
+            CHECK_NEAR(static_cast<double>(claimed(floored)), 1.0 / 11.0, 0.005);
+
+            // What it does NOT do is hand contrast to a height nothing was drawn at: the
+            // 6400 uu below the crowded bin hold no pixels and still cost no ramp.
+            CHECK_NEAR(static_cast<double>(srule::shade_t(0.0f, st, &capped)), 0.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::shade_t(6400.0f, st, &capped)), 0.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::shade_t(7000.0f, st, &capped)),
+                       static_cast<double>(srule::shade_t(8000.0f, st, &capped)), 1e-6);
+
+            // Still a ramp: monotone in z, 0 at the bottom of the drawn set and 1 at the
+            // top, exactly as the uncapped one.
+            float prev = -1.0f;
+            for (int i = 0; i <= 128; ++i)
+            {
+                const float t = srule::shade_t(static_cast<float>(i) * 100.0f, st, &capped);
+                CHECK(t >= prev - 1.0e-6f);
+                CHECK(t >= 0.0f && t <= 1.0f);
+                prev = t;
+            }
+            CHECK_NEAR(static_cast<double>(srule::shade_t(z_min, st, &capped)), 0.0, 1e-6);
+            CHECK_NEAR(static_cast<double>(srule::shade_t(z_max, st, &capped)), 1.0, 1e-6);
+
+            // A cap no bin reaches is the uncapped picture, bin for bin: the crowded one
+            // holds 115 times the flat share, so 128 leaves every bin where it stands.
+            srule::ZHistogram loose;
+            fill(loose);
+            loose.build_cdf(128.0f);
+            for (int i = 0; i <= 128; ++i)
+            {
+                const float z = static_cast<float>(i) * 100.0f;
+                CHECK_NEAR(static_cast<double>(srule::shade_t(z, st, &loose)),
+                           static_cast<double>(srule::shade_t(z, st, &raw)), 1e-6);
+            }
         }
     }
 
@@ -4299,7 +4388,7 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
-        constexpr std::size_t kPaddingBytes = 67;
+        constexpr std::size_t kPaddingBytes = 71;
 
         mm::Config a{};
         mm::Config b{};

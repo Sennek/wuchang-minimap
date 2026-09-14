@@ -165,6 +165,7 @@ namespace cfgkeys
         {"shade_min_range_uu", Tier::Dev},
         {"shade_range_smooth_ms", Tier::Dev},
         {"shade_map_equalize", Tier::Dev},
+        {"shade_map_clip", Tier::Dev},
         {"first_run_toast", Tier::Dev},
         {"found_profile", Tier::Dev},
         {"log_level", Tier::Dev},

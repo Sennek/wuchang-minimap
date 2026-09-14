@@ -1328,6 +1328,10 @@ namespace overlay
             ImGui::Checkbox("Full map: equalise the ramp", &cfg.shade_map_equalize);
             ImGui::SameLine();
             ImGui::TextDisabled("spend it on area, not on height");
+            ImGui::SliderFloat("Full map: one height's share, cap", &cfg.shade_map_clip, 0.0f,
+                               64.0f, "%.0fx");
+            ImGui::SameLine();
+            ImGui::TextDisabled("x its flat share of the ramp; 0 = uncapped");
             ImGui::TextDisabled("the full map ignores the band and the two minimap ramp keys: it "
                                 "draws the nearest storey at or above your feet, however high, and "
                                 "colours its own cut");
@@ -2090,11 +2094,24 @@ namespace overlay
                 // The full map's own cut, which runs the same slicer with an unbounded
                 // band overhead and (by default) an equalised ramp - so its numbers say
                 // nothing about the minimap's and belong on their own line.
+                char ramp_kind[32] = "linear";
+                if (cfg.shade_map_equalize)
+                {
+                    if (cfg.shade_map_clip > 0.0f)
+                    {
+                        (void)std::snprintf(ramp_kind, sizeof(ramp_kind), "equalised, cap %.0fx",
+                                            static_cast<double>(cfg.shade_map_clip));
+                    }
+                    else
+                    {
+                        (void)std::snprintf(ramp_kind, sizeof(ramp_kind), "equalised, uncapped");
+                    }
+                }
                 ImGui::Text("full map  ramp %.0f..%.0f (%s)   floor %u / below %u / above %u   "
                             "unreachable %u px   %.2f ms",
                             static_cast<double>(g_mslice_counts.z_lo),
                             static_cast<double>(g_mslice_counts.z_hi),
-                            cfg.shade_map_equalize ? "equalised" : "linear",
+                            ramp_kind,
                             g_mslice_counts.opaque,
                             g_mslice_counts.dim,
                             g_mslice_counts.faint,

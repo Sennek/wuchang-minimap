@@ -237,6 +237,11 @@ namespace mm
         // The full map spends its ramp on AREA, not on height: t is the CDF of the Z
         // its cut drew. 0 goes back to the linear percentile ramp, to compare the two.
         bool shade_map_equalize = true;
+        // The ceiling on that: what one of the 128 height bins may take of the ramp, x
+        // its flat share. Without it, zooming in on one near-flat expanse hands most of
+        // the ramp to the bin it sits in and the centimetres between its navmesh polygons
+        // come out as tones. 0 = uncapped.
+        float shade_map_clip = 16.0f;
         int slice_hz = 12;           // CPU re-slices per second (2..30)
         int feet_z_smooth_ms = 100;  // EMA time constant on feet Z
         // The pawn's location is its capsule centre, ~90 uu above the navmesh under it;
@@ -557,6 +562,7 @@ namespace mm
         a.shade_min_range_uu == b.shade_min_range_uu &&
         a.shade_range_smooth_ms == b.shade_range_smooth_ms &&
         a.shade_map_equalize == b.shade_map_equalize &&
+        a.shade_map_clip == b.shade_map_clip &&
         a.slice_hz == b.slice_hz &&
         a.feet_z_smooth_ms == b.feet_z_smooth_ms &&
         a.player_z_offset == b.player_z_offset &&

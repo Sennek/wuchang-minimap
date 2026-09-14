@@ -897,6 +897,10 @@ namespace mm
             {
                 cfg.shade_map_equalize = parse_bool(value, cfg.shade_map_equalize);
             }
+            else if (key == "shade_map_clip")
+            {
+                cfg.shade_map_clip = parse_float(value, cfg.shade_map_clip);
+            }
             else if (key == "slice_hz")
             {
                 cfg.slice_hz = parse_int(value, cfg.slice_hz);
@@ -2011,6 +2015,12 @@ namespace mm
             cfg.shade_above_band_uu = (std::max)(0.0f, (std::min)(20000.0f, cfg.shade_above_band_uu));
             cfg.shade_range_pct_lo = (std::max)(0.0f, (std::min)(49.0f, cfg.shade_range_pct_lo));
             cfg.shade_min_range_uu = (std::max)(0.0f, (std::min)(20000.0f, cfg.shade_min_range_uu));
+            // 1 asks for the flat 1/128 share and nothing under it asks for more, since
+            // build_cdf()'s floor lifts any ask to what the bins with area can hold; 128
+            // caps a bin at the whole cut, which is 0 by another name.
+            cfg.shade_map_clip = cfg.shade_map_clip <= 0.0f
+                                     ? 0.0f
+                                     : (std::max)(1.0f, (std::min)(128.0f, cfg.shade_map_clip));
             cfg.shade_range_smooth_ms = (std::max)(0, (std::min)(5000, cfg.shade_range_smooth_ms));
             cfg.slice_hz = (std::max)(2, (std::min)(30, cfg.slice_hz));
             cfg.feet_z_smooth_ms = (std::max)(1, (std::min)(2000, cfg.feet_z_smooth_ms));
@@ -2274,6 +2284,7 @@ namespace mm
         add("shade_min_range_uu", f0(cfg.shade_min_range_uu));
         add("shade_range_smooth_ms", std::to_string(cfg.shade_range_smooth_ms));
         add("shade_map_equalize", b(cfg.shade_map_equalize));
+        add("shade_map_clip", f0(cfg.shade_map_clip));
         add("slice_hz", std::to_string(cfg.slice_hz));
         add("feet_z_smooth_ms", std::to_string(cfg.feet_z_smooth_ms));
         add("player_z_offset", f0(cfg.player_z_offset));

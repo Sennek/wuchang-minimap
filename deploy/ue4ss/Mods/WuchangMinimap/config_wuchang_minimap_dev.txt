@@ -102,6 +102,13 @@ shade_range_smooth_ms = 400
 ; compare the two. The minimap is always linear - its window already tracks one storey.
 shade_map_equalize = 1
 
+; The ceiling on that: the most one of the 128 height bins may take of the ramp, as a
+; multiple of its flat share. Without it, zooming in on one near-flat expanse hands most
+; of the ramp to the bin it sits in: half a metre of undulation spreads over the whole
+; ramp and the navmesh polygons under it come out as separate tones. A cut over few
+; heights cannot go below the flat share among them, whatever this says. 0 = uncapped.
+shade_map_clip = 16
+
 ; 1 = scale minimap_zoom and map_zoom with ui_scale, so one config shows the same area
 ; of the world at every resolution. 0 = uu per pixel is literal.
 zoom_dpi_scaled = 1

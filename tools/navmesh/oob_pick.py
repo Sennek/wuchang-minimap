@@ -42,6 +42,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+import blocks
 import build_map
 import mapfmt
 import render
@@ -94,6 +95,17 @@ CUT_CACHE = 8
 # mod draws almost none of them; the largest are where its cost is.
 ONE_WAY_SHOWN = 200
 
+# The invisible walls over the cut, in two readings. The outline is the shell at this storey - every
+# box standing anywhere near the height the map is drawing, whether or not there is ground under it,
+# because most of the shell stands in the gaps BESIDE the walkable ground and a test that needs a
+# surface under the box would draw almost none of it. The floor and ceiling PLATES are left out of
+# it: 15 % of the boxes, and the biggest, so a picture that keeps them is a picture of them. The
+# solid fill is the part that blocks: a box in the player's own body space over ground the map draws.
+BLOCKS_JSON = HERE.parents[1] / "markers" / "blocks.json"
+WALL_RGB = (217, 70, 239)
+WALL_SHELL_LO = -300.0
+WALL_SHELL_HI = 500.0
+
 # A surface within this much Z of the polygon under the cursor is the same surface - the tolerance
 # rasterize_heights merges height slots with.
 SURFACE_MATCH_UU = 120.0
@@ -105,6 +117,11 @@ STAND_Z_UU = 200.0
 # Slots x pixels a piece's own height stack may take. A component is thousands of pixels and gets
 # every slot; a whole cluster is 20 Mpx of bounding box, where eight slots would be 650 MB.
 STACK_BUDGET_PX = 60_000_000
+
+# Height-stack values a chapter keeps across measured pieces. One piece takes up to
+# STACK_BUDGET_PX of them, so a session of clicks on whole clusters would hold gigabytes. A piece
+# the page can cut is never dropped - the cut reads its stack - and the rest go oldest first.
+SHAPE_CACHE_PX = 2 * STACK_BUDGET_PX
 
 # XY pitch of the point-location grid. A navmesh tile is 1280 uu and a polygon is far smaller.
 PICK_GRID_UU = 256.0
@@ -191,10 +208,12 @@ class Chapter:
         self._oneway: list[dict] | None = None        # the biggest one-way components
         self._shelf_of: dict[int, int] = {}
         self._group_png: tuple[tuple, bytes] | None = None  # the shown layers, washed
+        self._walls: object = False           # the chapter's invisible walls, loaded on first use
         self._shapes: dict[str, dict] = {}     # a piece's mask and measurement, by its key
         # One cut at a time. A page reload fires its requests together, and two threads patching the
-        # standing cut in place would each see half the other's work.
-        self._cut_lock = threading.Lock()
+        # standing cut in place would each see half the other's work. Re-entrant because the walls
+        # are measured against the standing cut and take the same lock to keep it still.
+        self._cut_lock = threading.RLock()
 
         self.input_root = input_root or self._guess_input_root()
         self._load()
@@ -375,14 +394,13 @@ class Chapter:
             if poly is None:
                 continue
             comp = self.comps[poly["comp"]] if "comp" in poly else None
-            sel = self.selection(poly, p.get("mode", "comp"))
-            # The verdict speaks for every component the mark covers, not just the one under the
-            # point: a shelf judged whole must not come back as a proposal minus one component.
-            judged.update(q["comp"] for q in sel if "comp" in q)
             pc = self._piece(
-                key=f"{w[0]},{w[1]},{w[2]}", sel=sel, comp=comp,
+                poly, p.get("mode", "comp"),
                 i=i, verdict=p.get("verdict", "oob"), note=p.get("note", ""),
                 world=[float(w[0]), float(w[1]), float(w[2])], batch=p["batch"])
+            # The verdict speaks for every component the mark covers, not just the one under the
+            # point: a shelf judged whole must not come back as a proposal minus one component.
+            judged.update(q["comp"] for q in pc["sel"] if "comp" in q)
             pc["group"] = group_of(p, comp, doc["open_batch"], pc["drawn_pct"])
             out.append(pc)
         taken = set(judged)
@@ -390,47 +408,30 @@ class Chapter:
             if comp["id"] in taken:
                 continue
             taken.add(comp["id"])
-            pc = self._proposal(f"comp:{comp['id']}", self.comp_polys.get(comp["id"], []),
-                                comp, "comp")
+            pc = self._proposal(self.comp_polys.get(comp["id"], []), "comp")
             if pc is not None:
                 out.append(pc)
         self._pieces = (sig, out)
         return out
 
-    def _proposal(self, key: str, sel: list[dict], comp: dict, mode: str) -> dict | None:
+    def _proposal(self, polys: list[dict], mode: str) -> dict | None:
         """A rule's catch as a piece, pointing at the centre of its largest polygon."""
-        if not sel:
+        if not polys:
             return None
-        big = max(sel, key=lambda q: q["xyarea"])
+        big = max(polys, key=lambda q: q["xyarea"])
         return self._piece(
-            key=key, sel=sel, comp=comp, group="rules", mode=mode,
-            i=None, verdict="", note="", batch=None,
+            big, mode, group="rules", i=None, verdict="", note="", batch=None,
             world=[round(sum(q[0] for q in big["pts"]) / len(big["pts"]), 1),
                    round(sum(q[1] for q in big["pts"]) / len(big["pts"]), 1),
                    round(big["cz"], 1)])
 
-    def _piece(self, key: str, sel: list[dict], comp: dict | None, **rest) -> dict:
-        """One piece, measured now rather than remembered.
+    def _piece(self, poly: dict, mode: str, **rest) -> dict:
+        """One piece: the ground's own measurement, plus the verdict standing on it.
 
-        `drawn` is the pixels of it the mod puts on screen - the only number that says whether
-        cutting the piece changes anything. A rule proposal has never been measured at all, and a
-        mark's own stored figure is from whenever it was made, so both are taken here.
-
-        The shape and the measurement belong to the ground, not to the verdict on it, so they are
-        kept against the piece's key: re-reading the file after a mark re-uses them, and only the
-        verdict, the layer and the note are built again.
+        The shape belongs to the ground and the verdict to the person who gave it, so only the
+        layer, the note and the pick index are built again on every read of the file.
         """
-        got = self._shapes.get(key)
-        if got is None:
-            x0, y0, m, z = mask_of(self, sel)
-            lit, reach = raster_masks(self, x0, y0, m, z)
-            got = self._shapes[key] = dict(
-                key=key, comp=None if comp is None else comp["id"],
-                area_m2=round(sum(q["xyarea"] for q in sel) / 10000.0, 1),
-                drawn=int(reach.sum()), px=int(m.sum()),
-                drawn_pct=round(100.0 * int(reach.sum()) / max(1, int(m.sum())), 1),
-                x=x0, y=y0, mask=m, z=z, reach=reach)
-        return dict(got, **rest)
+        return dict(self.shape(poly, mode), mode=mode, **rest)
 
     def forget_pieces(self) -> None:
         self._pieces = None
@@ -493,6 +494,52 @@ class Chapter:
             del self._pngs[old]
         return png
 
+    def walls(self):
+        """The chapter's invisible walls, loaded once. `None` when `blocks.json` has none."""
+        if self._walls is False:
+            self._walls = blocks.load(BLOCKS_JSON, self.key) if BLOCKS_JSON.exists() else None
+            if self._walls is not None:
+                print(f"[{self.key}] {len(self._walls)} invisible walls "
+                      f"({int(self._walls.cube.sum())} cubes)", flush=True)
+        return self._walls
+
+    def walls_png(self, feet_z: float, unreachable: str, layers: list[dict],
+                  seams: bool) -> bytes:
+        """The walls over the standing cut: what blocks a player on the ground the map draws.
+
+        The test is the one the flood will run - a box filling any part of the body space above the
+        surface - so the picture is the rule's own answer, not an illustration of it.
+        """
+        w = self.walls()
+        if w is None:
+            return b""
+        with self._cut_lock:
+            self.cut(feet_z, unreachable, layers, seams)  # the picture the walls are measured on
+            st = self._cut
+            sig = ("walls", st["feet_z"], st["unreachable"], tuple(st["keys"]))
+            done = self._pngs.get(sig)
+            if done is not None:
+                return done
+            t0 = time.time()
+            # The storey's own Z where the map draws nothing, so the shell in the gaps is on the
+            # picture too.
+            zr = np.where(np.isfinite(st["z_pick"]), st["z_pick"], np.float32(feet_z))
+            shell = blocks.band_mask(w, self.bounds, zr, WALL_SHELL_LO, WALL_SHELL_HI,
+                                     where=~w.plate)
+            body = blocks.standing_mask(w, self.bounds, st["z_pick"])
+            rgba = np.zeros((self.height, self.width, 4), dtype=np.uint8)
+            r, g, b = WALL_RGB
+            rgba[shell] = (r, g, b, 55)
+            rgba[shell & ~_inner(shell)] = (r, g, b, 170)
+            rgba[body] = (r, g, b, 140)
+            rgba[body & ~_inner(body)] = (r, g, b, 250)
+            buf = io.BytesIO()
+            Image.fromarray(rgba, "RGBA").save(buf, format="PNG")
+            print(f"[{self.key}] walls over the cut: {int(body.sum())} px blocked, "
+                  f"{int(shell.sum())} px of shell at this storey "
+                  f"({time.time() - t0:.1f}s)", flush=True)
+            return self._remember(sig, buf.getvalue())
+
     def groups_png(self, picks_path: Path, show: set[str]) -> bytes:
         """The shown layers washed over the map, each in its own colour.
 
@@ -508,8 +555,14 @@ class Chapter:
         for pc in pieces:
             if pc["group"] not in show:
                 continue
-            m, dr = pc["mask"], pc["reach"]
-            sub = rgba[pc["y"]:pc["y"] + m.shape[0], pc["x"]:pc["x"] + m.shape[1]]
+            # The geometry is from before the cut tightened the chapter's bounds, so a piece can
+            # sit wholly or partly off the picture. What is on it is what can be painted.
+            met = overlap((0, 0, self.width, self.height), pc)
+            if met is None:
+                continue
+            (ix0, iy0, ix1, iy1), (mx0, my0, mx1, my1) = met
+            m, dr = pc["mask"][my0:my1, mx0:mx1], pc["reach"][my0:my1, mx0:mx1]
+            sub = rgba[iy0:iy1, ix0:ix1]
             r, g, b = GROUPS[pc["group"]]["rgb"]
             # Ground the mod hides gets an OUTLINE and no fill. Measured the other way first: a
             # wash of alpha 18 over the page's near-black still reads as a solid piece of map, and
@@ -689,22 +742,75 @@ class Chapter:
             return max(hits, key=lambda p: p["cz"])
         return min(hits, key=lambda p: abs(p["cz"] - wz))
 
-    def selection(self, poly: dict, mode: str) -> list[dict]:
-        """The piece a pick highlights: the polygon, its component, its shelf or its cluster."""
+    def selection(self, poly: dict, mode: str) -> tuple[str, list[dict]]:
+        """The piece a pick highlights - its key and its polygons.
+
+        The piece is the polygon, its component, its shelf or its cluster, and the key names that
+        ground rather than the click that found it. That is what lets one measurement serve a rule
+        proposal, a mark re-located onto the same ground, and every click on it.
+        """
         if mode == "poly" or "comp" not in poly:
-            return [poly]
+            return f"poly:{poly['idx']}", [poly]
         comp = self.comps[poly["comp"]]
         if mode == "shelf":
             self.shelves()
             g = self._shelf_of.get(poly["comp"])
             if g is not None:
-                return [q for cid in self._shelves[g] for q in self.comp_polys.get(cid, [])]
+                return (f"shelf:{g}",
+                        [q for cid in self._shelves[g] for q in self.comp_polys.get(cid, [])])
         if mode == "cluster" and comp.get("cluster") is not None:
             out: list[dict] = []
             for cid in self.clusters[comp["cluster"]]["members"]:
                 out.extend(self.comp_polys.get(cid, []))
-            return out
-        return self.comp_polys.get(poly["comp"], [poly])
+            return f"cluster:{comp['cluster']}", out
+        return f"comp:{poly['comp']}", self.comp_polys.get(poly["comp"], [poly])
+
+    def shape(self, poly: dict, mode: str) -> dict:
+        """The pixels of a piece and what the height planes say about them, measured once.
+
+        `px_on_map` is the pixels the planes hold at one of the piece's own heights and `drawn` the
+        ones of those the mod actually puts on screen - the only number that says whether cutting
+        the piece changes anything. A rule proposal has never been measured, and a mark's own stored
+        figure is from whenever it was made, so both are taken here.
+
+        Kept against the ground's own key: a second click on a piece, and a mark made on one the
+        rules already proposed, re-use the measurement instead of rasterising it again.
+        """
+        key, sel = self.selection(poly, mode)
+        got = self._shapes.pop(key, None)
+        if got is not None:
+            self._shapes[key] = got          # re-inserted: the cache drops the least recent first
+        else:
+            x0, y0, m, z = mask_of(self, sel)
+            lit, reach = raster_masks(self, x0, y0, m, z)
+            px, on_map, drawn = int(m.sum()), int(lit.sum()), int(reach.sum())
+            got = self._shapes[key] = dict(
+                key=key, sel=sel, comp=poly.get("comp"),
+                comps=len({q.get("comp") for q in sel}),
+                area_m2=round(sum(q["xyarea"] for q in sel) / 10000.0, 1),
+                px=px, px_on_map=on_map, drawn=drawn,
+                drawn_pct=round(100.0 * drawn / max(1, px), 1),
+                reachable_pct=round(100.0 * drawn / max(1, on_map), 1),
+                x=x0, y=y0, mask=m, z=z, reach=reach, overlay=None)
+            self._trim_shapes()
+        return got
+
+    def overlay(self, poly: dict, mode: str) -> bytes:
+        """The piece's highlight, drawn on the first pick that asks to see it."""
+        sh = self.shape(poly, mode)
+        if sh["overlay"] is None:
+            sh["overlay"] = overlay_png(sh["mask"])
+        return sh["overlay"]
+
+    def _trim_shapes(self) -> None:
+        """Drop the least recent measurements until the kept height stacks fit the budget."""
+        needed = {pc["key"] for pc in (self._pieces[1] if self._pieces is not None else [])}
+        held = sum(g["z"].size for g in self._shapes.values())
+        for key in list(self._shapes):
+            if held <= SHAPE_CACHE_PX:
+                break
+            if key not in needed:
+                held -= self._shapes.pop(key)["z"].size
 
 
 # ---------------------------------------------------------------------------------
@@ -802,33 +908,48 @@ def matches_z(zst: np.ndarray, z: "np.ndarray | float") -> np.ndarray:
 
 def raster_masks(ch: Chapter, x0: int, y0: int, m: np.ndarray,
                  z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Which pixels of a piece the height planes hold, and which of those the mod draws."""
+    """Which pixels of a piece the height planes hold, and which of those the mod draws.
+
+    A plane can only answer for pixels the piece covers, and a pixel is answered by the first plane
+    that holds one of its heights, so the work is carried as the LIST of pixels still unanswered:
+    the bounding box of a whole cluster is five times the piece inside it, and the first plane
+    usually takes almost all of it. Whole-box arithmetic over eight planes measured 5.7 s against
+    0.3 s for the same answer.
+    """
     h, w = m.shape
     lit = np.zeros((h, w), dtype=bool)
     reach = np.zeros((h, w), dtype=bool)
     # A piece can hang off the edge of the picture - the cut tightens a chapter's bounds, and this
     # tool holds the geometry from before it. Whatever falls outside reads as no surface.
     cy, cx = max(0, min(h, ch.height - y0)), max(0, min(w, ch.width - x0))
+    if not (cy and cx):
+        return lit, reach
+    inside = m.copy()
+    inside[cy:, :] = False
+    inside[:, cx:] = False
+    idx = np.flatnonzero(inside)          # unanswered pixels, as offsets into the crop
+    rows, cols = np.divmod(idx, w)
+    zst = z[:, rows, cols]
+    flat_lit, flat_reach = lit.reshape(-1), reach.reshape(-1)
     for i in range(len(ch.plane_paths)):
-        raw = np.zeros((h, w), dtype=np.int32)
-        if cy and cx:
-            raw[:cy, :cx] = ch.plane(i)[y0:y0 + cy, x0:x0 + cx]
+        if idx.size == 0:
+            break
+        raw = ch.plane(i)[y0:y0 + cy, x0:x0 + cx][rows, cols]
         code = raw & ch.z_code_mask
-        hit = m & (code != 0) & matches_z(z, ch.z_of_code(code)) & ~lit
-        reach |= hit & ((raw & ch.reach_bit) != 0)
-        lit |= hit
+        hit = (code != 0) & matches_z(zst, ch.z_of_code(code))
+        if not hit.any():
+            continue
+        took = idx[hit]
+        flat_lit[took] = True
+        flat_reach[took[(raw[hit] & ch.reach_bit) != 0]] = True
+        left = ~hit
+        idx, rows, cols, zst = idx[left], rows[left], cols[left], zst[:, left]
     return lit, reach
 
 
-def raster_stats(ch: Chapter, x0: int, y0: int, m: np.ndarray, z: np.ndarray) -> dict:
-    """How the shipped height planes describe the pixels this piece covers."""
-    lit, reach = raster_masks(ch, x0, y0, m, z)
-    return {"px": int(m.sum()), "px_on_map": int(lit.sum()), "px_reachable": int(reach.sum()),
-            "reachable_pct": round(100.0 * int(reach.sum()) / max(1, int(lit.sum())), 1)}
-
-
-def describe(ch: Chapter, poly: dict, sel: list[dict], mode: str) -> dict:
-    x0, y0, m, z = mask_of(ch, sel)
+def describe(ch: Chapter, poly: dict, mode: str) -> dict:
+    sh = ch.shape(poly, mode)
+    sel = sh["sel"]
     xs = [q[0] for p in sel for q in p["pts"]]
     ys = [q[1] for p in sel for q in p["pts"]]
     zs = [q[2] for p in sel for q in p["pts"]]
@@ -847,8 +968,8 @@ def describe(ch: Chapter, poly: dict, sel: list[dict], mode: str) -> dict:
     return {
         "mode": mode,
         "polys": len(sel),
-        "comps": len({p.get("comp") for p in sel}),
-        "area_m2": round(sum(p["xyarea"] for p in sel) / 10000.0, 1),
+        "comps": sh["comps"],
+        "area_m2": sh["area_m2"],
         "bbox": [round(min(xs)), round(min(ys)), round(max(xs)), round(max(ys))],
         "z": [round(min(zs), 1), round(max(zs), 1)],
         "stages": stages,
@@ -864,10 +985,10 @@ def describe(ch: Chapter, poly: dict, sel: list[dict], mode: str) -> dict:
             "keep": cl.get("keep"), "why": cl.get("why"),
             "has_largest": cl.get("has_largest"),
         },
-        "raster": raster_stats(ch, x0, y0, m, z),
+        "raster": {k: sh[k] for k in ("px", "px_on_map", "drawn", "reachable_pct")},
         "markers": markers_near(ch, sel),
-        "overlay": {"x": x0, "y": y0, "w": int(m.shape[1]), "h": int(m.shape[0])},
-        "mask": m,
+        "overlay": {"x": sh["x"], "y": sh["y"],
+                    "w": int(sh["mask"].shape[1]), "h": int(sh["mask"].shape[0])},
     }
 
 
@@ -1014,10 +1135,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def pieces_json(self, ch: Chapter) -> list[dict]:
         """This chapter's pieces for the page - no masks, and the pick index the file uses."""
         return [{k: pc[k] for k in
-                 ("key", "group", "comp", "area_m2", "drawn", "px", "drawn_pct",
-                  "world", "i", "verdict", "note", "batch")}
-                | ({"mode": pc["mode"]} if "mode" in pc else {})
-                | ({"comps": pc["comps"]} if "comps" in pc else {})
+                 ("group", "comp", "comps", "area_m2", "drawn", "px", "drawn_pct",
+                  "world", "i", "verdict", "note", "batch", "mode")}
                 for pc in ch.pieces(self.picks_path)]
 
     def log_message(self, fmt, *a):
@@ -1057,6 +1176,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                        ch.cut(feet, "show" if q.get("all", ["0"])[0] == "1" else "hide",
                               self.cut_pieces(ch, self.shown(q)),
                               q.get("seams", ["1"])[0] == "1"))
+        elif url.path == "/walls.png":
+            feet = float(q.get("z", [ch.feet_z0])[0])
+            self._send(200, "image/png",
+                       ch.walls_png(feet, "show" if q.get("all", ["0"])[0] == "1" else "hide",
+                                    self.cut_pieces(ch, self.shown(q)),
+                                    q.get("seams", ["1"])[0] == "1"))
         elif url.path == "/groups.png":
             self._send(200, "image/png", ch.groups_png(self.picks_path, self.shown(q)))
         elif url.path == "/info":
@@ -1118,12 +1243,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "why": (f"cut as '{GROUPS[done['group']]['label']}'"
                             + (f" - pick {done['i']}" if done["i"] is not None else "")
                             + f". Tick '{done['group']}' to judge it again.")}
-        rep = describe(ch, poly, ch.selection(poly, mode), mode)
+        rep = describe(ch, poly, mode)
         rep["piece"] = None if done is None else {
-            k: done[k] for k in ("key", "group", "i", "verdict", "note", "batch")}
+            k: done[k] for k in ("group", "i", "verdict", "note", "batch", "mode")}
+        # A pick the page has given up on can still be in flight, so the handoff keeps the last
+        # few pictures rather than clearing: whichever answer the page took, its overlay is there.
         key = f"{time.time():.6f}"
-        self.overlays.clear()
-        self.overlays[key] = overlay_png(rep.pop("mask"))
+        self.overlays[key] = ch.overlay(poly, mode)
+        for stale in list(self.overlays)[:-4]:
+            self.overlays.pop(stale, None)
         rep["overlay"]["key"] = key
         rep["ok"] = True
         rep["world"] = [round(wx, 1), round(wy, 1), round(poly["cz"], 1)]
@@ -1240,7 +1368,7 @@ PAGE = r"""<!doctype html>
  h2 button{float:right;font-size:11px;padding:1px 6px;text-transform:none;letter-spacing:0}
 </style>
 <div id=wrap>
-  <div id=view><div id=scene><img id=base><img id=grp hidden><img id=ov hidden>
+  <div id=view><div id=scene><img id=base><img id=wall hidden><img id=grp hidden><img id=ov hidden>
     <div id=marks hidden></div></div></div>
   <div id=side>
     <div class=row>
@@ -1260,6 +1388,7 @@ PAGE = r"""<!doctype html>
       <label><input type=checkbox id=allview> show what the mod hides</label>
       <label><input type=checkbox id=seams checked> storey seams</label>
       <label><input type=checkbox id=mks> markers</label>
+      <label><input type=checkbox id=wls> invisible walls</label>
     </div>
     <div class=hint id=mkleg></div>
     <h2>layers <span class=hint>unticked is cut out of the map</span></h2>
@@ -1354,12 +1483,27 @@ function reload_base(force){
             +(force?'&v='+Date.now():'');
   if(show.size){ grp.src=gsrc; grp.width=info.width; grp.height=info.height; grp.hidden=false; }
   else grp.hidden=true;
+  reload_walls(z);
   if(!force && base.getAttribute('src')===src) return;
   busy('cutting the chapter…');
   // A new cut moves the surface under every marker, so what stands on this storey is re-asked.
   base.onload=()=>{ busy(''); load_marks(); };
   base.src=src;
 }
+
+// ---- the game's own invisible walls over the picture ------------------------------------------
+// Measured against the standing cut, so the same request that draws the map decides them: the
+// picture answers "does this wall stop a player on the ground the map draws here".
+function reload_walls(z){
+  const wall=document.getElementById('wall');
+  if(!document.getElementById('wls').checked){ wall.hidden=true; return; }
+  const src='/walls.png?ch='+encodeURIComponent(chapter)+'&z='+encodeURIComponent(z)
+           +showq()+(show_all()?'&all=1':'')
+           +(document.getElementById('seams').checked?'':'&seams=0');
+  wall.width=info.width; wall.height=info.height; wall.hidden=false;
+  if(wall.getAttribute('src')!==src){ busy('measuring the walls…'); wall.onload=()=>busy(''); wall.src=src; }
+}
+document.getElementById('wls').addEventListener('change',()=>reload_walls(cutZ));
 
 // ---- the game's own markers over the picture --------------------------------------------------
 // A dot is FILLED only where the marker stands on the surface the cut drew under it; anywhere else
@@ -1395,14 +1539,21 @@ function draw_marks(){
 }
 document.getElementById('mks').addEventListener('change',load_marks);
 
+// A piece the tool has not measured yet takes seconds to rasterise, and a click during that wait
+// is the answer that matters: the newest one wins and every older reply is dropped on arrival.
+let picking=0;
 async function pick(u,v,z){
   if(!info||u<0||v<0||u>=info.width||v>=info.height) return;
   if(z!==undefined) selZ=z;
   const m=document.getElementById('mode').value;
   const all=show_all()?'1':'0';
-  last=await fetch(`/pick?ch=${encodeURIComponent(chapter)}&u=${u}&v=${v}&mode=${m}`
-                  +`&z=${selZ}&all=${all}`+showq()).then(r=>r.json());
-  report(last);
+  const mine=++picking;
+  busy('measuring the piece…');
+  const got=await fetch(`/pick?ch=${encodeURIComponent(chapter)}&u=${u}&v=${v}&mode=${m}`
+                       +`&z=${selZ}&all=${all}`+showq()).then(r=>r.json());
+  if(mine!=picking) return;
+  busy('');
+  last=got; report(last);
 }
 
 function surfaces(r){
@@ -1446,8 +1597,8 @@ function report(r){
   h+=tr('stage',st);
   h+=tr('on map',`${r.raster.px_on_map}/${r.raster.px} px &middot; `
                 +`reachable ${r.raster.reachable_pct}%`);
-  h+=tr('the mod draws', r.raster.px_reachable
-    ? `${r.raster.px_reachable} px`
+  h+=tr('the mod draws', r.raster.drawn
+    ? `${r.raster.drawn} px`
     : '<b class=oobtag>nothing</b> &mdash; every pixel is hidden');
   h+='</table><h2>pipeline</h2><table>';
   if(r.comp) h+=tr('component',`#${r.comp.id} &middot; ${r.comp.polys} polys &middot; `
@@ -1565,10 +1716,10 @@ function render_pieces(ps){
   document.getElementById('picks').innerHTML=rows.map(p=>
     `<div class=pick><span style="color:${info.groups[p.group].css}">&#9646;</span>`
    +(p.i!=null?`<span class=hint>pick ${p.i}</span>`:'')
-   +`<b data-k="${esc(p.key)}">${p.world[0]}, ${p.world[1]}, ${p.world[2]}</b>`
+   +`<b data-w="${p.world.join(',')}">${p.world[0]}, ${p.world[1]}, ${p.world[2]}</b>`
    +`<span class="${p.verdict=='oob'?'oobtag':p.verdict=='ok'?'oktag':'hint'}">`
    +`${p.verdict||'rules'}</span>`
-   +`<span class=hint>${p.comps?p.comps+' comps ':p.comp!=null?'#'+p.comp+' ':''}`
+   +`<span class=hint>${p.comps>1?p.comps+' comps ':p.comp!=null?'#'+p.comp+' ':''}`
    +`${p.area_m2} m&sup2; &middot; `
    +`${p.drawn?p.drawn+' px drawn':'<b class=oobtag>not drawn</b>'} ${esc(p.note||'')}</span>`
    +(p.i!=null?`<button data-del="${p.i}">&times;</button>`:'')+'</div>').join('')
@@ -1591,7 +1742,7 @@ document.getElementById('picks').addEventListener('click',async e=>{
   }
   const b=e.target.closest('b');
   if(!b) return;
-  jump(picks.find(q=>q.key==b.dataset.k).world);
+  jump(b.dataset.w.split(',').map(Number));
 });
 
 async function open_chapter(key){

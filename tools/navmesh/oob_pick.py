@@ -43,6 +43,7 @@ from pathlib import Path
 
 from oob_chapter import MARKER_GROUPS, Chapter, ChapterUnavailable, Library
 from oob_measure import describe, matches_z
+from oob_rules import RuleSet, score
 from oob_verdicts import GROUPS, load_doc, save_doc
 
 HERE = Path(__file__).resolve().parent
@@ -50,6 +51,22 @@ REPO = HERE.parent.parent
 DEFAULT_MAPS = REPO / "maps"
 DEFAULT_PICKS = HERE / "oob_picks.json"
 PAGE_HTML = HERE / "oob_page.html"
+
+
+def cut_layers(ch: Chapter, picks_path: Path, show: set[str]) -> list[dict]:
+    """What comes out of the picture: every piece being cut, plus what the rules take.
+
+    Ground judged legitimate stays, and so does a piece that is only being ASKED about - an open
+    question must not change the map behind the back of the person answering it. The rules are one
+    layer over their whole catch, and like any layer, ticking them puts the ground back on screen.
+    """
+    out = [pc for pc in ch.pieces(picks_path)
+           if pc["group"] not in show and pc["verdict"] not in ("ok", "ask")]
+    if "rules" not in show:
+        lay = ch.rule_layer(ch.rules)
+        if lay is not None:
+            out.append(lay)
+    return out
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -68,13 +85,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return {g for g in q.get("show", [""])[0].split(",") if g in GROUPS}
 
     def cut_pieces(self, ch: Chapter, show: set[str]) -> list[dict]:
-        """What comes out of the picture: every hidden piece that is actually being cut.
-
-        Ground judged legitimate stays, and so does a piece that is only being ASKED about - an open
-        question must not change the map behind the back of the person answering it.
-        """
-        return [pc for pc in ch.pieces(self.picks_path)
-                if pc["group"] not in show and pc["verdict"] not in ("ok", "ask")]
+        return cut_layers(ch, self.picks_path, show)
 
     def pieces_json(self, ch: Chapter) -> list[dict]:
         """This chapter's pieces for the page - no masks, and the pick index the file uses."""
@@ -82,6 +93,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                  ("group", "comp", "comps", "area_m2", "drawn", "px", "drawn_pct",
                   "world", "i", "verdict", "note", "batch", "mode")}
                 for pc in ch.pieces(self.picks_path)]
+
+    def rules_json(self, ch: Chapter) -> dict:
+        """The thresholds the chapter is holding, what they take, and what they cost.
+
+        `drawn` is measured against the SHIPPED height planes, so it is what this map would lose on
+        top of the cut it already carries. `caught` is measured over the picker's own world, where
+        no rule has cut anything yet - so a mark whose ground the shipped build already removed
+        still counts, and the score answers "do these thresholds reproduce the marks".
+        """
+        lay = ch.rule_layer(ch.rules)
+        out = {"set": ch.rules.as_dict(), "defaults": RuleSet().as_dict(),
+               "drawn_total": ch.drawn_total(), "comps": 0, "area_m2": 0.0, "drawn": 0,
+               "drawn_pct": 0.0, "by_rule": {}}
+        if lay is not None:
+            out.update({k: lay[k] for k in
+                        ("comps", "area_m2", "drawn", "drawn_pct", "by_rule")})
+        out.update(score(ch.pieces(self.picks_path), ch.catch(ch.rules)))
+        return out
 
     def log_message(self, fmt, *a):
         pass
@@ -140,6 +169,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "feet_z": ch.feet_z0,
                 "groups": {g: dict(GROUPS[g], css=f"rgb{GROUPS[g]['rgb']}") for g in GROUPS},
                 "open_batch": load_doc(self.picks_path)["open_batch"],
+                "rules": self.rules_json(ch),
                 "pieces": self.pieces_json(ch),
                 "picks_path": str(self.picks_path),
             })
@@ -233,6 +263,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         ch = self.chapter_of(urllib.parse.parse_qs(url.query))
+        if url.path == "/rules":
+            # Server state, like the standing cut: one page, one set of thresholds under judgement,
+            # and every picture the page then asks for is cut with them.
+            ch.rules = ch.rules.with_body(body)
+            self._json({"ok": True, "rules": self.rules_json(ch)})
+            return
         doc = load_doc(self.picks_path)
         picks = doc["picks"]
         # Removing a pick renumbers the ones after it, so every loaded chapter's located pieces are
@@ -285,9 +321,9 @@ def main(argv: list[str] | None = None) -> int:
         opening = Handler.library.get(args.chapter)
     except ChapterUnavailable as exc:
         sys.exit(str(exc))
-    # The first cut costs ~12 s. Pay it here, so the page never waits on it.
-    opening.cut(opening.feet_z0, "hide",
-                [pc for pc in opening.pieces(args.picks) if pc["group"] != "legit"])
+    # The first cut costs ~12 s, and the rules under it another ~20 s. Pay it here, so the page
+    # never waits on it.
+    opening.cut(opening.feet_z0, "hide", cut_layers(opening, args.picks, set()))
 
     class Server(socketserver.ThreadingTCPServer):
         allow_reuse_address = True

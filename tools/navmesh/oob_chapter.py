@@ -29,8 +29,9 @@ import build_map
 import mapfmt
 import render
 import slice_preview as sp
-from oob_measure import (PICK_GRID_UU, STACK_BUDGET_PX, inner, mask_of, matches_z, overlap,
-                         overlay_png, raster_masks)
+from oob_measure import (PICK_GRID_UU, STACK_BUDGET_PX, drawn_surfaces, inner, mask_of, matches_z,
+                         overlap, overlay_png, raster_masks)
+from oob_rules import RuleSet
 from oob_verdicts import GROUPS, group_of, load_doc
 
 HERE = Path(__file__).resolve().parent
@@ -54,20 +55,16 @@ MARKER_GROUPS = {
 # off costs nothing the second time.
 CUT_CACHE = 8
 
-# How many of the one-way components the page is shown. The rule takes thousands a chapter and the
-# mod draws almost none of them; the largest are where its cost is.
-ONE_WAY_SHOWN = 200
-
-# The invisible walls over the cut, in two readings. The outline is the shell at this storey - every
-# box standing anywhere near the height the map is drawing, whether or not there is ground under it,
-# because most of the shell stands in the gaps BESIDE the walkable ground and a test that needs a
-# surface under the box would draw almost none of it. The floor and ceiling PLATES are left out of
-# it: 15 % of the boxes, and the biggest, so a picture that keeps them is a picture of them. The
-# solid fill is the part that blocks: a box in the player's own body space over ground the map draws.
 BLOCKS_JSON = HERE.parents[1] / "markers" / "blocks.json"
 WALL_RGB = (217, 70, 239)
 WALL_SHELL_LO = -300.0
 WALL_SHELL_HI = 500.0
+
+# ... and the budget the rule layer alone is measured on. It is one piece the size of the chapter,
+# so the slot count is what a whole storey of the cut lives in: chapter 4 at two slots reads 2 035
+# surfaces short of the truth and at four reads it exactly. 120 M values is 480 MB of float32, held
+# for the chapter on screen and dropped from every other one.
+RULE_STACK_PX = 120_000_000
 
 # Height-stack values a chapter keeps across measured pieces. One piece takes up to
 # STACK_BUDGET_PX of them, so a session of clicks on whole clusters would hold gigabytes. A piece
@@ -128,8 +125,14 @@ class Chapter:
         self._pngs: dict[tuple, bytes] = {}   # finished pictures, keyed by what went into them
         self._pieces: tuple[tuple, list[dict]] | None = None  # the marks and proposals, located
         self._shelves: list[list[int]] | None = None   # components grouped into flat shelves
-        self._oneway: list[dict] | None = None        # the biggest one-way components
         self._shelf_of: dict[int, int] = {}
+        self.rules = RuleSet()          # the thresholds the page is currently judging
+        self._home: set[int] | None = None            # components a marker stands on
+        self._escape: dict[float, dict[int, float]] = {}   # climb home per component, by fall cap
+        self._walld: dict[int, float] | None = None   # median distance to a wall, per component
+        self._catch: dict[str, dict[int, str]] = {}   # what a rule set takes, by its key
+        self._rule_layer: tuple[str, dict] | None = None   # that catch as one layer, measured
+        self._drawn: int | None = None                # px the mod draws over every height plane
         self._group_png: tuple[tuple, bytes] | None = None  # the shown layers, washed
         self._walls: object = False           # the chapter's invisible walls, loaded on first use
         self._shapes: dict[str, dict] = {}     # a piece's mask and measurement, by its key
@@ -188,7 +191,13 @@ class Chapter:
             seed_radius=a.island_seed_radius, require_seed=a.island_require_seed,
             bridge_xy=a.island_bridge_xy, bridge_z=a.island_bridge_z,
             cluster_area=a.island_cluster_area, cut_oob=False,
+            # The wall rule is a proposal here, not a cut: `cut_oob=False` keeps every piece on the
+            # picture, and `wall_dist` is kept so the layer can draw what the build would take.
+            wall_dist=None, wall_far=a.wall_far,
         )
+        self.wall_dist = blocks.distance_to_walls(
+            self.walls(), np.array([[p["cx"], p["cy"], p["cz"]] for p in rest]),
+            where=~self.walls().plate) if self.walls() is not None and rest else None
         self.rest = rest              # what the island filter judged: the rule reads these
         self.keep_ids = keep_ids
         self.comp_polys: dict[int, list[dict]] = {}
@@ -278,20 +287,96 @@ class Chapter:
             self._shelf_of = {cid: i for i, g in enumerate(self._shelves) for cid in g}
         return self._shelves
 
-    def rule_one_way(self) -> list[dict]:
-        """The biggest components you cannot walk back off.
+    # ---- the cut rules, at whatever thresholds the page is holding ---------------
 
-        The rule takes thousands of components a chapter and the mod draws a few hundred of them.
-        Measuring every one costs a minute of startup for pieces with no pixel on screen, so the page
-        is handed the largest `ONE_WAY_SHOWN` by area. That is a SAMPLE, and since the fall cap it is
-        no longer most of the cost: in chapter 3 the sample draws 184 520 px of the 637 427 the rule
-        takes. It is the big end of it - judge the sample, and the small pieces follow it.
+    def home(self) -> set[int]:
+        """The components a marker stands on - where the escape costs are measured from."""
+        if self._home is None:
+            self._home = render.standing_components(self.rest, self.seeds)
+        return self._home
+
+    def escape(self, fall: float) -> dict[int, float]:
+        """The climb home per component. 6-8 s the first time each fall cap is asked for."""
+        got = self._escape.get(fall)
+        if got is None:
+            t0 = time.time()
+            got = self._escape[fall] = render.escape_costs(
+                self.rest, self.keep_ids, self.home(), grid=self.args.island_grid, max_fall=fall)
+            print(f"[{self.key}] escape costs at fall {fall:g} uu: {len(got)} components have a "
+                  f"way home ({time.time() - t0:.1f}s)", flush=True)
+        return got
+
+    def walld(self) -> dict[int, float]:
+        """The median distance to an invisible wall per component; empty without the walls."""
+        if self._walld is None:
+            self._walld = render.wall_medians(self.rest, self.keep_ids, self.wall_dist)
+        return self._walld
+
+    def catch(self, rs: RuleSet) -> dict[int, str]:
+        """Which components these thresholds take, and which rule takes each.
+
+        The marker rescue runs here as it runs in the build, so the preview cannot show ground cut
+        away from under a marker that the pipeline would put straight back.
         """
-        if self._oneway is None:
-            home = render.standing_components(self.rest, self.seeds)
-            got = render.one_way_ground(self.rest, self.comps, self.keep_ids, home)
-            self._oneway = sorted(got, key=lambda c: -c["area"])[:ONE_WAY_SHOWN]
-        return self._oneway
+        got = self._catch.get(rs.key)
+        if got is None:
+            why = render.out_of_bounds(
+                self.comps, self.keep_ids, self.escape(rs.fall), self.walld(),
+                escape_climb=rs.climb, wall_far=rs.wall_far, small_area=rs.small)
+            left = self.keep_ids - set(why)
+            render.marker_rescue(self.rest, self.comps, left, self.seeds,
+                                 cover_z=render.DEFAULT_ISLAND_COVER_Z)
+            for cid in left:
+                why.pop(cid, None)      # put back: it holds the only surface under a marker
+            got = self._catch[rs.key] = why
+        return got
+
+    def rule_of(self, cid: int | None) -> str | None:
+        """Which rule takes this component at the thresholds the page is holding, if any."""
+        return None if cid is None else self.catch(self.rules).get(cid)
+
+    def rule_layer(self, rs: RuleSet) -> dict | None:
+        """The whole catch as ONE layer of the picture, and what it costs the map.
+
+        A layer, not a piece each: the catch is thousands of components and the page needs the sum
+        of them - the ground that stops being drawn - not a list to click through. It is measured
+        the way every piece is, so `drawn` here and `drawn` on a mark mean the same thing.
+        """
+        if self._rule_layer is not None and self._rule_layer[0] == rs.key:
+            return self._rule_layer[1]
+        ids = self.catch(rs)
+        sel = [q for cid in ids for q in self.comp_polys.get(cid, [])]
+        if not sel:
+            self._rule_layer = (rs.key, None)
+            return None
+        t0 = time.time()
+        x0, y0, m, z = mask_of(self, sel, budget=RULE_STACK_PX)
+        lit, reach = raster_masks(self, x0, y0, m, z)
+        lay = dict(key=f"rules:{rs.key}", group="rules", verdict="", comp=None, comps=len(ids),
+                   area_m2=round(sum(q["xyarea"] for q in sel) / 10000.0, 1),
+                   polys=len(sel), px=int(m.sum()), px_on_map=int(lit.sum()),
+                   drawn=drawn_surfaces(self, x0, y0, m, z), x=x0, y=y0, mask=m, z=z, reach=reach,
+                   by_rule={r: sum(1 for v in ids.values() if v == r)
+                            for r in sorted(set(ids.values()))})
+        lay["drawn_pct"] = round(100.0 * lay["drawn"] / max(1, self.drawn_total()), 2)
+        lay["slots"] = int(z.shape[0])
+        print(f"[{self.key}] rules {rs.key}: {len(ids)} components, {lay['area_m2']:.0f} m2, "
+              f"{lay['drawn']} of {self.drawn_total()} drawn surfaces off the map "
+              f"({lay['drawn_pct']:.2f}%, {lay['slots']} stack slots)  "
+              f"({time.time() - t0:.1f}s)", flush=True)
+        self._rule_layer = (rs.key, lay)
+        return lay
+
+    def drawn_total(self) -> int:
+        """Pixels the mod draws over every height plane - what a cut is a share OF."""
+        if self._drawn is None:
+            n = 0
+            for i in range(len(self.plane_paths)):
+                raw = self.plane(i)
+                n += int((((raw & self.z_code_mask) != 0)
+                          & ((raw & self.reach_bit) != 0)).sum())
+            self._drawn = n
+        return self._drawn
 
     def pieces(self, picks_path: Path) -> list[dict]:
         """Every piece the page can show or cut, located and tagged with its layer.
@@ -300,15 +385,15 @@ class Chapter:
         assigned in load order and a regeneration renumbers them. A rule proposal has no stored
         point, so it carries the centre of its largest polygon for the page to jump to.
 
-        A component the user has already judged is never also proposed by the rules: the verdict is
-        the answer, whichever way it went.
+        Marks only. What the rules take is not a list of pieces but one layer over all of them -
+        `rule_layer` - because the catch is thousands of components and the question about it is
+        what the map loses, not which of them to click.
         """
         doc = load_doc(picks_path)
         sig = (len(doc["picks"]), doc["open_batch"])
         if self._pieces is not None and self._pieces[0] == sig:
             return self._pieces[1]
         out: list[dict] = []
-        judged: set[int] = set()
         for i, p in enumerate(doc["picks"]):
             w = p.get("world") or []
             if p.get("chapter") != self.key or len(w) < 3:
@@ -321,32 +406,10 @@ class Chapter:
                 poly, p.get("mode", "comp"),
                 i=i, verdict=p.get("verdict", "oob"), note=p.get("note", ""),
                 world=[float(w[0]), float(w[1]), float(w[2])], batch=p["batch"])
-            # The verdict speaks for every component the mark covers, not just the one under the
-            # point: a shelf judged whole must not come back as a proposal minus one component.
-            judged.update(q["comp"] for q in pc["sel"] if "comp" in q)
             pc["group"] = group_of(p, comp, doc["open_batch"], pc["drawn_pct"])
             out.append(pc)
-        taken = set(judged)
-        for comp in self.rule_one_way():
-            if comp["id"] in taken:
-                continue
-            taken.add(comp["id"])
-            pc = self._proposal(self.comp_polys.get(comp["id"], []), "comp")
-            if pc is not None:
-                out.append(pc)
         self._pieces = (sig, out)
         return out
-
-    def _proposal(self, polys: list[dict], mode: str) -> dict | None:
-        """A rule's catch as a piece, pointing at the centre of its largest polygon."""
-        if not polys:
-            return None
-        big = max(polys, key=lambda q: q["xyarea"])
-        return self._piece(
-            big, mode, group="rules", i=None, verdict="", note="", batch=None,
-            world=[round(sum(q[0] for q in big["pts"]) / len(big["pts"]), 1),
-                   round(sum(q[1] for q in big["pts"]) / len(big["pts"]), 1),
-                   round(big["cz"], 1)])
 
     def _piece(self, poly: dict, mode: str, **rest) -> dict:
         """One piece: the ground's own measurement, plus the verdict standing on it.
@@ -358,6 +421,10 @@ class Chapter:
 
     def forget_pieces(self) -> None:
         self._pieces = None
+
+    def forget_rule_layer(self) -> None:
+        """Drop the measured catch. Half a gigabyte of height stack, and only one is ever wanted."""
+        self._rule_layer = None
 
     # ---- the picture -------------------------------------------------------------
 
@@ -470,8 +537,12 @@ class Chapter:
         belongs to which layer, so a piece can be found and judged. It is a separate picture from
         the cut so that ticking a layer does not re-shade the map underneath it.
         """
-        pieces = self.pieces(picks_path)
-        key = (self._pieces[0], frozenset(show))
+        pieces = list(self.pieces(picks_path))
+        if "rules" in show:
+            lay = self.rule_layer(self.rules)
+            if lay is not None:
+                pieces.append(lay)
+        key = (self._pieces[0], frozenset(show), self.rules.key)
         if self._group_png is not None and self._group_png[0] == key:
             return self._group_png[1]
         rgba = np.zeros((self.height, self.width, 4), dtype=np.uint8)
@@ -763,6 +834,9 @@ class Library:
         with self._lock:
             if key not in self._loaded:
                 self._loaded[key] = Chapter(key, self.maps_dir, self.input_root)
+            for other, ch in self._loaded.items():
+                if other != key:
+                    ch.forget_rule_layer()
             return self._loaded[key]
 
     def is_loaded(self, key: str) -> bool:

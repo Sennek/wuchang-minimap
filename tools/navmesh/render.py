@@ -129,6 +129,7 @@ import json
 import heapq
 import math
 import os
+import statistics
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -189,6 +190,17 @@ DEFAULT_ISLAND_CLUSTER_AREA = 400000.0  # uu2 (40 m2)
 # component back. Same 400 uu as marker_coverage.py's --z-tol, on purpose: the audit's
 # criterion is the filter's own invariant, so the pass cannot strand a marker.
 DEFAULT_ISLAND_COVER_Z = 400.0  # uu
+# ... and how far from the game's own invisible walls a piece of ground has to sit before it reads
+# as ground nobody was meant to stand on. The `*_Block` levels fence the play space, so ordinary
+# ground hugs a fence and out-of-bounds ground does not: measured over the 172 verdicts, a marked
+# point sits at a median 1 998 uu from the nearest wall in chapter 1 against 341 uu for drawn
+# ground, 1 016 against 326 in chapter 3. Read the other way round - "does a wall stand ON this" -
+# the same boxes reach 1 of 146 marks, because a fence is built where the player IS expected.
+DEFAULT_WALL_FAR = 1500.0  # uu
+# ... and the area under which an unseeded piece of ground reads as a pocket rather than a
+# place. Off by default: the escape rule reaches the same class on most chapters, and this
+# one is measured per chapter in the picker before it is turned on.
+DEFAULT_SMALL_UNSEEDED = 0.0  # uu2; 0 disables the rule
 MAX_IMAGE_PX = 16000  # guard against a --px-per-uu typo eating all the RAM
 
 COL_BG = (16, 18, 22)
@@ -841,7 +853,7 @@ def components_at(polys: list[dict], points: Iterable[dict], cell: float = 256.0
     return out
 
 
-def _marker_rescue(
+def marker_rescue(
     polys: list[dict],
     comps: list[dict],
     keep_ids: set[int],
@@ -850,6 +862,10 @@ def _marker_rescue(
     cell: float = 640.0,
 ) -> tuple[int, list[dict]]:
     """Put back any component that holds the ONLY surface under a marker.
+
+    `keep_ids` is added to in place: the caller sees which components came back by what appeared in
+    the set it handed over. The picker previews a cut this way too, so a threshold on trial cannot
+    show ground the pipeline would put straight back.
 
     This is `marker_coverage.py`'s criterion turned into an invariant of the filter: a
     marker is "covered" when a kept polygon *contains its XY* and sits within `cover_z` of
@@ -925,6 +941,9 @@ def decide_islands(
     anti_seeds: Iterable[dict] | None = None,
     escape_climb: float = DEFAULT_ESCAPE_CLIMB,
     escape_fall: float = DEFAULT_ESCAPE_FALL,
+    wall_dist: "Iterable[float] | None" = None,
+    wall_far: float = DEFAULT_WALL_FAR,
+    small_unseeded: float = DEFAULT_SMALL_UNSEEDED,
 ) -> tuple[list[dict], list[dict], set[int], dict]:
     """Decide which navmesh a player cannot stand on. Three rules, in this order.
 
@@ -936,7 +955,7 @@ def decide_islands(
     2. Everything smaller is a Recast sliver under a prop and is dropped.
     3. Then nothing is allowed to STRAND A MARKER: any dropped component that holds the
        only polygon containing a marker's XY within `cover_z` of its Z goes back in
-       (`_marker_rescue`). This is exactly `marker_coverage.py`'s criterion, so the audit
+       (`marker_rescue`). This is exactly `marker_coverage.py`'s criterion, so the audit
        damage of the whole pass is zero by construction - the markers it still reports
        uncovered are the ones that had no surface before any filtering either.
 
@@ -1028,19 +1047,26 @@ def decide_islands(
     # cost. This runs BEFORE the rescue on purpose: whatever it would strand, the rescue puts back,
     # so "no marker stands on nothing" stays an invariant of the pass rather than a lucky outcome.
     anti = list(anti_seeds or [])
-    oob: set[int] = set()
+    why_oob: dict[int, str] = {}
     if cut_oob:
         home = standing_components(polys, seeds)
-        oob |= {c["id"] for c in one_way_ground(polys, comps, keep_ids, home, grid=grid,
-                                                max_climb=escape_climb, max_fall=escape_fall)}
-    oob |= components_at(polys, anti)
-    oob &= keep_ids
+        why_oob = out_of_bounds(
+            comps, keep_ids,
+            escape_costs(polys, keep_ids, home, grid=grid, max_fall=escape_fall),
+            wall_medians(polys, keep_ids, wall_dist),
+            escape_climb=escape_climb, wall_far=wall_far, small_area=small_unseeded)
+    for cid in components_at(polys, anti):
+        why_oob[cid] = "marked"
+    oob = set(why_oob) & keep_ids
     for cid in oob:
-        comps[cid]["keep"], comps[cid]["why"] = False, "out of bounds"
+        comps[cid]["keep"] = False
+        comps[cid]["why"] = "out of bounds: " + why_oob[cid]
         keep_ids.discard(cid)
+    far = [cid for cid in oob if why_oob[cid] == "walls"]
+    small = [cid for cid in oob if why_oob[cid] == "small"]
 
     # ---- rule 4: never strand a marker ---------------------------------------------
-    rescued, rescues = _marker_rescue(polys, comps, keep_ids, seeds, cover_z=cover_z)
+    rescued, rescues = marker_rescue(polys, comps, keep_ids, seeds, cover_z=cover_z)
 
     kept_comps = [c for c in comps if c["keep"]]
     dropped = [c for c in comps if not c["keep"]]
@@ -1055,6 +1081,10 @@ def decide_islands(
         "clusters_detached_kept": sum(1 for cl in kept_cl if not cl["has_largest"]),
         "rescued_marker_components": rescued,
         "oob_cut_components": len(oob),
+        "oob_far_from_walls": len(far),
+        "oob_small_unseeded": len(small),
+        "wall_far_uu": wall_far if wall_dist is not None else None,
+        "small_unseeded_uu2": small_unseeded,
         "oob_cut": cut_oob,
         "oob_anti_seeds": len(anti),
         "escape_climb_uu": escape_climb,
@@ -1090,6 +1120,66 @@ DEFAULT_SHELF_Z_TOL = 20.0      # uu; the same tolerance classify_flat_planes ca
 DEFAULT_SHELF_NEAR = 2560.0     # uu; two navmesh tiles - the XY term a Z-only grouping lacks
 DEFAULT_SHELF_DROP = 400.0      # uu; ground this far under the piece means it is a lid, not a skin
 DEFAULT_SHELF_CELL = 1280.0     # uu; one tile - the pitch the "anything underneath" test asks at
+
+
+def wall_medians(polys: list[dict], keep_ids: set[int],
+                 wall_dist: "Iterable[float] | None") -> dict[int, float]:
+    """How far each kept component sits from the game's nearest invisible wall.
+
+    `wall_dist` is one distance per polygon, in the order of `polys` - `blocks.distance_to_walls`
+    measures it, and the caller hands it over the way it hands over `seeds`, so this module keeps
+    knowing nothing about the map grid or the pak.
+
+    The figure is the MEDIAN over a component's polygons, not any one of them: a component is a
+    place, and one polygon of it reaching past a threshold says nothing. `statistics.median`, not
+    the upper middle: an even-length list averages the two, which is what the threshold was
+    measured with.
+    """
+    if wall_dist is None:
+        return {}
+    per: dict[int, list[float]] = {}
+    for p, d in zip(polys, wall_dist):
+        if p["comp"] in keep_ids:
+            per.setdefault(p["comp"], []).append(float(d))
+    return {cid: statistics.median(v) for cid, v in per.items() if v}
+
+
+def out_of_bounds(comps: list[dict], keep_ids: set[int], escape: dict[int, float],
+                  walld: dict[int, float], *,
+                  escape_climb: float = DEFAULT_ESCAPE_CLIMB,
+                  wall_far: float = DEFAULT_WALL_FAR,
+                  small_area: float = DEFAULT_SMALL_UNSEEDED) -> dict[int, str]:
+    """Which kept components are out of bounds, and which rule says so.
+
+    The three axes read the two measurements above and nothing else, so a caller holding them can
+    re-decide the whole cut at a new threshold without touching the geometry - which is what the
+    picker does while the thresholds are being chosen. Each threshold is off at 0.
+
+    - `escape_climb`: the piece cannot be left without climbing this far (`escape_costs`). Seeded
+      ground needs no exemption here: something standing on a component makes it its own
+      destination, at cost zero.
+    - `wall_far`: the piece sits further than this from every fence the game builds. Measured over
+      the 172 verdicts, a marked point sits at a median 1 998 uu from the nearest wall in chapter 1
+      against 341 uu for drawn ground, 1 016 against 326 in chapter 3.
+    - `small_area`: an unseeded piece smaller than this is a pocket, not a place.
+
+    The last two never take seeded ground: the game put a marker there, so the player reaches it
+    whatever the fences and the size say.
+    """
+    why: dict[int, str] = {}
+    for c in comps:
+        cid = c["id"]
+        if cid not in keep_ids:
+            continue
+        if escape_climb > 0 and escape.get(cid, float("inf")) > escape_climb:
+            why[cid] = "one-way"
+        elif c["seeded"]:
+            continue
+        elif wall_far > 0 and walld.get(cid, 0.0) > wall_far:
+            why[cid] = "walls"
+        elif small_area > 0 and c["area"] <= small_area:
+            why[cid] = "small"
+    return why
 
 
 def flat_shelves(polys: list[dict], comps: list[dict], keep_ids: set[int],
@@ -1148,19 +1238,16 @@ def flat_shelves(polys: list[dict], comps: list[dict], keep_ids: set[int],
     return sorted(groups.values(), key=lambda g: -sum(comps[i]["area"] for i in g))
 
 
-def one_way_ground(polys: list[dict], comps: list[dict], keep_ids: set[int],
-                   sources: set[int],
-                   grid: float = DEFAULT_ISLAND_GRID,
-                   max_climb: float = DEFAULT_ESCAPE_CLIMB,
-                   max_fall: float = DEFAULT_ESCAPE_FALL) -> list[dict]:
-    """Kept components you can fall onto but cannot walk back off.
+def escape_costs(polys: list[dict], keep_ids: set[int], sources: set[int],
+                 grid: float = DEFAULT_ISLAND_GRID,
+                 max_fall: float = DEFAULT_ESCAPE_FALL) -> dict[int, float]:
+    """What it costs each kept component to get HOME: the worst climb on the cheapest route.
 
     Ground the player uses can be left on foot; the level's outer skin is something the navmesh lets
     you drop onto and never leave. So the question is not what a piece looks like but what it costs
     to get OUT of it: over the component adjacency graph, falling out of a piece is free and climbing
-    out costs the height of the step. `escape_climb` is the bottleneck - the worst climb on the
-    cheapest route home - from a component to any component a marker seeds, and a component whose
-    cheapest way home still needs a climb over `max_climb` is out of bounds.
+    out costs the height of the step. The answer is the bottleneck - the worst climb on the cheapest
+    route home - and a component missing from the result has no route home at any price.
 
     A fall is free but not unlimited: a step down over `max_fall` is not a way home, it is another
     place you cannot come back from. Without that cap the level's outer skin DRAINS - chapter 3's
@@ -1171,9 +1258,9 @@ def one_way_ground(polys: list[dict], comps: list[dict], keep_ids: set[int],
 
     `sources` is home - the components a marker STANDS on (`standing_components`), not the ones it
     merely passes near. Two things then fall out of the shape of the rule rather than being bolted
-    on: a component with something standing on it is its own destination and is never one-way, so
-    the marker veto needs no clause; and a boss arena entered by dropping in is kept, because the
-    shrine on it is on it.
+    on: a component with something standing on it is its own destination at cost zero, so the marker
+    veto needs no clause; and a boss arena entered by dropping in is kept, because the shrine on it
+    is on it.
 
     The grid pitch is load-bearing and must stay the one `connected_components` uses: at 128 uu a
     cell merges a slab's Z with its neighbour's and the step between them disappears.
@@ -1232,8 +1319,7 @@ def one_way_ground(polys: list[dict], comps: list[dict], keep_ids: set[int],
                 best[a] = worst
                 heapq.heappush(heap, (worst, a))
 
-    return [c for c in comps if c["id"] in keep_ids
-            and best.get(c["id"], float("inf")) > max_climb]
+    return best
 
 
 def filter_islands(
@@ -1251,12 +1337,18 @@ def filter_islands(
     cover_z: float = DEFAULT_ISLAND_COVER_Z,
     cut_oob: bool = True,
     anti_seeds: Iterable[dict] | None = None,
+    wall_dist: "Iterable[float] | None" = None,
+    wall_far: float = DEFAULT_WALL_FAR,
+    escape_climb: float = DEFAULT_ESCAPE_CLIMB,
+    small_unseeded: float = DEFAULT_SMALL_UNSEEDED,
 ) -> tuple[list[dict], dict]:
     """The polygons `decide_islands` keeps."""
     _, _, keep_ids, stats = decide_islands(
         polys, seeds, grid=grid, z_tol=z_tol, min_area=min_area, seed_radius=seed_radius,
         seed_z=seed_z, require_seed=require_seed, bridge_xy=bridge_xy, bridge_z=bridge_z,
         cluster_area=cluster_area, cover_z=cover_z, cut_oob=cut_oob, anti_seeds=anti_seeds,
+        wall_dist=wall_dist, wall_far=wall_far, escape_climb=escape_climb,
+        small_unseeded=small_unseeded,
     )
     if not stats.get("components"):
         return polys, stats
@@ -1273,7 +1365,11 @@ def describe_islands(tag: str, st: dict) -> str:
         f" = {st['kept']} components ({st['rescued_marker_components']} of them put back under a marker),"
         f" dropped {st['dropped']}"
         f" (of them {st.get('oob_cut_components', 0)} out of bounds"
-        f" from {st.get('oob_anti_seeds', 0)} verdict(s))"
+        f" from {st.get('oob_anti_seeds', 0)} verdict(s)"
+        + (f", {st['oob_far_from_walls']} further than {st['wall_far_uu']:.0f} uu from a wall"
+           if st.get("wall_far_uu") else "")
+        + (f", {st['oob_small_unseeded']} unseeded under {st['small_unseeded_uu2'] / 10000.0:.0f} m2"
+           if st.get("small_unseeded_uu2") else "") + ")"
         f" ({st['seeded_components']} seeded by {st['seeds']} markers); polygons"
         f" {st['polys_before']} -> {st['polys_after']}"
         f" (-{st['polys_dropped']}, -{100.0 * st['polys_dropped'] / max(1, st['polys_before']):.1f}%),"
@@ -1281,7 +1377,7 @@ def describe_islands(tag: str, st: dict) -> str:
         f"  [grid {st['grid_uu']:g} uu, z-tol {st['z_tol_uu']:g} uu,"
         f" bridge {st['bridge_xy_uu']:g}/{st['bridge_z_uu']:g} uu,"
         f" cluster area {st['cluster_area_uu2']:.0f} uu2, sliver floor {st['min_area_uu2']:.0f} uu2,"
-        f" seed r {st['seed_radius_uu']:.0f} uu"
+        f" seed r {st['seed_radius_uu']:.0f} uu, escape climb {st.get('escape_climb_uu', 0):.0f} uu"
         + (", require-seed" if st["require_seed"] else "") + "]"
     )
 
@@ -1315,6 +1411,20 @@ def add_island_args(ap: argparse.ArgumentParser, default_on: bool = False) -> No
                     help=f"a marker this close keeps a component, uu (default {DEFAULT_ISLAND_SEED_RADIUS:g})")
     ap.add_argument("--island-require-seed", action="store_true",
                     help="keep ONLY components with a marker seed (strict reachability; drops ~56%% of Chapter 1)")
+    ap.add_argument("--wall-far", type=float, default=DEFAULT_WALL_FAR,
+                    help=f"ground whose component sits further than this from every one of the "
+                         f"game's own invisible walls is out of bounds, uu "
+                         f"(default {DEFAULT_WALL_FAR:g}; 0 disables the rule)")
+    ap.add_argument("--escape-climb", type=float, default=DEFAULT_ESCAPE_CLIMB,
+                    help=f"ground you cannot leave without climbing this far is out of bounds, uu "
+                         f"(default {DEFAULT_ESCAPE_CLIMB:g}; 0 disables the rule)")
+    ap.add_argument("--small-unseeded", type=float, default=DEFAULT_SMALL_UNSEEDED,
+                    help=f"an unseeded component smaller than this is a pocket, not a place, uu2 "
+                         f"(default {DEFAULT_SMALL_UNSEEDED:.0f} = off)")
+    ap.add_argument("--blocks", default=str(Path(__file__).resolve().parents[2] / "markers"
+                                            / "blocks.json"),
+                    help="the invisible walls the wall rule reads (default: the repo's "
+                         "markers/blocks.json; '' to run without them)")
     ap.add_argument("--no-oob-cut", dest="cut_oob", action="store_false", default=True,
                     help="keep the one-way ground the out-of-bounds cut removes (before/after runs)")
     ap.add_argument("--oob-picks", default=str(Path(__file__).resolve().parent / "oob_picks.json"),

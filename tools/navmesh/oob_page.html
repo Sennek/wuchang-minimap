@@ -70,6 +70,19 @@
       <label><input type=checkbox id=wls> invisible walls</label>
     </div>
     <div class=hint id=mkleg></div>
+    <h2>cut rules <span class=hint>tick 'rules' below to see what they take</span></h2>
+    <div class=row>
+      climb <input type=text id=rclimb size=4 title="ground you cannot leave without climbing this
+far is out of bounds, uu; 0 turns the rule off">
+      walls <input type=text id=rwall size=4 title="ground whose component sits further than this
+from every invisible wall is out of bounds, uu; 0 turns the rule off">
+      pockets <input type=text id=rsmall size=4 title="an unseeded component smaller than this is a
+pocket, not a place, m2; 0 turns the rule off">
+      <button id=rapply>apply</button>
+      <button id=rship title="back to render.py's own defaults - what a build run right now
+would use">defaults</button>
+    </div>
+    <div class=hint id=rout></div>
     <h2>layers <span class=hint>unticked is cut out of the map</span></h2>
     <div id=layers></div>
     <div class=hint id=busy hidden></div>
@@ -279,6 +292,14 @@ function report(r){
   h+=tr('the mod draws', r.raster.drawn
     ? `${r.raster.drawn} px`
     : '<b class=oobtag>nothing</b> &mdash; every pixel is hidden');
+  if(r.rules){
+    const q=r.rules;
+    h+=tr('escape home', q.escape==null?'<b class=oobtag>no way home at all</b>'
+                                       :`${q.escape} uu of climb`);
+    if(q.wall!=null) h+=tr('nearest wall',`${q.wall} uu`);
+    h+=tr('the cut rules', q.cut_by?`<b class=oobtag>take it</b> &mdash; ${q.cut_by}`
+                                   :'<span class=oktag>leave it</span>');
+  }
   h+='</table><h2>pipeline</h2><table>';
   if(r.comp) h+=tr('component',`#${r.comp.id} &middot; ${r.comp.polys} polys &middot; `
     +`${r.comp.area_m2} m&sup2; &middot; ${r.comp.kept?'kept':'dropped'}`
@@ -330,6 +351,45 @@ document.getElementById('gob').addEventListener('click',()=>{
   jump(m);
 });
 
+// ---- the cut rules, at whatever thresholds the boxes hold -------------------------------------
+// Two numbers, two denominators, and they are not the same map. What the rules TAKE is measured
+// against the shipped height planes - ground the shipped build already cut is not in them, so this
+// is what the map you have would additionally lose. What they CATCH is measured over the picker's
+// own world, where no rule has cut anything, so it answers the question the marks were made for:
+// do these thresholds reproduce them.
+function rules_boxes(r){
+  document.getElementById('rclimb').value=r.set.climb;
+  document.getElementById('rwall').value=r.set.wall_far;
+  document.getElementById('rsmall').value=Math.round(r.set.small/10000);
+}
+function rules_out(r){
+  info.rules=r;
+  const by=Object.entries(r.by_rule||{}).map(([k,n])=>`${k} ${n}`).join(', ');
+  const bad=r.legit_cut>0;
+  document.getElementById('rout').innerHTML=
+     `takes <b>${r.comps}</b> components &middot; ${r.area_m2} m&sup2;${by?' &middot; '+by:''}<br>`
+    +`the map loses <b>${r.drawn}</b> of the ${r.drawn_total} px it draws = <b>${r.drawn_pct}%</b>`
+    +` <span class=hint>(one px per storey, against the shipped planes)</span><br>`
+    +`your marks: <b class=oobtag>${r.oob_caught}/${r.oob_total}</b> oob caught &middot; `
+    +`<b class="${bad?'oobtag':'oktag'}">${r.legit_cut}/${r.legit_total}</b> legit cut`;
+}
+async function rules_apply(body){
+  busy('re-deciding the cut…');
+  const r=await fetch('/rules?ch='+encodeURIComponent(chapter),
+                      {method:'POST',body:JSON.stringify(body)}).then(r=>r.json());
+  busy(''); rules_boxes(r.rules); rules_out(r.rules);
+  render_pieces(picks); reload_base(true);
+  if(last&&last.pixel) pick(last.pixel[0],last.pixel[1]);
+}
+document.getElementById('rapply').onclick=()=>rules_apply({
+  climb:+document.getElementById('rclimb').value||0,
+  wall_far:+document.getElementById('rwall').value||0,
+  small:(+document.getElementById('rsmall').value||0)*10000});
+document.getElementById('rship').onclick=()=>rules_apply(info.rules.defaults);
+for(const id of ['rclimb','rwall','rsmall'])
+  document.getElementById(id).addEventListener('keydown',e=>{
+    if(e.key=='Enter') document.getElementById('rapply').click(); });
+
 // The search narrows the list in place. A piece carries two numbers - the pick it is in the file
 // and the component it is on the map - and both are printed on the row, so a whole number (with or
 // without the `#` the row prints) matches either. Anything else is matched against the row's text.
@@ -354,10 +414,8 @@ async function mark(verdict){
            polys:last.polys, area_m2:last.area_m2, z:last.z, bbox:last.bbox,
            stages:last.stages, levels:last.levels, tiles:last.tiles,
            comp:last.comp, cluster:last.cluster, poly:last.poly, raster:last.raster};
-  if(last.piece){
-    if(last.piece.i!=null) b.i=last.piece.i;               // a second verdict corrects the first
-    if(last.piece.group=='rules') b.from='rule';           // the rules found it, the user judged it
-  }
+  if(last.piece&&last.piece.i!=null) b.i=last.piece.i;     // a second verdict corrects the first
+  if(!last.piece&&last.rules&&last.rules.cut_by) b.from='rule';  // the rules found it first
   const r=await fetch('/mark?ch='+encodeURIComponent(chapter),
                       {method:'POST',body:JSON.stringify(b)}).then(r=>r.json());
   document.getElementById('note').value=''; took(r);
@@ -379,7 +437,7 @@ function render_pieces(ps){
   document.getElementById('layers').innerHTML=Object.entries(info.groups).map(([g,d])=>
     `<label class=lay><input type=checkbox data-g="${g}"${show.has(g)?' checked':''}>`
    +`<i style="background:${d.css}"></i>${g} <span class=hint>${d.label}</span>`
-   +`<span>${ps.filter(p=>p.group==g).length}</span></label>`).join('');
+   +`<span>${g=='rules'?info.rules.comps:ps.filter(p=>p.group==g).length}</span></label>`).join('');
   // The list is the working set: this batch, plus whatever layer is on the picture to be judged.
   const working=ps.filter(p=>p.group=='batch'||show.has(p.group));
   const rows=visible=working.filter(matches)
@@ -442,6 +500,7 @@ async function open_chapter(key){
    +`${info.polys} polys &middot; ${info.comps} components &middot; ${info.clusters} clusters<br>`
    +`batch ${info.open_batch} &middot; picks &rarr; ${esc(info.picks_path)}`;
   document.title=`OOB picker - ${info.chapter}`;
+  rules_boxes(info.rules); rules_out(info.rules);
   render_pieces(info.pieces);
   const r=view.getBoundingClientRect();
   zoom=Math.min(r.width/info.width,r.height/info.height); ox=0; oy=0; apply();

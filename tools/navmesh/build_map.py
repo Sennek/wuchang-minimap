@@ -159,6 +159,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np  # noqa: E402
 
 import mapfmt  # noqa: E402  (the on-disk format: schema, palette PNG, 12-bit heights)
+import blocks
 import render  # noqa: E402  (same directory; the loader/geometry code is shared)
 
 try:
@@ -488,6 +489,29 @@ def load_extra_seeds(path: Path) -> list[dict]:
         else:
             raise SystemExit(f"{path}: {it!r} is not a point")
     return out
+
+
+def wall_distance(polys: list[dict], blocks_json: str, chapter: str, far: float):
+    """Distance from every polygon to the game's nearest invisible wall, or `None`.
+
+    `None` turns the wall rule off, and it is the honest answer whenever the boxes are missing or
+    the threshold is zero: the rule then never runs rather than running on nothing.
+    """
+    if not blocks_json or far <= 0:
+        return None
+    try:
+        walls = blocks.load(blocks_json, chapter)
+    except (OSError, ValueError) as exc:
+        print(f"[{chapter}] no invisible walls: {exc}", file=sys.stderr)
+        return None
+    if walls is None or not len(walls):
+        print(f"[{chapter}] no invisible walls in {blocks_json}", file=sys.stderr)
+        return None
+    pts = np.array([[p["cx"], p["cy"], p["cz"]] for p in polys], dtype=np.float64)
+    d = blocks.distance_to_walls(walls, pts, where=~walls.plate)
+    print(f"[{chapter}] {len(walls)} invisible walls ({int((~walls.plate).sum())} of them not "
+          f"plates); ground sits a median {float(np.median(d)):.0f} uu from one")
+    return d
 
 
 def flood_reachable(
@@ -1003,6 +1027,7 @@ def build_chapter(args: argparse.Namespace) -> dict:
         anti = render.load_oob_picks(args.oob_picks, args.chapter)
         if anti:
             print(f"[{args.chapter}] {len(anti)} out-of-bounds verdict(s) from {args.oob_picks}")
+        wall_dist = wall_distance(polys, args.blocks, args.chapter, args.wall_far)
         polys, islands = render.filter_islands(
             polys, seeds,
             grid=args.island_grid, z_tol=args.island_z_tol, min_area=args.island_min_area,
@@ -1010,6 +1035,8 @@ def build_chapter(args: argparse.Namespace) -> dict:
             bridge_xy=args.island_bridge_xy, bridge_z=args.island_bridge_z,
             cluster_area=args.island_cluster_area,
             cut_oob=args.cut_oob, anti_seeds=anti,
+            wall_dist=wall_dist, wall_far=args.wall_far,
+            escape_climb=args.escape_climb, small_unseeded=args.small_unseeded,
         )
         print(render.describe_islands(args.chapter, islands))
         if not polys:

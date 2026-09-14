@@ -24,7 +24,7 @@ GROUPS = {
     "batch":   {"rgb": (229, 72, 77),   "label": "this batch"},
     "earlier": {"rgb": (168, 85, 247),  "label": "earlier batches"},
     "doubt":   {"rgb": (34, 211, 238),  "label": "seeded, or barely drawn"},
-    "rules":   {"rgb": (245, 158, 11),  "label": "one-way: no walk back home"},
+    "rules":   {"rgb": (245, 158, 11),  "label": "what the cut rules take"},
     "legit":   {"rgb": (34, 197, 94),   "label": "judged legit"},
     "done":    {"rgb": (113, 122, 132), "label": "already gone from the map"},
 }

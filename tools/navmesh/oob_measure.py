@@ -44,7 +44,8 @@ PICK_GRID_UU = 256.0
 # ---------------------------------------------------------------------------------
 
 
-def mask_of(ch: Chapter, sel: list[dict]) -> tuple[int, int, np.ndarray, np.ndarray]:
+def mask_of(ch: Chapter, sel: list[dict],
+            budget: int = STACK_BUDGET_PX) -> tuple[int, int, np.ndarray, np.ndarray]:
     """Coverage mask and per-pixel Z STACK of a polygon set, cropped to its bounding box.
 
     A piece folds over itself: chapter 3's component #40 spans 1 040 uu of Z, and 4 586 of its
@@ -79,7 +80,10 @@ def mask_of(ch: Chapter, sel: list[dict]) -> tuple[int, int, np.ndarray, np.ndar
                         px_per_uu=ppu)
     # A whole cluster is 20 Mpx of bounding box, where eight slots would be 650 MB. The budget cuts
     # the slot count, never the pixels: a piece small enough to judge always gets all of them.
-    slots = max(1, min(len(ch.plane_paths), int(STACK_BUDGET_PX // max(1, w * h))))
+    # Slots that are cut are surfaces the piece folds over itself and loses - measured on chapter 4,
+    # a whole chapter's worth of catch reads 2 035 of 94 133 surfaces short at two slots and nothing
+    # short at four, so a caller measuring a cut hands over a budget that buys it four.
+    slots = max(1, min(len(ch.plane_paths), int(budget // max(1, w * h))))
     z, _ = build_map.rasterize_heights(sel, sub, slots, merge_tol=SURFACE_MATCH_UU,
                                        progress=0)
     # `Bounds.width` rounds up, so the stack can come back one pixel wider than the crop asked for.
@@ -136,6 +140,47 @@ def raster_masks(ch: Chapter, x0: int, y0: int, m: np.ndarray,
     return lit, reach
 
 
+def rules_on(ch: Chapter, cid: int) -> dict:
+    """What the cut rules measure on this component, and which of them takes it.
+
+    The numbers, not the verdict, are the reason this is on the report: a piece the user calls out
+    of bounds that the rules leave standing says exactly where its threshold would have to go.
+    """
+    esc = ch.escape(ch.rules.fall).get(cid, float("inf"))
+    wall = ch.walld().get(cid)
+    return {"escape": None if esc == float("inf") else round(esc),
+            "wall": None if wall is None else round(wall),
+            "cut_by": ch.rule_of(cid)}
+
+
+def drawn_surfaces(ch: Chapter, x0: int, y0: int, m: np.ndarray, z: np.ndarray) -> int:
+    """How many drawn SURFACES a piece would take off the map, over every height plane.
+
+    `raster_masks` answers per pixel - is any of this piece on screen here - which is what says
+    whether cutting a piece changes anything. A cut is judged against the whole map instead, and the
+    map is a stack: the same XY carries a surface per storey, and `Chapter.drawn_total` counts them
+    all. So the numerator is counted the same way, one hit per plane, and no plane is dropped once a
+    pixel has been answered.
+    """
+    h, w = m.shape
+    cy, cx = max(0, min(h, ch.height - y0)), max(0, min(w, ch.width - x0))
+    if not (cy and cx):
+        return 0
+    inside = m.copy()
+    inside[cy:, :] = False
+    inside[:, cx:] = False
+    idx = np.flatnonzero(inside)
+    rows, cols = np.divmod(idx, w)
+    zst = z[:, rows, cols]
+    n = 0
+    for i in range(len(ch.plane_paths)):
+        raw = ch.plane(i)[y0:y0 + cy, x0:x0 + cx][rows, cols]
+        code = raw & ch.z_code_mask
+        hit = (code != 0) & ((raw & ch.reach_bit) != 0) & matches_z(zst, ch.z_of_code(code))
+        n += int(hit.sum())
+    return n
+
+
 def describe(ch: Chapter, poly: dict, mode: str) -> dict:
     sh = ch.shape(poly, mode)
     sel = sh["sel"]
@@ -175,6 +220,7 @@ def describe(ch: Chapter, poly: dict, mode: str) -> dict:
             "has_largest": cl.get("has_largest"),
         },
         "raster": {k: sh[k] for k in ("px", "px_on_map", "drawn", "reachable_pct")},
+        "rules": None if comp is None else rules_on(ch, comp["id"]),
         "markers": markers_near(ch, sel),
         "overlay": {"x": sh["x"], "y": sh["y"],
                     "w": int(sh["mask"].shape[1]), "h": int(sh["mask"].shape[0])},

@@ -128,6 +128,38 @@ def ray_span(w: Walls, i: int, wx: np.ndarray, wy: np.ndarray):
     return lo, hi
 
 
+def distance_to_walls(w: Walls, pts: np.ndarray, where: np.ndarray | None = None,
+                      k: int = 128) -> np.ndarray:
+    """Distance from each world point to the nearest wall SURFACE, in uu.
+
+    The out-of-bounds signal the boxes actually carry: a fence is built where the player is
+    expected to reach, so ground far from every fence is ground nobody was meant to stand on.
+    Exact point-to-box over the `k` boxes whose centres are nearest. A nearest CENTRE is not a
+    nearest SURFACE - a big box's centre is far while its face is close - so `k` is measured, not
+    assumed: against brute force over every box, on 1 200 of chapter 4's polygon centroids, k=48
+    peaks at 21.7 uu of error and k=128 at **0.0**. Neither flips a verdict at the 1 500 uu
+    threshold, and the plate-free boxes have a bounding radius of 237 uu median, 2 014 uu max.
+
+    Around a second for chapter 4's 120 964 polygons. Rasterising the same answer into the map grid
+    and taking a distance transform per height band costs 80 s and agrees on 1 081 of the 1 126
+    components a 1 500 uu threshold cuts, for 2 % of the area.
+    """
+    from scipy.spatial import cKDTree
+    sel = np.arange(len(w)) if where is None else np.where(where)[0]
+    if not len(sel) or not len(pts):
+        return np.full(len(pts), np.inf, dtype=np.float32)
+    p, m, h = w.p[sel], w.m[sel], w.half[sel]
+    _d, idx = cKDTree(p).query(pts, k=min(k, len(sel)), workers=-1)
+    idx = np.atleast_2d(idx)
+    out = np.empty(len(pts), dtype=np.float32)
+    for i in range(0, len(pts), 4096):
+        q, ix = pts[i:i + 4096], idx[i:i + 4096]
+        d = q[:, None, :] - p[ix]
+        loc = np.abs(np.einsum("bkj,bkij->bki", d, m[ix])) - h[ix]
+        out[i:i + 4096] = np.sqrt((np.maximum(loc, 0.0) ** 2).sum(-1)).min(1)
+    return out
+
+
 def standing_mask(w: Walls, bounds, z: np.ndarray,
                   stand_lo: float = STAND_LO_UU, stand_hi: float = STAND_HI_UU) -> np.ndarray:
     """Where a wall stands in the way of a player on the surface `z` - `band_mask` over the body

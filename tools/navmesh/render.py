@@ -168,7 +168,11 @@ DEFAULT_ISLAND_GRID = 64.0  # uu; XY grid the connectivity union-find runs on
 DEFAULT_ISLAND_Z_TOL = 150.0  # uu; two polys in one grid cell join if their Z ranges are this close
 DEFAULT_ISLAND_MIN_AREA = 40000.0  # uu2 (4 m2); a component smaller than this never survives on size
 DEFAULT_STAND_Z = 200.0        # uu; a marker this close above a polygon it covers STANDS on it
-DEFAULT_ESCAPE_CLIMB = 200.0   # uu; a piece you cannot leave without climbing this is one-way
+# uu; a piece you cannot leave without climbing this is one-way. 100, not the 200 the first
+# cut shipped with: judged on the picker's own now/after pictures of all five chapters, it
+# takes 1.1-4.5 % of a chapter (9.9 % of chapter 5) and reaches 143 of the 199 marks against
+# 104, without touching one piece of ground anybody called legitimate.
+DEFAULT_ESCAPE_CLIMB = 100.0
 DEFAULT_ESCAPE_FALL = 800.0    # uu; a step down deeper than this is not a way home either
 DEFAULT_ISLAND_SEED_RADIUS = 300.0  # uu (3 m); a marker this close to a component keeps it
 DEFAULT_ISLAND_SEED_Z = 600.0  # uu; ... and within this much Z of it
@@ -196,7 +200,9 @@ DEFAULT_ISLAND_COVER_Z = 400.0  # uu
 # point sits at a median 1 998 uu from the nearest wall in chapter 1 against 341 uu for drawn
 # ground, 1 016 against 326 in chapter 3. Read the other way round - "does a wall stand ON this" -
 # the same boxes reach 1 of 146 marks, because a fence is built where the player IS expected.
-DEFAULT_WALL_FAR = 1500.0  # uu
+# ... measured at 1 500 uu, and NOT bought: on chapter 4 it costs 8.8 points of drawn map for
+# one mark the escape rule does not already reach. Off, and one flag away (`--wall-far 1500`).
+DEFAULT_WALL_FAR = 0.0  # uu; 0 disables the rule
 # ... and the area under which an unseeded piece of ground reads as a pocket rather than a
 # place. Off by default: the escape rule reaches the same class on most chapters, and this
 # one is measured per chapter in the picker before it is turned on.

@@ -141,13 +141,8 @@ class Chapter:
         # are measured against the standing cut and take the same lock to keep it still.
         self._cut_lock = threading.RLock()
 
-        self.input_root = input_root or self._guess_input_root()
+        self.input_root = input_root or build_map.chapter_input_root(self.args.input, key)
         self._load()
-
-    def _guess_input_root(self) -> Path:
-        root = self.args.input if self.args.input.is_absolute() else HERE / self.args.input
-        sub = root / f"ch{build_map.chapter_number(self.key)}"
-        return sub if sub.is_dir() else root
 
     def _load(self) -> None:
         t0 = time.time()
@@ -342,29 +337,36 @@ class Chapter:
         of them - the ground that stops being drawn - not a list to click through. It is measured
         the way every piece is, so `drawn` here and `drawn` on a mark mean the same thing.
         """
-        if self._rule_layer is not None and self._rule_layer[0] == rs.key:
+        return self.layer_of(f"rules:{rs.key}", self.catch(rs))
+
+    def layer_of(self, key: str, ids: "dict[int, str] | set[int]") -> dict | None:
+        """Any set of components as one layer of the picture, measured. One is held at a time.
+
+        `ids` may carry each component's reason - what `catch` returns - and then the layer counts
+        them per rule.
+        """
+        if self._rule_layer is not None and self._rule_layer[0] == key:
             return self._rule_layer[1]
-        ids = self.catch(rs)
         sel = [q for cid in ids for q in self.comp_polys.get(cid, [])]
         if not sel:
-            self._rule_layer = (rs.key, None)
+            self._rule_layer = (key, None)
             return None
         t0 = time.time()
         x0, y0, m, z = mask_of(self, sel, budget=RULE_STACK_PX)
         lit, reach = raster_masks(self, x0, y0, m, z)
-        lay = dict(key=f"rules:{rs.key}", group="rules", verdict="", comp=None, comps=len(ids),
+        why = list(ids.values()) if isinstance(ids, dict) else []
+        lay = dict(key=key, group="rules", verdict="", comp=None, comps=len(ids),
                    area_m2=round(sum(q["xyarea"] for q in sel) / 10000.0, 1),
                    polys=len(sel), px=int(m.sum()), px_on_map=int(lit.sum()),
                    drawn=drawn_surfaces(self, x0, y0, m, z), x=x0, y=y0, mask=m, z=z, reach=reach,
-                   by_rule={r: sum(1 for v in ids.values() if v == r)
-                            for r in sorted(set(ids.values()))})
+                   by_rule={r: why.count(r) for r in sorted(set(why))})
         lay["drawn_pct"] = round(100.0 * lay["drawn"] / max(1, self.drawn_total()), 2)
         lay["slots"] = int(z.shape[0])
-        print(f"[{self.key}] rules {rs.key}: {len(ids)} components, {lay['area_m2']:.0f} m2, "
+        print(f"[{self.key}] {key}: {len(ids)} components, {lay['area_m2']:.0f} m2, "
               f"{lay['drawn']} of {self.drawn_total()} drawn surfaces off the map "
               f"({lay['drawn_pct']:.2f}%, {lay['slots']} stack slots)  "
               f"({time.time() - t0:.1f}s)", flush=True)
-        self._rule_layer = (rs.key, lay)
+        self._rule_layer = (key, lay)
         return lay
 
     def drawn_total(self) -> int:

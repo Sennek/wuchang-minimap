@@ -981,8 +981,21 @@ def default_marker_globs(chapter_key: str) -> list[Path]:
     return [root / f"{chapter_key}.json"]
 
 
+def chapter_input_root(input_root: Path, chapter_key: str) -> Path:
+    """Where this chapter's tile dumps are, under a dump root that may hold several chapters.
+
+    The extraction puts chapter 1's agents at the root and every other chapter under `ch<N>`, so
+    `--input dumps_offline --chapter chapter4` means `dumps_offline/ch4` - and pointing the build at
+    the root for a chapter that has a subdirectory would silently build it out of chapter 1's
+    geometry, which is a map that looks plausible and is wrong everywhere.
+    """
+    root = input_root if input_root.is_absolute() else Path(__file__).resolve().parent / input_root
+    sub = root / f"ch{chapter_number(chapter_key)}"
+    return sub if sub.is_dir() else root
+
+
 def build_chapter(args: argparse.Namespace) -> dict:
-    root = args.input if args.input.is_absolute() else Path(__file__).resolve().parent / args.input
+    root = chapter_input_root(args.input, args.chapter)
     agents = render.discover_agents(root)
     if args.agent not in agents:
         sys.exit(f"agent '{args.agent}' not found under {root} (have: {', '.join(sorted(agents)) or 'nothing'})")
@@ -1174,6 +1187,13 @@ def build_chapter(args: argparse.Namespace) -> dict:
             f"  z{k}: {nz:9d} px ({nr:9d} reachable)  {rng}   "
             f"{nb / (1024 * 1024):5.2f} MB PNG  (round-trip verified)"
         )
+    # A chapter that needed eight planes and now needs seven leaves the eighth on disk, out of the
+    # manifest and out of the mod's reach - but in the repo, in the package and in the game.
+    for k in range(used, args.max_surfaces):
+        stale = out_root / mapfmt.height_plane_name(args.chapter, stem, k)
+        if stale.exists():
+            stale.unlink()
+            print(f"[{args.chapter}] removed {stale.name}, left by an earlier build")
     raw = bounds.width * bounds.height * 2 * used
     print(
         f"[{args.chapter}] {used} height map(s): "

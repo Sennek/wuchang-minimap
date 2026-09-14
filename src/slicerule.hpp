@@ -420,8 +420,8 @@ namespace srule
         return out_hi >= out_lo;
     }
 
-    // Where a world Z lands on the ramp, 0 at the low end and 1 at the high one. Two modes,
-    // chosen by `st.equalize`:
+    // Where a world Z lands on the ramp, 0 at the low end and 1 at the high one, BEFORE the
+    // gamma. Two modes, chosen by `st.equalize`:
     //
     //     linear     - (z - z_lo) / (z_hi - z_lo), clamped. `eq` is ignored.
     //     equalised  - the cut's own CDF at z, so the ramp is spent in proportion to the area
@@ -429,48 +429,55 @@ namespace srule
     //
     // `eq` is the histogram of the cut being painted, already through build_cdf(); a null one
     // (or an empty cut) falls back to linear, so a caller with no histogram still gets a
-    // picture. Gamma applies to both.
-    inline float shade_t(float z, const SliceStyle& st, const ZHistogram* eq = nullptr)
+    // picture.
+    //
+    // This is the only part of the colour that depends on the pixel - everything after it is
+    // a function of this one number, which is what RampLut tabulates.
+    inline float ramp_t(float z, const SliceStyle& st, const ZHistogram* eq = nullptr)
     {
-        float t = 0.5f;
         if (st.equalize && eq != nullptr && eq->total > 0 && eq->cum_ready)
         {
-            t = eq->cdf(z);
+            return eq->cdf(z);
         }
-        else
+        const float span = st.z_hi - st.z_lo;
+        if (!(span > 1.0e-3f))
         {
-            const float span = st.z_hi - st.z_lo;
-            if (!(span > 1.0e-3f))
-            {
-                return 0.5f; // a chapter or a window with no height in it at all
-            }
-            t = (z - st.z_lo) / span;
-            t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+            return 0.5f; // a chapter or a window with no height in it at all
         }
-        if (st.gamma != 1.0f && st.gamma > 0.0f)
-        {
-            t = std::pow(t, st.gamma);
-        }
-        return t;
+        const float t = (z - st.z_lo) / span;
+        return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    }
+
+    // The gamma, applied to a point on the ramp.
+    inline float ramp_gamma(float t, const SliceStyle& st)
+    {
+        return (st.gamma != 1.0f && st.gamma > 0.0f) ? std::pow(t, st.gamma) : t;
+    }
+
+    // The rule in one piece. The cut itself paints through RampLut, which is built from
+    // this and checked against it; this is the form the file header, the tests and the
+    // offline preview all speak in.
+    inline float shade_t(float z, const SliceStyle& st, const ZHistogram* eq = nullptr)
+    {
+        return ramp_gamma(ramp_t(z, st, eq), st);
+    }
+
+    // The colour of a point on the ramp, 0..255 per channel. One ramp serves every class:
+    // a height is the same colour whoever is standing where, so the cut reads as one
+    // floor plan.
+    inline void ramp_rgb(float t, const SliceStyle& st, float& r, float& g, float& b)
+    {
+        const float g_t = ramp_gamma(t, st);
+        r = st.lo_r + (st.hi_r - st.lo_r) * g_t;
+        g = st.lo_g + (st.hi_g - st.lo_g) * g_t;
+        b = st.lo_b + (st.hi_b - st.lo_b) * g_t;
     }
 
     // The ramp colour of a world Z, 0..255 per channel.
     inline void shade_rgb(float z, const SliceStyle& st, float& r, float& g, float& b,
                           const ZHistogram* eq = nullptr)
     {
-        const float t = shade_t(z, st, eq);
-        r = st.lo_r + (st.hi_r - st.lo_r) * t;
-        g = st.lo_g + (st.hi_g - st.lo_g) * t;
-        b = st.lo_b + (st.hi_b - st.lo_b) * t;
-    }
-
-    // What a pixel is actually painted with. One ramp serves every class: a height is the
-    // same colour whoever is standing where, so the cut reads as one floor plan.
-    inline void class_rgb(float z, std::uint8_t cls, const SliceStyle& st, float& r, float& g,
-                          float& b, const ZHistogram* eq = nullptr)
-    {
-        (void)cls;
-        shade_rgb(z, st, r, g, b, eq);
+        ramp_rgb(ramp_t(z, st, eq), st, r, g, b);
     }
 
     // Colour factor for the seam. Only the left and up neighbours are asked, so a step
@@ -481,6 +488,66 @@ namespace srule
                           (up_drawn && std::fabs(z - up_z) > kSeamStepUu);
         return step ? kSeamDarken : 1.0f;
     }
+
+    // The whole colour of a cut, tabulated.
+    //
+    // A pixel's colour is a function of ONE number - ramp_t, where its Z lands on the
+    // ramp - and its opacity is a function of its rank alone. Both are settled once per
+    // cut here, so the inner loop is a clamp and two loads instead of a pow, three lerps
+    // and a branchy alpha. Both seam states are stored because seam_factor is binary: the
+    // darkened plane then costs no multiply either.
+    //
+    // kSteps quantises the ramp finer than the 8-bit output can show: half a step over a
+    // 256-level ramp is 0.13 of a colour level.
+    struct RampLut
+    {
+        static constexpr int kSteps = 1024;
+
+        std::uint8_t plain[kSteps][3]{};
+        std::uint8_t seam[kSteps][3]{};
+        std::uint8_t alpha[8]{}; // indexed by the pixel's rank - class * 2 + reachable
+
+        static std::uint8_t quantise(float v)
+        {
+            const float x = v + 0.5f;
+            return static_cast<std::uint8_t>(x < 0.0f ? 0.0f : (x > 255.0f ? 255.0f : x));
+        }
+
+        void build(const SliceStyle& st)
+        {
+            for (int i = 0; i < kSteps; ++i)
+            {
+                float r = 0.0f;
+                float g = 0.0f;
+                float b = 0.0f;
+                ramp_rgb(static_cast<float>(i) / static_cast<float>(kSteps - 1), st, r, g, b);
+                plain[i][0] = quantise(r);
+                plain[i][1] = quantise(g);
+                plain[i][2] = quantise(b);
+                seam[i][0] = quantise(r * kSeamDarken);
+                seam[i][1] = quantise(g * kSeamDarken);
+                seam[i][2] = quantise(b * kSeamDarken);
+            }
+            for (int rank = 0; rank < 8; ++rank)
+            {
+                const std::uint8_t cls = rank_class(static_cast<std::uint8_t>(rank));
+                alpha[rank] = quantise(
+                    alpha_for(cls, rank_reachable(static_cast<std::uint8_t>(rank)), st) * 255.0f);
+            }
+        }
+
+        // The step `t` falls in. `t` is ramp_t's answer, already clamped to 0..1.
+        static int step_of(float t)
+        {
+            const int i = static_cast<int>(t * static_cast<float>(kSteps - 1) + 0.5f);
+            return i < 0 ? 0 : (i > kSteps - 1 ? kSteps - 1 : i);
+        }
+
+        const std::uint8_t* rgb(int step, bool seamed) const
+        {
+            return seamed ? seam[step] : plain[step];
+        }
+    };
 
     // Widens a measured span to at least `min_range_uu` about its own centre, so flat
     // ground does not explode to full contrast.
@@ -503,16 +570,25 @@ namespace srule
         bool valid = false;
     };
 
+    // How close to its target an eased ramp end counts as arrived. Over any span the
+    // minimap draws, a quarter of a uu is far under one colour level, so a cut taken
+    // from a settled ramp paints what the one before it painted.
+    constexpr float kRampSettledUu = 0.25f;
+
     // Folds one window's measured Z span into `rs`: widened to at least `min_range_uu`
     // around its own centre, then eased towards over `range_smooth_ms`. A window with
     // nothing in it leaves the last answer standing, so a step through a doorway into
     // empty space does not flash.
-    inline void ease_range(RangeState& rs, float raw_lo, float raw_hi, float dt_ms,
+    //
+    // Returns whether `rs` is now AT the span it was easing towards - the caller's cue
+    // that the colours have stopped moving and an otherwise unchanged window need not be
+    // cut again.
+    inline bool ease_range(RangeState& rs, float raw_lo, float raw_hi, float dt_ms,
                            const SliceStyle& st)
     {
         if (!(raw_hi >= raw_lo))
         {
-            return;
+            return false;
         }
         float lo = raw_lo;
         float hi = raw_hi;
@@ -522,12 +598,13 @@ namespace srule
             rs.lo = lo;
             rs.hi = hi;
             rs.valid = true;
-            return;
+            return true;
         }
         const float tau = st.range_smooth_ms > 1.0f ? st.range_smooth_ms : 1.0f;
         float a = (dt_ms > 0.0f ? dt_ms : 16.0f) / tau;
         a = a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
         rs.lo += (lo - rs.lo) * a;
         rs.hi += (hi - rs.hi) * a;
+        return std::fabs(lo - rs.lo) <= kRampSettledUu && std::fabs(hi - rs.hi) <= kRampSettledUu;
     }
 } // namespace srule

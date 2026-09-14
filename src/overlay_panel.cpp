@@ -2066,7 +2066,7 @@ namespace overlay
                 // The scale belongs to the published window, not to the diagnostics block.
                 const SliceView sv = slice_view();
                 ImGui::Text("slice  %dx%d px x %d surface(s) @ %.4f px/uu   %.2f ms (peak %.2f)   "
-                            "%llu update(s), %llu skipped",
+                            "%llu update(s), %llu skipped, %llu unchanged",
                             g_slice_size,
                             g_slice_size,
                             g_slice_surfaces,
@@ -2074,7 +2074,8 @@ namespace overlay
                             g_slice_ms,
                             g_slice_ms_peak,
                             static_cast<unsigned long long>(g_slice_updates),
-                            static_cast<unsigned long long>(g_slice_skipped));
+                            static_cast<unsigned long long>(g_slice_skipped),
+                            static_cast<unsigned long long>(g_slice_unchanged));
                 ImGui::Text("       feet Z %.0f (raw %.0f)   tol %.0f  band %.0f  ramp %.0f..%.0f "
                             "(p%.0f)   opaque %u / dim %u / faint %u   unreachable %s, %u px",
                             static_cast<double>(g_feet_z),

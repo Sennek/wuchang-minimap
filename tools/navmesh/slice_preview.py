@@ -51,6 +51,10 @@ storey is theirs.
     t   = clamp((surfaceZ - z_lo) / (z_hi - z_lo), 0, 1) ** shade_gamma
     rgb = shade_lo_color + (shade_hi_color - shade_lo_color) * t
 
+This is the formula; the runtime evaluates it once per cut into a 1024-step table
+(`srule::RampLut`) and indexes that per pixel, so an overlay pixel is this colour to
+within one level of 255 rather than exactly it.
+
 A flat slab one storey up is a single Z and therefore a single flat tone, so the ramp
 draws no edge where two storeys abut; a pixel whose left or up neighbour is more than
 `SEAM_STEP_UU` away in Z is darkened by `SEAM_DARKEN` (`srule::seam_factor`), which is

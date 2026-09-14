@@ -46,6 +46,93 @@ namespace overlay
             }
         }
 
+        // Slice buffers whose set has been replaced. A frame already submitted may still
+        // be sampling them, and the SRV slot each one holds would otherwise be handed
+        // straight to the new texture, so nothing is released until the fence the
+        // replacing frame signals has passed. Render thread only, swept once a frame by
+        // release_finished_uploads().
+        struct RetiredSlice
+        {
+            SliceBuf buf{};
+            UINT64 fence = 0;
+        };
+        constexpr int kRetiredSlices = 8; // both slicers' sets, twice over
+        RetiredSlice g_retired[kRetiredSlices]{};
+
+        void sweep_retired_slices()
+        {
+            const UINT64 done = g_fence != nullptr ? g_fence->GetCompletedValue() : 0;
+            for (RetiredSlice& r : g_retired)
+            {
+                if (r.fence != 0 && (g_fence == nullptr || done >= r.fence))
+                {
+                    destroy_slice_set(&r.buf, 1);
+                    r.fence = 0;
+                }
+            }
+        }
+
+        // Releases every retired buffer whatever the fence says. Only for a caller that
+        // has already waited for the GPU.
+        void drain_retired_slices()
+        {
+            for (RetiredSlice& r : g_retired)
+            {
+                destroy_slice_set(&r.buf, 1);
+                r.fence = 0;
+            }
+        }
+
+        // Hands a set over to the fence instead of destroying it inside the frame. False
+        // when there is no room for it, which leaves the caller the flush.
+        bool retire_slice_set(SliceBuf* bufs, int count)
+        {
+            sweep_retired_slices();
+            int live = 0;
+            for (int i = 0; i < count; ++i)
+            {
+                if (bufs[i].tex != nullptr || bufs[i].upload != nullptr)
+                {
+                    ++live;
+                }
+            }
+            if (live == 0)
+            {
+                return true; // nothing allocated yet - the first creation of a session
+            }
+            int room = 0;
+            for (const RetiredSlice& r : g_retired)
+            {
+                if (r.fence == 0)
+                {
+                    ++room;
+                }
+            }
+            if (room < live)
+            {
+                return false;
+            }
+            // The value THIS frame will signal: every frame that could have referenced
+            // these buffers was submitted before it.
+            const UINT64 fence = g_fence_value + 1;
+            int slot = 0;
+            for (int i = 0; i < count; ++i)
+            {
+                if (bufs[i].tex == nullptr && bufs[i].upload == nullptr)
+                {
+                    continue;
+                }
+                while (g_retired[slot].fence != 0)
+                {
+                    ++slot;
+                }
+                g_retired[slot].buf = bufs[i];
+                g_retired[slot].fence = fence;
+                bufs[i] = SliceBuf{};
+            }
+            return true;
+        }
+
         // Render thread, and only with the slicer paused.
         void destroy_slice_buffers()
         {
@@ -87,6 +174,7 @@ namespace overlay
             destroy_texture(g_map);
             destroy_slice_buffers();
             destroy_map_slice_buffers();
+            drain_retired_slices();
             g_feet_z_valid = false;
             g_slice_scratch.clear();
             // g_mslice_scratch belongs to the loop thread; the slicer is paused here,
@@ -116,6 +204,7 @@ namespace overlay
                 }
             };
             sweep(g_map);
+            sweep_retired_slices();
         }
 
         // Creates the texture and its upload buffer, and records the copy into
@@ -287,7 +376,14 @@ namespace overlay
         // the update policy differ.
         bool create_slice_set(SliceBuf* bufs, int count, int w, int h, const wchar_t* what)
         {
-            destroy_slice_set(bufs, count);
+            // The old set goes to the fence, not to the floor: a resize then costs the
+            // two CreateCommittedResource calls below and nothing else. The flush is the
+            // fallback for the one case the retire list cannot take them.
+            if (!retire_slice_set(bufs, count))
+            {
+                wait_for_gpu();
+                destroy_slice_set(bufs, count);
+            }
             if (g_device == nullptr || w <= 0 || h <= 0)
             {
                 return false;
@@ -402,12 +498,18 @@ namespace overlay
             return true;
         }
 
-        // How many source pixels the minimap can show, including the rotation corners
-        // and a margin so the CLAMP sampler never smears an edge into view.
+        // How many source pixels the minimap can show, plus a margin so the CLAMP sampler
+        // never smears an edge into view and a cut that has not landed yet is invisible.
+        //
+        // The rotation corners are charged for only when they exist. A round minimap is
+        // the circle inscribed in this window, and an inscribed circle is rotation
+        // invariant - it stays inside the square whatever the yaw. Only a SQUARE minimap
+        // that rotates reaches past the window's edges, by the square's half-diagonal.
         int slice_size_for(const mm::Config& cfg, const mapdata::HeightMaps& hm, float half_px)
         {
-            const double radius_uu = static_cast<double>(half_px) * static_cast<double>(cfg.zoom_uu_per_px) *
-                                     1.4143; // the diagonal of the square the disc rotates in
+            const double corners = (!cfg.round && cfg.rotate_with_player) ? 1.4143 : 1.0;
+            const double radius_uu =
+                static_cast<double>(half_px) * static_cast<double>(cfg.zoom_uu_per_px) * corners;
             double want = 2.0 * radius_uu * hm.px_per_uu + 16.0;
             int size = static_cast<int>(std::ceil(want / 128.0)) * 128;
             if (size < kSliceMinPx)
@@ -567,7 +669,7 @@ namespace overlay
             {
                 if (measured)
                 {
-                    srule::ease_range(*range, raw_lo, raw_hi, dt_ms, st);
+                    counts.ramp_settled = srule::ease_range(*range, raw_lo, raw_hi, dt_ms, st);
                 }
                 if (range->valid)
                 {
@@ -598,6 +700,10 @@ namespace overlay
             counts.z_lo = style.z_lo;
             counts.z_hi = style.z_hi;
 
+            // The ramp and the opacity ladder, settled once for the whole cut.
+            srule::RampLut lut;
+            lut.build(style);
+
             for (int row = 0; row < h; ++row)
             {
                 std::uint8_t* out = dst + static_cast<std::size_t>(row) * pitch;
@@ -613,11 +719,7 @@ namespace overlay
                         continue;
                     }
                     const bool reachable = srule::rank_reachable(state[i]);
-                    float r = 0.0f;
-                    float g = 0.0f;
-                    float b = 0.0f;
                     const float z = feet + best_d[i];
-                    srule::class_rgb(z, cls, style, r, g, b, eq);
                     // The seam, off the two neighbours this scan has already decided:
                     // `state` and `best_d` hold the whole window, so it costs two loads
                     // and no second pass over the height planes.
@@ -631,17 +733,12 @@ namespace overlay
                                            has_left && state[left] != 0,
                                            has_up ? feet + best_d[up] : z,
                                            has_up && state[up] != 0);
-                    r *= seam;
-                    g *= seam;
-                    b *= seam;
-                    const auto ch = [](float v) {
-                        const float x = v + 0.5f;
-                        return static_cast<std::uint8_t>(x < 0.0f ? 0.0f : (x > 255.0f ? 255.0f : x));
-                    };
-                    px[0] = ch(r);
-                    px[1] = ch(g);
-                    px[2] = ch(b);
-                    px[3] = static_cast<std::uint8_t>(srule::alpha_for(cls, reachable, style) * 255.0f + 0.5f);
+                    const std::uint8_t* col_rgb =
+                        lut.rgb(srule::RampLut::step_of(srule::ramp_t(z, style, eq)), seam < 1.0f);
+                    px[0] = col_rgb[0];
+                    px[1] = col_rgb[1];
+                    px[2] = col_rgb[2];
+                    px[3] = lut.alpha[state[i]];
                     if (cls == srule::kClassFloor)
                     {
                         ++counts.opaque;
@@ -665,7 +762,10 @@ namespace overlay
         // The minimap's window: the asset at 1:1, at an integral source origin. Its
         // ramp follows the window, so `dt_ms` - how long since the previous cut - paces
         // the easing.
-        void slice_window(const mapdata::HeightMaps& hm, int x0, int y0, int size, std::uint8_t* dst, UINT pitch,
+        //
+        // Returns whether the ramp has stopped moving, which is half of what lets the
+        // next cut of the same window be skipped outright.
+        bool slice_window(const mapdata::HeightMaps& hm, int x0, int y0, int size, std::uint8_t* dst, UINT pitch,
                           float feet, const SliceStyle& st, float dt_ms)
         {
             SliceCounts counts{};
@@ -678,6 +778,7 @@ namespace overlay
             g_slice_surfaces = counts.surfaces;
             g_slice_z_lo = counts.z_lo;
             g_slice_z_hi = counts.z_hi;
+            return counts.ramp_settled;
         }
 
         // The slice style, built from the config. Both slicers use it and the loop
@@ -727,7 +828,6 @@ namespace overlay
                 // is kept for this frame.
                 if (slicer_pause_begin(kSlicerPauseMs))
                 {
-                    wait_for_gpu(); // the old buffers may still be in flight
                     const bool ok = create_slice_buffers(want);
                     slicer_pause_end();
                     if (!ok)
@@ -806,6 +906,45 @@ namespace overlay
                 return; // the previous window is still good enough
             }
 
+            double pxc = 0.0;
+            double pyc = 0.0;
+            hm.to_px(snap.x, snap.y, pxc, pyc);
+            const int x0 = static_cast<int>(std::lround(pxc)) - g_slice_size / 2;
+            const int y0 = static_cast<int>(std::lround(pyc)) - g_slice_size / 2;
+
+            // The cut the last one already made. Every input the picture depends on is
+            // here: the window's origin, the feet the classes are taken from, the eased
+            // ramp having arrived, the config generation behind the style, the buffer
+            // generation the last cut ran against and the planes it read. All of them
+            // unchanged means this cut would write the same pixels into the other buffer
+            // and publish it - and standing still is most of a session: a menu, an
+            // inventory, a conversation, a locked camera.
+            struct LastCut
+            {
+                bool valid = false;
+                bool settled = false;
+                int x0 = 0;
+                int y0 = 0;
+                float feet = 0.0f;
+                std::uint32_t buffers = 0;
+                std::uint32_t cfg_gen = 0;
+                const mapdata::HeightMaps* hm = nullptr;
+            };
+            static LastCut last{};
+            const std::uint32_t buffers_gen = g_slice_gen.load(std::memory_order_acquire);
+            const std::uint32_t cfg_gen = mm::g_cfg_gen.load(std::memory_order_acquire);
+            if (last.valid && last.settled && g_slice_range.valid && last.x0 == x0 && last.y0 == y0 &&
+                last.feet == g_feet_z && last.buffers == buffers_gen && last.cfg_gen == cfg_gen &&
+                last.hm == &hm)
+            {
+                ++g_slice_unchanged;
+                // The clock moves with the skip: the ramp was AT its target, so nothing
+                // was owed any easing, and the next real cut must ease over one period
+                // rather than snap over however long the player stood still.
+                g_slice_last_ms = now;
+                return;
+            }
+
             SliceBuf& b = g_slice[g_slice_next];
             if (b.tex == nullptr || b.mapped == nullptr || b.w <= 0)
             {
@@ -821,12 +960,6 @@ namespace overlay
                 return;
             }
 
-            double pxc = 0.0;
-            double pyc = 0.0;
-            hm.to_px(snap.x, snap.y, pxc, pyc);
-            const int x0 = static_cast<int>(std::lround(pxc)) - b.w / 2;
-            const int y0 = static_cast<int>(std::lround(pyc)) - b.w / 2;
-
             const SliceStyle st = style_from(cfg);
             const float dt_ms = g_slice_last_ms == 0
                                     ? 0.0f
@@ -835,9 +968,10 @@ namespace overlay
             LARGE_INTEGER t0{};
             LARGE_INTEGER t1{};
             ::QueryPerformanceCounter(&t0);
-            slice_window(hm, x0, y0, b.w, b.mapped + b.footprint.Offset, b.footprint.Footprint.RowPitch,
-                         g_feet_z, st, dt_ms);
+            const bool settled = slice_window(hm, x0, y0, b.w, b.mapped + b.footprint.Offset,
+                                              b.footprint.Footprint.RowPitch, g_feet_z, st, dt_ms);
             ::QueryPerformanceCounter(&t1);
+            last = LastCut{true, settled, x0, y0, g_feet_z, buffers_gen, cfg_gen, &hm};
             const std::int64_t freq = qpc_freq();
             double g_slice_last_cut_ms = 0.0;
             if (freq > 0)

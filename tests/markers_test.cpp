@@ -3547,29 +3547,103 @@ namespace
 
             // Halfway up this ramp is (150, 50, 150), for the floor as much as for the
             // storey below it or a ledge overhead: nothing is tinted apart, so two
-            // pixels of the same height are the same colour.
-            float r = 0.0f;
-            float g = 0.0f;
-            float b = 0.0f;
+            // pixels of the same height are the same colour. The cut paints through
+            // RampLut, so ask it the way slice_region does - by rank, which is the only
+            // thing it knows about the class.
+            srule::RampLut lut;
+            lut.build(st);
+            const int mid = srule::RampLut::step_of(srule::ramp_t(1500.0f, st));
             for (const std::uint8_t cls :
                  {srule::kClassBelow, srule::kClassAbove, srule::kClassFloor})
             {
-                srule::class_rgb(1500.0f, cls, st, r, g, b);
-                CHECK_NEAR(static_cast<double>(r), 150.0, 1e-4);
-                CHECK_NEAR(static_cast<double>(g), 50.0, 1e-4);
-                CHECK_NEAR(static_cast<double>(b), 150.0, 1e-4);
+                for (const bool reachable : {false, true})
+                {
+                    const std::uint8_t rank = srule::rank_of(cls, reachable);
+                    CHECK(srule::rank_class(rank) == cls);
+                    const std::uint8_t* rgb = lut.rgb(mid, false);
+                    CHECK(rgb[0] == 150);
+                    CHECK(rgb[1] == 50);
+                    CHECK(rgb[2] == 150);
+                }
             }
 
             // The floor moves along the ramp like anything else.
-            float r2 = 0.0f;
-            float g2 = 0.0f;
-            float b2 = 0.0f;
-            srule::class_rgb(1000.0f, srule::kClassFloor, st, r, g, b);
-            srule::class_rgb(2000.0f, srule::kClassFloor, st, r2, g2, b2);
-            CHECK_NEAR(static_cast<double>(r), 100.0, 1e-4);
-            CHECK_NEAR(static_cast<double>(r2), 200.0, 1e-4);
-            CHECK_NEAR(static_cast<double>(b), 50.0, 1e-4);
-            CHECK_NEAR(static_cast<double>(b2), 250.0, 1e-4);
+            const std::uint8_t* lo = lut.rgb(srule::RampLut::step_of(srule::ramp_t(1000.0f, st)), false);
+            const std::uint8_t* hi = lut.rgb(srule::RampLut::step_of(srule::ramp_t(2000.0f, st)), false);
+            CHECK(lo[0] == 100);
+            CHECK(lo[2] == 50);
+            CHECK(hi[0] == 200);
+            CHECK(hi[2] == 250);
+        }
+
+        section("the ramp table paints what shade_rgb says, to under a colour level");
+        {
+            // RampLut is the cut's inner loop; shade_rgb is the rule. The table must be
+            // the same picture, or the offline preview and the overlay have drifted.
+            const auto agrees = [](const srule::SliceStyle& st, const srule::ZHistogram* eq) {
+                srule::RampLut lut;
+                lut.build(st);
+                double worst = 0.0;
+                for (int i = 0; i <= 2000; ++i)
+                {
+                    const float z = st.z_lo + (st.z_hi - st.z_lo) * (static_cast<float>(i) / 2000.0f - 0.25f);
+                    float r = 0.0f;
+                    float g = 0.0f;
+                    float b = 0.0f;
+                    srule::shade_rgb(z, st, r, g, b, eq);
+                    const std::uint8_t* got =
+                        lut.rgb(srule::RampLut::step_of(srule::ramp_t(z, st, eq)), false);
+                    worst = (std::max)(worst, std::fabs(static_cast<double>(got[0]) - std::lround(r)));
+                    worst = (std::max)(worst, std::fabs(static_cast<double>(got[1]) - std::lround(g)));
+                    worst = (std::max)(worst, std::fabs(static_cast<double>(got[2]) - std::lround(b)));
+                    // The seam plane is that colour darkened, and nothing else.
+                    const std::uint8_t* dark =
+                        lut.rgb(srule::RampLut::step_of(srule::ramp_t(z, st, eq)), true);
+                    worst = (std::max)(
+                        worst, std::fabs(static_cast<double>(dark[0]) -
+                                         std::lround(static_cast<double>(got[0]) * srule::kSeamDarken)));
+                }
+                return worst;
+            };
+
+            srule::SliceStyle lin{};
+            lin.z_lo = -3000.0f;
+            lin.z_hi = 2500.0f;
+            lin.gamma = 0.80f;
+            CHECK(agrees(lin, nullptr) <= 1.0);
+
+            // gamma 1 takes the other branch of ramp_gamma.
+            srule::SliceStyle flat = lin;
+            flat.gamma = 1.0f;
+            CHECK(agrees(flat, nullptr) <= 1.0);
+
+            // The full map's path: t is the cut's own CDF, so the table is indexed past
+            // the equaliser rather than instead of it.
+            srule::ZHistogram h;
+            h.reset(-3000.0f, 2500.0f);
+            for (int i = 0; i < 400; ++i)
+            {
+                h.add(-2000.0f + static_cast<float>(i));
+                h.add(1000.0f + static_cast<float>(i) * 3.0f);
+            }
+            h.build_cdf(0.0f);
+            srule::SliceStyle eqs = lin;
+            eqs.equalize = true;
+            CHECK(agrees(eqs, &h) <= 1.0);
+
+            // The opacity ladder, by rank, is the same answer alpha_for gives.
+            srule::SliceStyle alpha_st{};
+            alpha_st.a_below = 0.6f;
+            alpha_st.a_above = 0.35f;
+            srule::RampLut alut;
+            alut.build(alpha_st);
+            for (int rank = 0; rank < 8; ++rank)
+            {
+                const std::uint8_t cls = srule::rank_class(static_cast<std::uint8_t>(rank));
+                const float want = srule::alpha_for(cls, srule::rank_reachable(static_cast<std::uint8_t>(rank)),
+                                                    alpha_st);
+                CHECK(alut.alpha[rank] == static_cast<std::uint8_t>(want * 255.0f + 0.5f));
+            }
         }
 
         section("a storey step is drawn as a seam, because one ramp draws no edge");

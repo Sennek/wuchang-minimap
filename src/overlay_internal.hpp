@@ -284,6 +284,11 @@ namespace overlay
             int surfaces = 0;
             float z_lo = 0.0f; // the height ramp this cut actually painted with, world uu
             float z_hi = 0.0f;
+            // The eased ramp had already reached the span this cut measured, so the next
+            // cut of the same window would paint the same colours. Only a slicer that
+            // carries a RangeState (the minimap) can say this; the full map eases nothing
+            // and leaves it false.
+            bool ramp_settled = false;
         };
         // Perf counter ids (perf.hpp). Namespace-scope, initialised on first use by
         // their single owning thread - never a guarded function static, because one of
@@ -395,6 +400,8 @@ namespace overlay
         extern double g_slice_ms_peak;
         extern std::uint64_t g_slice_updates;
         extern std::uint64_t g_slice_skipped;
+        // Cuts the slicer did not make because they would have reproduced the last one.
+        extern std::uint64_t g_slice_unchanged;
         // Feet Z, EMA-smoothed so a jump or a step does not snap the whole picture.
         extern float g_feet_z;
         extern bool g_feet_z_valid;
@@ -1212,7 +1219,7 @@ namespace overlay
         void slice_region(const mapdata::HeightMaps& hm, double sx0, double sy0, double src_step, int w, int h,
                           std::uint8_t* dst, UINT pitch, float feet, const SliceStyle& st, SliceScratch& sc,
                           SliceCounts& counts, srule::RangeState* range, float dt_ms);
-        void slice_window(const mapdata::HeightMaps& hm, int x0, int y0, int size, std::uint8_t* dst, UINT pitch,
+        bool slice_window(const mapdata::HeightMaps& hm, int x0, int y0, int size, std::uint8_t* dst, UINT pitch,
                           float feet, const SliceStyle& st, float dt_ms);
         SliceStyle style_from(const mm::Config& cfg);
         bool plan_slice(const mm::Config& cfg, const mapdata::Chapter& ch, float half_px, std::uint64_t now);

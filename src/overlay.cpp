@@ -81,6 +81,7 @@ namespace overlay
         double g_slice_ms_peak = 0.0;
         std::uint64_t g_slice_updates = 0;
         std::uint64_t g_slice_skipped = 0;
+        std::uint64_t g_slice_unchanged = 0;
         float g_feet_z = 0.0f;
         bool g_feet_z_valid = false;
         std::uint32_t g_slice_opaque = 0;

@@ -174,7 +174,6 @@ namespace overlay
                 {
                     return map_slice_view().shown >= 0; // try again next frame
                 }
-                wait_for_gpu(); // the old buffers may still be in flight
                 const bool ok = create_slice_set(g_mslice, kMapSliceBufs, tw, th, L"full map");
                 if (!ok)
                 {

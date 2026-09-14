@@ -5,7 +5,16 @@
    font:13px/1.5 ui-monospace,Consolas,monospace}
  #wrap{display:flex;height:100%}
  #view{flex:1;overflow:hidden;position:relative;cursor:crosshair;background:#0d0f11}
- #scene{position:absolute;transform-origin:0 0}
+ #scene{position:absolute;transform-origin:0 0;transition:opacity .1s}
+ /* The map on screen is not the map the settings make yet - grey until it is. */
+ #scene.stale{opacity:.25;filter:grayscale(.8)}
+ #rout.stale{opacity:.35}
+ /* the boxes have been typed in and the map below is still the previous set's */
+ #rout.unapplied{opacity:.4}
+ #rout.unapplied::after{content:" 90 the map still shows the applied set - press apply";
+   color:#f0b429;opacity:1}
+ button:disabled{opacity:.45;cursor:default}
+ #busy{color:#f0b429;min-height:18px}
  #scene img{position:absolute;image-rendering:pixelated;display:block}
  /* an author `display` beats the browser's own [hidden] rule, so a layer switched off stayed on */
  #scene img[hidden]{display:none}
@@ -156,9 +165,35 @@ function jump(w){
 }
 
 function show_all(){ return document.getElementById('allview').checked; }
-function busy(msg){
+
+// Every wait the page is in, by name, and the seconds it has been in it. One slot for all of them
+// stomped itself: a pick that answered while the map was still being cut cleared the line, and the
+// old picture then looked like the new one. So the PICTURE says it too - it greys out until the map
+// on screen is the map the current settings make.
+const jobs=new Map();
+let jobTick=null;
+function busy(name,msg){
+  if(msg) jobs.set(name,{msg,t0:Date.now()}); else jobs.delete(name);
+  if(jobs.size&&!jobTick) jobTick=setInterval(draw_busy,250);
+  if(!jobs.size&&jobTick){ clearInterval(jobTick); jobTick=null; }
+  draw_busy();
+}
+function draw_busy(){
   const b=document.getElementById('busy');
-  b.hidden=!msg; if(msg) b.textContent=msg;
+  const now=Date.now();
+  b.innerHTML=[...jobs.values()].map(j=>
+    `${esc(j.msg)} <b>${((now-j.t0)/1000).toFixed(1)}s</b>`).join(' &middot; ');
+  b.hidden=!jobs.size;
+  const cutting=jobs.has('cut')||jobs.has('rules')||jobs.has('load');
+  scene.classList.toggle('stale',cutting);
+  document.getElementById('rout').classList.toggle('stale',jobs.has('rules')||jobs.has('cut'));
+  document.getElementById('rapply').disabled=cutting;
+}
+// An error is not a wait: it stays on screen until something else happens, and nothing greys out.
+function fail(msg){
+  jobs.clear(); draw_busy();
+  const b=document.getElementById('busy');
+  b.hidden=false; b.innerHTML=`<span class=oobtag>${esc(msg)}</span>`;
 }
 
 function showq(){ return '&show='+[...show].join(','); }
@@ -177,9 +212,10 @@ function reload_base(force){
   else grp.hidden=true;
   reload_walls(z);
   if(!force && base.getAttribute('src')===src) return;
-  busy('cutting the chapter…');
+  busy('cut','cutting the chapter…');
   // A new cut moves the surface under every marker, so what stands on this storey is re-asked.
-  base.onload=()=>{ busy(''); load_marks(); };
+  base.onload=()=>{ busy('cut',null); load_marks(); };
+  base.onerror=()=>{ busy('cut',null); fail('the cut did not come back - see the picker log'); };
   base.src=src;
 }
 
@@ -193,7 +229,10 @@ function reload_walls(z){
            +showq()+(show_all()?'&all=1':'')
            +(document.getElementById('seams').checked?'':'&seams=0');
   wall.width=info.width; wall.height=info.height; wall.hidden=false;
-  if(wall.getAttribute('src')!==src){ busy('measuring the walls…'); wall.onload=()=>busy(''); wall.src=src; }
+  if(wall.getAttribute('src')!==src){
+    busy('walls','measuring the walls…');
+    wall.onload=wall.onerror=()=>busy('walls',null); wall.src=src;
+  }
 }
 document.getElementById('wls').addEventListener('change',()=>reload_walls(cutZ));
 
@@ -240,11 +279,11 @@ async function pick(u,v,z){
   const m=document.getElementById('mode').value;
   const all=show_all()?'1':'0';
   const mine=++picking;
-  busy('measuring the piece…');
+  busy('pick','measuring the piece…');
   const got=await fetch(`/pick?ch=${encodeURIComponent(chapter)}&u=${u}&v=${v}&mode=${m}`
                        +`&z=${selZ}&all=${all}`+showq()).then(r=>r.json());
   if(mine!=picking) return;
-  busy('');
+  busy('pick',null);
   last=got; report(last);
 }
 
@@ -374,10 +413,11 @@ function rules_out(r){
     +`<b class="${bad?'oobtag':'oktag'}">${r.legit_cut}/${r.legit_total}</b> legit cut`;
 }
 async function rules_apply(body){
-  busy('re-deciding the cut…');
+  busy('rules','re-deciding the cut…');
   const r=await fetch('/rules?ch='+encodeURIComponent(chapter),
                       {method:'POST',body:JSON.stringify(body)}).then(r=>r.json());
-  busy(''); rules_boxes(r.rules); rules_out(r.rules);
+  busy('rules',null); rules_boxes(r.rules); rules_out(r.rules);
+  document.getElementById('rout').classList.remove('unapplied');
   render_pieces(picks); reload_base(true);
   if(last&&last.pixel) pick(last.pixel[0],last.pixel[1]);
 }
@@ -386,9 +426,20 @@ document.getElementById('rapply').onclick=()=>rules_apply({
   wall_far:+document.getElementById('rwall').value||0,
   small:(+document.getElementById('rsmall').value||0)*10000});
 document.getElementById('rship').onclick=()=>rules_apply(info.rules.defaults);
-for(const id of ['rclimb','rwall','rsmall'])
-  document.getElementById(id).addEventListener('keydown',e=>{
+for(const id of ['rclimb','rwall','rsmall']){
+  const el=document.getElementById(id);
+  el.addEventListener('keydown',e=>{
     if(e.key=='Enter') document.getElementById('rapply').click(); });
+  // A box that no longer matches the picture is the other half of "has it finished": the readout
+  // below it describes the map ON SCREEN, so it says when it has stopped describing the boxes.
+  el.addEventListener('input',()=>{
+    const r=info&&info.rules;
+    const same=r&&+document.getElementById('rclimb').value===r.set.climb
+              &&+document.getElementById('rwall').value===r.set.wall_far
+              &&+document.getElementById('rsmall').value===Math.round(r.set.small/10000);
+    document.getElementById('rout').classList.toggle('unapplied',!same);
+  });
+}
 
 // The search narrows the list in place. A piece carries two numbers - the pick it is in the file
 // and the component it is on the map - and both are printed on the row, so a whole number (with or
@@ -485,10 +536,11 @@ document.getElementById('picks').addEventListener('click',async e=>{
 async function open_chapter(key){
   ov.hidden=true; last=null; selZ=""; marks=null; draw_marks();
   document.getElementById('report').innerHTML='';
-  busy(`loading ${key||'the chapter'}… (one the tool has not seen yet takes 10-25 s)`);
+  busy('load',`loading ${key||'the chapter'}… (one the tool has not seen yet takes 10-25 s)`);
   const got=await fetch('/info'+(key?'?ch='+encodeURIComponent(key):''))
                   .then(r=>r.json());
-  if(!got.ok){ busy(got.why); return; }
+  busy('load',null);
+  if(!got.ok){ fail(got.why); return; }
   info=got; chapter=info.chapter;
   base.width=info.width; base.height=info.height;
   document.getElementById('feetz').value=info.feet_z; cutZ=info.feet_z;

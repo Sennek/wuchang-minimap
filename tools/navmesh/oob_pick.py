@@ -52,6 +52,9 @@ DEFAULT_MAPS = REPO / "maps"
 DEFAULT_PICKS = HERE / "oob_picks.json"
 PAGE_HTML = HERE / "oob_page.html"
 
+# A hand verdict over this share of a chapter's walkable ground is asked again before it lands.
+BIG_PIECE_PCT = 5.0
+
 
 def cut_layers(ch: Chapter, picks_path: Path, show: set[str]) -> list[dict]:
     """What comes out of the picture: every piece being cut, plus what the rules take.
@@ -276,6 +279,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.library.forget_pieces()
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         if url.path == "/mark":
+            # A verdict cuts the whole piece, and the piece under a click can be the level itself:
+            # chapter 4's main body is one component of 16 199 m2, and marking anywhere on it -
+            # including the zone nobody can reach - would take the chapter with it. The rules can
+            # never do this (they leave seeded ground and ground at cost zero alone); a hand does it
+            # in one click, so the hand is asked twice.
+            share = 100.0 * float(body.get("area_m2") or 0.0) / max(1.0, ch.kept_area_m2())
+            if body.get("verdict") == "oob" and share > BIG_PIECE_PCT and not body.get("big_ok"):
+                self._json({"ok": False, "confirm": True,
+                            "why": f"this piece is {share:.0f} % of {ch.key}'s walkable ground "
+                                   f"({body.get('area_m2')} m2). A verdict cuts all of it."})
+                return
             i = body.pop("i", None)
             if i is not None and 0 <= int(i) < len(picks):
                 # A second verdict on the same piece corrects the first; it is not new evidence.

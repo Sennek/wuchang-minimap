@@ -467,8 +467,14 @@ async function mark(verdict){
            comp:last.comp, cluster:last.cluster, poly:last.poly, raster:last.raster};
   if(last.piece&&last.piece.i!=null) b.i=last.piece.i;     // a second verdict corrects the first
   if(!last.piece&&last.rules&&last.rules.cut_by) b.from='rule';  // the rules found it first
-  const r=await fetch('/mark?ch='+encodeURIComponent(chapter),
-                      {method:'POST',body:JSON.stringify(b)}).then(r=>r.json());
+  let r=await fetch('/mark?ch='+encodeURIComponent(chapter),
+                    {method:'POST',body:JSON.stringify(b)}).then(r=>r.json());
+  if(r.confirm){
+    if(!window.confirm(r.why+' Mark it anyway?')) return;
+    b.big_ok=true;
+    r=await fetch('/mark?ch='+encodeURIComponent(chapter),
+                  {method:'POST',body:JSON.stringify(b)}).then(r=>r.json());
+  }
   document.getElementById('note').value=''; took(r);
   ov.hidden=true; last=null; reload_base(true);
 }

@@ -135,6 +135,7 @@ class Chapter:
         self._catch: dict[str, dict[int, str]] = {}   # what a rule set takes, by its key
         self._rule_layer: tuple[str, dict] | None = None   # that catch as one layer, measured
         self._drawn: int | None = None                # px the mod draws over every height plane
+        self._kept_area: float | None = None          # m2 of ground the island filter keeps
         self._group_png: tuple[tuple, bytes] | None = None  # the shown layers, washed
         self._walls: object = False           # the chapter's invisible walls, loaded on first use
         self._shapes: dict[str, dict] = {}     # a piece's mask and measurement, by its key
@@ -370,6 +371,13 @@ class Chapter:
               f"({time.time() - t0:.1f}s)", flush=True)
         self._rule_layer = (key, lay)
         return lay
+
+    def kept_area_m2(self) -> float:
+        """The chapter's walkable ground before the cut rules - what a piece is a share OF."""
+        if self._kept_area is None:
+            self._kept_area = sum(c["area"] for c in self.comps
+                                  if c["id"] in self.keep_ids) / 10000.0
+        return self._kept_area
 
     def drawn_total(self) -> int:
         """Pixels the mod draws over every height plane - what a cut is a share OF."""

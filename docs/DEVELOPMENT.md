@@ -237,7 +237,8 @@ own file.
 | **sdk** | `sdk/UE4SS.def` + `sdk/lib/UE4SS.lib` (both generated, both committed), `sdk/shim/GUI/GUI.hpp` (hand-written stand-in) |
 | **third_party** | `imgui/` + the dx12 and win32 backends, `minhook/`, `fmt/` (header-only). Unmodified; provenance in `third_party/VENDORING.md` |
 | **build / release** | `build.ps1`, `deploy.ps1`, `tools/vs_detect.ps1`, `tools/gen_ue4ss_importlib.ps1`, `tools/package.ps1`, `tools/check_release.ps1`, `tools/CHANGELOG.template.md` |
-| **map pipeline** | `tools/navmesh/`: `offline/` (paks → tile JSON), `render.py`, `build_map.py`, `mapfmt.py` (the ON-DISK format), `repack_maps.py`, `slice_preview.py`, `marker_coverage.py` |
+| **map pipeline** | `tools/navmesh/`: `offline/` (paks → tile JSON), `render.py`, `build_map.py`, `mapfmt.py` (the ON-DISK format), `repack_maps.py`, `slice_preview.py`, `marker_coverage.py`, `blocks.py` (the game's invisible walls) |
+| **the picker** | `tools/navmesh/oob_*.py` + `oob_page.html` — a localhost page that cuts a chapter the way the mod's full map cuts it, turns the cut thresholds live and scores them against `oob_picks.json`, the verdicts a human made on the ground itself |
 | **marker pipeline** | `tools/markers/`, driven by `tools/regen_all.py`; `class_graph.json` is a cached artifact |
 | **recon** | `tools/lua-recon/` — the WuchangRecon Lua mod and its mock harness. Its `out/` dumps are committed evidence that cannot be re-taken |
 | **data** | `maps/` and `markers/`, both **generated**, both deployed into the mod folder. `markers/chapter1.sample.json` is the one hand-written file there and documents the schema |
@@ -593,6 +594,8 @@ python tools\navmesh\offline\navchunk.py "<scratch>\...\Chapter1\EX0\*.umap" `
 # tile JSON -> the shipped assets  (needs ~400 MB of tile JSON that is NOT in the repo)
 cd tools\navmesh
 python build_map.py --input dumps_offline --chapter chapter1 --out ..\..\maps
+# any chapter, same root: chapter N's dumps are found under dumps_offline\chN
+python build_map.py --input dumps_offline --chapter chapter4 --out ..\..\maps
 
 # format-only changes need no dumps at all
 python tools\navmesh\repack_maps.py --dry-run     # measure, write nothing

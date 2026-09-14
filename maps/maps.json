@@ -59,7 +59,16 @@
     "bridge_xy_uu": 200.0,
     "bridge_z_uu": 1000.0,
     "seed_radius_uu": 300.0,
-    "require_seed": false
+    "require_seed": false,
+    "oob_cut": true,
+    "oob_cut_components": 4679,
+    "oob_anti_seeds": 51,
+    "escape_climb_uu": 100.0,
+    "escape_fall_uu": 800.0,
+    "oob_far_from_walls": 0,
+    "wall_far_uu": null,
+    "oob_small_unseeded": 914,
+    "small_unseeded_uu2": 500000.0
    },
    "reachability": {
     "step_up_uu": 60.0,
@@ -251,7 +260,16 @@
     "bridge_xy_uu": 200.0,
     "bridge_z_uu": 1000.0,
     "seed_radius_uu": 300.0,
-    "require_seed": false
+    "require_seed": false,
+    "oob_cut": true,
+    "oob_cut_components": 4817,
+    "oob_anti_seeds": 46,
+    "escape_climb_uu": 100.0,
+    "escape_fall_uu": 800.0,
+    "oob_far_from_walls": 0,
+    "wall_far_uu": null,
+    "oob_small_unseeded": 1039,
+    "small_unseeded_uu2": 500000.0
    },
    "reachability": {
     "step_up_uu": 60.0,
@@ -431,7 +449,16 @@
     "bridge_xy_uu": 200.0,
     "bridge_z_uu": 1000.0,
     "seed_radius_uu": 300.0,
-    "require_seed": false
+    "require_seed": false,
+    "oob_cut": true,
+    "oob_cut_components": 5954,
+    "oob_anti_seeds": 82,
+    "escape_climb_uu": 100.0,
+    "escape_fall_uu": 800.0,
+    "oob_far_from_walls": 0,
+    "wall_far_uu": null,
+    "oob_small_unseeded": 1045,
+    "small_unseeded_uu2": 500000.0
    },
    "reachability": {
     "step_up_uu": 60.0,
@@ -701,7 +728,16 @@
     "bridge_xy_uu": 200.0,
     "bridge_z_uu": 1000.0,
     "seed_radius_uu": 300.0,
-    "require_seed": false
+    "require_seed": false,
+    "oob_cut": true,
+    "oob_cut_components": 2613,
+    "oob_anti_seeds": 20,
+    "escape_climb_uu": 100.0,
+    "escape_fall_uu": 800.0,
+    "oob_far_from_walls": 0,
+    "wall_far_uu": null,
+    "oob_small_unseeded": 610,
+    "small_unseeded_uu2": 500000.0
    },
    "reachability": {
     "step_up_uu": 60.0,
@@ -919,7 +955,16 @@
     "bridge_xy_uu": 200.0,
     "bridge_z_uu": 1000.0,
     "seed_radius_uu": 300.0,
-    "require_seed": false
+    "require_seed": false,
+    "oob_cut": true,
+    "oob_cut_components": 7744,
+    "oob_anti_seeds": 0,
+    "escape_climb_uu": 100.0,
+    "escape_fall_uu": 800.0,
+    "oob_far_from_walls": 0,
+    "wall_far_uu": null,
+    "oob_small_unseeded": 0,
+    "small_unseeded_uu2": 0.0
    },
    "reachability": {
     "step_up_uu": 60.0,

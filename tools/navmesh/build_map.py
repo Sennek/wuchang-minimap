@@ -1243,12 +1243,17 @@ def build_chapter(args: argparse.Namespace) -> dict:
         "max_surfaces_requested": args.max_surfaces,
         "surface_merge_tol_uu": args.merge_tol,
         "flat_plane_sheets_dropped": planes["dropped_sheets"],
+        # The thresholds come with the counts: a shipped map has to be able to say what cut it,
+        # without anyone reading the history of the tool that made it.
         "island_filter": {k: islands[k] for k in
                           ("components", "clusters", "clusters_kept", "clusters_detached_kept",
                            "kept", "rescued_marker_components", "dropped", "polys_dropped", "area_dropped",
                            "seeds", "seeded_components", "grid_uu", "z_tol_uu", "min_area_uu2",
                            "cluster_area_uu2", "cover_z_uu", "bridge_xy_uu", "bridge_z_uu",
-                           "seed_radius_uu", "require_seed") if k in islands},
+                           "seed_radius_uu", "require_seed",
+                           "oob_cut", "oob_cut_components", "oob_anti_seeds", "escape_climb_uu",
+                           "escape_fall_uu", "oob_far_from_walls", "wall_far_uu",
+                           "oob_small_unseeded", "small_unseeded_uu2") if k in islands},
         "reachability": reachability,
         mapfmt.HEIGHT_KEY: height_maps,
         "height_map_bytes": height_bytes,

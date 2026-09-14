@@ -61,7 +61,8 @@ HookInitGameState = 0
 [size=5]Install[/size]
 [list=1]
 [*]Close the game.
-[*]Copy the [font=Courier New]ue4ss\[/font] folder from the download into [font=Courier New]<Steam>\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\[/font] and [b]merge[/b] when Windows asks. Everything lives under [font=Courier New]ue4ss\Mods\WuchangMinimap\[/font].
+[*]Open the archive and copy the [font=Courier New]ue4ss\[/font] folder [b]from inside it[/b] — not the [font=Courier New]WuchangMinimap-x.y.z\[/font] folder that holds it — into [font=Courier New]<Steam>\steamapps\common\Wuchang Fallen Feathers\Project_Plague\Binaries\Win64\[/font], and [b]merge[/b] when Windows asks.
+[*]Check this exact file now exists: [font=Courier New]Project_Plague\Binaries\Win64\ue4ss\Mods\WuchangMinimap\dlls\main.dll[/font]. One folder too deep — [font=Courier New]...\Mods\WuchangMinimap-x.y.z\ue4ss\Mods\...[/font] — and UE4SS loads nothing: no overlay, no error, and not one line about the mod in [font=Courier New]ue4ss\UE4SS.log[/font].
 [*]Check [font=Courier New][Hooks] HookInitGameState = 0[/font].
 [*]Launch the game and load a save — the overlay is hidden on the main menu — then press F2.
 [/list]
@@ -82,12 +83,13 @@ None of these stops the mod working, except where the last one says otherwise.
 [*][b]RenoDX[/b] — F6 is refused as a mod hotkey, because it is RenoDX's own toggle.
 [*][b]Another UE4SS C++ mod that also hooks Present[/b] — the one combination that can lose an overlay: whichever installs second usually wins, and the loser is invisible. Test them one at a time before reporting a blank screen.
 [*][b]The Steam overlay[/b] — the first run of a new install creates and destroys a throwaway swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at nothing. Shift+Tab still works.
-[*][b]UE4SS's own console window[/b] — not a mod conflict, but it looks exactly like one. Clicking or dragging in that black console window puts it in selection mode, which blocks whoever writes to it: UE4SS stops mid-startup and the game hangs before this mod has run a single line. Press [b]Esc[/b] in the console to release it, or set [font=Courier New]ConsoleEnabled = 0[/font] in [font=Courier New]ue4ss\UE4SS-settings.ini[/font]. The tell is that [font=Courier New]wuchang_minimap.log[/font] was never written and [font=Courier New]UE4SS.log[/font] stops in the middle.
+[*][b]UE4SS's own console window[/b] — not a mod conflict, but it looks exactly like one, in two ways. With [font=Courier New]GuiConsoleVisible = 1[/font] UE4SS opens a window of its own before the game's first frame and takes the focus, so the game sits on a black screen until you alt-tab out and back; [font=Courier New]GuiConsoleVisible = 0[/font] with [font=Courier New]GuiConsoleEnabled = 1[/font] keeps the console and summons it on [b]Ctrl+O[/b] instead. And clicking or dragging in the plain black console window puts it in selection mode, which blocks whoever writes to it: UE4SS stops mid-startup and the game hangs before this mod has run a single line. Press [b]Esc[/b] in the console to release it, or set [font=Courier New]ConsoleEnabled = 0[/font] in [font=Courier New]ue4ss\UE4SS-settings.ini[/font]. The tell is that [font=Courier New]wuchang_minimap.log[/font] was never written and [font=Courier New]UE4SS.log[/font] stops in the middle.
 [/list]
 
 [size=5]Something went wrong[/size]
 [list]
 [*][b]Crash on start-up[/b] — [font=Courier New]HookInitGameState = 0[/font], see Requirements. Still crashing: [font=Courier New]overlay_hooks = 0[/font] in [font=Courier New]config_wuchang_minimap.txt[/font] turns the drawing off entirely while the tracker and the log keep running; send that log too, the pair says which half is at fault.
+[*][b]Black screen at launch until you alt-tab[/b] — UE4SS's console window, see Known conflicts. It happens with no mod installed at all.
 [*][b]Nothing on screen[/b] — press [b]F2[/b]. If the panel opens, the [b]Overview[/b] tab says in orange why the minimap is hidden. If even the panel does not appear, turn frame generation off and try again.
 [*][b]No wuchang_minimap.log at all[/b] — the mod never ran, so it cannot be the cause. Look in [font=Courier New]ue4ss\UE4SS.log[/font]: [font=Courier New]Failed to load dll ... [0x7f] The specified procedure could not be found[/font] is the wrong UE4SS build, a log that stops mid-startup is usually the console window above.
 [/list]

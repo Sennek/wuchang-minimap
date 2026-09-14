@@ -41,6 +41,7 @@ THE STEP GRAPH
     rebake      extract_markers.py      -> markers/chapter*.json       [bossdoors]
     shrines     extract_shrines.py      -> markers/shrines.json        [extract]
     recount     build_enemies.py        -> markers/enemies.json        [extract]
+    blocks      build_blocks.py         -> markers/blocks.json
     verify      verify_markers.py       (--verify; scores the chapters against
                                            the recon dumps, and FAILS the run on a
                                            marker whose category is not a known one)
@@ -86,12 +87,13 @@ STEPS: list[tuple[str, str, list[str], list[str]]] = [
      [f"markers/chapter{c.lower()}.json" for c in CHAPTERS]),
     ("shrines", "extract_shrines.py", [], ["markers/shrines.json"]),
     ("recount", "build_enemies.py", [], ["markers/enemies.json"]),
+    ("blocks", "build_blocks.py", [], ["markers/blocks.json"]),
     ("verify", "verify_markers.py", [], []),
 ]
 
 # Steps that take `--pak` / `--no-pak-hash`.
 WANTS_PAK = {"items", "graph", "categories", "enemies", "bosses", "npcs",
-             "extract", "bossdoors", "rebake", "shrines"}
+             "extract", "bossdoors", "rebake", "shrines", "blocks"}
 WANTS_HASH_FLAG = {"categories", "enemies", "bosses", "npcs", "extract",
                    "rebake", "shrines"}
 OPT_IN = {"verify"}

@@ -126,7 +126,9 @@ class Chapter:
         self._pieces: tuple[tuple, list[dict]] | None = None  # the marks and proposals, located
         self._shelves: list[list[int]] | None = None   # components grouped into flat shelves
         self._shelf_of: dict[int, int] = {}
-        self.rules = RuleSet()          # the thresholds the page is currently judging
+        # What a build run right now would cut this chapter with, and what the page starts from.
+        self.defaults = RuleSet(small=build_map.small_unseeded_for(key))
+        self.rules = self.defaults      # the thresholds the page is currently judging
         self._home: set[int] | None = None            # components a marker stands on
         self._escape: dict[float, dict[int, float]] = {}   # climb home per component, by fall cap
         self._walld: dict[int, float] | None = None   # median distance to a wall, per component

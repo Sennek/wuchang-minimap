@@ -1424,9 +1424,9 @@ def add_island_args(ap: argparse.ArgumentParser, default_on: bool = False) -> No
     ap.add_argument("--escape-climb", type=float, default=DEFAULT_ESCAPE_CLIMB,
                     help=f"ground you cannot leave without climbing this far is out of bounds, uu "
                          f"(default {DEFAULT_ESCAPE_CLIMB:g}; 0 disables the rule)")
-    ap.add_argument("--small-unseeded", type=float, default=DEFAULT_SMALL_UNSEEDED,
-                    help=f"an unseeded component smaller than this is a pocket, not a place, uu2 "
-                         f"(default {DEFAULT_SMALL_UNSEEDED:.0f} = off)")
+    ap.add_argument("--small-unseeded", type=float, default=None,
+                    help="an unseeded component smaller than this is a pocket, not a place, uu2 "
+                         "(default: the chapter's own setting in build_map; 0 disables the rule)")
     ap.add_argument("--blocks", default=str(Path(__file__).resolve().parents[2] / "markers"
                                             / "blocks.json"),
                     help="the invisible walls the wall rule reads (default: the repo's "

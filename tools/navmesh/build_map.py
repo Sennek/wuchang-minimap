@@ -981,6 +981,23 @@ def default_marker_globs(chapter_key: str) -> list[Path]:
     return [root / f"{chapter_key}.json"]
 
 
+# The pocket rule, per chapter: an unseeded component under this area is a pocket, not a place,
+# and `render.out_of_bounds` takes it. 50 m2 in chapters 1-4, judged on the picker's now/after
+# close-ups - there it takes navmesh flakes lying on top of floor the map goes on drawing, and it
+# reaches another 5 marks in chapter 1 and 4 in chapter 4. Chapter 5 is OFF: the same threshold
+# there takes blocky roof-level pieces instead of flakes, that chapter carries no verdict at all,
+# and nobody has played far enough to say what the pieces are.
+SMALL_UNSEEDED_UU2 = 500000.0                    # 50 m2
+SMALL_UNSEEDED_BY_CHAPTER = {"chapter5": 0.0}
+
+
+def small_unseeded_for(chapter_key: str, override: float | None = None) -> float:
+    """The pocket threshold a chapter is built with. `--small-unseeded` wins when it is given."""
+    if override is not None:
+        return override
+    return SMALL_UNSEEDED_BY_CHAPTER.get(chapter_key, SMALL_UNSEEDED_UU2)
+
+
 def chapter_input_root(input_root: Path, chapter_key: str) -> Path:
     """Where this chapter's tile dumps are, under a dump root that may hold several chapters.
 
@@ -1049,7 +1066,8 @@ def build_chapter(args: argparse.Namespace) -> dict:
             cluster_area=args.island_cluster_area,
             cut_oob=args.cut_oob, anti_seeds=anti,
             wall_dist=wall_dist, wall_far=args.wall_far,
-            escape_climb=args.escape_climb, small_unseeded=args.small_unseeded,
+            escape_climb=args.escape_climb,
+            small_unseeded=small_unseeded_for(args.chapter, args.small_unseeded),
         )
         print(render.describe_islands(args.chapter, islands))
         if not polys:

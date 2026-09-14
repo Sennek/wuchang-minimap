@@ -43,7 +43,7 @@ from pathlib import Path
 
 from oob_chapter import MARKER_GROUPS, Chapter, ChapterUnavailable, Library
 from oob_measure import describe, matches_z
-from oob_rules import RuleSet, score
+from oob_rules import score
 from oob_verdicts import GROUPS, load_doc, save_doc
 
 HERE = Path(__file__).resolve().parent
@@ -103,7 +103,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         still counts, and the score answers "do these thresholds reproduce the marks".
         """
         lay = ch.rule_layer(ch.rules)
-        out = {"set": ch.rules.as_dict(), "defaults": RuleSet().as_dict(),
+        out = {"set": ch.rules.as_dict(), "defaults": ch.defaults.as_dict(),
                "drawn_total": ch.drawn_total(), "comps": 0, "area_m2": 0.0, "drawn": 0,
                "drawn_pct": 0.0, "by_rule": {}}
         if lay is not None:

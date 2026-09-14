@@ -268,18 +268,19 @@ class Offsets:
         if b is not None and plausible_at(ci, b):
             return b, "back", 1
         v = self.votes.get(ci.key)
-        if not v:
-            # this export was resolved by the walk for its group but does not
-            # fit here: fall back to its own scan
-            own = scan_candidates(ci)
-            return (own[-1], "self", len(own)) if own else (None, "none", 0)
-        top = max(v.values())
-        best = sorted(o for o, n in v.items() if n == top and plausible_at(ci, o))
-        if not best:
-            return None, "none", 0
-        # unanimous across the group is the normal case; on a tie the later
-        # offset is the safer read (spurious hits sit inside earlier properties)
-        return best[-1], ("group" if top == self.seen[ci.key] else "vote"), len(best)
+        if v:
+            top = max(v.values())
+            best = sorted(o for o, n in v.items() if n == top and plausible_at(ci, o))
+            if best:
+                # unanimous across the group is the normal case; on a tie the later
+                # offset is the safer read (spurious hits sit inside earlier properties)
+                return best[-1], ("group" if top == self.seen[ci.key] else "vote"), len(best)
+        # No group answer that fits this export: either the walk resolved the group
+        # and not this one, or a variable-size property ahead of the run moves the
+        # offset per export, so there is no shared byte offset to vote on. The
+        # export's own scan is the whole evidence there is.
+        own = scan_candidates(ci)
+        return (own[-1], "self", len(own)) if own else (None, "none", 0)
 
 
 def transform(ci: CompInfo, off: int):

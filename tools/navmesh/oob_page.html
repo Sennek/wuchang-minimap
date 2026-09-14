@@ -1,0 +1,454 @@
+<!doctype html>
+<meta charset="utf-8"><title>OOB picker</title>
+<style>
+ html,body{margin:0;height:100%;background:#15171a;color:#dfe3e8;
+   font:13px/1.5 ui-monospace,Consolas,monospace}
+ #wrap{display:flex;height:100%}
+ #view{flex:1;overflow:hidden;position:relative;cursor:crosshair;background:#0d0f11}
+ #scene{position:absolute;transform-origin:0 0}
+ #scene img{position:absolute;image-rendering:pixelated;display:block}
+ /* an author `display` beats the browser's own [hidden] rule, so a layer switched off stayed on */
+ #scene img[hidden]{display:none}
+ #base{left:0;top:0}
+ /* The markers never take a click - the map under them is what is being picked. Each dot is
+    counter-scaled by the zoom, so it stays the same size on screen at any magnification. */
+ #marks{position:absolute;left:0;top:0;pointer-events:none}
+ #marks[hidden]{display:none}
+ #marks b{position:absolute;width:9px;height:9px;border-radius:50%;
+   transform:translate(-50%,-50%) scale(calc(1/var(--z,1)));box-shadow:0 0 0 1px #0b0d0fcc}
+ /* a marker on another storey: an outline, never a filled dot - a fill reads as evidence */
+ #marks b.far{width:7px;height:7px;background:transparent!important;opacity:.45;
+   box-shadow:none;border:1px solid currentColor}
+ #side{width:430px;overflow:auto;padding:10px 12px;background:#1b1e22;
+   border-left:1px solid #2c3137}
+ h2{font-size:12px;margin:14px 0 5px;color:#8ab4f8;text-transform:uppercase;letter-spacing:.08em}
+ table{border-collapse:collapse;width:100%}
+ td{padding:1px 4px;vertical-align:top}
+ td:first-child{color:#8b939c;white-space:nowrap;width:32%}
+ .row{display:flex;gap:6px;align-items:center;margin:6px 0;flex-wrap:wrap}
+ button{background:#2b3138;color:#dfe3e8;border:1px solid #3a424b;border-radius:4px;
+   padding:4px 9px;cursor:pointer;font:inherit}
+ button:hover{background:#353d46}
+ button.oob{background:#5a2230;border-color:#83323f}
+ button.ok{background:#20452c;border-color:#2f6640}
+ input,select{background:#23272c;color:#dfe3e8;border:1px solid #3a424b;border-radius:4px;
+   padding:3px 6px;font:inherit}
+ input[type=text]{flex:1;min-width:80px}
+ .pick{border-top:1px solid #2c3137;padding:3px 0;display:flex;gap:6px;align-items:baseline}
+ .pick b{cursor:pointer;color:#8ab4f8}
+ .oobtag{color:#ff7b91}.oktag{color:#7bd694}
+ .surf{cursor:pointer;padding:1px 4px;border-radius:3px}
+ .surf:hover{background:#2b3138}
+ .surf.sel{background:#33404f}
+ .hint{color:#6f7780}
+ .lay{display:flex;gap:5px;align-items:center;padding:1px 0}
+ .lay i{width:10px;height:10px;border-radius:2px;display:inline-block}
+ .lay span{margin-left:auto;color:#6f7780}
+ h2 button{float:right;font-size:11px;padding:1px 6px;text-transform:none;letter-spacing:0}
+</style>
+<div id=wrap>
+  <div id=view><div id=scene><img id=base><img id=wall hidden><img id=grp hidden><img id=ov hidden>
+    <div id=marks hidden></div></div></div>
+  <div id=side>
+    <div class=row>
+      <select id=chapter></select>
+      <select id=mode>
+        <option value=comp selected>component</option>
+        <option value=poly>polygon</option>
+        <option value=shelf>shelf</option>
+        <option value=cluster>cluster</option>
+      </select>
+      <input type=text id=goto placeholder="world X Y [Z]" size=12>
+      <button id=gob>go</button>
+    </div>
+    <div class=row>
+      feet Z <input type=text id=feetz size=7>
+      <button id=reshade title="re-cut the chapter at this feet Z">&#8635;</button>
+      <label><input type=checkbox id=allview> show what the mod hides</label>
+      <label><input type=checkbox id=seams checked> storey seams</label>
+      <label><input type=checkbox id=mks> markers</label>
+      <label><input type=checkbox id=wls> invisible walls</label>
+    </div>
+    <div class=hint id=mkleg></div>
+    <h2>layers <span class=hint>unticked is cut out of the map</span></h2>
+    <div id=layers></div>
+    <div class=hint id=busy hidden></div>
+    <div class=hint id=head></div>
+    <div id=report></div>
+    <h2>verdict</h2>
+    <div class=row>
+      <input type=text id=note placeholder="note">
+      <button class=oob id=mkoob>out of bounds</button>
+      <button class=ok id=mkok>legit</button>
+    </div>
+    <h2>pieces <button id=closeb title="start a new batch: these marks move to 'earlier'"
+      >close the batch</button></h2>
+    <div class=row>
+      <input type=text id=find placeholder="find: #component, coords, note" size=12>
+      <span class=hint id=findhint></span>
+    </div>
+    <div id=picks></div>
+  </div>
+</div>
+<script>
+let info=null, last=null, picks=[], zoom=1, ox=0, oy=0, selZ="", chapter="", cutZ=0;
+let visible=[];   // the rows the list is showing - what the search's Enter goes to
+const show=new Set();   // the layers on the picture; everything else is cut out of it
+const view=document.getElementById('view'), scene=document.getElementById('scene');
+const base=document.getElementById('base'), ov=document.getElementById('ov');
+const grp=document.getElementById('grp');
+
+function apply(){
+  scene.style.transform=`translate(${ox}px,${oy}px) scale(${zoom})`;
+  scene.style.setProperty('--z',zoom);   // the marker dots counter-scale off this
+}
+function esc(s){ return String(s).replace(/[<&]/g,c=>c=='<'?'&lt;':'&amp;'); }
+function tr(k,v){ return `<tr><td>${k}</td><td>${v}</td></tr>`; }
+
+view.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=view.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const nz=Math.min(16,Math.max(0.02,zoom*(e.deltaY<0?1.2:1/1.2)));
+  ox=mx-(mx-ox)*(nz/zoom); oy=my-(my-oy)*(nz/zoom); zoom=nz; apply();
+},{passive:false});
+
+let drag=null, moved=0;
+view.addEventListener('mousedown',e=>{ drag=[e.clientX,e.clientY,ox,oy]; moved=0; });
+window.addEventListener('mousemove',e=>{
+  if(!drag) return;
+  moved=Math.max(moved,Math.abs(e.clientX-drag[0])+Math.abs(e.clientY-drag[1]));
+  ox=drag[2]+e.clientX-drag[0]; oy=drag[3]+e.clientY-drag[1]; apply();
+});
+window.addEventListener('mouseup',e=>{
+  if(drag&&moved<4){
+    const r=view.getBoundingClientRect();
+    pick((e.clientX-r.left-ox)/zoom,(e.clientY-r.top-oy)/zoom);
+  }
+  drag=null;
+});
+
+function centreOn(u,v){
+  const r=view.getBoundingClientRect();
+  ox=r.width/2-u*zoom; oy=r.height/2-v*zoom; apply();
+}
+function toPx(x,y){
+  const b=info.bounds;
+  return [(y-b.min_y)*b.px_per_uu,(b.max_x-x)*b.px_per_uu];
+}
+// Go to a world point and pick what is under it - what the go box, a row of the list and the
+// search all do, at the zoom a piece is judged at.
+function jump(w){
+  const [u,v]=toPx(w[0],w[1]);
+  zoom=Math.max(zoom,2); centreOn(u,v); pick(u,v,w.length>2?w[2]:"");
+}
+
+function show_all(){ return document.getElementById('allview').checked; }
+function busy(msg){
+  const b=document.getElementById('busy');
+  b.hidden=!msg; if(msg) b.textContent=msg;
+}
+
+function showq(){ return '&show='+[...show].join(','); }
+
+function reload_base(force){
+  // The standing cut's feet Z, not the box's: the box is what the NEXT cut will use, and a mark
+  // must patch the picture it is standing on rather than re-cut the chapter at a new storey.
+  const z=cutZ;
+  const src='/map.png?ch='+encodeURIComponent(chapter)+'&z='+encodeURIComponent(z)
+           +showq()+(show_all()?'&all=1':'')
+           +(document.getElementById('seams').checked?'':'&seams=0')
+           +(force?'&v='+Date.now():'');
+  const gsrc='/groups.png?ch='+encodeURIComponent(chapter)+showq()
+            +(force?'&v='+Date.now():'');
+  if(show.size){ grp.src=gsrc; grp.width=info.width; grp.height=info.height; grp.hidden=false; }
+  else grp.hidden=true;
+  reload_walls(z);
+  if(!force && base.getAttribute('src')===src) return;
+  busy('cutting the chapter…');
+  // A new cut moves the surface under every marker, so what stands on this storey is re-asked.
+  base.onload=()=>{ busy(''); load_marks(); };
+  base.src=src;
+}
+
+// ---- the game's own invisible walls over the picture ------------------------------------------
+// Measured against the standing cut, so the same request that draws the map decides them: the
+// picture answers "does this wall stop a player on the ground the map draws here".
+function reload_walls(z){
+  const wall=document.getElementById('wall');
+  if(!document.getElementById('wls').checked){ wall.hidden=true; return; }
+  const src='/walls.png?ch='+encodeURIComponent(chapter)+'&z='+encodeURIComponent(z)
+           +showq()+(show_all()?'&all=1':'')
+           +(document.getElementById('seams').checked?'':'&seams=0');
+  wall.width=info.width; wall.height=info.height; wall.hidden=false;
+  if(wall.getAttribute('src')!==src){ busy('measuring the walls…'); wall.onload=()=>busy(''); wall.src=src; }
+}
+document.getElementById('wls').addEventListener('change',()=>reload_walls(cutZ));
+
+// ---- the game's own markers over the picture --------------------------------------------------
+// A dot is FILLED only where the marker stands on the surface the cut drew under it; anywhere else
+// - another storey, or ground a mark has cut away - it is an outline. A filled dot is evidence.
+let marks=null;
+const MARK_NEAR_UU=300;
+
+async function load_marks(){
+  if(!document.getElementById('mks').checked){ draw_marks(); return; }
+  marks=await fetch('/markers?ch='+encodeURIComponent(chapter)).then(r=>r.json());
+  draw_marks();
+}
+function draw_marks(){
+  const box=document.getElementById('marks'), leg=document.getElementById('mkleg');
+  if(!marks||!document.getElementById('mks').checked){
+    box.hidden=true; leg.innerHTML=''; return;
+  }
+  const grp={};
+  for(const [g,d] of Object.entries(marks.groups)) for(const c of d.cats) grp[c]=g;
+  const css=g=>`rgb(${marks.groups[g].rgb.join(',')})`;
+  const near={}, all={};
+  box.innerHTML=marks.markers.map(m=>{
+    const g=grp[m.cat]||'note', c=css(g);
+    const on=m.dz!=null&&Math.abs(m.dz)<=MARK_NEAR_UU;
+    all[g]=(all[g]||0)+1; if(on) near[g]=(near[g]||0)+1;
+    return `<b class="${on?'':'far'}" style="left:${m.u}px;top:${m.v}px;`
+          +`background:${c};color:${c}"></b>`;
+  }).join('');
+  box.hidden=false;
+  leg.innerHTML=Object.entries(marks.groups).map(([g,d])=>
+    `<span style="color:${css(g)}">&#9679;</span> ${near[g]||0} of ${all[g]||0} on this storey `
+   +`&mdash; ${d.label}`).join('<br>');
+}
+document.getElementById('mks').addEventListener('change',load_marks);
+
+// A piece the tool has not measured yet takes seconds to rasterise, and a click during that wait
+// is the answer that matters: the newest one wins and every older reply is dropped on arrival.
+let picking=0;
+async function pick(u,v,z){
+  if(!info||u<0||v<0||u>=info.width||v>=info.height) return;
+  if(z!==undefined) selZ=z;
+  const m=document.getElementById('mode').value;
+  const all=show_all()?'1':'0';
+  const mine=++picking;
+  busy('measuring the piece…');
+  const got=await fetch(`/pick?ch=${encodeURIComponent(chapter)}&u=${u}&v=${v}&mode=${m}`
+                       +`&z=${selZ}&all=${all}`+showq()).then(r=>r.json());
+  if(mine!=picking) return;
+  busy('');
+  last=got; report(last);
+}
+
+function surfaces(r){
+  if(!r.surfaces||!r.surfaces.length)
+    return '<h2>height planes</h2><p class=hint>no surface at this pixel</p>';
+  let h='<h2>height planes at this pixel</h2><div>';
+  for(const s of r.surfaces)
+    h+=`<div class="surf${String(s.z)===String(selZ)?' sel':''}" data-z="${s.z}">`
+      +`h${s.plane} &middot; Z ${s.z} &middot; code ${s.code} &middot; `
+      +(s.reachable?'reachable':'<span class=hint>not reachable</span>')
+      +(s.cut?' &middot; <span class=oobtag>cut</span>':'')+'</div>';
+  return h+'</div>';
+}
+
+function report(r){
+  const el=document.getElementById('report');
+  if(!r.ok){ el.innerHTML=`<h2>piece</h2><p class=hint>${esc(r.why)}</p>`+surfaces(r);
+             ov.hidden=true; return; }
+  const st=Object.entries(r.stages).map(([k,n])=>`${k} ${n}`).join(', ');
+  const lv=r.levels.map(([k,n])=>`${esc(k)} <span class=hint>${n}</span>`).join('<br>');
+  let h='<h2>piece</h2>';
+  if(r.piece&&r.piece.mode&&r.piece.mode!=document.getElementById('mode').value){
+    // The rule found this as a shelf; judging it as one component would answer a different question.
+    document.getElementById('mode').value=r.piece.mode;
+    if(r.pixel) pick(r.pixel[0],r.pixel[1]);
+    return;
+  }
+  if(r.piece){
+    const p=r.piece, g=info.groups[p.group];
+    h+=`<p><span style="color:${g.css}">&#9646;</span> `
+      +(p.verdict?`already <b>${p.verdict}</b>`:'proposed by the rules')
+      +(p.i!=null?` &middot; pick ${p.i}`:'')+(p.batch!=null?` &middot; batch ${p.batch}`:'')
+      +`<br><span class=hint>a verdict now replaces it</span></p>`;
+  }
+  h+='<table>';
+  h+=tr('world',`X ${r.world[0]} Y ${r.world[1]} Z ${r.world[2]}`);
+  h+=tr('size',`${r.area_m2} m&sup2; &middot; ${r.polys} polys &middot; ${r.comps} comp`);
+  h+=tr('Z range',`${r.z[0]} .. ${r.z[1]} uu`);
+  h+=tr('bbox X',`${r.bbox[0]} .. ${r.bbox[2]}`);
+  h+=tr('bbox Y',`${r.bbox[1]} .. ${r.bbox[3]}`);
+  h+=tr('stage',st);
+  h+=tr('on map',`${r.raster.px_on_map}/${r.raster.px} px &middot; `
+                +`reachable ${r.raster.reachable_pct}%`);
+  h+=tr('the mod draws', r.raster.drawn
+    ? `${r.raster.drawn} px`
+    : '<b class=oobtag>nothing</b> &mdash; every pixel is hidden');
+  h+='</table><h2>pipeline</h2><table>';
+  if(r.comp) h+=tr('component',`#${r.comp.id} &middot; ${r.comp.polys} polys &middot; `
+    +`${r.comp.area_m2} m&sup2; &middot; ${r.comp.kept?'kept':'dropped'}`
+    +`${r.comp.seeded?' &middot; seeded':''}`);
+  // Standing on the piece, or only near enough to seed it - never the same line.
+  const on=(r.markers||[]).filter(m=>m.on), near=(r.markers||[]).filter(m=>!m.on);
+  h+=tr('stands on it', on.length
+    ? on.map(m=>`${esc(m.name||m.cat)} <span class=hint>${esc(m.cat)} &middot; Z ${m.z}</span>`)
+        .join('<br>')
+    : '<span class=hint>nothing</span>');
+  if(near.length) h+=tr('<span class=hint>seeds it</span>', near.map(m=>
+      `<span class=hint>${esc(m.name||m.cat)} &middot; ${esc(m.cat)} &middot; ${m.gap} uu aside, `
+     +`${m.dz>0?'+':''}${m.dz} uu up</span>`).join('<br>'));
+  if(r.cluster) h+=tr('cluster',`#${r.cluster.id} &middot; ${r.cluster.members} comps &middot; `
+    +`${r.cluster.area_m2} m&sup2;<br>${esc(r.cluster.why||'')}`
+    +`${r.cluster.has_largest?'<br>holds the largest component':''}`);
+  h+=tr('polygon',`#${r.poly.idx} &middot; ${r.poly.area_m2} m&sup2; &middot; `
+    +`flags ${r.poly.flags} &middot; zspread ${r.poly.zspread}`);
+  h+=tr('tile',`${r.poly.tile.join(', ')} &middot; ${r.tiles} in the piece`);
+  h+=tr('level',lv||esc(r.poly.level));
+  el.innerHTML=h+'</table>'+surfaces(r);
+  document.getElementById('feetz').value=r.world[2];   // what the re-cut button would use
+  const o=r.overlay;
+  ov.src=`/overlay.png?k=${o.key}`; ov.style.left=o.x+'px'; ov.style.top=o.y+'px';
+  ov.width=o.w; ov.height=o.h; ov.hidden=false;
+}
+
+document.getElementById('report').addEventListener('click',e=>{
+  const d=e.target.closest('.surf');
+  if(d&&last&&last.pixel) pick(last.pixel[0],last.pixel[1],d.dataset.z);
+});
+document.getElementById('mode').addEventListener('change',()=>{
+  if(last&&last.pixel) pick(last.pixel[0],last.pixel[1]);
+});
+document.getElementById('allview').addEventListener('change',()=>{
+  reload_base();
+  if(last&&last.pixel) pick(last.pixel[0],last.pixel[1]);
+});
+document.getElementById('reshade').addEventListener('click',()=>{
+  cutZ=document.getElementById('feetz').value||info.feet_z; reload_base(true);
+});
+document.getElementById('seams').addEventListener('change',()=>reload_base());
+document.getElementById('feetz').addEventListener('keydown',e=>{
+  if(e.key=='Enter'){ cutZ=document.getElementById('feetz').value||info.feet_z; reload_base(true); }
+});
+document.getElementById('gob').addEventListener('click',()=>{
+  const m=document.getElementById('goto').value.trim().split(/[ ,]+/).map(Number);
+  if(m.length<2||m.some(isNaN)) return;
+  jump(m);
+});
+
+// The search narrows the list in place. A piece carries two numbers - the pick it is in the file
+// and the component it is on the map - and both are printed on the row, so a whole number (with or
+// without the `#` the row prints) matches either. Anything else is matched against the row's text.
+function find_q(){ return document.getElementById('find').value.trim().toLowerCase(); }
+function matches(p){
+  const q=find_q();
+  if(!q) return true;
+  const n=Number(q.replace(/^#/,''));
+  if(Number.isInteger(n)&&(p.comp===n||p.i===n)) return true;
+  return ['#'+(p.comp!=null?p.comp:''),p.world.join(' '),p.verdict||'rules',p.note||'',p.group]
+         .join(' ').toLowerCase().includes(q);
+}
+document.getElementById('find').addEventListener('input',()=>render_pieces(picks));
+document.getElementById('find').addEventListener('keydown',e=>{
+  if(e.key=='Enter'&&visible.length==1) jump(visible[0].world);   // one hit answers itself
+});
+
+async function mark(verdict){
+  if(!last||!last.ok) return;
+  const b={verdict, note:document.getElementById('note').value,
+           world:last.world, pixel:last.pixel, mode:last.mode, surfaces:last.surfaces,
+           polys:last.polys, area_m2:last.area_m2, z:last.z, bbox:last.bbox,
+           stages:last.stages, levels:last.levels, tiles:last.tiles,
+           comp:last.comp, cluster:last.cluster, poly:last.poly, raster:last.raster};
+  if(last.piece){
+    if(last.piece.i!=null) b.i=last.piece.i;               // a second verdict corrects the first
+    if(last.piece.group=='rules') b.from='rule';           // the rules found it, the user judged it
+  }
+  const r=await fetch('/mark?ch='+encodeURIComponent(chapter),
+                      {method:'POST',body:JSON.stringify(b)}).then(r=>r.json());
+  document.getElementById('note').value=''; took(r);
+  ov.hidden=true; last=null; reload_base(true);
+}
+document.getElementById('mkoob').onclick=()=>mark('oob');
+document.getElementById('mkok').onclick=()=>mark('ok');
+
+document.getElementById('closeb').onclick=async()=>{
+  const r=await fetch('/close-batch?ch='+encodeURIComponent(chapter),
+                      {method:'POST',body:'{}'}).then(r=>r.json());
+  took(r); reload_base(true);
+};
+
+function took(r){ if(r.open_batch!=null) info.open_batch=r.open_batch; render_pieces(r.pieces); }
+
+function render_pieces(ps){
+  picks=ps;   // every piece of this chapter; `p.i` is its index in the file, what /unmark takes
+  document.getElementById('layers').innerHTML=Object.entries(info.groups).map(([g,d])=>
+    `<label class=lay><input type=checkbox data-g="${g}"${show.has(g)?' checked':''}>`
+   +`<i style="background:${d.css}"></i>${g} <span class=hint>${d.label}</span>`
+   +`<span>${ps.filter(p=>p.group==g).length}</span></label>`).join('');
+  // The list is the working set: this batch, plus whatever layer is on the picture to be judged.
+  const working=ps.filter(p=>p.group=='batch'||show.has(p.group));
+  const rows=visible=working.filter(matches)
+              .sort((a,b)=>b.drawn-a.drawn);   // the queue is worth working top down
+  const q=find_q();
+  // A search that finds nothing here but something in an unticked layer says so - the alternative
+  // is an empty list and no reason for it.
+  const other=q?ps.filter(p=>!working.includes(p)&&matches(p)):[];
+  document.getElementById('findhint').innerHTML=!q?''
+    :`${rows.length} of ${working.length}`+(other.length
+      ?` &middot; ${other.length} more in ${[...new Set(other.map(p=>p.group))].join(', ')}`
+       +` <span class=oobtag>not ticked</span>`:'');
+  document.getElementById('picks').innerHTML=rows.map(p=>
+    `<div class=pick><span style="color:${info.groups[p.group].css}">&#9646;</span>`
+   +(p.i!=null?`<span class=hint>pick ${p.i}</span>`:'')
+   +`<b data-w="${p.world.join(',')}">${p.world[0]}, ${p.world[1]}, ${p.world[2]}</b>`
+   +`<span class="${p.verdict=='oob'?'oobtag':p.verdict=='ok'?'oktag':'hint'}">`
+   +`${p.verdict||'rules'}</span>`
+   +`<span class=hint>${p.comps>1?p.comps+' comps ':p.comp!=null?'#'+p.comp+' ':''}`
+   +`${p.area_m2} m&sup2; &middot; `
+   +`${p.drawn?p.drawn+' px drawn':'<b class=oobtag>not drawn</b>'} ${esc(p.note||'')}</span>`
+   +(p.i!=null?`<button data-del="${p.i}">&times;</button>`:'')+'</div>').join('')
+   || (q?'<p class=hint>nothing here matches</p>'
+        :'<p class=hint>nothing in this batch - tick a layer to work through it</p>');
+}
+
+document.getElementById('layers').addEventListener('change',e=>{
+  const g=e.target.dataset.g;
+  if(!g) return;
+  e.target.checked?show.add(g):show.delete(g);
+  render_pieces(picks); reload_base();
+});
+
+document.getElementById('picks').addEventListener('click',async e=>{
+  if(e.target.dataset.del!==undefined){
+    const r=await fetch('/unmark?ch='+encodeURIComponent(chapter),{method:'POST',
+      body:JSON.stringify({i:+e.target.dataset.del})}).then(r=>r.json());
+    took(r); reload_base(true); return;
+  }
+  const b=e.target.closest('b');
+  if(!b) return;
+  jump(b.dataset.w.split(',').map(Number));
+});
+
+async function open_chapter(key){
+  ov.hidden=true; last=null; selZ=""; marks=null; draw_marks();
+  document.getElementById('report').innerHTML='';
+  busy(`loading ${key||'the chapter'}… (one the tool has not seen yet takes 10-25 s)`);
+  const got=await fetch('/info'+(key?'?ch='+encodeURIComponent(key):''))
+                  .then(r=>r.json());
+  if(!got.ok){ busy(got.why); return; }
+  info=got; chapter=info.chapter;
+  base.width=info.width; base.height=info.height;
+  document.getElementById('feetz').value=info.feet_z; cutZ=info.feet_z;
+  document.getElementById('chapter').innerHTML=info.chapters.map(c=>
+    `<option value="${c.key}"${c.key==info.chapter?' selected':''}>`
+   +`${c.key}${c.loaded?'':' (load)'}</option>`).join('');
+  document.getElementById('head').innerHTML=
+    `${info.chapter} / ${info.agent} &middot; ${info.width}&times;${info.height} px<br>`
+   +`${info.polys} polys &middot; ${info.comps} components &middot; ${info.clusters} clusters<br>`
+   +`batch ${info.open_batch} &middot; picks &rarr; ${esc(info.picks_path)}`;
+  document.title=`OOB picker - ${info.chapter}`;
+  render_pieces(info.pieces);
+  const r=view.getBoundingClientRect();
+  zoom=Math.min(r.width/info.width,r.height/info.height); ox=0; oy=0; apply();
+  reload_base();
+}
+
+document.getElementById('chapter').addEventListener('change',e=>open_chapter(e.target.value));
+
+open_chapter(new URLSearchParams(location.search).get('ch')||'');
+</script>

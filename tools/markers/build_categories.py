@@ -109,6 +109,15 @@ ROOTS: dict[str, list[str]] = {
     # the whole game - the count of the "Defeat 20 Bamboozlings" achievement - so
     # it is a finite collection, not a mob, and it is claimed before `enemy`.
     "bamboozling": ["BP_M_ZSG_C"],
+    # The Harbinger Cuckoo (`help_noun11_name`): the bird a throwing dagger drops
+    # an Aurum Feather from, 105 placements in chapters 1-5 and none in the DLC.
+    # "Once a Cuckoo is slain, it will not return during this journey" - the
+    # Bamboozling pattern again, a finite collection rather than a mob, so it is
+    # claimed before `enemy`.
+    # The root is the LEAF class, never its parent: `BP_NoActionAI_C` has a second
+    # descendant, `BP_NAA_shitijia_C` - a corpse rack, 2 placements in
+    # `Chapter1_Wanrenk_AI`, scenery and not a marker.
+    "cuckoo":   ["BP_NAA_ZGN_C"],
     # World mechanisms worth a pin but not a category of their own. Leaves, not
     # bases: each of these sits directly under `DSCActor` or
     # `BP_InteractionObject_C` alongside dozens of things that are not markers.
@@ -143,7 +152,7 @@ ROOTS: dict[str, list[str]] = {
 ORDER = ["shrine", "hidden", "chest", "ammo", "harvest", "item", "note",
          "mystery_gate",
          "benediction_door", "door", "fog_gate", "ladder", "lift", "boss",
-         "bamboozling", "other", "npc", "enemy"]
+         "bamboozling", "cuckoo", "other", "npc", "enemy"]
 
 # The three pickup roots must be exactly the buckets an item-less pickup can
 # land in; the bucket registry is the single reference for that list.

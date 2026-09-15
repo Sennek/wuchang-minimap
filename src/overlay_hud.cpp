@@ -373,6 +373,35 @@ namespace overlay
                 }
                 break;
             }
+            case gly::Shape::Bird:
+            {
+                // The cuckoo in flight: two swept wings over a body. Strokes rather than a
+                // filled polygon, because a bird is not convex and a blob would read as the
+                // loot disc; the sweep is what keeps it clear of the boss's triangle, the
+                // trap's X and the bamboo leaf's pointed oval.
+                const ImVec2 body{p.x, p.y + r * 0.30f};
+                const ImVec2 wl[3] = {
+                    body,
+                    ImVec2{p.x - r * 0.55f, p.y - r * 0.45f},
+                    ImVec2{p.x - r * 0.97f, p.y - r * 0.76f},
+                };
+                const ImVec2 wr[3] = {
+                    body,
+                    ImVec2{p.x + r * 0.55f, p.y - r * 0.45f},
+                    ImVec2{p.x + r * 0.97f, p.y - r * 0.76f},
+                };
+                // A stroke-only glyph carries its own dark backing: there is no filled area
+                // for `edge` to outline, and a 1.2 px line of hue over a lit map would have
+                // nothing separating it from the ground.
+                const ImU32 stroke = hollow ? col : fill;
+                const float cw = w + 1.4f;
+                dl->AddPolyline(wl, 3, edge, 0, cw);
+                dl->AddPolyline(wr, 3, edge, 0, cw);
+                dl->AddPolyline(wl, 3, stroke, 0, w);
+                dl->AddPolyline(wr, 3, stroke, 0, w);
+                circle(body, r * 0.28f, 8);
+                break;
+            }
             case gly::Shape::Pentagon:
                 ngon(r * 1.05f, 5);
                 break;

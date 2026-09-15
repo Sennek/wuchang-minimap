@@ -41,7 +41,8 @@ HERE = Path(__file__).resolve().parent
 MARKER_GROUPS = {
     "site":  {"rgb": (56, 189, 248), "label": "shrine, boss, npc, door, ladder",
               "cats": ["shrine", "boss", "elite", "npc", "fog_gate", "benediction_door",
-                       "mystery_gate", "door", "lift", "ladder", "hidden", "bamboozling"]},
+                       "mystery_gate", "door", "lift", "ladder", "hidden", "bamboozling",
+                       "cuckoo"]},
     "loot":  {"rgb": (250, 204, 21), "label": "chest, item, pickup",
               "cats": ["chest", "key", "item", "weapon", "armour", "amulet", "jade", "spell",
                        "ammo", "material", "consumable", "harvest"]},

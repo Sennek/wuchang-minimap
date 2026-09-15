@@ -132,6 +132,11 @@ local MARKER_CLASSES = {
     -- still-unidentified door class - if one is ever loaded, this dumps it.
     "BP_NewPuzzlesDoor_C", "BP_NewGetGeemDoor_C", "BP_NewFriePointDoor_C",
     "BP_Door_C", "BP_DoorBase_C",
+    -- The Harbinger Cuckoo, added 2026-09-15: a LIVE one and a SLAIN one, so that the two
+    -- scalar-property lists can be read against each other. It is a `DSCActor`
+    -- (`BP_NoActionAI_C`) with no AI controller and no pawn, so the question this dump has
+    -- to answer is whether anything on the ACTOR itself tells the two apart.
+    "BP_NAA_ZGN_C",
 }
 
 -- The pickup family: actors that carry an item identity somewhere. Scalar values are

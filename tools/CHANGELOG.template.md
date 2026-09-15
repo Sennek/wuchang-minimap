@@ -6,6 +6,7 @@ Added
 - Loot is eleven marker categories instead of one: consumables, materials, key items, weapons, armour, amulets, jades, spells, harvest nodes, cannon ammo and plain items. Each has its own filter checkbox, count and glyph, so the map can answer "where are the amulets" instead of showing 1105 identical dots.
 - The 17 cannon resupply crates are their own category and read "Shrapnel Bomb"; they stand beside the cannon emplacements.
 - Bamboozlings are tracked. The 20 bamboo-shoot creatures that bolt and burrow when you get close are their own marker category, drawn as a green leaf, with their own filter checkbox and a count that fills as you kill them - so the legend answers "how many of the 20 are left, and where". One you have slain is marked collected and never comes back; one that got away is not, because it returns to the same spot after a rest at a shrine.
+- The 105 Harbinger Cuckoos are their own marker category, drawn as a teal bird: the birds a thrown dagger knocks an Aurum Feather out of, 26 in the first chapter and fewer in each one after it, none in the DLC. They were on the map before only as anonymous enemies, and only if you had enemy markers turned on; now they have their own filter checkbox, glyph and count of the 105, on the minimap, the full map, the x-ray and the compass.
 
 Changed
 - Loot is coloured by quality tier everywhere it is drawn — minimap, full map, compass, x-ray and the F2 legend — in the game's own three pickup-beam hues: blue for common, pink for equipment, gold for key items and materials. The kind of loot is a small mark inside the disc, drawn on the full map and in the legend; the minimap shows the disc alone, where colour is the question a glance asks.
@@ -13,6 +14,7 @@ Changed
 - The eleven names replace `pickup` in `markers_categories`, `highlight_categories` and `markers_absence_categories`. A config file that still says `pickup` still means all eleven, and the F2 panel rewrites it into the current names when it next saves.
 - The player's storage box is filed under Other, not as loot.
 - Loot an enemy drops is filed by what it is: a dropped chest piece draws as armour, a dropped jade as a jade. The kind comes from the item itself, so a drop and a pickup of the same thing read the same.
+- The F2 Categories grid is driven by check boxes. Every category row starts with one that switches that category on or off on all three surfaces at once - minimap & map, x-ray and compass - and every `Loot - <tier>` heading row carries one for the whole tier on all three plus one per surface column for that surface's tier. A group that is only partly on draws a dash, and clicking a dash turns the whole group on. Clicking the category's own name used to do the all-three job, and nothing said so.
 
 Fixed
 - An elite you have killed is marked collected, the way a boss is, and its count fills in the legend. It stayed uncollected and came back on the map as soon as the body was cleaned up.

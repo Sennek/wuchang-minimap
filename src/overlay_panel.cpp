@@ -9,6 +9,7 @@
 //
 
 #include "overlay_internal.hpp"
+#include "imgui_internal.h"
 
 namespace overlay
 {
@@ -456,9 +457,10 @@ namespace overlay
         //
         // One grid instead of four chip rows: every category down the side, the loot ones
         // as one indented block under their tier,
-        // the three surfaces across the top, one mask per column. A row label is the
-        // legend - the category's own glyph and colour, and its live found / known
-        // count - and clicking it turns the whole row on or off.
+        // the three surfaces across the top, one mask per column, and one leading column
+        // that holds the row itself - the category, or the whole tier under its heading,
+        // on all three surfaces at once. A row label is the legend only: the category's
+        // own glyph and colour, and its live found / known count.
 
         // A column header: the surface's name over `all` / `none` for its mask.
         void mask_column_header(const char* name, std::uint32_t& mask)
@@ -477,6 +479,42 @@ namespace overlay
             ImGui::PopID();
         }
 
+        // One box for a GROUP on all three surfaces at once, which is the leading
+        // column's per-category box and the per-tier one on a `Loot - <tier>` heading.
+        // `group` is a category bit or a tier_mask(), and the three masks answer for
+        // themselves: a fully-on group is the only ON, a group no mask holds is OFF, and
+        // every answer between the two draws as a dash. A click follows the rule a single
+        // surface already follows - a partial group goes fully on and only a fully-on one
+        // clears - so the three masks are written from the one answer.
+        void group_checkbox_all_surfaces(const char* id, std::uint32_t* const (&masks)[3],
+                                         std::uint32_t group)
+        {
+            int all_count = 0;
+            int any_count = 0;
+            for (std::uint32_t* const m : masks)
+            {
+                const mdb::GroupState s = mdb::group_state(*m, group);
+                if (s == mdb::GroupState::All)
+                {
+                    ++all_count;
+                }
+                if (s != mdb::GroupState::None)
+                {
+                    ++any_count;
+                }
+            }
+            bool on = all_count == 3;
+            ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, any_count > 0 && all_count < 3);
+            if (ImGui::Checkbox(id, &on))
+            {
+                for (std::uint32_t* m : masks)
+                {
+                    *m = on ? (*m | group) : (*m & ~group);
+                }
+            }
+            ImGui::PopItemFlag();
+        }
+
         void category_grid(mm::Config& cfg)
         {
             // The counts the full map's legend shows: for the chapter in force when the
@@ -487,17 +525,20 @@ namespace overlay
             const bool per_chapter = fch >= 0 && fch <= 8;
             std::uint32_t* const masks[3] = {&cfg.markers_categories, &cfg.highlight_categories,
                                              &cfg.compass_categories};
-            if (!ImGui::BeginTable("categories", 4,
+            if (!ImGui::BeginTable("categories", 5,
                                    ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                        ImGuiTableFlags_SizingStretchProp))
             {
                 return;
             }
+            // The leading column is the row's own box and takes a heading from no one.
+            ImGui::TableSetupColumn("##all", ImGuiTableColumnFlags_WidthFixed);
             ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthStretch, 2.2f);
             ImGui::TableSetupColumn("Minimap & map");
             ImGui::TableSetupColumn("X-ray");
             ImGui::TableSetupColumn("Compass");
             ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+            ImGui::TableNextColumn();
             ImGui::TableNextColumn();
             ImGui::TextUnformatted("Category");
             ImGui::TextDisabled(per_chapter ? "found / known, this chapter" : "found / known");
@@ -525,22 +566,49 @@ namespace overlay
                     i > 0 && mdb::tier_of(static_cast<mdb::Cat>(i - 1), prev_tier);
                 if (loot && (!prev_loot || prev_tier != tier))
                 {
+                    const std::uint32_t tm = mdb::tier_mask(tier);
                     ImGui::TableNextRow();
+                    // The heading is a tier's own row: the whole tier on every surface, or
+                    // on one. Its id keeps the three headings' boxes, and the category
+                    // rows', off one another.
+                    ImGui::PushID(static_cast<int>(tier));
+                    ImGui::TableNextColumn();
+                    group_checkbox_all_surfaces("##tier", masks, tm);
                     ImGui::TableNextColumn();
                     ImGui::TextDisabled("Loot - %s", mdb::tier_name(static_cast<int>(tier)));
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        ImGui::TableNextColumn();
+                        ImGui::PushID(c);
+                        const mdb::GroupState s = mdb::group_state(*masks[c], tm);
+                        bool on = s == mdb::GroupState::All;
+                        ImGui::PushItemFlag(ImGuiItemFlags_MixedValue,
+                                            s == mdb::GroupState::Some);
+                        if (ImGui::Checkbox("##tier_on", &on))
+                        {
+                            *masks[c] = mdb::group_toggle(*masks[c], tm, s);
+                        }
+                        ImGui::PopItemFlag();
+                        ImGui::PopID();
+                    }
+                    ImGui::PopID();
                 }
                 const float indent = loot ? ImGui::GetTextLineHeight() : 0.0f;
                 const markers::CatStat& cs = per_chapter ? st.chapter[fch][i] : st.cat[i];
                 int on_count = 0;
-                for (std::uint32_t* m : masks)
+                for (const std::uint32_t* m : masks)
                 {
-                    on_count += (*m & bit) != 0 ? 1 : 0;
+                    on_count += mdb::group_state(*m, bit) != mdb::GroupState::None ? 1 : 0;
                 }
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
                 ImGui::PushID(i);
+                // The row's one control, and the only thing on it that toggles anything:
+                // the label below is the legend.
+                group_checkbox_all_surfaces("##row", masks, bit);
+                ImGui::TableNextColumn();
                 // The leading spaces are the glyph's gutter: the glyph is drawn over the
-                // row afterwards, so the Selectable owns the whole cell.
+                // row afterwards.
                 char label[64]{};
                 if (cs.total > 0)
                 {
@@ -555,13 +623,7 @@ namespace overlay
                 const ImVec2 row = ImGui::GetCursorScreenPos();
                 ImGui::PushStyleColor(ImGuiCol_Text,
                                       on_count > 0 ? marker_color(cat, 255) : IM_COL32(150, 150, 150, 170));
-                if (ImGui::Selectable(label, on_count == 3))
-                {
-                    for (std::uint32_t* m : masks)
-                    {
-                        *m = on_count == 3 ? (*m & ~bit) : (*m | bit);
-                    }
-                }
+                ImGui::TextUnformatted(label);
                 ImGui::PopStyleColor();
                 draw_marker_glyph(dl, cat,
                                   ImVec2{row.x + glyph_r + 4.0f, row.y + ImGui::GetTextLineHeight() * 0.5f},
@@ -572,11 +634,15 @@ namespace overlay
                 {
                     ImGui::TableNextColumn();
                     ImGui::PushID(c);
-                    bool on = mdb::cat_enabled(*masks[c], cat);
+                    const mdb::GroupState s = mdb::group_state(*masks[c], bit);
+                    bool on = s == mdb::GroupState::All;
+                    ImGui::PushItemFlag(ImGuiItemFlags_MixedValue,
+                                        s == mdb::GroupState::Some);
                     if (ImGui::Checkbox("##on", &on))
                     {
-                        *masks[c] = on ? (*masks[c] | bit) : (*masks[c] & ~bit);
+                        *masks[c] = mdb::group_toggle(*masks[c], bit, s);
                     }
+                    ImGui::PopItemFlag();
                     ImGui::PopID();
                 }
                 ImGui::PopID();

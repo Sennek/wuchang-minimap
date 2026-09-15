@@ -21,7 +21,7 @@
    "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
   }
  ],
- "extractor_commit": "ded6b0b+dirty",
+ "extractor_commit": "c859aba+dirty",
  "exe": {
   "name": "Project_Plague-Win64-Shipping.exe",
   "size": 141464648,
@@ -1685,6 +1685,174 @@
    ]
   },
   {
+   "id": "Chapter4_DanQingY_AI/BP_ZGN_C_1",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_1",
+   "x": 23084.35,
+   "y": 26649.79,
+   "z": 4048.17,
+   "cell": "B4EX0_L0_X2_Y2",
+   "level": "Chapter4_DanQingY_AI"
+  },
+  {
+   "id": "Chapter4_DiGong_AI/BP_ZGN_C_1",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_1",
+   "x": 11669.15,
+   "y": -18606.16,
+   "z": -4642.35,
+   "cell": "B4EX0_L0_X1_Y-2",
+   "level": "Chapter4_DiGong_AI"
+  },
+  {
+   "id": "Chapter4_DiGong_AI/BP_ZGN_C_2",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_2",
+   "x": 3436.77,
+   "y": -19096.19,
+   "z": -2125.16,
+   "cell": "B4EX0_L0_X0_Y-2",
+   "level": "Chapter4_DiGong_AI"
+  },
+  {
+   "id": "Chapter4_FoYuanZ_AI/BP_ZGN_C_1",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_1",
+   "x": 20700.24,
+   "y": 7073.32,
+   "z": 2829.72,
+   "cell": "B4EX0_L0_X2_Y0",
+   "level": "Chapter4_FoYuanZ_AI"
+  },
+  {
+   "id": "Chapter4_FoYuanZ_AI/BP_ZGN_C_2",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_2",
+   "x": 23561.49,
+   "y": 9891.72,
+   "z": 3320.01,
+   "cell": "B4EX0_L0_X2_Y0",
+   "level": "Chapter4_FoYuanZ_AI"
+  },
+  {
+   "id": "Chapter4_FoYuanZ_AI/BP_ZGN_C_6",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_6",
+   "x": 14881.12,
+   "y": 17579.79,
+   "z": 6271.08,
+   "cell": "B4EX0_L0_X1_Y1",
+   "level": "Chapter4_FoYuanZ_AI"
+  },
+  {
+   "id": "Chapter4_HuiLiuT_AI/BP_ZGN_C_0",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_0",
+   "x": -9378.57,
+   "y": -14573.01,
+   "z": -574.9,
+   "cell": "B4EX0_L0_X-1_Y-2",
+   "level": "Chapter4_HuiLiuT_AI"
+  },
+  {
+   "id": "Chapter4_HuiLiuT_AI/BP_ZGN_C_3",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_3",
+   "x": -7577.47,
+   "y": -17146.99,
+   "z": -2209.39,
+   "cell": "B4EX0_L0_X-1_Y-2",
+   "level": "Chapter4_HuiLiuT_AI"
+  },
+  {
+   "id": "Chapter4_HuiLiuT_AI/BP_ZGN_C_5",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_5",
+   "x": -12673.12,
+   "y": -24056.2,
+   "z": -2782.41,
+   "cell": "B4EX0_L0_X-2_Y-3",
+   "level": "Chapter4_HuiLiuT_AI"
+  },
+  {
+   "id": "Chapter4_PuYuanS_AI/BP_ZGN_C_0",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_0",
+   "x": 34933.7,
+   "y": -12092.55,
+   "z": 1108.66,
+   "cell": "B4EX0_L0_X3_Y-2",
+   "level": "Chapter4_PuYuanS_AI"
+  },
+  {
+   "id": "Chapter4_PuYuanS_AI/BP_ZGN_C_3",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_3",
+   "x": 37539.25,
+   "y": -2760.08,
+   "z": -352.34,
+   "cell": "B4EX0_L0_X3_Y-1",
+   "level": "Chapter4_PuYuanS_AI"
+  },
+  {
+   "id": "Chapter4_PuYuanS_AI/BP_ZGN_C_5",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_5",
+   "x": 38038.29,
+   "y": -16628.15,
+   "z": 3667.71,
+   "cell": "B4EX0_L0_X3_Y-2",
+   "level": "Chapter4_PuYuanS_AI"
+  },
+  {
+   "id": "Chapter4_ShuWangC_AI/BP_ZGN_C_1",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_1",
+   "x": 35381.87,
+   "y": 3191.48,
+   "z": -108.95,
+   "cell": "B4EX0_L0_X3_Y0",
+   "level": "Chapter4_ShuWangC_AI"
+  },
+  {
+   "id": "Chapter4_TangWangXG_AI/BP_ZGN_C_1",
+   "cat": "cuckoo",
+   "cls": "BP_NAA_ZGN_C",
+   "name": "Cuckoo",
+   "obj": "BP_ZGN_C_1",
+   "x": 2508.97,
+   "y": 5280.44,
+   "z": 2395.0,
+   "cell": "B4EX0_L0_X0_Y0",
+   "level": "Chapter4_TangWangXG_AI"
+  },
+  {
    "id": "Chapter4_HuiLiuT_logic/BP_DoorZhong_C_2",
    "cat": "door",
    "cls": "BP_DoorZhong_C",
@@ -1781,18 +1949,6 @@
    "level": "Chapter4_DanQingY_AI"
   },
   {
-   "id": "Chapter4_DanQingY_AI/BP_ZGN_C_1",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_1",
-   "x": 23084.35,
-   "y": 26649.79,
-   "z": 4048.17,
-   "cell": "B4EX0_L0_X2_Y2",
-   "level": "Chapter4_DanQingY_AI"
-  },
-  {
    "id": "Chapter4_DanQingY_AI/E_YHGB_qiangdun_C_1",
    "cat": "enemy",
    "cls": "E_YHGB_qiangdun_C",
@@ -1873,30 +2029,6 @@
    "x": 4518.62,
    "y": -10973.18,
    "z": -1295.95,
-   "cell": "B4EX0_L0_X0_Y-2",
-   "level": "Chapter4_DiGong_AI"
-  },
-  {
-   "id": "Chapter4_DiGong_AI/BP_ZGN_C_1",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_1",
-   "x": 11669.15,
-   "y": -18606.16,
-   "z": -4642.35,
-   "cell": "B4EX0_L0_X1_Y-2",
-   "level": "Chapter4_DiGong_AI"
-  },
-  {
-   "id": "Chapter4_DiGong_AI/BP_ZGN_C_2",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_2",
-   "x": 3436.77,
-   "y": -19096.19,
-   "z": -2125.16,
    "cell": "B4EX0_L0_X0_Y-2",
    "level": "Chapter4_DiGong_AI"
   },
@@ -2153,42 +2285,6 @@
    "level": "Chapter4_FoYuanZ_AI"
   },
   {
-   "id": "Chapter4_FoYuanZ_AI/BP_ZGN_C_1",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_1",
-   "x": 20700.24,
-   "y": 7073.32,
-   "z": 2829.72,
-   "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_FoYuanZ_AI"
-  },
-  {
-   "id": "Chapter4_FoYuanZ_AI/BP_ZGN_C_2",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_2",
-   "x": 23561.49,
-   "y": 9891.72,
-   "z": 3320.01,
-   "cell": "B4EX0_L0_X2_Y0",
-   "level": "Chapter4_FoYuanZ_AI"
-  },
-  {
-   "id": "Chapter4_FoYuanZ_AI/BP_ZGN_C_6",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_6",
-   "x": 14881.12,
-   "y": 17579.79,
-   "z": 6271.08,
-   "cell": "B4EX0_L0_X1_Y1",
-   "level": "Chapter4_FoYuanZ_AI"
-  },
-  {
    "id": "Chapter4_FoYuanZ_AI/E_YHGB_huochong_C_1",
    "cat": "enemy",
    "cls": "E_YHGB_huochong_C",
@@ -2393,42 +2489,6 @@
    "level": "Chapter4_HuiLiuT_AI"
   },
   {
-   "id": "Chapter4_HuiLiuT_AI/BP_ZGN_C_0",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_0",
-   "x": -9378.57,
-   "y": -14573.01,
-   "z": -574.9,
-   "cell": "B4EX0_L0_X-1_Y-2",
-   "level": "Chapter4_HuiLiuT_AI"
-  },
-  {
-   "id": "Chapter4_HuiLiuT_AI/BP_ZGN_C_3",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_3",
-   "x": -7577.47,
-   "y": -17146.99,
-   "z": -2209.39,
-   "cell": "B4EX0_L0_X-1_Y-2",
-   "level": "Chapter4_HuiLiuT_AI"
-  },
-  {
-   "id": "Chapter4_HuiLiuT_AI/BP_ZGN_C_5",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_5",
-   "x": -12673.12,
-   "y": -24056.2,
-   "z": -2782.41,
-   "cell": "B4EX0_L0_X-2_Y-3",
-   "level": "Chapter4_HuiLiuT_AI"
-  },
-  {
    "id": "Chapter4_HuiLiuT_AI/BP_xiaoyouyan_AI_C_1",
    "cat": "enemy",
    "cls": "BP_xiaoyouyan_AI_C",
@@ -2593,42 +2653,6 @@
    "x": 38954.81,
    "y": -14383.13,
    "z": 651.9,
-   "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_AI"
-  },
-  {
-   "id": "Chapter4_PuYuanS_AI/BP_ZGN_C_0",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_0",
-   "x": 34933.7,
-   "y": -12092.55,
-   "z": 1108.66,
-   "cell": "B4EX0_L0_X3_Y-2",
-   "level": "Chapter4_PuYuanS_AI"
-  },
-  {
-   "id": "Chapter4_PuYuanS_AI/BP_ZGN_C_3",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_3",
-   "x": 37539.25,
-   "y": -2760.08,
-   "z": -352.34,
-   "cell": "B4EX0_L0_X3_Y-1",
-   "level": "Chapter4_PuYuanS_AI"
-  },
-  {
-   "id": "Chapter4_PuYuanS_AI/BP_ZGN_C_5",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_5",
-   "x": 38038.29,
-   "y": -16628.15,
-   "z": 3667.71,
    "cell": "B4EX0_L0_X3_Y-2",
    "level": "Chapter4_PuYuanS_AI"
   },
@@ -3137,18 +3161,6 @@
    "level": "Chapter4_ShuWangC_AI"
   },
   {
-   "id": "Chapter4_ShuWangC_AI/BP_ZGN_C_1",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_1",
-   "x": 35381.87,
-   "y": 3191.48,
-   "z": -108.95,
-   "cell": "B4EX0_L0_X3_Y0",
-   "level": "Chapter4_ShuWangC_AI"
-  },
-  {
    "id": "Chapter4_ShuWangC_AI/E_YHBH_shuangji_C_1",
    "cat": "enemy",
    "cls": "E_YHGB_shuangji_C",
@@ -3362,18 +3374,6 @@
    "y": -3945.36,
    "z": 2197.16,
    "cell": "B4EX0_L0_X0_Y-1",
-   "level": "Chapter4_TangWangXG_AI"
-  },
-  {
-   "id": "Chapter4_TangWangXG_AI/BP_ZGN_C_1",
-   "cat": "enemy",
-   "cls": "BP_NAA_ZGN_C",
-   "name": "Enemy",
-   "obj": "BP_ZGN_C_1",
-   "x": 2508.97,
-   "y": 5280.44,
-   "z": 2395.0,
-   "cell": "B4EX0_L0_X0_Y0",
    "level": "Chapter4_TangWangXG_AI"
   },
   {

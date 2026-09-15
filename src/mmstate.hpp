@@ -342,8 +342,8 @@ namespace mm
         std::uint32_t highlight_categories =
             mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats |
             mdb::cat_bit(mdb::Cat::Shrine) | mdb::cat_bit(mdb::Cat::Boss) |
-            mdb::cat_bit(mdb::Cat::Bamboozling) | mdb::cat_bit(mdb::Cat::Npc) |
-            mdb::cat_bit(mdb::Cat::Note);
+            mdb::cat_bit(mdb::Cat::Bamboozling) | mdb::cat_bit(mdb::Cat::Cuckoo) |
+            mdb::cat_bit(mdb::Cat::Npc) | mdb::cat_bit(mdb::Cat::Note);
         // Draw collected loot too. Only what finding uses up is suppressed by this
         // (mdb::consumed_when_found); shrines, NPCs and notes are landmarks and show whatever
         // their found state.
@@ -384,6 +384,7 @@ namespace mm
         std::uint32_t compass_categories = mdb::cat_bit(mdb::Cat::Shrine) |
                                            mdb::cat_bit(mdb::Cat::Boss) |
                                            mdb::cat_bit(mdb::Cat::Elite) |
+                                           mdb::cat_bit(mdb::Cat::Cuckoo) |
                                            mdb::cat_bit(mdb::Cat::FogGate);
         float compass_marker_distance = 15000.0f; // uu (150 m)
         bool compass_show_waypoint = true;

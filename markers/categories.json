@@ -48,6 +48,9 @@
    "BP_ItemRedBox_C",
    "BP_treasurebox_C"
   ],
+  "cuckoo": [
+   "BP_NAA_ZGN_C"
+  ],
   "door": [
    "BP_DoorDa_C",
    "BP_DoorDa_Child_C",
@@ -561,6 +564,7 @@
   "BP_M_ZSG_C": "bamboozling",
   "BP_Monster_Dog_C": "enemy",
   "BP_Monster_Dog_chapter_4_C": "enemy",
+  "BP_NAA_ZGN_C": "cuckoo",
   "BP_NPC_C": "npc",
   "BP_NPC_XYZ_AI_C": "enemy",
   "BP_NPC_cunmin2_C": "npc",
@@ -913,7 +917,7 @@
   "guanziguai_C": "enemy",
   "guanziguai_chapter_4_C": "enemy"
  },
- "count": 437,
+ "count": 438,
  "excluded": {
   "BP_BaseAI_C": "abstract AI base, never placed",
   "BP_ElevatorBlockBox_C": "elevator collision blocker, no mesh",
@@ -925,7 +929,7 @@
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
   "size": 141464648
  },
- "extractor_commit": "676ba00+dirty",
+ "extractor_commit": "c859aba+dirty",
  "game_build": "5.1.1.0",
  "generated_by": "tools/markers/build_categories.py",
  "missing_roots": {},
@@ -945,6 +949,7 @@
   "lift",
   "boss",
   "bamboozling",
+  "cuckoo",
   "other",
   "npc",
   "enemy"
@@ -981,6 +986,9 @@
   ],
   "chest": [
    "BP_ItemBox_C"
+  ],
+  "cuckoo": [
+   "BP_NAA_ZGN_C"
   ],
   "door": [
    "BP_InteractionObject_Door_C"

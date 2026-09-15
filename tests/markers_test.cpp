@@ -805,7 +805,7 @@ namespace
             CHECK(!mdb::consumed_when_found(mdb::Cat::Note));
         }
 
-        // WHOSE DEATH IS A FIND: the three finite collections of characters, and nothing
+        // WHOSE DEATH IS A FIND: the four finite collections of characters, and nothing
         // else. A kill marks them permanently (markers.cpp's note_slain) and finding one
         // uses it up, so the x-ray drops it with the loot; an ordinary enemy is a mob whose
         // spawn point keeps working, so its death marks nothing.
@@ -814,7 +814,7 @@ namespace
             {
                 const mdb::Cat cat = static_cast<mdb::Cat>(i);
                 const bool slain = cat == mdb::Cat::Boss || cat == mdb::Cat::Elite ||
-                                   cat == mdb::Cat::Bamboozling;
+                                   cat == mdb::Cat::Bamboozling || cat == mdb::Cat::Cuckoo;
                 CHECK_EQ(mdb::slain_is_found(cat), slain);
                 if (slain)
                 {
@@ -4541,10 +4541,10 @@ namespace
             CHECK(have_header);
             CHECK(shipped.find("highlight_categories = chest,consumable,item,harvest,ammo,armour,"
                                "amulet,weapon,jade,spell,material,key,shrine,boss,bamboozling,"
-                               "npc,note") != std::string::npos);
+                               "cuckoo,npc,note") != std::string::npos);
             CHECK(header.find("mdb::cat_bit(mdb::Cat::Chest) | mdb::kLootCats |") !=
                   std::string::npos);
-            CHECK(header.find("mdb::cat_bit(mdb::Cat::Bamboozling) | mdb::cat_bit(mdb::Cat::Npc) |") !=
+            CHECK(header.find("mdb::cat_bit(mdb::Cat::Bamboozling) | mdb::cat_bit(mdb::Cat::Cuckoo) |") !=
                   std::string::npos);
             CHECK(header.find("mdb::cat_bit(mdb::Cat::Note);") != std::string::npos);
         }
@@ -4919,6 +4919,45 @@ namespace
         CHECK(mdb::tier_of(mdb::Cat::Key, tier) && tier == mdb::Tier::Key);
         CHECK(mdb::tier_of(mdb::Cat::Weapon, tier) && tier == mdb::Tier::Equipment);
         CHECK(mdb::tier_of(mdb::Cat::Ammo, tier) && tier == mdb::Tier::Common);
+
+        // The two groups the F2 grid toggles as one control: a single category over the
+        // three surfaces, and a whole loot tier over them. NONE / SOME / ALL is the whole
+        // state, and a click on SOME fills the group - only an all-on group clears.
+        {
+            const std::uint32_t chest = mdb::cat_bit(mdb::Cat::Chest);
+            CHECK(mdb::group_state(0u, chest) == mdb::GroupState::None);
+            CHECK(mdb::group_state(mdb::cat_bit(mdb::Cat::Shrine), chest) ==
+                  mdb::GroupState::None);
+            CHECK(mdb::group_state(chest, chest) == mdb::GroupState::All);
+            CHECK_EQ(mdb::group_toggle(0u, chest, mdb::GroupState::None), chest);
+            CHECK_EQ(mdb::group_toggle(0u, chest, mdb::GroupState::Some), chest);
+            CHECK_EQ(mdb::group_toggle(mdb::kAllCats, chest, mdb::GroupState::All),
+                     mdb::kAllCats & ~chest);
+
+            const std::uint32_t common = mdb::tier_mask(mdb::Tier::Common);
+            CHECK(mdb::group_state(mdb::cat_bit(mdb::Cat::Consumable), common) ==
+                  mdb::GroupState::Some);
+            CHECK(mdb::group_state(mdb::cat_bit(mdb::Cat::Chest), common) ==
+                  mdb::GroupState::None);
+            CHECK(mdb::group_state(common, common) == mdb::GroupState::All);
+            CHECK_EQ(mdb::group_toggle(mdb::cat_bit(mdb::Cat::Consumable), common,
+                                       mdb::GroupState::Some),
+                     common);
+
+            // The tier masks partition the loot family: each of the eleven sits in exactly
+            // one of them, and no peer category sits in any.
+            std::uint32_t union_tiers = 0u;
+            for (int t = 0; t < mdb::kTierCount; ++t)
+            {
+                const std::uint32_t m = mdb::tier_mask(static_cast<mdb::Tier>(t));
+                CHECK((m & ~mdb::kLootCats) == 0u);
+                CHECK((union_tiers & m) == 0u);
+                union_tiers |= m;
+            }
+            CHECK_EQ(union_tiers, mdb::kLootCats);
+            // An out-of-range tier selects nothing rather than the next tier's bits.
+            CHECK_EQ(mdb::tier_mask(mdb::Tier::Count), 0u);
+        }
     }
 
     // Data invariants over EVERY shipped markers/*.json
@@ -5020,6 +5059,12 @@ namespace
         {1, mdb::Cat::Bamboozling, 6}, {2, mdb::Cat::Bamboozling, 4},
         {3, mdb::Cat::Bamboozling, 3}, {4, mdb::Cat::Bamboozling, 4},
         {5, mdb::Cat::Bamboozling, 3}, {0, mdb::Cat::Bamboozling, 0},
+        // 26 + 27 + 26 + 14 + 12 = 105 Harbinger Cuckoos, and none in the DLC. The count is
+        // the whole content of the category: one class, placed once each, so a regen that
+        // moves it either lost a level's worth or swept in the corpse rack beside them.
+        {1, mdb::Cat::Cuckoo, 26}, {2, mdb::Cat::Cuckoo, 27},
+        {3, mdb::Cat::Cuckoo, 26}, {4, mdb::Cat::Cuckoo, 14},
+        {5, mdb::Cat::Cuckoo, 12}, {0, mdb::Cat::Cuckoo, 0},
     };
 
     // The generic label `tools/markers/marker_classes.LABEL` writes when nothing better is
@@ -5040,6 +5085,7 @@ namespace
             {"Key item", "Key item"},
             {"Boss", "Boss"},       {"Elite", "Elite"},   {"Enemy", "Enemy"},
             {"Bamboozling", "Bamboozling"},
+            {"Cuckoos", "Cuckoo"},
             {"NPC", "NPC"},         {"Note", "Note"},     {"Door", "Door"},
             {"Mystery gate", "Mystery gate"},
             {"Benediction door", "Benediction door"},

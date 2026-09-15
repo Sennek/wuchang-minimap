@@ -65,13 +65,14 @@ markers_enabled = 1
 
 ; Categories to draw: comma-separated list of shrine, chest, consumable, item, harvest,
 ; ammo, armour, amulet, weapon, jade, spell, material, key, boss, elite, enemy,
-; bamboozling, npc, note, door, mystery_gate, benediction_door, ladder, lift, fog_gate,
+; bamboozling, cuckoo, npc, note, door, mystery_gate, benediction_door, ladder, lift, fog_gate,
 ; hidden, other - or `all` / `none`. The eleven from consumable to key are what a pickup
 ; grants, one bucket each, drawn as a disc in their quality tier's colour with the
 ; bucket's mark inside it; `pickup` from an older file still means all eleven.
 ; mystery_gate is the 3 red riddle doors, benediction_door the 7 yellow chisel doors,
-; bamboozling the 20 bamboo-shoot creatures that flee when startled.
-markers_categories = shrine,chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,boss,elite,bamboozling,npc,note,door,mystery_gate,benediction_door,ladder,lift,fog_gate,hidden,other
+; bamboozling the 20 bamboo-shoot creatures that flee when startled, cuckoo the 105
+; Harbinger Cuckoos a throwing dagger drops an Aurum Feather from.
+markers_categories = shrine,chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,boss,elite,bamboozling,cuckoo,npc,note,door,mystery_gate,benediction_door,ladder,lift,fog_gate,hidden,other
 
 ; Found markers: 0 = draw dimmed and hollow, 1 = hide. Shrines always stay on the map.
 markers_hide_found = 1
@@ -111,7 +112,7 @@ highlight_pad_chord = LB+RB
 highlight_radius = 3000
 
 ; Categories to highlight; same names as markers_categories, or `all` / `none`.
-highlight_categories = chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,shrine,boss,bamboozling,npc,note
+highlight_categories = chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key,shrine,boss,bamboozling,cuckoo,npc,note
 
 ; Draw the name and distance next to each glyph.
 highlight_labels = 1
@@ -140,7 +141,7 @@ compass_span_deg = 120
 compass_opacity = 0.90
 
 ; Categories that get a bearing pip.
-compass_categories = shrine,boss,elite,fog_gate
+compass_categories = shrine,boss,elite,cuckoo,fog_gate
 
 ; Write the distance in metres under each pip.
 compass_pip_labels = 1
@@ -233,9 +234,10 @@ found_save_debounce_ms = 2000
 
 ; A loaded-but-unseen chest or pickup counts as collected after this many rounds in a
 ; row, in these categories. Undo a mark by clicking the marker on the full map.
-; Do not add `bamboozling` or `elite`: a startled Bamboozling burrows and comes back
-; after a rest at a shrine and an elite may not have spawned yet, so absence would be
-; read as a kill it is not. A kill of either is marked from its health.
+; Do not add `bamboozling`, `cuckoo` or `elite`: a startled Bamboozling burrows and comes
+; back after a rest at a shrine, a Cuckoo flies out of the level it was placed in, and an
+; elite may not have spawned yet, so absence would be read as a kill it is not. A kill of
+; a Bamboozling or an elite is marked from its health instead.
 markers_absence_rounds = 2
 markers_absence_categories = chest,consumable,item,harvest,ammo,armour,amulet,weapon,jade,spell,material,key
 

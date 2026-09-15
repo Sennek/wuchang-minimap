@@ -462,7 +462,8 @@ whose safety rail is that a marker whose owning level cannot be matched to a loa
 | note | MET — seen loaded near the player. A note already read is made invisible, not moved, so the live twin is tested for visibility |
 | npc | never — walking past a merchant does not use them up. `mdb::has_found_state()` says so once, and every place that composes or offers the found flag asks it: no rule marks a person, an id an older build left in the found file does not light one, `markers_hide_found` never takes one off the map and the full map offers no toggle. Mobility (`twin_drop`) is the only rule that drops an NPC marker |
 | boss | DEFEATED — zero health, or the arena's `bossdoor_*` point unlocked in the save |
-| elite, bamboozling | SLAIN — zero health, the same read. These two and the boss are what `mdb::slain_is_found()` names: finite collections of characters rather than mobs, marked permanently on the first kill. An elite's pawn class is an ordinary AI-possessed enemy at runtime, so the *static twin* joined on the id is what says it was the tougher variant |
+| elite, bamboozling | SLAIN — zero health, the same read. These two, the boss and the cuckoo are what `mdb::slain_is_found()` names: finite collections of characters rather than mobs, marked permanently on the first kill. An elite's pawn class is an ordinary AI-possessed enemy at runtime, so the *static twin* joined on the id is what says it was the tougher variant |
+| cuckoo | nothing yet, and it is the one category whose read is still open. It is a `DSCActor` (`BP_NoActionAI_C`) with no AI controller and no pawn, so `Rule::ControllerPawn` and `Rule::PawnHealth` do not apply as they stand and no `kClasses` row names it; its 105 markers are drawn from the static data alone |
 | enemy | never written. A static entry is a **spawn point**; the live pawn overwrites its position under the same id |
 | ladder, lift | never — navigation aids |
 

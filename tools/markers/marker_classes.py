@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Actor class -> marker category, for schema `wuchang-minimap-markers/1`.
 
-Categories: shrine, chest, boss, elite, enemy, bamboozling, npc, note,
+Categories: shrine, chest, boss, elite, enemy, bamboozling, cuckoo, npc, note,
 mystery_gate, benediction_door, door, ladder, lift, fog_gate, hidden, other,
 plus the eleven pickup buckets of `pickup_buckets.BUCKETS`.  A class can only name the three of
 those an item-less pickup lands in (`item`, `harvest`, `ammo`); the other eight
@@ -200,6 +200,9 @@ LABEL = {
     "boss": "Boss", "elite": "Elite", "enemy": "Enemy", "npc": "NPC",
     # The game's own word for it, `help_noun12_name` in MMGame.locres.
     "bamboozling": "Bamboozling",
+    # Likewise `help_noun11_name`, the key beside it: the bird that drops an
+    # Aurum Feather when a throwing dagger hits it.
+    "cuckoo": "Cuckoo",
     "note": "Note", "mystery_gate": "Mystery gate",
     "benediction_door": "Benediction door", "door": "Door", "ladder": "Ladder",
     "lift": "Lift", "fog_gate": "Fog gate", "hidden": "Trap", "other": "Object",

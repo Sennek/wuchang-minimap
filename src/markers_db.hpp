@@ -56,6 +56,12 @@ namespace mdb
         // COLLECTION, not a mob: 20 in the whole game, the count of the game's own "Defeat
         // 20 Bamboozlings" achievement, and one slain never returns for that journey.
         Bamboozling,
+        // The Harbinger Cuckoo (`help_noun11_name`, the key beside the Bamboozling's): the
+        // bird a throwing dagger drops an Aurum Feather from. The same kind of thing for the
+        // same reason - a finite COLLECTION and not a mob: 105 placements in chapters 1-5
+        // and none in the DLC, and "once a Cuckoo is slain, it will not return during this
+        // journey".
+        Cuckoo,
         Npc,
         // The game's readable notes / inscriptions (`DKDC_NPC_C` and friends).
         Note,
@@ -84,6 +90,36 @@ namespace mdb
     constexpr bool cat_enabled(std::uint32_t mask, Cat cat)
     {
         return (mask & cat_bit(cat)) != 0u;
+    }
+
+    // ---- A GROUP of categories measured against one surface's mask ----
+    //
+    // The F2 grid offers two groups: one category across the three surfaces, and a whole
+    // loot tier across them. Both ask the same question of a mask word, so it is answered
+    // once, here, and not in the render code. SOME is what draws as a dash
+    // (ImGuiItemFlags_MixedValue), and the toggle a click applies is the rule the row label
+    // has always followed for the three surfaces at once: a partial group turns ON whole,
+    // only an all-on group clears.
+    enum class GroupState : std::uint8_t
+    {
+        None = 0,
+        Some,
+        All
+    };
+
+    constexpr GroupState group_state(std::uint32_t mask, std::uint32_t group)
+    {
+        const std::uint32_t on = mask & group;
+        if (on == 0u)
+        {
+            return GroupState::None;
+        }
+        return (on == group) ? GroupState::All : GroupState::Some;
+    }
+
+    constexpr std::uint32_t group_toggle(std::uint32_t mask, std::uint32_t group, GroupState state)
+    {
+        return (state == GroupState::All) ? (mask & ~group) : (mask | group);
     }
 
     // The eleven pickup buckets as one mask: what `pickup` used to select, and what the
@@ -146,6 +182,24 @@ namespace mdb
     {
         Tier t = Tier::Common;
         return tier_of(cat, t);
+    }
+
+    // Every bit of one tier: the "whole tier" group the F2 grid's `Loot - <tier>` heading
+    // rows toggle. Built from tier_of() rather than spelled out, so a bucket moved to
+    // another tier moves here with it.
+    constexpr std::uint32_t tier_mask(Tier tier)
+    {
+        std::uint32_t m = 0u;
+        for (int i = 0; i < kCatCount; ++i)
+        {
+            Tier t = Tier::Common;
+            const Cat cat = static_cast<Cat>(i);
+            if (tier_of(cat, t) && t == tier)
+            {
+                m |= cat_bit(cat);
+            }
+        }
+        return m;
     }
 
     // Display name of a tier ("Common"); anything out of range reads as "Common".
@@ -344,14 +398,15 @@ namespace mdb
 
     // ---- Whose death is a find ----
     //
-    // The three character categories that are a finite COLLECTION rather than a mob: the 28
+    // The four character categories that are a finite COLLECTION rather than a mob: the 28
     // bosses, the elites - the tougher `_High` / `_Special` variant of a mob, placed one or
-    // two to a level - and the 20 Bamboozlings. One killed is done with for that journey, so
-    // the kill is the found event and it is persisted. An ordinary enemy is not tracked at
-    // all: its marker is a spawn point and the spawn point keeps working.
+    // two to a level - the 20 Bamboozlings and the 105 Cuckoos. One killed is done with for
+    // that journey, so the kill is the found event and it is persisted. An ordinary enemy is
+    // not tracked at all: its marker is a spawn point and the spawn point keeps working.
     constexpr bool slain_is_found(Cat cat)
     {
-        return cat == Cat::Boss || cat == Cat::Elite || cat == Cat::Bamboozling;
+        return cat == Cat::Boss || cat == Cat::Elite || cat == Cat::Bamboozling ||
+               cat == Cat::Cuckoo;
     }
 
     // ---- A boss killed before the mod existed ----

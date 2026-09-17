@@ -1,6 +1,6 @@
 # WuchangMinimap - changelog
 
-## Unreleased
+## 1.3.0
 
 Added
 - Loot is eleven marker categories instead of one: consumables, materials, key items, weapons, armour, amulets, jades, spells, harvest nodes, cannon ammo and plain items. Each has its own filter checkbox, count and glyph, so the map can answer "where are the amulets" instead of showing 1105 identical dots.
@@ -15,8 +15,19 @@ Changed
 - The player's storage box is filed under Other, not as loot.
 - Loot an enemy drops is filed by what it is: a dropped chest piece draws as armour, a dropped jade as a jade. The kind comes from the item itself, so a drop and a pickup of the same thing read the same.
 - The F2 Categories grid is driven by check boxes. Every category row starts with one that switches that category on or off on all three surfaces at once - minimap & map, x-ray and compass - and every `Loot - <tier>` heading row carries one for the whole tier on all three plus one per surface column for that surface's tier. A group that is only partly on draws a dash, and clicking a dash turns the whole group on. Clicking the category's own name used to do the all-three job, and nothing said so.
+- The map draws only ground you can get to. The level's outer skin - roofs, hillsides and the shelves under the world that the navmesh covers but no route reaches - is gone from all five chapters, so the map reads as the place instead of as its scaffolding. The download is 27 -> 14 MiB and the largest chapter holds 44 MB of height data instead of 91.
+- Where two storeys meet, the full map draws a seam. Two slabs that abut with 300 uu of height between them used to be two flat tones with no edge, so the map read as pieces laid over one another.
+- The full map's shading spends its contrast where the ground actually varies. Half a metre of undulation under a courtyard used to own a fifth of the range and came out as triangulation lines over the flattest ground on the map.
+- The minimap redraws only when something it draws has moved - standing in a menu no longer re-cuts the same 400 000 pixels twelve times a second - and a redraw that does happen costs 40 % less. Resizing its buffers no longer costs a stalled frame.
 
 Fixed
+- The game no longer crashes about ten seconds after launch with OptiScaler installed. The mod creates no DirectX device, window or swapchain of its own any more: it finds the one the game itself presents through and hooks that.
+- An NPC is never marked collected. Walking past a merchant used him up, and `markers_hide_found` then took him off the map while he was standing in front of you. Every NPC an older build had already marked met is forgotten.
+- A pickup first met in the moment a chest opens is named. It used to stay "Item" for the rest of the session, and could leave every other pickup of its kind unnamed with it.
+- Thirteen item names, and four marker labels with them, name the spell you pick up there instead of an NG+ gem that shares its id.
+- Three auto-pickups in chapter 1 - Vorpal Blade, Aurum Feather Force and Divine Might - are on the map; the extractor had been dropping them.
+- A warning about a config key that no longer exists gives the advice that belongs to it. A config carried over from 1.2.0 with one of the removed rarity keys was told that `palette = 0` stops the mod touching DirectX, which it does not.
+- When the overlay cannot find the game's swapchain it says so in the log at the default level, names every graphics module in the process and the workaround to try, instead of going quiet for the session.
 - An elite you have killed is marked collected, the way a boss is, and its count fills in the legend. It stayed uncollected and came back on the map as soon as the body was cleaned up.
 - The Panda's shop is labelled "Panda Shop" on the map. It read "Inner Demon": the class is abbreviated `XM`, and that was taken for XinMo rather than XiongMao.
 - The legend's chapter and its counts follow the chapter you are in. They used to stay on the chapter that was in force when you last picked something up, so the full map could say "all chapters" while the map itself showed one.

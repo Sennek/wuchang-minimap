@@ -33,7 +33,7 @@ A minimap, a full chapter map and a compass, built from the game's own navmesh. 
 [size=5]What it is[/size]
 [list]
 [*][b]Minimap[/b] and [b]compass strip[/b] in-world, [b]full chapter map[/b] on M
-[*][b]Markers[/b] for chests, loot, shrines, bosses, NPCs and notes, with the game's own names, all five chapters and the DLC
+[*][b]Markers[/b] for chests, loot, shrines, bosses, NPCs and notes, and for the collections you can finish — the 105 Harbinger Cuckoos and the 20 Bamboozlings — with the game's own names, all five chapters and the DLC
 [*][b]Loot in eleven kinds[/b] — consumables, materials, key items, weapons, armour, amulets, jades, spells, harvest nodes, cannon ammo and plain items — each with its own filter checkbox, so "where are the amulets" is one tick away
 [*][b]Collection tracker[/b] per save slot, up to 16 waypoints, name search on the full map
 [*][b]X-ray[/b] on TAB: loot through walls, in the game's own three pickup-beam colours — blue, pink, gold
@@ -82,7 +82,7 @@ None of these stops the mod working, except where the last one says otherwise.
 [list]
 [*][b]RenoDX[/b] — F6 is refused as a mod hotkey, because it is RenoDX's own toggle.
 [*][b]Another UE4SS C++ mod that also hooks Present[/b] — the one combination that can lose an overlay: whichever installs second usually wins, and the loser is invisible. Test them one at a time before reporting a blank screen.
-[*][b]The Steam overlay[/b] — the first run of a new install creates and destroys a throwaway swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at nothing. Shift+Tab still works.
+[*][b]Frame generation, upscalers and overlays[/b] — DLSS-FG, FSR, OptiScaler, ReShade, RenoDX, RTSS and MSI Afterburner all run alongside the mod: it creates no DirectX device or swapchain of its own, it draws beside the frame the game itself presents.
 [*][b]UE4SS's own console window[/b] — not a mod conflict, but it looks exactly like one, in two ways. With [font=Courier New]GuiConsoleVisible = 1[/font] UE4SS opens a window of its own before the game's first frame and takes the focus, so the game sits on a black screen until you alt-tab out and back; [font=Courier New]GuiConsoleVisible = 0[/font] with [font=Courier New]GuiConsoleEnabled = 1[/font] keeps the console and summons it on [b]Ctrl+O[/b] instead. And clicking or dragging in the plain black console window puts it in selection mode, which blocks whoever writes to it: UE4SS stops mid-startup and the game hangs before this mod has run a single line. Press [b]Esc[/b] in the console to release it, or set [font=Courier New]ConsoleEnabled = 0[/font] in [font=Courier New]ue4ss\UE4SS-settings.ini[/font]. The tell is that [font=Courier New]wuchang_minimap.log[/font] was never written and [font=Courier New]UE4SS.log[/font] stops in the middle.
 [/list]
 

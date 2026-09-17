@@ -10187,25 +10187,33 @@
    "table": "DT_Item_EquipmentTable",
    "type": "Top",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "Fake Monk Robes",
+   "des": "Robes worn by those pretending to be a monk of the Lightzen Temple."
   },
   "18494": {
    "table": "DT_Item_EquipmentTable",
    "type": "Legs",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "Fake Monk Sandals",
+   "des": "Straw sandals worn by those pretending to be a monk of the Lightzen Temple."
   },
   "18502": {
    "table": "DT_Item_EquipmentTable",
    "type": "Top",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "Dazzling Fake Monk Robes",
+   "des": "Robes of a feathered one pretending to be a monk of the Lightzen Temple."
   },
   "18511": {
    "table": "DT_Item_EquipmentTable",
    "type": "Head",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "True Dragon's Hood",
+   "des": "A hood formed from the Vermilion Ancient Chisel's obsession."
   },
   "18521": {
    "table": "DT_Item_EquipmentTable",
@@ -10219,25 +10227,33 @@
    "table": "DT_Item_EquipmentTable",
    "type": "Head",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "Militia Headscarf",
+   "des": "A headscarf worn by a militia soldier."
   },
   "18532": {
    "table": "DT_Item_EquipmentTable",
    "type": "Top",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "Dirty Militia Clothes",
+   "des": "Clothes worn by a militia soldier."
   },
   "18533": {
    "table": "DT_Item_EquipmentTable",
    "type": "Hands",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "Militia Vambraces",
+   "des": "Bracers worn by a militia soldier."
   },
   "18534": {
    "table": "DT_Item_EquipmentTable",
    "type": "Legs",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "Militia Shin Wraps",
+   "des": "Leg guards worn by a militia soldier."
   },
   "18541": {
    "table": "DT_Item_EquipmentTable",
@@ -10539,7 +10555,9 @@
    "table": "DT_Item_EquipmentTable",
    "type": "Head",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "Radiant Dawnfeather Helm",
+   "des": "A commanding helm crowned with phoenix plumes. Even at rest, it lends its wearer an aura of unshakable authority.\r\n\r\nForged for generals, it embodies both rank and resolve. An emblem of power that cows enemies before the battle even begins."
   },
   "18681": {
    "table": "DT_Item_EquipmentTable",
@@ -10647,7 +10665,9 @@
    "table": "DT_Item_EquipmentTable",
    "type": "Top",
    "rarity": 1,
-   "bucket": "armour"
+   "bucket": "armour",
+   "name": "Duskhaze Bamboo",
+   "des": "A robe woven with golden threads, faintly shimmering with light. Intricate embroidery traces a variety of patterns, adding to its refined and elegant charm.\r\n\r\nWith each step, the hem sways like bamboo in evening haze, equally serene, steadfast, and unbowed."
   },
   "18991": {
    "table": "DT_SpecialItem",
@@ -11013,19 +11033,25 @@
    "table": "DT_Item_ToolTable",
    "type": "Tool",
    "rarity": 0,
-   "bucket": "consumable"
+   "bucket": "consumable",
+   "name": "Full-Grown Red Mercury",
+   "des": "Contains 1,200 red mercury."
   },
   "20018": {
    "table": "DT_Item_ToolTable",
    "type": "Tool",
    "rarity": 0,
-   "bucket": "consumable"
+   "bucket": "consumable",
+   "name": "Glistening Red Mercury",
+   "des": "Contains 3,000 red mercury."
   },
   "20019": {
    "table": "DT_Item_ToolTable",
    "type": "Tool",
    "rarity": 0,
-   "bucket": "consumable"
+   "bucket": "consumable",
+   "name": "Blood of Changhong",
+   "des": "Contains 8,000 red mercury."
   },
   "20020": {
    "table": "DT_Item_ToolTable",
@@ -11965,7 +11991,9 @@
    "table": "DT_Item_ToolTable",
    "type": "SpecialItem",
    "rarity": 2,
-   "bucket": "key"
+   "bucket": "key",
+   "name": "Lost Package",
+   "des": "A heavy bundle.\r\nHand over to He Youzai in return for more clues."
   },
   "21153": {
    "table": "DT_Item_ToolTable",
@@ -12457,19 +12485,25 @@
    "table": "DT_Item_ToolTable",
    "type": "Material",
    "rarity": 2,
-   "bucket": "material"
+   "bucket": "material",
+   "name": "Trinity Bell",
+   "des": "A golden statue of Master of Shu that possesses the power to dispel one's Madness."
   },
   "22151": {
    "table": "DT_Item_ToolTable",
    "type": "Material",
    "rarity": 2,
-   "bucket": "material"
+   "bucket": "material",
+   "name": "Divine Gift",
+   "des": "A golden statue of Master of Shu that possesses the power to dispel one's Madness."
   },
   "22152": {
    "table": "DT_Item_ToolTable",
    "type": "Material",
    "rarity": 2,
-   "bucket": "material"
+   "bucket": "material",
+   "name": "Fragment of the Divine Gift",
+   "des": "A golden shard from the Master of Shu's statue, possessing the power to dispel some of one's Madness."
   },
   "23001": {
    "table": "DT_GemNew",
@@ -13443,21 +13477,25 @@
    "table": "DT_Item_ToolTable",
    "type": "Spell",
    "rarity": 1,
-   "bucket": "spell"
+   "bucket": "spell",
+   "name": "Golden Scepter",
+   "des": "Summons a spiraling beam of light that hits enemies for Magic damage."
   },
   "24077": {
    "table": "DT_Item_ToolTable",
    "type": "Spell",
    "rarity": 1,
-   "bucket": "spell"
+   "bucket": "spell",
+   "name": "Polygonal Container",
+   "des": "Summon starlight blessed by the God of Shu to strike at an area, dealing Magic damage."
   },
   "24078": {
    "table": "DT_Item_ToolTable",
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Echo of the Bo Sorcerer",
-   "des": "Channel water vapor and condense it into sharp icicles that pierce enemies, dealing damage and causing Frostbite buildup."
+   "name": "Echo of the Bo Magus",
+   "des": "Invoke the God of Shu to create a barrier around you that can withstand damage."
   },
   "24079": {
    "table": "DT_SpellData",
@@ -13476,8 +13514,8 @@
    "type": "Spell",
    "rarity": 1,
    "bucket": "spell",
-   "name": "Echo of the Bo Magus",
-   "des": "Invoke the God of Shu to create a barrier around you that can withstand damage."
+   "name": "Echo of the Bo Sorcerer",
+   "des": "Channel water vapor and condense it into sharp icicles that pierce enemies, dealing damage and causing Frostbite buildup."
   },
   "24082": {
    "table": "DT_SpellData",
@@ -15852,7 +15890,7 @@
    "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
   }
  ],
- "extractor_commit": "676ba00+dirty",
+ "extractor_commit": "5281f69+dirty",
  "exe": {
   "name": "Project_Plague-Win64-Shipping.exe",
   "size": 141464648,

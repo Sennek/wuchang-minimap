@@ -21,7 +21,7 @@
    "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
   }
  ],
- "extractor_commit": "c859aba+dirty",
+ "extractor_commit": "5281f69+dirty",
  "exe": {
   "name": "Project_Plague-Win64-Shipping.exe",
   "size": 141464648,
@@ -80,7 +80,7 @@
    "id": "Chapter1_FoYuanZ_logic/BP_PickupActor_C_135",
    "cat": "armour",
    "cls": "BP_PickupActor_C",
-   "name": "Armour",
+   "name": "Militia Headscarf +3",
    "obj": "BP_PickupActor_C_135",
    "x": 37073.43,
    "y": 7800.31,
@@ -9449,7 +9449,7 @@
    "id": "Chapter1_Hanguang_logic/BP_PickupActor_C_3",
    "cat": "key",
    "cls": "BP_PickupActor_C",
-   "name": "Key item",
+   "name": "Lost Package",
    "obj": "BP_PickupActor_C_3",
    "x": 22706.0,
    "y": -21249.0,
@@ -10173,7 +10173,7 @@
    "id": "Chapter1_Shuwang_logic/BP_PickupActor_C_15",
    "cat": "material",
    "cls": "BP_PickupActor_C",
-   "name": "Material",
+   "name": "Divine Gift",
    "obj": "BP_PickupActor_C_15",
    "x": 20330.99,
    "y": 3969.01,

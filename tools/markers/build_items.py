@@ -6,7 +6,7 @@ Every pickup in the game carries a numeric item ID inline in its cooked `.umap`
 export (see `extract_markers.item_ids`).  This tool turns those IDs into English
 display names, entirely from the paks:
 
-    row FName of an item DataTable  ->  `<prefix>_<ID>_name` in MMGame.locres
+    row of an item DataTable  ->  its `Name` FText key  ->  MMGame.locres
 
   1. **Row ids.**  The six item DataTables are cooked `.uasset`/`.uexp` pairs.
      A `DataTable`'s row names are `FName`s, so they all sit in the package's
@@ -22,9 +22,16 @@ display names, entirely from the paks:
      game string in the **empty namespace**, keyed `<prefix>_<ID>_name` with a
      matching `_des` (long description) and `_sum` (short one).  The prefix is
      the item's *kind*, not its table: `item`, `weapon`, `armor`, `ring`, `gem`,
-     `spell`, `styleskill`, `weaponskill`, `CuiYu`.  Prefixes do collide on an
-     id -- 46 of them -- so the kind the row's own `ItemType` decodes to picks
-     the prefix (`TYPE_KEY_PREFIX`).
+     `spell`, `styleskill`, `weaponskill`, `CuiYu`.
+
+     The ID in the key is not the row id: 21 rows are keyed by another id, and
+     two of those swap names with each other.  So the key is read out of the
+     row's own `Name` FText, which serialises it inline -- 929 of the 2 609 rows
+     carry one.  The rest (the equipment `+1`..`+N` upgrade rows, and every row
+     of the two tables whose struct has no `Name` column at all, `DT_SpellData`
+     and `DT_SpecialItem`) fall back to synthesising `<prefix>_<ID>` from the
+     row id, with the prefix picked by the row's own `ItemType`
+     (`TYPE_KEY_PREFIX`) because prefixes collide on 46 ids.
 
 English only, on purpose: the mod's UI is English (task `CLAUDE.md § Goal`).
 `--lang` is there for a future translation pass, nothing more.
@@ -69,9 +76,13 @@ TABLES = [
 # Mirrors of the same tables; used only if a `Content/Game/` copy is missing.
 MIRROR = "Content/DynamicCombatSystem/DataTables/"
 
+# Both tables below synthesise a key for the 12 named rows that carry no `Name`
+# FText of their own (`DT_SpellData` and `DT_SpecialItem` ids); every other name
+# comes from the key the row itself holds, and neither table is consulted.
+#
 # Localisation key prefixes, highest priority first.  Measured key counts in
 # `en`: weapon 374, armor 216, item 201, gem 107, spell 39, ring 36,
-# weaponskill 34, styleskill 30, CuiYu 26.  Only the fallback for a row whose
+# weaponskill 34, styleskill 30, CuiYu 26.  Reached only when the row's
 # `ItemType` did not decode -- `TYPE_KEY_PREFIX` answers first.
 KEY_PREFIXES = ("item", "weapon", "armor", "ring", "gem", "spell",
                 "styleskill", "weaponskill", "CuiYu")
@@ -180,6 +191,10 @@ def read_locres(blob: bytes) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 def package(ms: "pakmaps.MapSource", stem: str) -> "uasset.Package":
+    """One cooked package by logical stem, falling back to the `MIRROR` copy of
+    a DataTable that `Content/Game/` does not carry."""
+    if (stem + ".uasset") not in ms.owner and "/DataTables/" in stem:
+        stem = MIRROR + stem.split("/DataTables/", 1)[1]
     p = uasset.Package.__new__(uasset.Package)
     p.path = stem
     p.head = ms.read(stem + ".uasset")
@@ -189,17 +204,6 @@ def package(ms: "pakmaps.MapSource", stem: str) -> "uasset.Package":
 
 
 NUMERIC = re.compile(r"^\d{4,6}$")
-
-
-def table_rows(ms, name: str, stem: str) -> set[int]:
-    """The numeric row FNames of one item DataTable."""
-    if (stem + ".uasset") not in ms.owner:
-        stem = MIRROR + stem.split("/DataTables/", 1)[1]
-    pkg = package(ms, stem)
-    classes = {e.class_name for e in pkg.exports}
-    if "DataTable" not in classes:
-        print(f"  ! {name}: no DataTable export ({sorted(classes)})", file=sys.stderr)
-    return {int(n) for n in pkg.names if NUMERIC.match(n)}
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +222,8 @@ def table_rows(ms, name: str, stem: str) -> set[int]:
 #     `ST_Item_EquipmentConf` (behind one `IntProperty`), so the unversioned row
 #     payload only has to be walked across fixed-size values to reach it;
 #   * a row starts with its `FName` row name, which is numeric and therefore in
-#     the package name map -- the same "the name map IS the row-name table"
-#     trick `table_rows()` uses, now used to find each row's OFFSET.
+#     the package name map, so "the name map IS the row-name table" finds each
+#     row's OFFSET as well as its id (`row_spans`).
 #
 # The three tables that carry no `ItemType` column get their type from the table
 # itself (`ST_GemNew` is gems, `DT_SpellData` spells, ...).
@@ -342,23 +346,19 @@ def _item_type_at(d, values, end, fields, want, enum):
     return enum.get(0, "None")                  # not serialized == the default
 
 
-def table_item_types(ms, name, stem, enum):
-    """`row id -> ItemType display name` for one item DataTable."""
-    if name in TABLE_ITEM_TYPE:
-        return {}                               # the caller fills these wholesale
-    if (stem + ".uasset") not in ms.owner:
-        stem = MIRROR + stem.split("/DataTables/", 1)[1]
-    pkg = package(ms, stem)
-    d = pkg.data(pkg.exports[0])
-    (row_count,) = struct.unpack_from("<i", d, 10)
+# The `Name` FText of a row serialises its localisation key inline, and it is
+# the first `_name` key inside the row -- `Descript` (`_des`), `DescriptSummery`
+# (`_sum`) and `PickupPrompt` follow it in schema order.
+NAME_KEY = re.compile(rb"([A-Za-z]+)_(\d+)_name")
 
-    row_struct = next(n.rsplit("/", 1)[-1] for n in pkg.names
-                      if n.startswith("/Game/") and "/Structs/" in n)
-    fields = struct_fields(ms, STRUCT_DIR + row_struct)
-    want = next(i for i, (m, _t) in enumerate(fields) if m == "ItemType")
 
-    numeric = {i for i, n in enumerate(pkg.names) if NUMERIC.match(n)}
-    out = {}
+def row_spans(pkg, d):
+    """`[(offset, row id, values, header end)]` of one cooked item DataTable, in
+    payload order.  A row starts with its own numeric row `FName` -- a name-map
+    entry with number 0 -- followed by an unversioned property header, and that
+    pair is what the scan accepts."""
+    numeric = {i: int(n) for i, n in enumerate(pkg.names) if NUMERIC.match(n)}
+    out = []
     o = 0
     while o <= len(d) - 8:
         i, num = struct.unpack_from("<ii", d, o)
@@ -370,33 +370,80 @@ def table_item_types(ms, name, stem, enum):
         except Exception:
             o += 1
             continue
-        rid = int(pkg.names[i])
+        out.append((o, numeric[i], values, end))
+        o += 8
+    return out
+
+
+def read_table(ms, name, stem, enum):
+    """Everything one item DataTable says about its rows:
+    `(row ids, row id -> ItemType display name, row id -> localisation key)`.
+
+    The row id SET comes from the package name map -- every row of these tables
+    is named by its numeric id, so "the numeric entries of the name map" *is*
+    the row-name table, and no property decoding (hence no `.usmap`) is needed.
+    Walking the payload is what the other two answers need, and it is trusted
+    only where it reproduces the table's own declared row count.
+    """
+    pkg = package(ms, stem)
+    classes = {e.class_name for e in pkg.exports}
+    if "DataTable" not in classes:
+        print(f"  ! {name}: no DataTable export ({sorted(classes)})", file=sys.stderr)
+    rows = {int(n) for n in pkg.names if NUMERIC.match(n)}
+
+    d = pkg.data(pkg.exports[0])
+    (row_count,) = struct.unpack_from("<i", d, 10)
+    spans = row_spans(pkg, d)
+
+    keys = {}
+    for k, (o, rid, _v, _e) in enumerate(spans):
+        end = spans[k + 1][0] if k + 1 < len(spans) else len(d)
+        m = NAME_KEY.search(d, o, end)
+        if m and rid not in keys:
+            keys[rid] = f"{m.group(1).decode()}_{m.group(2).decode()}"
+
+    if name in TABLE_ITEM_TYPE:
+        return rows, {}, keys               # the caller fills the types wholesale
+
+    row_struct = next(n.rsplit("/", 1)[-1] for n in pkg.names
+                      if n.startswith("/Game/") and "/Structs/" in n)
+    fields = struct_fields(ms, STRUCT_DIR + row_struct)
+    want = next(i for i, (m, _t) in enumerate(fields) if m == "ItemType")
+
+    types = {}
+    for o, rid, values, end in spans:
         got = _item_type_at(d, values, end, fields, want, enum)
-        prev = out.get(rid)
+        prev = types.get(rid)
         if prev is None or prev == "None":
-            out[rid] = got
+            types[rid] = got
         elif got not in (None, "None") and got != prev:
             raise SystemExit(f"{name}: row {rid} decodes as {prev} and {got}")
-        o += 8
-    if len(out) != row_count:
-        raise SystemExit(f"{name}: found {len(out)} rows, table says {row_count}")
-    return {k: (v or "None") for k, v in out.items()}
+    if len(types) != row_count:
+        raise SystemExit(f"{name}: found {len(types)} rows, table says {row_count}")
+    return rows, {k: (v or "None") for k, v in types.items()}, keys
 
 
 # ---------------------------------------------------------------------------
 # driver
 # ---------------------------------------------------------------------------
 
-def localise(loc, rid: int, type_name: str | None):
-    """`(prefix, name, description)` of one item id, or `None` when no prefix
-    names it.  The item's own kind is asked first; `KEY_PREFIXES` then covers
-    the ids whose `ItemType` did not decode."""
+def localise(loc, rid: int, type_name: str | None, key: str | None):
+    """`(key, name, description)` of one item, or `None` when nothing names it.
+
+    `key` is what the row's own `Name` FText said; a row that carries none is
+    keyed by its row id under the prefix its kind implies, with `KEY_PREFIXES`
+    behind that for the ids whose `ItemType` did not decode."""
+    if key:
+        nm = loc.get(f"{key}_name")
+        if nm:
+            return key, nm, loc.get(f"{key}_des") or loc.get(f"{key}_sum")
     first = TYPE_KEY_PREFIX.get(type_name or "None")
     order = (first,) + tuple(p for p in KEY_PREFIXES if p != first)
     for pre in order:
         nm = loc.get(f"{pre}_{rid}_name")
         if nm:
-            return pre, nm, loc.get(f"{pre}_{rid}_des") or loc.get(f"{pre}_{rid}_sum")
+            return f"{pre}_{rid}", nm, (loc.get(f"{pre}_{rid}_des")
+                                        or loc.get(f"{pre}_{rid}_sum"))
     return None
 
 
@@ -410,21 +457,24 @@ def build(ms, lang: str = "en", verbose: bool = True):
     owner: dict[int, str] = {}
     per_table: dict[str, set[int]] = {}
     types: dict[int, str] = {}
+    keys: dict[int, str] = {}
     for name, stem in TABLES:
-        rows = table_rows(ms, name, stem)
+        rows, decoded, row_keys = read_table(ms, name, stem, enum)
         per_table[name] = rows
         fixed = TABLE_ITEM_TYPE.get(name)
-        decoded = table_item_types(ms, name, stem, enum)
         for rid in rows:
             owner.setdefault(rid, name)         # first table in priority order wins
             if rid not in types:
                 t = fixed or decoded.get(rid)
                 if t and t != "None":
                     types[rid] = t
+            if rid not in keys and row_keys.get(rid):
+                keys[rid] = row_keys[rid]
 
     items: dict[int, dict] = {}
     named_by_prefix = collections.Counter()
     rarities = collections.Counter()
+    synthesised = foreign_key = 0
     for rid, table in sorted(owner.items()):
         rec = {"table": table}
         type_name = types.get(rid)
@@ -437,13 +487,17 @@ def build(ms, lang: str = "en", verbose: bool = True):
         # one by the first item it grants, off this same field.
         rec["bucket"] = pickup_buckets.bucket_of_type(type_name)
         rarities[rec["rarity"]] += 1
-        found = localise(loc, rid, type_name)
+        found = localise(loc, rid, type_name, keys.get(rid))
         if found:
-            pre, nm, des = found
+            key, nm, des = found
             rec["name"] = nm
             if des:
                 rec["des"] = des
-            named_by_prefix[pre] += 1
+            named_by_prefix[key.split("_", 1)[0]] += 1
+            if key != keys.get(rid):
+                synthesised += 1
+            elif int(key.rsplit("_", 1)[-1]) != rid:
+                foreign_key += 1
         items[rid] = rec
 
     named = sum(1 for r in items.values() if r.get("name"))
@@ -458,6 +512,9 @@ def build(ms, lang: str = "en", verbose: bool = True):
             rows = per_table[name]
             n = sum(1 for r in rows if items[r].get("name"))
             print(f"    {name:26s} {len(rows):5d} rows  {n:5d} named")
+        print(f"    named from the row's own key {named - synthesised} "
+              f"({foreign_key} of them keyed by another id), synthesised from "
+              f"the row id {synthesised}")
         print("    key prefixes used: "
               + ", ".join(f"{p}={c}" for p, c in named_by_prefix.most_common()))
     return items, per_table

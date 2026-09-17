@@ -845,76 +845,61 @@ namespace overlay
             return true;
         }
 
-        //==============================================================================
-        // Per-frame work
-        //==============================================================================
-
-        void build_ui()
+        //======================================================================
+        // What the overlay draws this frame
+        //======================================================================
+        //
+        // Render thread, inside the frame's ImGui pass. Each surface decides for itself
+        // whether it is on screen; what they share - the scaled config, the snapshot and
+        // the one marker pass - is decided here first.
+        namespace
         {
-            // `raw` is what the panel edits and what Save writes; `cfg` is the same
-            // settings with every pixel key multiplied by the UI scale and is what the
-            // HUD draws from. Keeping them apart stops a scaled value ever being written
-            // back into the config file.
-            const mm::Config& raw = mm::cfg_cached();
-            mm::Config cfg = ui_scaled(raw, g_ui_scale);
-            // The look, once per frame: every draw path below reads these two globals
-            // instead of asking the config what colour it is.
-            g_palette = raw.palette;
-            g_plate = gly::theme_colors(raw.theme).plate;
-            // The disc-drawing helpers take geometry, not the config, so the live
-            // roundness is cached here once per frame (render thread only).
-            mm::Snapshot snap{};
-            const bool have = mm::read_snapshot(snap);
-
-            const bool map_open = mm::g_map_open.load(std::memory_order_relaxed);
-            const std::uint64_t frame_now = ::GetTickCount64();
-
             // THE HUD FADE. Its target is the gate result and nothing else: 0 applies
             // instantly (and the gate stops the draw anyway), only showing is eased over
-            // 150 ms. It is applied by scaling the opacity keys of the per-frame config
-            // copy, so nothing downstream has to know the fade exists.
-            const bool gate_open = have && hud_gate(cfg, snap, have, frame_now) == nullptr;
-            if (gate_open && !g_hud_gate_ever_open.load(std::memory_order_relaxed))
+            // 150 ms. It is applied by scaling the opacity keys of the per-frame config copy,
+            // so nothing downstream has to know the fade exists. Returns the gate's answer,
+            // which is also the compass's and the x-ray's.
+            bool apply_hud_fade(mm::Config& cfg, const mm::Snapshot& snap, bool have, std::uint64_t now)
             {
-                // The first frame anything of ours could be seen; the loop thread's
-                // first-run tip waits for it.
-                g_hud_gate_ever_open.store(true, std::memory_order_release);
+                const bool gate_open = have && hud_gate(cfg, snap, have, now) == nullptr;
+                if (gate_open && !g_hud_gate_ever_open.load(std::memory_order_relaxed))
+                {
+                    // The first frame anything of ours could be seen; the loop thread's
+                    // first-run tip waits for it.
+                    g_hud_gate_ever_open.store(true, std::memory_order_release);
+                }
+                const float fade = hud_fade_step(gate_open, now);
+                cfg.opacity *= fade;
+                cfg.compass_opacity *= fade;
+                cfg.highlight_alpha_near *= fade;
+                cfg.highlight_alpha_far *= fade;
+                return gate_open;
             }
-            const float fade = hud_fade_step(gate_open, frame_now);
-            cfg.opacity *= fade;
-            cfg.compass_opacity *= fade;
-            cfg.highlight_alpha_near *= fade;
-            cfg.highlight_alpha_far *= fade;
 
-            // The mouse cursor belongs to whoever is taking the input. Both conditions
-            // are plain reads of the live flags, so the frame the map or the panel
-            // closes is the frame the game gets the cursor back.
-            ImGui::GetIO().MouseDrawCursor = map_open || mm::g_panel_open.load(std::memory_order_relaxed);
-
-            // The pad, into ImGui's own nav. Only while the panel is open, and from the
-            // state the loop thread sampled - never a poll from here.
-            feed_pad_nav(raw);
-
-            // THE ONE MARKER PASS. The minimap, the full map, the compass pips and the
-            // x-ray highlight all read the same published buffer: it is walked once here
-            // and each of them filters the result.
-            if (have)
+            // THE ONE MARKER PASS. The minimap, the full map, the compass pips and the x-ray
+            // highlight all read the same published buffer: it is walked once here and each
+            // of them filters the result.
+            void take_frame_candidates(const mm::Snapshot& snap, bool have)
             {
-                build_frame_candidates(snap);
-            }
-            else
-            {
+                if (have)
+                {
+                    build_frame_candidates(snap);
+                    return;
+                }
                 g_frame_cands.clear();
                 g_frame_marker_total = 0;
                 g_frame_bad_cat = 0;
             }
 
-            // NEAREST UNFOUND (the waypoint_nearest_key hotkey). The pick lives here
-            // because the frame's candidate list is what knows both distance and the
-            // category mask in force. It has no radius: the whole chapter's published
-            // buffer is a candidate.
-            if (g_nearest_request.exchange(false, std::memory_order_acquire))
+            // NEAREST UNFOUND (the waypoint_nearest_key hotkey). The pick lives here because
+            // the frame's candidate list is what knows both distance and the category mask in
+            // force. It has no radius: the whole chapter's published buffer is a candidate.
+            void serve_nearest_request(const mm::Config& cfg)
             {
+                if (!g_nearest_request.exchange(false, std::memory_order_acquire))
+                {
+                    return;
+                }
                 const FrameCand* best = nullptr;
                 if (cfg.markers_enabled)
                 {
@@ -946,7 +931,8 @@ namespace overlay
                     wp.x = best->m->x;
                     wp.y = best->m->y;
                     wp.z = best->m->z;
-                    const char* name = mdb::display_label(static_cast<mdb::Cat>(best->cat), best->m->label);
+                    const char* name =
+                        mdb::display_label(static_cast<mdb::Cat>(best->cat), best->m->label);
                     if (mm::add_waypoint(wp))
                     {
                         (void)std::snprintf(note, sizeof(note), "waypoint: %s, %.0f m away", name,
@@ -961,33 +947,37 @@ namespace overlay
                 toast_for(note, 3500);
             }
 
-            if (mm::g_panel_open.load(std::memory_order_relaxed))
+            void draw_panel_if_open(const mm::Config& raw, const mm::Snapshot& snap, bool have)
             {
-                draw_panel(raw, snap, have);
-                mm::g_panel_drew_frame.store(true, std::memory_order_relaxed);
-            }
-            else if (g_capture_row >= 0)
-            {
-                // The panel closed with a capture armed. Disarmed here rather than in the
-                // close paths - this runs every frame, so the keyboard cannot stay
-                // swallowed with no panel on screen.
-                arm_capture(-1);
+                if (mm::g_panel_open.load(std::memory_order_relaxed))
+                {
+                    draw_panel(raw, snap, have);
+                    mm::g_panel_drew_frame.store(true, std::memory_order_relaxed);
+                    return;
+                }
+                if (g_capture_row >= 0)
+                {
+                    // The panel closed with a capture armed. Disarmed here rather than in the
+                    // close paths - this runs every frame, so the keyboard cannot stay
+                    // swallowed with no panel on screen.
+                    arm_capture(-1);
+                }
             }
 
-            if (map_open)
+            // The map closed (by the key, by the pad chord, by the gate, or from inside the
+            // map): the next open starts centred on the player again, with the map mode's
+            // panels and search box reset. close_map has already done that for its own
+            // routes; this is the edge the map never sees.
+            void settle_map_close(const mm::Config& raw)
             {
-                draw_full_map(raw, snap, have, g_ui_scale);
-            }
-            if (g_map_was_open && !mm::g_map_open.load(std::memory_order_relaxed))
-            {
-                // Closed (by the key, by the pad chord, by the gate, or from inside the
-                // map): the next open starts centred on the player again, with the map
-                // mode's panels and search box reset. close_map has already done that
-                // for its own routes; this is the edge the map never sees.
-                //
-                // The zoom the player left the map at becomes the zoom it opens with.
-                // The view holds a DPI-scaled number (draw_full_map's `zscale`), so it is
-                // un-scaled on the way back into the config, which is always literal.
+                if (!g_map_was_open || mm::g_map_open.load(std::memory_order_relaxed))
+                {
+                    g_map_was_open = mm::g_map_open.load(std::memory_order_relaxed);
+                    return;
+                }
+                // The zoom the player left the map at becomes the zoom it opens with. The view
+                // holds a DPI-scaled number (draw_full_map's `zscale`), so it is un-scaled on
+                // the way back into the config, which is always literal.
                 if (g_mv_init)
                 {
                     const float zscale =
@@ -1002,21 +992,25 @@ namespace overlay
                 }
                 g_mv_init = false;
                 reset_map_mode();
+                g_map_was_open = mm::g_map_open.load(std::memory_order_relaxed);
             }
-            g_map_was_open = mm::g_map_open.load(std::memory_order_relaxed);
 
-            if (!cfg.show_minimap)
+            // The minimap, or the reason it is not there. The reason is what the F2 panel
+            // reads back, so every path through here records one.
+            void draw_minimap_or_say_why(const mm::Config& cfg, const mm::Snapshot& snap, bool have)
             {
-                set_hide_reason(L"the minimap is switched off");
-            }
-            else if (mm::g_map_open.load(std::memory_order_relaxed))
-            {
-                // The full map replaces the minimap while it is up, so the slicer never
-                // cuts two windows a frame.
-                set_hide_reason(L"the full map is open");
-            }
-            else
-            {
+                if (!cfg.show_minimap)
+                {
+                    set_hide_reason(L"the minimap is switched off");
+                    return;
+                }
+                if (mm::g_map_open.load(std::memory_order_relaxed))
+                {
+                    // The full map replaces the minimap while it is up, so the slicer never
+                    // cuts two windows a frame.
+                    set_hide_reason(L"the full map is open");
+                    return;
+                }
                 if (g_pf_minimap < 0)
                 {
                     g_pf_minimap = mm::perf_register("minimap draw", perf::Thread::Render);
@@ -1025,17 +1019,14 @@ namespace overlay
                 draw_minimap(cfg, snap, have);
             }
 
-            // The compass and the x-ray highlight ask the same gate the minimap does -
-            // one evaluation, no second set of rules, no second latch - and additionally
-            // stand down while the full map is open.
-            const bool hud_ok = gate_open && !mm::g_map_open.load(std::memory_order_relaxed);
-            draw_compass(cfg, snap, hud_ok);
-            draw_highlight(cfg, snap, hud_ok);
-
-            // The clipboard result comes back from the loop thread as text plus a flag;
-            // turn it into a toast here, where toasts live.
-            if (g_toast_pending_ready.exchange(false, std::memory_order_acquire))
+            // The clipboard result comes back from the loop thread as text plus a flag; turn
+            // it into a toast here, where toasts live.
+            void drain_pending_toast()
             {
+                if (!g_toast_pending_ready.exchange(false, std::memory_order_acquire))
+                {
+                    return;
+                }
                 char text[160]{};
                 unsigned ms = 2500;
                 {
@@ -1045,7 +1036,54 @@ namespace overlay
                 }
                 toast_for(text, ms);
             }
+        } // namespace
 
+        void build_ui()
+        {
+            // `raw` is what the panel edits and what Save writes; `cfg` is the same settings
+            // with every pixel key multiplied by the UI scale and is what the HUD draws from.
+            // Keeping them apart stops a scaled value ever being written back into the config
+            // file.
+            const mm::Config& raw = mm::cfg_cached();
+            mm::Config cfg = ui_scaled(raw, g_ui_scale);
+            // The look, once per frame: every draw path below reads these two globals instead
+            // of asking the config what colour it is.
+            g_palette = raw.palette;
+            g_plate = gly::theme_colors(raw.theme).plate;
+            mm::Snapshot snap{};
+            const bool have = mm::read_snapshot(snap);
+            const bool map_open = mm::g_map_open.load(std::memory_order_relaxed);
+            const std::uint64_t frame_now = ::GetTickCount64();
+
+            const bool gate_open = apply_hud_fade(cfg, snap, have, frame_now);
+
+            // The mouse cursor belongs to whoever is taking the input. Both conditions are
+            // plain reads of the live flags, so the frame the map or the panel closes is the
+            // frame the game gets the cursor back.
+            ImGui::GetIO().MouseDrawCursor =
+                map_open || mm::g_panel_open.load(std::memory_order_relaxed);
+            // The pad, into ImGui's own nav. Only while the panel is open, and from the state
+            // the loop thread sampled - never a poll from here.
+            feed_pad_nav(raw);
+
+            take_frame_candidates(snap, have);
+            serve_nearest_request(cfg);
+            draw_panel_if_open(raw, snap, have);
+            if (map_open)
+            {
+                draw_full_map(raw, snap, have, g_ui_scale);
+            }
+            settle_map_close(raw);
+            draw_minimap_or_say_why(cfg, snap, have);
+
+            // The compass and the x-ray highlight ask the same gate the minimap does - one
+            // evaluation, no second set of rules, no second latch - and additionally stand
+            // down while the full map is open.
+            const bool hud_ok = gate_open && !mm::g_map_open.load(std::memory_order_relaxed);
+            draw_compass(cfg, snap, hud_ok);
+            draw_highlight(cfg, snap, hud_ok);
+
+            drain_pending_toast();
             // Toasts last, so they sit over everything they are talking about.
             draw_toast();
         }

@@ -1872,264 +1872,244 @@ namespace overlay
                                   "triggers zoom, LB / RB change floor)");
         }
 
-        void panel_debug(mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
+        //======================================================================
+        // The Debug tab's readouts
+        //======================================================================
+        //
+        // One block per question, in the order they are drawn. Nothing here decides
+        // anything: every one reads live state and prints it, so they share no state and
+        // take only what they print.
+        namespace
         {
-            panel_dev_keys(cfg);
-            debug_tuning(cfg);
-            debug_found_profile(cfg);
-
-            //--------------------------------------------------------------------------
-            // The crash breadcrumb
-            //--------------------------------------------------------------------------
-            //
             // Where the overlay is now, and what the PREVIOUS session left in
             // wuchang_minimap_last_stage.txt. A non-terminal value there is the only
-            // evidence surviving a death with UE4SS's log buffer unflushed, so it is
-            // called out in colour.
-            ImGui::SeparatorText("Stage");
-            ImGui::Text("now: %s", crumb::current()[0] != '\0' ? crumb::current() : "(none)");
-            ImGui::SameLine();
-            ImGui::TextDisabled("(file %s)", cfg.crash_breadcrumb ? "on" : "off - crash_breadcrumb = 0");
-            if (crumb::previous_suspicious())
+            // evidence surviving a death with UE4SS's log buffer unflushed, so it is called
+            // out in colour.
+            void debug_stage(const mm::Config& cfg)
             {
-                ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f},
-                                   "last session ended at '%s' - it did NOT shut down cleanly",
-                                   crumb::previous());
-            }
-            else if (crumb::previous()[0] != '\0')
-            {
-                ImGui::TextDisabled("last session ended at '%s'", crumb::previous());
-            }
-            else
-            {
-                ImGui::TextDisabled("no previous session recorded");
-            }
-
-            //--------------------------------------------------------------------------
-            // The one-press recon dump
-            //--------------------------------------------------------------------------
-            //
-            // The four things that cannot be recovered from the cooked assets
-            // (context/saveslot-and-teleport-research.md section 3). It calls nothing
-            // and changes nothing - reflection lookups and raw reads only - and writes
-            // one file the user can send back.
-            ImGui::SeparatorText("Recon dump");
-            const recon::Status rc = recon::status();
-            ImGui::BeginDisabled(rc.pending);
-            if (ImGui::Button("Dump the fast-travel / save-slot recon"))
-            {
-                recon::request();
-            }
-            ImGui::EndDisabled();
-            if (rc.pending)
-            {
-                ImGui::TextDisabled("gathering on the next game-thread pump...");
-            }
-            else if (rc.error[0] != '\0')
-            {
-                ImGui::TextColored(ImVec4{0.95f, 0.5f, 0.4f, 1.0f}, "%s", rc.error);
-            }
-            else if (rc.file[0] != '\0')
-            {
-                ImGui::TextWrapped("wrote %d line(s) to %s", rc.lines, rc.file);
-            }
-
-            //--------------------------------------------------------------------------
-            // The runtime navmesh dump
-            //--------------------------------------------------------------------------
-            //
-            // A button, not a binding: it scans engine memory and writes JSON, which no
-            // player should trigger by leaning on a key. The module ships disabled
-            // (navmesh_dump = 1 in the dev config) and the button says so.
-            ImGui::SeparatorText("Runtime navmesh dump");
-            ImGui::BeginDisabled(!navmesh::enabled());
-            if (ImGui::Button("Dump the live navmesh tiles"))
-            {
-                navmesh::request_dump();
-                post_toast("navmesh dump requested", 2500);
-            }
-            ImGui::EndDisabled();
-            if (!navmesh::enabled())
-            {
+                ImGui::SeparatorText("Stage");
+                ImGui::Text("now: %s", crumb::current()[0] != '\0' ? crumb::current() : "(none)");
                 ImGui::SameLine();
-                ImGui::TextDisabled("off - set navmesh_dump = 1 in the dev config and restart");
+                ImGui::TextDisabled("(file %s)", cfg.crash_breadcrumb ? "on" : "off - crash_breadcrumb = 0");
+                if (crumb::previous_suspicious())
+                {
+                    ImGui::TextColored(ImVec4{0.95f, 0.72f, 0.35f, 1.0f},
+                                       "last session ended at '%s' - it did NOT shut down cleanly",
+                                       crumb::previous());
+                }
+                else if (crumb::previous()[0] != '\0')
+                {
+                    ImGui::TextDisabled("last session ended at '%s'", crumb::previous());
+                }
+                else
+                {
+                    ImGui::TextDisabled("no previous session recorded");
+                }
             }
 
-            draw_perf_table();
-
-            //--------------------------------------------------------------------------
-            // Marker sweep
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Markers");
-            const markers::Stats st = markers::stats();
-            ImGui::Text("db %d marker(s) / %d chapter(s)   found file %d id(s)   published %d   live %d",
-                        st.static_markers,
-                        st.chapters_loaded,
-                        st.found_ids,
-                        st.published,
-                        st.live_entries);
-            // The absence rule (markers_absence_*). `levels loaded` at 0 means the rule
-            // can never fire - nothing to match a marker's level against.
-            ImGui::Text("absence marks %d   levels loaded %d   (%d round(s), %s)",
-                        st.absence_marks,
-                        st.levels_loaded,
-                        cfg.markers_absence_rounds,
-                        mdb::format_category_mask(cfg.markers_absence_categories).c_str());
-            // Two numbers, two questions.
-            //   PUMP  - what one game-thread pump costs: the frame-hitch number, target
-            //           well under 1 ms, `max` the worst single pump since load.
-            //   ROUND - what a full pass over the object array cost and how many slots
-            //           it visited: the freshness number, the marker set being
-            //           `slices x period_ms` old at worst.
-            // `!` marks the FindAllOf fallback, ~28 ms per pump, which runs only when
-            // GUObjectArray reports no elements.
-            ImGui::Text("scan pump %.3f ms (avg %.3f, peak %.3f, max %.3f)%s",
-                        st.scan_slice_ms,
-                        st.scan_slice_ms_avg,
-                        st.scan_slice_ms_peak,
-                        st.scan_slice_ms_max,
-                        st.scan_fallback ? "   ! FindAllOf fallback" : "");
-            ImGui::Text("round %.1f ms / %d pump(s) / %d object(s) of %d   chunk %d   %llu round(s)",
-                        st.scan_round_ms,
-                        st.scan_round_slices,
-                        st.scan_round_objects,
-                        st.scan_total,
-                        st.scan_chunk,
-                        static_cast<unsigned long long>(st.rounds));
-            ImGui::Text("publish %.3f ms (avg %.3f, peak %.3f)",
-                        st.publish_ms,
-                        st.publish_ms_avg,
-                        st.publish_ms_peak);
-            ImGui::Text("drawn %d of %d (%d clamped, %d filtered, %d merged)",
-                        g_marker_draw.drawn,
-                        g_marker_draw.total,
-                        g_marker_draw.clamped,
-                        g_marker_draw.filtered,
-                        g_marker_draw.merged);
-            if (g_marker_draw.nearest[0] != 0)
+            // The one-press recon dump: the four things that cannot be recovered from the
+            // cooked assets (context/saveslot-and-teleport-research.md section 3). It calls
+            // nothing and changes nothing - reflection lookups and raw reads only - and
+            // writes one file the user can send back.
+            void debug_recon()
             {
-                ImGui::Text("nearest: %s (%.0f uu)", g_marker_draw.nearest, g_marker_draw.nearest_uu);
+                ImGui::SeparatorText("Recon dump");
+                const recon::Status rc = recon::status();
+                ImGui::BeginDisabled(rc.pending);
+                if (ImGui::Button("Dump the fast-travel / save-slot recon"))
+                {
+                    recon::request();
+                }
+                ImGui::EndDisabled();
+                if (rc.pending)
+                {
+                    ImGui::TextDisabled("gathering on the next game-thread pump...");
+                }
+                else if (rc.error[0] != '\0')
+                {
+                    ImGui::TextColored(ImVec4{0.95f, 0.5f, 0.4f, 1.0f}, "%s", rc.error);
+                }
+                else if (rc.file[0] != '\0')
+                {
+                    ImGui::TextWrapped("wrote %d line(s) to %s", rc.lines, rc.file);
+                }
             }
 
-            //--------------------------------------------------------------------------
-            // Full map / gamepad
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Full map and gamepad");
-            const pad::State gp = pad::state();
-            char padmod[64]{};
-            ::WideCharToMultiByte(CP_UTF8, 0, pad::module_name(), -1, padmod, sizeof(padmod) - 1, nullptr,
-                                  nullptr);
-            // Says whether anything is ASKING as well as what was found: with
-            // map_gamepad off nothing polls, and "none" then means "not looked at".
-            ImGui::Text("pad: %s (%s)   sticks %.2f,%.2f / %.2f,%.2f   triggers %.2f/%.2f",
-                        gp.connected ? "connected"
-                                     : (cfg.map_gamepad ||
-                                        (cfg.highlight_enabled && cfg.highlight_gamepad))
-                                           ? "none found (polling)"
-                                           : "not polled (map_gamepad = 0)",
-                        padmod,
-                        static_cast<double>(gp.lx),
-                        static_cast<double>(gp.ly),
-                        static_cast<double>(gp.rx),
-                        static_cast<double>(gp.ry),
-                        static_cast<double>(gp.lt),
-                        static_cast<double>(gp.rt));
-            ImGui::Text("map slice %dx%d   %.2f ms (peak %.2f)   %llu cut(s), %llu skipped   "
-                        "opaque %u / dim %u / faint %u",
-                        g_mslice[0].w,
-                        g_mslice[0].h,
-                        g_mslice_ms,
-                        g_mslice_ms_peak,
-                        static_cast<unsigned long long>(g_mslice_updates),
-                        static_cast<unsigned long long>(g_mslice_skipped),
-                        g_mslice_counts.opaque,
-                        g_mslice_counts.dim,
-                        g_mslice_counts.faint);
+            // The runtime navmesh dump. A button, not a binding: it scans engine memory and
+            // writes JSON, which no player should trigger by leaning on a key. The module
+            // ships disabled (navmesh_dump = 1 in the dev config) and the button says so.
+            void debug_navmesh_dump()
+            {
+                ImGui::SeparatorText("Runtime navmesh dump");
+                ImGui::BeginDisabled(!navmesh::enabled());
+                if (ImGui::Button("Dump the live navmesh tiles"))
+                {
+                    navmesh::request_dump();
+                    post_toast("navmesh dump requested", 2500);
+                }
+                ImGui::EndDisabled();
+                if (!navmesh::enabled())
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("off - set navmesh_dump = 1 in the dev config and restart");
+                }
+            }
 
-            //--------------------------------------------------------------------------
-            // The x-ray camera
-            //--------------------------------------------------------------------------
-            // The block to screenshot when the labels are in the wrong place: the
-            // route, the pinned offset and the age of the pose.
-            ImGui::SeparatorText("X-ray camera");
-            const hl::Stats hs = hl::stats();
-            const char* route = "none yet";
-            switch (hs.route)
+            void debug_markers(const mm::Config& cfg)
             {
-            case hl::Route::RawPinned:
-                route = "raw POV read (offset calibrated against the getters)";
-                break;
-            case hl::Route::RawSane:
-                route = "raw POV read (offset accepted on sanity ranges only)";
-                break;
-            case hl::Route::Getters:
-                route = "GetCameraLocation / GetCameraRotation / GetFOVAngle per read";
-                break;
-            case hl::Route::None:
-            default:
-                break;
+                ImGui::SeparatorText("Markers");
+                const markers::Stats st = markers::stats();
+                ImGui::Text("db %d marker(s) / %d chapter(s)   found file %d id(s)   published %d   live %d",
+                            st.static_markers,
+                            st.chapters_loaded,
+                            st.found_ids,
+                            st.published,
+                            st.live_entries);
+                // The absence rule (markers_absence_*). `levels loaded` at 0 means the rule
+                // can never fire - nothing to match a marker's level against.
+                ImGui::Text("absence marks %d   levels loaded %d   (%d round(s), %s)",
+                            st.absence_marks,
+                            st.levels_loaded,
+                            cfg.markers_absence_rounds,
+                            mdb::format_category_mask(cfg.markers_absence_categories).c_str());
+                // Two numbers, two questions.
+                //   PUMP  - what one game-thread pump costs: the frame-hitch number, target
+                //           well under 1 ms, `max` the worst single pump since load.
+                //   ROUND - what a full pass over the object array cost and how many slots
+                //           it visited: the freshness number, the marker set being
+                //           `slices x period_ms` old at worst.
+                // `!` marks the FindAllOf fallback, ~28 ms per pump, which runs only when
+                // GUObjectArray reports no elements.
+                ImGui::Text("scan pump %.3f ms (avg %.3f, peak %.3f, max %.3f)%s",
+                            st.scan_slice_ms,
+                            st.scan_slice_ms_avg,
+                            st.scan_slice_ms_peak,
+                            st.scan_slice_ms_max,
+                            st.scan_fallback ? "   ! FindAllOf fallback" : "");
+                ImGui::Text("round %.1f ms / %d pump(s) / %d object(s) of %d   chunk %d   %llu round(s)",
+                            st.scan_round_ms,
+                            st.scan_round_slices,
+                            st.scan_round_objects,
+                            st.scan_total,
+                            st.scan_chunk,
+                            static_cast<unsigned long long>(st.rounds));
+                ImGui::Text("publish %.3f ms (avg %.3f, peak %.3f)",
+                            st.publish_ms,
+                            st.publish_ms_avg,
+                            st.publish_ms_peak);
+                ImGui::Text("drawn %d of %d (%d clamped, %d filtered, %d merged)",
+                            g_marker_draw.drawn,
+                            g_marker_draw.total,
+                            g_marker_draw.clamped,
+                            g_marker_draw.filtered,
+                            g_marker_draw.merged);
+                if (g_marker_draw.nearest[0] != 0)
+                {
+                    ImGui::Text("nearest: %s (%.0f uu)", g_marker_draw.nearest, g_marker_draw.nearest_uu);
+                }
             }
-            ImGui::Text("camera: %s", route);
-            ImGui::Text("manager %s   CameraCachePrivate +%d   POV +%d   %llu read(s), %llu rejected",
-                        hs.have_manager ? "yes" : "NO",
-                        hs.cache_offset,
-                        hs.pov_offset,
-                        static_cast<unsigned long long>(hs.reads),
-                        static_cast<unsigned long long>(hs.fails));
-            hl::Pose pose{};
-            if (hl::camera(pose))
-            {
-                ImGui::Text("pose  X %.0f  Y %.0f  Z %.0f   pitch %.1f  yaw %.1f  roll %.1f   FOV %.1f   "
-                            "%llu ms old",
-                            pose.x,
-                            pose.y,
-                            pose.z,
-                            pose.pitch,
-                            pose.yaw,
-                            pose.roll,
-                            pose.fov,
-                            static_cast<unsigned long long>(
-                                pose.stamp_ms == 0 ? 0 : ::GetTickCount64() - pose.stamp_ms));
-            }
-            else
-            {
-                ImGui::TextDisabled("no camera pose published yet (hold the key in-world)");
-            }
-            ImGui::Text("held %s   %d of %d in range drawn (%d on screen, %d on the rim)",
-                        g_hl_debug.active ? "YES" : "no",
-                        g_hl_debug.drawn,
-                        g_hl_debug.considered,
-                        g_hl_debug.on_screen,
-                        g_hl_debug.edge);
-            ImGui::Text("compass: %s   heading %.1f deg from the %s   %d bearing pip(s)",
-                        g_compass_debug.visible ? "visible" : "hidden (same gate as the minimap)",
-                        g_compass_debug.heading,
-                        g_compass_debug.from_camera ? "camera" : "pawn",
-                        g_compass_debug.pips);
 
-            //--------------------------------------------------------------------------
-            // The game state
-            //--------------------------------------------------------------------------
-            ImGui::SeparatorText("Game state");
-            if (!have_state)
+            void debug_fullmap_and_pad(const mm::Config& cfg)
             {
-                ImGui::TextColored(ImVec4{1.0f, 0.6f, 0.4f, 1.0f}, "no game-state snapshot yet");
+                ImGui::SeparatorText("Full map and gamepad");
+                const pad::State gp = pad::state();
+                char padmod[64]{};
+                ::WideCharToMultiByte(CP_UTF8, 0, pad::module_name(), -1, padmod, sizeof(padmod) - 1,
+                                      nullptr, nullptr);
+                // Says whether anything is ASKING as well as what was found: with map_gamepad
+                // off nothing polls, and "none" then means "not looked at".
+                ImGui::Text("pad: %s (%s)   sticks %.2f,%.2f / %.2f,%.2f   triggers %.2f/%.2f",
+                            gp.connected ? "connected"
+                            : (cfg.map_gamepad || (cfg.highlight_enabled && cfg.highlight_gamepad))
+                                ? "none found (polling)"
+                                : "not polled (map_gamepad = 0)",
+                            padmod,
+                            static_cast<double>(gp.lx),
+                            static_cast<double>(gp.ly),
+                            static_cast<double>(gp.rx),
+                            static_cast<double>(gp.ry),
+                            static_cast<double>(gp.lt),
+                            static_cast<double>(gp.rt));
+                ImGui::Text("map slice %dx%d   %.2f ms (peak %.2f)   %llu cut(s), %llu skipped   "
+                            "opaque %u / dim %u / faint %u",
+                            g_mslice[0].w,
+                            g_mslice[0].h,
+                            g_mslice_ms,
+                            g_mslice_ms_peak,
+                            static_cast<unsigned long long>(g_mslice_updates),
+                            static_cast<unsigned long long>(g_mslice_skipped),
+                            g_mslice_counts.opaque,
+                            g_mslice_counts.dim,
+                            g_mslice_counts.faint);
             }
-            else
+
+            // The block to screenshot when the labels are in the wrong place: the route, the
+            // pinned offset and the age of the pose.
+            void debug_xray_camera()
             {
-                const std::uint64_t age = ::GetTickCount64() - snap.stamp_ms;
-                ImGui::Text("world  X %.1f  Y %.1f  Z %.1f   yaw %.1f deg", snap.x, snap.y, snap.z, snap.yaw);
-                ImGui::Text("uv     %.5f, %.5f   chapter '%s'",
-                            g_last_mini.u,
-                            g_last_mini.v,
-                            g_last_mini.chapter.empty() ? "-" : g_last_mini.chapter.c_str());
-                ImGui::Text("gameplay pawn %s   transition %s   state-ok age %llu ms",
-                            snap.pawn_is_gameplay ? "yes" : "NO",
-                            snap.transition ? "YES" : "no",
-                            static_cast<unsigned long long>(
-                                snap.state_ok_since_ms == 0 ? 0 : ::GetTickCount64() - snap.state_ok_since_ms));
-                // The height slicer: what it cut, how much it cost, where it is.
-                // The scale belongs to the published window, not to the diagnostics block.
+                ImGui::SeparatorText("X-ray camera");
+                const hl::Stats hs = hl::stats();
+                const char* route = "none yet";
+                switch (hs.route)
+                {
+                case hl::Route::RawPinned:
+                    route = "raw POV read (offset calibrated against the getters)";
+                    break;
+                case hl::Route::RawSane:
+                    route = "raw POV read (offset accepted on sanity ranges only)";
+                    break;
+                case hl::Route::Getters:
+                    route = "GetCameraLocation / GetCameraRotation / GetFOVAngle per read";
+                    break;
+                case hl::Route::None:
+                default:
+                    break;
+                }
+                ImGui::Text("camera: %s", route);
+                ImGui::Text("manager %s   CameraCachePrivate +%d   POV +%d   %llu read(s), %llu rejected",
+                            hs.have_manager ? "yes" : "NO",
+                            hs.cache_offset,
+                            hs.pov_offset,
+                            static_cast<unsigned long long>(hs.reads),
+                            static_cast<unsigned long long>(hs.fails));
+                hl::Pose pose{};
+                if (hl::camera(pose))
+                {
+                    ImGui::Text("pose  X %.0f  Y %.0f  Z %.0f   pitch %.1f  yaw %.1f  roll %.1f   FOV %.1f   "
+                                "%llu ms old",
+                                pose.x,
+                                pose.y,
+                                pose.z,
+                                pose.pitch,
+                                pose.yaw,
+                                pose.roll,
+                                pose.fov,
+                                static_cast<unsigned long long>(
+                                    pose.stamp_ms == 0 ? 0 : ::GetTickCount64() - pose.stamp_ms));
+                }
+                else
+                {
+                    ImGui::TextDisabled("no camera pose published yet (hold the key in-world)");
+                }
+                ImGui::Text("held %s   %d of %d in range drawn (%d on screen, %d on the rim)",
+                            g_hl_debug.active ? "YES" : "no",
+                            g_hl_debug.drawn,
+                            g_hl_debug.considered,
+                            g_hl_debug.on_screen,
+                            g_hl_debug.edge);
+                ImGui::Text("compass: %s   heading %.1f deg from the %s   %d bearing pip(s)",
+                            g_compass_debug.visible ? "visible" : "hidden (same gate as the minimap)",
+                            g_compass_debug.heading,
+                            g_compass_debug.from_camera ? "camera" : "pawn",
+                            g_compass_debug.pips);
+            }
+
+            // The two height cuts. The minimap's scale belongs to the published window, not
+            // to the diagnostics block; the full map runs the same slicer with an unbounded
+            // band overhead and (by default) an equalised ramp, so its numbers say nothing
+            // about the minimap's and belong on their own line.
+            void debug_slices(const mm::Config& cfg, const mm::Snapshot& snap)
+            {
                 const SliceView sv = slice_view();
                 ImGui::Text("slice  %dx%d px x %d surface(s) @ %.4f px/uu   %.2f ms (peak %.2f)   "
                             "%llu update(s), %llu skipped, %llu unchanged",
@@ -2158,9 +2138,6 @@ namespace overlay
                                 ? srule::unreachable_name(cfg.map_unreachable)
                                 : "n/a (asset has no reachability)",
                             g_slice_unreach);
-                // The full map's own cut, which runs the same slicer with an unbounded
-                // band overhead and (by default) an equalised ramp - so its numbers say
-                // nothing about the minimap's and belong on their own line.
                 char ramp_kind[32] = "linear";
                 if (cfg.shade_map_equalize)
                 {
@@ -2184,6 +2161,30 @@ namespace overlay
                             g_mslice_counts.faint,
                             g_mslice_counts.unreachable,
                             g_mslice_ms);
+            }
+
+            void debug_game_state(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
+            {
+                ImGui::SeparatorText("Game state");
+                if (!have_state)
+                {
+                    ImGui::TextColored(ImVec4{1.0f, 0.6f, 0.4f, 1.0f}, "no game-state snapshot yet");
+                    return;
+                }
+                const std::uint64_t age = ::GetTickCount64() - snap.stamp_ms;
+                ImGui::Text("world  X %.1f  Y %.1f  Z %.1f   yaw %.1f deg", snap.x, snap.y, snap.z,
+                            snap.yaw);
+                ImGui::Text("uv     %.5f, %.5f   chapter '%s'",
+                            g_last_mini.u,
+                            g_last_mini.v,
+                            g_last_mini.chapter.empty() ? "-" : g_last_mini.chapter.c_str());
+                ImGui::Text("gameplay pawn %s   transition %s   state-ok age %llu ms",
+                            snap.pawn_is_gameplay ? "yes" : "NO",
+                            snap.transition ? "YES" : "no",
+                            static_cast<unsigned long long>(
+                                snap.state_ok_since_ms == 0 ? 0
+                                                            : ::GetTickCount64() - snap.state_ok_since_ms));
+                debug_slices(cfg, snap);
                 ImGui::Text("pawn %s   pawn-view %s   menu %s   input %s   state age %llu ms",
                             snap.has_pawn ? "yes" : "no",
                             snap.is_pawn_view ? "yes" : "no",
@@ -2196,11 +2197,11 @@ namespace overlay
                             snap.widgets_seen,
                             snap.widgets_visible_in_viewport,
                             snap.loc_from_function ? "K2_GetActorLocation" : "RootComponent");
-                // Menu hide/show latency: how long ago the game thread saw the state
-                // change, and how many roots it re-tests per pump.
+                // Menu hide/show latency: how long ago the game thread saw the state change,
+                // and how many roots it re-tests per pump.
                 char holder[128]{};
-                ::WideCharToMultiByte(CP_UTF8, 0, snap.menu_holder, -1, holder, sizeof(holder) - 1, nullptr,
-                                      nullptr);
+                ::WideCharToMultiByte(CP_UTF8, 0, snap.menu_holder, -1, holder, sizeof(holder) - 1,
+                                      nullptr, nullptr);
                 ImGui::Text("menu state changed %llu ms ago   %u cached in-viewport root(s)   "
                             "show delay %d ms   holder '%s'",
                             static_cast<unsigned long long>(
@@ -2218,34 +2219,56 @@ namespace overlay
                 ImGui::TextWrapped("pawn: %s", narrow);
             }
 
-            ImGui::Spacing();
-            char reason[192]{};
-            ::WideCharToMultiByte(CP_UTF8, 0, g_hide_reason, -1, reason, sizeof(reason) - 1, nullptr, nullptr);
-            // Recomputed from live state every frame - the show condition has no latch -
+            // Why the minimap is or is not on screen, and what it is drawn into. The reason
+            // is recomputed from live state every frame - the show condition has no latch -
             // and every change to it is logged.
-            if (g_last_mini.visible)
+            void debug_visibility()
             {
-                ImGui::TextColored(ImVec4{0.55f, 0.9f, 0.6f, 1.0f}, "minimap: %s", reason);
+                ImGui::Spacing();
+                char reason[192]{};
+                ::WideCharToMultiByte(CP_UTF8, 0, g_hide_reason, -1, reason, sizeof(reason) - 1, nullptr,
+                                      nullptr);
+                if (g_last_mini.visible)
+                {
+                    ImGui::TextColored(ImVec4{0.55f, 0.9f, 0.6f, 1.0f}, "minimap: %s", reason);
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f}, "hidden because: %s", reason);
+                }
+                ImGui::TextDisabled("       this state has held for %llu ms",
+                                    static_cast<unsigned long long>(
+                                        g_reason_since_ms == 0 ? 0
+                                                               : ::GetTickCount64() - g_reason_since_ms));
+                ImGui::Text("overlay targets %ux%u, %u of them, %s, composite %dx%d %s   ui scale %.2f",
+                            g_width,
+                            g_height,
+                            kTargets,
+                            wide_to_ascii(format_name(comp_format())).c_str(),
+                            g_map.width,
+                            g_map.height,
+                            g_map.ready ? "ready" : "NOT ready",
+                            static_cast<double>(g_ui_scale));
+                ImGui::Text("presents %llu, resizes %llu",
+                            static_cast<unsigned long long>(g_present_count.load()),
+                            static_cast<unsigned long long>(g_resize_count.load()));
             }
-            else
-            {
-                ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f}, "hidden because: %s", reason);
-            }
-            ImGui::TextDisabled("       this state has held for %llu ms",
-                                static_cast<unsigned long long>(
-                                    g_reason_since_ms == 0 ? 0 : ::GetTickCount64() - g_reason_since_ms));
-            ImGui::Text("overlay targets %ux%u, %u of them, %s, composite %dx%d %s   ui scale %.2f",
-                        g_width,
-                        g_height,
-                        kTargets,
-                        wide_to_ascii(format_name(comp_format())).c_str(),
-                        g_map.width,
-                        g_map.height,
-                        g_map.ready ? "ready" : "NOT ready",
-                        static_cast<double>(g_ui_scale));
-            ImGui::Text("presents %llu, resizes %llu",
-                        static_cast<unsigned long long>(g_present_count.load()),
-                        static_cast<unsigned long long>(g_resize_count.load()));
+        } // namespace
+
+        void panel_debug(mm::Config& cfg, const mm::Snapshot& snap, bool have_state)
+        {
+            panel_dev_keys(cfg);
+            debug_tuning(cfg);
+            debug_found_profile(cfg);
+            debug_stage(cfg);
+            debug_recon();
+            debug_navmesh_dump();
+            draw_perf_table();
+            debug_markers(cfg);
+            debug_fullmap_and_pad(cfg);
+            debug_xray_camera();
+            debug_game_state(cfg, snap, have_state);
+            debug_visibility();
         }
 
         void draw_panel(mm::Config cfg, const mm::Snapshot& snap, bool have_state)

@@ -563,6 +563,10 @@ namespace overlay
         // advances it NotStarted -> InProgress -> Done, and `overlay::stop_phase()` is
         // what the loop thread reads.
         extern bool g_hooks_created; // loop thread only
+        // Between `start()` and the tick that has addresses to hook: the engine's
+        // swapchain is read on the game thread, so the install cannot happen where it
+        // is asked for. Loop thread only, like `g_hooks_created`.
+        extern bool g_hooks_pending; // loop thread only
         extern std::atomic<StopPhase> g_render_shutdown; // render -> loop
         extern std::atomic<bool> g_watchdog_reported;
         extern std::uint64_t g_hook_install_ms;
@@ -1420,7 +1424,12 @@ namespace overlay
                                                    UINT flags);
         void remove_stale_hook_cache();
         bool create_and_enable(void** addr, const wchar_t* how);
-        bool install_hooks();
+        bool discover_by_dummy(void* out[kHookCount]);
+        bool install_hooks(void* const found[kHookCount], const wchar_t* how);
+        // True when something stands between the game and DXGI's own object creation:
+        // a proxy DLL loaded out of the game's folder under a system name, or a known
+        // injector. `who` names the first one found.
+        bool interposer_loaded(std::wstring& who);
         auto widen(std::string_view narrow) -> RC::StringType;
     } // namespace ovl
 } // namespace overlay

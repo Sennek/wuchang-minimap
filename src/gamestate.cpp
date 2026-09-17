@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "chapterid.hpp"
+#include "hookfind.hpp"
 #include "mapdata.hpp"
 #include "markers.hpp"
 #include "markers_db.hpp"
@@ -2503,6 +2504,11 @@ namespace gamestate
 
             const DepthGuard guard{depth};
             g_pump_calls.fetch_add(1, std::memory_order_relaxed);
+
+            // The overlay's three hook addresses are three slots of the engine's own
+            // swapchain, and this is the only thread allowed to start at a UObject and
+            // walk to it. One atomic load once it has answered.
+            hf::tick();
 
             // A transition is in progress: do nothing at all.
             if (now < g_cooldown_until)

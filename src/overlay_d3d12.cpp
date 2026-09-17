@@ -2083,24 +2083,27 @@ namespace overlay
         }
 
         //==============================================================================
-        // Hook installation via a throwaway device + swapchain, on every launch
+        // Hook installation from addresses the engine's own swapchain gave us
         //==============================================================================
         //
-        // Discovery creates a throwaway D3D12 device, a DIRECT command queue and a 64x64
-        // swapchain on a hidden window through our own import table, reads three vtable
-        // slots and destroys all three. The addresses it finds are a property of the
-        // DLLs, so they could be written down and reused - and reusing them is what makes
-        // such a launch a different launch. On a machine stacking ReShade's dxgi proxy,
-        // an addon, Streamline's interposer and the Steam overlay, these creation calls
-        // are what drives every one of those layers through its own interposer before
-        // MinHook writes a byte; hooking the addresses straight out of a file skips that
-        // and intermittently costs the frame - a black screen from launch, with this mod
-        // presenting happily and nothing in any log. Discovery costs ~60 ms once per
-        // launch, which is not worth a file to skip.
+        // The three addresses are three slots of a swapchain's vtable, and `hookfind`
+        // reads them off the swapchain Unreal already owns (game thread), so nothing is
+        // created here: no window, no D3D12 device, no command queue, no DXGI factory,
+        // no swapchain. A factory an injector has hooked never sees a call of ours -
+        // which is the whole point, because handing one such factory a throwaway
+        // swapchain is what killed the game under OptiScaler.
         //
-        // The price is that Steam's GameOverlayRenderer64 hooks the same creation entry
-        // points and re-targets its overlay onto what it sees created, so its FPS counter
-        // can end up pointing at objects we destroyed again.
+        // What the throwaway objects also did was drive every layer in the process -
+        // ReShade's dxgi proxy, Streamline's interposer, the Steam overlay - through its
+        // own creation path before MinHook wrote a byte. That priming is gone. In its
+        // place the hooks now go in after the engine has a swapchain of its own, i.e.
+        // after those same layers have been driven by the game itself, which is the
+        // stronger version of the same thing. The ReShade + Streamline regression cell
+        // is what holds this claim up.
+        //
+        // The addresses are a property of the DLLs, so they could be written down and
+        // reused - and reusing them across launches is what black-screens intermittently.
+        // They are read fresh every launch.
 
         // wuchang_minimap_hookaddr.txt is where older builds cached the addresses.
         void remove_stale_hook_cache()
@@ -2174,18 +2177,14 @@ namespace overlay
             return ok;
         }
 
-        bool install_hooks()
+        // The last resort, and only where nothing can intercept it: the pre-engine way of
+        // finding the addresses. It creates a throwaway D3D12 device, a DIRECT queue and
+        // a 64x64 swapchain on a hidden window, reads the three slots and destroys all of
+        // it again. Handing a swapchain to a factory an injector has hooked is what kills
+        // the game under OptiScaler, so the caller runs this only when no interposer is
+        // loaded at all.
+        bool discover_by_dummy(void* out[kHookCount])
         {
-            remove_stale_hook_cache();
-            const std::uint64_t began = ::GetTickCount64();
-            const MH_STATUS init = MH_Initialize();
-            if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
-            {
-                mm::logf(L"MH_Initialize failed: {}",
-                         std::wstring(MH_StatusToString(init), MH_StatusToString(init) + std::strlen(MH_StatusToString(init))));
-                return false;
-            }
-
             WNDCLASSEXW wc{};
             wc.cbSize = sizeof(wc);
             wc.lpfnWndProc = ::DefWindowProcW;
@@ -2233,28 +2232,13 @@ namespace overlay
                 hr = factory->CreateSwapChainForHwnd(queue, dummy_hwnd, &sd, nullptr, nullptr, &swapchain);
             }
 
-            if (SUCCEEDED(hr) && swapchain != nullptr && queue != nullptr)
+            if (SUCCEEDED(hr) && swapchain != nullptr)
             {
                 void** sc_vtable = *reinterpret_cast<void***>(swapchain);
-
-                void* addr[kHookCount] = {
-                    sc_vtable[8],  // IDXGISwapChain::Present
-                    sc_vtable[13], // IDXGISwapChain::ResizeBuffers
-                    sc_vtable[22], // IDXGISwapChain1::Present1
-                };
-
-                // Who was already there, read before a byte is written: a jmp in front of
-                // Present names the module that installed it, and MinHook relocates
-                // those bytes into our trampoline, so that overlay stays in the chain.
-                for (int i = 0; i < kHookCount; ++i)
-                {
-                    mm::logf(L"hook discovery: {} -> {} {}",
-                             kHookNames[i],
-                             module_of(addr[i]),
-                             detour_report(addr[i]));
-                }
-
-                ok = create_and_enable(addr, L"by dummy-swapchain discovery");
+                out[0] = sc_vtable[8];  // IDXGISwapChain::Present
+                out[1] = sc_vtable[13]; // IDXGISwapChain::ResizeBuffers
+                out[2] = sc_vtable[22]; // IDXGISwapChain1::Present1
+                ok = true;
             }
             else
             {
@@ -2268,14 +2252,43 @@ namespace overlay
             safe_release(device);
             ::DestroyWindow(dummy_hwnd);
             ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+            return ok;
+        }
+
+        bool install_hooks(void* const found[kHookCount], const wchar_t* how)
+        {
+            remove_stale_hook_cache();
+            const std::uint64_t began = ::GetTickCount64();
+            const MH_STATUS init = MH_Initialize();
+            if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
+            {
+                mm::logf(L"MH_Initialize failed: {}",
+                         std::wstring(MH_StatusToString(init), MH_StatusToString(init) + std::strlen(MH_StatusToString(init))));
+                return false;
+            }
+
+            void* addr[kHookCount] = {found[0], found[1], found[2]};
+
+            // Who was already there, read before a byte is written: a jmp in front of
+            // Present names the module that installed it, and MinHook relocates those
+            // bytes into our trampoline, so that overlay stays in the chain. The module
+            // named here is the one the GAME calls through - an injector's wrapper on a
+            // stack that has one, dxgi.dll on a stack that does not.
+            for (int i = 0; i < kHookCount; ++i)
+            {
+                mm::logf(L"hook discovery: {} -> {} {}",
+                         kHookNames[i],
+                         module_of(addr[i]),
+                         detour_report(addr[i]));
+            }
+
+            const bool ok = create_and_enable(addr, how);
 
             g_hooks_installed = ok;
             g_hook_install_ms = ::GetTickCount64();
-            // What the throwaway objects cost, and the window in which Steam's overlay
-            // could have re-targeted itself onto them.
-            mm::logf(L"hook discovery: {} ms from the dummy window to the three hooks; the dummy device, "
-                     L"queue, swapchain and window are destroyed again",
-                     g_hook_install_ms - began);
+            mm::logf(L"hook discovery: {} ms to hook the three slots, {}",
+                     g_hook_install_ms - began,
+                     how);
             return ok;
         }
 

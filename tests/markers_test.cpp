@@ -40,6 +40,7 @@
 #include "typing_gate.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
+#include "ptrwalk.hpp"
 #include "saveslot.hpp"
 #include "scan_sched.hpp"
 #include "scriptmap.hpp"
@@ -3199,7 +3200,10 @@ namespace
                     CHECK(e.geometry_ok());
                     CHECK(e.heights_ok());
                     CHECK(!e.height_maps_guessed);
-                    CHECK_EQ(static_cast<long long>(e.height_maps.size()), 8);
+                    // How many storeys a chapter needs is a property of its geometry, not
+                    // a constant: the island cut left chapter 4 with six planes where the
+                    // others still have eight. The ceiling is build_map.py's --max-surfaces.
+                    CHECK(e.height_maps.size() >= 1 && e.height_maps.size() <= 8);
                     CHECK(e.px_per_uu > 0.02 && e.px_per_uu <= 0.06);
                     // Every shipped chapter is 12-bit, every plane is named the `_h` way,
                     // and reachability is a property of the whole tree.
@@ -6863,6 +6867,171 @@ namespace
 
 } // namespace
 
+
+//==========================================================================================
+// pw::search - the pointer walk the overlay crosses to the engine's swapchain
+//==========================================================================================
+//
+// The real walk starts at a UObject and ends at an IDXGISwapChain three hops away,
+// judging each candidate by what it is rather than by where it sits. Here the graph is
+// built by hand, so the reader and the judge can say exactly what the walk is allowed to
+// touch and what counts as the destination.
+
+namespace pwtest
+{
+    // One node of the fake graph: a vtable word, then pointer-sized fields.
+    struct Obj
+    {
+        const void* vtable;
+        const void* slot[8];
+    };
+
+    constexpr std::uintptr_t kObjVtable = 0xC0DE; // "an object": the walk may descend into it
+    constexpr std::uintptr_t kScVtable = 0x5CA1;  // "a swapchain": the walk stops here
+
+    struct World
+    {
+        std::vector<Obj*> live;      // memory the reader admits
+        const Obj* target = nullptr; // what the judge accepts
+
+        bool readable(const void* p, std::size_t n) const
+        {
+            const auto* c = static_cast<const unsigned char*>(p);
+            for (const Obj* o : live)
+            {
+                const auto* base = reinterpret_cast<const unsigned char*>(o);
+                if (c >= base && c + n <= base + sizeof(Obj))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    };
+} // namespace pwtest
+
+static void test_ptr_walk()
+{
+    section("the pointer walk to the engine's swapchain");
+    using namespace pwtest;
+
+    // root -> mid -> leaf, at slots nobody had to know in advance.
+    Obj root{};
+    Obj mid{};
+    Obj leaf{};
+    Obj junk{};
+    root.vtable = reinterpret_cast<const void*>(kObjVtable);
+    mid.vtable = reinterpret_cast<const void*>(kObjVtable);
+    junk.vtable = reinterpret_cast<const void*>(kObjVtable);
+    leaf.vtable = reinterpret_cast<const void*>(kScVtable);
+    root.slot[2] = &junk;
+    root.slot[5] = &mid;
+    mid.slot[1] = &leaf;
+    // Values that are not pointers at all, and one that is not aligned.
+    root.slot[0] = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(7));
+    root.slot[1] = reinterpret_cast<const void*>(reinterpret_cast<std::uintptr_t>(&mid) + 1);
+
+    World w;
+    w.live = {&root, &mid, &leaf, &junk};
+    w.target = &leaf;
+
+    auto read = [&w](const void* addr, void* out, std::size_t n)
+    {
+        if (!w.readable(addr, n))
+        {
+            return false;
+        }
+        std::memcpy(out, addr, n);
+        return true;
+    };
+    auto judge = [&w](const void* candidate)
+    {
+        Obj probe{};
+        if (!w.readable(candidate, sizeof(Obj)))
+        {
+            return pw::Verdict::Skip;
+        }
+        std::memcpy(&probe, candidate, sizeof(Obj));
+        if (probe.vtable == reinterpret_cast<const void*>(kScVtable))
+        {
+            return pw::Verdict::Accept;
+        }
+        if (probe.vtable == reinterpret_cast<const void*>(kObjVtable))
+        {
+            return pw::Verdict::Follow;
+        }
+        return pw::Verdict::Skip;
+    };
+
+    static pw::Arena arena;
+    const pw::Limits lim{4, sizeof(Obj), 64};
+
+    pw::Result r = pw::search(&root, lim, read, judge, arena);
+    CHECK(r.object == &leaf);
+    CHECK_EQ(r.depth, 2);
+    CHECK(!r.budget_hit);
+
+    // A cycle costs one visit, not a hang.
+    leaf.slot[0] = &root;
+    mid.slot[4] = &root;
+    junk.slot[0] = &mid;
+    r = pw::search(&root, lim, read, judge, arena);
+    CHECK(r.object == &leaf);
+
+    // Too shallow to reach it, and the walk says so by finishing empty.
+    const pw::Limits shallow{1, sizeof(Obj), 64};
+    r = pw::search(&root, shallow, read, judge, arena);
+    CHECK(r.object == nullptr);
+    CHECK(!r.budget_hit);
+
+    // A window that stops before the field holding the next hop finds nothing either:
+    // this is what a too-small window costs, and why the real one is generous.
+    const pw::Limits narrow{4, sizeof(void*) * 2, 64};
+    r = pw::search(&root, narrow, read, judge, arena);
+    CHECK(r.object == nullptr);
+
+    // The budget is a stop, not a crash, and it is reported.
+    const pw::Limits broke{4, sizeof(Obj), 1};
+    r = pw::search(&root, broke, read, judge, arena);
+    CHECK(r.budget_hit || r.object != nullptr);
+
+    // Memory the reader refuses is simply not crossed: drop `mid` out of the world and
+    // the leaf becomes unreachable, without the judge ever being asked about it.
+    World closed = w;
+    closed.live = {&root, &leaf, &junk};
+    auto read_closed = [&closed](const void* addr, void* out, std::size_t n)
+    {
+        if (!closed.readable(addr, n))
+        {
+            return false;
+        }
+        std::memcpy(out, addr, n);
+        return true;
+    };
+    auto judge_closed = [&closed](const void* candidate)
+    {
+        Obj probe{};
+        if (!closed.readable(candidate, sizeof(Obj)))
+        {
+            return pw::Verdict::Skip;
+        }
+        std::memcpy(&probe, candidate, sizeof(Obj));
+        if (probe.vtable == reinterpret_cast<const void*>(kScVtable))
+        {
+            return pw::Verdict::Accept;
+        }
+        return probe.vtable == reinterpret_cast<const void*>(kObjVtable) ? pw::Verdict::Follow
+                                                                        : pw::Verdict::Skip;
+    };
+    r = pw::search(&root, lim, read_closed, judge_closed, arena);
+    CHECK(r.object == nullptr);
+
+    // A null root is a miss, not a fault.
+    r = pw::search(nullptr, lim, read, judge, arena);
+    CHECK(r.object == nullptr);
+    CHECK_EQ(r.nodes, 0);
+}
+
 int main(int argc, char** argv)
 {
     std::printf("WuchangMinimap - offline marker tests\n\n");
@@ -6899,6 +7068,7 @@ int main(int argc, char** argv)
     test_scan_sched();
     test_sweep_sched();
     test_projection();
+    test_ptr_walk();
     test_compass();
     test_chapter_id();
     test_marker_chapter_filter();

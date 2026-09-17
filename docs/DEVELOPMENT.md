@@ -343,13 +343,21 @@ it against something independently measured, and logging the decision.** Logging
 What each subsystem is, which file owns it, and the one thing about it that is not obvious from
 reading that file's code. The file's own header comment is the full account.
 
-**The overlay's hooks** — `overlay_d3d12.cpp`. `Present`, `Present1` and `ResizeBuffers`,
-MinHook'd at addresses read off a throwaway device + queue + swapchain, because the game's
-swapchain is not reachable from a UE4SS mod. *Discovery runs on every launch and must:* creating
-those objects drives a ReShade proxy, its addons, Streamline's interposer and the Steam overlay
-through their own creation interposers before MinHook writes a byte, and a launch that hooks
-addresses cached in a file instead **intermittently black-screens from the first frame**, with the
-mod presenting normally and nothing in any log.
+**The overlay's hooks** — `hookfind.cpp` finds them, `overlay_d3d12.cpp` installs them. `Present`,
+`Present1` and `ResizeBuffers` are three slots of a swapchain's vtable, and the swapchain they are
+read from is the one the engine already owns: from the process's single `GameViewportClient`,
+`ptrwalk.hpp` walks the pointer graph breadth-first — `FViewport`, then the RHI viewport, then the
+chain — accepting a candidate only when it answers `QueryInterface` for `IDXGISwapChain1`, hands out
+a D3D12 back buffer and presents into a window of this process. *Nothing is created to find them.*
+Handing a throwaway swapchain to a DXGI factory an injector has hooked is what crashed the game
+under OptiScaler (three launches, every time), and what is not called cannot be intercepted. The
+walk runs on the game thread because it starts at a `UObject`; the loop thread installs, because
+MinHook belongs to one thread. *Discovery runs on every launch and must:* addresses cached in a
+file **intermittently black-screen from the first frame**, with the mod presenting normally and
+nothing in any log. The address that comes back is usually not in `dxgi.dll` — on a Streamline
+title it is the SL proxy, under ReShade it is ReShade's wrapper — and that is correct: it is the
+function the game itself calls. When the walk finds nothing for 30 s the old throwaway-swapchain
+discovery is the fallback, but only where no injector is loaded to intercept it.
 
 **The surface it draws on** — `overlay_dcomp.cpp`. The game's swapchain is *followed* for geometry
 and the frame tick; everything drawn into is the mod's own — a DIRECT queue, `kTargets` BGRA8

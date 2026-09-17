@@ -23,6 +23,7 @@
 // UE4SS loop thread (on_update) - Present only ever creates D3D12 objects and draws.
 //
 
+#include "hookfind.hpp"
 #include "overlay_internal.hpp"
 
 #include "atomicfile.hpp"
@@ -157,6 +158,7 @@ namespace overlay
         std::atomic<bool> g_drop_textures{false};
         std::atomic<bool> g_hooks_installed{false};
         bool g_hooks_created = false;                // loop thread only
+        bool g_hooks_pending = false;                // loop thread only
         std::atomic<StopPhase> g_render_shutdown{StopPhase::Done}; // render -> loop
         std::atomic<bool> g_watchdog_reported{false};
         std::uint64_t g_hook_install_ms = 0;
@@ -714,6 +716,77 @@ namespace overlay
             return false;
         }
 
+        // Does anything stand between the game and DXGI's own object creation?
+        //
+        // Two shapes answer yes. A proxy: a DLL loaded out of the game's OWN folder under
+        // a name Windows would otherwise resolve in System32 - that is how ReShade,
+        // OptiScaler, Special K and the rest get into the process, and it is why the name
+        // alone is not the test and the PATH is. And an injector that arrives under its
+        // own name. Everything else - the real dxgi.dll, D3D12Core, the driver, the Steam
+        // overlay - is not in the business of handing out swapchains.
+        bool interposer_loaded(std::wstring& who)
+        {
+            static const wchar_t* const proxy_names[] = {L"dxgi.dll",
+                                                         L"d3d12.dll",
+                                                         L"d3d11.dll",
+                                                         L"d3d9.dll",
+                                                         L"dinput8.dll",
+                                                         L"winmm.dll",
+                                                         L"version.dll",
+                                                         L"dbghelp.dll",
+                                                         L"opengl32.dll"};
+            static const wchar_t* const injector_marks[] = {L"reshade", L"optiscaler", L"specialk",
+                                                            L"lossless", L"dxvk"};
+
+            wchar_t exe[MAX_PATH]{};
+            const DWORD n = ::GetModuleFileNameW(nullptr, exe, MAX_PATH);
+            if (n == 0 || n >= MAX_PATH)
+            {
+                return false;
+            }
+            std::wstring dir = lower_name(exe);
+            const std::size_t cut = dir.find_last_of(L'\\');
+            dir = cut == std::wstring::npos ? std::wstring() : dir.substr(0, cut + 1);
+
+            const HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, ::GetCurrentProcessId());
+            if (snap == INVALID_HANDLE_VALUE)
+            {
+                return false;
+            }
+            bool found = false;
+            MODULEENTRY32W me{};
+            me.dwSize = sizeof(me);
+            for (BOOL ok = ::Module32FirstW(snap, &me); ok && !found; ok = ::Module32NextW(snap, &me))
+            {
+                const std::wstring name = lower_name(me.szModule);
+                const std::wstring path = lower_name(me.szExePath);
+                for (const wchar_t* mark : injector_marks)
+                {
+                    if (name.find(mark) != std::wstring::npos)
+                    {
+                        who = me.szExePath;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found || dir.empty() || path.compare(0, dir.size(), dir) != 0)
+                {
+                    continue;
+                }
+                for (const wchar_t* proxy : proxy_names)
+                {
+                    if (name == proxy)
+                    {
+                        who = me.szExePath;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            ::CloseHandle(snap);
+            return found;
+        }
+
         // Every module of THIS process that matches, not a fixed list of six: the one
         // thing the first bug report had to be asked for was its module list, and a
         // machine with an upscaler or a frame generator this code has never heard of
@@ -997,6 +1070,62 @@ namespace overlay
                      widen(p.profile.empty() ? std::string{"(none)"} : p.profile), widen(profile));
             post_toast(note, foreign ? 6000 : 4000);
         }
+        // LOOP THREAD. The other half of the install `start()` armed. The game thread has
+        // been looking for the engine's own swapchain; this turns its answer into hooks, on
+        // the thread that owns every MinHook call. It runs on each tick until it installs,
+        // falls back, or refuses.
+        void complete_pending_hook_install()
+        {
+            if (!g_hooks_pending || g_hooks_created)
+            {
+                return;
+            }
+
+            hf::Addresses found{};
+            if (hf::addresses(found))
+            {
+                void* addr[kHookCount] = {found.present, found.resize, found.present1};
+                g_hooks_pending = false;
+                g_hooks_created = install_hooks(addr, L"from the engine's own swapchain");
+                g_watchdog_reported = false;
+                crumb::stage(g_hooks_created ? crumb::kHooksInstalled : "hook install FAILED");
+                return;
+            }
+            if (hf::state() != hf::State::GaveUp)
+            {
+                return;
+            }
+
+            // No swapchain came out of the engine. The old way of finding the addresses -
+            // create a throwaway one and read its vtable - still works, but it is exactly
+            // what an injector's factory hook turns into a crash, so it is only taken when
+            // there is no injector in the process to hook anything.
+            g_hooks_pending = false;
+            std::wstring who;
+            if (interposer_loaded(who))
+            {
+                mm::logf(L"hooks: the engine's swapchain could not be found and {} is loaded, which sits "
+                         L"between the game and DXGI. Creating a swapchain of our own to find the "
+                         L"addresses is what crashes that combination, so no hooks are installed and the "
+                         L"overlay will not draw this session. Everything on the game thread carries on.",
+                         who);
+                if (who.find(L"d3d12.dll") != std::wstring::npos || who.find(L"optiscaler") != std::wstring::npos)
+                {
+                    mm::log(L"hooks: if that module is OptiScaler, DxgiFactoryWrapping = true in its "
+                            L"OptiScaler.ini is measured to make the two coexist.");
+                }
+                crumb::stage("hook install SKIPPED: an interposer is loaded");
+                return;
+            }
+
+            void* addr[kHookCount] = {nullptr, nullptr, nullptr};
+            if (discover_by_dummy(addr))
+            {
+                g_hooks_created = install_hooks(addr, L"by dummy-swapchain discovery, nothing interposing");
+                g_watchdog_reported = false;
+            }
+            crumb::stage(g_hooks_created ? crumb::kHooksInstalled : "hook install FAILED");
+        }
     } // namespace
 
     void start()
@@ -1043,8 +1172,15 @@ namespace overlay
         }
         else if (!g_hooks_created)
         {
-            g_hooks_created = install_hooks();
-            crumb::stage(g_hooks_created ? crumb::kHooksInstalled : "hook install FAILED");
+            // The addresses are three slots of the engine's own swapchain, and only the
+            // game thread may go looking for it. So this arms the install; `on_update`
+            // performs it on the tick the addresses appear, still on this thread, which
+            // is the only thread that ever calls MinHook.
+            g_hooks_pending = true;
+            crumb::stage("hooks pending: the engine's swapchain");
+            mm::log(L"hooks: waiting for the engine's own swapchain to read the three addresses off. "
+                    L"Nothing is created in this process to find them - no window, no device, no "
+                    L"queue, no factory, no swapchain.");
         }
         else
         {
@@ -1125,6 +1261,9 @@ namespace overlay
 
     bool finish_stop()
     {
+        // A stop that arrives while the install is still waiting for the game thread
+        // cancels it: `start()` arms it again if the mod comes back on.
+        g_hooks_pending = false;
         if (!g_hooks_created)
         {
             return true;
@@ -1368,6 +1507,9 @@ namespace overlay
 
         const mm::Config& cfg = mm::cfg_cached();
         const std::uint64_t now = ::GetTickCount64();
+
+        // The hooks, if start() armed them and the game thread has an answer.
+        complete_pending_hook_install();
 
         // THE HEIGHT SLICER. 1-4 ms of CPU, on this thread: it writes into a
         // persistently mapped upload heap and needs nothing from the frame, so render()

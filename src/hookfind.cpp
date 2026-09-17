@@ -42,6 +42,12 @@ namespace hf
         std::atomic<void*> g_resize{nullptr};
         std::atomic<void*> g_present1{nullptr};
         std::atomic<const void*> g_swapchain{nullptr};
+        // Read by the loop thread's own timeout; see hf::Progress.
+        std::atomic<int> g_attempts{0};
+        std::atomic<int> g_candidates{0};
+        std::atomic<int> g_objects{0};
+        std::atomic<bool> g_root_seen{false};
+        std::atomic<bool> g_budget_hit{false};
 
         // Game thread only.
         pw::Arena g_arena{};
@@ -302,6 +308,7 @@ namespace hf
         RC::Unreal::UObject* root = RC::Unreal::UObjectGlobals::FindFirstOf(L"GameViewportClient");
         if (root == nullptr)
         {
+            g_attempts.fetch_add(1, std::memory_order_relaxed);
             if (!g_no_root_logged)
             {
                 g_no_root_logged = true;
@@ -318,6 +325,8 @@ namespace hf
             {
                 return;
             }
+            g_attempts.fetch_add(1, std::memory_order_relaxed);
+            g_root_seen.store(true, std::memory_order_relaxed);
             ComProbe hit{};
             const pw::Limits limits{4, 0x400, 3000};
             const pw::Result found = pw::search(
@@ -327,6 +336,9 @@ namespace hf
                 { return mem::readable(addr, bytes) && mem::copy(addr, out, bytes); },
                 [&hit](const void* candidate) { return judge(candidate, hit); },
                 g_arena);
+            g_candidates.store(found.nodes, std::memory_order_relaxed);
+            g_objects.store(found.follows, std::memory_order_relaxed);
+            g_budget_hit.store(found.budget_hit, std::memory_order_relaxed);
 
             if (found.object != nullptr && publish(found.object))
             {
@@ -354,15 +366,32 @@ namespace hf
         if (now - g_first_try_ms >= kDeadlineMs)
         {
             g_state.store(State::GaveUp, std::memory_order_release);
-            mm::logf(L"hook discovery: {} s of looking and the engine's swapchain was not found from the "
-                     L"GameViewportClient. The addresses have to come from somewhere else.",
-                     kDeadlineMs / 1000);
+            mm::logf(L"hook discovery: {} s and {} search(es) later the engine's swapchain was still not "
+                     L"found. A GameViewportClient {}; the last walk judged {} candidate(s) over {} "
+                     L"object(s) and {} the node budget. The addresses have to come from somewhere else.",
+                     kDeadlineMs / 1000,
+                     g_attempts.load(std::memory_order_relaxed),
+                     g_root_seen.load(std::memory_order_relaxed) ? L"was found" : L"was NEVER found",
+                     g_candidates.load(std::memory_order_relaxed),
+                     g_objects.load(std::memory_order_relaxed),
+                     g_budget_hit.load(std::memory_order_relaxed) ? L"spent" : L"stayed inside");
         }
     }
 
     State state()
     {
         return g_state.load(std::memory_order_acquire);
+    }
+
+    Progress progress()
+    {
+        Progress p{};
+        p.attempts = g_attempts.load(std::memory_order_relaxed);
+        p.candidates = g_candidates.load(std::memory_order_relaxed);
+        p.objects = g_objects.load(std::memory_order_relaxed);
+        p.root_seen = g_root_seen.load(std::memory_order_relaxed);
+        p.budget_hit = g_budget_hit.load(std::memory_order_relaxed);
+        return p;
     }
 
     bool addresses(Addresses& out)

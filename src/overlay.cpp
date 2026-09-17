@@ -159,6 +159,10 @@ namespace overlay
         std::atomic<bool> g_hooks_installed{false};
         bool g_hooks_created = false;                // loop thread only
         bool g_hooks_pending = false;                // loop thread only
+        std::uint64_t g_hooks_pending_since = 0;     // loop thread only
+        // The loop thread's own bound on the game thread's search. Longer than the
+        // search's 30 s, so that a search which is merely slow answers for itself.
+        constexpr std::uint64_t kHookWaitMs = 45000;
         std::atomic<StopPhase> g_render_shutdown{StopPhase::Done}; // render -> loop
         std::atomic<bool> g_watchdog_reported{false};
         std::uint64_t g_hook_install_ms = 0;
@@ -1070,15 +1074,61 @@ namespace overlay
                      widen(p.profile.empty() ? std::string{"(none)"} : p.profile), widen(profile));
             post_toast(note, foreign ? 6000 : 4000);
         }
+        // The install of last resort, once the engine's swapchain is off the table.
+        // `why` is already in the log; this decides what happens instead.
+        void fall_back_without_the_engine()
+        {
+            g_hooks_pending = false;
+            std::wstring who;
+            if (interposer_loaded(who))
+            {
+                mm::logf(L"hooks: {} is loaded, which sits between the game and DXGI. Creating a "
+                         L"swapchain of our own to find the addresses is what crashes that "
+                         L"combination, so no hooks are installed and the overlay will not draw this "
+                         L"session. Everything on the game thread carries on. Loaded graphics modules "
+                         L"follow:",
+                         who);
+                log_overlay_modules();
+                if (who.find(L"d3d12.dll") != std::wstring::npos || who.find(L"optiscaler") != std::wstring::npos)
+                {
+                    mm::log(L"hooks: if that module is OptiScaler, DxgiFactoryWrapping = true in its "
+                            L"OptiScaler.ini is measured to make the two coexist.");
+                }
+                crumb::stage("hook install SKIPPED: an interposer is loaded");
+                return;
+            }
+
+            mm::log(L"hooks: nothing is interposing between the game and DXGI, so the addresses are "
+                    L"taken the old way - from a throwaway swapchain of our own.");
+            void* addr[kHookCount] = {nullptr, nullptr, nullptr};
+            if (discover_by_dummy(addr))
+            {
+                g_hooks_created = install_hooks(addr, L"by dummy-swapchain discovery, nothing interposing");
+                g_watchdog_reported = false;
+            }
+            crumb::stage(g_hooks_created ? crumb::kHooksInstalled : "hook install FAILED");
+        }
+
         // LOOP THREAD. The other half of the install `start()` armed. The game thread has
         // been looking for the engine's own swapchain; this turns its answer into hooks, on
         // the thread that owns every MinHook call. It runs on each tick until it installs,
         // falls back, or refuses.
+        //
+        // It carries its own deadline as well, longer than the search's, because the
+        // search's deadline is counted inside the search: a game thread that never reaches
+        // the pump at all would otherwise leave this waiting silently for the whole
+        // session. "Never started" and "started and failing" are different reports, and
+        // `hf::Progress` is what tells them apart.
         void complete_pending_hook_install()
         {
             if (!g_hooks_pending || g_hooks_created)
             {
                 return;
+            }
+            const std::uint64_t now = ::GetTickCount64();
+            if (g_hooks_pending_since == 0)
+            {
+                g_hooks_pending_since = now;
             }
 
             hf::Addresses found{};
@@ -1091,41 +1141,41 @@ namespace overlay
                 crumb::stage(g_hooks_created ? crumb::kHooksInstalled : "hook install FAILED");
                 return;
             }
-            if (hf::state() != hf::State::GaveUp)
+
+            if (hf::state() == hf::State::GaveUp)
+            {
+                fall_back_without_the_engine();
+                return;
+            }
+            if (now - g_hooks_pending_since < kHookWaitMs)
             {
                 return;
             }
 
-            // No swapchain came out of the engine. The old way of finding the addresses -
-            // create a throwaway one and read its vtable - still works, but it is exactly
-            // what an injector's factory hook turns into a crash, so it is only taken when
-            // there is no injector in the process to hook anything.
-            g_hooks_pending = false;
-            std::wstring who;
-            if (interposer_loaded(who))
+            // Past our own deadline with the search still saying "searching": the game
+            // thread is not answering. Say which of the two it is.
+            const hf::Progress p = hf::progress();
+            if (p.attempts == 0)
             {
-                mm::logf(L"hooks: the engine's swapchain could not be found and {} is loaded, which sits "
-                         L"between the game and DXGI. Creating a swapchain of our own to find the "
-                         L"addresses is what crashes that combination, so no hooks are installed and the "
-                         L"overlay will not draw this session. Everything on the game thread carries on.",
-                         who);
-                if (who.find(L"d3d12.dll") != std::wstring::npos || who.find(L"optiscaler") != std::wstring::npos)
-                {
-                    mm::log(L"hooks: if that module is OptiScaler, DxgiFactoryWrapping = true in its "
-                            L"OptiScaler.ini is measured to make the two coexist.");
-                }
-                crumb::stage("hook install SKIPPED: an interposer is loaded");
-                return;
+                mm::logf(L"hooks: {} s after the mod started, the game thread has not run a single "
+                         L"search for the engine's swapchain - the ProcessEvent pump has never "
+                         L"reached it. Nothing is wrong with the search; nothing is driving it.",
+                         kHookWaitMs / 1000);
             }
-
-            void* addr[kHookCount] = {nullptr, nullptr, nullptr};
-            if (discover_by_dummy(addr))
+            else
             {
-                g_hooks_created = install_hooks(addr, L"by dummy-swapchain discovery, nothing interposing");
-                g_watchdog_reported = false;
+                mm::logf(L"hooks: {} s after the mod started the search is still running ({} attempt(s), "
+                         L"a GameViewportClient {}, last walk {} candidate(s) over {} object(s)) and has "
+                         L"not reached its own deadline. The game thread is running late.",
+                         kHookWaitMs / 1000,
+                         p.attempts,
+                         p.root_seen ? L"was found" : L"was NEVER found",
+                         p.candidates,
+                         p.objects);
             }
-            crumb::stage(g_hooks_created ? crumb::kHooksInstalled : "hook install FAILED");
+            fall_back_without_the_engine();
         }
+
     } // namespace
 
     void start()
@@ -1177,6 +1227,7 @@ namespace overlay
             // performs it on the tick the addresses appear, still on this thread, which
             // is the only thread that ever calls MinHook.
             g_hooks_pending = true;
+            g_hooks_pending_since = 0;
             crumb::stage("hooks pending: the engine's swapchain");
             mm::log(L"hooks: waiting for the engine's own swapchain to read the three addresses off. "
                     L"Nothing is created in this process to find them - no window, no device, no "
@@ -1264,6 +1315,7 @@ namespace overlay
         // A stop that arrives while the install is still waiting for the game thread
         // cancels it: `start()` arms it again if the mod comes back on.
         g_hooks_pending = false;
+        g_hooks_pending_since = 0;
         if (!g_hooks_created)
         {
             return true;
@@ -2073,10 +2125,11 @@ namespace overlay
             mm::log(L"the settings panel is rendering");
         }
         // Has the Present count MOVED in the 8 s since the hooks went in? A count stuck
-        // at 0 means the game's swapchain is behind a proxy we did not create ours
-        // through. A count stuck at anything else means frames were arriving and have
-        // stopped, which is what a device removed inside the first Present looks like
-        // from the loop thread. Both want the same module list, so both get it.
+        // at 0 means the hooked function is not the one the game calls - the addresses
+        // came off an object the engine holds but does not present through. A count stuck
+        // at anything else means frames were arriving and have stopped, which is what a
+        // device removed inside the first Present looks like from the loop thread. Both
+        // want the same module list, so both get it.
         static std::uint64_t wd_presents = 0;
         static std::uint64_t wd_presents_at = 0;
         static std::uint64_t wd_epoch = 0;
@@ -2102,9 +2155,10 @@ namespace overlay
                          L"modules follow:",
                          presents,
                          presents == 0
-                             ? L"Not a single Present has reached the hook: the game's swapchain is "
-                               L"behind a proxy we did not create ours through (a DLSS "
-                               L"frame-generation wrapper is the likely candidate)."
+                             ? L"Not a single Present has reached the hook: the three addresses came "
+                               L"off a swapchain the engine holds but does not present through, or "
+                               L"something replaced it after we read it. The hooked module is named "
+                               L"in the 'hook discovery' lines above."
                              : L"Frames WERE reaching the hook and have stopped, which is what a "
                                L"removed device or a wedged render thread looks like from here.");
                 static const wchar_t* const suspects[] = {L"dxgi.dll",       L"d3d12.dll",  L"ReShade64.dll",

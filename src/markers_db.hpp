@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "chapterid.hpp"
+#include "textmatch.hpp"
 
 namespace mdb
 {
@@ -582,6 +583,24 @@ namespace mdb
     constexpr bool hidden_as_found(Cat cat, bool found, bool hide_found)
     {
         return found && hide_found && !is_landmark_cat(cat);
+    }
+
+    // THE question the full map asks of every marker in the published buffer: is it on the
+    // map right now? The category mask, `markers_hide_found` and the name box, in one place,
+    // so the match count, the result rows and the glyphs on the canvas cannot disagree. An
+    // empty query filters nothing out, which is what a closed search box passes. `raw_cat` is
+    // DrawMarker::cat, range-checked here because a published buffer is the one place a
+    // category byte arrives unvalidated.
+    inline bool passes_map_filter(std::uint8_t raw_cat, bool found, std::uint32_t cats,
+                                  bool hide_found, const char* label, std::string_view query)
+    {
+        if (static_cast<int>(raw_cat) >= kCatCount)
+        {
+            return false;
+        }
+        const Cat cat = static_cast<Cat>(raw_cat);
+        return cat_enabled(cats, cat) && !hidden_as_found(cat, found, hide_found) &&
+               txt::contains_ci(display_label(cat, label), query);
     }
 
     // Solid or hollow. A found marker is drawn hollow and dimmed; a landmark inverts it,

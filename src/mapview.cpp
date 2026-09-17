@@ -68,6 +68,26 @@ namespace mv
         wy = v.cy + (static_cast<double>(sx) - static_cast<double>(r.cx())) * z;
     }
 
+    void pan_px(View& v, double right_px, double up_px)
+    {
+        // Screen right is world +Y, screen up is world +X.
+        v.cx += up_px * v.uu_per_px;
+        v.cy += right_px * v.uu_per_px;
+    }
+
+    void zoom_about(View& v, const Rect& r, float sx, float sy, double notches, double factor,
+                    double lo, double hi)
+    {
+        double wx = 0.0;
+        double wy = 0.0;
+        screen_to_world(v, r, sx, sy, wx, wy);
+        v.uu_per_px = zoom_by(v.uu_per_px, notches, factor, lo, hi);
+        // The same transform read the other way round: solve for the centre that puts
+        // (wx, wy) back on (sx, sy).
+        v.cx = wx + (static_cast<double>(sy) - static_cast<double>(r.cy())) * v.uu_per_px;
+        v.cy = wy - (static_cast<double>(sx) - static_cast<double>(r.cx())) * v.uu_per_px;
+    }
+
     double clamp_zoom(double z, double lo, double hi)
     {
         if (!finite(lo) || lo <= 0.0)

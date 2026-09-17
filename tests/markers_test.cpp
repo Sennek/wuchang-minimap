@@ -1426,6 +1426,71 @@ namespace
         CHECK_NEAR(mv::zoom_by(100.0, 0.0, 1.25, 6.0, 900.0), 100.0, 1e-9);
         CHECK_NEAR(mv::zoom_by(2.0, 0.0, 1.25, 6.0, 900.0), 6.0, 1e-9);
 
+        section("full map - panning and zooming about a point");
+
+        // A pan is a SCREEN distance: whatever the zoom, the content travels that many
+        // pixels. Measured the only way that matters - where a fixed world point lands.
+        for (const double z : zooms)
+        {
+            mv::View pv{};
+            pv.cx = 1000.0;
+            pv.cy = -2000.0;
+            pv.uu_per_px = z;
+            float bx = 0.0f;
+            float by = 0.0f;
+            mv::world_to_screen(pv, r, pv.cx, pv.cy, bx, by);
+            mv::pan_px(pv, 30.0, 12.0);
+            float ax = 0.0f;
+            float ay = 0.0f;
+            mv::world_to_screen(pv, r, 1000.0, -2000.0, ax, ay);
+            // The view moved right and up, so the point moved LEFT and DOWN by the same.
+            CHECK_NEAR(ax, bx - 30.0, 0.01);
+            CHECK_NEAR(ay, by + 12.0, 0.01);
+        }
+        {
+            mv::View pv{};
+            pv.uu_per_px = 40.0;
+            mv::pan_px(pv, 0.0, 0.0);
+            CHECK(pv.cx == 0.0 && pv.cy == 0.0);
+        }
+
+        // Zooming about a point keeps the world under that point under it - at the cursor,
+        // at a corner, in or out, and against the limits.
+        {
+            const float anchors[][2] = {{r.cx(), r.cy()}, {r.x0, r.y0}, {r.x1, r.y1},
+                                        {r.x0 + 37.0f, r.y1 - 11.0f}};
+            const double steps[] = {1.0, -1.0, 3.5, -0.25, 50.0, -50.0};
+            for (const auto& a : anchors)
+            {
+                for (const double n : steps)
+                {
+                    mv::View zv{};
+                    zv.cx = 18176.0;
+                    zv.cy = -13905.0;
+                    zv.uu_per_px = 55.0;
+                    double wx = 0.0;
+                    double wy = 0.0;
+                    mv::screen_to_world(zv, r, a[0], a[1], wx, wy);
+                    mv::zoom_about(zv, r, a[0], a[1], n, 1.25, 6.0, 900.0);
+                    float sx2 = 0.0f;
+                    float sy2 = 0.0f;
+                    mv::world_to_screen(zv, r, wx, wy, sx2, sy2);
+                    CHECK_NEAR(sx2, a[0], 0.01);
+                    CHECK_NEAR(sy2, a[1], 0.01);
+                    CHECK(zv.uu_per_px >= 6.0 && zv.uu_per_px <= 900.0);
+                }
+            }
+            // About the centre, the centre itself is the world point that stays.
+            mv::View cv{};
+            cv.cx = 5.0;
+            cv.cy = 7.0;
+            cv.uu_per_px = 100.0;
+            mv::zoom_about(cv, r, r.cx(), r.cy(), 1.0, 1.25, 1.0, 1000.0);
+            CHECK_NEAR(cv.cx, 5.0, 1e-6);
+            CHECK_NEAR(cv.cy, 7.0, 1e-6);
+            CHECK_NEAR(cv.uu_per_px, 80.0, 1e-9);
+        }
+
         section("full map - the waypoint file");
 
         // The format 0.9.x wrote, which is still read. Written out here rather than
@@ -1645,6 +1710,32 @@ namespace
         // The match may sit at either end, and a near miss must not slide into one.
         CHECK(txt::contains_ci("abcabd", "abd"));
         CHECK(!txt::contains_ci("abcabc", "abd"));
+
+        section("full map - what is on the map");
+
+        // The one predicate the glyph pass, the match count and the result rows all ask,
+        // so they cannot disagree. Category mask, then markers_hide_found, then the box.
+        const std::uint8_t chest = static_cast<std::uint8_t>(mdb::Cat::Chest);
+        const std::uint8_t shrine = static_cast<std::uint8_t>(mdb::Cat::Shrine);
+        CHECK(mdb::passes_map_filter(chest, false, mdb::kAllCats, false, "Red Box", ""));
+        // A disabled category is off the map whatever else is true.
+        CHECK(!mdb::passes_map_filter(chest, false, mdb::kAllCats & ~mdb::cat_bit(mdb::Cat::Chest),
+                                      false, "Red Box", ""));
+        // hide_found drops a found chest, and never a shrine - a landmark is navigated BY.
+        CHECK(mdb::passes_map_filter(chest, true, mdb::kAllCats, false, "Red Box", ""));
+        CHECK(!mdb::passes_map_filter(chest, true, mdb::kAllCats, true, "Red Box", ""));
+        CHECK(mdb::passes_map_filter(shrine, true, mdb::kAllCats, true, "Shrine", ""));
+        // The box matches the DISPLAYED label, so a pickup with no name is found by its
+        // category word rather than by a class name the player never sees.
+        CHECK(mdb::passes_map_filter(chest, false, mdb::kAllCats, false, "Red Box", "box"));
+        CHECK(!mdb::passes_map_filter(chest, false, mdb::kAllCats, false, "Red Box", "shrine"));
+        CHECK(mdb::passes_map_filter(chest, false, mdb::kAllCats, false, "",
+                                     mdb::display_label(mdb::Cat::Chest, "")));
+        // A category byte out of range is never drawn: the published buffer is the one
+        // place it arrives unvalidated.
+        CHECK(!mdb::passes_map_filter(static_cast<std::uint8_t>(mdb::kCatCount), false,
+                                      mdb::kAllCats, false, "Red Box", ""));
+        CHECK(!mdb::passes_map_filter(255, false, mdb::kAllCats, false, "Red Box", ""));
     }
 
     void test_exchange()

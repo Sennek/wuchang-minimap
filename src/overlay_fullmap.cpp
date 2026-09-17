@@ -454,75 +454,143 @@ namespace overlay
             MM_LOGV(L"full map closed: {}", why);
         }
 
-        void draw_full_map(mm::Config cfg, const mm::Snapshot& snap, bool have_state, float ui_scale)
+        //======================================================================
+        // One frame of the full map
+        //======================================================================
+        //
+        // The passes below run in a fixed order and each one needs what the passes
+        // before it decided, so they are not independent functions with their own
+        // arguments - they are one frame's state machine. This struct is that state,
+        // and it is why every pass takes exactly one parameter.
+        namespace
         {
-            const mm::Config before = cfg;
-            const std::uint64_t now = ::GetTickCount64();
-            ImGuiIO& io = ImGui::GetIO();
-            const ImGuiViewport* vp = ImGui::GetMainViewport();
-
-            //--------------------------------------------------------------------------
-            // The gate. Every condition is re-evaluated from the live snapshot on every
-            // frame and closes the map outright - there is nothing here that can latch.
-            //--------------------------------------------------------------------------
-            if (!have_state || snap.stamp_ms == 0 ||
-                now - snap.stamp_ms > static_cast<std::uint64_t>(cfg.state_stale_ms))
+            struct MapFrame
             {
-                close_map(L"no fresh game-state snapshot");
-                return;
-            }
-            if (snap.transition)
+                // The UNSCALED config, and mutable: the legend's rows write filters back
+                // into it, and draw_full_map saves it when the frame changed it.
+                mm::Config cfg;
+                const mm::Snapshot& snap;
+                float ui_scale = 1.0f;
+                std::uint64_t now = 0;
+
+                const mapdata::Chapter* chapter = nullptr;
+                // Copied once: the set is 520 bytes taken under the loop thread's
+                // spinlock, and the header, the glyphs and the list all want the same
+                // frame's answer.
+                mv::WaypointSet wps{};
+                markers::View markers{};
+
+                // 1/ui_scale, not ui_scale: the canvas is `ui_scale` times as many pixels
+                // across, so uu-per-pixel comes down by the same factor to cover the same
+                // ground.
+                float zscale = 1.0f;
+                double zmin = 0.0;
+                double zmax = 0.0;
+                float feet = 0.0f; // the storey the cut shows and a new waypoint sits on
+
+                mv::Rect canvas{};
+                ImVec2 csize{};
+                float legend_w = 0.0f;
+                bool canvas_hovered = false;
+                bool canvas_active = false;
+                ImDrawList* dl = nullptr;
+
+                // The one pixel key this view owns, and the pick radius derived from it.
+                float mr = 0.0f;
+                float pick_r = 0.0f;
+
+                bool searching = false;
+                ImVec2 search_min{};
+                ImVec2 search_max{};
+                // Borrowed from the collecting pass's own static buffer: nothing here
+                // allocates per frame, because this runs inside Present.
+                const std::vector<const markers::DrawMarker*>* hits = nullptr;
+
+                // What the input passes decided this frame.
+                bool want_fit = false;
+                bool act_waypoint = false;
+                bool act_toggle = false;
+                float drag_px = 0.0f;
+                pad::State gp{};
+
+                // What the draw passes found.
+                const markers::DrawMarker* hover = nullptr;
+                const markers::DrawMarker* centre = nullptr;
+                bool have_picture = false;
+            };
+
+            // A marker that survived the filters and landed on the canvas.
+            struct MapCand
             {
-                close_map(L"a level transition started");
-                return;
-            }
-            if (!snap.has_pawn || !snap.pawn_is_gameplay)
+                float sx = 0.0f;
+                float sy = 0.0f;
+                float cd2 = 0.0f; // squared distance from the canvas centre
+                float dz = 0.0f;  // marker Z minus the player's Z, uu (signed)
+                const markers::DrawMarker* m = nullptr;
+                bool found = false;
+                int count = 1;
+            };
+
+            //==================================================================
+            // The gate
+            //==================================================================
+            //
+            // Every condition is re-evaluated from the live snapshot on every frame and
+            // closes the map outright - there is nothing here that can latch. Returns the
+            // reason to close by, or nullptr while the map may stay open.
+            const wchar_t* map_close_reason(const mm::Config& cfg, const mm::Snapshot& snap,
+                                            bool have_state, std::uint64_t now)
             {
-                close_map(L"there is no gameplay pawn");
-                return;
+                if (!have_state || snap.stamp_ms == 0 ||
+                    now - snap.stamp_ms > static_cast<std::uint64_t>(cfg.state_stale_ms))
+                {
+                    return L"no fresh game-state snapshot";
+                }
+                if (snap.transition)
+                {
+                    return L"a level transition started";
+                }
+                if (!snap.has_pawn || !snap.pawn_is_gameplay)
+                {
+                    return L"there is no gameplay pawn";
+                }
+                if (cfg.hide_in_menus && snap.menu_open)
+                {
+                    return L"a game menu opened";
+                }
+                return nullptr;
             }
-            if (cfg.hide_in_menus && snap.menu_open)
+
+            // The window's rectangle, inset from the viewport by map_margin.
+            mv::Rect map_window_rect(const mm::Config& cfg, const ImGuiViewport* vp)
             {
-                close_map(L"a game menu opened");
-                return;
+                const float margin = cfg.map_margin * vp->Size.y;
+                return mv::Rect{vp->Pos.x + margin,
+                                vp->Pos.y + margin,
+                                vp->Pos.x + vp->Size.x - margin,
+                                vp->Pos.y + vp->Size.y - margin};
             }
 
-            //--------------------------------------------------------------------------
-            // Geometry and the backdrop
-            //--------------------------------------------------------------------------
-            const float margin = cfg.map_margin * vp->Size.y;
-            const mv::Rect frame{vp->Pos.x + margin,
-                                 vp->Pos.y + margin,
-                                 vp->Pos.x + vp->Size.x - margin,
-                                 vp->Pos.y + vp->Size.y - margin};
+            // The dark plate over the scene, behind everything the map draws.
+            void map_draw_backdrop(const mm::Config& cfg, const ImGuiViewport* vp)
+            {
+                ImGui::GetBackgroundDrawList()->AddRectFilled(
+                    vp->Pos, ImVec2{vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y},
+                    IM_COL32(3, 5, 8, static_cast<int>(cfg.map_backdrop * 255.0f + 0.5f)));
+            }
 
-            ImDrawList* back = ImGui::GetBackgroundDrawList();
-            back->AddRectFilled(vp->Pos,
-                                ImVec2{vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y},
-                                IM_COL32(3, 5, 8, static_cast<int>(cfg.map_backdrop * 255.0f + 0.5f)));
-
-            const mapdata::Chapter* chapter_ptr = mapdata::chapter_ptr_for(snap.x, snap.y);
-            // Copied once: the set is 520 bytes taken under the loop thread's spinlock,
-            // and the header, the glyphs and the list all want the same frame's answer.
-            const mv::WaypointSet wps = mm::waypoints();
-
-            //--------------------------------------------------------------------------
             // First frame after opening: centre on the player, reset the zoom and the
             // floor offset, and drop any gamepad edges from while it was closed.
-            //--------------------------------------------------------------------------
-            // This view gets the UNSCALED config - the legend's filter chips write back
-            // into it - so the ui-scale factor ui_scaled() applies to the minimap's zoom
-            // key is applied here at the point of use. 1/ui_scale, not ui_scale: the
-            // canvas is `ui_scale` times as many pixels across, so uu-per-pixel comes
-            // down by the same factor to cover the same ground.
-            const float zscale = (cfg.zoom_dpi_scaled && ui_scale > 0.0f) ? 1.0f / ui_scale : 1.0f;
-            if (!g_mv_init)
+            void map_first_frame(MapFrame& fr)
             {
-                g_mv.cx = snap.x;
-                g_mv.cy = snap.y;
-                g_mv.uu_per_px = mv::clamp_zoom(static_cast<double>(cfg.map_zoom * zscale),
-                                                static_cast<double>(cfg.map_zoom_min * zscale),
-                                                static_cast<double>(cfg.map_zoom_max * zscale));
+                if (g_mv_init)
+                {
+                    return;
+                }
+                g_mv.cx = fr.snap.x;
+                g_mv.cy = fr.snap.y;
+                g_mv.uu_per_px = mv::clamp_zoom(static_cast<double>(fr.cfg.map_zoom * fr.zscale),
+                                                fr.zmin, fr.zmax);
                 g_map_floor_off = 0.0f;
                 g_map_recut.store(true, std::memory_order_release);
                 g_mv_init = true;
@@ -530,135 +598,131 @@ namespace overlay
                 g_map_recenter.store(false, std::memory_order_relaxed);
             }
 
-            ImGui::SetNextWindowPos(ImVec2{frame.x0, frame.y0}, ImGuiCond_Always);
-            ImGui::SetNextWindowSize(ImVec2{frame.w(), frame.h()}, ImGuiCond_Always);
-            ImGui::SetNextWindowBgAlpha(0.97f);
-            constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                                                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                                                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                                                ImGuiWindowFlags_NoSavedSettings |
-                                                // It fills the screen, so it is the map mode's backdrop and
-                                                // stays behind its own panels: without this, focusing it -
-                                                // a click on the canvas, or the search box taking the caret
-                                                // back - would draw it over the search dropdown.
-                                                ImGuiWindowFlags_NoBringToFrontOnFocus;
-            if (!ImGui::Begin("##wuchang_full_map", nullptr, kFlags))
+            //==================================================================
+            // The header, and the category filter it opens
+            //==================================================================
+            //
+            // The filter buttons write the SAME mask the minimap and the F2 panel use, so
+            // a filter toggled here is toggled everywhere.
+            void map_header(MapFrame& fr)
             {
-                ImGui::End();
-                return;
-            }
-
-            //--------------------------------------------------------------------------
-            // Header + the category filter (the SAME mask the minimap and the F2 panel
-            // use, so a filter toggled here is toggled everywhere)
-            //--------------------------------------------------------------------------
-            ImGui::Text("Wuchang map");
-            ImGui::SameLine();
-            // The floor offset in metres, named as a storey delta. 1 uu = 1 cm.
-            ImGui::TextDisabled("%s   |   %.0f uu/px   |   floor %+.1f m   |   X %.0f  Y %.0f",
-                                chapter_ptr != nullptr ? chapter_ptr->key.c_str() : "no chapter here",
-                                g_mv.uu_per_px,
-                                static_cast<double>(g_map_floor_off) / 100.0,
-                                snap.x,
-                                snap.y);
-            // The button group is measured from its own labels, so it ends flush with
-            // the window's right edge at every width, font and UI scale, and drops to
-            // its own line when the readout leaves it no room.
-            {
-                float bw[5]{};
-                int bn = 0;
-                bw[bn++] = button_width("Fit");
-                bw[bn++] = button_width("Stats");
-                bw[bn++] = button_width("Shrines");
-                bw[bn++] = button_width("Recentre");
-                bw[bn++] = button_width("Close");
-                right_align_group(row_width(bw, bn), ImGui::GetCursorScreenPos().x);
-            }
-            // Zoom to fit, from the chapter's bounds in the manifest.
-            bool want_fit = ImGui::SmallButton("Fit");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Stats"))
-            {
-                g_stats_page = !g_stats_page;
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Shrines"))
-            {
-                g_shrine_panel = !g_shrine_panel;
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Recentre"))
-            {
-                g_map_recenter.store(true, std::memory_order_relaxed);
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Close"))
-            {
-                close_map(L"the Close button");
-            }
-
-            // THE NAME FILTER. Optional by design: everything on this map still works
-            // with the box empty, which is what keeps a gamepad-only player whole.
-            // Nothing else may hold the caret while a search is up. The results
-            // dropdown never takes it on its own (NoFocusOnAppearing), and a click on
-            // one of its rows gives it back here, on the next frame.
-            const bool refocus = g_search_focus && !ImGui::IsAnyItemActive();
-            if (refocus)
-            {
-                ImGui::SetKeyboardFocusHere();
-            }
-            ImGui::SetNextItemWidth((std::min)(240.0f * g_chrome_scale,
-                                               ImGui::GetContentRegionAvail().x));
-            if (ImGui::InputTextWithHint("##mapsearch", "search marker names...", g_map_search,
-                                         sizeof(g_map_search)))
-            {
-                g_search_panel = g_map_search[0] != '\0';
-            }
-            if (ImGui::IsItemActivated())
-            {
-                g_search_focus = true;
-            }
-            // Focus taken by code selects the whole box, and the next letter typed would
-            // replace the query instead of extending it. The caret belongs at the end.
-            if (refocus)
-            {
-                if (ImGuiInputTextState* st = ImGui::GetInputTextState(ImGui::GetItemID()))
+                ImGui::Text("Wuchang map");
+                ImGui::SameLine();
+                // The floor offset in metres, named as a storey delta. 1 uu = 1 cm.
+                ImGui::TextDisabled("%s   |   %.0f uu/px   |   floor %+.1f m   |   X %.0f  Y %.0f",
+                                    fr.chapter != nullptr ? fr.chapter->key.c_str() : "no chapter here",
+                                    g_mv.uu_per_px,
+                                    static_cast<double>(g_map_floor_off) / 100.0,
+                                    fr.snap.x,
+                                    fr.snap.y);
+                // The button group is measured from its own labels, so it ends flush with
+                // the window's right edge at every width, font and UI scale, and drops to
+                // its own line when the readout leaves it no room.
                 {
-                    st->SetSelection(st->TextLen, st->TextLen);
+                    float bw[5]{};
+                    int bn = 0;
+                    bw[bn++] = button_width("Fit");
+                    bw[bn++] = button_width("Stats");
+                    bw[bn++] = button_width("Shrines");
+                    bw[bn++] = button_width("Recentre");
+                    bw[bn++] = button_width("Close");
+                    right_align_group(row_width(bw, bn), ImGui::GetCursorScreenPos().x);
+                }
+                // Zoom to fit, from the chapter's bounds in the manifest.
+                if (ImGui::SmallButton("Fit"))
+                {
+                    fr.want_fit = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Stats"))
+                {
+                    g_stats_page = !g_stats_page;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Shrines"))
+                {
+                    g_shrine_panel = !g_shrine_panel;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Recentre"))
+                {
+                    g_map_recenter.store(true, std::memory_order_relaxed);
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Close"))
+                {
+                    close_map(L"the Close button");
                 }
             }
-            // The dropdown hangs off this rect: same left edge, right under the box.
-            const ImVec2 search_min = ImGui::GetItemRectMin();
-            const ImVec2 search_max = ImGui::GetItemRectMax();
-            const bool searching = g_map_search[0] != '\0';
-            g_map_search_active.store(searching, std::memory_order_relaxed);
 
-            //--------------------------------------------------------------------------
-            // The search pass, over the WHOLE published buffer rather than the viewport,
-            // so a name typed in is found wherever it is. Here rather than beside the
-            // results window because the header below prints the count. The rows are
-            // built and sorted only while the results window is up; with it closed this
-            // is a count and nothing else.
-            //--------------------------------------------------------------------------
-            const markers::View mv_all = markers::view();
-            static std::vector<const markers::DrawMarker*> hits;
-            hits.clear();
-            g_map_search_hits = 0;
-            if (searching && cfg.markers_enabled && mv_all.data != nullptr)
+            //==================================================================
+            // The name filter
+            //==================================================================
+            //
+            // Optional by design: everything on this map still works with the box empty,
+            // which is what keeps a gamepad-only player whole. Nothing else may hold the
+            // caret while a search is up. The results dropdown never takes it on its own
+            // (NoFocusOnAppearing), and a click on one of its rows gives it back here, on
+            // the next frame.
+            void map_search_box(MapFrame& fr)
             {
+                const bool refocus = g_search_focus && !ImGui::IsAnyItemActive();
+                if (refocus)
+                {
+                    ImGui::SetKeyboardFocusHere();
+                }
+                ImGui::SetNextItemWidth((std::min)(240.0f * g_chrome_scale,
+                                                   ImGui::GetContentRegionAvail().x));
+                if (ImGui::InputTextWithHint("##mapsearch", "search marker names...", g_map_search,
+                                             sizeof(g_map_search)))
+                {
+                    g_search_panel = g_map_search[0] != '\0';
+                }
+                if (ImGui::IsItemActivated())
+                {
+                    g_search_focus = true;
+                }
+                // Focus taken by code selects the whole box, and the next letter typed
+                // would replace the query instead of extending it. The caret belongs at
+                // the end.
+                if (refocus)
+                {
+                    if (ImGuiInputTextState* st = ImGui::GetInputTextState(ImGui::GetItemID()))
+                    {
+                        st->SetSelection(st->TextLen, st->TextLen);
+                    }
+                }
+                // The dropdown hangs off this rect: same left edge, right under the box.
+                fr.search_min = ImGui::GetItemRectMin();
+                fr.search_max = ImGui::GetItemRectMax();
+                fr.searching = g_map_search[0] != '\0';
+                g_map_search_active.store(fr.searching, std::memory_order_relaxed);
+            }
+
+            // The search pass, over the WHOLE published buffer rather than the viewport, so
+            // a name typed in is found wherever it is. The rows are built and sorted only
+            // while the results window is up; with it closed this is a count and nothing
+            // else.
+            void map_collect_hits(MapFrame& fr)
+            {
+                static std::vector<const markers::DrawMarker*> hits;
+                hits.clear();
+                fr.hits = &hits;
+                g_map_search_hits = 0;
+                if (!fr.searching || !fr.cfg.markers_enabled || fr.markers.data == nullptr)
+                {
+                    return;
+                }
                 const bool want_rows = g_search_panel;
-                if (want_rows && hits.capacity() < mv_all.count)
+                if (want_rows && hits.capacity() < fr.markers.count)
                 {
-                    hits.reserve(mv_all.count);
+                    hits.reserve(fr.markers.count);
                 }
-                for (std::size_t i = 0; i < mv_all.count; ++i)
+                for (std::size_t i = 0; i < fr.markers.count; ++i)
                 {
-                    const markers::DrawMarker& m = mv_all.data[i];
-                    const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
-                    if (static_cast<int>(m.cat) >= mdb::kCatCount ||
-                        !mdb::cat_enabled(cfg.markers_categories, cat) ||
-                        mdb::hidden_as_found(cat, marker_found_now(m), cfg.markers_hide_found) ||
-                        !txt::contains_ci(mdb::display_label(cat, m.label), g_map_search))
+                    const markers::DrawMarker& m = fr.markers.data[i];
+                    if (!mdb::passes_map_filter(m.cat, marker_found_now(m), fr.cfg.markers_categories,
+                                                fr.cfg.markers_hide_found, m.label, g_map_search))
                     {
                         continue;
                     }
@@ -670,6 +734,7 @@ namespace overlay
                 }
                 if (want_rows)
                 {
+                    const mm::Snapshot& snap = fr.snap;
                     const auto nearer_player = [&snap](const markers::DrawMarker* a,
                                                        const markers::DrawMarker* b) {
                         const double ax = a->x - snap.x;
@@ -681,66 +746,71 @@ namespace overlay
                     std::sort(hits.begin(), hits.end(), nearer_player);
                 }
             }
-            // Every item of this row keeps the line only while it still fits; the rest
-            // wrap onto the next one rather than run under the window's right edge.
-            (void)same_line_if_fits(button_width("clear"));
-            ImGui::BeginDisabled(!searching);
-            if (ImGui::SmallButton("clear"))
-            {
-                g_map_search[0] = '\0';
-                g_search_panel = false;
-                g_search_focus = false;
-            }
-            ImGui::EndDisabled();
-            if (searching)
-            {
-                char matches[64]{};
-                (void)std::snprintf(matches, sizeof(matches), "%d match(es)   Esc clears",
-                                    g_map_search_hits);
-                (void)same_line_if_fits(ImGui::CalcTextSize(matches).x);
-                ImGui::TextDisabled("%s", matches);
-            }
-            (void)same_line_if_fits(button_width("Waypoints"));
-            if (ImGui::SmallButton("Waypoints"))
-            {
-                g_wp_panel = !g_wp_panel;
-            }
-            char wp_count[32]{};
-            (void)std::snprintf(wp_count, sizeof(wp_count), "%zu set", wps.count);
-            (void)same_line_if_fits(ImGui::CalcTextSize(wp_count).x);
-            ImGui::TextDisabled("%s", wp_count);
 
-            //--------------------------------------------------------------------------
+            // The row under the box: clear, the match count, and the waypoint list. Every
+            // item keeps the line only while it still fits; the rest wrap onto the next one
+            // rather than run under the window's right edge.
+            void map_search_row(MapFrame& fr)
+            {
+                (void)same_line_if_fits(button_width("clear"));
+                ImGui::BeginDisabled(!fr.searching);
+                if (ImGui::SmallButton("clear"))
+                {
+                    g_map_search[0] = '\0';
+                    g_search_panel = false;
+                    g_search_focus = false;
+                }
+                ImGui::EndDisabled();
+                if (fr.searching)
+                {
+                    char matches[64]{};
+                    (void)std::snprintf(matches, sizeof(matches), "%d match(es)   Esc clears",
+                                        g_map_search_hits);
+                    (void)same_line_if_fits(ImGui::CalcTextSize(matches).x);
+                    ImGui::TextDisabled("%s", matches);
+                }
+                (void)same_line_if_fits(button_width("Waypoints"));
+                if (ImGui::SmallButton("Waypoints"))
+                {
+                    g_wp_panel = !g_wp_panel;
+                }
+                char wp_count[32]{};
+                (void)std::snprintf(wp_count, sizeof(wp_count), "%zu set", fr.wps.count);
+                (void)same_line_if_fits(ImGui::CalcTextSize(wp_count).x);
+                ImGui::TextDisabled("%s", wp_count);
+            }
+
+            //==================================================================
             // The canvas, with the legend column reserved on its right
-            //--------------------------------------------------------------------------
-            //
-            // The legend is the filter: it says what each glyph means, how many of that
-            // category the chapter has and how many are found, and clicking a row
-            // toggles it.
-            const float footer_h = ImGui::GetTextLineHeightWithSpacing() * 2.2f;
-            const ImVec2 avail = ImGui::GetContentRegionAvail();
-            // Sized from the text, so it is right at every ui_scale, and capped at a
-            // share of the row so a narrow window keeps a canvas instead of pushing the
-            // legend past the right edge.
-            const float legend_want =
-                ImGui::CalcTextSize("      Fog gates   9999/9999").x + ImGui::GetStyle().FramePadding.x * 4.0f;
-            const float legend_w = (std::max)(48.0f, (std::min)(legend_want, avail.x * 0.4f));
-            const ImVec2 csize{(std::max)(64.0f, avail.x - legend_w - ImGui::GetStyle().ItemSpacing.x),
-                               (std::max)(64.0f, avail.y - footer_h)};
-            const ImVec2 cpos = ImGui::GetCursorScreenPos();
-            ImGui::InvisibleButton("##canvas", csize, ImGuiButtonFlags_MouseButtonLeft);
-            const bool canvas_hovered = ImGui::IsItemHovered();
-            const bool canvas_active = ImGui::IsItemActive();
-            const mv::Rect canvas{cpos.x, cpos.y, cpos.x + csize.x, cpos.y + csize.y};
-            // What the screenshot key copies. Recorded every frame the map draws, on the
-            // thread that reads it, and cleared by close_map, so a copy with the map shut
-            // is a reportable failure rather than a stale picture.
-            g_shot_canvas = canvas;
-            g_shot_canvas_valid = true;
+            //==================================================================
+            void map_place_canvas(MapFrame& fr)
+            {
+                const float footer_h = ImGui::GetTextLineHeightWithSpacing() * 2.2f;
+                const ImVec2 avail = ImGui::GetContentRegionAvail();
+                // Sized from the text, so it is right at every ui_scale, and capped at a
+                // share of the row so a narrow window keeps a canvas instead of pushing
+                // the legend past the right edge.
+                const float legend_want = ImGui::CalcTextSize("      Fog gates   9999/9999").x +
+                                          ImGui::GetStyle().FramePadding.x * 4.0f;
+                fr.legend_w = (std::max)(48.0f, (std::min)(legend_want, avail.x * 0.4f));
+                fr.csize = ImVec2{
+                    (std::max)(64.0f, avail.x - fr.legend_w - ImGui::GetStyle().ItemSpacing.x),
+                    (std::max)(64.0f, avail.y - footer_h)};
+                const ImVec2 cpos = ImGui::GetCursorScreenPos();
+                ImGui::InvisibleButton("##canvas", fr.csize, ImGuiButtonFlags_MouseButtonLeft);
+                fr.canvas_hovered = ImGui::IsItemHovered();
+                fr.canvas_active = ImGui::IsItemActive();
+                fr.canvas = mv::Rect{cpos.x, cpos.y, cpos.x + fr.csize.x, cpos.y + fr.csize.y};
+                // What the screenshot key copies. Recorded every frame the map draws, on
+                // the thread that reads it, and cleared by close_map, so a copy with the
+                // map shut is a reportable failure rather than a stale picture.
+                g_shot_canvas = fr.canvas;
+                g_shot_canvas_valid = true;
+            }
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // The legend, which IS the category filter
-            //--------------------------------------------------------------------------
+            //==================================================================
             //
             // One row per category: the glyph as drawn on the map, the name, and
             // `found / total` from markers::stats() - counted for the chapter in force
@@ -748,278 +818,306 @@ namespace overlay
             // cannot see. Clicking a row toggles that category in `markers_categories`,
             // the mask this map, the minimap and the F2 chips share. The compass has its
             // own `compass_categories`, so a row here does not move its pips.
-            ImGui::SameLine();
-            if (ImGui::BeginChild("##legend", ImVec2{legend_w, csize.y}, ImGuiChildFlags_None,
-                                  ImGuiWindowFlags_NoSavedSettings))
+
+            // One row: the glyph, the name and `found / total`. The leading spaces of the
+            // label are the glyph's gutter - the glyph is drawn over the row afterwards, so
+            // the Selectable owns the whole width. The text is cached, keyed on exactly what
+            // it is made of: otherwise these are sixteen allocations per frame inside Present
+            // for text that changes only when a marker is found or the chapter changes.
+            void map_legend_row(MapFrame& fr, int i, const markers::CatStat& cs, ImDrawList* ldl,
+                                float glyph_r)
             {
-                const markers::Stats lst = markers::stats();
-                const int fch = lst.filter_chapter;
-                const bool per_chapter = fch >= 0 && fch <= 8;
-                // The header is the scope switch and the only home of
-                // `markers_filter_chapter`: it names the chapter the glyphs and the
-                // counts below cover, and clicking it swaps between that chapter and
-                // every chapter. The label is what is actually drawn, so with the
-                // filter on and no chapter detected it says so rather than claiming a
-                // chapter. `###` keeps the id stable while the text changes.
-                char scope[64]{};
-                if (!cfg.markers_filter_chapter)
+                const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                const bool on = mdb::cat_enabled(fr.cfg.markers_categories, cat);
+                const ImVec2 row = ImGui::GetCursorScreenPos();
+                ImGui::PushID(i);
+                static char row_text[mdb::kCatCount][64]{};
+                static int row_found[mdb::kCatCount]{};
+                static int row_total[mdb::kCatCount]{};
+                static bool row_valid[mdb::kCatCount]{};
+                if (!row_valid[i] || row_found[i] != cs.found || row_total[i] != cs.total)
                 {
-                    (void)std::snprintf(scope, sizeof(scope), "all chapters###scope");
-                }
-                else if (fch == chid::kDlc)
-                {
-                    (void)std::snprintf(scope, sizeof(scope), "DLC only###scope");
-                }
-                else if (per_chapter)
-                {
-                    (void)std::snprintf(scope, sizeof(scope), "chapter %d only###scope", fch);
-                }
-                else
-                {
-                    (void)std::snprintf(scope, sizeof(scope), "chapter not detected###scope");
-                }
-                if (ImGui::SmallButton(scope))
-                {
-                    cfg.markers_filter_chapter = !cfg.markers_filter_chapter;
-                }
-                if (ImGui::IsItemHovered())
-                {
-                    ImGui::SetTooltip("markers and counts: this chapter only, or every chapter");
-                }
-                ImDrawList* ldl = ImGui::GetWindowDrawList();
-                const float glyph_r = (std::max)(4.0f, ImGui::GetTextLineHeight() * 0.34f);
-                for (int i = 0; i < mdb::kCatCount; ++i)
-                {
-                    const mdb::Cat cat = static_cast<mdb::Cat>(i);
-                    const bool on = mdb::cat_enabled(cfg.markers_categories, cat);
-                    const markers::CatStat& cs =
-                        per_chapter ? lst.chapter[fch][i] : lst.cat[i];
-                    const ImVec2 row = ImGui::GetCursorScreenPos();
-                    ImGui::PushID(i);
-                    // The leading spaces are the glyph's gutter: the glyph is drawn over
-                    // the row afterwards, so the Selectable owns the whole width.
-                    //
-                    // Cached, keyed on exactly what the text is made of: otherwise these
-                    // are sixteen std::format allocations per frame inside Present for
-                    // text that changes when a marker is found or the chapter changes.
-                    static char row_text[mdb::kCatCount][64]{};
-                    static int row_found[mdb::kCatCount]{};
-                    static int row_total[mdb::kCatCount]{};
-                    static bool row_valid[mdb::kCatCount]{};
-                    if (!row_valid[i] || row_found[i] != cs.found || row_total[i] != cs.total)
+                    row_valid[i] = true;
+                    row_found[i] = cs.found;
+                    row_total[i] = cs.total;
+                    if (cs.total > 0)
                     {
-                        row_valid[i] = true;
-                        row_found[i] = cs.found;
-                        row_total[i] = cs.total;
-                        if (cs.total > 0)
-                        {
-                            (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s   %d/%d",
-                                                mdb::cat_label(cat), cs.found, cs.total);
-                        }
-                        else
-                        {
-                            (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s",
-                                                mdb::cat_label(cat));
-                        }
+                        (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s   %d/%d",
+                                            mdb::cat_label(cat), cs.found, cs.total);
                     }
-                    const char* const text = row_text[i];
-                    ImGui::PushStyleColor(ImGuiCol_Text,
-                                          on ? marker_color(cat, 255) : IM_COL32(150, 150, 150, 170));
-                    if (ImGui::Selectable(text, on))
+                    else
                     {
-                        cfg.markers_categories ^= mdb::cat_bit(cat);
+                        (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s",
+                                            mdb::cat_label(cat));
                     }
-                    ImGui::PopStyleColor();
-                    ImGui::PopID();
-                    const ImVec2 at{row.x + glyph_r + 4.0f, row.y + ImGui::GetTextLineHeight() * 0.5f};
-                    draw_marker_glyph(ldl, cat, at, glyph_r, marker_color(cat, on ? 255 : 90),
-                                      IM_COL32(14, 16, 20, on ? 220 : 80));
                 }
-                ImGui::Spacing();
-                if (ImGui::SmallButton("all"))
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      on ? marker_color(cat, 255) : IM_COL32(150, 150, 150, 170));
+                if (ImGui::Selectable(row_text[i], on))
                 {
-                    cfg.markers_categories = mdb::kAllCats;
+                    fr.cfg.markers_categories ^= mdb::cat_bit(cat);
                 }
-                (void)same_line_if_fits(button_width("none"));
-                if (ImGui::SmallButton("none"))
-                {
-                    cfg.markers_categories = 0u;
-                }
-                // A checkbox is the square plus the inner gap plus its label.
-                (void)same_line_if_fits(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x +
-                                        ImGui::CalcTextSize("found").x);
-                bool show_found = !cfg.markers_hide_found;
-                if (ImGui::Checkbox("found", &show_found))
-                {
-                    cfg.markers_hide_found = !show_found;
-                }
-                if (ImGui::IsItemHovered())
-                {
-                    ImGui::SetTooltip("show markers already found");
-                }
+                ImGui::PopStyleColor();
+                ImGui::PopID();
+                const ImVec2 at{row.x + glyph_r + 4.0f, row.y + ImGui::GetTextLineHeight() * 0.5f};
+                draw_marker_glyph(ldl, cat, at, glyph_r, marker_color(cat, on ? 255 : 90),
+                                  IM_COL32(14, 16, 20, on ? 220 : 80));
             }
-            ImGui::EndChild();
 
-            const double zmin = static_cast<double>(cfg.map_zoom_min * zscale);
-            const double zmax = static_cast<double>(cfg.map_zoom_max * zscale);
-            g_mv.uu_per_px = mv::clamp_zoom(g_mv.uu_per_px, zmin, zmax);
+            void map_legend(MapFrame& fr)
+            {
+                ImGui::SameLine();
+                if (ImGui::BeginChild("##legend", ImVec2{fr.legend_w, fr.csize.y}, ImGuiChildFlags_None,
+                                      ImGuiWindowFlags_NoSavedSettings))
+                {
+                    const markers::Stats lst = markers::stats();
+                    const int fch = lst.filter_chapter;
+                    const bool per_chapter = fch >= 0 && fch <= 8;
+                    // The header is the scope switch and the only home of
+                    // `markers_filter_chapter`: it names the chapter the glyphs and the
+                    // counts below cover, and clicking it swaps between that chapter and
+                    // every chapter. The label is what is actually drawn, so with the
+                    // filter on and no chapter detected it says so rather than claiming a
+                    // chapter. `###` keeps the id stable while the text changes.
+                    char scope[64]{};
+                    if (!fr.cfg.markers_filter_chapter)
+                    {
+                        (void)std::snprintf(scope, sizeof(scope), "all chapters###scope");
+                    }
+                    else if (fch == chid::kDlc)
+                    {
+                        (void)std::snprintf(scope, sizeof(scope), "DLC only###scope");
+                    }
+                    else if (per_chapter)
+                    {
+                        (void)std::snprintf(scope, sizeof(scope), "chapter %d only###scope", fch);
+                    }
+                    else
+                    {
+                        (void)std::snprintf(scope, sizeof(scope), "chapter not detected###scope");
+                    }
+                    if (ImGui::SmallButton(scope))
+                    {
+                        fr.cfg.markers_filter_chapter = !fr.cfg.markers_filter_chapter;
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("markers and counts: this chapter only, or every chapter");
+                    }
+                    ImDrawList* ldl = ImGui::GetWindowDrawList();
+                    const float glyph_r = (std::max)(4.0f, ImGui::GetTextLineHeight() * 0.34f);
+                    for (int i = 0; i < mdb::kCatCount; ++i)
+                    {
+                        map_legend_row(fr, i, per_chapter ? lst.chapter[fch][i] : lst.cat[i], ldl,
+                                       glyph_r);
+                    }
+                    ImGui::Spacing();
+                    if (ImGui::SmallButton("all"))
+                    {
+                        fr.cfg.markers_categories = mdb::kAllCats;
+                    }
+                    (void)same_line_if_fits(button_width("none"));
+                    if (ImGui::SmallButton("none"))
+                    {
+                        fr.cfg.markers_categories = 0u;
+                    }
+                    // A checkbox is the square plus the inner gap plus its label.
+                    (void)same_line_if_fits(ImGui::GetFrameHeight() +
+                                            ImGui::GetStyle().ItemInnerSpacing.x +
+                                            ImGui::CalcTextSize("found").x);
+                    bool show_found = !fr.cfg.markers_hide_found;
+                    if (ImGui::Checkbox("found", &show_found))
+                    {
+                        fr.cfg.markers_hide_found = !show_found;
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("show markers already found");
+                    }
+                }
+                ImGui::EndChild();
+            }
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // Input: mouse
-            //--------------------------------------------------------------------------
-            static float drag_px = 0.0f;
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && canvas_hovered)
+            //==================================================================
+            void map_input_mouse(MapFrame& fr)
             {
-                drag_px = 0.0f;
-            }
-            if (canvas_active && ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            {
-                const ImVec2 d = io.MouseDelta;
-                drag_px += std::abs(d.x) + std::abs(d.y);
-                // Keep the world point under the cursor under the cursor.
-                g_mv.cx += static_cast<double>(d.y) * g_mv.uu_per_px;
-                g_mv.cy -= static_cast<double>(d.x) * g_mv.uu_per_px;
-            }
-
-            const auto zoom_about = [&](float sx, float sy, double notches) {
-                double wx = 0.0;
-                double wy = 0.0;
-                mv::screen_to_world(g_mv, canvas, sx, sy, wx, wy);
-                g_mv.uu_per_px =
-                    mv::zoom_by(g_mv.uu_per_px, notches, static_cast<double>(cfg.map_zoom_factor), zmin, zmax);
-                // The same transform read the other way round: solve for the centre that
-                // puts (wx, wy) back on (sx, sy).
-                g_mv.cx = wx + (static_cast<double>(sy) - static_cast<double>(canvas.cy())) * g_mv.uu_per_px;
-                g_mv.cy = wy - (static_cast<double>(sx) - static_cast<double>(canvas.cx())) * g_mv.uu_per_px;
-            };
-
-            if (canvas_hovered && io.MouseWheel != 0.0f)
-            {
-                if (io.KeyCtrl)
+                ImGuiIO& io = ImGui::GetIO();
+                // How far this drag has travelled: a click that panned is not a click on
+                // what lies under it, so it survives between frames.
+                static float drag_px = 0.0f;
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && fr.canvas_hovered)
                 {
-                    g_map_floor_off += io.MouseWheel * cfg.map_floor_step;
+                    drag_px = 0.0f;
                 }
-                else
+                if (fr.canvas_active && ImGui::IsMouseDown(ImGuiMouseButton_Left))
                 {
-                    zoom_about(io.MousePos.x, io.MousePos.y, static_cast<double>(io.MouseWheel));
+                    const ImVec2 d = io.MouseDelta;
+                    drag_px += std::abs(d.x) + std::abs(d.y);
+                    // Keep the world point under the cursor under the cursor.
+                    mv::pan_px(g_mv, -static_cast<double>(d.x), static_cast<double>(d.y));
+                }
+                fr.drag_px = drag_px;
+
+                if (fr.canvas_hovered && io.MouseWheel != 0.0f)
+                {
+                    if (io.KeyCtrl)
+                    {
+                        g_map_floor_off += io.MouseWheel * fr.cfg.map_floor_step;
+                    }
+                    else
+                    {
+                        mv::zoom_about(g_mv, fr.canvas, io.MousePos.x, io.MousePos.y,
+                                       static_cast<double>(io.MouseWheel),
+                                       static_cast<double>(fr.cfg.map_zoom_factor), fr.zmin, fr.zmax);
+                    }
                 }
             }
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // Input: keyboard. ImGui sees these because the WndProc hook feeds it every
             // message BEFORE deciding to swallow it.
-            //--------------------------------------------------------------------------
-            const float dt = io.DeltaTime > 0.0f && io.DeltaTime < 0.25f ? io.DeltaTime : 1.0f / 60.0f;
-            const double pan_uu = static_cast<double>(cfg.map_pan_speed) * static_cast<double>(dt) * g_mv.uu_per_px;
-            // Every bare key below belongs to the text box while it has the caret. The
-            // map already swallows the keyboard from the game, so this is only about who
-            // inside the map gets the letter.
-            const bool typing = tgate::text_active();
-            const auto down = [&typing](ImGuiKey a, ImGuiKey b) {
-                return !typing && (ImGui::IsKeyDown(a) || ImGui::IsKeyDown(b));
-            };
-            if (down(ImGuiKey_W, ImGuiKey_UpArrow))
+            //==================================================================
+            void map_input_keys(MapFrame& fr)
             {
-                g_mv.cx += pan_uu; // screen up is world +X (north)
-            }
-            if (down(ImGuiKey_S, ImGuiKey_DownArrow))
-            {
-                g_mv.cx -= pan_uu;
-            }
-            if (down(ImGuiKey_D, ImGuiKey_RightArrow))
-            {
-                g_mv.cy += pan_uu; // screen right is world +Y (east)
-            }
-            if (down(ImGuiKey_A, ImGuiKey_LeftArrow))
-            {
-                g_mv.cy -= pan_uu;
-            }
-            if (down(ImGuiKey_Equal, ImGuiKey_KeypadAdd))
-            {
-                zoom_about(canvas.cx(), canvas.cy(), static_cast<double>(dt) * 6.0);
-            }
-            if (down(ImGuiKey_Minus, ImGuiKey_KeypadSubtract))
-            {
-                zoom_about(canvas.cx(), canvas.cy(), -static_cast<double>(dt) * 6.0);
-            }
-            if (!typing && (ImGui::IsKeyPressed(ImGuiKey_E, true) || ImGui::IsKeyPressed(ImGuiKey_PageUp, true)))
-            {
-                g_map_floor_off += cfg.map_floor_step;
-            }
-            if (!typing && (ImGui::IsKeyPressed(ImGuiKey_Q, true) || ImGui::IsKeyPressed(ImGuiKey_PageDown, true)))
-            {
-                g_map_floor_off -= cfg.map_floor_step;
-            }
-            // Esc empties the search box first, and closes the map only once it is empty.
-            if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
-            {
-                if (searching)
+                ImGuiIO& io = ImGui::GetIO();
+                const float dt = io.DeltaTime > 0.0f && io.DeltaTime < 0.25f ? io.DeltaTime : 1.0f / 60.0f;
+                const double pan = static_cast<double>(fr.cfg.map_pan_speed) * static_cast<double>(dt);
+                // Every bare key below belongs to the text box while it has the caret. The
+                // map already swallows the keyboard from the game, so this is only about
+                // who inside the map gets the letter.
+                const bool typing = tgate::text_active();
+                const auto down = [&typing](ImGuiKey a, ImGuiKey b) {
+                    return !typing && (ImGui::IsKeyDown(a) || ImGui::IsKeyDown(b));
+                };
+                if (down(ImGuiKey_W, ImGuiKey_UpArrow))
                 {
-                    g_map_search[0] = '\0';
-                    g_search_panel = false;
-                    g_search_focus = false;
+                    mv::pan_px(g_mv, 0.0, pan);
                 }
-                else
+                if (down(ImGuiKey_S, ImGuiKey_DownArrow))
                 {
-                    close_map(L"Escape");
+                    mv::pan_px(g_mv, 0.0, -pan);
+                }
+                if (down(ImGuiKey_D, ImGuiKey_RightArrow))
+                {
+                    mv::pan_px(g_mv, pan, 0.0);
+                }
+                if (down(ImGuiKey_A, ImGuiKey_LeftArrow))
+                {
+                    mv::pan_px(g_mv, -pan, 0.0);
+                }
+                if (down(ImGuiKey_Equal, ImGuiKey_KeypadAdd))
+                {
+                    mv::zoom_about(g_mv, fr.canvas, fr.canvas.cx(), fr.canvas.cy(),
+                                   static_cast<double>(dt) * 6.0,
+                                   static_cast<double>(fr.cfg.map_zoom_factor), fr.zmin, fr.zmax);
+                }
+                if (down(ImGuiKey_Minus, ImGuiKey_KeypadSubtract))
+                {
+                    mv::zoom_about(g_mv, fr.canvas, fr.canvas.cx(), fr.canvas.cy(),
+                                   -static_cast<double>(dt) * 6.0,
+                                   static_cast<double>(fr.cfg.map_zoom_factor), fr.zmin, fr.zmax);
+                }
+                if (!typing &&
+                    (ImGui::IsKeyPressed(ImGuiKey_E, true) || ImGui::IsKeyPressed(ImGuiKey_PageUp, true)))
+                {
+                    g_map_floor_off += fr.cfg.map_floor_step;
+                }
+                if (!typing &&
+                    (ImGui::IsKeyPressed(ImGuiKey_Q, true) || ImGui::IsKeyPressed(ImGuiKey_PageDown, true)))
+                {
+                    g_map_floor_off -= fr.cfg.map_floor_step;
+                }
+                // Esc empties the search box first, and closes the map only once it is empty.
+                if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+                {
+                    if (fr.searching)
+                    {
+                        g_map_search[0] = '\0';
+                        g_search_panel = false;
+                        g_search_focus = false;
+                    }
+                    else
+                    {
+                        close_map(L"Escape");
+                    }
+                }
+                // Home = Fit, the same action as the header button. Safe as a bare key: the
+                // full map swallows the keyboard for as long as it is open.
+                if (!typing && ImGui::IsKeyPressed(ImGuiKey_Home, false))
+                {
+                    fr.want_fit = true;
+                }
+                // F1 / H (and pad Back, below) toggle the controls legend. Not `?`: that is
+                // a CHARACTER with no portable name in ImGui's key enum, and testing
+                // ImGuiKey_Slash means the unshifted key on every US/UK layout. Both are
+                // safe bare keys because the map swallows the whole keyboard while it is
+                // open, and F1 is outside the F6/F9-F12 minefield this machine's other
+                // injected DLLs own. `/` stays wired as an unadvertised third route.
+                if (!typing && (ImGui::IsKeyPressed(ImGuiKey_F1, false) ||
+                                ImGui::IsKeyPressed(ImGuiKey_H, false) ||
+                                ImGui::IsKeyPressed(ImGuiKey_Slash, false)))
+                {
+                    g_map_help = !g_map_help;
+                }
+                // Keyboard equivalents of the two mouse actions, at the view centre: the
+                // cursor is the one part of this that depends on what the game does with it
+                // while we hold the input, and the map stays usable without it.
+                if (!typing && (ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
+                                ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                                ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)))
+                {
+                    fr.act_waypoint = true;
+                }
+                if (!typing && ImGui::IsKeyPressed(ImGuiKey_F, false))
+                {
+                    fr.act_toggle = true;
                 }
             }
-            // Home = Fit, the same action as the header button. Safe as a bare key: the
-            // full map swallows the keyboard for as long as it is open.
-            if (!typing && ImGui::IsKeyPressed(ImGuiKey_Home, false))
-            {
-                want_fit = true;
-            }
-            // F1 / H (and pad Back, below) toggle the controls legend. Not `?`: that is
-            // a CHARACTER with no portable name in ImGui's key enum, and testing
-            // ImGuiKey_Slash means the unshifted key on every US/UK layout. Both are
-            // safe bare keys because the map swallows the whole keyboard while it is
-            // open, and F1 is outside the F6/F9-F12 minefield this machine's other
-            // injected DLLs own. `/` stays wired as an unadvertised third route.
-            if (!typing && (ImGui::IsKeyPressed(ImGuiKey_F1, false) || ImGui::IsKeyPressed(ImGuiKey_H, false) ||
-                            ImGui::IsKeyPressed(ImGuiKey_Slash, false)))
-            {
-                g_map_help = !g_map_help;
-            }
-            // Keyboard equivalents of the two mouse actions, at the view centre: the
-            // cursor is the one part of this that depends on what the game does with it
-            // while we hold the input, and the map stays usable without it.
-            bool key_waypoint = !typing && (ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
-                                            ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                                            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false));
-            bool key_toggle = !typing && ImGui::IsKeyPressed(ImGuiKey_F, false);
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // Input: gamepad. The state is polled on the LOOP thread (gamepad.cpp) - as
             // with the keyboard, nothing here touches XInput or the game thread.
-            //--------------------------------------------------------------------------
-            bool pad_waypoint = false;
-            bool pad_toggle = false;
-            const pad::State gp = pad::state();
-            if (cfg.map_gamepad && gp.connected)
+            //==================================================================
+            void map_input_pad(MapFrame& fr)
             {
+                ImGuiIO& io = ImGui::GetIO();
+                const float dt = io.DeltaTime > 0.0f && io.DeltaTime < 0.25f ? io.DeltaTime : 1.0f / 60.0f;
+                const double pan = static_cast<double>(fr.cfg.map_pan_speed) * static_cast<double>(dt);
+                // Read whether or not the pad drives the map: the help legend and the
+                // footer both say whether one is connected.
+                fr.gp = pad::state();
+                const pad::State& gp = fr.gp;
+                if (!fr.cfg.map_gamepad || !gp.connected)
+                {
+                    return;
+                }
                 if (gp.lx != 0.0f || gp.ly != 0.0f)
                 {
-                    g_mv.cx += static_cast<double>(gp.ly) * pan_uu;
-                    g_mv.cy += static_cast<double>(gp.lx) * pan_uu;
+                    mv::pan_px(g_mv, static_cast<double>(gp.lx) * pan, static_cast<double>(gp.ly) * pan);
                 }
                 const float trig = gp.rt - gp.lt;
                 if (trig > 0.02f || trig < -0.02f)
                 {
-                    zoom_about(canvas.cx(), canvas.cy(), static_cast<double>(trig * dt) * 8.0);
+                    mv::zoom_about(g_mv, fr.canvas, fr.canvas.cx(), fr.canvas.cy(),
+                                   static_cast<double>(trig * dt) * 8.0,
+                                   static_cast<double>(fr.cfg.map_zoom_factor), fr.zmin, fr.zmax);
                 }
                 if (gp.ry > 0.02f || gp.ry < -0.02f)
                 {
-                    zoom_about(canvas.cx(), canvas.cy(), static_cast<double>(gp.ry * dt) * 6.0);
+                    mv::zoom_about(g_mv, fr.canvas, fr.canvas.cx(), fr.canvas.cy(),
+                                   static_cast<double>(gp.ry * dt) * 6.0,
+                                   static_cast<double>(fr.cfg.map_zoom_factor), fr.zmin, fr.zmax);
                 }
                 const std::uint16_t pressed = pad::take_pressed();
                 if ((pressed & pad::kRightShoulder) != 0)
                 {
-                    g_map_floor_off += cfg.map_floor_step;
+                    g_map_floor_off += fr.cfg.map_floor_step;
                 }
                 if ((pressed & pad::kLeftShoulder) != 0)
                 {
-                    g_map_floor_off -= cfg.map_floor_step;
+                    g_map_floor_off -= fr.cfg.map_floor_step;
                 }
                 if ((pressed & pad::kY) != 0)
                 {
@@ -1027,11 +1125,11 @@ namespace overlay
                 }
                 if ((pressed & pad::kA) != 0)
                 {
-                    pad_waypoint = true;
+                    fr.act_waypoint = true;
                 }
                 if ((pressed & pad::kX) != 0)
                 {
-                    pad_toggle = true;
+                    fr.act_toggle = true;
                 }
                 if ((pressed & pad::kB) != 0)
                 {
@@ -1043,157 +1141,128 @@ namespace overlay
                 }
             }
 
-            if (g_map_recenter.exchange(false, std::memory_order_relaxed))
+            // Recentre and Fit, then the floor offset's limits and the storey they put the
+            // cut on. The last thing before anything is drawn, so the picture, the markers
+            // and a new waypoint all read one view.
+            void map_apply_view(MapFrame& fr)
             {
-                g_mv.cx = snap.x;
-                g_mv.cy = snap.y;
-                g_map_floor_off = 0.0f;
-            }
-            // Fit. The chapter's bounds come from maps.json, and mv::fit_zoom() spends
-            // world X on the canvas HEIGHT and world Y on its WIDTH, because the map is
-            // north-up; crossing them over is right on a square canvas only.
-            if (want_fit)
-            {
-                if (chapter_ptr == nullptr)
+                if (g_map_recenter.exchange(false, std::memory_order_relaxed))
                 {
-                    mm::log(L"full map: Fit needs a chapter, and none covers this position");
+                    g_mv.cx = fr.snap.x;
+                    g_mv.cy = fr.snap.y;
+                    g_map_floor_off = 0.0f;
                 }
-                else
+                // Fit. The chapter's bounds come from maps.json, and mv::fit_zoom() spends
+                // world X on the canvas HEIGHT and world Y on its WIDTH, because the map is
+                // north-up; crossing them over is right on a square canvas only.
+                if (fr.want_fit)
                 {
-                    const double z = mv::fit_zoom(chapter_ptr->max_x - chapter_ptr->min_x,
-                                                  chapter_ptr->max_y - chapter_ptr->min_y,
-                                                  static_cast<double>(csize.x),
-                                                  static_cast<double>(csize.y));
-                    if (z > 0.0)
+                    if (fr.chapter == nullptr)
                     {
-                        g_mv.uu_per_px = mv::clamp_zoom(z, zmin, zmax);
-                        g_mv.cx = (chapter_ptr->min_x + chapter_ptr->max_x) * 0.5;
-                        g_mv.cy = (chapter_ptr->min_y + chapter_ptr->max_y) * 0.5;
-                        g_map_floor_off = 0.0f;
-                        g_map_recut.store(true, std::memory_order_release);
+                        mm::log(L"full map: Fit needs a chapter, and none covers this position");
+                    }
+                    else
+                    {
+                        const double z = mv::fit_zoom(fr.chapter->max_x - fr.chapter->min_x,
+                                                      fr.chapter->max_y - fr.chapter->min_y,
+                                                      static_cast<double>(fr.csize.x),
+                                                      static_cast<double>(fr.csize.y));
+                        if (z > 0.0)
+                        {
+                            g_mv.uu_per_px = mv::clamp_zoom(z, fr.zmin, fr.zmax);
+                            g_mv.cx = (fr.chapter->min_x + fr.chapter->max_x) * 0.5;
+                            g_mv.cy = (fr.chapter->min_y + fr.chapter->max_y) * 0.5;
+                            g_map_floor_off = 0.0f;
+                            g_map_recut.store(true, std::memory_order_release);
+                        }
                     }
                 }
+                g_map_floor_off = (std::max)(-20000.0f, (std::min)(20000.0f, g_map_floor_off));
+                fr.feet = static_cast<float>(fr.snap.z) - fr.cfg.player_z_offset + g_map_floor_off;
             }
-            g_map_floor_off = (std::max)(-20000.0f, (std::min)(20000.0f, g_map_floor_off));
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // The map picture
-            //--------------------------------------------------------------------------
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->PushClipRect(ImVec2{canvas.x0, canvas.y0}, ImVec2{canvas.x1, canvas.y1}, true);
-            dl->AddRectFilled(ImVec2{canvas.x0, canvas.y0}, ImVec2{canvas.x1, canvas.y1},
-                              IM_COL32(9, 12, 16, 255));
-
-            const float feet = static_cast<float>(snap.z) - cfg.player_z_offset + g_map_floor_off;
-            bool have_picture = false;
-            const bool map_slice_ok =
-                chapter_ptr != nullptr && plan_map_slice(cfg, *chapter_ptr, canvas, feet, now);
-            const MapSliceView msv = map_slice_view();
-            if (map_slice_ok && msv.shown >= 0 && msv.valid)
+            //==================================================================
+            void map_draw_picture(MapFrame& fr)
             {
+                const bool ok = fr.chapter != nullptr &&
+                                plan_map_slice(fr.cfg, *fr.chapter, fr.canvas, fr.feet, fr.now);
+                const MapSliceView msv = map_slice_view();
+                if (!ok || msv.shown < 0 || !msv.valid)
+                {
+                    return;
+                }
                 const SliceBuf& b = g_mslice[msv.shown];
                 float sx0 = 0.0f;
                 float sy0 = 0.0f;
                 float sx1 = 0.0f;
                 float sy1 = 0.0f;
                 // Top-left of the cut region is its NORTH-WEST corner (max X, min Y).
-                mv::world_to_screen(g_mv, canvas, msv.x1, msv.y0, sx0, sy0);
-                mv::world_to_screen(g_mv, canvas, msv.x0, msv.y1, sx1, sy1);
+                mv::world_to_screen(g_mv, fr.canvas, msv.x1, msv.y0, sx0, sy0);
+                mv::world_to_screen(g_mv, fr.canvas, msv.x0, msv.y1, sx1, sy1);
                 const ImTextureRef tex{static_cast<ImTextureID>(b.srv_gpu.ptr)};
-                dl->AddImage(tex, ImVec2{sx0, sy0}, ImVec2{sx1, sy1}, ImVec2{0.0f, 0.0f}, ImVec2{1.0f, 1.0f},
-                             IM_COL32(255, 255, 255, 255));
-                have_picture = true;
+                fr.dl->AddImage(tex, ImVec2{sx0, sy0}, ImVec2{sx1, sy1}, ImVec2{0.0f, 0.0f},
+                                ImVec2{1.0f, 1.0f}, IM_COL32(255, 255, 255, 255));
+                fr.have_picture = true;
             }
 
-            //--------------------------------------------------------------------------
-            // Markers
-            //--------------------------------------------------------------------------
-            g_map_markers_drawn = 0;
-            g_map_markers_total = static_cast<int>(mv_all.count);
-            const markers::DrawMarker* hover = nullptr;
-            const markers::DrawMarker* centre_marker = nullptr;
-            float hover_d2 = 0.0f;
-            float centre_d2 = 0.0f;
-            // The one pixel key this view owns. `cfg` here is the UNSCALED config (the
-            // filter chips write back into it), so the UI scale is applied at the point
-            // of use rather than through ui_scaled().
-            const float mr = cfg.map_marker_size * ui_scale;
-            const float pick_r = (std::max)(8.0f, mr * 1.6f);
-            const float kCentrePickR = (std::max)(48.0f, mr * 5.0f);
-
-            if (cfg.markers_enabled && mv_all.data != nullptr)
+            //==================================================================
+            // Markers: TWO PASSES, NOT ONE
+            //==================================================================
+            //
+            // Collect what is on screen, order it by distance from the VIEW CENTRE (what
+            // the player is looking at, and what Fit and the recentre key aim), cap that,
+            // merge coincident glyphs of the same category, and only then draw - so the cap
+            // drops the far markers rather than whichever the database listed last. All
+            // three buffers are static and reused, because this runs inside Present.
+            void map_collect_candidates(const MapFrame& fr, std::vector<MapCand>& cands)
             {
-                //----------------------------------------------------------------------
-                // TWO PASSES, NOT ONE
-                //----------------------------------------------------------------------
-                //
-                // Collect what is on screen, order it by distance from the VIEW CENTRE
-                // (what the player is looking at, and what Fit and the recentre key
-                // aim), cap that, merge coincident glyphs of the same category, and only
-                // then draw - so the cap drops the far markers rather than whichever the
-                // database listed last. All three buffers are static and reused, because
-                // this runs inside Present.
-                struct MapCand
-                {
-                    float sx = 0.0f;
-                    float sy = 0.0f;
-                    float cd2 = 0.0f; // squared distance from the canvas centre
-                    float dz = 0.0f;  // marker Z minus the player's Z, uu (signed)
-                    const markers::DrawMarker* m = nullptr;
-                    bool found = false;
-                    int count = 1;
-                };
-                static std::vector<MapCand> cands;
                 cands.clear();
-                if (cands.capacity() < mv_all.count)
+                if (cands.capacity() < fr.markers.count)
                 {
-                    cands.reserve(mv_all.count);
+                    cands.reserve(fr.markers.count);
                 }
-                for (std::size_t i = 0; i < mv_all.count; ++i)
+                for (std::size_t i = 0; i < fr.markers.count; ++i)
                 {
-                    const markers::DrawMarker& m = mv_all.data[i];
-                    const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
-                    if (static_cast<int>(m.cat) >= mdb::kCatCount ||
-                        !mdb::cat_enabled(cfg.markers_categories, cat))
-                    {
-                        continue;
-                    }
+                    const markers::DrawMarker& m = fr.markers.data[i];
                     const bool found = marker_found_now(m);
-                    if (mdb::hidden_as_found(cat, found, cfg.markers_hide_found))
-                    {
-                        continue;
-                    }
-                    if (searching && !txt::contains_ci(mdb::display_label(cat, m.label), g_map_search))
+                    if (!mdb::passes_map_filter(m.cat, found, fr.cfg.markers_categories,
+                                                fr.cfg.markers_hide_found, m.label, g_map_search))
                     {
                         continue;
                     }
                     float sx = 0.0f;
                     float sy = 0.0f;
-                    mv::world_to_screen(g_mv, canvas, m.x, m.y, sx, sy);
-                    if (sx < canvas.x0 - mr || sx > canvas.x1 + mr || sy < canvas.y0 - mr || sy > canvas.y1 + mr)
+                    mv::world_to_screen(g_mv, fr.canvas, m.x, m.y, sx, sy);
+                    if (sx < fr.canvas.x0 - fr.mr || sx > fr.canvas.x1 + fr.mr ||
+                        sy < fr.canvas.y0 - fr.mr || sy > fr.canvas.y1 + fr.mr)
                     {
                         continue;
                     }
                     MapCand c{};
                     c.sx = sx;
                     c.sy = sy;
-                    const float cdx = sx - canvas.cx();
-                    const float cdy = sy - canvas.cy();
+                    const float cdx = sx - fr.canvas.cx();
+                    const float cdy = sy - fr.canvas.cy();
                     c.cd2 = cdx * cdx + cdy * cdy;
                     // Against the PLAYER, not against the storey the slicer shows: the
                     // arrow answers "is this above or below me", so browsing floors with
                     // Q / E (g_map_floor_off, map_show_all_floors) must not flip it. Same
                     // reference the minimap and the compass use.
-                    c.dz = static_cast<float>(m.z - snap.z);
+                    c.dz = static_cast<float>(m.z - fr.snap.z);
                     c.m = &m;
                     c.found = found;
                     cands.push_back(c);
                 }
+            }
 
-                // Nearest the centre first; partial_sort leaves [0, cap) sorted, which
-                // is all the draw order needs.
-                const std::size_t cap = cfg.map_markers_max_draw > 0
-                                            ? static_cast<std::size_t>(cfg.map_markers_max_draw)
+            // Nearest the centre first, capped at map_markers_max_draw; partial_sort leaves
+            // [0, cap) sorted, which is all the draw order needs.
+            void map_rank_candidates(const MapFrame& fr, std::vector<MapCand>& cands)
+            {
+                const std::size_t cap = fr.cfg.map_markers_max_draw > 0
+                                            ? static_cast<std::size_t>(fr.cfg.map_markers_max_draw)
                                             : cands.size();
                 const auto nearer = [](const MapCand& a, const MapCand& b) { return a.cd2 < b.cd2; };
                 if (cands.size() > cap)
@@ -1206,30 +1275,40 @@ namespace overlay
                 {
                     std::sort(cands.begin(), cands.end(), nearer);
                 }
+            }
 
-                // MERGE, same category and same found state only - see MergeGrid.
+            // Same category and same found state only - see MergeGrid. The survivor carries
+            // the count.
+            void map_merge_candidates(const MapFrame& fr, std::vector<MapCand>& cands)
+            {
+                static MergeGrid grid;
+                grid.reset(fr.canvas.x0 - fr.mr, fr.canvas.y0 - fr.mr, fr.canvas.w() + fr.mr * 2.0f,
+                           fr.canvas.h() + fr.mr * 2.0f, (std::max)(3.0f, fr.mr));
+                std::size_t kept = 0;
+                for (std::size_t i = 0; i < cands.size(); ++i)
                 {
-                    static MergeGrid grid;
-                    grid.reset(canvas.x0 - mr, canvas.y0 - mr, canvas.w() + mr * 2.0f,
-                               canvas.h() + mr * 2.0f, (std::max)(3.0f, mr));
-                    std::size_t kept = 0;
-                    for (std::size_t i = 0; i < cands.size(); ++i)
+                    const MapCand& c = cands[i];
+                    const int key = grid.find(c.sx, c.sy, static_cast<int>(c.m->cat));
+                    if (key >= 0 && cands[static_cast<std::size_t>(key)].found == c.found)
                     {
-                        const MapCand& c = cands[i];
-                        const int key = grid.find(c.sx, c.sy, static_cast<int>(c.m->cat));
-                        if (key >= 0 && cands[static_cast<std::size_t>(key)].found == c.found)
-                        {
-                            ++cands[static_cast<std::size_t>(key)].count;
-                            continue;
-                        }
-                        grid.add(c.sx, c.sy, static_cast<int>(c.m->cat), static_cast<int>(kept));
-                        cands[kept++] = c;
+                        ++cands[static_cast<std::size_t>(key)].count;
+                        continue;
                     }
-                    cands.resize(kept);
+                    grid.add(c.sx, c.sy, static_cast<int>(c.m->cat), static_cast<int>(kept));
+                    cands[kept++] = c;
                 }
+                cands.resize(kept);
+            }
 
-                // Far to near, so the marker nearest what the player is looking at ends
-                // up on top.
+            // Far to near, so the marker nearest what the player is looking at ends up on
+            // top. The two picks come out of the same walk: what the mouse is over, and what
+            // a keyboard or pad "toggle found" would act on.
+            void map_draw_candidates(MapFrame& fr, const std::vector<MapCand>& cands)
+            {
+                ImGuiIO& io = ImGui::GetIO();
+                const float centre_pick_r = (std::max)(48.0f, fr.mr * 5.0f);
+                float hover_d2 = 0.0f;
+                float centre_d2 = 0.0f;
                 for (std::size_t ci = cands.size(); ci-- > 0;)
                 {
                     const MapCand& c = cands[ci];
@@ -1239,115 +1318,143 @@ namespace overlay
                     constexpr int alpha = 255;
                     const ImU32 edge = IM_COL32(14, 16, 20, static_cast<int>(alpha * 0.85f));
                     const ImVec2 p{c.sx, c.sy};
-                    draw_marker_glyph(dl, cat, p, mr, marker_color(cat, alpha), edge, hollow,
-                                      cfg.markers_found_alpha);
+                    draw_marker_glyph(fr.dl, cat, p, fr.mr, marker_color(cat, alpha), edge, hollow,
+                                      fr.cfg.markers_found_alpha);
                     // The badge and the height arrow follow the glyph's fill, so a found
                     // marker does not shout as loud as a live one.
                     const int alpha_deco =
-                        hollow ? static_cast<int>(static_cast<float>(alpha) * cfg.markers_found_alpha)
+                        hollow ? static_cast<int>(static_cast<float>(alpha) * fr.cfg.markers_found_alpha)
                                : alpha;
-                    draw_count_badge(dl, p, mr, c.count, alpha_deco);
+                    draw_count_badge(fr.dl, p, fr.mr, c.count, alpha_deco);
                     // Above / below, the same rule the minimap and the compass use: a
                     // marker more than compass_pip_height_uu off the player's own Z gets
                     // an arrow beside its glyph. Within that band it counts as this floor
                     // and gets none. The arrow sits left of the glyph when a count badge
                     // already occupies the right.
-                    const float thr = cfg.compass_pip_height_uu;
+                    const float thr = fr.cfg.compass_pip_height_uu;
                     if (thr > 0.0f && (c.dz > thr || c.dz < -thr))
                     {
-                        const float ar = (std::max)(2.5f, mr * 0.62f);
+                        const float ar = (std::max)(2.5f, fr.mr * 0.62f);
                         const float sgn = c.count > 1 ? -1.0f : 1.0f;
-                        const float ax = p.x + sgn * (mr + ar * 0.9f);
+                        const float ax = p.x + sgn * (fr.mr + ar * 0.9f);
                         const float up = c.dz > 0.0f ? -1.0f : 1.0f;
                         const ImVec2 tip{ax, p.y + up * ar};
                         const ImVec2 bl{ax - ar * 0.8f, p.y - up * ar * 0.55f};
                         const ImVec2 br{ax + ar * 0.8f, p.y - up * ar * 0.55f};
-                        dl->AddTriangleFilled(tip, bl, br, IM_COL32(246, 246, 250, alpha_deco));
-                        dl->AddTriangle(tip, bl, br, edge, 1.0f);
+                        fr.dl->AddTriangleFilled(tip, bl, br, IM_COL32(246, 246, 250, alpha_deco));
+                        fr.dl->AddTriangle(tip, bl, br, edge, 1.0f);
                     }
                     ++g_map_markers_drawn;
 
                     const float mdx = c.sx - io.MousePos.x;
                     const float mdy = c.sy - io.MousePos.y;
                     const float d2 = mdx * mdx + mdy * mdy;
-                    if (canvas_hovered && d2 <= pick_r * pick_r && (hover == nullptr || d2 < hover_d2))
+                    if (fr.canvas_hovered && d2 <= fr.pick_r * fr.pick_r &&
+                        (fr.hover == nullptr || d2 < hover_d2))
                     {
-                        hover = &m;
+                        fr.hover = &m;
                         hover_d2 = d2;
                     }
-                    // The keyboard / gamepad "toggle found" acts on the marker nearest
-                    // the view centre, within the same radius a mouse would need.
-                    if (c.cd2 <= kCentrePickR * kCentrePickR && (centre_marker == nullptr || c.cd2 < centre_d2))
+                    // The keyboard / gamepad "toggle found" acts on the marker nearest the
+                    // view centre, within the same radius a mouse would need.
+                    if (c.cd2 <= centre_pick_r * centre_pick_r &&
+                        (fr.centre == nullptr || c.cd2 < centre_d2))
                     {
-                        centre_marker = &m;
+                        fr.centre = &m;
                         centre_d2 = c.cd2;
                     }
                 }
             }
 
-            //--------------------------------------------------------------------------
-            // The waypoint and the player
-            //--------------------------------------------------------------------------
-            draw_found_rings(dl, now, (std::max)(5.0f, mr * 1.4f),
-                             [&](double wx, double wy, float& sx, float& sy) {
-                                 mv::world_to_screen(g_mv, canvas, wx, wy, sx, sy);
-                                 return canvas.contains(sx, sy);
-                             });
-            for (std::size_t wi = 0; wi < wps.count; ++wi)
+            void map_draw_markers(MapFrame& fr)
             {
-                float sx = 0.0f;
-                float sy = 0.0f;
-                mv::world_to_screen(g_mv, canvas, wps.items[wi].x, wps.items[wi].y, sx, sy);
-                if (canvas.contains(sx, sy))
+                g_map_markers_drawn = 0;
+                g_map_markers_total = static_cast<int>(fr.markers.count);
+                if (!fr.cfg.markers_enabled || fr.markers.data == nullptr)
                 {
-                    // waypoint_size_scale sizes the waypoint everywhere it is drawn.
-                    draw_waypoint_glyph(dl, ImVec2{sx, sy}, mr * 1.1f * cfg.waypoint_size_scale, 255);
+                    return;
                 }
-            }
-            {
-                float sx = 0.0f;
-                float sy = 0.0f;
-                mv::world_to_screen(g_mv, canvas, snap.x, snap.y, sx, sy);
-                if (canvas.contains(sx, sy))
-                {
-                    // The view cone first, so the arrow sits on top of it.
-                    const float a = snap.yaw * kPi / 180.0f;
-                    const float len = 46.0f;
-                    const float half = 32.0f * kPi / 180.0f;
-                    const ImVec2 c{sx, sy};
-                    const auto dir = [&](float ang) {
-                        return ImVec2{c.x + std::sin(ang) * len, c.y - std::cos(ang) * len};
-                    };
-                    dl->AddTriangleFilled(c, dir(a - half), dir(a + half), IM_COL32(255, 226, 92, 46));
-                    add_player_arrow(dl, c, snap.yaw, 11.0f);
-                }
+                static std::vector<MapCand> cands;
+                map_collect_candidates(fr, cands);
+                map_rank_candidates(fr, cands);
+                map_merge_candidates(fr, cands);
+                map_draw_candidates(fr, cands);
             }
 
-            dl->PopClipRect();
-            dl->AddRect(ImVec2{canvas.x0, canvas.y0}, ImVec2{canvas.x1, canvas.y1},
-                        IM_COL32(120, 130, 145, 160), 0.0f, 0, 1.5f);
-
-            //--------------------------------------------------------------------------
-            // Clicks (after the draw, so `hover` is known)
-            //--------------------------------------------------------------------------
-            if (canvas_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && drag_px < 5.0f &&
-                hover != nullptr)
+            // The found rings, the waypoints and the player, in that order: the arrow sits
+            // on top of its own view cone, and both sit on top of everything else.
+            void map_draw_player_layer(const MapFrame& fr)
             {
-                toggle_found(*hover);
+                draw_found_rings(fr.dl, fr.now, (std::max)(5.0f, fr.mr * 1.4f),
+                                 [&fr](double wx, double wy, float& sx, float& sy) {
+                                     mv::world_to_screen(g_mv, fr.canvas, wx, wy, sx, sy);
+                                     return fr.canvas.contains(sx, sy);
+                                 });
+                for (std::size_t wi = 0; wi < fr.wps.count; ++wi)
+                {
+                    float sx = 0.0f;
+                    float sy = 0.0f;
+                    mv::world_to_screen(g_mv, fr.canvas, fr.wps.items[wi].x, fr.wps.items[wi].y, sx, sy);
+                    if (fr.canvas.contains(sx, sy))
+                    {
+                        // waypoint_size_scale sizes the waypoint everywhere it is drawn.
+                        draw_waypoint_glyph(fr.dl, ImVec2{sx, sy},
+                                            fr.mr * 1.1f * fr.cfg.waypoint_size_scale, 255);
+                    }
+                }
+                float sx = 0.0f;
+                float sy = 0.0f;
+                mv::world_to_screen(g_mv, fr.canvas, fr.snap.x, fr.snap.y, sx, sy);
+                if (!fr.canvas.contains(sx, sy))
+                {
+                    return;
+                }
+                const float a = fr.snap.yaw * kPi / 180.0f;
+                const float len = 46.0f;
+                const float half = 32.0f * kPi / 180.0f;
+                const ImVec2 c{sx, sy};
+                const auto dir = [&](float ang) {
+                    return ImVec2{c.x + std::sin(ang) * len, c.y - std::cos(ang) * len};
+                };
+                fr.dl->AddTriangleFilled(c, dir(a - half), dir(a + half), IM_COL32(255, 226, 92, 46));
+                add_player_arrow(fr.dl, c, fr.snap.yaw, 11.0f);
             }
-            // Drops a waypoint, or removes the one the gesture landed on.
-            const auto set_or_remove = [&](double wx, double wy) {
+
+            // Everything inside the canvas rectangle, clipped to it and framed after.
+            void map_draw_canvas(MapFrame& fr)
+            {
+                fr.dl->PushClipRect(ImVec2{fr.canvas.x0, fr.canvas.y0},
+                                    ImVec2{fr.canvas.x1, fr.canvas.y1}, true);
+                fr.dl->AddRectFilled(ImVec2{fr.canvas.x0, fr.canvas.y0},
+                                     ImVec2{fr.canvas.x1, fr.canvas.y1}, IM_COL32(9, 12, 16, 255));
+                map_draw_picture(fr);
+                map_draw_markers(fr);
+                map_draw_player_layer(fr);
+                fr.dl->PopClipRect();
+                fr.dl->AddRect(ImVec2{fr.canvas.x0, fr.canvas.y0}, ImVec2{fr.canvas.x1, fr.canvas.y1},
+                               IM_COL32(120, 130, 145, 160), 0.0f, 0, 1.5f);
+            }
+
+            //==================================================================
+            // What a waypoint gesture does
+            //==================================================================
+
+            // Drops a waypoint on a world spot, or removes the one the gesture landed on.
+            // Screen space, not world: what counts as "on it" is the pick radius the player
+            // sees, so it is the same at every zoom.
+            void map_waypoint_at_world(const MapFrame& fr, double wx, double wy)
+            {
                 float cx2 = 0.0f;
                 float cy2 = 0.0f;
-                mv::world_to_screen(g_mv, canvas, wx, wy, cx2, cy2);
-                for (std::size_t wi = 0; wi < wps.count; ++wi)
+                mv::world_to_screen(g_mv, fr.canvas, wx, wy, cx2, cy2);
+                for (std::size_t wi = 0; wi < fr.wps.count; ++wi)
                 {
                     float hx = 0.0f;
                     float hy = 0.0f;
-                    mv::world_to_screen(g_mv, canvas, wps.items[wi].x, wps.items[wi].y, hx, hy);
+                    mv::world_to_screen(g_mv, fr.canvas, fr.wps.items[wi].x, fr.wps.items[wi].y, hx, hy);
                     const float ddx = hx - cx2;
                     const float ddy = hy - cy2;
-                    if (ddx * ddx + ddy * ddy <= pick_r * pick_r)
+                    if (ddx * ddx + ddy * ddy <= fr.pick_r * fr.pick_r)
                     {
                         mm::remove_waypoint(wi);
                         toast("waypoint removed");
@@ -1358,13 +1465,15 @@ namespace overlay
                 set.set = true;
                 set.x = wx;
                 set.y = wy;
-                set.z = static_cast<double>(feet);
+                set.z = static_cast<double>(fr.feet);
                 toast(mm::add_waypoint(set) ? "waypoint set" : "no room for another waypoint");
-            };
-            // Right-click on a marker: a waypoint on the marker's own spot, or off it.
-            // The marker's z comes along, so the waypoint sits on the marker's floor and
-            // the compass and the minimap bear on it exactly.
-            const auto toggle_marker_waypoint = [&](const markers::DrawMarker& m) {
+            }
+
+            // A waypoint on a marker's own spot, or off it. The marker's z comes along, so
+            // the waypoint sits on the marker's floor and the compass and the minimap bear
+            // on it exactly.
+            void map_toggle_marker_waypoint(const mv::WaypointSet& wps, const markers::DrawMarker& m)
+            {
                 const mv::WaypointToggleResult t =
                     mv::waypoint_toggle_at(wps, m.x, m.y, m.z, mv::kWaypointSamePlace);
                 if (t.action == mv::WaypointToggle::Remove)
@@ -1384,58 +1493,74 @@ namespace overlay
                 wp.y = m.y;
                 wp.z = m.z;
                 toast(mm::add_waypoint(wp) ? "waypoint set" : "no room for another waypoint");
-            };
-            if (canvas_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-            {
-                if (hover != nullptr)
-                {
-                    toggle_marker_waypoint(*hover);
-                }
-                else
-                {
-                    double wx = 0.0;
-                    double wy = 0.0;
-                    mv::screen_to_world(g_mv, canvas, io.MousePos.x, io.MousePos.y, wx, wy);
-                    set_or_remove(wx, wy);
-                }
-            }
-            if (pad_waypoint || key_waypoint)
-            {
-                set_or_remove(g_mv.cx, g_mv.cy);
-            }
-            if ((pad_toggle || key_toggle) && centre_marker != nullptr)
-            {
-                toggle_found(*centre_marker);
             }
 
-            //--------------------------------------------------------------------------
-            // Hover tooltip
-            //--------------------------------------------------------------------------
-            if (hover != nullptr)
+            // After the draw, so `hover` is known. The pad and keyboard equivalents land
+            // here too, aimed at the view centre rather than the cursor.
+            void map_handle_clicks(const MapFrame& fr)
             {
-                ImGui::BeginTooltip();
-                const mdb::Cat cat = static_cast<mdb::Cat>(hover->cat);
-                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(marker_color(cat, 255)), "%s",
-                                   mdb::display_label(cat, hover->label));
-                ImGui::Text("category: %s", mdb::cat_name(cat));
-                // The stable id is a path (`Chapter1_DGong_logic/BP_treasurebox_C_12`),
-                // the join key with the live actors and what a bug report needs - noise
-                // to everyone else, hence the debug switch.
-                if (cfg.debug_readout)
+                ImGuiIO& io = ImGui::GetIO();
+                if (fr.canvas_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                    fr.drag_px < 5.0f && fr.hover != nullptr)
                 {
-                    ImGui::TextDisabled("%s", hover->id);
+                    toggle_found(*fr.hover);
                 }
-                const double ddx = hover->x - snap.x;
-                const double ddy = hover->y - snap.y;
-                const double ddz = hover->z - snap.z;
-                const double dz_m = ddz / 100.0;
-                // A person has no collected state, so the line carries the distance alone and
-                // the hint below offers no toggle.
+                if (fr.canvas_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+                {
+                    if (fr.hover != nullptr)
+                    {
+                        map_toggle_marker_waypoint(fr.wps, *fr.hover);
+                    }
+                    else
+                    {
+                        double wx = 0.0;
+                        double wy = 0.0;
+                        mv::screen_to_world(g_mv, fr.canvas, io.MousePos.x, io.MousePos.y, wx, wy);
+                        map_waypoint_at_world(fr, wx, wy);
+                    }
+                }
+                if (fr.act_waypoint)
+                {
+                    map_waypoint_at_world(fr, g_mv.cx, g_mv.cy);
+                }
+                if (fr.act_toggle && fr.centre != nullptr)
+                {
+                    toggle_found(*fr.centre);
+                }
+            }
+
+            //==================================================================
+            // Hover tooltip
+            //==================================================================
+            void map_hover_tooltip(const MapFrame& fr)
+            {
+                if (fr.hover == nullptr)
+                {
+                    return;
+                }
+                const markers::DrawMarker& m = *fr.hover;
+                ImGui::BeginTooltip();
+                const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(marker_color(cat, 255)), "%s",
+                                   mdb::display_label(cat, m.label));
+                ImGui::Text("category: %s", mdb::cat_name(cat));
+                // The stable id is a path (`Chapter1_DGong_logic/BP_treasurebox_C_12`), the
+                // join key with the live actors and what a bug report needs - noise to
+                // everyone else, hence the debug switch.
+                if (fr.cfg.debug_readout)
+                {
+                    ImGui::TextDisabled("%s", m.id);
+                }
+                const double ddx = m.x - fr.snap.x;
+                const double ddy = m.y - fr.snap.y;
+                const double dz_m = (m.z - fr.snap.z) / 100.0;
+                // A person has no collected state, so the line carries the distance alone
+                // and the hint below offers no toggle.
                 const bool collectible = mdb::has_found_state(cat);
                 const char* state = "";
                 if (collectible)
                 {
-                    state = marker_found_now(*hover) ? "FOUND   " : "not found   ";
+                    state = marker_found_now(m) ? "FOUND   " : "not found   ";
                 }
                 if (std::fabs(dz_m) < 0.5)
                 {
@@ -1449,8 +1574,8 @@ namespace overlay
                                 dz_m > 0.0 ? "above" : "below");
                 }
                 const bool hover_wp =
-                    mv::waypoint_toggle_at(wps, hover->x, hover->y, hover->z, mv::kWaypointSamePlace)
-                        .action == mv::WaypointToggle::Remove;
+                    mv::waypoint_toggle_at(fr.wps, m.x, m.y, m.z, mv::kWaypointSamePlace).action ==
+                    mv::WaypointToggle::Remove;
                 const char* toggle_hint =
                     collectible
                         ? (hover_wp ? "left-click toggles found - right-click removes the waypoint"
@@ -1461,24 +1586,28 @@ namespace overlay
                 ImGui::EndTooltip();
             }
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // Search results (while the box is not empty) - the rows collected above,
             // nearest first; clicking one waypoints it.
+            //==================================================================
             //
-            // A dropdown, not a window: it hangs under the search box, has no title bar
-            // and no close button (Esc empties the box, which takes it away), and it
-            // never takes the caret - NoFocusOnAppearing, or the first letter typed
-            // would end the typing. It grows with its rows up to 40 % of the screen and
-            // scrolls past that.
-            //--------------------------------------------------------------------------
+            // A dropdown, not a window: it hangs under the search box, has no title bar and
+            // no close button (Esc empties the box, which takes it away), and it never takes
+            // the caret - NoFocusOnAppearing, or the first letter typed would end the
+            // typing. It grows with its rows up to 40 % of the screen and scrolls past that.
+            void map_search_results(const MapFrame& fr)
             {
                 bool dropdown_hovered = false;
-                if (searching && g_search_panel)
+                if (fr.searching && g_search_panel)
                 {
+                    const std::vector<const markers::DrawMarker*>& hits = *fr.hits;
                     const ImVec2 vpsz = ImGui::GetMainViewport()->Size;
-                    const float drop_w = (std::max)(search_max.x - search_min.x, 420.0f * g_chrome_scale);
-                    ImGui::SetNextWindowPos(ImVec2(search_min.x, search_max.y + 2.0f * g_chrome_scale));
-                    ImGui::SetNextWindowSizeConstraints(ImVec2(drop_w, 0.0f), ImVec2(drop_w, vpsz.y * 0.40f));
+                    const float drop_w =
+                        (std::max)(fr.search_max.x - fr.search_min.x, 420.0f * g_chrome_scale);
+                    ImGui::SetNextWindowPos(
+                        ImVec2(fr.search_min.x, fr.search_max.y + 2.0f * g_chrome_scale));
+                    ImGui::SetNextWindowSizeConstraints(ImVec2(drop_w, 0.0f),
+                                                        ImVec2(drop_w, vpsz.y * 0.40f));
                     constexpr ImGuiWindowFlags kDropFlags =
                         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
@@ -1486,8 +1615,9 @@ namespace overlay
                         ImGuiWindowFlags_NoNavFocus;
                     if (ImGui::Begin("##mapsearch_results", nullptr, kDropFlags))
                     {
-                        dropdown_hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem |
-                                                                  ImGuiHoveredFlags_ChildWindows);
+                        dropdown_hovered =
+                            ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem |
+                                                   ImGuiHoveredFlags_ChildWindows);
                         ImGui::TextDisabled("%d marker(s) match \"%s\" - click one to waypoint it, "
                                             "right-click to toggle",
                                             g_map_search_hits, g_map_search);
@@ -1496,8 +1626,8 @@ namespace overlay
                         {
                             const markers::DrawMarker& m = *hits[i];
                             const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
-                            const double ddx = m.x - snap.x;
-                            const double ddy = m.y - snap.y;
+                            const double ddx = m.x - fr.snap.x;
+                            const double ddy = m.y - fr.snap.y;
                             ImGui::PushID(static_cast<int>(i));
                             char row[128]{};
                             (void)std::snprintf(row, sizeof(row), "%s   %.0f m   (%s)",
@@ -1516,7 +1646,7 @@ namespace overlay
                             }
                             if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
                             {
-                                toggle_marker_waypoint(m);
+                                map_toggle_marker_waypoint(fr.wps, m);
                             }
                             ImGui::PopID();
                         }
@@ -1527,24 +1657,28 @@ namespace overlay
                     }
                     ImGui::End();
                 }
-                // The caret stays in the box until the player takes it somewhere else:
-                // a click on the box or on a result row keeps it, anything else - the
-                // canvas, the legend, a header button - gives it up.
+                // The caret stays in the box until the player takes it somewhere else: a
+                // click on the box or on a result row keeps it, anything else - the canvas,
+                // the legend, a header button - gives it up.
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
                     ImGui::IsMouseClicked(ImGuiMouseButton_Right))
                 {
                     const ImVec2 mp = ImGui::GetMousePos();
-                    const bool on_box = mp.x >= search_min.x && mp.x <= search_max.x &&
-                                        mp.y >= search_min.y && mp.y <= search_max.y;
+                    const bool on_box = mp.x >= fr.search_min.x && mp.x <= fr.search_max.x &&
+                                        mp.y >= fr.search_min.y && mp.y <= fr.search_max.y;
                     g_search_focus = on_box || dropdown_hovered;
                 }
             }
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // The waypoint list (the `Waypoints` button in the header)
-            //--------------------------------------------------------------------------
-            if (g_wp_panel)
+            //==================================================================
+            void map_waypoint_panel(const MapFrame& fr)
             {
+                if (!g_wp_panel)
+                {
+                    return;
+                }
                 const ImVec2 vpsz = ImGui::GetMainViewport()->Size;
                 ImGui::SetNextWindowPos(ImVec2(vpsz.x * 0.5f, vpsz.y * 0.5f), ImGuiCond_Appearing,
                                         ImVec2(0.5f, 0.5f));
@@ -1552,7 +1686,7 @@ namespace overlay
                 if (ImGui::Begin("Waypoints", &g_wp_panel,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
-                    const mv::WaypointSet& live = wps;
+                    const mv::WaypointSet& live = fr.wps;
                     {
                         char head[128]{};
                         (void)std::snprintf(head, sizeof(head),
@@ -1561,12 +1695,12 @@ namespace overlay
                                             live.count, mv::kMaxWaypoints);
                         text_disabled_wrapped(head);
                     }
-                    const int nearest = mv::nearest_waypoint(live, snap.x, snap.y);
+                    const int nearest = mv::nearest_waypoint(live, fr.snap.x, fr.snap.y);
                     for (std::size_t wi = 0; wi < live.count; ++wi)
                     {
                         const mv::Waypoint& wp = live.items[wi];
-                        const double ddx = wp.x - snap.x;
-                        const double ddy = wp.y - snap.y;
+                        const double ddx = wp.x - fr.snap.x;
+                        const double ddy = wp.y - fr.snap.y;
                         ImGui::PushID(static_cast<int>(wi));
                         if (ImGui::SmallButton("X"))
                         {
@@ -1605,19 +1739,23 @@ namespace overlay
                 ImGui::End();
             }
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // The shrine list (the `Shrines` button in the header)
-            //--------------------------------------------------------------------------
-            if (g_shrine_panel)
+            //==================================================================
+            void map_shrine_panel(const MapFrame& fr, bool have_state)
             {
-                const ImVec2 vp = ImGui::GetMainViewport()->Size;
-                ImGui::SetNextWindowPos(ImVec2(vp.x * 0.5f, vp.y * 0.5f), ImGuiCond_Appearing,
+                if (!g_shrine_panel)
+                {
+                    return;
+                }
+                const ImVec2 vpsz = ImGui::GetMainViewport()->Size;
+                ImGui::SetNextWindowPos(ImVec2(vpsz.x * 0.5f, vpsz.y * 0.5f), ImGuiCond_Appearing,
                                         ImVec2(0.5f, 0.5f));
                 ImGui::SetNextWindowSize(ImVec2(620.0f * g_chrome_scale, 0.0f), ImGuiCond_Appearing);
                 if (ImGui::Begin("Shrines", &g_shrine_panel,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
-                    draw_shrine_list(snap, have_state, markers::stats().filter_chapter);
+                    draw_shrine_list(fr.snap, have_state, markers::stats().filter_chapter);
                     ImGui::Spacing();
                     if (ImGui::Button("Close"))
                     {
@@ -1627,17 +1765,21 @@ namespace overlay
                 ImGui::End();
             }
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // The collection statistics panel (the `Stats` button in the header)
-            //--------------------------------------------------------------------------
+            //==================================================================
             //
-            // A child window over the map, not a top-level one: the map is a mode that
-            // owns the screen and swallows the input, so a floating window would be a
-            // trap. It closes with the same button, with Esc, and with the map.
-            if (g_stats_page)
+            // A child window over the map, not a top-level one: the map is a mode that owns
+            // the screen and swallows the input, so a floating window would be a trap. It
+            // closes with the same button, with Esc, and with the map.
+            void map_stats_panel()
             {
-                const ImVec2 vp = ImGui::GetMainViewport()->Size;
-                ImGui::SetNextWindowPos(ImVec2(vp.x * 0.5f, vp.y * 0.5f), ImGuiCond_Appearing,
+                if (!g_stats_page)
+                {
+                    return;
+                }
+                const ImVec2 vpsz = ImGui::GetMainViewport()->Size;
+                ImGui::SetNextWindowPos(ImVec2(vpsz.x * 0.5f, vpsz.y * 0.5f), ImGuiCond_Appearing,
                                         ImVec2(0.5f, 0.5f));
                 ImGui::SetNextWindowSize(ImVec2(720.0f * g_chrome_scale, 0.0f), ImGuiCond_Appearing);
                 if (ImGui::Begin("Collection", &g_stats_page,
@@ -1653,28 +1795,33 @@ namespace overlay
                 ImGui::End();
             }
 
-            //--------------------------------------------------------------------------
+            //==================================================================
             // The controls legend (`?` / pad Back)
-            //--------------------------------------------------------------------------
+            //==================================================================
             //
             // Two columns, built from the config so a rebound key is what the player is
             // told. The gamepad column is dropped only when the GAME says the player is on
-            // keyboard and mouse (mm::Snapshot::device): a connected pad is not evidence that
-            // anyone is holding it, and an unknown device keeps the column rather than
+            // keyboard and mouse (mm::Snapshot::device): a connected pad is not evidence
+            // that anyone is holding it, and an unknown device keeps the column rather than
             // hiding controls from a pad player.
-            const bool pad_help = cfg.map_gamepad && gp.connected &&
-                                  snap.device != mm::InputDevice::Kbm;
-            if (g_map_help)
+            struct HelpRow
             {
-                struct Row
-                {
-                    std::string control;
-                    std::string action;
-                };
-                // Built once, not per frame: ~28 strings in two static vectors would
-                // otherwise be ~30 allocations inside Present for text that changes only
-                // when a binding changes or a pad is plugged in. The signature below is
-                // exactly what the text is made of.
+                std::string control;
+                std::string action;
+            };
+
+            struct HelpText
+            {
+                const std::vector<HelpRow>* left = nullptr;
+                const std::vector<HelpRow>* right = nullptr;
+            };
+
+            // Built once, not per frame: ~28 strings in two static vectors would otherwise
+            // be ~30 allocations inside Present for text that changes only when a binding
+            // changes or a pad is plugged in. The key below is exactly what the text is
+            // made of.
+            HelpText map_help_text(const mm::Config& cfg, bool pad_help)
+            {
                 struct HelpKey
                 {
                     int panel = 0;
@@ -1689,31 +1836,36 @@ namespace overlay
                     bool hl_hold = false;
                     bool pad = false;
                     // Defaulted ==, not memcmp: padding bytes in an aggregate are
-                    // unspecified, and a spurious "changed" puts the per-frame
-                    // allocations back silently.
+                    // unspecified, and a spurious "changed" puts the per-frame allocations
+                    // back silently.
                     bool operator==(const HelpKey&) const = default;
                 };
-                const HelpKey want{cfg.panel_key,          cfg.map_key,
-                                   cfg.map_recenter_key,   cfg.zoom_key,
-                                   cfg.reload_key,         cfg.screenshot_key,
-                                   cfg.waypoint_nearest_key, cfg.highlight_key,
+                const HelpKey want{cfg.panel_key,
+                                   cfg.map_key,
+                                   cfg.map_recenter_key,
+                                   cfg.zoom_key,
+                                   cfg.reload_key,
+                                   cfg.screenshot_key,
+                                   cfg.waypoint_nearest_key,
+                                   cfg.highlight_key,
                                    cfg.highlight_enabled,
                                    cfg.highlight_mode == mm::HighlightMode::Hold,
                                    pad_help};
-                static std::vector<Row> left;
-                static std::vector<Row> right;
+                static std::vector<HelpRow> left;
+                static std::vector<HelpRow> right;
                 static HelpKey have{};
                 static bool built = false;
-                const bool rebuild = !built || !(want == have);
-                const auto add = [](std::vector<Row>& into, std::string c, std::string a) {
-                    into.push_back(Row{std::move(c), std::move(a)});
-                };
-                if (rebuild)
+                if (built && want == have)
                 {
+                    return HelpText{&left, &right};
+                }
                 built = true;
                 have = want;
                 left.clear();
                 right.clear();
+                const auto add = [](std::vector<HelpRow>& into, std::string c, std::string a) {
+                    into.push_back(HelpRow{std::move(c), std::move(a)});
+                };
                 add(left, "mouse / keyboard", "");
                 add(left, "drag, WASD, arrows", "pan");
                 add(left, "wheel, + / -", "zoom");
@@ -1727,8 +1879,7 @@ namespace overlay
                 add(left, "left-click, F", "toggle found");
                 add(left, "click a legend row", "filter that category (remembered)");
                 add(left, "the legend header", "this chapter's markers only, or every chapter");
-                add(left, key_name_ascii(cfg.screenshot_key),
-                    "copy the map to the clipboard (keyboard)");
+                add(left, key_name_ascii(cfg.screenshot_key), "copy the map to the clipboard (keyboard)");
                 add(left, "Shrines", "shrine list (click = waypoint, double-click = centre)");
                 add(left, "Stats", "collection statistics");
                 add(left, "F1 or H", "this legend");
@@ -1750,8 +1901,8 @@ namespace overlay
                 add(right, key_name_ascii(cfg.panel_key), "settings panel");
                 add(right, key_name_ascii(cfg.zoom_key), "cycle the minimap zoom");
                 add(right, key_name_ascii(cfg.reload_key), "reload config, maps and markers");
-                // Unbound by default (the game owns G), so the row is there only once
-                // the player has bound it.
+                // Unbound by default (the game owns G), so the row is there only once the
+                // player has bound it.
                 if (mm::key_vk(cfg.waypoint_nearest_key) != 0)
                 {
                     add(right, key_name_ascii(cfg.waypoint_nearest_key),
@@ -1769,16 +1920,22 @@ namespace overlay
                     add(right, wide_to_ascii(mm::pad_chord_name(cfg.map_pad_open_chord, false, false)),
                         "open / close the map (pad)");
                 }
-                } // rebuild
+                return HelpText{&left, &right};
+            }
 
+            // Two columns of rows on a plate at the canvas centre, each column as wide as
+            // its own widest control and action. A row with no action is a heading, and is
+            // the only thing in here drawn bright.
+            void map_draw_help(const MapFrame& fr, const HelpText& text)
+            {
                 const float line = ImGui::GetTextLineHeightWithSpacing();
                 const float pad_px = ImGui::GetTextLineHeight();
                 float ctrl_w[2] = {0.0f, 0.0f};
                 float act_w[2] = {0.0f, 0.0f};
-                const std::vector<Row>* cols[2] = {&left, &right};
+                const std::vector<HelpRow>* cols[2] = {text.left, text.right};
                 for (int c = 0; c < 2; ++c)
                 {
-                    for (const Row& row : *cols[c])
+                    for (const HelpRow& row : *cols[c])
                     {
                         ctrl_w[c] = (std::max)(ctrl_w[c], ImGui::CalcTextSize(row.control.c_str()).x);
                         act_w[c] = (std::max)(act_w[c], ImGui::CalcTextSize(row.action.c_str()).x);
@@ -1787,64 +1944,153 @@ namespace overlay
                 const float gap = pad_px;
                 const float col_w[2] = {ctrl_w[0] + gap + act_w[0], ctrl_w[1] + gap + act_w[1]};
                 const float box_w = col_w[0] + col_w[1] + pad_px * 3.0f;
-                const std::size_t rows =
-                    (std::max)(left.size(), right.size());
+                const std::size_t rows = (std::max)(text.left->size(), text.right->size());
                 const float box_h = static_cast<float>(rows) * line + pad_px * 2.0f;
-                const ImVec2 tl{canvas.cx() - box_w * 0.5f, canvas.cy() - box_h * 0.5f};
-                dl->AddRectFilled(tl, ImVec2{tl.x + box_w, tl.y + box_h}, plate_color(235), 5.0f);
-                dl->AddRect(tl, ImVec2{tl.x + box_w, tl.y + box_h}, IM_COL32(150, 158, 168, 200), 5.0f, 0,
-                            1.4f);
+                const ImVec2 tl{fr.canvas.cx() - box_w * 0.5f, fr.canvas.cy() - box_h * 0.5f};
+                fr.dl->AddRectFilled(tl, ImVec2{tl.x + box_w, tl.y + box_h}, plate_color(235), 5.0f);
+                fr.dl->AddRect(tl, ImVec2{tl.x + box_w, tl.y + box_h}, IM_COL32(150, 158, 168, 200), 5.0f,
+                               0, 1.4f);
                 for (int c = 0; c < 2; ++c)
                 {
                     const float x = tl.x + pad_px + (c == 1 ? col_w[0] + pad_px : 0.0f);
                     float y = tl.y + pad_px;
-                    for (const Row& row : *cols[c])
+                    for (const HelpRow& row : *cols[c])
                     {
-                        // A row with no action is a heading, and is the only thing in
-                        // here drawn bright.
                         const bool heading = row.action.empty();
                         if (!row.control.empty())
                         {
-                            dl->AddText(ImVec2{x, y},
-                                        heading ? IM_COL32(255, 226, 160, 255) : IM_COL32(226, 230, 236, 235),
-                                        row.control.c_str());
+                            fr.dl->AddText(ImVec2{x, y},
+                                           heading ? IM_COL32(255, 226, 160, 255)
+                                                   : IM_COL32(226, 230, 236, 235),
+                                           row.control.c_str());
                         }
                         if (!heading)
                         {
-                            dl->AddText(ImVec2{x + ctrl_w[c] + gap, y}, IM_COL32(180, 186, 196, 220),
-                                        row.action.c_str());
+                            fr.dl->AddText(ImVec2{x + ctrl_w[c] + gap, y}, IM_COL32(180, 186, 196, 220),
+                                           row.action.c_str());
                         }
                         y += line;
                     }
                 }
             }
 
-            //--------------------------------------------------------------------------
+            void map_help(const MapFrame& fr)
+            {
+                if (!g_map_help)
+                {
+                    return;
+                }
+                const bool pad_help = fr.cfg.map_gamepad && fr.gp.connected &&
+                                      fr.snap.device != mm::InputDevice::Kbm;
+                map_draw_help(fr, map_help_text(fr.cfg, pad_help));
+            }
+
+            //==================================================================
             // Footer
-            //--------------------------------------------------------------------------
-            if (!have_picture)
+            //==================================================================
+            void map_footer(const MapFrame& fr)
             {
-                ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f},
-                                   chapter_ptr == nullptr
-                                       ? "no chapter covers this position - markers only"
-                                       : "no height maps for this chapter - markers only");
+                if (!fr.have_picture)
+                {
+                    ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f},
+                                       fr.chapter == nullptr
+                                           ? "no chapter covers this position - markers only"
+                                           : "no height maps for this chapter - markers only");
+                }
+                else
+                {
+                    ImGui::TextDisabled(
+                        "F1 or H (or pad Back) shows the controls   %s or Esc closes the map",
+                        key_name_ascii(fr.cfg.map_key).c_str());
+                }
+                ImGui::TextDisabled("%d of %d marker(s)   cut %dx%d @ %.2f ms%s", g_map_markers_drawn,
+                                    g_map_markers_total, g_mslice[0].w, g_mslice[0].h, g_mslice_ms,
+                                    fr.cfg.map_gamepad && fr.gp.connected ? "   gamepad connected" : "");
             }
-            else
+        } // namespace
+
+        //==============================================================================
+        // The frame, in the order it happens
+        //==============================================================================
+        void draw_full_map(mm::Config cfg, const mm::Snapshot& snap, bool have_state, float ui_scale)
+        {
+            const mm::Config before = cfg;
+            const std::uint64_t now = ::GetTickCount64();
+            const ImGuiViewport* vp = ImGui::GetMainViewport();
+
+            if (const wchar_t* why = map_close_reason(cfg, snap, have_state, now))
             {
-                ImGui::TextDisabled("F1 or H (or pad Back) shows the controls   %s or Esc closes the map",
-                                    key_name_ascii(cfg.map_key).c_str());
+                close_map(why);
+                return;
             }
-            ImGui::TextDisabled("%d of %d marker(s)   cut %dx%d @ %.2f ms%s", g_map_markers_drawn,
-                                g_map_markers_total, g_mslice[0].w, g_mslice[0].h, g_mslice_ms,
-                                cfg.map_gamepad && gp.connected ? "   gamepad connected" : "");
+
+            MapFrame fr{cfg, snap, ui_scale, now};
+            map_draw_backdrop(fr.cfg, vp);
+            fr.chapter = mapdata::chapter_ptr_for(snap.x, snap.y);
+            fr.wps = mm::waypoints();
+            fr.markers = markers::view();
+            // This view gets the UNSCALED config - the legend's filter chips write back
+            // into it - so the ui-scale factor ui_scaled() applies to the minimap's zoom
+            // key is applied here at the point of use.
+            fr.zscale = (fr.cfg.zoom_dpi_scaled && ui_scale > 0.0f) ? 1.0f / ui_scale : 1.0f;
+            fr.zmin = static_cast<double>(fr.cfg.map_zoom_min * fr.zscale);
+            fr.zmax = static_cast<double>(fr.cfg.map_zoom_max * fr.zscale);
+            fr.mr = fr.cfg.map_marker_size * ui_scale;
+            fr.pick_r = (std::max)(8.0f, fr.mr * 1.6f);
+            map_first_frame(fr);
+
+            const mv::Rect frame = map_window_rect(fr.cfg, vp);
+            ImGui::SetNextWindowPos(ImVec2{frame.x0, frame.y0}, ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2{frame.w(), frame.h()}, ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.97f);
+            constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                                                ImGuiWindowFlags_NoScrollbar |
+                                                ImGuiWindowFlags_NoScrollWithMouse |
+                                                ImGuiWindowFlags_NoSavedSettings |
+                                                // It fills the screen, so it is the map mode's backdrop
+                                                // and stays behind its own panels: without this,
+                                                // focusing it - a click on the canvas, or the search box
+                                                // taking the caret back - would draw it over the search
+                                                // dropdown.
+                                                ImGuiWindowFlags_NoBringToFrontOnFocus;
+            if (!ImGui::Begin("##wuchang_full_map", nullptr, kFlags))
+            {
+                ImGui::End();
+                return;
+            }
+
+            map_header(fr);
+            map_search_box(fr);
+            map_collect_hits(fr);
+            map_search_row(fr);
+            map_place_canvas(fr);
+            map_legend(fr);
+
+            g_mv.uu_per_px = mv::clamp_zoom(g_mv.uu_per_px, fr.zmin, fr.zmax);
+            map_input_mouse(fr);
+            map_input_keys(fr);
+            map_input_pad(fr);
+            map_apply_view(fr);
+
+            fr.dl = ImGui::GetWindowDrawList();
+            map_draw_canvas(fr);
+            map_handle_clicks(fr);
+            map_hover_tooltip(fr);
+            map_search_results(fr);
+            map_waypoint_panel(fr);
+            map_shrine_panel(fr, have_state);
+            map_stats_panel();
+            map_help(fr);
+            map_footer(fr);
 
             ImGui::End();
 
             // Field by field, not memcmp: a Config is a value, and `mm::operator==` is
             // generated from the struct with a byte-flip drift guard in markers_test.
-            if (before != cfg)
+            if (before != fr.cfg)
             {
-                mm::set_config(cfg);
+                mm::set_config(fr.cfg);
                 mm::g_save_config_soon = true;
             }
         }

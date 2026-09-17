@@ -67,6 +67,16 @@ namespace mv
     void world_to_screen(const View& v, const Rect& r, double wx, double wy, float& sx, float& sy);
     void screen_to_world(const View& v, const Rect& r, float sx, float sy, double& wx, double& wy);
 
+    // Move the view by a screen distance: the content under the cursor travels
+    // (right_px, up_px) pixels, whatever the zoom. Every pan gesture - the drag, WASD and
+    // the arrows, the left stick - is this one call with its own pixel delta.
+    void pan_px(View& v, double right_px, double up_px);
+
+    // Zoom about an anchor: the world point under (sx, sy) is still under it afterwards.
+    // `notches` and `factor` are zoom_by's, `lo` / `hi` clamp_zoom's.
+    void zoom_about(View& v, const Rect& r, float sx, float sy, double notches, double factor,
+                    double lo, double hi);
+
     // Zoom limits. `lo` / `hi` are taken in either order; a non-finite or non-positive
     // input falls back to the low limit.
     double clamp_zoom(double z, double lo, double hi);

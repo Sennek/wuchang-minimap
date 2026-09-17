@@ -1550,108 +1550,33 @@ namespace overlay
         return fire;
     }
 
-    void on_update()
+    //==================================================================================
+    // THE LOOP THREAD'S FRAME
+    //==================================================================================
+    //
+    // Every pass below runs on the UE4SS event-loop thread: no D3D12, no UObjects. What
+    // crosses from one pass to the next is these four facts and nothing else - which is
+    // why there is no wider frame struct here.
+    namespace
     {
-        // UE4SS EVENT-LOOP THREAD. No D3D12, no UObjects.
-        static Edge panel_edge{};
-        static Edge reload_edge{};
-        static bool logged_first_present = false;
+        struct LoopFrame
+        {
+            const mm::Config& cfg;
+            std::uint64_t now = 0;
+            bool foreground = false;
+            // A text box has the caret. A letter typed into the map's search box or the
+            // panel's import path is the box's, not a binding's.
+            bool typing = false;
+        };
 
-        const mm::Config& cfg = mm::cfg_cached();
-        const std::uint64_t now = ::GetTickCount64();
-
-        // The hooks, if start() armed them and the game thread has an answer.
-        complete_pending_hook_install();
-
-        // THE HEIGHT SLICER. 1-4 ms of CPU, on this thread: it writes into a
-        // persistently mapped upload heap and needs nothing from the frame, so render()
-        // only records the CopyTextureRegion.
+        // A binding carries its virtual key in the low byte and one modifier in bits 8..9
+        // (mm::key_vk / mm::key_mod), so `map_key = ctrl+m` is one int and one sample.
         //
-        // The guard sequence is the loop-thread half of the pause handshake: check,
-        // mark busy, check AGAIN. The render thread sets `pause` and then waits for
-        // `busy`, so whichever order the two interleave in, one of them backs off.
-        if (mm::mod_active() && !g_slicer_pause.load())
+        // A binding with no modifier does not require the modifiers to be up: a bare `tab`
+        // has to fire with Shift held down, or sprinting would cost the player the x-ray.
+        // The Keys tab names such overlaps.
+        bool mod_held(int mod)
         {
-            g_slicer_busy.store(true);
-            if (g_slicer_pause.load())
-            {
-                g_slicer_busy.store(false);
-            }
-            else
-            {
-                const std::uint32_t gen = g_slice_gen.load(std::memory_order_acquire);
-                slice_minimap_step(now);
-                slice_map_step(now);
-                if (g_slice_gen.load(std::memory_order_acquire) != gen)
-                {
-                    // The buffer set was recreated while we were cutting. Whatever was
-                    // just published describes buffers that no longer exist, so drop it;
-                    // the next iteration cuts into the new ones.
-                    clear_slice_view();
-                    clear_map_slice_view();
-                }
-                g_slicer_busy.store(false);
-            }
-        }
-
-        // THE HOTKEY BLOCK, gated to ~60 Hz - UE4SS spins this loop far faster and a key
-        // press lasts tens of milliseconds, so nothing is missed. The pad poll and the
-        // hold key ride along with it.
-        static std::uint64_t last_input_ms = 0;
-        if (now - last_input_ms < 16)
-        {
-            return;
-        }
-        last_input_ms = now;
-        // This row is the ~8 GetAsyncKeyState calls and nothing else. The gamepad poll,
-        // the clipboard hand-off, the config rewrite and the F5 reload all have their
-        // own rows and all declare a stall - one counter cannot answer two questions.
-        if (g_pf_input < 0)
-        {
-            g_pf_input = mm::perf_register("loop input (hotkeys)", perf::Thread::Loop);
-        }
-        const mm::PerfScope input_scope(g_pf_input);
-
-        // The foreground answer changes only when the player alt-tabs, so it is worth
-        // 250 ms of cache: two user32 round-trips saved per sample.
-        static std::uint64_t fg_checked_ms = 0;
-        static bool fg_cached = false;
-        if (fg_checked_ms == 0 || now - fg_checked_ms >= 250)
-        {
-            fg_checked_ms = now;
-            const HWND fg = ::GetForegroundWindow();
-            DWORD pid = 0;
-            if (fg != nullptr)
-            {
-                ::GetWindowThreadProcessId(fg, &pid);
-            }
-            fg_cached = (pid == ::GetCurrentProcessId());
-        }
-        const bool foreground = fg_cached;
-
-        // A loading screen is a stall, and "no validated gameplay pawn" is the state the
-        // game is in while it blocks its own thread loading a level. The snapshot is a
-        // seqlock read already published for the render thread. The window is generous
-        // (1.5 s) because the frames on either side of a load are wall-clock waits too,
-        // and it is refreshed on every 60 Hz pass while the condition holds.
-        {
-            mm::Snapshot snap{};
-            const bool have = mm::read_snapshot(snap);
-            if (!have || !snap.has_pawn || !snap.pawn_is_gameplay || snap.transition ||
-                snap.state_ok_since_ms == 0)
-            {
-                mm::perf_note_stall(L"a loading screen / no gameplay pawn", 1500);
-            }
-        }
-
-        // THE BINDINGS, sampled as a level with their modifier. A binding carries its
-        // virtual key in the low byte and one modifier in bits 8..9 (mm::key_vk /
-        // mm::key_mod), so `map_key = ctrl+m` is one int and one sample.
-        //
-        // A binding with no modifier does not require the modifiers to be up: a bare
-        // `tab` has to fire with Shift held down, or sprinting would cost the player the
-        // x-ray. The Keys tab names such overlaps.
-        const auto mod_held = [](int mod) {
             switch (mod)
             {
             case mm::kKeyModCtrl:
@@ -1663,35 +1588,150 @@ namespace overlay
             default:
                 return true;
             }
-        };
-        // A letter typed into the map's search box or the panel's import path is the
-        // text box's, not a binding's: this thread samples the keyboard directly, so the
+        }
+
+        // A binding sampled as a level. This thread samples the keyboard directly, so the
         // one test that knows a caret is up is ImGui's, published by the render thread.
-        //
-        // Latched, because that flag only crosses threads on a rendered frame: between
-        // two of them - a dropped frame, a stall, a Present that returned early - it is
-        // simply the last thing said, and a word typed across such a gap would hand its
-        // letters back to the bindings. tgate::kTypingHoldMs is how long the last "a box
-        // has the caret" is believed for.
-        static tgate::Latch typing_latch{};
-        const bool imgui_typing =
-            tgate::typing(typing_latch, g_imgui_want_text.load(std::memory_order_relaxed), now);
-        const auto key_down = [&mod_held, imgui_typing](int binding) {
+        bool key_down(const LoopFrame& f, int binding)
+        {
             const int vk = mm::key_vk(binding);
-            if (vk == 0 || imgui_typing)
+            if (vk == 0 || f.typing)
             {
                 return false; // `none` - deliberately unbound, or a text box has the caret
             }
             return (::GetAsyncKeyState(vk) & 0x8000) != 0 && mod_held(mm::key_mod(binding));
-        };
+        }
 
-        // WHAT THE WINDOW THREAD MAY SWALLOW, recomputed on every 60 Hz pass. A key is
-        // in the set only while the action it is bound to can fire, so `C` is the game's
-        // again the moment the full map closes, and the modifier has to be held for a
-        // modified binding - `ctrl+m` never costs the game a bare `m`.
+        // THE SHAPE EVERY HOTKEY SHARES: the debounced rising edge of a binding, with our
+        // window in front and whatever else that key needs to be live. The level is
+        // recorded whatever the answer - that is `edge_fired`'s doing - so a key held down
+        // through a gate closing cannot fire when the gate opens again.
+        bool hotkey_fired(Edge& e, const LoopFrame& f, int binding, bool live = true)
+        {
+            return edge_fired(e, key_down(f, binding), f.now) && f.foreground && live;
+        }
+
+        // A pad chord is a press of all its buttons AT ONCE, taken from the held mask
+        // rather than from the edge accumulator, so the order they go down in does not
+        // matter. `chord == 0` is "disabled" and disarms the memory, so switching it back
+        // on cannot fire on that frame. `foreground` for the same reason every key path
+        // has it: a chord pressed in another game's window must not open this one's map.
+        bool chord_fired(bool& was_down, const LoopFrame& f, std::uint16_t chord)
+        {
+            if (chord == 0)
+            {
+                was_down = false;
+                return false;
+            }
+            const pad::State gp = pad::state();
+            const bool now_down = gp.connected && f.foreground && (gp.held & chord) == chord;
+            const bool fire = now_down && !was_down;
+            was_down = now_down;
+            return fire;
+        }
+
+        // THE HEIGHT SLICER. 1-4 ms of CPU, on this thread: it writes into a persistently
+        // mapped upload heap and needs nothing from the frame, so render() only records the
+        // CopyTextureRegion.
+        //
+        // The guard sequence is the loop-thread half of the pause handshake: check, mark
+        // busy, check AGAIN. The render thread sets `pause` and then waits for `busy`, so
+        // whichever order the two interleave in, one of them backs off.
+        void loop_slice(std::uint64_t now)
+        {
+            if (!mm::mod_active() || g_slicer_pause.load())
+            {
+                return;
+            }
+            g_slicer_busy.store(true);
+            if (g_slicer_pause.load())
+            {
+                g_slicer_busy.store(false);
+                return;
+            }
+            const std::uint32_t gen = g_slice_gen.load(std::memory_order_acquire);
+            slice_minimap_step(now);
+            slice_map_step(now);
+            if (g_slice_gen.load(std::memory_order_acquire) != gen)
+            {
+                // The buffer set was recreated while we were cutting. Whatever was just
+                // published describes buffers that no longer exist, so drop it; the next
+                // iteration cuts into the new ones.
+                clear_slice_view();
+                clear_map_slice_view();
+            }
+            g_slicer_busy.store(false);
+        }
+
+        // The hotkey block is gated to ~60 Hz - UE4SS spins this loop far faster and a key
+        // press lasts tens of milliseconds, so nothing is missed. The pad poll and the hold
+        // key ride along with it.
+        bool input_due(std::uint64_t now)
+        {
+            static std::uint64_t last_ms = 0;
+            if (now - last_ms < 16)
+            {
+                return false;
+            }
+            last_ms = now;
+            return true;
+        }
+
+        // The foreground answer changes only when the player alt-tabs, so it is worth
+        // 250 ms of cache: two user32 round-trips saved per sample.
+        bool foreground_now(std::uint64_t now)
+        {
+            static std::uint64_t checked_ms = 0;
+            static bool cached = false;
+            if (checked_ms == 0 || now - checked_ms >= 250)
+            {
+                checked_ms = now;
+                const HWND fg = ::GetForegroundWindow();
+                DWORD pid = 0;
+                if (fg != nullptr)
+                {
+                    ::GetWindowThreadProcessId(fg, &pid);
+                }
+                cached = (pid == ::GetCurrentProcessId());
+            }
+            return cached;
+        }
+
+        // Latched, because ImGui's "a box has the caret" only crosses threads on a rendered
+        // frame: between two of them - a dropped frame, a stall, a Present that returned
+        // early - it is simply the last thing said, and a word typed across such a gap
+        // would hand its letters back to the bindings. tgate::kTypingHoldMs is how long the
+        // last answer is believed for.
+        bool typing_now(std::uint64_t now)
+        {
+            static tgate::Latch latch{};
+            return tgate::typing(latch, g_imgui_want_text.load(std::memory_order_relaxed), now);
+        }
+
+        // A loading screen is a stall, and "no validated gameplay pawn" is the state the
+        // game is in while it blocks its own thread loading a level. The snapshot is a
+        // seqlock read already published for the render thread. The window is generous
+        // (1.5 s) because the frames on either side of a load are wall-clock waits too, and
+        // it is refreshed on every 60 Hz pass while the condition holds.
+        void note_loading_stall()
+        {
+            mm::Snapshot snap{};
+            const bool have = mm::read_snapshot(snap);
+            if (!have || !snap.has_pawn || !snap.pawn_is_gameplay || snap.transition ||
+                snap.state_ok_since_ms == 0)
+            {
+                mm::perf_note_stall(L"a loading screen / no gameplay pawn", 1500);
+            }
+        }
+
+        // WHAT THE WINDOW THREAD MAY SWALLOW, recomputed on every 60 Hz pass. A key is in
+        // the set only while the action it is bound to can fire, so `C` is the game's again
+        // the moment the full map closes, and the modifier has to be held for a modified
+        // binding - `ctrl+m` never costs the game a bare `m`.
         //
         // Alt+F4, Alt+Enter and Alt+Tab are never swallowed however they are bound: they
         // are the player's way out of a game that is misbehaving.
+        void refresh_swallow_set(const LoopFrame& f)
         {
             const bool map_open_now = mm::g_map_open.load(std::memory_order_relaxed);
             swallow_set_clear();
@@ -1709,104 +1749,85 @@ namespace overlay
                 }
                 swallow_set_add(vk);
             };
-            g_swallow_stamp.store(now, std::memory_order_relaxed);
-            if (mm::mod_active() && foreground)
+            g_swallow_stamp.store(f.now, std::memory_order_relaxed);
+            if (mm::mod_active() && f.foreground)
             {
-                arm(cfg.panel_key, true);
-                arm(cfg.reload_key, true);
-                arm(cfg.map_key, true);
-                arm(cfg.zoom_key, !map_open_now);
-                arm(cfg.screenshot_key, map_open_now);
-                arm(cfg.map_recenter_key, map_open_now);
-                arm(cfg.waypoint_nearest_key, true);
-                arm(cfg.highlight_key, cfg.highlight_enabled);
+                arm(f.cfg.panel_key, true);
+                arm(f.cfg.reload_key, true);
+                arm(f.cfg.map_key, true);
+                arm(f.cfg.zoom_key, !map_open_now);
+                arm(f.cfg.screenshot_key, map_open_now);
+                arm(f.cfg.map_recenter_key, map_open_now);
+                arm(f.cfg.waypoint_nearest_key, true);
+                arm(f.cfg.highlight_key, f.cfg.highlight_enabled);
             }
         }
 
-        if (edge_fired(panel_edge, key_down(cfg.panel_key), now) && foreground)
+        // The panel, the F5 reload and the full map. GetAsyncKeyState rather than a WndProc
+        // test on purpose: while the map is open the WndProc hook swallows every key, so
+        // the message-based route could not close it again.
+        void overlay_hotkeys(const LoopFrame& f)
         {
-            const bool open = !mm::g_panel_open.load();
-            mm::g_panel_open = open;
-            MM_LOGV(L"settings panel {}", open ? L"opened" : L"closed");
+            static Edge panel_edge{};
+            static Edge reload_edge{};
+            static Edge map_edge{};
+            if (hotkey_fired(panel_edge, f, f.cfg.panel_key))
+            {
+                const bool open = !mm::g_panel_open.load();
+                mm::g_panel_open = open;
+                MM_LOGV(L"settings panel {}", open ? L"opened" : L"closed");
+            }
+            if (hotkey_fired(reload_edge, f, f.cfg.reload_key))
+            {
+                mm::g_reload_config = true;
+            }
+            if (hotkey_fired(map_edge, f, f.cfg.map_key))
+            {
+                const bool open = !mm::g_map_open.load();
+                mm::g_map_open = open;
+                MM_LOGV(L"full map {}", open ? L"opened" : L"closed");
+            }
         }
 
-        if (edge_fired(reload_edge, key_down(cfg.reload_key), now) && foreground)
+        // THE MAP AND THE PANEL ON A GAMEPAD - a pad-only player needs a route into both.
+        // Either chord set to `none` disables that one.
+        void pad_open_chords(const LoopFrame& f)
         {
-            mm::g_reload_config = true;
-        }
-
-        // The full map. GetAsyncKeyState rather than a WndProc test on purpose: while
-        // the map is open the WndProc hook swallows every key, so the message-based
-        // route could not close it again.
-        static Edge map_edge{};
-        if (edge_fired(map_edge, key_down(cfg.map_key), now) && foreground)
-        {
-            const bool open = !mm::g_map_open.load();
-            mm::g_map_open = open;
-            MM_LOGV(L"full map {}", open ? L"opened" : L"closed");
-        }
-
-        // THE FULL MAP ON A GAMEPAD. The chord is a press of all its buttons at once,
-        // taken from the held mask rather than from the edge accumulator, so the order
-        // they go down in does not matter; `map_pad_open_chord = none` disables it.
-        static bool pad_chord_down = false;
-        if (cfg.map_gamepad && cfg.map_pad_open_chord != 0)
-        {
-            const pad::State gp_open = pad::state();
-            // `foreground` for the same reason every key path has it: a chord pressed in
-            // another game's window must not open this one's map.
-            const bool chord_now = gp_open.connected && foreground &&
-                                   (gp_open.held & cfg.map_pad_open_chord) == cfg.map_pad_open_chord;
-            if (chord_now && !pad_chord_down)
+            static bool map_down = false;
+            static bool panel_down = false;
+            const std::uint16_t map_chord = f.cfg.map_gamepad ? f.cfg.map_pad_open_chord : 0;
+            if (chord_fired(map_down, f, map_chord))
             {
                 const bool open = !mm::g_map_open.load();
                 mm::g_map_open = open;
                 mm::logf(L"full map {} (pad {})", open ? L"opened" : L"closed",
-                         mm::pad_chord_name(cfg.map_pad_open_chord, false, false));
+                         mm::pad_chord_name(map_chord, false, false));
             }
-            pad_chord_down = chord_now;
-        }
-        else
-        {
-            pad_chord_down = false;
-        }
-
-        // THE SETTINGS PANEL ON A GAMEPAD, read the same way and for the same reason: a
-        // pad-only player needs a route into the panel. `panel_pad_open_chord = none`
-        // disables it.
-        static bool panel_pad_down = false;
-        if (cfg.panel_pad_open_chord != 0)
-        {
-            const pad::State gp_panel = pad::state();
-            const bool chord_now = gp_panel.connected && foreground &&
-                                   (gp_panel.held & cfg.panel_pad_open_chord) ==
-                                       cfg.panel_pad_open_chord;
-            if (chord_now && !panel_pad_down)
+            if (chord_fired(panel_down, f, f.cfg.panel_pad_open_chord))
             {
                 const bool open = !mm::g_panel_open.load();
                 mm::g_panel_open = open;
                 mm::logf(L"settings panel {} (pad {})", open ? L"opened" : L"closed",
-                         mm::pad_chord_name(cfg.panel_pad_open_chord, false, false));
+                         mm::pad_chord_name(f.cfg.panel_pad_open_chord, false, false));
             }
-            panel_pad_down = chord_now;
-        }
-        else
-        {
-            panel_pad_down = false;
         }
 
         // THE MINIMAP ZOOM LADDER. `zoom_key` is a press, the wheel gesture arrives as
         // accumulated steps from the render thread, and both are applied here - the loop
-        // thread is the only one allowed to publish a config. Skipped while the full map
-        // is open: it swallows the keyboard and owns its own zoom.
-        static Edge zoom_edge{};
-        if (edge_fired(zoom_edge, key_down(cfg.zoom_key), now) && foreground &&
-            !mm::g_map_open.load())
+        // thread is the only one allowed to publish a config. The key is skipped while the
+        // full map is open: it swallows the keyboard and owns its own zoom.
+        void zoom_ladder(const LoopFrame& f)
         {
-            g_zoom_steps.fetch_add(1, std::memory_order_relaxed);
-        }
-        if (const int steps = g_zoom_steps.exchange(0, std::memory_order_relaxed); steps != 0)
-        {
+            static Edge zoom_edge{};
+            if (hotkey_fired(zoom_edge, f, f.cfg.zoom_key, !mm::g_map_open.load()))
+            {
+                g_zoom_steps.fetch_add(1, std::memory_order_relaxed);
+            }
+            const int steps = g_zoom_steps.exchange(0, std::memory_order_relaxed);
+            if (steps == 0)
+            {
+                return;
+            }
             mm::Config edit = mm::config();
             const int n = (std::min)(edit.minimap_zoom_preset_count, mv::kMaxZoomPresets);
             const int dir = steps > 0 ? 1 : -1;
@@ -1815,13 +1836,12 @@ namespace overlay
                 edit.zoom_uu_per_px =
                     mv::step_zoom_preset(edit.minimap_zoom_presets, n, edit.zoom_uu_per_px, dir);
             }
-            if (edit.zoom_uu_per_px != cfg.zoom_uu_per_px)
+            if (edit.zoom_uu_per_px != f.cfg.zoom_uu_per_px)
             {
                 mm::set_config(edit);
                 // On screen as well as in the log: at 13 -> 26 uu/px on a small disc the
                 // picture alone does not read as "I changed a setting".
-                const int rung =
-                    mv::zoom_preset_index(edit.minimap_zoom_presets, n, edit.zoom_uu_per_px);
+                const int rung = mv::zoom_preset_index(edit.minimap_zoom_presets, n, edit.zoom_uu_per_px);
                 char note[64]{};
                 if (rung >= 0)
                 {
@@ -1846,57 +1866,63 @@ namespace overlay
             }
         }
 
-        // THE FIRST-RUN TIP. Once per install: a 10-second toast naming the keys that
-        // are actually bound. The sentinel is a file next to the config, so reinstalling
-        // into a clean folder shows it again and a config reload does not.
+        // THE FIRST-RUN TIP. Once per install: a 10-second toast naming the keys that are
+        // actually bound. The sentinel is a file next to the config, so reinstalling into a
+        // clean folder shows it again and a config reload does not.
         //
         // It waits for the render thread's "the HUD may be on screen" answer - the first
-        // frame with a validated gameplay pawn - so the one tip a player gets is not
-        // spent on the splash screen.
-        static bool first_run_checked = false;
-        if (!first_run_checked && cfg.first_run_toast && g_hud_gate_ever_open.load(std::memory_order_acquire))
+        // frame with a validated gameplay pawn - so the one tip a player gets is not spent
+        // on the splash screen.
+        void first_run_tip(const LoopFrame& f)
         {
-            first_run_checked = true;
-            const std::wstring sentinel = mm::state_dir() + L"\\wuchang_minimap_firstrun.txt";
-            if (::GetFileAttributesW(sentinel.c_str()) == INVALID_FILE_ATTRIBUTES)
+            static bool checked = false;
+            if (checked || !f.cfg.first_run_toast ||
+                !g_hud_gate_ever_open.load(std::memory_order_acquire))
             {
-                const std::string text =
-                    std::format("{} settings   {} map   {}{} to see items through walls",
-                                key_name_ascii(cfg.panel_key), key_name_ascii(cfg.map_key),
-                                cfg.highlight_mode == mm::HighlightMode::Hold ? "hold " : "press ",
-                                key_name_ascii(cfg.highlight_key));
-                post_toast(text.c_str(), 10000);
-                const HANDLE h = ::CreateFileW(sentinel.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                               FILE_ATTRIBUTE_NORMAL, nullptr);
-                if (h != INVALID_HANDLE_VALUE)
-                {
-                    const char* note =
-                        "This file only records that the first-run tip has been shown.\r\n"
-                        "Delete it to see the tip again on the next launch.\r\n";
-                    DWORD written = 0;
-                    ::WriteFile(h, note, static_cast<DWORD>(std::strlen(note)), &written, nullptr);
-                    ::CloseHandle(h);
-                }
-                mm::logf(L"first run: showing the key tip - {}",
-                         std::wstring(text.begin(), text.end()));
+                return;
             }
+            checked = true;
+            const std::wstring sentinel = mm::state_dir() + L"\\wuchang_minimap_firstrun.txt";
+            if (::GetFileAttributesW(sentinel.c_str()) != INVALID_FILE_ATTRIBUTES)
+            {
+                return;
+            }
+            const std::string text =
+                std::format("{} settings   {} map   {}{} to see items through walls",
+                            key_name_ascii(f.cfg.panel_key), key_name_ascii(f.cfg.map_key),
+                            f.cfg.highlight_mode == mm::HighlightMode::Hold ? "hold " : "press ",
+                            key_name_ascii(f.cfg.highlight_key));
+            post_toast(text.c_str(), 10000);
+            const HANDLE h = ::CreateFileW(sentinel.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                           FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h != INVALID_HANDLE_VALUE)
+            {
+                const char* note = "This file only records that the first-run tip has been shown.\r\n"
+                                   "Delete it to see the tip again on the next launch.\r\n";
+                DWORD written = 0;
+                ::WriteFile(h, note, static_cast<DWORD>(std::strlen(note)), &written, nullptr);
+                ::CloseHandle(h);
+            }
+            mm::logf(L"first run: showing the key tip - {}", std::wstring(text.begin(), text.end()));
         }
 
-        // MAP -> CLIPBOARD. Only while the full map is open, which is what makes a plain
-        // letter safe as the default: map mode swallows every keyboard message, so `C`
-        // cannot reach the game while this can fire.
-        static Edge shot_edge{};
-        if (edge_fired(shot_edge, key_down(cfg.screenshot_key), now) && foreground &&
-            mm::g_map_open.load())
+        // MAP -> CLIPBOARD, both ends. The key only fires while the full map is open, which
+        // is what makes a plain letter safe as the default: map mode swallows every
+        // keyboard message, so `C` cannot reach the game while this can fire. The finished
+        // bitmap comes back from the render thread a frame or more later, and the clipboard
+        // API opens a window-station-wide lock and can block - it belongs here and nowhere
+        // near Present.
+        void map_to_clipboard(const LoopFrame& f)
         {
-            g_shot_request.store(true, std::memory_order_release);
-        }
-
-        // The finished bitmap, handed over by the render thread. The clipboard API opens
-        // a window-station-wide lock and can block; it belongs here and nowhere near
-        // Present.
-        if (g_shot_dib_ready.exchange(false, std::memory_order_acquire))
-        {
+            static Edge shot_edge{};
+            if (hotkey_fired(shot_edge, f, f.cfg.screenshot_key, mm::g_map_open.load()))
+            {
+                g_shot_request.store(true, std::memory_order_release);
+            }
+            if (!g_shot_dib_ready.exchange(false, std::memory_order_acquire))
+            {
+                return;
+            }
             if (g_pf_clip < 0)
             {
                 g_pf_clip = mm::perf_register("map -> clipboard", perf::Thread::Loop);
@@ -1919,8 +1945,8 @@ namespace overlay
             }
             else
             {
-                // GMEM_MOVEABLE is required. The clipboard takes ownership of the handle
-                // on success, so only the failure branches call GlobalFree.
+                // GMEM_MOVEABLE is required. The clipboard takes ownership of the handle on
+                // success, so only the failure branches call GlobalFree.
                 HGLOBAL mem = ::GlobalAlloc(GMEM_MOVEABLE, dib.size());
                 void* dst = mem != nullptr ? ::GlobalLock(mem) : nullptr;
                 if (dst != nullptr)
@@ -1952,230 +1978,297 @@ namespace overlay
                      dib.size());
         }
 
-        static Edge recenter_edge{};
-        if (edge_fired(recenter_edge, key_down(cfg.map_recenter_key), now) && foreground &&
-            mm::g_map_open.load())
+        // Recentre the open map, and waypoint the nearest unfound marker. Both only ask:
+        // the pick reads the published marker buffer and the frame's category mask, so it
+        // is the render thread's.
+        void map_request_keys(const LoopFrame& f)
         {
-            g_map_recenter.store(true, std::memory_order_relaxed);
+            static Edge recenter_edge{};
+            static Edge nearest_edge{};
+            if (hotkey_fired(recenter_edge, f, f.cfg.map_recenter_key, mm::g_map_open.load()))
+            {
+                g_map_recenter.store(true, std::memory_order_relaxed);
+            }
+            if (hotkey_fired(nearest_edge, f, f.cfg.waypoint_nearest_key))
+            {
+                g_nearest_request.store(true, std::memory_order_release);
+            }
         }
 
-        // NEAREST UNFOUND. The pick reads the published marker buffer and the frame's
-        // category mask, so it is the render thread's; this only asks.
-        static Edge nearest_edge{};
-        if (edge_fired(nearest_edge, key_down(cfg.waypoint_nearest_key), now) && foreground)
-        {
-            g_nearest_request.store(true, std::memory_order_release);
-        }
-
-        // XInput, on this thread - the same place the keyboard is sampled, and never on
-        // the game thread.
+        // XInput, on this thread - the same place the keyboard is sampled, and never on the
+        // game thread.
         //
-        // Polled whenever the feature is switched on, not only while the map is open:
-        // the pad has to be able to OPEN the map. gamepad.cpp keeps that cheap - with no
-        // pad found it probes the four slots once a second, and once a slot answers it
-        // follows that one at whatever rate it is called.
-        const bool want_pad = cfg.map_gamepad || cfg.panel_pad_open_chord != 0 ||
+        // Polled whenever the feature is switched on, not only while the map is open: the
+        // pad has to be able to OPEN the map. gamepad.cpp keeps that cheap - with no pad
+        // found it probes the four slots once a second, and once a slot answers it follows
+        // that one at whatever rate it is called.
+        void poll_gamepad(const mm::Config& cfg)
+        {
+            const bool want = cfg.map_gamepad || cfg.panel_pad_open_chord != 0 ||
                               (cfg.highlight_enabled && cfg.highlight_gamepad &&
                                (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt));
-        // Its own row: `XInputGetState` on an empty slot costs about a millisecond and
-        // the first call also pays a `LoadLibraryW("xinput1_4.dll")`, so the cost is
-        // visible instead of hiding inside the block above.
-        if (g_pf_pad < 0)
-        {
-            g_pf_pad = mm::perf_register("gamepad poll", perf::Thread::Loop);
-        }
-        {
+            // Its own row: `XInputGetState` on an empty slot costs about a millisecond and
+            // the first call also pays a `LoadLibraryW("xinput1_4.dll")`, so the cost is
+            // visible instead of hiding inside the hotkey block.
+            if (g_pf_pad < 0)
+            {
+                g_pf_pad = mm::perf_register("gamepad poll", perf::Thread::Loop);
+            }
             const mm::PerfScope pad_scope(g_pf_pad);
-            pad::poll(want_pad, cfg.map_gamepad_deadzone);
+            pad::poll(want, cfg.map_gamepad_deadzone);
         }
 
         // THE X-RAY HIGHLIGHT'S KEY. The key and the pad chord are always sampled as a
-        // LEVEL (`down` below); what `highlight_mode` decides is what that level means.
+        // LEVEL; what `highlight_mode` decides is what that level means.
         //
         //   hold   - on while down. No debounce, no "turn it off" path.
-        //   toggle - the default: the rising edge of the level flips hl's latch. That
-        //            latch is the one piece of latched input state in the mod, and it is
-        //            cleared from live state by hl::drop_caches() - every level
-        //            transition and every dropped pawn - and by turning the feature off.
+        //   toggle - the default: the rising edge of the level flips hl's latch. That latch
+        //            is the one piece of latched input state in the mod, and it is cleared
+        //            from live state by hl::drop_caches() - every level transition and every
+        //            dropped pawn - and by turning the feature off.
         //
         // Either way the demand handed to hl needs the window in the foreground, or
         // alt-tabbing leaves the game thread reading the camera for nothing.
-        bool down = cfg.highlight_enabled && key_down(cfg.highlight_key);
-        if (!down && cfg.highlight_enabled && cfg.highlight_gamepad)
+        void xray_key(const LoopFrame& f)
         {
-            const pad::State gp = pad::state();
-            const bool chord = (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt) &&
-                               (gp.held & cfg.highlight_pad_mask) == cfg.highlight_pad_mask &&
-                               (!cfg.highlight_pad_lt || gp.lt > 0.5f) && (!cfg.highlight_pad_rt || gp.rt > 0.5f);
-            down = gp.connected && chord;
-        }
-        static bool xray_down = false;
-        bool held = false;
-        if (!cfg.highlight_enabled)
-        {
-            hl::xray_latch_clear(L"the highlight was turned off");
-        }
-        else if (cfg.highlight_mode == mm::HighlightMode::Hold)
-        {
-            // Leaving hold mode armed would strand the latch on; clearing it here also
-            // makes switching the mode in the panel take effect at once.
-            hl::xray_latch_clear(L"switched to hold mode");
-            held = down;
-        }
-        else
-        {
-            if (down && !xray_down && foreground)
+            const mm::Config& cfg = f.cfg;
+            bool down = cfg.highlight_enabled && key_down(f, cfg.highlight_key);
+            if (!down && cfg.highlight_enabled && cfg.highlight_gamepad)
             {
-                hl::xray_latch_flip();
+                const pad::State gp = pad::state();
+                const bool chord =
+                    (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt) &&
+                    (gp.held & cfg.highlight_pad_mask) == cfg.highlight_pad_mask &&
+                    (!cfg.highlight_pad_lt || gp.lt > 0.5f) && (!cfg.highlight_pad_rt || gp.rt > 0.5f);
+                down = gp.connected && chord;
             }
-            held = hl::xray_latched();
-        }
-        xray_down = down;
-        held = held && foreground;
-        // The only thing that makes the game thread read the camera: with neither the
-        // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.
-        hl::set_demand(held, cfg.compass_enabled);
-
-        // THE FILE WRITES, all on this thread and none near Present: the render thread
-        // only raises a flag (a waypoint drag, a settings change, the screenshot request)
-        // and this is where the flag turns into a write. They share one perf row and
-        // declare a stall - a ~28 KB rewrite through CreateFile can block on a virus
-        // scanner for as long as it likes.
-        // The waypoint file follows the save slot the found tracker does. This flushes the
-        // set to the file of the save it was made in before adopting the new one, so it
-        // runs before the dirty flag below is taken away from it.
-        mm::waypoint_slot_poll();
-        const bool wp_dirty = mm::g_waypoint_dirty.exchange(false);
-        const bool cfg_dirty = mm::g_save_config.load();
-        // Settings save themselves, debounced: every change pushes the deadline out, so a
-        // dragged slider or a run of legend clicks costs one write. 0 is "nothing pending".
-        static std::uint64_t config_save_due = 0;
-        if (mm::g_save_config_soon.exchange(false))
-        {
-            config_save_due = now + 750;
-        }
-        const bool config_due = config_save_due != 0 && now >= config_save_due && !cfg_dirty;
-        if (wp_dirty || cfg_dirty || config_due)
-        {
-            if (g_pf_save < 0)
+            static bool was_down = false;
+            bool held = false;
+            if (!cfg.highlight_enabled)
             {
-                g_pf_save = mm::perf_register("config / waypoint save", perf::Thread::Loop);
+                hl::xray_latch_clear(L"the highlight was turned off");
             }
-            mm::perf_note_stall(L"a config / waypoint file write", 500);
-        }
-        if (wp_dirty)
-        {
-            const mm::PerfScope save_scope(g_pf_save);
-            mm::save_waypoint_file();
-        }
-
-        if (g_export_request.exchange(false, std::memory_order_acquire))
-        {
-            run_export();
-        }
-        if (g_import_request.exchange(false, std::memory_order_acquire))
-        {
-            run_import();
-        }
-
-        panel_state_load();
-        if (g_panel_state_dirty.exchange(false, std::memory_order_acquire))
-        {
-            // One line, on the same thread as every other write, sharing the file-write
-            // perf row above.
-            panel_state_save();
-        }
-
-        if (mm::g_reload_config.exchange(false))
-        {
-            if (g_pf_reload < 0)
+            else if (cfg.highlight_mode == mm::HighlightMode::Hold)
             {
-                g_pf_reload = mm::perf_register("reload (config+maps+markers)", perf::Thread::Loop);
+                // Leaving hold mode armed would strand the latch on; clearing it here also
+                // makes switching the mode in the panel take effect at once.
+                hl::xray_latch_clear(L"switched to hold mode");
+                held = down;
             }
-            // Hundreds of milliseconds by design - `mapdata::load` re-decodes the
-            // chapter's height PNGs - so it must not set the peak every later sample is
-            // judged against.
-            mm::perf_note_stall(L"an F5 reload", 4000);
-            const mm::PerfScope reload_scope(g_pf_reload);
-            mm::log(L"reloading config + maps + markers");
-            mm::load_config_file();
-            mm::load_waypoint_file();
-            g_drop_textures.store(true, std::memory_order_release);
-            mapdata::load(mm::mod_dir());
-            markers::reload();
-        }
-        if (mm::g_save_config.exchange(false) || config_due)
-        {
-            config_save_due = 0;
-            const mm::PerfScope save_scope(g_pf_save);
-            mm::save_config_file();
-        }
-
-        if (!logged_first_present && g_present_count.load() > 0)
-        {
-            logged_first_present = true;
-            mm::logf(L"first Present seen; the hook is live (count {})", g_present_count.load());
-        }
-        // The panel renders every frame, so this is throttled hard: once when it first
-        // draws, then at most one line every 10 s.
-        static std::uint64_t last_panel_log = 0;
-        if (mm::g_panel_drew_frame.exchange(false) && (last_panel_log == 0 || now - last_panel_log > 10000))
-        {
-            last_panel_log = now;
-            mm::log(L"the settings panel is rendering");
-        }
-        // Has the Present count MOVED in the 8 s since the hooks went in? A count stuck
-        // at 0 means the hooked function is not the one the game calls - the addresses
-        // came off an object the engine holds but does not present through. A count stuck
-        // at anything else means frames were arriving and have stopped, which is what a
-        // device removed inside the first Present looks like from the loop thread. Both
-        // want the same module list, so both get it.
-        static std::uint64_t wd_presents = 0;
-        static std::uint64_t wd_presents_at = 0;
-        static std::uint64_t wd_epoch = 0;
-        const std::uint64_t epoch = g_watchdog_epoch.load(std::memory_order_relaxed);
-        if (epoch != wd_epoch)
-        {
-            wd_epoch = epoch;
-            wd_presents = 0;
-            wd_presents_at = 0;
-        }
-        if (!g_watchdog_reported.load() && g_hooks_installed.load() && g_hook_install_ms != 0)
-        {
-            const std::uint64_t presents = g_present_count.load();
-            if (wd_presents_at == 0 || presents != wd_presents)
+            else
             {
-                wd_presents = presents;
-                wd_presents_at = wd_presents_at == 0 ? g_hook_install_ms : now;
-            }
-            else if (now - wd_presents_at > 8000)
-            {
-                g_watchdog_reported = true;
-                mm::logf(L"WATCHDOG: the Present count has not moved off {} for 8 s. {} Loaded graphics "
-                         L"modules follow:",
-                         presents,
-                         presents == 0
-                             ? L"Not a single Present has reached the hook: the three addresses came "
-                               L"off a swapchain the engine holds but does not present through, or "
-                               L"something replaced it after we read it. The hooked module is named "
-                               L"in the 'hook discovery' lines above."
-                             : L"Frames WERE reaching the hook and have stopped, which is what a "
-                               L"removed device or a wedged render thread looks like from here.");
-                static const wchar_t* const suspects[] = {L"dxgi.dll",       L"d3d12.dll",  L"ReShade64.dll",
-                                                          L"nvngx_dlssg.dll", L"sl.interposer.dll", L"sl.dlss_g.dll",
-                                                          L"amd_fidelityfx_dx12.dll"};
-                for (const wchar_t* name : suspects)
+                if (down && !was_down && f.foreground)
                 {
-                    const HMODULE mod = ::GetModuleHandleW(name);
-                    if (mod != nullptr)
-                    {
-                        wchar_t path[MAX_PATH * 2]{};
-                        ::GetModuleFileNameW(mod, path, static_cast<DWORD>(std::size(path)));
-                        mm::logf(L"  loaded: {} -> {}", name, path);
-                    }
+                    hl::xray_latch_flip();
+                }
+                held = hl::xray_latched();
+            }
+            was_down = down;
+            held = held && f.foreground;
+            // The only thing that makes the game thread read the camera: with neither the
+            // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.
+            hl::set_demand(held, cfg.compass_enabled);
+        }
+
+        // THE FILE WORK, all on this thread and none near Present: the render thread only
+        // raises a flag (a waypoint drag, a settings change, an export) and this is where
+        // the flag turns into a write. They are one pass because their ORDER is the rule -
+        // the waypoint set is flushed to the save it was made in before the slot changes
+        // hands, and the F5 reload re-reads the config file only after a pending settings
+        // write has had its chance to be the thing on disk. They share one perf row and
+        // declare a stall: a ~28 KB rewrite through CreateFile can block on a virus scanner
+        // for as long as it likes.
+        void loop_disk_work(const LoopFrame& f)
+        {
+            mm::waypoint_slot_poll();
+            const bool wp_dirty = mm::g_waypoint_dirty.exchange(false);
+            const bool cfg_dirty = mm::g_save_config.load();
+            // Settings save themselves, debounced: every change pushes the deadline out, so
+            // a dragged slider or a run of legend clicks costs one write. 0 is "nothing
+            // pending".
+            static std::uint64_t config_save_due = 0;
+            if (mm::g_save_config_soon.exchange(false))
+            {
+                config_save_due = f.now + 750;
+            }
+            const bool config_due = config_save_due != 0 && f.now >= config_save_due && !cfg_dirty;
+            if (wp_dirty || cfg_dirty || config_due)
+            {
+                if (g_pf_save < 0)
+                {
+                    g_pf_save = mm::perf_register("config / waypoint save", perf::Thread::Loop);
+                }
+                mm::perf_note_stall(L"a config / waypoint file write", 500);
+            }
+            if (wp_dirty)
+            {
+                const mm::PerfScope save_scope(g_pf_save);
+                mm::save_waypoint_file();
+            }
+
+            if (g_export_request.exchange(false, std::memory_order_acquire))
+            {
+                run_export();
+            }
+            if (g_import_request.exchange(false, std::memory_order_acquire))
+            {
+                run_import();
+            }
+
+            panel_state_load();
+            if (g_panel_state_dirty.exchange(false, std::memory_order_acquire))
+            {
+                // One line, on the same thread as every other write, sharing the file-write
+                // perf row above.
+                panel_state_save();
+            }
+
+            if (mm::g_reload_config.exchange(false))
+            {
+                if (g_pf_reload < 0)
+                {
+                    g_pf_reload = mm::perf_register("reload (config+maps+markers)", perf::Thread::Loop);
+                }
+                // Hundreds of milliseconds by design - `mapdata::load` re-decodes the
+                // chapter's height PNGs - so it must not set the peak every later sample is
+                // judged against.
+                mm::perf_note_stall(L"an F5 reload", 4000);
+                const mm::PerfScope reload_scope(g_pf_reload);
+                mm::log(L"reloading config + maps + markers");
+                mm::load_config_file();
+                mm::load_waypoint_file();
+                g_drop_textures.store(true, std::memory_order_release);
+                mapdata::load(mm::mod_dir());
+                markers::reload();
+            }
+            if (mm::g_save_config.exchange(false) || config_due)
+            {
+                config_save_due = 0;
+                const mm::PerfScope save_scope(g_pf_save);
+                mm::save_config_file();
+            }
+        }
+
+        // The two lines that say the mod is alive, both throttled: the first Present is
+        // once per process, and the panel renders every frame, so that one is once when it
+        // first draws and then at most every 10 s.
+        void throttled_log_lines(std::uint64_t now)
+        {
+            static bool logged_first_present = false;
+            if (!logged_first_present && g_present_count.load() > 0)
+            {
+                logged_first_present = true;
+                mm::logf(L"first Present seen; the hook is live (count {})", g_present_count.load());
+            }
+            static std::uint64_t last_panel_log = 0;
+            if (mm::g_panel_drew_frame.exchange(false) &&
+                (last_panel_log == 0 || now - last_panel_log > 10000))
+            {
+                last_panel_log = now;
+                mm::log(L"the settings panel is rendering");
+            }
+        }
+
+        // Has the Present count MOVED in the 8 s since the hooks went in? A count stuck at 0
+        // means the hooked function is not the one the game calls - the addresses came off
+        // an object the engine holds but does not present through. A count stuck at anything
+        // else means frames were arriving and have stopped, which is what a device removed
+        // inside the first Present looks like from the loop thread. Both want the same
+        // module list, so both get it.
+        void present_watchdog(std::uint64_t now)
+        {
+            static std::uint64_t presents_seen = 0;
+            static std::uint64_t presents_at = 0;
+            static std::uint64_t epoch_seen = 0;
+            const std::uint64_t epoch = g_watchdog_epoch.load(std::memory_order_relaxed);
+            if (epoch != epoch_seen)
+            {
+                epoch_seen = epoch;
+                presents_seen = 0;
+                presents_at = 0;
+            }
+            if (g_watchdog_reported.load() || !g_hooks_installed.load() || g_hook_install_ms == 0)
+            {
+                return;
+            }
+            const std::uint64_t presents = g_present_count.load();
+            if (presents_at == 0 || presents != presents_seen)
+            {
+                presents_seen = presents;
+                presents_at = presents_at == 0 ? g_hook_install_ms : now;
+                return;
+            }
+            if (now - presents_at <= 8000)
+            {
+                return;
+            }
+            g_watchdog_reported = true;
+            mm::logf(L"WATCHDOG: the Present count has not moved off {} for 8 s. {} Loaded graphics "
+                     L"modules follow:",
+                     presents,
+                     presents == 0
+                         ? L"Not a single Present has reached the hook: the three addresses came "
+                           L"off a swapchain the engine holds but does not present through, or "
+                           L"something replaced it after we read it. The hooked module is named "
+                           L"in the 'hook discovery' lines above."
+                         : L"Frames WERE reaching the hook and have stopped, which is what a "
+                           L"removed device or a wedged render thread looks like from here.");
+            static const wchar_t* const suspects[] = {L"dxgi.dll",       L"d3d12.dll",  L"ReShade64.dll",
+                                                      L"nvngx_dlssg.dll", L"sl.interposer.dll", L"sl.dlss_g.dll",
+                                                      L"amd_fidelityfx_dx12.dll"};
+            for (const wchar_t* name : suspects)
+            {
+                const HMODULE mod = ::GetModuleHandleW(name);
+                if (mod != nullptr)
+                {
+                    wchar_t path[MAX_PATH * 2]{};
+                    ::GetModuleFileNameW(mod, path, static_cast<DWORD>(std::size(path)));
+                    mm::logf(L"  loaded: {} -> {}", name, path);
                 }
             }
         }
+    } // namespace
+
+    //==================================================================================
+    // The loop thread's frame, in the order it happens
+    //==================================================================================
+    void on_update()
+    {
+        // UE4SS EVENT-LOOP THREAD. No D3D12, no UObjects.
+        const mm::Config& cfg = mm::cfg_cached();
+        const std::uint64_t now = ::GetTickCount64();
+
+        // The hooks, if start() armed them and the game thread has an answer.
+        complete_pending_hook_install();
+        loop_slice(now);
+
+        if (!input_due(now))
+        {
+            return;
+        }
+        // This row is the ~8 GetAsyncKeyState calls and nothing else. The gamepad poll, the
+        // clipboard hand-off, the config rewrite and the F5 reload all have their own rows
+        // and all declare a stall - one counter cannot answer two questions.
+        if (g_pf_input < 0)
+        {
+            g_pf_input = mm::perf_register("loop input (hotkeys)", perf::Thread::Loop);
+        }
+        const mm::PerfScope input_scope(g_pf_input);
+
+        const LoopFrame f{cfg, now, foreground_now(now), typing_now(now)};
+        note_loading_stall();
+        refresh_swallow_set(f);
+        overlay_hotkeys(f);
+        pad_open_chords(f);
+        zoom_ladder(f);
+        first_run_tip(f);
+        map_to_clipboard(f);
+        map_request_keys(f);
+        poll_gamepad(cfg);
+        xray_key(f);
+        loop_disk_work(f);
+        throttled_log_lines(now);
+        present_watchdog(now);
         // Names the stalled thread (see the comment on stall_watchdog).
         stall_watchdog(now);
 

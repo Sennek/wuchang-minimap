@@ -1563,91 +1563,105 @@ namespace markers
 
         // One marker actor. Everything expensive - the layout cache, the location read,
         // the state flag, the FullName-derived id - only runs for a class in kClasses.
-        void process_marker(UObject* obj, const ClassSpec& s)
-        {
-            // The marker actor. For an AI controller it is the pawn it possesses.
-            UObject* actor = obj;
-            if (s.rule == Rule::ControllerPawn)
-            {
-                const uer::ClassLayout* layout = g_layouts.get(obj);
-                actor = uer::read_object_prop(layout, obj, L"Pawn");
-                if (actor == nullptr)
-                {
-                    return;
-                }
-                // A boss is possessed by an ordinary Impl_BaseAIController_C too; whenever the
-                // pawn is itself a marker class, its own entry wins.
-                if (spec_for_class(actor) >= 0)
-                {
-                    return;
-                }
-                // DEAD ENEMIES MUST NOT BE DRAWN. The corpse keeps its controller and position
-                // until a GC, so health is the signal, not absence.
-                bool answered = false;
-                bool dead = controller_says_dead(obj, answered);
-                if (!answered)
-                {
-                    // The pawn is asked too, in case the stat component hangs off the character.
-                    dead = controller_says_dead(actor, answered);
-                }
-                if (answered && dead)
-                {
-                    // MARKED DEAD, NOT ERASED (see LiveEntry::dead): erasing would bring the static
-                    // spawn-point marker back. The entry ages out once a GC takes the corpse.
-                    const std::string& dead_id = id_for(actor);
-                    // An elite reaches this branch as an ordinary `enemy`, so what it really is
-                    // comes from its static twin; every other enemy's kill marks nothing.
-                    note_slain(dead_id, static_cat_of(dead_id));
-                    const auto it = g_live.find(dead_id);
-                    if (it != g_live.end())
-                    {
-                        if (!it->second.dead)
-                        {
-                            g_dead_dropped.fetch_add(1, std::memory_order_relaxed);
-                        }
-                        it->second.dead = true;
-                        it->second.pos_valid = false; // never drawn, wherever it fell
-                        it->second.round = g_round;
-                    }
-                    else if (g_live.size() < g_live_max)
-                    {
-                        LiveEntry d{};
-                        d.cls = s.name;
-                        d.cat = s.cat;
-                        d.persist = s.persist;
-                        d.dead = true;
-                        d.round = g_round;
-                        g_live.emplace(dead_id, d);
-                        g_dead_dropped.fetch_add(1, std::memory_order_relaxed);
-                    }
-                    return;
-                }
-                if (!answered)
-                {
-                    g_health_unknown.fetch_add(1, std::memory_order_relaxed);
-                }
-            }
+        // The passes below are the questions it asks, in order.
 
-            LiveEntry e{};
-            e.cat = s.cat;
-            e.cls = s.name;
-            e.persist = s.persist;
-            e.round = g_round;
+        // MARKED DEAD, NOT ERASED (see LiveEntry::dead): erasing would bring the static
+        // spawn-point marker back. The entry ages out once a GC takes the corpse.
+        void note_dead_twin(UObject* actor, const ClassSpec& s)
+        {
+            const std::string& dead_id = id_for(actor);
+            // An elite reaches this branch as an ordinary `enemy`, so what it really is comes
+            // from its static twin; every other enemy's kill marks nothing.
+            note_slain(dead_id, static_cat_of(dead_id));
+            const auto it = g_live.find(dead_id);
+            if (it != g_live.end())
+            {
+                if (!it->second.dead)
+                {
+                    g_dead_dropped.fetch_add(1, std::memory_order_relaxed);
+                }
+                it->second.dead = true;
+                it->second.pos_valid = false; // never drawn, wherever it fell
+                it->second.round = g_round;
+                return;
+            }
+            if (g_live.size() < g_live_max)
+            {
+                LiveEntry d{};
+                d.cls = s.name;
+                d.cat = s.cat;
+                d.persist = s.persist;
+                d.dead = true;
+                d.round = g_round;
+                g_live.emplace(dead_id, d);
+                g_dead_dropped.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+
+        // The marker actor. For an AI controller it is the pawn it possesses; for everything
+        // else it is the object itself. Null means this object draws nothing this round: no
+        // pawn, a pawn that is its own marker class, or a corpse - which is recorded by
+        // note_dead_twin rather than drawn.
+        UObject* marker_actor_of(UObject* obj, const ClassSpec& s)
+        {
+            if (s.rule != Rule::ControllerPawn)
+            {
+                return obj;
+            }
+            const uer::ClassLayout* layout = g_layouts.get(obj);
+            UObject* actor = uer::read_object_prop(layout, obj, L"Pawn");
+            if (actor == nullptr)
+            {
+                return nullptr;
+            }
+            // A boss is possessed by an ordinary Impl_BaseAIController_C too; whenever the
+            // pawn is itself a marker class, its own entry wins.
+            if (spec_for_class(actor) >= 0)
+            {
+                return nullptr;
+            }
+            // DEAD ENEMIES MUST NOT BE DRAWN. The corpse keeps its controller and position
+            // until a GC, so health is the signal, not absence.
+            bool answered = false;
+            bool dead = controller_says_dead(obj, answered);
+            if (!answered)
+            {
+                // The pawn is asked too, in case the stat component hangs off the character.
+                dead = controller_says_dead(actor, answered);
+            }
+            if (answered && dead)
+            {
+                note_dead_twin(actor, s);
+                return nullptr;
+            }
+            if (!answered)
+            {
+                g_health_unknown.fetch_add(1, std::memory_order_relaxed);
+            }
+            return actor;
+        }
+
+        // Where the actor is and whether the game is showing it. A HIDDEN ACTOR IS NOT
+        // THERE: this game hides rather than destroys, and hides before it spawns, so every
+        // category is asked - the answer decides both whether the marker is drawn at all
+        // (mdb::twin_drop) and whether a Proximity actor counts as met.
+        void read_live_pose(UObject* actor, LiveEntry& e)
+        {
             if (actor_location(actor, e.x, e.y, e.z))
             {
                 // (0,0,0) is where the level saver parks a collected pickup, not a position.
                 e.pos_read = true;
                 e.pos_valid = !(e.x == 0.0 && e.y == 0.0 && e.z == 0.0);
             }
-
-            // A HIDDEN ACTOR IS NOT THERE. This game hides rather than destroys, and hides
-            // before it spawns, so every category is asked: the answer decides both whether the
-            // marker is drawn at all (mdb::twin_drop) and whether a Proximity actor counts as met.
             bool vis_answered = false;
             const bool vis_hidden = actor_is_invisible(actor, vis_answered);
             e.invisible_known = vis_answered;
             e.invisible = vis_answered && vis_hidden;
+        }
 
+        // What makes THIS class count as found. One rule per class, from the class table.
+        void apply_found_rule(UObject* actor, const ClassSpec& s, LiveEntry& e)
+        {
             switch (s.rule)
             {
             case Rule::UsedBool:
@@ -1739,42 +1753,65 @@ namespace markers
             default:
                 break;
             }
+        }
 
-            // The id. Shrines carry a game-authored one; everything else is
-            // <level short name>/<object name>, the join key markers/<chapter>.json uses.
-            std::string id;
+        // The stable id. Shrines carry a game-authored one; everything else is
+        // <level short name>/<object name>, the join key markers/<chapter>.json uses.
+        std::string marker_id_of(UObject* actor, const ClassSpec& s)
+        {
             if (s.cat == mdb::Cat::Shrine)
             {
                 std::wstring shrine;
                 if (read_fstring_prop(actor, kShrineIdProp, shrine) && !shrine.empty())
                 {
-                    id = narrow_ascii(shrine);
+                    return narrow_ascii(shrine);
                 }
             }
-            if (id.empty())
+            return id_for(actor);
+        }
+
+        // A found state worth keeping goes into the found set under the rule that produced
+        // it. Enemies are NOT namespaced: the static DB holds an enemy's spawn point under
+        // the same id, which is what lets the corpse branch recognise an elite it has killed.
+        void note_persisted(const std::string& id, const ClassSpec& s)
+        {
+            switch (s.rule)
             {
-                id = id_for(actor);
+            case Rule::PawnHealth:
+                note_slain(id, s.cat);
+                break;
+            case Rule::Proximity:
+                note_met(id);
+                break;
+            default:
+                note_found(id);
+                break;
             }
+        }
+
+        void process_marker(UObject* obj, const ClassSpec& s)
+        {
+            UObject* actor = marker_actor_of(obj, s);
+            if (actor == nullptr)
+            {
+                return;
+            }
+            LiveEntry e{};
+            e.cat = s.cat;
+            e.cls = s.name;
+            e.persist = s.persist;
+            e.round = g_round;
+            read_live_pose(actor, e);
+            apply_found_rule(actor, s, e);
+
+            const std::string id = marker_id_of(actor, s);
             if (id.empty())
             {
                 return;
             }
-            // Enemies are NOT namespaced: the static DB holds an enemy's spawn point under the
-            // same id, which is what lets the branch above recognise an elite it has killed.
             if (e.found && e.persist)
             {
-                switch (s.rule)
-                {
-                case Rule::PawnHealth:
-                    note_slain(id, s.cat);
-                    break;
-                case Rule::Proximity:
-                    note_met(id);
-                    break;
-                default:
-                    note_found(id);
-                    break;
-                }
+                note_persisted(id, s);
             }
             if (g_live.size() < g_live_max || g_live.contains(id))
             {
@@ -3291,16 +3328,26 @@ namespace markers
         ::MoveFileExW(tmp, g_stage_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
     }
 
-    void on_update()
+    //==================================================================================
+    // The loop thread's marker work
+    //==================================================================================
+    //
+    // Everything the found set needs that is not the game thread's: the save slot it
+    // belongs to, the two mailboxes the other threads fill, the file, and the census the
+    // log prints. Each pass takes `now` and nothing else - there is no frame state here,
+    // only work that is due or not due.
+    namespace
     {
-        const std::uint64_t now = ::GetTickCount64();
-
-        // The save-slot watch. Any pending write goes to the OLD file first - the finds
-        // it holds belong to the save that was loaded when they happened.
-        static std::uint64_t last_slot_check = 0;
-        if (now - last_slot_check >= 1000)
+        // The save-slot watch. Any pending write goes to the OLD file first - the finds it
+        // holds belong to the save that was loaded when they happened.
+        void watch_save_slot(std::uint64_t now)
         {
-            last_slot_check = now;
+            static std::uint64_t last_check = 0;
+            if (now - last_check < 1000)
+            {
+                return;
+            }
+            last_check = now;
             const std::string key_before = g_found_key;
             const bool valid_before = g_found_key_valid;
             if (valid_before && g_found_dirty && slotid::status().key != key_before)
@@ -3315,8 +3362,13 @@ namespace markers
             }
         }
 
-        if (g_outbox_pending.exchange(false, std::memory_order_acquire))
+        // The game thread's auto-marks.
+        void drain_outbox(std::uint64_t now)
         {
+            if (!g_outbox_pending.exchange(false, std::memory_order_acquire))
+            {
+                return;
+            }
             std::vector<std::string> ids;
             {
                 spin::SpinGuard guard(g_outbox_lock);
@@ -3330,51 +3382,56 @@ namespace markers
                     ++added;
                 }
             }
-            if (added != 0)
+            if (added == 0)
             {
-                g_found_dirty = true;
-                g_found_dirty_ms = now;
-                g_stage_dirty = true;
-                // Counted, not logged per mark: the count rides on the save line.
-                g_marks_since_log += static_cast<std::uint32_t>(added);
-                MM_LOGV(L"markers: auto-marked {} new marker(s) as found ({} total)", added,
-                        g_found_master.size());
-                recompute_stats();
+                return;
             }
+            g_found_dirty = true;
+            g_found_dirty_ms = now;
+            g_stage_dirty = true;
+            // Counted, not logged per mark: the count rides on the save line.
+            g_marks_since_log += static_cast<std::uint32_t>(added);
+            MM_LOGV(L"markers: auto-marked {} new marker(s) as found ({} total)", added,
+                    g_found_master.size());
+            recompute_stats();
         }
 
-        // "Clear this save's found list", from the F2 panel. It runs after the outbox
-        // drain so marks queued in the same tick go too, and it writes at once rather
-        // than on the debounce: the file must reflect the wipe even with the tracker
-        // checkbox off.
-        if (g_clear_pending.exchange(false, std::memory_order_acquire))
+        // "Clear this save's found list", from the F2 panel. It runs after the outbox drain
+        // so marks queued in the same tick go too, and it writes at once rather than on the
+        // debounce: the file must reflect the wipe even with the tracker checkbox off.
+        void clear_found_list(std::uint64_t now)
         {
+            if (!g_clear_pending.exchange(false, std::memory_order_acquire))
+            {
+                return;
+            }
             if (g_found_unreadable)
             {
                 mm::logf(L"markers: NOT clearing the found list - {} cannot be read, so nothing is "
                          L"written over it",
                          found_path());
+                return;
             }
-            else
-            {
-                const std::size_t before = g_found_master.size();
-                g_found_master.clear();
-                g_found_dirty = true;
-                g_found_dirty_ms = now;
-                g_stage_dirty = true;
-                g_marks_since_log = 0;
-                publish_inbox(std::vector<std::string>{}, true);
-                recompute_stats();
-                mm::logf(L"markers: cleared the found list of {} - {} id(s) dropped", found_path(),
-                         before);
-                save_found_file();
-            }
+            const std::size_t before = g_found_master.size();
+            g_found_master.clear();
+            g_found_dirty = true;
+            g_found_dirty_ms = now;
+            g_stage_dirty = true;
+            g_marks_since_log = 0;
+            publish_inbox(std::vector<std::string>{}, true);
+            recompute_stats();
+            mm::logf(L"markers: cleared the found list of {} - {} id(s) dropped", found_path(), before);
+            save_found_file();
         }
 
         // Manual toggles go through the same master set and debounced write as the
         // auto-marks, and the whole set is republished to the game thread.
-        if (g_toggle_pending.exchange(false, std::memory_order_acquire))
+        void apply_toggles(std::uint64_t now)
         {
+            if (!g_toggle_pending.exchange(false, std::memory_order_acquire))
+            {
+                return;
+            }
             std::vector<ToggleReq> reqs;
             {
                 spin::SpinGuard guard(g_toggle_lock);
@@ -3396,129 +3453,152 @@ namespace markers
                     changed += g_found_master.erase(r.id) != 0 ? 1 : 0;
                 }
             }
-            if (changed != 0)
+            if (changed == 0)
             {
-                g_found_dirty = true;
-                g_found_dirty_ms = now;
-                g_stage_dirty = true;
-                std::vector<std::string> all;
-                all.reserve(g_found_master.size());
-                for (const std::string& id : g_found_master)
-                {
-                    all.push_back(id);
-                }
-                publish_inbox(std::move(all), true);
-                recompute_stats();
-                g_marks_since_log += static_cast<std::uint32_t>(changed);
-                mm::logf(L"markers: {} manual found change(s) from the map ({} total)", changed,
-                         g_found_master.size());
+                return;
+            }
+            g_found_dirty = true;
+            g_found_dirty_ms = now;
+            g_stage_dirty = true;
+            std::vector<std::string> all;
+            all.reserve(g_found_master.size());
+            for (const std::string& id : g_found_master)
+            {
+                all.push_back(id);
+            }
+            publish_inbox(std::move(all), true);
+            recompute_stats();
+            g_marks_since_log += static_cast<std::uint32_t>(changed);
+            mm::logf(L"markers: {} manual found change(s) from the map ({} total)", changed,
+                     g_found_master.size());
+        }
+
+        // The file: retried while it cannot be read, kept in step with the shutdown
+        // snapshot, and written once the marks have stopped arriving.
+        void found_file_upkeep(const mm::Config& cfg, std::uint64_t now)
+        {
+            // The found file could not be read: nothing is written over it; it is retried.
+            if (g_found_unreadable && now - g_found_retry_ms >= 10000)
+            {
+                g_found_retry_ms = now;
+                retry_found_load();
+            }
+            // Keep the shutdown snapshot in step with the pending write: one serialisation
+            // per burst of marks, on the loop thread.
+            if (g_found_dirty && g_stage_dirty && !g_found_unreadable)
+            {
+                stage_found_snapshot();
+                g_stage_dirty = false;
+            }
+            // A failed write adds its backoff to the ordinary debounce.
+            if (g_found_dirty &&
+                now - g_found_dirty_ms >=
+                    static_cast<std::uint64_t>(cfg.found_save_debounce_ms) + g_found_backoff_ms)
+            {
+                save_found_file();
             }
         }
 
-        retire_databases(now);
-
-        const mm::Config& cfg = mm::cfg_cached();
-
-        // The found file could not be read: nothing is written over it; it is retried.
-        if (g_found_unreadable && now - g_found_retry_ms >= 10000)
+        // Which rule fired and which cannot read its property: a climbing `health unknown`
+        // with zero dead/defeated means the Health route is wrong.
+        void log_rules_line()
         {
-            g_found_retry_ms = now;
-            retry_found_load();
+            mm::logf(L"markers: rules - shrines lit {} of {} ({} marked this session), "
+                     L"met {} of {} ({} marked this session, {} in range but unseen), "
+                     L"bosses defeated {} of {} ({} from save, {} with no door, "
+                     L"{} killed this session), "
+                     L"newly dead {}, health unknown {} (health field width {})",
+                     g_shrine_lit_found.load(std::memory_order_relaxed),
+                     g_shrine_total.load(std::memory_order_relaxed),
+                     g_shrine_lit_marks.load(std::memory_order_relaxed),
+                     g_met_found.load(std::memory_order_relaxed),
+                     g_met_total.load(std::memory_order_relaxed),
+                     g_met_marks.load(std::memory_order_relaxed),
+                     g_met_unseen.load(std::memory_order_relaxed),
+                     g_boss_found.load(std::memory_order_relaxed),
+                     g_boss_total.load(std::memory_order_relaxed),
+                     g_boss_from_save.load(std::memory_order_relaxed),
+                     g_boss_no_door.load(std::memory_order_relaxed),
+                     g_boss_defeated.load(std::memory_order_relaxed),
+                     g_dead_dropped.load(std::memory_order_relaxed),
+                     g_health_unknown.load(std::memory_order_relaxed),
+                     g_health_width);
         }
 
-        // Keep the shutdown snapshot in step with the pending write: one serialisation
-        // per burst of marks, on the loop thread.
-        if (g_found_dirty && g_stage_dirty && !g_found_unreadable)
+        // WHICH RULE TOOK A MARKER OFF THE MAP, in mdb::twin_drop's own words - the names
+        // are the enum's, not this line's - plus the visibility read behind `invisible`:
+        // `answered for 0` means no route reads on this build.
+        void log_twins_line()
         {
-            stage_found_snapshot();
-            g_stage_dirty = false;
+            std::wstring by_reason;
+            for (int r = 0; r < mdb::kTwinDropCount; ++r)
+            {
+                const std::string_view name{mdb::twin_drop_name(static_cast<mdb::TwinDrop>(r))};
+                if (!by_reason.empty())
+                {
+                    by_reason += L", ";
+                }
+                by_reason += std::to_wstring(g_twin_drop[r].load(std::memory_order_relaxed));
+                by_reason += L' ';
+                by_reason.append(name.begin(), name.end());
+            }
+            mm::logf(L"markers: twins - {}; the visibility read answered for {} twin(s), {} hidden",
+                     by_reason, g_vis_asked.load(std::memory_order_relaxed),
+                     g_vis_hidden.load(std::memory_order_relaxed));
         }
 
-        // A failed write adds its backoff to the ordinary debounce.
-        if (g_found_dirty &&
-            now - g_found_dirty_ms >=
-                static_cast<std::uint64_t>(cfg.found_save_debounce_ms) + g_found_backoff_ms)
+        // THE NPC CENSUS, one line naming which half of the join fails. joined = static
+        // markers a live actor answered for THIS round with a usable position; superseded =
+        // those more than kMovedUu from where they were authored.
+        void log_people_line()
         {
-            save_found_file();
+            mm::logf(L"markers: people - static {}, live {}, joined {}, superseded {}, "
+                     L"level resident {}",
+                     g_mobile_static.load(std::memory_order_relaxed),
+                     g_mobile_live.load(std::memory_order_relaxed),
+                     g_mobile_joined.load(std::memory_order_relaxed),
+                     g_mobile_superseded.load(std::memory_order_relaxed),
+                     g_mobile_level_known.load(std::memory_order_relaxed));
         }
 
         // The periodic health summary: once a minute at `normal`, 30 s at `verbose`.
-        static std::uint64_t last_round_log = 0;
-        const std::uint64_t census_period = mm::log_enabled(mm::LogLv::Verbose) ? 30000 : 60000;
-        if (now - last_round_log >= census_period)
+        void log_round_census(std::uint64_t now)
         {
-            last_round_log = now;
-            if (g_rounds.load(std::memory_order_relaxed) != 0)
+            static std::uint64_t last_log = 0;
+            const std::uint64_t period = mm::log_enabled(mm::LogLv::Verbose) ? 30000 : 60000;
+            if (now - last_log < period)
             {
-                MM_LOGV(L"markers: round {} - scan {:.1f} ms over {} pump(s), publish {:.3f} ms "
-                        L"(avg {:.3f}, peak {:.3f}); {} published, {} live",
-                        g_rounds.load(std::memory_order_relaxed),
-                        g_scan_round_ms.load(std::memory_order_relaxed),
-                        g_scan_round_slices.load(std::memory_order_relaxed),
-                        g_publish_ms.load(std::memory_order_relaxed),
-                        g_publish_ms_avg.load(std::memory_order_relaxed),
-                        g_publish_ms_peak.load(std::memory_order_relaxed),
-                        g_published_count.load(std::memory_order_relaxed),
-                        g_live_count.load(std::memory_order_relaxed));
-                // Which rule fired and which cannot read its property: a climbing
-                // `health unknown` with zero dead/defeated means the Health route is wrong.
-                mm::logf(L"markers: rules - shrines lit {} of {} ({} marked this session), "
-                         L"met {} of {} ({} marked this session, {} in range but unseen), "
-                         L"bosses defeated {} of {} ({} from save, {} with no door, "
-                         L"{} killed this session), "
-                         L"newly dead {}, health unknown {} (health field width {})",
-                         g_shrine_lit_found.load(std::memory_order_relaxed),
-                         g_shrine_total.load(std::memory_order_relaxed),
-                         g_shrine_lit_marks.load(std::memory_order_relaxed),
-                         g_met_found.load(std::memory_order_relaxed),
-                         g_met_total.load(std::memory_order_relaxed),
-                         g_met_marks.load(std::memory_order_relaxed),
-                         g_met_unseen.load(std::memory_order_relaxed),
-                         g_boss_found.load(std::memory_order_relaxed),
-                         g_boss_total.load(std::memory_order_relaxed),
-                         g_boss_from_save.load(std::memory_order_relaxed),
-                         g_boss_no_door.load(std::memory_order_relaxed),
-                         g_boss_defeated.load(std::memory_order_relaxed),
-                         g_dead_dropped.load(std::memory_order_relaxed),
-                         g_health_unknown.load(std::memory_order_relaxed),
-                         g_health_width);
-                // WHICH RULE TOOK A MARKER OFF THE MAP, in mdb::twin_drop's own words - the names
-                // are the enum's, not this line's - plus the visibility read behind `invisible`:
-                // `answered for 0` means no route reads on this build.
-                std::wstring by_reason;
-                for (int r = 0; r < mdb::kTwinDropCount; ++r)
-                {
-                    const std::string_view name{mdb::twin_drop_name(static_cast<mdb::TwinDrop>(r))};
-                    if (!by_reason.empty())
-                    {
-                        by_reason += L", ";
-                    }
-                    by_reason += std::to_wstring(g_twin_drop[r].load(std::memory_order_relaxed));
-                    by_reason += L' ';
-                    by_reason.append(name.begin(), name.end());
-                }
-                mm::logf(L"markers: twins - {}; the visibility read answered for {} twin(s), "
-                         L"{} hidden",
-                         by_reason, g_vis_asked.load(std::memory_order_relaxed),
-                         g_vis_hidden.load(std::memory_order_relaxed));
-                // THE NPC CENSUS, one line naming which half of the join fails. joined = static
-                // markers a live actor answered for THIS round with a usable position;
-                // superseded = those more than kMovedUu from where they were authored.
-                mm::logf(L"markers: people - static {}, live {}, joined {}, superseded {}, "
-                         L"level resident {}",
-                         g_mobile_static.load(std::memory_order_relaxed),
-                         g_mobile_live.load(std::memory_order_relaxed),
-                         g_mobile_joined.load(std::memory_order_relaxed),
-                         g_mobile_superseded.load(std::memory_order_relaxed),
-                         g_mobile_level_known.load(std::memory_order_relaxed));
+                return;
             }
+            last_log = now;
+            if (g_rounds.load(std::memory_order_relaxed) == 0)
+            {
+                return;
+            }
+            MM_LOGV(L"markers: round {} - scan {:.1f} ms over {} pump(s), publish {:.3f} ms "
+                    L"(avg {:.3f}, peak {:.3f}); {} published, {} live",
+                    g_rounds.load(std::memory_order_relaxed),
+                    g_scan_round_ms.load(std::memory_order_relaxed),
+                    g_scan_round_slices.load(std::memory_order_relaxed),
+                    g_publish_ms.load(std::memory_order_relaxed),
+                    g_publish_ms_avg.load(std::memory_order_relaxed),
+                    g_publish_ms_peak.load(std::memory_order_relaxed),
+                    g_published_count.load(std::memory_order_relaxed),
+                    g_live_count.load(std::memory_order_relaxed));
+            log_rules_line();
+            log_twins_line();
+            log_people_line();
         }
 
-        // Cheap counters the panel shows; the per-chapter table is recomputed above.
-        static std::uint64_t last_light = 0;
-        if (now - last_light >= 1000)
+        // Cheap counters the panel shows; the per-chapter table is recomputed elsewhere.
+        void publish_light_stats(std::uint64_t now)
         {
-            last_light = now;
+            static std::uint64_t last = 0;
+            if (now - last < 1000)
+            {
+                return;
+            }
+            last = now;
             spin::SpinGuard guard(g_stats_lock);
             g_stats.published = g_published_count.load(std::memory_order_relaxed);
             g_stats.absence_marks = g_absence_marks.load(std::memory_order_relaxed);
@@ -3539,6 +3619,19 @@ namespace markers
             g_stats.scan_chunk = g_scan_chunk.load(std::memory_order_relaxed);
             g_stats.scan_fallback = g_scan_fallback.load(std::memory_order_relaxed);
         }
+    } // namespace
+
+    void on_update()
+    {
+        const std::uint64_t now = ::GetTickCount64();
+        watch_save_slot(now);
+        drain_outbox(now);
+        clear_found_list(now);
+        apply_toggles(now);
+        retire_databases(now);
+        found_file_upkeep(mm::cfg_cached(), now);
+        log_round_census(now);
+        publish_light_stats(now);
     }
 
     void set_loaded_levels(const std::vector<std::string>& short_names)

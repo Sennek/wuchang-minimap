@@ -5,35 +5,35 @@
 Added
 - Loot is eleven marker categories instead of one: consumables, materials, key items, weapons, armour, amulets, jades, spells, harvest nodes, cannon ammo and plain items. Each has its own filter checkbox, count and glyph, so the map can answer "where are the amulets" instead of showing 1105 identical dots.
 - The 17 cannon resupply crates are their own category and read "Shrapnel Bomb"; they stand beside the cannon emplacements.
-- Bamboozlings are tracked. The 20 bamboo-shoot creatures that bolt and burrow when you get close are their own marker category, drawn as a green leaf, with their own filter checkbox and a count that fills as you kill them - so the legend answers "how many of the 20 are left, and where". One you have slain is marked collected and never comes back; one that got away is not, because it returns to the same spot after a rest at a shrine.
-- The 105 Harbinger Cuckoos are their own marker category, drawn as a teal bird: the birds a thrown dagger knocks an Aurum Feather out of, 26 in the first chapter and fewer in each one after it, none in the DLC. They were on the map before only as anonymous enemies, and only if you had enemy markers turned on; now they have their own filter checkbox, glyph and count of the 105, on the minimap, the full map, the x-ray and the compass.
+- Bamboozlings are tracked. The 20 bamboo-shoot creatures that bolt and burrow when you get close are their own category, drawn as a green leaf, with their own filter checkbox and a count that fills as you kill them - so the legend answers "how many of the 20 are left, and where". One you have slain never comes back; one that got away is still counted as missing, because it returns to the same spot after a rest at a shrine.
+- The 105 Harbinger Cuckoos are their own category, drawn as a teal bird: the birds a thrown dagger knocks an Aurum Feather out of, 26 in the first chapter and fewer in each one after it, none in the DLC. They used to be on the map only as anonymous enemies, which are off by default, so most players never saw one. They now have their own filter checkbox, glyph and count on the minimap, the full map, the x-ray and the compass.
 
 Changed
-- Loot is coloured by quality tier everywhere it is drawn — minimap, full map, compass, x-ray and the F2 legend — in the game's own three pickup-beam hues: blue for common, pink for equipment, gold for key items and materials. The kind of loot is a small mark inside the disc, drawn on the full map and in the legend; the minimap shows the disc alone, where colour is the question a glance asks.
-- A marker you have already collected keeps its colour: it is drawn as a hollow ring at full strength over a faded fill, so what fades is the fill and not the identity. `markers_found_alpha` fades the fill.
+- Loot is coloured by quality everywhere it is drawn — minimap, full map, compass, x-ray and the F2 legend — in the game's own three pickup-beam colours: blue for common, pink for equipment, gold for key items and materials. What kind of loot it is shows as a small mark inside the disc on the full map and in the legend; the minimap shows the disc alone, so a glance answers "is anything good over there".
+- A marker you have already collected keeps its colour: it turns into a ring with a faded centre, so you can still tell at a glance what it was. `markers_found_alpha` sets how faded.
 - The eleven names replace `pickup` in `markers_categories`, `highlight_categories` and `markers_absence_categories`. A config file that still says `pickup` still means all eleven, and the F2 panel rewrites it into the current names when it next saves.
 - The player's storage box is filed under Other, not as loot.
 - Loot an enemy drops is filed by what it is: a dropped chest piece draws as armour, a dropped jade as a jade. The kind comes from the item itself, so a drop and a pickup of the same thing read the same.
-- The F2 Categories grid is driven by check boxes. Every category row starts with one that switches that category on or off on all three surfaces at once - minimap & map, x-ray and compass - and every `Loot - <tier>` heading row carries one for the whole tier on all three plus one per surface column for that surface's tier. A group that is only partly on draws a dash, and clicking a dash turns the whole group on. Clicking the category's own name used to do the all-three job, and nothing said so.
-- The map draws only ground you can get to. The level's outer skin - roofs, hillsides and the shelves under the world that the navmesh covers but no route reaches - is gone from all five chapters, so the map reads as the place instead of as its scaffolding. The download is 27 -> 14 MiB and the largest chapter holds 44 MB of height data instead of 91.
-- Where two storeys meet, the full map draws a seam. Two slabs that abut with 300 uu of height between them used to be two flat tones with no edge, so the map read as pieces laid over one another.
-- The full map's shading spends its contrast where the ground actually varies. Half a metre of undulation under a courtyard used to own a fifth of the range and came out as triangulation lines over the flattest ground on the map.
-- The minimap redraws only when something it draws has moved - standing in a menu no longer re-cuts the same 400 000 pixels twelve times a second - and a redraw that does happen costs 40 % less. Resizing its buffers no longer costs a stalled frame.
+- The F2 Categories grid is driven by check boxes. Every category row starts with one that switches that category on or off on the map, the x-ray and the compass at once, and every `Loot - <quality>` heading row carries one for the whole group, plus one per column for that surface alone. A group that is only partly on draws a dash, and clicking a dash turns the whole group on. Clicking the category's name used to do this, and nothing said so.
+- The map draws only ground you can actually walk on. Roofs, hillsides and the shell around the level are gone from all five chapters, so the map reads as the place you are in instead of the scenery built around it. The download is half what it was, and the mod uses about half as much memory for a chapter.
+- Where two floors meet, the full map draws a shaded edge between them. They used to be two flat tones running into each other, so the map read as pieces laid over one another.
+- Flat ground on the full map looks flat. It used to break up into a mesh of triangles wherever the ground was most even.
+- The minimap is lighter on the CPU: it redraws only when something on it has actually moved, so standing in a menu no longer redraws it many times a second, and each redraw costs less. Resizing it no longer causes a hitch.
 
 Fixed
-- The game no longer crashes about ten seconds after launch with OptiScaler installed. The mod creates no DirectX device, window or swapchain of its own any more: it finds the one the game itself presents through and hooks that.
-- An NPC is never marked collected. Walking past a merchant used him up, and `markers_hide_found` then took him off the map while he was standing in front of you. Every NPC an older build had already marked met is forgotten.
-- A pickup first met in the moment a chest opens is named. It used to stay "Item" for the rest of the session, and could leave every other pickup of its kind unnamed with it.
-- Thirteen item names, and four marker labels with them, name the spell you pick up there instead of an NG+ gem that shares its id.
-- Three auto-pickups in chapter 1 - Vorpal Blade, Aurum Feather Force and Divine Might - are on the map; the extractor had been dropping them.
-- A warning about a config key that no longer exists gives the advice that belongs to it. A config carried over from 1.2.0 with one of the removed rarity keys was told that `palette = 0` stops the mod touching DirectX, which it does not.
-- When the overlay cannot find the game's swapchain it says so in the log at the default level, names every graphics module in the process and the workaround to try, instead of going quiet for the session.
+- The game no longer crashes a few seconds after launch with OptiScaler installed.
+- Merchants and other NPCs stay on the map. Walking past one counted as collecting it, so with `markers_hide_found` on it vanished while it was standing in front of you. NPCs an older build had already marked are forgotten.
+- Loot picked up the instant a chest opens is named properly, instead of reading "Item" for the rest of the session - and dragging every other pickup of that kind down with it.
+- Thirteen items are named after what they are, and four markers with them: the map pointed at an NG+ gem where the spell you pick up there is.
+- Three pickups in chapter 1 - Vorpal Blade, Aurum Feather Force and Divine Might - are on the map. They were missing from it.
 - An elite you have killed is marked collected, the way a boss is, and its count fills in the legend. It stayed uncollected and came back on the map as soon as the body was cleaned up.
-- The Panda's shop is labelled "Panda Shop" on the map. It read "Inner Demon": the class is abbreviated `XM`, and that was taken for XinMo rather than XiongMao.
+- The Panda's shop is labelled "Panda Shop" on the map. It read "Inner Demon".
+- A config file carried over from 1.2.0 with one of the removed colour keys gets advice about that key, instead of a sentence about an unrelated one.
+- If the overlay cannot start, the log says why and lists the other graphics mods running, instead of falling silent for the session.
 - The legend's chapter and its counts follow the chapter you are in. They used to stay on the chapter that was in force when you last picked something up, so the full map could say "all chapters" while the map itself showed one.
 
 Removed
-- `xray_rarity_colors_enabled`, `markers_rarity_tint` and `xray_rarity_colors`. The quality tint is no longer an alternative to the category colour, it is the loot colour on every surface; the three hues come from `palette` like every other marker colour. A config file that still carries one of these keys gets a warning naming it.
+- `xray_rarity_colors_enabled`, `markers_rarity_tint` and `xray_rarity_colors`. Quality colour is no longer an option beside the category colour - it is how loot is drawn everywhere, and the three colours come from `palette` like every other marker colour. A config file that still carries one of these keys gets a warning naming it.
 
 ## 1.2.0
 

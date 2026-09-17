@@ -66,17 +66,19 @@ scenery: the drained-lake Commander Honglan boss arena and the Tang-palace shrin
 terrace are flat quads too, and dropping them draws black tile-aligned squares on the
 minimap.
 
-So the quads are clustered by Z into *sheets* and a sheet is dropped only when it looks
-out of bounds (see `classify_flat_planes`):
+So the quads are clustered by Z and each cluster is split into the GROUPS that touch on
+the tile grid; a group is dropped only when it looks out of bounds (see
+`classify_flat_planes`):
 
-  * `--flat-plane-sheet-min` (48) coplanar quads or more - a perfectly flat surface
-    spanning 60+ tiles is 500 m of dead level ground and no hand-built area is that, or
-  * no *non-flat* navmesh within `--flat-plane-isolation` (5 000 uu) of the sheet's Z
-    under its own tile footprint - the Z = 36 351 and Z = 38 871 sheets every chapter
-    ships are 24 000-36 000 uu away from any real geometry.
+  * no *non-flat* navmesh within `--flat-plane-isolation` (5 000 uu) of the group's Z
+    under its tile footprint or the ring around it - the Z = 36 351 and Z = 38 871
+    sheets every chapter ships are 24 000-36 000 uu away from any real geometry, or
+  * `--flat-plane-sheet-min` (48) quads or more, of which `--flat-plane-unanchored`
+    (40 %) or more stand over tiles holding no navmesh at all - a surface that large
+    hanging over that much nothing is the kill plane, not a floor.
 
-Measured, chapters 1-5: every kept sheet has non-flat navmesh within 7 uu of its Z and
-holds at most 25 quads; every dropped one is either 66..400 quads or 24 650+ uu away.
+Measured, chapters 1-5: every group anybody would call ground is 0-33 % unanchored,
+every kill plane 53-66 %, and the four kill planes are 49..375 quads.
 `--flat-planes drop|keep|only` still switches the filter off entirely, and
 `--flat-plane-area` sets what counts as a candidate.
 `--exclude-area N` is available for the few polygons that do carry area 1/2/3.
@@ -150,17 +152,23 @@ DEFAULT_FLOOR_GAP = 500.0  # uu; a Z gap larger than this starts a new floor
 DEFAULT_FLOOR_GRID = 640.0  # uu; XY grid the floor clustering runs on
 DEFAULT_PX_PER_UU = 0.02  # 1 px = 50 uu = 0.5 m
 DEFAULT_FLAT_PLANE_AREA = 1.0e6  # uu2; a flat poly bigger than this is a "plane"
-# A big flat quad is only OUT OF BOUNDS when it is part of a whole *sheet* of them at
-# one Z, or when no ordinary navmesh exists anywhere near that Z under its footprint.
-# See context/navmesh-arenas-and-islands.md: dropping every big flat quad deleted real
-# floors (the Honglan boss arena, the Tang-palace shrine terrace) along with the sky sheet.
-# 48 is measured, not guessed: across chapters 1-5 the coplanar-quad sheets come in two
-# populations with nothing between them - real man-made floors and water bodies at 1..25
-# quads (the Honglan arena floor is 4, a courtyard 16, a palace lake 21) and whole-region
-# sheets at 66..400 (Chapter 1's sky plane 232, Chapter 4's pair 400 and 377). A perfectly
-# flat surface spanning 60+ navmesh tiles is 500 m of dead level ground, which no hand-built
-# area is; a 4-tile one is a drained lake.
-DEFAULT_PLANE_SHEET_MIN = 48  # coplanar big flat quads that make it an out-of-bounds sheet
+# A big flat quad is OUT OF BOUNDS by the company it keeps, never on its own: the unit the
+# test judges is a GROUP - the quads of one Z cluster that touch each other on the navmesh
+# tile grid. Dropping every big flat quad deletes real floors (the Honglan boss arena, the
+# Tang-palace shrine terrace); judging a whole Z cluster at once welds a kill plane to the
+# handful of floors that happen to share its height, which is how chapter 5's river bed and
+# chapter 4's two terraces were lost.
+# A group is out of bounds when it is isolated in Z, or when it is both large and mostly
+# UNANCHORED - its members hang over tiles that hold no ordinary navmesh at any height.
+# Both figures are measured over the groups of chapters 1-5. Size: real floors and water
+# bodies reach 25 quads, the kill planes 49..375. Unanchored share: every group anybody
+# would call ground sits at 0..33 % (chapter 5's 50-quad river bed is 0 %, its 40 % of
+# footprint already drawn), every kill plane at 53..66 % (chapter 4's pair 54 % and 55 %,
+# chapter 5's basin 59 %) - and a plane's own rim is anchored, because a flat sheet spanning
+# 20 tiles has to cross the terrain somewhere, which is why the share and not a distance
+# decides it.
+DEFAULT_PLANE_SHEET_MIN = 48  # big flat quads that make a group large enough to judge
+DEFAULT_PLANE_UNANCHORED = 0.40  # share of a large group's quads over tiles with no navmesh
 DEFAULT_PLANE_ISOLATION = 5000.0  # uu; nearest ordinary navmesh further than this -> drop
 DEFAULT_PLANE_Z_TOL = 20.0  # uu; planes within this Z of each other are one sheet
 # island filter (see §"unreachable islands")
@@ -433,23 +441,27 @@ def classify_flat_planes(
     sheet_min: int = DEFAULT_PLANE_SHEET_MIN,
     isolation: float = DEFAULT_PLANE_ISOLATION,
     z_tol: float = DEFAULT_PLANE_Z_TOL,
+    unanchored: float = DEFAULT_PLANE_UNANCHORED,
 ) -> dict:
     """Mark poly['plane'] for the near-horizontal quads that are OUT OF BOUNDS.
 
     A "plane candidate" is a near-horizontal polygon of at least `min_area` uu^2 -
     Wuchang's cooked navmesh is full of them and they are *ordinary walkable polygons*
     with no flag to tell them apart (`flags` is 1 and `area` is 63 on all of them).
-    Candidates are clustered by Z (`z_tol`) into sheets, and a sheet is only dropped
-    when it looks like the game's out-of-bounds / kill plane rather than a floor:
+    Candidates are clustered by Z (`z_tol`) and each cluster is split into GROUPS that
+    touch on the 1280-uu tile grid, diagonals included. A group is one surface, and it
+    is dropped only when it looks like the game's kill plane rather than a floor:
 
-      * `>= sheet_min` quads share the sheet's Z (the Chapter-1 sky sheet is 232), or
-      * no *ordinary* (non-candidate) navmesh exists within `isolation` uu of the
-        sheet's Z anywhere under its 1280-uu tile footprint.
+      * no *ordinary* (non-flat) navmesh within `isolation` uu of the group's Z under
+        its tile footprint or the ring of tiles around it (the sky sheets every chapter
+        ships sit 24 650+ uu from anything), or
+      * `>= sheet_min` quads AND at least `unanchored` of them stand over tiles that
+        hold no ordinary navmesh at all.
 
-    Everything else is a real floor and is kept. Area alone cannot decide this: the
-    drained-lake boss arena (4 quads at Z 71 under the Honglan boss) and the
-    Tang-palace shrine terrace (4 quads at Z 1671) are full-tile flat quads and are
-    floors.
+    Everything else is a real floor and is kept. Neither clause works on its own: the
+    drained-lake boss arena (4 quads under the Honglan boss) is small and fully anchored,
+    chapter 5's river bed is 50 quads and fully anchored, and a kill plane's rim is
+    anchored wherever the terrain rises through it.
     """
     by_z: dict[float, int] = {}
     cand: list[dict] = []
@@ -472,24 +484,30 @@ def classify_flat_planes(
             ordinary.setdefault(key, []).append(p["cz"])
 
     sheets: list[dict] = []
-    for members in _cluster_by(cand, lambda p: p["cz"], z_tol):
-        zmid = sum(p["cz"] for p in members) / len(members)
-        near = min(
-            (abs(cz - zmid) for p in members for key in _tile_keys(p) for cz in ordinary.get(key, ())),
-            default=float("inf"),
-        )
-        drop = len(members) >= sheet_min or near > isolation
-        for p in members:
-            p["plane"] = drop
-        sheets.append(
-            {
-                "z": round(zmid, 1),
-                "polys": len(members),
-                "nearest_ordinary_dz": None if near == float("inf") else round(near, 1),
-                "dropped": drop,
-                "reason": ("sheet" if len(members) >= sheet_min else "isolated") if drop else "",
-            }
-        )
+    for cluster in _cluster_by(cand, lambda p: p["cz"], z_tol):
+        for members in _tile_groups(cluster):
+            zmid = sum(p["cz"] for p in members) / len(members)
+            keys = {k for p in members for k in _tile_keys(p)}
+            near = min(
+                (abs(cz - zmid) for k in _ring(keys) for cz in ordinary.get(k, ())),
+                default=float("inf"),
+            )
+            bare = sum(1 for p in members if not any(k in ordinary for k in _tile_keys(p)))
+            share = bare / len(members)
+            big = len(members) >= sheet_min and share >= unanchored
+            drop = big or near > isolation
+            for p in members:
+                p["plane"] = drop
+            sheets.append(
+                {
+                    "z": round(zmid, 1),
+                    "polys": len(members),
+                    "nearest_ordinary_dz": None if near == float("inf") else round(near, 1),
+                    "unanchored": round(share, 3),
+                    "dropped": drop,
+                    "reason": ("sheet" if big else "isolated") if drop else "",
+                }
+            )
 
     sheets.sort(key=lambda s: -s["polys"])
     top = sorted(by_z.items(), key=lambda kv: -kv[1])[:8]
@@ -513,6 +531,41 @@ def _tile_keys(p: dict) -> list[tuple[int, int]]:
         for tx in range(int(math.floor(min(xs) / TILE_UU)), int(math.floor(max(xs) / TILE_UU)) + 1)
         for ty in range(int(math.floor(min(ys) / TILE_UU)), int(math.floor(max(ys) / TILE_UU)) + 1)
     ]
+
+
+def _ring(keys: set[tuple[int, int]]) -> set[tuple[int, int]]:
+    """`keys` plus the eight tiles around each of them."""
+    return {(x + dx, y + dy) for (x, y) in keys for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
+
+
+def _tile_groups(members: list[dict]) -> list[list[dict]]:
+    """Split coplanar quads into the runs that touch on the tile grid, diagonals included.
+
+    A quad is placed by the tile its centre sits in, so a group is a connected surface:
+    the kill plane that blankets a region, or the terrace that shares its height.
+    """
+    cells: dict[tuple[int, int], list[dict]] = {}
+    for p in members:
+        cells.setdefault(
+            (int(math.floor(p["cx"] / TILE_UU)), int(math.floor(p["cy"] / TILE_UU))), []
+        ).append(p)
+    groups: list[list[dict]] = []
+    seen: set[tuple[int, int]] = set()
+    for start in cells:
+        if start in seen:
+            continue
+        seen.add(start)
+        stack = [start]
+        group: list[dict] = []
+        while stack:
+            cur = stack.pop()
+            group += cells[cur]
+            for nb in _ring({cur}):
+                if nb in cells and nb not in seen:
+                    seen.add(nb)
+                    stack.append(nb)
+        groups.append(group)
+    return groups
 
 
 def _cluster_by(items, key, tol: float) -> list[list]:
@@ -1491,9 +1544,11 @@ def add_island_args(ap: argparse.ArgumentParser, default_on: bool = False) -> No
 
 def add_plane_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--flat-plane-sheet-min", type=int, default=DEFAULT_PLANE_SHEET_MIN,
-                    help=f"coplanar big flat quads that make an out-of-bounds sheet (default {DEFAULT_PLANE_SHEET_MIN})")
+                    help=f"coplanar touching flat quads that make a group large enough to drop (default {DEFAULT_PLANE_SHEET_MIN})")
+    ap.add_argument("--flat-plane-unanchored", type=float, default=DEFAULT_PLANE_UNANCHORED,
+                    help=f"share of a large group's quads over tiles with no navmesh that drops it (default {DEFAULT_PLANE_UNANCHORED:g})")
     ap.add_argument("--flat-plane-isolation", type=float, default=DEFAULT_PLANE_ISOLATION,
-                    help=f"drop a flat sheet with no ordinary navmesh within this Z, uu (default {DEFAULT_PLANE_ISOLATION:g})")
+                    help=f"drop a flat group with no ordinary navmesh within this Z, uu (default {DEFAULT_PLANE_ISOLATION:g})")
 
 
 def compute_bounds(polys: list[dict], px_per_uu: float, margin_uu: float = 128.0) -> Bounds:
@@ -1897,6 +1952,7 @@ def render_agent(agent: str, files: list[Path], args: argparse.Namespace, out_di
         polys, args.flat_plane_area,
         sheet_min=getattr(args, "flat_plane_sheet_min", DEFAULT_PLANE_SHEET_MIN),
         isolation=getattr(args, "flat_plane_isolation", DEFAULT_PLANE_ISOLATION),
+        unanchored=getattr(args, "flat_plane_unanchored", DEFAULT_PLANE_UNANCHORED),
     )
     if planes["candidates"]:
         dropped = ", ".join(f"Z={s['z']:.1f} x{s['polys']} ({s['reason']})" for s in planes["dropped_sheets"][:4])

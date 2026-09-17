@@ -1557,22 +1557,39 @@ namespace overlay
             mm::g_key_capture.store(row >= 0, std::memory_order_relaxed);
         }
 
-        void panel_keys(mm::Config& cfg)
+        //======================================================================
+        // The Keys tab
+        //======================================================================
+        //
+        // The capture state machine, one row per binding, and the three gamepad chords -
+        // which are one editor called three times.
+        namespace
         {
-            static const mm::Config kDefaults{};
+            // What a binding reverts to. Namespace scope rather than a function static: a
+            // guarded static's first call runs the CRT's thread-safe-init path.
+            const mm::Config kKeyDefaults{};
 
-            // ---- the capture, before anything is drawn --------------------------------
+            // THE CAPTURE, before anything is drawn.
             //
-            // A capture takes two shapes: `ctrl+m` (hold Ctrl, press M) and a bare
-            // modifier (`LALT`, the x-ray's shipped default). So a non-modifier key wins
-            // immediately and carries whatever modifier is held with it, while a
-            // modifier pressed on its own is only taken once everything is released -
-            // the only way to tell "reaching for Ctrl+M" from "I want Ctrl".
-            if (g_capture_row >= 0 && g_capture_row < kKeyBindCount)
+            // A capture takes two shapes: `ctrl+m` (hold Ctrl, press M) and a bare modifier
+            // (`LALT`, the x-ray's shipped default). So a non-modifier key wins immediately
+            // and carries whatever modifier is held with it, while a modifier pressed on its
+            // own is only taken once everything is released - the only way to tell "reaching
+            // for Ctrl+M" from "I want Ctrl".
+            void keys_capture(mm::Config& cfg)
             {
+                if (g_capture_row < 0)
+                {
+                    return;
+                }
+                if (g_capture_row >= kKeyBindCount)
+                {
+                    arm_capture(-1);
+                    return;
+                }
                 bool any_down = false;
-                int pressed = 0;      // a real key: bind it now, with the held modifier
-                int mod_only = 0;     // a modifier on its own: bind it on release
+                int pressed = 0;  // a real key: bind it now, with the held modifier
+                int mod_only = 0; // a modifier on its own: bind it on release
                 for (const int vk : mm::bindable_vks())
                 {
                     if ((::GetAsyncKeyState(vk) & 0x8000) == 0)
@@ -1597,55 +1614,55 @@ namespace overlay
                 {
                     pending_mod_only = 0;
                     arm_capture(-1);
+                    return;
                 }
-                else if (ImGui::GetIO().WantTextInput)
+                if (ImGui::GetIO().WantTextInput)
                 {
-                    // A text field has the caret (the import path, the font path):
-                    // the letters are its, not the capture's. Re-arming the release wait
-                    // means the key that leaves the field is not the one bound either.
+                    // A text field has the caret (the import path, the font path): the letters
+                    // are its, not the capture's. Re-arming the release wait means the key that
+                    // leaves the field is not the one bound either.
                     g_capture_wait_release = true;
+                    return;
                 }
-                else if (g_capture_wait_release)
+                if (g_capture_wait_release)
                 {
                     g_capture_wait_release = any_down;
+                    return;
                 }
-                else
+                if (pressed == 0 && mod_only != 0)
                 {
-                    if (pressed == 0 && mod_only != 0)
-                    {
-                        pending_mod_only = mod_only;
-                    }
-                    const int take = pressed != 0 ? mm::key_make(pressed, held_modifier())
-                                     : (!any_down && pending_mod_only != 0)
-                                         ? mm::key_make(pending_mod_only, mm::kKeyModNone)
-                                         : 0;
-                    if (take != 0)
-                    {
-                        pending_mod_only = 0;
-                        cfg.*kKeyBinds[g_capture_row].member = take;
-                        mm::logf(L"binding: {} = {}",
-                                 std::wstring(kKeyBinds[g_capture_row].key,
-                                              kKeyBinds[g_capture_row].key +
-                                                  std::strlen(kKeyBinds[g_capture_row].key)),
-                                 mm::key_name(take));
-                        arm_capture(-1);
-                    }
+                    pending_mod_only = mod_only;
                 }
-            }
-            else if (g_capture_row >= 0)
-            {
+                const int take = pressed != 0 ? mm::key_make(pressed, held_modifier())
+                                 : (!any_down && pending_mod_only != 0)
+                                     ? mm::key_make(pending_mod_only, mm::kKeyModNone)
+                                     : 0;
+                if (take == 0)
+                {
+                    return;
+                }
+                pending_mod_only = 0;
+                cfg.*kKeyBinds[g_capture_row].member = take;
+                mm::logf(L"binding: {} = {}",
+                         std::wstring(kKeyBinds[g_capture_row].key,
+                                      kKeyBinds[g_capture_row].key +
+                                          std::strlen(kKeyBinds[g_capture_row].key)),
+                         mm::key_name(take));
                 arm_capture(-1);
             }
 
-            text_disabled_wrapped("Click a key to rebind it, then press the new key - hold Ctrl, Shift or "
-                                  "Alt with it for a modified binding. Esc cancels.");
-            text_disabled_wrapped("A key bound here is taken away from the game while the mod is using "
-                                  "it.");
-            const gb::Table& game_binds = live_binds();
-            // Only while the game's own bindings are still a guess: once they are read,
-            // the clash column below is exact and needs no caveat.
-            if (!game_binds.valid)
+            void keys_help(const gb::Table& game_binds)
             {
+                text_disabled_wrapped("Click a key to rebind it, then press the new key - hold Ctrl, "
+                                      "Shift or Alt with it for a modified binding. Esc cancels.");
+                text_disabled_wrapped("A key bound here is taken away from the game while the mod is "
+                                      "using it.");
+                // Only while the game's own bindings are still a guess: once they are read,
+                // the clash column below is exact and needs no caveat.
+                if (game_binds.valid)
+                {
+                    return;
+                }
                 char line[256]{};
                 (void)std::snprintf(line, sizeof(line),
                                     "The game's own bindings have not been read yet (%s), so the "
@@ -1655,221 +1672,226 @@ namespace overlay
                 text_disabled_wrapped(line);
             }
 
-            if (ImGui::BeginTable("bindings", 4,
-                                  ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
-                                      ImGuiTableFlags_BordersInnerV))
+            // The note column: at most one line, in the order that matters most to the
+            // player - our own double binding, then the game's, then the unmodified twin.
+            void keys_note(const gb::Table& game_binds, const char* clash, const char* game,
+                           const char* twin)
             {
-                ImGui::TableSetupColumn("Action");
-                ImGui::TableSetupColumn("Key");
-                ImGui::TableSetupColumn("");
-                // The note is the only elastic column: it takes whatever the three
-                // fixed ones leave, and its text wraps inside that instead of pushing
-                // the table past the panel's right edge.
-                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableHeadersRow();
-                for (int i = 0; i < kKeyBindCount; ++i)
+                ImGui::PushTextWrapPos(0.0f);
+                if (clash != nullptr)
                 {
-                    const int vk = cfg.*kKeyBinds[i].member;
-                    // Two actions on one key both fire: named rather than prevented.
-                    const char* clash = nullptr;
-                    for (int j = 0; j < kKeyBindCount && clash == nullptr; ++j)
-                    {
-                        if (j != i && vk != 0 && cfg.*kKeyBinds[j].member == vk)
-                        {
-                            clash = kKeyBinds[j].label;
-                        }
-                    }
-                    // The unmodified twin: `ctrl+m` and `m` are different bindings but
-                    // the same key press, because a no-modifier binding does not require
-                    // the modifiers to be up (mm::key_mod) - which is what keeps every
-                    // hotkey alive while the x-ray's Alt is held. Named, not prevented.
-                    const char* twin = nullptr;
-                    for (int j = 0; j < kKeyBindCount && twin == nullptr; ++j)
-                    {
-                        const int other = cfg.*kKeyBinds[j].member;
-                        if (j != i && vk != 0 && mm::key_vk(other) == mm::key_vk(vk) &&
-                            mm::key_mod(other) != mm::key_mod(vk))
-                        {
-                            twin = kKeyBinds[j].label;
-                        }
-                    }
-                    // The live table wins whole: once the game has answered, a key it
-                    // does NOT list is genuinely free, whatever the fallback guess says.
-                    const std::string live_clash =
-                        game_binds.valid ? live_bind_clash(game_binds, vk) : std::string{};
-                    const char* game = game_binds.valid
-                                           ? (live_clash.empty() ? nullptr : live_clash.c_str())
-                                           : game_bind_clash(vk);
-
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::TextUnformatted(kKeyBinds[i].label);
-
-                    ImGui::TableNextColumn();
-                    ImGui::PushID(i + 900);
-                    const std::string shown = g_capture_row == i
-                                                  ? std::string("press a key...")
-                                                  : key_name_ascii(vk);
-                    if (ImGui::Button(shown.c_str(), ImVec2{130.0f * g_chrome_scale, 0.0f}))
-                    {
-                        arm_capture(g_capture_row == i ? -1 : i);
-                    }
-
-                    ImGui::TableNextColumn();
-                    ImGui::BeginDisabled(vk == kDefaults.*kKeyBinds[i].member);
-                    if (ImGui::SmallButton("reset"))
-                    {
-                        cfg.*kKeyBinds[i].member = kDefaults.*kKeyBinds[i].member;
-                    }
-                    ImGui::EndDisabled();
-
-                    ImGui::TableNextColumn();
-                    ImGui::PushTextWrapPos(0.0f);
-                    if (clash != nullptr)
-                    {
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.72f, 0.35f, 1.0f});
-                        ImGui::TextWrapped("also %s", clash);
-                        ImGui::PopStyleColor();
-                    }
-                    else if (game != nullptr)
-                    {
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.72f, 0.35f, 1.0f});
-                        ImGui::TextWrapped(game_binds.valid ? "the game uses it for %s"
-                                                            : "the game may use it for %s",
-                                           game);
-                        ImGui::PopStyleColor();
-                        if (ImGui::IsItemHovered())
-                        {
-                            ImGui::SetTooltip("%s\nWhile the mod is using this key the game does not "
-                                              "get it.\nAdd Ctrl, Shift or Alt to give it back.",
-                                              game_binds.valid
-                                                  ? "Read from the game's own input mappings."
-                                                  : "A guess: the game's bindings have not been "
-                                                    "read yet.");
-                        }
-                    }
-                    else if (twin != nullptr)
-                    {
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.80f, 0.80f, 0.55f, 1.0f});
-                        ImGui::TextWrapped("same key as %s", twin);
-                        ImGui::PopStyleColor();
-                    }
-                    ImGui::PopTextWrapPos();
-                    ImGui::PopID();
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.72f, 0.35f, 1.0f});
+                    ImGui::TextWrapped("also %s", clash);
+                    ImGui::PopStyleColor();
                 }
-                ImGui::EndTable();
-            }
-
-            if (ImGui::Button("Reset every binding"))
-            {
-                for (int i = 0; i < kKeyBindCount; ++i)
+                else if (game != nullptr)
                 {
-                    cfg.*kKeyBinds[i].member = kDefaults.*kKeyBinds[i].member;
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.72f, 0.35f, 1.0f});
+                    ImGui::TextWrapped(game_binds.valid ? "the game uses it for %s"
+                                                        : "the game may use it for %s",
+                                       game);
+                    ImGui::PopStyleColor();
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s\nWhile the mod is using this key the game does not "
+                                          "get it.\nAdd Ctrl, Shift or Alt to give it back.",
+                                          game_binds.valid ? "Read from the game's own input mappings."
+                                                           : "A guess: the game's bindings have not "
+                                                             "been read yet.");
+                    }
                 }
-                arm_capture(-1);
+                else if (twin != nullptr)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.80f, 0.80f, 0.55f, 1.0f});
+                    ImGui::TextWrapped("same key as %s", twin);
+                    ImGui::PopStyleColor();
+                }
+                ImGui::PopTextWrapPos();
             }
 
-            //--------------------------------------------------------------------------
-            // The gamepad chords
-            //--------------------------------------------------------------------------
-            if (!panel_section("Gamepad", kSecGamepad))
+            // One binding: the action, the key button that arms the capture, reset, and
+            // whatever has to be said about the key.
+            void keys_row(mm::Config& cfg, const gb::Table& game_binds, int i)
             {
-                return;
+                const int vk = cfg.*kKeyBinds[i].member;
+                // Two actions on one key both fire: named rather than prevented.
+                const char* clash = nullptr;
+                for (int j = 0; j < kKeyBindCount && clash == nullptr; ++j)
+                {
+                    if (j != i && vk != 0 && cfg.*kKeyBinds[j].member == vk)
+                    {
+                        clash = kKeyBinds[j].label;
+                    }
+                }
+                // The unmodified twin: `ctrl+m` and `m` are different bindings but the same
+                // key press, because a no-modifier binding does not require the modifiers to
+                // be up (mm::key_mod) - which is what keeps every hotkey alive while the
+                // x-ray's Alt is held. Named, not prevented.
+                const char* twin = nullptr;
+                for (int j = 0; j < kKeyBindCount && twin == nullptr; ++j)
+                {
+                    const int other = cfg.*kKeyBinds[j].member;
+                    if (j != i && vk != 0 && mm::key_vk(other) == mm::key_vk(vk) &&
+                        mm::key_mod(other) != mm::key_mod(vk))
+                    {
+                        twin = kKeyBinds[j].label;
+                    }
+                }
+                // The live table wins whole: once the game has answered, a key it does NOT
+                // list is genuinely free, whatever the fallback guess says.
+                const std::string live_clash =
+                    game_binds.valid ? live_bind_clash(game_binds, vk) : std::string{};
+                const char* game =
+                    game_binds.valid ? (live_clash.empty() ? nullptr : live_clash.c_str())
+                                     : game_bind_clash(vk);
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(kKeyBinds[i].label);
+
+                ImGui::TableNextColumn();
+                ImGui::PushID(i + 900);
+                const std::string shown =
+                    g_capture_row == i ? std::string("press a key...") : key_name_ascii(vk);
+                if (ImGui::Button(shown.c_str(), ImVec2{130.0f * g_chrome_scale, 0.0f}))
+                {
+                    arm_capture(g_capture_row == i ? -1 : i);
+                }
+
+                ImGui::TableNextColumn();
+                ImGui::BeginDisabled(vk == kKeyDefaults.*kKeyBinds[i].member);
+                if (ImGui::SmallButton("reset"))
+                {
+                    cfg.*kKeyBinds[i].member = kKeyDefaults.*kKeyBinds[i].member;
+                }
+                ImGui::EndDisabled();
+
+                ImGui::TableNextColumn();
+                keys_note(game_binds, clash, game, twin);
+                ImGui::PopID();
             }
-            ImGui::Checkbox("X-ray on a gamepad chord", &cfg.highlight_gamepad);
-            static char chord[64]{};
-            static bool chord_primed = false;
-            const std::string live = wide_to_ascii(
-                mm::pad_chord_name(cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt));
-            if (!chord_primed)
+
+            void keys_table(mm::Config& cfg, const gb::Table& game_binds)
             {
-                ::strncpy_s(chord, sizeof(chord), live.c_str(), _TRUNCATE);
-                chord_primed = true;
+                if (ImGui::BeginTable("bindings", 4,
+                                      ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
+                                          ImGuiTableFlags_BordersInnerV))
+                {
+                    ImGui::TableSetupColumn("Action");
+                    ImGui::TableSetupColumn("Key");
+                    ImGui::TableSetupColumn("");
+                    // The note is the only elastic column: it takes whatever the three fixed
+                    // ones leave, and its text wraps inside that instead of pushing the table
+                    // past the panel's right edge.
+                    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableHeadersRow();
+                    for (int i = 0; i < kKeyBindCount; ++i)
+                    {
+                        keys_row(cfg, game_binds, i);
+                    }
+                    ImGui::EndTable();
+                }
+
+                if (ImGui::Button("Reset every binding"))
+                {
+                    for (int i = 0; i < kKeyBindCount; ++i)
+                    {
+                        cfg.*kKeyBinds[i].member = kKeyDefaults.*kKeyBinds[i].member;
+                    }
+                    arm_capture(-1);
+                }
             }
-            ImGui::SetNextItemWidth(180.0f * g_chrome_scale);
-            if (ImGui::InputText("X-ray chord", chord, sizeof(chord),
-                                 ImGuiInputTextFlags_EnterReturnsTrue))
+
+            // ONE CHORD EDITOR, and there are three of them: the x-ray's, the map's and this
+            // panel's. The box is primed from the value in force, written back on Enter and
+            // then re-printed from what the parser actually took, so a typo never looks
+            // accepted. `lt` / `rt` null means BUTTONS ONLY - the map and the panel are
+            // opened by buttons, so the parser's trigger answers are sunk and never echoed,
+            // exactly as the config parser discards them.
+            void chord_editor(const char* label, char* buf, int cap, bool& primed,
+                              const std::string& live, std::uint16_t& mask, bool* lt, bool* rt)
             {
-                mm::set_pad_chord(chord, cfg.highlight_pad_mask, cfg.highlight_pad_lt,
-                                  cfg.highlight_pad_rt);
-                ::strncpy_s(chord, sizeof(chord),
-                            wide_to_ascii(mm::pad_chord_name(cfg.highlight_pad_mask,
-                                                             cfg.highlight_pad_lt,
-                                                             cfg.highlight_pad_rt))
+                if (!primed)
+                {
+                    ::strncpy_s(buf, static_cast<std::size_t>(cap), live.c_str(), _TRUNCATE);
+                    primed = true;
+                }
+                ImGui::SetNextItemWidth(180.0f * g_chrome_scale);
+                if (!ImGui::InputText(label, buf, static_cast<std::size_t>(cap),
+                                      ImGuiInputTextFlags_EnterReturnsTrue))
+                {
+                    return;
+                }
+                bool sunk_lt = false;
+                bool sunk_rt = false;
+                bool& use_lt = lt != nullptr ? *lt : sunk_lt;
+                bool& use_rt = rt != nullptr ? *rt : sunk_rt;
+                mm::set_pad_chord(buf, mask, use_lt, use_rt);
+                ::strncpy_s(buf, static_cast<std::size_t>(cap),
+                            wide_to_ascii(mm::pad_chord_name(mask, lt != nullptr && use_lt,
+                                                             rt != nullptr && use_rt))
                                 .c_str(),
                             _TRUNCATE);
             }
-            {
-                char hint[192]{};
-                (void)std::snprintf(hint, sizeof(hint),
-                                    "in force: %s   (LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, "
-                                    "RS, UP, DOWN, LEFT, RIGHT, joined with +; `none` disables it)",
-                                    live.c_str());
-                text_disabled_wrapped(hint);
-            }
-            if (ImGui::SmallButton("reset the chord"))
-            {
-                cfg.highlight_pad_mask = kDefaults.highlight_pad_mask;
-                cfg.highlight_pad_lt = kDefaults.highlight_pad_lt;
-                cfg.highlight_pad_rt = kDefaults.highlight_pad_rt;
-                chord_primed = false;
-            }
 
-            // The full map's open chord. Buttons only - the triggers are not buttons
-            // here, so set_pad_chord's LT / RT answers are discarded, exactly as the
-            // config parser discards them.
-            static char open_chord[64]{};
-            static bool open_primed = false;
-            const std::string open_live =
-                wide_to_ascii(mm::pad_chord_name(cfg.map_pad_open_chord, false, false));
-            if (!open_primed)
+            void keys_gamepad(mm::Config& cfg)
             {
-                ::strncpy_s(open_chord, sizeof(open_chord), open_live.c_str(), _TRUNCATE);
-                open_primed = true;
-            }
-            ImGui::SetNextItemWidth(180.0f * g_chrome_scale);
-            if (ImGui::InputText("Open the map", open_chord, sizeof(open_chord),
-                                 ImGuiInputTextFlags_EnterReturnsTrue))
-            {
-                bool lt = false;
-                bool rt = false;
-                mm::set_pad_chord(open_chord, cfg.map_pad_open_chord, lt, rt);
-                ::strncpy_s(open_chord, sizeof(open_chord),
-                            wide_to_ascii(mm::pad_chord_name(cfg.map_pad_open_chord, false, false))
-                                .c_str(),
-                            _TRUNCATE);
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("opens the full map: in force %s", open_live.c_str());
+                ImGui::Checkbox("X-ray on a gamepad chord", &cfg.highlight_gamepad);
+                static char chord[64]{};
+                static bool chord_primed = false;
+                const std::string live = wide_to_ascii(mm::pad_chord_name(
+                    cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt));
+                chord_editor("X-ray chord", chord, static_cast<int>(sizeof(chord)), chord_primed, live,
+                             cfg.highlight_pad_mask, &cfg.highlight_pad_lt, &cfg.highlight_pad_rt);
+                {
+                    char hint[192]{};
+                    (void)std::snprintf(hint, sizeof(hint),
+                                        "in force: %s   (LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, "
+                                        "RS, UP, DOWN, LEFT, RIGHT, joined with +; `none` disables it)",
+                                        live.c_str());
+                    text_disabled_wrapped(hint);
+                }
+                if (ImGui::SmallButton("reset the chord"))
+                {
+                    cfg.highlight_pad_mask = kKeyDefaults.highlight_pad_mask;
+                    cfg.highlight_pad_lt = kKeyDefaults.highlight_pad_lt;
+                    cfg.highlight_pad_rt = kKeyDefaults.highlight_pad_rt;
+                    chord_primed = false;
+                }
 
-            // The settings panel's own chord, so a pad-only player can reach this panel.
-            // Buttons only, like the map's.
-            static char panel_chord[64]{};
-            static bool panel_primed = false;
-            const std::string panel_live =
-                wide_to_ascii(mm::pad_chord_name(cfg.panel_pad_open_chord, false, false));
-            if (!panel_primed)
-            {
-                ::strncpy_s(panel_chord, sizeof(panel_chord), panel_live.c_str(), _TRUNCATE);
-                panel_primed = true;
+                static char open_chord[64]{};
+                static bool open_primed = false;
+                const std::string open_live =
+                    wide_to_ascii(mm::pad_chord_name(cfg.map_pad_open_chord, false, false));
+                chord_editor("Open the map", open_chord, static_cast<int>(sizeof(open_chord)),
+                             open_primed, open_live, cfg.map_pad_open_chord, nullptr, nullptr);
+                ImGui::SameLine();
+                ImGui::TextDisabled("opens the full map: in force %s", open_live.c_str());
+
+                // The settings panel's own chord, so a pad-only player can reach this panel.
+                static char panel_chord[64]{};
+                static bool panel_primed = false;
+                const std::string panel_live =
+                    wide_to_ascii(mm::pad_chord_name(cfg.panel_pad_open_chord, false, false));
+                chord_editor("Open this panel", panel_chord, static_cast<int>(sizeof(panel_chord)),
+                             panel_primed, panel_live, cfg.panel_pad_open_chord, nullptr, nullptr);
+                ImGui::SameLine();
+                ImGui::TextDisabled("opens this panel: in force %s", panel_live.c_str());
+                text_disabled_wrapped("the full map's own gamepad controls are fixed (left stick pans, "
+                                      "triggers zoom, LB / RB change floor)");
             }
-            ImGui::SetNextItemWidth(180.0f * g_chrome_scale);
-            if (ImGui::InputText("Open this panel", panel_chord, sizeof(panel_chord),
-                                 ImGuiInputTextFlags_EnterReturnsTrue))
+        } // namespace
+
+        void panel_keys(mm::Config& cfg)
+        {
+            keys_capture(cfg);
+            const gb::Table& game_binds = live_binds();
+            keys_help(game_binds);
+            keys_table(cfg, game_binds);
+            if (panel_section("Gamepad", kSecGamepad))
             {
-                bool lt = false;
-                bool rt = false;
-                mm::set_pad_chord(panel_chord, cfg.panel_pad_open_chord, lt, rt);
-                ::strncpy_s(panel_chord, sizeof(panel_chord),
-                            wide_to_ascii(
-                                mm::pad_chord_name(cfg.panel_pad_open_chord, false, false))
-                                .c_str(),
-                            _TRUNCATE);
+                keys_gamepad(cfg);
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("opens this panel: in force %s", panel_live.c_str());
-            text_disabled_wrapped("the full map's own gamepad controls are fixed (left stick pans, "
-                                  "triggers zoom, LB / RB change floor)");
         }
 
         //======================================================================

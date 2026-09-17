@@ -1914,16 +1914,33 @@ namespace markers
         // the chapter in force changes.
         void recompute_stats();
 
-        void publish_round()
+        // The per-round censuses, all gauges: counted while the buffer is built and
+        // published once, so the F2 rows and the log line describe ONE round rather than a
+        // mixture of two.
+        struct RoundCensus
         {
-            const std::uint64_t t0 = qpc_us();
-            if (g_pf_publish < 0)
-            {
-                g_pf_publish = mm::perf_register("publish_round", perf::Thread::Game);
-            }
+            int lit_found = 0;
+            int lit_total = 0;
+            int twin_drop[mdb::kTwinDropCount]{}; // by mdb::twin_drop's reason
+            int vis_asked = 0;                    // twins whose visibility could be READ
+            int vis_hidden = 0;                   // ... and answered "hidden"
+            int mobile_static = 0;
+            int mobile_joined = 0;
+            int mobile_superseded = 0;
+            int mobile_level_known = 0;
+            int met_found = 0;
+            int met_total = 0;
+            int boss_total = 0;
+            int boss_found = 0;
+            int boss_from_save = 0;
+            int boss_no_door = 0;
+            int mobile_live = 0; // counted over the live-only pass, published with the rest
+        };
 
-            // Drop live actors that have not answered for `grace` rounds. Absence is NEVER
-            // treated as "collected" - only the state flags do that.
+        // Drop live actors that have not answered for `grace` rounds. Absence is NEVER
+        // treated as "collected" - only the state flags do that.
+        void retire_stale_live()
+        {
             for (auto it = g_live.begin(); it != g_live.end();)
             {
                 const std::uint64_t grace = it->second.persist ? g_grace_rounds : kLiveOnlyGraceRounds;
@@ -1936,310 +1953,322 @@ namespace markers
                     ++it;
                 }
             }
+        }
 
-            std::vector<DrawMarker>& dst = g_slot[g_slot_next];
-            dst.clear(); // keeps the capacity
-
-            // Chapters' world bounds overlap, so an unfiltered publish paints foreign markers
-            // over the current map. Every consumer reads the buffer published here.
-            const int filter_chapter = filter_chapter_now();
-
-            const StaticDb* db = g_db.load(std::memory_order_acquire);
+        // The views over the static DB this round reads: the id index after a reload, the
+        // found flags after a change, and the chapter subset after the chapter moved.
+        void refresh_static_views(const StaticDb* db, int filter_chapter)
+        {
             if (db != g_idx_db)
             {
                 rebuild_static_index(db);
             }
-            if (db != nullptr)
+            if (db == nullptr)
             {
-                if (g_found_index_dirty)
+                return;
+            }
+            if (g_found_index_dirty)
+            {
+                refresh_found_index(db);
+            }
+            if (!g_subset_valid || g_subset_chapter != filter_chapter)
+            {
+                refresh_chapter_subset(db, filter_chapter);
+                // THE COUNTS ARE FOR THE CHAPTER IN FORCE, so the census has to be retaken
+                // when that chapter changes. This is the one place that knows it did: a
+                // detected chapter moves no found id and fires no level event, so without
+                // this the legend's header and every per-chapter count stay on the previous
+                // chapter until the next found or reload.
+                recompute_stats();
+            }
+        }
+
+        // Which static markers this round draws, and which live actor stands for each.
+        // One hash lookup per LIVE actor instead of one per STATIC marker.
+        void join_live_to_static(const StaticDb& db, int filter_chapter)
+        {
+            std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);
+            g_draw_idx.assign(g_chapter_subset.begin(), g_chapter_subset.end());
+            for (const auto& kv : g_live)
+            {
+                const auto sit = db.by_id.find(kv.first);
+                if (sit != db.by_id.end() && sit->second >= 0 &&
+                    static_cast<std::size_t>(sit->second) < g_live_of_static.size())
                 {
-                    refresh_found_index(db);
+                    const std::size_t idx = static_cast<std::size_t>(sit->second);
+                    g_live_of_static[idx] = &kv.second;
+                    // The actor is here, so its entry is about this world however the chapter
+                    // filter reads the streamed level set. Ids are unique, so is this index.
+                    if (!mdb::marker_in_chapter(db.markers[idx].chapter, filter_chapter))
+                    {
+                        g_draw_idx.push_back(sit->second);
+                    }
                 }
-                if (!g_subset_valid || g_subset_chapter != filter_chapter)
+            }
+        }
+
+        // Which levels are loaded, resolved once per UNIQUE level name; the names are
+        // interned lower-cased.
+        void resolve_level_table(const StaticDb& db)
+        {
+            for (std::size_t i = 0; i < g_level_known.size(); ++i)
+            {
+                const auto lit = g_levels.find(db.levels[i]);
+                g_level_known[i] = lit != g_levels.end() ? 1 : 0;
+                g_level_round[i] = lit != g_levels.end() ? lit->second : 0;
+            }
+        }
+
+        // The found flags a static marker carries before any live actor is consulted: the
+        // found file, a lit shrine and a boss the save says is dead. The shrine and boss
+        // gauges are counted here because this is where those two questions are asked.
+        void apply_static_found(const mdb::StaticMarker& sm, std::size_t idx, bool boss_save_on,
+                                RoundCensus& c, DrawMarker& d)
+        {
+            if (g_found_static[idx] != 0)
+            {
+                d.flags |= kFlagFound;
+            }
+            // A shrine has no per-actor activation flag: the state is the game mode's
+            // `UnlockedFirepoints` list, which src/shrines.cpp reads at 1 Hz. The ids go into
+            // the found set so every derived view agrees. Idempotent.
+            else if (sm.cat == mdb::Cat::Shrine && shrine_is_lit(sm.id))
+            {
+                d.flags |= kFlagFound;
+                g_found_static[idx] = 1;
+                note_found(sm.id);
+            }
+            // A gauge over the chapter's shrines: `lit N of M` says whether the join works.
+            if (sm.cat == mdb::Cat::Shrine)
+            {
+                ++c.lit_total;
+                if (shrine_is_lit(sm.id) && (d.flags & kFlagFound) != 0)
                 {
-                    refresh_chapter_subset(db, filter_chapter);
-                    // THE COUNTS ARE FOR THE CHAPTER IN FORCE, so the census has to be
-                    // retaken when that chapter changes. This is the one place that knows
-                    // it did: a detected chapter moves no found id and fires no level
-                    // event, so without this the legend's header and every per-chapter
-                    // count stay on the previous chapter until the next found or reload.
-                    recompute_stats();
+                    ++c.lit_found;
                 }
-
-                // One hash lookup per LIVE actor instead of one per STATIC marker.
-                std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);
-                g_draw_idx.assign(g_chapter_subset.begin(), g_chapter_subset.end());
-                for (const auto& kv : g_live)
+            }
+            // A BOSS KILLED BEFORE THE MOD WAS INSTALLED: `Rule::PawnHealth` needs the actor to
+            // exist, so the save speaks for those - the arena's `bossdoor_*` respawn point in
+            // `UnlockedFirepoints`. DERIVED, NEVER PERSISTED: the signal is uncertain.
+            if (sm.cat == mdb::Cat::Boss)
+            {
+                ++c.boss_total;
+                if (sm.bossdoor.empty())
                 {
-                    const auto sit = db->by_id.find(kv.first);
-                    if (sit != db->by_id.end() && sit->second >= 0 &&
-                        static_cast<std::size_t>(sit->second) < g_live_of_static.size())
-                    {
-                        const std::size_t idx = static_cast<std::size_t>(sit->second);
-                        g_live_of_static[idx] = &kv.second;
-                        // The actor is here, so its entry is about this world however the chapter
-                        // filter reads the streamed level set. Ids are unique, so is this index.
-                        if (!mdb::marker_in_chapter(db->markers[idx].chapter, filter_chapter))
-                        {
-                            g_draw_idx.push_back(sit->second);
-                        }
-                    }
+                    ++c.boss_no_door;
                 }
-
-                // Resolved once per UNIQUE level name; the names are interned lower-cased.
-                for (std::size_t i = 0; i < g_level_known.size(); ++i)
+                else if (mdb::boss_found_from_save(boss_save_on, true, true,
+                                                   shr::is_unlocked(sm.bossdoor.c_str())))
                 {
-                    const auto lit = g_levels.find(db->levels[i]);
-                    g_level_known[i] = lit != g_levels.end() ? 1 : 0;
-                    g_level_round[i] = lit != g_levels.end() ? lit->second : 0;
+                    d.flags |= kFlagFound;
+                    ++c.boss_from_save;
                 }
+            }
+        }
 
-                // The per-round censuses, all gauges.
-                int lit_found = 0;
-                int lit_total = 0;
-                int twin_drop[mdb::kTwinDropCount]{}; // by mdb::twin_drop's reason
-                int vis_asked = 0;                    // twins whose visibility could be READ
-                int vis_hidden = 0;                   // ... and answered "hidden"
-                int mobile_static = 0;
-                int mobile_joined = 0;
-                int mobile_superseded = 0;
-                int mobile_level_known = 0;
-                int met_found = 0;
-                int met_total = 0;
-                int boss_total = 0;
-                int boss_found = 0;
-                int boss_from_save = 0;
-                int boss_no_door = 0;
-                const bool boss_save_on = mm::cfg_cached().boss_defeat_from_save;
-                dst.reserve(g_draw_idx.size() + g_live.size());
-                for (const int mi : g_draw_idx)
+        // What mdb::twin_drop() is asked about this marker: whether an actor stands for it,
+        // what that actor answered this round, and whether its level is loaded.
+        mdb::TwinFacts twin_facts_of(const StaticDb& db, std::size_t idx, const mdb::StaticMarker& sm,
+                                     const LiveEntry* live)
+        {
+            mdb::TwinFacts tw{};
+            tw.mobile = mdb::is_mobile_category(sm.cat);
+            tw.live_twin = live != nullptr;
+            tw.live_twin_dead = live != nullptr && live->dead;
+            // A twin that answered but could not be located is NOT an answer.
+            tw.live_twin_this_round = live != nullptr && live->round == g_round && live->pos_valid;
+            // It is an answer of its own: an actor answering proves its level is loaded, and a
+            // used-up actor is parked at (0,0,0). No level table needed.
+            tw.live_twin_unlocatable = live != nullptr && live->round == g_round && !live->pos_valid;
+            tw.live_twin_invisible = live != nullptr && live->round == g_round && live->invisible;
+            const int mli = db.marker_level[idx];
+            if (mli >= 0 && g_level_known[static_cast<std::size_t>(mli)] != 0)
+            {
+                tw.level_known = true;
+                tw.full_round_since_level_load = g_round > g_level_round[static_cast<std::size_t>(mli)];
+            }
+            return tw;
+        }
+
+        // The gauges that answer "is the join working at all": the visibility read, over
+        // every static marker whose twin answered this round - "answered for 0" in the log
+        // means no route reads on this build, while a high count with `0 hidden` means the
+        // flags really are all false - and the people census, where statics with no joins
+        // means the ids do not match and level resident 0 means the walked-away rule can
+        // never fire.
+        void count_twin_gauges(RoundCensus& c, const mdb::TwinFacts& tw, const mdb::StaticMarker& sm,
+                               const LiveEntry* live)
+        {
+            if (live != nullptr && live->round == g_round && live->invisible_known)
+            {
+                ++c.vis_asked;
+                if (live->invisible)
                 {
-                    const std::size_t idx = static_cast<std::size_t>(mi);
-                    const mdb::StaticMarker& sm = db->markers[idx];
-                    DrawMarker d{};
-                    d.x = sm.x;
-                    d.y = sm.y;
-                    d.z = sm.z;
-                    d.cat = static_cast<std::uint8_t>(sm.cat);
-                    d.flags = kFlagStatic;
-                    if (g_found_static[idx] != 0)
-                    {
-                        d.flags |= kFlagFound;
-                    }
-                    // A shrine has no per-actor activation flag: the state is the game mode's
-                    // `UnlockedFirepoints` list, which src/shrines.cpp reads at 1 Hz. The ids go into
-                    // the found set so every derived view agrees. Idempotent.
-                    else if (sm.cat == mdb::Cat::Shrine && shrine_is_lit(sm.id))
-                    {
-                        d.flags |= kFlagFound;
-                        g_found_static[idx] = 1;
-                        note_found(sm.id);
-                    }
-                    // A gauge over the chapter's shrines: `lit N of M` says whether the join works.
-                    if (sm.cat == mdb::Cat::Shrine)
-                    {
-                        ++lit_total;
-                        if (shrine_is_lit(sm.id) && (d.flags & kFlagFound) != 0)
-                        {
-                            ++lit_found;
-                        }
-                    }
-
-                    // A BOSS KILLED BEFORE THE MOD WAS INSTALLED: `Rule::PawnHealth` needs the actor to
-                    // exist, so the save speaks for those - the arena's `bossdoor_*` respawn point in
-                    // `UnlockedFirepoints`. DERIVED, NEVER PERSISTED: the signal is uncertain.
-                    if (sm.cat == mdb::Cat::Boss)
-                    {
-                        ++boss_total;
-                        if (sm.bossdoor.empty())
-                        {
-                            ++boss_no_door;
-                        }
-                        else if (mdb::boss_found_from_save(boss_save_on, true, true,
-                                                           shr::is_unlocked(sm.bossdoor.c_str())))
-                        {
-                            d.flags |= kFlagFound;
-                            ++boss_from_save;
-                        }
-                    }
-                    const LiveEntry* live = g_live_of_static[idx];
-
-                    // WHETHER THIS MARKER IS DRAWN AT ALL. One question, asked once:
-                    // mdb::twin_drop() holds the reasons and names each of them. A dead enemy
-                    // takes its authored spawn point off the map with it, a hidden actor is not
-                    // there to find, and a person who has walked away is not drawn where they were.
-                    const int mli = db->marker_level[idx];
-                    mdb::TwinFacts tw{};
-                    tw.mobile = mdb::is_mobile_category(sm.cat);
-                    tw.live_twin = live != nullptr;
-                    tw.live_twin_dead = live != nullptr && live->dead;
-                    // A twin that answered but could not be located is NOT an answer.
-                    tw.live_twin_this_round = live != nullptr && live->round == g_round && live->pos_valid;
-                    // It is an answer of its own: an actor answering proves its level is loaded, and
-                    // a used-up actor is parked at (0,0,0). No level table needed.
-                    tw.live_twin_unlocatable =
-                        live != nullptr && live->round == g_round && !live->pos_valid;
-                    tw.live_twin_invisible =
-                        live != nullptr && live->round == g_round && live->invisible;
-                    if (mli >= 0 && g_level_known[static_cast<std::size_t>(mli)] != 0)
-                    {
-                        tw.level_known = true;
-                        tw.full_round_since_level_load =
-                            g_round > g_level_round[static_cast<std::size_t>(mli)];
-                    }
-                    // The visibility gauge, over every static marker whose twin answered this
-                    // round: "answered for 0" in the log means no route reads on this build, while
-                    // a high count with `0 hidden` means the flags really are all false.
-                    if (live != nullptr && live->round == g_round && live->invisible_known)
-                    {
-                        ++vis_asked;
-                        if (live->invisible)
-                        {
-                            ++vis_hidden;
-                        }
-                    }
-                    // The census behind the `people -` log line: statics with no joins means the ids
-                    // do not match; level resident 0 means the walked-away rule can never fire.
-                    if (tw.mobile)
-                    {
-                        ++mobile_static;
-                        if (tw.live_twin_this_round)
-                        {
-                            ++mobile_joined;
-                            const double dx = live->x - sm.x;
-                            const double dy = live->y - sm.y;
-                            const double dz = live->z - sm.z;
-                            if (dx * dx + dy * dy + dz * dz > kMovedUuSq)
-                            {
-                                ++mobile_superseded;
-                            }
-                        }
-                        if (tw.level_known)
-                        {
-                            ++mobile_level_known;
-                        }
-                    }
-                    const mdb::TwinDrop drop = mdb::twin_drop(tw);
-                    ++twin_drop[static_cast<int>(drop)];
-                    if (drop != mdb::TwinDrop::Keep)
-                    {
-                        // WHICH marker the hidden-actor rule took away, once per id: the count
-                        // alone cannot say whether something lawful went with it.
-                        if (drop == mdb::TwinDrop::Invisible &&
-                            first_time(L"hidden", std::wstring(sm.id.begin(), sm.id.end())))
-                        {
-                            const std::string& word = sm.name.empty() ? sm.cls : sm.name;
-                            const std::string_view cat{mdb::cat_name(sm.cat)};
-                            MM_LOGV(L"markers: not drawn - {} ({}) '{}' - the actor is there and "
-                                    L"the game has it hidden",
-                                    std::wstring(sm.id.begin(), sm.id.end()),
-                                    std::wstring(cat.begin(), cat.end()),
-                                    std::wstring(word.begin(), word.end()));
-                        }
-                        continue;
-                    }
-
-                    // kFlagLive means an actor answered THIS round with a usable position. For a
-                    // category that does not move a twin from a round or two ago is as good, and that
-                    // debounce stops a chest flickering; for a MOBILE one a stale entry must not
-                    // carry the x-ray's permission to draw a person through a wall.
-                    if (live != nullptr)
-                    {
-                        if (live->found)
-                        {
-                            d.flags |= kFlagFound;
-                        }
-                        if (live->pos_valid && (live->round == g_round || !tw.mobile))
-                        {
-                            d.flags |= kFlagLive;
-                            d.x = live->x;
-                            d.y = live->y;
-                            d.z = live->z;
-                        }
-                    }
-                    // The `met` gauge, over the chapter's notes - the only thing Rule::Proximity
-                    // still marks.
-                    if (sm.cat == mdb::Cat::Note)
-                    {
-                        ++met_total;
-                        if ((d.flags & kFlagFound) != 0)
-                        {
-                            ++met_found;
-                        }
-                    }
-                    // The boss gauge, after the found file, the save door and this round's health
-                    // read. `boss_total` counts earlier: a boss a `continue` drops still exists.
-                    if (sm.cat == mdb::Cat::Boss && (d.flags & kFlagFound) != 0)
-                    {
-                        ++boss_found;
-                    }
-
-                    // ABSENCE AS EVIDENCE OF A COLLECT. mdb::absence_marks() holds the rule; this
-                    // round has walked the whole object array and the level table is current.
-                    mdb::AbsenceFacts facts{};
-                    facts.feature_on = true; // the rule is always armed
-                    facts.cat_selected = mdb::cat_enabled(g_absence_cats, sm.cat) &&
-                                         mdb::has_found_state(sm.cat);
-                    facts.already_found = (d.flags & kFlagFound) != 0;
-                    facts.level_known = tw.level_known;
-                    facts.full_round_since_level_load = tw.full_round_since_level_load;
-                    // AN ACTOR THAT ANSWERED IS PRESENT, wherever it stands: requiring `pos_valid`
-                    // would auto-mark a chest whose position read failed. (0,0,0) is `!live->found`.
-                    facts.twin_alive = live != nullptr && live->round == g_round && !live->found;
-
-                    int& streak = g_absent_streak_idx[idx];
-                    if (!mdb::absence_round_confirms(facts))
-                    {
-                        streak = 0;
-                    }
-                    else
-                    {
-                        if (streak < 1000000)
-                        {
-                            ++streak;
-                        }
-                        if (mdb::absence_marks(facts, streak, g_absence_rounds))
-                        {
-                            d.flags |= kFlagFound;
-                            streak = 0;
-                            g_absence_marks.fetch_add(1, std::memory_order_relaxed);
-                            note_found(sm.id);
-                        }
-                    }
-                    copy_id(d.id, sizeof(d.id), sm.id);
-                    // NAME FIRST: `cls` is always non-empty, while the manifest carries a name for
-                    // every entry. Longest shipped name is 31 ASCII chars; `label` is 40.
-                    copy_id(d.label, sizeof(d.label), sm.name.empty() ? sm.cls : sm.name);
-                    dst.push_back(d);
+                    ++c.vis_hidden;
                 }
-                g_shrine_lit_found.store(lit_found, std::memory_order_relaxed);
-                g_shrine_total.store(lit_total, std::memory_order_relaxed);
-                g_mobile_static.store(mobile_static, std::memory_order_relaxed);
-                g_mobile_joined.store(mobile_joined, std::memory_order_relaxed);
-                g_mobile_superseded.store(mobile_superseded, std::memory_order_relaxed);
-                for (int r = 0; r < mdb::kTwinDropCount; ++r)
+            }
+            if (!tw.mobile)
+            {
+                return;
+            }
+            ++c.mobile_static;
+            if (tw.live_twin_this_round)
+            {
+                ++c.mobile_joined;
+                const double dx = live->x - sm.x;
+                const double dy = live->y - sm.y;
+                const double dz = live->z - sm.z;
+                if (dx * dx + dy * dy + dz * dz > kMovedUuSq)
                 {
-                    g_twin_drop[r].store(twin_drop[r], std::memory_order_relaxed);
+                    ++c.mobile_superseded;
                 }
-                g_vis_asked.store(vis_asked, std::memory_order_relaxed);
-                g_vis_hidden.store(vis_hidden, std::memory_order_relaxed);
-                g_mobile_level_known.store(mobile_level_known, std::memory_order_relaxed);
-                g_met_found.store(met_found, std::memory_order_relaxed);
-                g_met_total.store(met_total, std::memory_order_relaxed);
-                g_boss_total.store(boss_total, std::memory_order_relaxed);
-                g_boss_found.store(boss_found, std::memory_order_relaxed);
-                g_boss_from_save.store(boss_from_save, std::memory_order_relaxed);
-                g_boss_no_door.store(boss_no_door, std::memory_order_relaxed);
+            }
+            if (tw.level_known)
+            {
+                ++c.mobile_level_known;
+            }
+        }
+
+        // WHICH marker the hidden-actor rule took away, once per id: the count alone cannot
+        // say whether something lawful went with it.
+        void log_invisible_drop(const mdb::StaticMarker& sm)
+        {
+            if (!first_time(L"hidden", std::wstring(sm.id.begin(), sm.id.end())))
+            {
+                return;
+            }
+            const std::string& word = sm.name.empty() ? sm.cls : sm.name;
+            const std::string_view cat{mdb::cat_name(sm.cat)};
+            MM_LOGV(L"markers: not drawn - {} ({}) '{}' - the actor is there and the game has it "
+                    L"hidden",
+                    std::wstring(sm.id.begin(), sm.id.end()), std::wstring(cat.begin(), cat.end()),
+                    std::wstring(word.begin(), word.end()));
+        }
+
+        // ABSENCE AS EVIDENCE OF A COLLECT. mdb::absence_marks() holds the rule; this round
+        // has walked the whole object array and the level table is current. True when this
+        // round is the one that marks it - the streak is reset either way.
+        bool absence_marks_now(const mdb::StaticMarker& sm, std::size_t idx, const mdb::TwinFacts& tw,
+                               const LiveEntry* live, bool already_found)
+        {
+            mdb::AbsenceFacts facts{};
+            facts.feature_on = true; // the rule is always armed
+            facts.cat_selected =
+                mdb::cat_enabled(g_absence_cats, sm.cat) && mdb::has_found_state(sm.cat);
+            facts.already_found = already_found;
+            facts.level_known = tw.level_known;
+            facts.full_round_since_level_load = tw.full_round_since_level_load;
+            // AN ACTOR THAT ANSWERED IS PRESENT, wherever it stands: requiring `pos_valid`
+            // would auto-mark a chest whose position read failed. (0,0,0) is `!live->found`.
+            facts.twin_alive = live != nullptr && live->round == g_round && !live->found;
+
+            int& streak = g_absent_streak_idx[idx];
+            if (!mdb::absence_round_confirms(facts))
+            {
+                streak = 0;
+                return false;
+            }
+            if (streak < 1000000)
+            {
+                ++streak;
+            }
+            if (!mdb::absence_marks(facts, streak, g_absence_rounds))
+            {
+                return false;
+            }
+            streak = 0;
+            g_absence_marks.fetch_add(1, std::memory_order_relaxed);
+            note_found(sm.id);
+            return true;
+        }
+
+        // One static marker, from the database row to the row in the published buffer.
+        // False means the twin rules took it off the map - a dead enemy takes its authored
+        // spawn point with it, a hidden actor is not there to find, and a person who has
+        // walked away is not drawn where they were.
+        bool build_static_draw(const StaticDb& db, std::size_t idx, bool boss_save_on, RoundCensus& c,
+                               DrawMarker& d)
+        {
+            const mdb::StaticMarker& sm = db.markers[idx];
+            d = DrawMarker{};
+            d.x = sm.x;
+            d.y = sm.y;
+            d.z = sm.z;
+            d.cat = static_cast<std::uint8_t>(sm.cat);
+            d.flags = kFlagStatic;
+            apply_static_found(sm, idx, boss_save_on, c, d);
+
+            const LiveEntry* live = g_live_of_static[idx];
+            // WHETHER THIS MARKER IS DRAWN AT ALL. One question, asked once: mdb::twin_drop()
+            // holds the reasons and names each of them.
+            const mdb::TwinFacts tw = twin_facts_of(db, idx, sm, live);
+            count_twin_gauges(c, tw, sm, live);
+            const mdb::TwinDrop drop = mdb::twin_drop(tw);
+            ++c.twin_drop[static_cast<int>(drop)];
+            if (drop != mdb::TwinDrop::Keep)
+            {
+                if (drop == mdb::TwinDrop::Invisible)
+                {
+                    log_invisible_drop(sm);
+                }
+                return false;
             }
 
-            // Live actors the static DB does not know about - everything until
-            // markers/<chapter>.json exists, and always the enemies.
-            int mobile_live = 0;
+            // kFlagLive means an actor answered THIS round with a usable position. For a
+            // category that does not move a twin from a round or two ago is as good, and that
+            // debounce stops a chest flickering; for a MOBILE one a stale entry must not carry
+            // the x-ray's permission to draw a person through a wall.
+            if (live != nullptr)
+            {
+                if (live->found)
+                {
+                    d.flags |= kFlagFound;
+                }
+                if (live->pos_valid && (live->round == g_round || !tw.mobile))
+                {
+                    d.flags |= kFlagLive;
+                    d.x = live->x;
+                    d.y = live->y;
+                    d.z = live->z;
+                }
+            }
+            // The `met` gauge, over the chapter's notes - the only thing Rule::Proximity still
+            // marks.
+            if (sm.cat == mdb::Cat::Note)
+            {
+                ++c.met_total;
+                if ((d.flags & kFlagFound) != 0)
+                {
+                    ++c.met_found;
+                }
+            }
+            // The boss gauge, after the found file, the save door and this round's health
+            // read. `boss_total` counts earlier: a boss a drop took away still exists.
+            if (sm.cat == mdb::Cat::Boss && (d.flags & kFlagFound) != 0)
+            {
+                ++c.boss_found;
+            }
+
+            if (absence_marks_now(sm, idx, tw, live, (d.flags & kFlagFound) != 0))
+            {
+                d.flags |= kFlagFound;
+            }
+            copy_id(d.id, sizeof(d.id), sm.id);
+            // NAME FIRST: `cls` is always non-empty, while the manifest carries a name for
+            // every entry. Longest shipped name is 31 ASCII chars; `label` is 40.
+            copy_id(d.label, sizeof(d.label), sm.name.empty() ? sm.cls : sm.name);
+            return true;
+        }
+
+        // Live actors the static DB does not know about - everything until
+        // markers/<chapter>.json exists, and always the enemies.
+        void append_live_only(const StaticDb* db, std::vector<DrawMarker>& dst, RoundCensus& c)
+        {
             for (const auto& kv : g_live)
             {
                 if (mdb::is_mobile_category(kv.second.cat))
                 {
-                    ++mobile_live;
+                    ++c.mobile_live;
                 }
                 if (!mdb::live_only_is_drawn(kv.second.pos_valid, kv.second.dead))
                 {
@@ -2247,9 +2276,9 @@ namespace markers
                 }
                 if (db != nullptr)
                 {
-                    // A static twin exists, so the loop above owns this actor - it drew the joined
-                    // marker, or dropped it on the corpse / walked-away rules. Either way this
-                    // nameless live-only copy would be a duplicate.
+                    // A static twin exists, so the loop above owns this actor - it drew the
+                    // joined marker, or dropped it on the corpse / walked-away rules. Either way
+                    // this nameless live-only copy would be a duplicate.
                     const auto sit = db->by_id.find(kv.first);
                     if (sit != db->by_id.end() && sit->second >= 0 &&
                         sit->second < static_cast<int>(db->markers.size()))
@@ -2279,14 +2308,35 @@ namespace markers
                 }
                 dst.push_back(d);
             }
+        }
 
-            g_mobile_live.store(mobile_live, std::memory_order_relaxed);
-            g_published_count.store(static_cast<int>(dst.size()), std::memory_order_relaxed);
-            g_live_count.store(static_cast<int>(g_live.size()), std::memory_order_relaxed);
-            g_slot_published.store(g_slot_next, std::memory_order_release);
-            g_slot_next = (g_slot_next + 1) % kSlots;
+        // The gauges the static pass counted. Published only when there was a database to
+        // count over, so a round with none leaves the last real answer standing.
+        void publish_static_census(const RoundCensus& c)
+        {
+            g_shrine_lit_found.store(c.lit_found, std::memory_order_relaxed);
+            g_shrine_total.store(c.lit_total, std::memory_order_relaxed);
+            g_mobile_static.store(c.mobile_static, std::memory_order_relaxed);
+            g_mobile_joined.store(c.mobile_joined, std::memory_order_relaxed);
+            g_mobile_superseded.store(c.mobile_superseded, std::memory_order_relaxed);
+            for (int r = 0; r < mdb::kTwinDropCount; ++r)
+            {
+                g_twin_drop[r].store(c.twin_drop[r], std::memory_order_relaxed);
+            }
+            g_vis_asked.store(c.vis_asked, std::memory_order_relaxed);
+            g_vis_hidden.store(c.vis_hidden, std::memory_order_relaxed);
+            g_mobile_level_known.store(c.mobile_level_known, std::memory_order_relaxed);
+            g_met_found.store(c.met_found, std::memory_order_relaxed);
+            g_met_total.store(c.met_total, std::memory_order_relaxed);
+            g_boss_total.store(c.boss_total, std::memory_order_relaxed);
+            g_boss_found.store(c.boss_found, std::memory_order_relaxed);
+            g_boss_from_save.store(c.boss_from_save, std::memory_order_relaxed);
+            g_boss_no_door.store(c.boss_no_door, std::memory_order_relaxed);
+        }
 
-            // What the publish cost; the F2 round line and the periodic log print all three.
+        // What the publish cost; the F2 round line and the periodic log print all three.
+        void note_publish_cost(std::uint64_t t0)
+        {
             const double ms = static_cast<double>(qpc_us() - t0) / 1000.0;
             g_publish_ms.store(ms, std::memory_order_relaxed);
             g_publish_ms_sum += ms;
@@ -2298,6 +2348,56 @@ namespace markers
             {
                 g_publish_ms_peak.store(ms, std::memory_order_relaxed);
             }
+        }
+
+        // ONE ROUND, published. The whole object array has been walked by the time this
+        // runs, so every rule below may read absence as evidence.
+        void publish_round()
+        {
+            const std::uint64_t t0 = qpc_us();
+            if (g_pf_publish < 0)
+            {
+                g_pf_publish = mm::perf_register("publish_round", perf::Thread::Game);
+            }
+            retire_stale_live();
+
+            std::vector<DrawMarker>& dst = g_slot[g_slot_next];
+            dst.clear(); // keeps the capacity
+
+            // Chapters' world bounds overlap, so an unfiltered publish paints foreign markers
+            // over the current map. Every consumer reads the buffer published here.
+            const int filter_chapter = filter_chapter_now();
+
+            const StaticDb* db = g_db.load(std::memory_order_acquire);
+            refresh_static_views(db, filter_chapter);
+
+            RoundCensus census{};
+            if (db != nullptr)
+            {
+                join_live_to_static(*db, filter_chapter);
+                resolve_level_table(*db);
+                const bool boss_save_on = mm::cfg_cached().boss_defeat_from_save;
+                dst.reserve(g_draw_idx.size() + g_live.size());
+                for (const int mi : g_draw_idx)
+                {
+                    DrawMarker d{};
+                    if (build_static_draw(*db, static_cast<std::size_t>(mi), boss_save_on, census, d))
+                    {
+                        dst.push_back(d);
+                    }
+                }
+                publish_static_census(census);
+            }
+
+            append_live_only(db, dst, census);
+
+            g_mobile_live.store(census.mobile_live, std::memory_order_relaxed);
+            g_published_count.store(static_cast<int>(dst.size()), std::memory_order_relaxed);
+            g_live_count.store(static_cast<int>(g_live.size()), std::memory_order_relaxed);
+            g_slot_published.store(g_slot_next, std::memory_order_release);
+            g_slot_next = (g_slot_next + 1) % kSlots;
+
+            note_publish_cost(t0);
         }
 
         // The fallback pump: one FindAllOf per interval, cycling the class table. Its

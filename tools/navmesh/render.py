@@ -204,8 +204,8 @@ DEFAULT_ISLAND_COVER_Z = 400.0  # uu
 # one mark the escape rule does not already reach. Off, and one flag away (`--wall-far 1500`).
 DEFAULT_WALL_FAR = 0.0  # uu; 0 disables the rule
 # ... and the area under which an unseeded piece of ground reads as a pocket rather than a
-# place. Off by default: the escape rule reaches the same class on most chapters, and this
-# one is measured per chapter in the picker before it is turned on.
+# place. Off in this module's own default, so a bare `render` run cuts on the escape rule alone;
+# the shipped maps are built with `build_map.SMALL_UNSEEDED_UU2`.
 DEFAULT_SMALL_UNSEEDED = 0.0  # uu2; 0 disables the rule
 MAX_IMAGE_PX = 16000  # guard against a --px-per-uu typo eating all the RAM
 
@@ -1477,7 +1477,7 @@ def add_island_args(ap: argparse.ArgumentParser, default_on: bool = False) -> No
                          f"(default {DEFAULT_ESCAPE_CLIMB:g}; 0 disables the rule)")
     ap.add_argument("--small-unseeded", type=float, default=None,
                     help="an unseeded component smaller than this is a pocket, not a place, uu2 "
-                         "(default: the chapter's own setting in build_map; 0 disables the rule)")
+                         "(default: build_map.SMALL_UNSEEDED_UU2; 0 disables the rule)")
     ap.add_argument("--blocks", default=str(Path(__file__).resolve().parents[2] / "markers"
                                             / "blocks.json"),
                     help="the invisible walls the wall rule reads (default: the repo's "

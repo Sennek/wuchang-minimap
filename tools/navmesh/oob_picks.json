@@ -1,5 +1,5 @@
 {
- "schema": "wuchang-oob-picks/2",
+ "schema": "wuchang-oob-picks/3",
  "open_batch": 1,
  "picks": [
   {
@@ -17872,6 +17872,4561 @@
    "chapter": "chapter2",
    "batch": 1,
    "ts": "2026-09-14 10:51:45",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    4439.1,
+    -15227.3,
+    -2812.9
+   ],
+   "pixel": [
+    2173,
+    2974
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1509,
+     "z": -2834,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 495,
+   "area_m2": 1862.6,
+   "z": [
+    -3619.6,
+    -1699.6
+   ],
+   "bbox": [
+    2870,
+    -17750,
+    11000,
+    -12640
+   ],
+   "stages": {
+    "drawn": 495
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y-2_DL0_WP",
+     476
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+     19
+    ]
+   ],
+   "tiles": 42,
+   "comp": {
+    "id": 20,
+    "polys": 495,
+    "area_m2": 1862.6,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 26584,
+    "tile": [
+     -4,
+     11,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X0_Y-2_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 8.13,
+    "zspread": 160,
+    "flags": 1
+   },
+   "raster": {
+    "px": 61460,
+    "px_on_map": 61460,
+    "drawn": 12950,
+    "reachable_pct": 21.1
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:02:10",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    13701.5,
+    -18696,
+    -7045.4
+   ],
+   "pixel": [
+    1965,
+    2418
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 327,
+     "z": -7033.7,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1919,
+     "z": -1377.3,
+     "reachable": false,
+     "cut": false
+    }
+   ],
+   "polys": 265,
+   "area_m2": 222.8,
+   "z": [
+    -7192,
+    -6712
+   ],
+   "bbox": [
+    12700,
+    -19710,
+    15510,
+    -16870
+   ],
+   "stages": {
+    "drawn": 265
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+     265
+    ]
+   ],
+   "tiles": 13,
+   "comp": {
+    "id": 128,
+    "polys": 265,
+    "area_m2": 222.8,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 60208,
+    "tile": [
+     -11,
+     14,
+     1
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 19.17,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 8862,
+    "px_on_map": 8862,
+    "drawn": 8853,
+    "reachable_pct": 99.9
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:02:16",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    14892.4,
+    -19354.7,
+    -6752
+   ],
+   "pixel": [
+    1926,
+    2347
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 416,
+     "z": -6717.5,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1784,
+     "z": -1857,
+     "reachable": false,
+     "cut": false
+    }
+   ],
+   "polys": 145,
+   "area_m2": 128.5,
+   "z": [
+    -7192,
+    -6352
+   ],
+   "bbox": [
+    13920,
+    -20480,
+    15860,
+    -18960
+   ],
+   "stages": {
+    "drawn": 145
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+     145
+    ]
+   ],
+   "tiles": 6,
+   "comp": {
+    "id": 205,
+    "polys": 145,
+    "area_m2": 128.5,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 61468,
+    "tile": [
+     -12,
+     15,
+     1
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 2.19,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 3905,
+    "px_on_map": 3905,
+    "drawn": 3905,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:02:18",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    10813.2,
+    -16213,
+    -7312
+   ],
+   "pixel": [
+    2114,
+    2592
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 249,
+     "z": -7310.9,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1918,
+     "z": -1380.9,
+     "reachable": false,
+     "cut": false
+    }
+   ],
+   "polys": 167,
+   "area_m2": 117.7,
+   "z": [
+    -7512,
+    -7032
+   ],
+   "bbox": [
+    9410,
+    -17270,
+    11500,
+    -15890
+   ],
+   "stages": {
+    "drawn": 167
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+     126
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y-2_DL0_WP",
+     41
+    ]
+   ],
+   "tiles": 6,
+   "comp": {
+    "id": 218,
+    "polys": 167,
+    "area_m2": 117.7,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 56659,
+    "tile": [
+     -9,
+     12,
+     6
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 1.96,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 3610,
+    "px_on_map": 3610,
+    "drawn": 3610,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:02:20",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    9681.5,
+    -17251.8,
+    -6906.3
+   ],
+   "pixel": [
+    2052,
+    2660
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 363,
+     "z": -6905.8,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1944,
+     "z": -1288.5,
+     "reachable": false,
+     "cut": false
+    }
+   ],
+   "polys": 385,
+   "area_m2": 334.1,
+   "z": [
+    -7192,
+    -6752
+   ],
+   "bbox": [
+    8630,
+    -18750,
+    12210,
+    -16710
+   ],
+   "stages": {
+    "drawn": 385
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+     236
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y-2_DL0_WP",
+     149
+    ]
+   ],
+   "tiles": 11,
+   "comp": {
+    "id": 88,
+    "polys": 385,
+    "area_m2": 334.1,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 28106,
+    "tile": [
+     -8,
+     13,
+     2
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X0_Y-2_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 12.52,
+    "zspread": 200,
+    "flags": 1
+   },
+   "raster": {
+    "px": 10516,
+    "px_on_map": 10516,
+    "drawn": 10504,
+    "reachable_pct": 99.9
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:02:23",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    10699.2,
+    -19330.4,
+    -7165.4
+   ],
+   "pixel": [
+    1927,
+    2599
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 299,
+     "z": -7133.2,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 226,
+   "area_m2": 206.5,
+   "z": [
+    -7472,
+    -6832
+   ],
+   "bbox": [
+    8850,
+    -20480,
+    13340,
+    -18090
+   ],
+   "stages": {
+    "drawn": 226
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+     195
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y-2_DL0_WP",
+     31
+    ]
+   ],
+   "tiles": 12,
+   "comp": {
+    "id": 139,
+    "polys": 226,
+    "area_m2": 206.5,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 62039,
+    "tile": [
+     -9,
+     15,
+     4
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 5.95,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 7776,
+    "px_on_map": 7776,
+    "drawn": 7775,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:02:25",
+   "from": "hand",
+   "revised": "2026-09-15 23:07:29"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    10409.2,
+    -19950.4,
+    -6852
+   ],
+   "pixel": [
+    1890,
+    2616
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 375,
+     "z": -6863.2,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 44,
+   "area_m2": 16.5,
+   "z": [
+    -7152,
+    -6552
+   ],
+   "bbox": [
+    9860,
+    -20410,
+    10540,
+    -19440
+   ],
+   "stages": {
+    "drawn": 44
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+     43
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y-2_DL0_WP",
+     1
+    ]
+   ],
+   "tiles": 3,
+   "comp": {
+    "id": 1163,
+    "polys": 44,
+    "area_m2": 16.5,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 62074,
+    "tile": [
+     -9,
+     15,
+     4
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 1.75,
+    "zspread": 120,
+    "flags": 1
+   },
+   "raster": {
+    "px": 746,
+    "px_on_map": 746,
+    "drawn": 746,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:02:29",
+   "from": "hand",
+   "revised": "2026-09-15 23:07:22"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    9279.2,
+    -19190.4,
+    -6952
+   ],
+   "pixel": [
+    1935,
+    2684
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 340,
+     "z": -6987.5,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 39,
+   "area_m2": 22.9,
+   "z": [
+    -7112,
+    -6912
+   ],
+   "bbox": [
+    9090,
+    -19470,
+    10120,
+    -18940
+   ],
+   "stages": {
+    "drawn": 39
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+     22
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y-2_DL0_WP",
+     17
+    ]
+   ],
+   "tiles": 4,
+   "comp": {
+    "id": 918,
+    "polys": 39,
+    "area_m2": 22.9,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 29565,
+    "tile": [
+     -8,
+     14,
+     3
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y-2_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 1.05,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 596,
+    "px_on_map": 596,
+    "drawn": 596,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:02:33",
+   "from": "hand",
+   "revised": "2026-09-15 23:07:25"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    23574.2,
+    7304.3,
+    1046.1
+   ],
+   "pixel": [
+    3525,
+    1826
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2545,
+     "z": 846.9,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 2614,
+     "z": 1092.1,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 205,
+   "area_m2": 247.8,
+   "z": [
+    699.4,
+    2500.7
+   ],
+   "bbox": [
+    20120,
+    6770,
+    24170,
+    7960
+   ],
+   "stages": {
+    "drawn": 205
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X2_Y0_DL0_WP",
+     193
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+     12
+    ]
+   ],
+   "tiles": 11,
+   "comp": {
+    "id": 113,
+    "polys": 205,
+    "area_m2": 247.8,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 80228,
+    "tile": [
+     -19,
+     -6,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X2_Y0_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 20.02,
+    "zspread": 240,
+    "flags": 1
+   },
+   "raster": {
+    "px": 8412,
+    "px_on_map": 8412,
+    "drawn": 8412,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:33:28",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    22324.2,
+    6562.6,
+    819.4
+   ],
+   "pixel": [
+    3481,
+    1901
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2537,
+     "z": 818.5,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 75,
+   "area_m2": 117.5,
+   "z": [
+    699.4,
+    859.4
+   ],
+   "bbox": [
+    19200,
+    6200,
+    23590,
+    7070
+   ],
+   "stages": {
+    "drawn": 75
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X2_Y0_DL0_WP",
+     62
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+     13
+    ]
+   ],
+   "tiles": 7,
+   "comp": {
+    "id": 219,
+    "polys": 75,
+    "area_m2": 117.5,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 80407,
+    "tile": [
+     -18,
+     -6,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X2_Y0_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 15.34,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 4630,
+    "px_on_map": 4630,
+    "drawn": 4630,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:33:33",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    30558.2,
+    1439.9,
+    -558.4
+   ],
+   "pixel": [
+    3173,
+    1407
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2148,
+     "z": -563.7,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 138,
+   "area_m2": 143.8,
+   "z": [
+    -825,
+    -425
+   ],
+   "bbox": [
+    30120,
+    260,
+    31820,
+    2630
+   ],
+   "stages": {
+    "drawn": 138
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X3_Y0_DL0_WP",
+     138
+    ]
+   ],
+   "tiles": 6,
+   "comp": {
+    "id": 185,
+    "polys": 138,
+    "area_m2": 143.8,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 82149,
+    "tile": [
+     -24,
+     -2,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X3_Y0_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 11.6,
+    "zspread": 200,
+    "flags": 1
+   },
+   "raster": {
+    "px": 5707,
+    "px_on_map": 5707,
+    "drawn": 5566,
+    "reachable_pct": 97.5
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:34:06",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    15358.6,
+    8460.7,
+    4154
+   ],
+   "pixel": [
+    3595,
+    2319
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 3486,
+     "z": 4190.3,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 37,
+   "area_m2": 65.3,
+   "z": [
+    4060.7,
+    4380.7
+   ],
+   "bbox": [
+    14270,
+    7880,
+    15880,
+    8650
+   ],
+   "stages": {
+    "drawn": 37
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+     37
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 386,
+    "polys": 37,
+    "area_m2": 65.3,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 64551,
+    "tile": [
+     -12,
+     -7,
+     2
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 23.68,
+    "zspread": 120,
+    "flags": 1
+   },
+   "raster": {
+    "px": 2527,
+    "px_on_map": 2527,
+    "drawn": 2527,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:34:14",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    7000.4,
+    10119.4,
+    1941
+   ],
+   "pixel": [
+    3694,
+    2820
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 3209,
+     "z": 3206.1,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 9,
+   "area_m2": 22.7,
+   "z": [
+    1791,
+    1991
+   ],
+   "bbox": [
+    6930,
+    8960,
+    7280,
+    10240
+   ],
+   "stages": {
+    "drawn": 9
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y0_DL0_WP",
+     9
+    ]
+   ],
+   "tiles": 1,
+   "comp": {
+    "id": 921,
+    "polys": 9,
+    "area_m2": 22.7,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 35545,
+    "tile": [
+     -6,
+     -8,
+     1
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X0_Y0_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 1.99,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 914,
+    "px_on_map": 0,
+    "drawn": 0,
+    "reachable_pct": 0
+   },
+   "from": "rule",
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:38:15"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    7132.4,
+    10035.4,
+    3195.7
+   ],
+   "pixel": [
+    3689,
+    2813
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 3209,
+     "z": 3206.1,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 398,
+   "area_m2": 609.8,
+   "z": [
+    2909,
+    3511
+   ],
+   "bbox": [
+    6270,
+    7450,
+    8550,
+    13980
+   ],
+   "stages": {
+    "drawn": 398
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y1_DL0_WP",
+     263
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y0_DL0_WP",
+     135
+    ]
+   ],
+   "tiles": 15,
+   "comp": {
+    "id": 63,
+    "polys": 398,
+    "area_m2": 609.8,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 35593,
+    "tile": [
+     -6,
+     -8,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X0_Y1_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 44.1,
+    "zspread": 120,
+    "flags": 1
+   },
+   "raster": {
+    "px": 23358,
+    "px_on_map": 23358,
+    "drawn": 23358,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:38:17",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    5884.4,
+    10539.4,
+    2282.4
+   ],
+   "pixel": [
+    3719,
+    2887
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2944,
+     "z": 2264.6,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 1722,
+   "area_m2": 4036.5,
+   "z": [
+    1989,
+    3991
+   ],
+   "bbox": [
+    -2430,
+    7690,
+    7680,
+    20230
+   ],
+   "stages": {
+    "drawn": 1722
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y1_DL0_WP",
+     1400
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X-1_Y1_DL0_WP",
+     229
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X0_Y0_DL0_WP",
+     93
+    ]
+   ],
+   "tiles": 58,
+   "comp": {
+    "id": 6,
+    "polys": 1722,
+    "area_m2": 4036.5,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 43276,
+    "tile": [
+     -5,
+     -9,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X0_Y1_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 10.31,
+    "zspread": 120,
+    "flags": 1
+   },
+   "raster": {
+    "px": 151805,
+    "px_on_map": 151805,
+    "drawn": 151545,
+    "reachable_pct": 99.8
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:38:20",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    18359.7,
+    4138.5,
+    1220.7
+   ],
+   "pixel": [
+    3335,
+    2139
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2650,
+     "z": 1220,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 187,
+   "area_m2": 356.5,
+   "z": [
+    1219.4,
+    1300.7
+   ],
+   "bbox": [
+    18130,
+    2500,
+    22430,
+    6540
+   ],
+   "stages": {
+    "drawn": 187
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+     119
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X2_Y0_DL0_WP",
+     68
+    ]
+   ],
+   "tiles": 10,
+   "comp": {
+    "id": 82,
+    "polys": 187,
+    "area_m2": 356.5,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 67301,
+    "tile": [
+     -15,
+     -4,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 11.8,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 13713,
+    "px_on_map": 13713,
+    "drawn": 13706,
+    "reachable_pct": 99.9
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:41:13",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    18939.7,
+    3878.5,
+    2420.7
+   ],
+   "pixel": [
+    3320,
+    2104
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2988,
+     "z": 2420.9,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 3484,
+     "z": 4183.2,
+     "reachable": false,
+     "cut": false
+    }
+   ],
+   "polys": 38,
+   "area_m2": 47,
+   "z": [
+    2419.4,
+    2619.4
+   ],
+   "bbox": [
+    18830,
+    3120,
+    19940,
+    5340
+   ],
+   "stages": {
+    "drawn": 38
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+     23
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X2_Y0_DL0_WP",
+     15
+    ]
+   ],
+   "tiles": 5,
+   "comp": {
+    "id": 509,
+    "polys": 38,
+    "area_m2": 47,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 67258,
+    "tile": [
+     -15,
+     -4,
+     1
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 6.68,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 1948,
+    "px_on_map": 1948,
+    "drawn": 1836,
+    "reachable_pct": 94.3
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:41:18",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    21641.3,
+    -174.6,
+    -458.6
+   ],
+   "pixel": [
+    3076,
+    1942
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2181,
+     "z": -446.4,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 696,
+   "area_m2": 1632.2,
+   "z": [
+    -678.6,
+    801.4
+   ],
+   "bbox": [
+    19920,
+    -1450,
+    28350,
+    2360
+   ],
+   "stages": {
+    "drawn": 696
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X2_Y0_DL0_WP",
+     472
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X2_Y-1_DL0_WP",
+     218
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y-1_DL0_WP",
+     5
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+     1
+    ]
+   ],
+   "tiles": 31,
+   "comp": {
+    "id": 24,
+    "polys": 696,
+    "area_m2": 1632.2,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 73159,
+    "tile": [
+     -17,
+     0,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X2_Y-1_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 9.27,
+    "zspread": 120,
+    "flags": 1
+   },
+   "raster": {
+    "px": 61302,
+    "px_on_map": 61302,
+    "drawn": 2279,
+    "reachable_pct": 3.7
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:41:26",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    20325.4,
+    7381.8,
+    820.7
+   ],
+   "pixel": [
+    3530,
+    2021
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2538,
+     "z": 822,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 33,
+   "area_m2": 74.7,
+   "z": [
+    819.4,
+    860.7
+   ],
+   "bbox": [
+    19710,
+    6710,
+    20930,
+    7650
+   ],
+   "stages": {
+    "drawn": 33
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+     17
+    ],
+    [
+     "tiles_ch4_B4EX0_L0_X2_Y0_DL0_WP",
+     16
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 338,
+    "polys": 33,
+    "area_m2": 74.7,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 2654,
+    "area_m2": 234221,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 65090,
+    "tile": [
+     -16,
+     -6,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X1_Y0_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 16.23,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 2816,
+    "px_on_map": 2816,
+    "drawn": 2816,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:41:32",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    42989.9,
+    -37506.1,
+    3394
+   ],
+   "pixel": [
+    836,
+    661
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 3318,
+     "z": 3593.4,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 1,
+   "area_m2": 163.8,
+   "z": [
+    3394,
+    3394
+   ],
+   "bbox": [
+    42240,
+    -38400,
+    43520,
+    -37120
+   ],
+   "stages": {
+    "plane": 1
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X4_Y-4_DL0_WP",
+     1
+    ]
+   ],
+   "tiles": 1,
+   "comp": null,
+   "cluster": null,
+   "poly": {
+    "idx": 113680,
+    "tile": [
+     -34,
+     29,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X4_Y-4_DL0_WP",
+    "stage": "plane",
+    "area_m2": 163.84,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 6083,
+    "px_on_map": 0,
+    "drawn": 0,
+    "reachable_pct": 0
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:43:18",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    42927.7,
+    -37381.7,
+    3394
+   ],
+   "pixel": [
+    844,
+    665
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 3318,
+     "z": 3593.4,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 1,
+   "area_m2": 163.8,
+   "z": [
+    3394,
+    3394
+   ],
+   "bbox": [
+    42240,
+    -38400,
+    43520,
+    -37120
+   ],
+   "stages": {
+    "plane": 1
+   },
+   "levels": [
+    [
+     "tiles_ch4_B4EX0_L0_X4_Y-4_DL0_WP",
+     1
+    ]
+   ],
+   "tiles": 1,
+   "comp": null,
+   "cluster": null,
+   "poly": {
+    "idx": 113680,
+    "tile": [
+     -34,
+     29,
+     0
+    ],
+    "level": "tiles_ch4_B4EX0_L0_X4_Y-4_DL0_WP",
+    "stage": "plane",
+    "area_m2": 163.84,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 6083,
+    "px_on_map": 0,
+    "drawn": 0,
+    "reachable_pct": 0
+   },
+   "chapter": "chapter4",
+   "batch": 1,
+   "ts": "2026-09-15 23:43:25",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -94621.9,
+    -39293.4,
+    3404.7
+   ],
+   "pixel": [
+    733,
+    1476
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1703,
+     "z": 3329.9,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 2939,
+     "z": 7551.2,
+     "reachable": false,
+     "cut": false
+    }
+   ],
+   "polys": 641,
+   "area_m2": 1419.4,
+   "z": [
+    2911.4,
+    4951.4
+   ],
+   "bbox": [
+    -97350,
+    -40880,
+    -92160,
+    -35620
+   ],
+   "stages": {
+    "drawn": 641
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     589
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-5_DL0_WP",
+     52
+    ]
+   ],
+   "tiles": 46,
+   "comp": {
+    "id": 35,
+    "polys": 641,
+    "area_m2": 1419.4,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 28931,
+    "tile": [
+     73,
+     30,
+     0
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 23.21,
+    "zspread": 400,
+    "flags": 1
+   },
+   "raster": {
+    "px": 28259,
+    "px_on_map": 28259,
+    "drawn": 17782,
+    "reachable_pct": 62.9
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:55:36",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -91785.9,
+    -38503.7,
+    3691.4
+   ],
+   "pixel": [
+    773,
+    1332
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1449,
+     "z": 2462.4,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1521,
+     "z": 2708.3,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 2,
+     "code": 1800,
+     "z": 3661.2,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 397,
+   "area_m2": 657.5,
+   "z": [
+    2631.4,
+    3991.4
+   ],
+   "bbox": [
+    -96880,
+    -39210,
+    -91210,
+    -34920
+   ],
+   "stages": {
+    "drawn": 397
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     397
+    ]
+   ],
+   "tiles": 23,
+   "comp": {
+    "id": 66,
+    "polys": 397,
+    "area_m2": 657.5,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 28502,
+    "tile": [
+     71,
+     30,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 9.73,
+    "zspread": 160,
+    "flags": 1
+   },
+   "raster": {
+    "px": 17088,
+    "px_on_map": 17088,
+    "drawn": 17088,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:55:54",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -91979.8,
+    -38258.1,
+    2724.7
+   ],
+   "pixel": [
+    785,
+    1342
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1531,
+     "z": 2742.5,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 464,
+   "area_m2": 620.2,
+   "z": [
+    2071.4,
+    4151.4
+   ],
+   "bbox": [
+    -93240,
+    -40580,
+    -89840,
+    -37730
+   ],
+   "stages": {
+    "drawn": 464
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     331
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-5_DL0_WP",
+     119
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     14
+    ]
+   ],
+   "tiles": 30,
+   "comp": {
+    "id": 69,
+    "polys": 464,
+    "area_m2": 620.2,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 27253,
+    "tile": [
+     71,
+     29,
+     0
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 1.08,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 10827,
+    "px_on_map": 10827,
+    "drawn": 10821,
+    "reachable_pct": 99.9
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:55:56",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -92503.4,
+    -39247.1,
+    2998.1
+   ],
+   "pixel": [
+    735,
+    1368
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1599,
+     "z": 2974.7,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 45,
+   "area_m2": 37.2,
+   "z": [
+    2871.4,
+    3311.4
+   ],
+   "bbox": [
+    -93250,
+    -39490,
+    -92130,
+    -38500
+   ],
+   "stages": {
+    "drawn": 45
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     45
+    ]
+   ],
+   "tiles": 3,
+   "comp": {
+    "id": 1432,
+    "polys": 45,
+    "area_m2": 37.2,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 28638,
+    "tile": [
+     72,
+     30,
+     3
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 3.07,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 1121,
+    "px_on_map": 1121,
+    "drawn": 1121,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:01",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -93440.6,
+    -39279.4,
+    3484.7
+   ],
+   "pixel": [
+    734,
+    1416
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1662,
+     "z": 3189.9,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1746,
+     "z": 3476.8,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 13,
+   "area_m2": 22.3,
+   "z": [
+    3151.4,
+    3551.4
+   ],
+   "bbox": [
+    -93880,
+    -39550,
+    -93070,
+    -39060
+   ],
+   "stages": {
+    "drawn": 13
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     13
+    ]
+   ],
+   "tiles": 4,
+   "comp": {
+    "id": 2393,
+    "polys": 13,
+    "area_m2": 22.3,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 28818,
+    "tile": [
+     73,
+     30,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 2,
+    "zspread": 160,
+    "flags": 1
+   },
+   "raster": {
+    "px": 501,
+    "px_on_map": 501,
+    "drawn": 501,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:02",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -94332.6,
+    -36512.8,
+    2664.7
+   ],
+   "pixel": [
+    874,
+    1461
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1510,
+     "z": 2670.8,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1613,
+     "z": 3022.5,
+     "reachable": true,
+     "cut": true
+    }
+   ],
+   "polys": 16,
+   "area_m2": 28.6,
+   "z": [
+    2631.4,
+    2671.4
+   ],
+   "bbox": [
+    -94800,
+    -36900,
+    -94170,
+    -35920
+   ],
+   "stages": {
+    "drawn": 16
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     16
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 1870,
+    "polys": 16,
+    "area_m2": 28.6,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 26513,
+    "tile": [
+     73,
+     28,
+     1
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 14.87,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 822,
+    "px_on_map": 822,
+    "drawn": 822,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:04",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -94940.2,
+    -37728.1,
+    3567.4
+   ],
+   "pixel": [
+    812,
+    1492
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1768,
+     "z": 3551.9,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1885,
+     "z": 3951.5,
+     "reachable": true,
+     "cut": true
+    }
+   ],
+   "polys": 11,
+   "area_m2": 7.8,
+   "z": [
+    3191.4,
+    3671.4
+   ],
+   "bbox": [
+    -95030,
+    -38030,
+    -94630,
+    -37510
+   ],
+   "stages": {
+    "drawn": 11
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     11
+    ]
+   ],
+   "tiles": 3,
+   "comp": {
+    "id": 5690,
+    "polys": 11,
+    "area_m2": 7.8,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 27633,
+    "tile": [
+     74,
+     29,
+     1
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 2.65,
+    "zspread": 160,
+    "flags": 1
+   },
+   "raster": {
+    "px": 229,
+    "px_on_map": 229,
+    "drawn": 229,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:07",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -92580.9,
+    -36364.2,
+    3751.4
+   ],
+   "pixel": [
+    882,
+    1372
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1516,
+     "z": 2691.2,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1826,
+     "z": 3750,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 4,
+   "area_m2": 16.3,
+   "z": [
+    3751.4,
+    3751.4
+   ],
+   "bbox": [
+    -93060,
+    -36670,
+    -92290,
+    -35820
+   ],
+   "stages": {
+    "drawn": 4
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     4
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 3125,
+    "polys": 4,
+    "area_m2": 16.3,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 26439,
+    "tile": [
+     72,
+     28,
+     0
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 16.03,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 482,
+    "px_on_map": 482,
+    "drawn": 482,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:10",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -92606.8,
+    -36312.5,
+    2691.4
+   ],
+   "pixel": [
+    884,
+    1374
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1522,
+     "z": 2711.7,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1826,
+     "z": 3750,
+     "reachable": true,
+     "cut": true
+    }
+   ],
+   "polys": 4,
+   "area_m2": 9.3,
+   "z": [
+    2591.4,
+    2711.4
+   ],
+   "bbox": [
+    -92830,
+    -36560,
+    -92310,
+    -35970
+   ],
+   "stages": {
+    "drawn": 4
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     4
+    ]
+   ],
+   "tiles": 1,
+   "comp": {
+    "id": 4899,
+    "polys": 4,
+    "area_m2": 9.3,
+    "kept": true,
+    "seeded": true
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 26418,
+    "tile": [
+     72,
+     28,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 1.45,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 285,
+    "px_on_map": 285,
+    "drawn": 285,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:11",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -91857,
+    -35006.8,
+    3551.4
+   ],
+   "pixel": [
+    951,
+    1335
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1768,
+     "z": 3551.9,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 3,
+   "area_m2": 21.7,
+   "z": [
+    3551.4,
+    3551.4
+   ],
+   "bbox": [
+    -92000,
+    -35720,
+    -91570,
+    -34430
+   ],
+   "stages": {
+    "drawn": 3
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     3
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 2451,
+    "polys": 3,
+    "area_m2": 21.7,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 25061,
+    "tile": [
+     71,
+     27,
+     3
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 10.62,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 637,
+    "px_on_map": 637,
+    "drawn": 637,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:14",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -90726.6,
+    -36780.5,
+    3649.8
+   ],
+   "pixel": [
+    861,
+    1278
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1797,
+     "z": 3650.9,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 22,
+   "area_m2": 48.5,
+   "z": [
+    3609.8,
+    3671.4
+   ],
+   "bbox": [
+    -91330,
+    -37280,
+    -89880,
+    -36300
+   ],
+   "stages": {
+    "drawn": 22
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     13
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     9
+    ]
+   ],
+   "tiles": 3,
+   "comp": {
+    "id": 1113,
+    "polys": 22,
+    "area_m2": 48.5,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 26313,
+    "tile": [
+     70,
+     28,
+     1
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 3.4,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 1400,
+    "px_on_map": 1400,
+    "drawn": 1400,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:20",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -89488.6,
+    -36426.8,
+    3449.8
+   ],
+   "pixel": [
+    879,
+    1215
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1738,
+     "z": 3449.4,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 8,
+   "area_m2": 27.6,
+   "z": [
+    3409.8,
+    3449.8
+   ],
+   "bbox": [
+    -90150,
+    -37470,
+    -89310,
+    -36300
+   ],
+   "stages": {
+    "drawn": 8
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     4
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     4
+    ]
+   ],
+   "tiles": 3,
+   "comp": {
+    "id": 1932,
+    "polys": 8,
+    "area_m2": 27.6,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 207423,
+    "tile": [
+     69,
+     28,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 7.25,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 785,
+    "px_on_map": 785,
+    "drawn": 785,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:22",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -89097.7,
+    -36734,
+    3449.8
+   ],
+   "pixel": [
+    863,
+    1195
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1738,
+     "z": 3449.4,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 5,
+   "area_m2": 14.4,
+   "z": [
+    3449.8,
+    3449.8
+   ],
+   "bbox": [
+    -89430,
+    -37400,
+    -88850,
+    -36560
+   ],
+   "stages": {
+    "drawn": 5
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     5
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 3457,
+    "polys": 5,
+    "area_m2": 14.4,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 207425,
+    "tile": [
+     69,
+     28,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 6.17,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 431,
+    "px_on_map": 431,
+    "drawn": 431,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:24",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -92644.1,
+    -40345.5,
+    3138.2
+   ],
+   "pixel": [
+    679,
+    1375
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1516,
+     "z": 2691.2,
+     "reachable": true,
+     "cut": true
+    },
+    {
+     "plane": 1,
+     "code": 1646,
+     "z": 3135.2,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 2,
+     "code": 1783,
+     "z": 3603.1,
+     "reachable": true,
+     "cut": true
+    },
+    {
+     "plane": 3,
+     "code": 2068,
+     "z": 4576.5,
+     "reachable": true,
+     "cut": true
+    }
+   ],
+   "polys": 10,
+   "area_m2": 16.5,
+   "z": [
+    3071.4,
+    3218.2
+   ],
+   "bbox": [
+    -92770,
+    -40520,
+    -92390,
+    -40180
+   ],
+   "stages": {
+    "drawn": 10
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     5
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-5_DL0_WP",
+     5
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 3081,
+    "polys": 10,
+    "area_m2": 16.5,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 30241,
+    "tile": [
+     72,
+     31,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-5_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 7.23,
+    "zspread": 120,
+    "flags": 1
+   },
+   "raster": {
+    "px": 252,
+    "px_on_map": 252,
+    "drawn": 252,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:26",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -90075,
+    -40354.8,
+    2856.5
+   ],
+   "pixel": [
+    679,
+    1245
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1561,
+     "z": 2844.9,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1821,
+     "z": 3732.9,
+     "reachable": true,
+     "cut": true
+    }
+   ],
+   "polys": 141,
+   "area_m2": 157,
+   "z": [
+    2649.8,
+    3832.4
+   ],
+   "bbox": [
+    -90590,
+    -42000,
+    -88950,
+    -39780
+   ],
+   "stages": {
+    "drawn": 141
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+     81
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     60
+    ]
+   ],
+   "tiles": 6,
+   "comp": {
+    "id": 283,
+    "polys": 141,
+    "area_m2": 157,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 29794,
+    "tile": [
+     70,
+     31,
+     1
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 16.02,
+    "zspread": 160,
+    "flags": 1
+   },
+   "raster": {
+    "px": 4556,
+    "px_on_map": 4556,
+    "drawn": 4556,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:28",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -90642.8,
+    -40447.9,
+    2783.2
+   ],
+   "pixel": [
+    674,
+    1274
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1495,
+     "z": 2619.5,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1548,
+     "z": 2800.5,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 10,
+   "area_m2": 5.7,
+   "z": [
+    2591.4,
+    2849.8
+   ],
+   "bbox": [
+    -90780,
+    -40560,
+    -90500,
+    -40250
+   ],
+   "stages": {
+    "drawn": 10
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     7
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     3
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 7237,
+    "polys": 10,
+    "area_m2": 5.7,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 29806,
+    "tile": [
+     70,
+     31,
+     1
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 2.8,
+    "zspread": 120,
+    "flags": 1
+   },
+   "raster": {
+    "px": 150,
+    "px_on_map": 150,
+    "drawn": 150,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:30",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -88827.8,
+    -41276.3,
+    3292.4
+   ],
+   "pixel": [
+    632,
+    1181
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1544,
+     "z": 2786.9,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1694,
+     "z": 3299.2,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 83,
+   "area_m2": 111.3,
+   "z": [
+    2872.4,
+    3432.4
+   ],
+   "bbox": [
+    -90000,
+    -43290,
+    -87910,
+    -40690
+   ],
+   "stages": {
+    "drawn": 83
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+     76
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-5_DL0_WP",
+     6
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     1
+    ]
+   ],
+   "tiles": 13,
+   "comp": {
+    "id": 432,
+    "polys": 83,
+    "area_m2": 111.3,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 210976,
+    "tile": [
+     69,
+     32,
+     1
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 7.27,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 2621,
+    "px_on_map": 2621,
+    "drawn": 2621,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:36",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -88799.8,
+    -41490.4,
+    2739
+   ],
+   "pixel": [
+    621,
+    1180
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1534,
+     "z": 2752.7,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 5,
+   "area_m2": 4.3,
+   "z": [
+    2632.4,
+    2792.4
+   ],
+   "bbox": [
+    -88850,
+    -41670,
+    -88660,
+    -41280
+   ],
+   "stages": {
+    "drawn": 5
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+     5
+    ]
+   ],
+   "tiles": 1,
+   "comp": {
+    "id": 8925,
+    "polys": 5,
+    "area_m2": 4.3,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 210930,
+    "tile": [
+     69,
+     32,
+     6
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 3.21,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 138,
+    "px_on_map": 138,
+    "drawn": 138,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:38",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -87273.3,
+    -40224.5,
+    3405.7
+   ],
+   "pixel": [
+    685,
+    1102
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1726,
+     "z": 3408.5,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 14,
+   "area_m2": 24.3,
+   "z": [
+    3392.4,
+    3449.8
+   ],
+   "bbox": [
+    -87850,
+    -40530,
+    -87110,
+    -39830
+   ],
+   "stages": {
+    "drawn": 14
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+     13
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     1
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 2215,
+    "polys": 14,
+    "area_m2": 24.3,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 209956,
+    "tile": [
+     68,
+     31,
+     1
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 13.08,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 680,
+    "px_on_map": 680,
+    "drawn": 680,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:41",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -89172.2,
+    -39293.7,
+    3996.5
+   ],
+   "pixel": [
+    733,
+    1199
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1897,
+     "z": 3992.5,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 5,
+   "area_m2": 11.5,
+   "z": [
+    3969.8,
+    4071.4
+   ],
+   "bbox": [
+    -89990,
+    -39570,
+    -88640,
+    -38980
+   ],
+   "stages": {
+    "drawn": 5
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     4
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     1
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 4172,
+    "polys": 5,
+    "area_m2": 11.5,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 209156,
+    "tile": [
+     69,
+     30,
+     4
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 6.16,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 375,
+    "px_on_map": 375,
+    "drawn": 375,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:43",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -87319.9,
+    -40177.9,
+    8343.2
+   ],
+   "pixel": [
+    688,
+    1105
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1722,
+     "z": 3394.8,
+     "reachable": true,
+     "cut": true
+    },
+    {
+     "plane": 1,
+     "code": 3172,
+     "z": 8346.9,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 10,
+   "area_m2": 7.3,
+   "z": [
+    8312.4,
+    8432.4
+   ],
+   "bbox": [
+    -87550,
+    -40300,
+    -87250,
+    -40080
+   ],
+   "stages": {
+    "drawn": 10
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+     6
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     4
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 6029,
+    "polys": 10,
+    "area_m2": 7.3,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 209772,
+    "tile": [
+     68,
+     31,
+     6
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 1.35,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 123,
+    "px_on_map": 123,
+    "drawn": 123,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:47",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -88092.4,
+    -41955.8,
+    2405.7
+   ],
+   "pixel": [
+    597,
+    1144
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1311,
+     "z": 1991.1,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1428,
+     "z": 2390.7,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 1,
+   "area_m2": 9.2,
+   "z": [
+    2392.4,
+    2432.4
+   ],
+   "bbox": [
+    -88240,
+    -42140,
+    -87800,
+    -41720
+   ],
+   "stages": {
+    "drawn": 1
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+     1
+    ]
+   ],
+   "tiles": 1,
+   "comp": {
+    "id": 4965,
+    "polys": 1,
+    "area_m2": 9.2,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 210876,
+    "tile": [
+     68,
+     32,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-5_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 9.2,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 272,
+    "px_on_map": 272,
+    "drawn": 272,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:49",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -95631.9,
+    -38316.3,
+    3544.7
+   ],
+   "pixel": [
+    783,
+    1527
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1763,
+     "z": 3534.8,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 6,
+   "area_m2": 4.5,
+   "z": [
+    3511.4,
+    3631.4
+   ],
+   "bbox": [
+    -95960,
+    -38450,
+    -95490,
+    -38220
+   ],
+   "stages": {
+    "drawn": 6
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     6
+    ]
+   ],
+   "tiles": 2,
+   "comp": {
+    "id": 8635,
+    "polys": 6,
+    "area_m2": 4.5,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 27671,
+    "tile": [
+     74,
+     29,
+     1
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 2.15,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 145,
+    "px_on_map": 145,
+    "drawn": 145,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:53",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -93230.5,
+    -34602.4,
+    7161.4
+   ],
+   "pixel": [
+    971,
+    1405
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2737,
+     "z": 6861.3,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 2821,
+     "z": 7148.2,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 16,
+   "area_m2": 8.6,
+   "z": [
+    6591.4,
+    7431.4
+   ],
+   "bbox": [
+    -93350,
+    -35110,
+    -92850,
+    -34290
+   ],
+   "stages": {
+    "drawn": 16
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+     16
+    ]
+   ],
+   "tiles": 4,
+   "comp": {
+    "id": 5251,
+    "polys": 16,
+    "area_m2": 8.6,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 25205,
+    "tile": [
+     72,
+     27,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-10_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 0.95,
+    "zspread": 200,
+    "flags": 1
+   },
+   "raster": {
+    "px": 270,
+    "px_on_map": 270,
+    "drawn": 270,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:56",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -88509,
+    -28539.1,
+    2514.7
+   ],
+   "pixel": [
+    1280,
+    1165
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1461,
+     "z": 2503.4,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 3541,
+     "z": 9607.2,
+     "reachable": false,
+     "cut": false
+    }
+   ],
+   "polys": 161,
+   "area_m2": 203.7,
+   "z": [
+    2341.3,
+    2729.8
+   ],
+   "bbox": [
+    -89160,
+    -30950,
+    -87290,
+    -28200
+   ],
+   "stages": {
+    "drawn": 161
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-3_DL0_WP",
+     83
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     78
+    ]
+   ],
+   "tiles": 9,
+   "comp": {
+    "id": 220,
+    "polys": 161,
+    "area_m2": 203.7,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 201610,
+    "tile": [
+     69,
+     22,
+     1
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-3_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 5.25,
+    "zspread": 80,
+    "flags": 1
+   },
+   "raster": {
+    "px": 5597,
+    "px_on_map": 5597,
+    "drawn": 5393,
+    "reachable_pct": 96.4
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:56:59",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -87436.7,
+    -26852.5,
+    2014.7
+   ],
+   "pixel": [
+    1365,
+    1111
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1314,
+     "z": 2001.4,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 452,
+   "area_m2": 523.9,
+   "z": [
+    1941.3,
+    2861.3
+   ],
+   "bbox": [
+    -90220,
+    -28530,
+    -86900,
+    -24860
+   ],
+   "stages": {
+    "drawn": 452
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-3_DL0_WP",
+     412
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-3_DL0_WP",
+     40
+    ]
+   ],
+   "tiles": 19,
+   "comp": {
+    "id": 87,
+    "polys": 452,
+    "area_m2": 523.9,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 197699,
+    "tile": [
+     68,
+     20,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-3_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 15.94,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 13798,
+    "px_on_map": 13798,
+    "drawn": 13782,
+    "reachable_pct": 99.9
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:57:04",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -90497.2,
+    -26964.2,
+    2368
+   ],
+   "pixel": [
+    1360,
+    1266
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1433,
+     "z": 2407.8,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 16,
+   "area_m2": 84.6,
+   "z": [
+    2278.3,
+    2558.3
+   ],
+   "bbox": [
+    -90820,
+    -27420,
+    -90010,
+    -26550
+   ],
+   "stages": {
+    "drawn": 16
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-10_Y-3_DL0_WP",
+     9
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-3_DL0_WP",
+     7
+    ]
+   ],
+   "tiles": 4,
+   "comp": {
+    "id": 588,
+    "polys": 16,
+    "area_m2": 84.6,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 15029,
+    "tile": [
+     70,
+     21,
+     4
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-3_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 29.41,
+    "zspread": 160,
+    "flags": 1
+   },
+   "raster": {
+    "px": 1172,
+    "px_on_map": 1172,
+    "drawn": 1172,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-16 23:57:06",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -82662.1,
+    -29706.9,
+    2154.7
+   ],
+   "pixel": [
+    1220,
+    868
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1365,
+     "z": 2175.5,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 2960,
+     "z": 7622.9,
+     "reachable": false,
+     "cut": false
+    }
+   ],
+   "polys": 296,
+   "area_m2": 523,
+   "z": [
+    2101.3,
+    2741.3
+   ],
+   "bbox": [
+    -83960,
+    -30270,
+    -79690,
+    -27070
+   ],
+   "stages": {
+    "drawn": 296
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-3_DL0_WP",
+     238
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     35
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-8_Y-3_DL0_WP",
+     23
+    ]
+   ],
+   "tiles": 13,
+   "comp": {
+    "id": 88,
+    "polys": 296,
+    "area_m2": 523,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 202056,
+    "tile": [
+     64,
+     23,
+     0
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-9_Y-3_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 15.35,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 12744,
+    "px_on_map": 12744,
+    "drawn": 12663,
+    "reachable_pct": 99.4
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-17 00:06:36",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -77986.1,
+    -29969.2,
+    2660.5
+   ],
+   "pixel": [
+    1207,
+    630
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 1299,
+     "z": 1950.1,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 1,
+     "code": 1503,
+     "z": 2646.8,
+     "reachable": true,
+     "cut": false
+    },
+    {
+     "plane": 2,
+     "code": 2447,
+     "z": 5870.9,
+     "reachable": false,
+     "cut": false
+    }
+   ],
+   "polys": 166,
+   "area_m2": 186.7,
+   "z": [
+    2406.3,
+    3086.3
+   ],
+   "bbox": [
+    -79560,
+    -31360,
+    -77540,
+    -29100
+   ],
+   "stages": {
+    "drawn": 166
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-8_Y-3_DL0_WP",
+     98
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-8_Y-4_DL0_WP",
+     68
+    ]
+   ],
+   "tiles": 9,
+   "comp": {
+    "id": 241,
+    "polys": 166,
+    "area_m2": 186.7,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 152980,
+    "tile": [
+     60,
+     23,
+     3
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-8_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 5.88,
+    "zspread": 40,
+    "flags": 1
+   },
+   "raster": {
+    "px": 4490,
+    "px_on_map": 4490,
+    "drawn": 4490,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-17 00:06:41",
+   "from": "hand"
+  },
+  {
+   "verdict": "oob",
+   "note": "",
+   "world": [
+    -78628.3,
+    -30881.4,
+    4452.5
+   ],
+   "pixel": [
+    1161,
+    663
+   ],
+   "mode": "comp",
+   "surfaces": [
+    {
+     "plane": 0,
+     "code": 2032,
+     "z": 4453.5,
+     "reachable": true,
+     "cut": false
+    }
+   ],
+   "polys": 134,
+   "area_m2": 382.5,
+   "z": [
+    4372.5,
+    4646.3
+   ],
+   "bbox": [
+    -81190,
+    -31580,
+    -77790,
+    -29380
+   ],
+   "stages": {
+    "drawn": 134
+   },
+   "levels": [
+    [
+     "tiles_ch5_B5EX0_L0_X-8_Y-4_DL0_WP",
+     73
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-4_DL0_WP",
+     48
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-8_Y-3_DL0_WP",
+     12
+    ],
+    [
+     "tiles_ch5_B5EX0_L0_X-9_Y-3_DL0_WP",
+     1
+    ]
+   ],
+   "tiles": 15,
+   "comp": {
+    "id": 116,
+    "polys": 134,
+    "area_m2": 382.5,
+    "kept": true,
+    "seeded": false
+   },
+   "cluster": {
+    "id": 0,
+    "members": 8726,
+    "area_m2": 434806.1,
+    "keep": true,
+    "why": "largest",
+    "has_largest": true
+   },
+   "poly": {
+    "idx": 154918,
+    "tile": [
+     61,
+     24,
+     2
+    ],
+    "level": "tiles_ch5_B5EX0_L0_X-8_Y-4_DL0_WP",
+    "stage": "drawn",
+    "area_m2": 13.69,
+    "zspread": 0,
+    "flags": 1
+   },
+   "raster": {
+    "px": 10454,
+    "px_on_map": 10454,
+    "drawn": 10454,
+    "reachable_pct": 100
+   },
+   "chapter": "chapter5",
+   "batch": 1,
+   "ts": "2026-09-17 00:06:47",
    "from": "hand"
   }
  ]

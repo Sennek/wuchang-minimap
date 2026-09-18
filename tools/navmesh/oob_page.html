@@ -424,6 +424,12 @@ function report(r){
     h+=tr('escape home', q.escape==null?'<b class=oobtag>no way home at all</b>'
                                        :`${q.escape} uu of climb`);
     if(q.wall!=null) h+=tr('nearest wall',`${q.wall} uu`);
+    // What the pocket rule's doorstep clause reads: with no door left standing, the flood has
+    // nothing to arrive from and this piece would sit in the planes unlit.
+    h+=tr('ground it steps out to', q.doors
+      ? `${q.doors} piece(s), ${q.doors_left} left after the cut`
+        +(q.home_via==null?'':` &middot; home over #${q.home_via}`)
+      : '<b class=oobtag>nothing at all</b>');
     h+=tr('the cut rules', q.cut_by?`<b class=oobtag>take it</b> &mdash; ${q.cut_by}`
                                    :'<span class=oktag>leave it</span>');
   }

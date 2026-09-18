@@ -74,11 +74,16 @@ the tile grid; a group is dropped only when it looks out of bounds (see
     under its tile footprint or the ring around it - the Z = 36 351 and Z = 38 871
     sheets every chapter ships are 24 000-36 000 uu away from any real geometry, or
   * `--flat-plane-sheet-min` (48) quads or more, of which `--flat-plane-unanchored`
-    (40 %) or more stand over tiles holding no navmesh at all - a surface that large
-    hanging over that much nothing is the kill plane, not a floor.
+    (40 %) or more stand over tiles holding no navmesh at all, AND another surface
+    stands within 400 uu over `--flat-plane-shadow` (50 %) of its footprint - a
+    surface that large, hanging over that much nothing, that the level already has
+    ground for two metres away is the kill plane, not a floor.
 
-Measured, chapters 1-5: every group anybody would call ground is 0-33 % unanchored,
-every kill plane 53-66 %, and the four kill planes are 49..375 quads.
+Measured, chapters 1-5: every group anybody would call ground is 0-33 % unanchored and
+under 10 % shadowed, every kill plane 53-66 % and 57-99 %, and the three kill planes are
+56..375 quads. Unanchored alone is not enough - a floor flat enough to cook into nothing
+but big flat quads has no ordinary navmesh under its middle either, which is how chapter
+5's Gate of Truth arena (49 quads, 59 % unanchored, 0.5 % shadowed) was lost.
 `--flat-planes drop|keep|only` still switches the filter off entirely, and
 `--flat-plane-area` sets what counts as a candidate.
 `--exclude-area N` is available for the few polygons that do carry area 1/2/3.
@@ -135,7 +140,7 @@ import statistics
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, NamedTuple
 
 try:
     from PIL import Image, ImageDraw
@@ -158,19 +163,27 @@ DEFAULT_FLAT_PLANE_AREA = 1.0e6  # uu2; a flat poly bigger than this is a "plane
 # Tang-palace shrine terrace); judging a whole Z cluster at once welds a kill plane to the
 # handful of floors that happen to share its height, which is how chapter 5's river bed and
 # chapter 4's two terraces were lost.
-# A group is out of bounds when it is isolated in Z, or when it is both large and mostly
-# UNANCHORED - its members hang over tiles that hold no ordinary navmesh at any height.
-# Both figures are measured over the groups of chapters 1-5. Size: real floors and water
-# bodies reach 25 quads, the kill planes 49..375. Unanchored share: every group anybody
-# would call ground sits at 0..33 % (chapter 5's 50-quad river bed is 0 %, its 40 % of
-# footprint already drawn), every kill plane at 53..66 % (chapter 4's pair 54 % and 55 %,
-# chapter 5's basin 59 %) - and a plane's own rim is anchored, because a flat sheet spanning
-# 20 tiles has to cross the terrain somewhere, which is why the share and not a distance
-# decides it.
+# A group is out of bounds when it is isolated in Z, or when it is large, mostly UNANCHORED
+# (its members hang over tiles that hold no ordinary navmesh at any height) and mostly
+# SHADOWED - another surface stands a couple of metres from it over its own footprint, so it
+# is a second copy of ground the level already has. All three figures are measured over the
+# groups of chapters 1-5. Size: real floors and water bodies reach 50 quads, the kill planes
+# 56..375. Unanchored share: ground sits at 0..33 %, every kill plane at 53..66 % - and a
+# plane's own rim is anchored, because a flat sheet spanning 20 tiles has to cross the
+# terrain somewhere, which is why the share and not a distance decides it. Shadowed share:
+# every group anybody would call ground is under 10 % (chapter 5's 50-quad river bed 1.8 %,
+# its Gate of Truth arena 0.5 %, and the storey 40 m over the river bed is far too high to
+# count), every kill plane 57..99 %. Unanchored alone cost the arena: a floor that is truly
+# flat is cooked entirely into big flat quads, so no tile under its middle holds ordinary
+# navmesh and it scores as high as a plane hanging over a void.
 DEFAULT_PLANE_SHEET_MIN = 48  # big flat quads that make a group large enough to judge
 DEFAULT_PLANE_UNANCHORED = 0.40  # share of a large group's quads over tiles with no navmesh
+DEFAULT_PLANE_SHADOW = 0.50  # share of a large group's footprint another surface stands over
 DEFAULT_PLANE_ISOLATION = 5000.0  # uu; nearest ordinary navmesh further than this -> drop
 DEFAULT_PLANE_Z_TOL = 20.0  # uu; planes within this Z of each other are one sheet
+PLANE_SHADOW_DZ = 400.0  # uu; a surface this close in Z is the same ground twice, not a storey
+PLANE_SHADOW_NEAR = 50.0  # uu; closer than this is the group's own surface, not a shadow
+PLANE_SHADOW_STEP = 128.0  # uu; the grid a group's footprint is measured on
 # island filter (see §"unreachable islands")
 DEFAULT_ISLAND_GRID = 64.0  # uu; XY grid the connectivity union-find runs on
 DEFAULT_ISLAND_Z_TOL = 150.0  # uu; two polys in one grid cell join if their Z ranges are this close
@@ -182,6 +195,11 @@ DEFAULT_STAND_Z = 200.0        # uu; a marker this close above a polygon it cove
 # 104, without touching one piece of ground anybody called legitimate.
 DEFAULT_ESCAPE_CLIMB = 100.0
 DEFAULT_ESCAPE_FALL = 800.0    # uu; a step down deeper than this is not a way home either
+# A ladder is a way home the navmesh does not model. Its marker stands at the foot, so the ground it
+# serves is above it: `reach` is the footprint it shares with that ground, `rise` how far one climbs.
+LADDER_CATEGORIES = ("ladder", "lift")
+DEFAULT_LADDER_REACH = 150.0   # uu (1.5 m)
+DEFAULT_LADDER_RISE = 1200.0   # uu (12 m)
 DEFAULT_ISLAND_SEED_RADIUS = 300.0  # uu (3 m); a marker this close to a component keeps it
 DEFAULT_ISLAND_SEED_Z = 600.0  # uu; ... and within this much Z of it
 # Bridging: two components whose polygons come this close are one PLACE even though the
@@ -442,6 +460,7 @@ def classify_flat_planes(
     isolation: float = DEFAULT_PLANE_ISOLATION,
     z_tol: float = DEFAULT_PLANE_Z_TOL,
     unanchored: float = DEFAULT_PLANE_UNANCHORED,
+    shadow: float = DEFAULT_PLANE_SHADOW,
 ) -> dict:
     """Mark poly['plane'] for the near-horizontal quads that are OUT OF BOUNDS.
 
@@ -456,12 +475,15 @@ def classify_flat_planes(
         its tile footprint or the ring of tiles around it (the sky sheets every chapter
         ships sit 24 650+ uu from anything), or
       * `>= sheet_min` quads AND at least `unanchored` of them stand over tiles that
-        hold no ordinary navmesh at all.
+        hold no ordinary navmesh at all AND at least `shadow` of its footprint has
+        another surface within `PLANE_SHADOW_DZ` uu of it (`_shadow_shares`).
 
-    Everything else is a real floor and is kept. Neither clause works on its own: the
+    Everything else is a real floor and is kept. No clause works on its own: the
     drained-lake boss arena (4 quads under the Honglan boss) is small and fully anchored,
-    chapter 5's river bed is 50 quads and fully anchored, and a kill plane's rim is
-    anchored wherever the terrain rises through it.
+    chapter 5's river bed is 50 quads and fully anchored, a kill plane's rim is anchored
+    wherever the terrain rises through it, and chapter 5's Gate of Truth arena is 49
+    unanchored quads that nothing else stands over - the floor is simply flat enough to
+    cook into nothing but big flat quads.
     """
     by_z: dict[float, int] = {}
     cand: list[dict] = []
@@ -483,31 +505,35 @@ def classify_flat_planes(
         for key in _tile_keys(p):
             ordinary.setdefault(key, []).append(p["cz"])
 
+    groups = [members for cluster in _cluster_by(cand, lambda p: p["cz"], z_tol)
+              for members in _tile_groups(cluster)]
+    shades = _shadow_shares(polys, groups)
+
     sheets: list[dict] = []
-    for cluster in _cluster_by(cand, lambda p: p["cz"], z_tol):
-        for members in _tile_groups(cluster):
-            zmid = sum(p["cz"] for p in members) / len(members)
-            keys = {k for p in members for k in _tile_keys(p)}
-            near = min(
-                (abs(cz - zmid) for k in _ring(keys) for cz in ordinary.get(k, ())),
-                default=float("inf"),
-            )
-            bare = sum(1 for p in members if not any(k in ordinary for k in _tile_keys(p)))
-            share = bare / len(members)
-            big = len(members) >= sheet_min and share >= unanchored
-            drop = big or near > isolation
-            for p in members:
-                p["plane"] = drop
-            sheets.append(
-                {
-                    "z": round(zmid, 1),
-                    "polys": len(members),
-                    "nearest_ordinary_dz": None if near == float("inf") else round(near, 1),
-                    "unanchored": round(share, 3),
-                    "dropped": drop,
-                    "reason": ("sheet" if big else "isolated") if drop else "",
-                }
-            )
+    for members, shade in zip(groups, shades):
+        zmid = sum(p["cz"] for p in members) / len(members)
+        keys = {k for p in members for k in _tile_keys(p)}
+        near = min(
+            (abs(cz - zmid) for k in _ring(keys) for cz in ordinary.get(k, ())),
+            default=float("inf"),
+        )
+        bare = sum(1 for p in members if not any(k in ordinary for k in _tile_keys(p)))
+        share = bare / len(members)
+        big = len(members) >= sheet_min and share >= unanchored and shade >= shadow
+        drop = big or near > isolation
+        for p in members:
+            p["plane"] = drop
+        sheets.append(
+            {
+                "z": round(zmid, 1),
+                "polys": len(members),
+                "nearest_ordinary_dz": None if near == float("inf") else round(near, 1),
+                "unanchored": round(share, 3),
+                "shadowed": round(shade, 3),
+                "dropped": drop,
+                "reason": ("sheet" if big else "isolated") if drop else "",
+            }
+        )
 
     sheets.sort(key=lambda s: -s["polys"])
     top = sorted(by_z.items(), key=lambda kv: -kv[1])[:8]
@@ -516,6 +542,7 @@ def classify_flat_planes(
         "candidates": len(cand),
         "min_area_uu2": min_area,
         "sheet_min": sheet_min,
+        "shadow": shadow,
         "isolation_uu": isolation,
         "sheets": sheets,
         "dropped_sheets": [s for s in sheets if s["dropped"]],
@@ -566,6 +593,59 @@ def _tile_groups(members: list[dict]) -> list[list[dict]]:
                     stack.append(nb)
         groups.append(group)
     return groups
+
+
+def _plane_cells(p: dict) -> list[tuple[int, int]]:
+    """The `PLANE_SHADOW_STEP` cells the polygon covers - centre inside, as a pixel is."""
+    xs = [q[0] for q in p["pts"]]
+    ys = [q[1] for q in p["pts"]]
+    step = PLANE_SHADOW_STEP
+    return [
+        (gx, gy)
+        for gx in range(int(math.floor(min(xs) / step)), int(math.floor(max(xs) / step)) + 1)
+        for gy in range(int(math.floor(min(ys) / step)), int(math.floor(max(ys) / step)) + 1)
+        if _point_in_poly(p["pts"], (gx + 0.5) * step, (gy + 0.5) * step)
+    ]
+
+
+def _shadow_shares(polys: list[dict], groups: list[list[dict]]) -> list[float]:
+    """For each flat group, the share of its footprint another surface stands close over.
+
+    "Close" is `PLANE_SHADOW_NEAR`..`PLANE_SHADOW_DZ` uu away in Z: the level's own floor
+    two metres under a water surface, or two metres over a kill plane, and not the storey
+    forty metres above chapter 5's river bed. A group never shadows itself, and its own
+    rim - anything within `PLANE_SHADOW_NEAR` - is the same surface, not a second one.
+
+    Only the polygons that reach a candidate tile are rasterised, which is a few thousand
+    of the ~227 000 a chapter has.
+    """
+    owner: dict[int, int] = {}
+    cells: dict[int, list[tuple[int, int]]] = {}
+    for gi, members in enumerate(groups):
+        for p in members:
+            owner[id(p)] = gi
+            cells[id(p)] = _plane_cells(p)
+    tiles = {k for members in groups for p in members for k in _tile_keys(p)}
+
+    over: dict[tuple[int, int], list[tuple[float, int]]] = {}
+    for p in polys:
+        if not any(k in tiles for k in _tile_keys(p)):
+            continue
+        gi = owner.get(id(p), -1)
+        for cell in cells.get(id(p)) or _plane_cells(p):
+            over.setdefault(cell, []).append((p["cz"], gi))
+
+    out: list[float] = []
+    for gi, members in enumerate(groups):
+        seen = shadowed = 0
+        for p in members:
+            for cell in cells[id(p)]:
+                seen += 1
+                if any(g != gi and PLANE_SHADOW_NEAR < abs(cz - p["cz"]) <= PLANE_SHADOW_DZ
+                       for cz, g in over.get(cell, ())):
+                    shadowed += 1
+        out.append(shadowed / max(1, seen))
+    return out
 
 
 def _cluster_by(items, key, tol: float) -> list[list]:
@@ -933,6 +1013,50 @@ def standing_components(polys: list[dict], seeds: Iterable[dict],
     return out
 
 
+def ladder_links(polys: list[dict], keep_ids: set[int], seeds: Iterable[dict],
+                 reach: float = DEFAULT_LADDER_REACH,
+                 rise: float = DEFAULT_LADDER_RISE) -> set[tuple[int, int]]:
+    """The components a ladder joins - its foot, and the ground it carries to.
+
+    `escape_routes` walks polygon adjacency and nothing else, so the game's own way up is invisible
+    to it and the one-way rule takes ground the player climbs to. This navmesh carries no off-mesh
+    links at all (`offMeshConCount` is 0 in every tile of every agent), so the only statement that a
+    ladder exists is the marker file.
+
+    A ladder marker sits at the FOOT: the ground it serves is above it. So the link is the component
+    at the marker's own height joined to every kept component within `reach` of it and up to `rise`
+    higher. Chaining the components near a marker by height, or joining every pair of them, welds a
+    whole shaft together - a ladder passes storeys it does not serve - and each costs a verdict.
+
+    Returned both ways: a ladder is climbed in both directions, and it is also a DOOR, which is what
+    keeps the pocket rule off the ground below it.
+    """
+    at: dict[tuple[int, int], list[dict]] = {}
+    for p in polys:
+        if p["comp"] in keep_ids:
+            at.setdefault((int(p["cx"] // reach), int(p["cy"] // reach)), []).append(p)
+    out: set[tuple[int, int]] = set()
+    for s in seeds:
+        if s.get("cat") not in LADDER_CATEGORIES:
+            continue
+        gx, gy = int(s["x"] // reach), int(s["y"] // reach)
+        near: dict[int, list[float]] = {}
+        for cx in (gx - 1, gx, gx + 1):
+            for cy in (gy - 1, gy, gy + 1):
+                for p in at.get((cx, cy), ()):
+                    if (p["cx"] - s["x"]) ** 2 + (p["cy"] - s["y"]) ** 2 <= reach * reach:
+                        near.setdefault(p["comp"], []).append(p["cz"] - s["z"])
+        if len(near) < 2:
+            continue
+        level = {cid: statistics.median(v) for cid, v in near.items()}
+        foot = min(level, key=lambda cid: abs(level[cid]))
+        for cid, dz in level.items():
+            if cid != foot and 0.0 < dz - level[foot] <= rise:
+                out.add((foot, cid))
+                out.add((cid, foot))
+    return out
+
+
 def components_at(polys: list[dict], points: Iterable[dict], cell: float = 256.0,
                   tol_z: float = 200.0) -> set[int]:
     """The components standing under a set of world points - a verdict's anti-seeds.
@@ -1162,7 +1286,8 @@ def decide_islands(
         home = standing_components(polys, seeds)
         why_oob = out_of_bounds(
             comps, keep_ids,
-            escape_costs(polys, keep_ids, home, grid=grid, max_fall=escape_fall),
+            escape_routes(polys, keep_ids, home, grid=grid, max_fall=escape_fall,
+                          links=ladder_links(polys, keep_ids, seeds)),
             wall_medians(polys, keep_ids, wall_dist),
             escape_climb=escape_climb, wall_far=wall_far, small_area=small_unseeded)
     for cid in components_at(polys, anti):
@@ -1254,24 +1379,27 @@ def wall_medians(polys: list[dict], keep_ids: set[int],
     return {cid: statistics.median(v) for cid, v in per.items() if v}
 
 
-def out_of_bounds(comps: list[dict], keep_ids: set[int], escape: dict[int, float],
+def out_of_bounds(comps: list[dict], keep_ids: set[int], routes: "Routes",
                   walld: dict[int, float], *,
                   escape_climb: float = DEFAULT_ESCAPE_CLIMB,
                   wall_far: float = DEFAULT_WALL_FAR,
                   small_area: float = DEFAULT_SMALL_UNSEEDED) -> dict[int, str]:
     """Which kept components are out of bounds, and which rule says so.
 
-    The three axes read the two measurements above and nothing else, so a caller holding them can
+    The three axes read the measurements above and nothing else, so a caller holding them can
     re-decide the whole cut at a new threshold without touching the geometry - which is what the
     picker does while the thresholds are being chosen. Each threshold is off at 0.
 
-    - `escape_climb`: the piece cannot be left without climbing this far (`escape_costs`). Seeded
+    - `escape_climb`: the piece cannot be left without climbing this far (`escape_routes`). Seeded
       ground needs no exemption here: something standing on a component makes it its own
       destination, at cost zero.
     - `wall_far`: the piece sits further than this from every fence the game builds. Measured over
       the 172 verdicts, a marked point sits at a median 1 998 uu from the nearest wall in chapter 1
       against 341 uu for drawn ground, 1 016 against 326 in chapter 3.
-    - `small_area`: an unseeded piece smaller than this is a pocket, not a place.
+    - `small_area`: an unseeded piece smaller than this is a pocket, not a place - unless it is a
+      DOORSTEP (`stranded_doorsteps`). Chapter 1's opening walk crosses a 266 m² slab whose every
+      neighbour is a pocket; with them cut, not one of the slab's 9 842 pixels had a reached
+      8-neighbour left, so the flood hid all of it though every rule had kept it.
 
     The last two never take seeded ground: the game put a marker there, so the player reaches it
     whatever the fences and the size say.
@@ -1281,7 +1409,7 @@ def out_of_bounds(comps: list[dict], keep_ids: set[int], escape: dict[int, float
         cid = c["id"]
         if cid not in keep_ids:
             continue
-        if escape_climb > 0 and escape.get(cid, float("inf")) > escape_climb:
+        if escape_climb > 0 and routes.cost.get(cid, float("inf")) > escape_climb:
             why[cid] = "one-way"
         elif c["seeded"]:
             continue
@@ -1289,7 +1417,47 @@ def out_of_bounds(comps: list[dict], keep_ids: set[int], escape: dict[int, float
             why[cid] = "walls"
         elif small_area > 0 and c["area"] <= small_area:
             why[cid] = "small"
+    for cid in stranded_doorsteps(keep_ids, why, routes):
+        if why.get(cid) == "small":
+            del why[cid]
     return why
+
+
+def stranded_doorsteps(keep_ids: set[int], cut: dict[int, str], routes: "Routes") -> set[int]:
+    """The route home of every component the cut leaves standing with no way in.
+
+    The cut and the reachability flood are two filters that do not talk: the cut works on the
+    component graph, the flood on the raster it is baked into. When the cut takes every neighbour a
+    surviving component has, the flood has nothing left to arrive from, and the component sits in
+    the height planes with no reachable bit - kept by every rule and drawn nowhere. Its route home,
+    hop by hop, is what has to stay for it to be lit.
+
+    "Every neighbour" is read off `adj`: the ground it can step out to. A component with one of
+    those still standing keeps a door and needs no pardon, which is what holds this apart from
+    "spare every pocket a route passes through" - measured over the five chapters, that wide reading
+    pardons 42-83 pockets a chapter and seven of them are ground the user has marked out of bounds.
+
+    What comes back is every pocket it touches, not the hop on its cheapest route home: the flood
+    needs a neighbour it can actually arrive over, and which of them that is, is a question about
+    pixels that this pass cannot see. A pardoned pocket can be the only way into the next piece
+    along, so the walk repeats until nothing more is stranded.
+
+    A component with no neighbour at all is beyond help here - nothing can be given back to it -
+    and a pocket is only ever pardoned against the `small` verdict.
+    """
+    live = set(keep_ids) - set(cut)
+    pardoned: set[int] = set()
+    queue = sorted(live)
+    while queue:
+        doors = routes.adj.get(queue.pop(), ())
+        if not doors or any(nb in live for nb in doors):
+            continue
+        for nb in sorted(doors):
+            if cut.get(nb) == "small" and nb not in pardoned:
+                pardoned.add(nb)
+                live.add(nb)
+                queue.append(nb)
+    return pardoned
 
 
 def flat_shelves(polys: list[dict], comps: list[dict], keep_ids: set[int],
@@ -1348,10 +1516,19 @@ def flat_shelves(polys: list[dict], comps: list[dict], keep_ids: set[int],
     return sorted(groups.values(), key=lambda g: -sum(comps[i]["area"] for i in g))
 
 
-def escape_costs(polys: list[dict], keep_ids: set[int], sources: set[int],
-                 grid: float = DEFAULT_ISLAND_GRID,
-                 max_fall: float = DEFAULT_ESCAPE_FALL) -> dict[int, float]:
-    """What it costs each kept component to get HOME: the worst climb on the cheapest route.
+class Routes(NamedTuple):
+    """`escape_routes`' answer: what the cut reads about how kept ground joins up."""
+
+    cost: dict[int, float]                  # the worst climb on the cheapest route home
+    via: dict[int, int]                     # the hop that route goes through
+    adj: dict[int, dict[int, float]]        # the cheapest way out of A over B, per pair
+
+
+def escape_routes(polys: list[dict], keep_ids: set[int], sources: set[int],
+                  grid: float = DEFAULT_ISLAND_GRID,
+                  max_fall: float = DEFAULT_ESCAPE_FALL,
+                  links: Iterable[tuple[int, int]] = ()) -> Routes:
+    """What it costs each kept component to get HOME, the hop it goes through, and who it touches.
 
     Ground the player uses can be left on foot; the level's outer skin is something the navmesh lets
     you drop onto and never leave. So the question is not what a piece looks like but what it costs
@@ -1371,6 +1548,13 @@ def escape_costs(polys: list[dict], keep_ids: set[int], sources: set[int],
     on: a component with something standing on it is its own destination at cost zero, so the marker
     veto needs no clause; and a boss arena entered by dropping in is kept, because the shrine on it
     is on it.
+
+    `links` is the traversal the geometry cannot show, from `ladder_links`: a pair joined at cost
+    zero, in both directions, because the game built a way up there.
+
+    The rest of the answer is the shape of the graph: the next hop toward home per component, and
+    the adjacency itself. That is what says whether a piece is a scrap or somebody's DOORSTEP, and
+    `out_of_bounds` needs both to keep the pocket rule off the last way into kept ground.
 
     The grid pitch is load-bearing and must stay the one `connected_components` uses: at 128 uu a
     cell merges a slab's Z with its neighbour's and the step between them disappears.
@@ -1410,6 +1594,12 @@ def escape_costs(polys: list[dict], keep_ids: set[int], sources: set[int],
                     if a != b:
                         meet(a, az, b, bz)
 
+    # `links` is traversal the geometry cannot show - a ladder. It joins its two ends at no cost,
+    # and it joins them in `out`, so the pair is a door to `stranded_doorsteps` as well as a route.
+    for a, b in links:
+        if a in keep_ids and b in keep_ids:
+            out.setdefault(a, {})[b] = 0.0
+
     # bottleneck distance home, outwards from every component a marker stands on
     seeded = [cid for cid in sources if cid in keep_ids]
     into: dict[int, list[tuple[int, float]]] = {}
@@ -1417,6 +1607,7 @@ def escape_costs(polys: list[dict], keep_ids: set[int], sources: set[int],
         for b, cost in row.items():
             into.setdefault(b, []).append((a, cost))
     best: dict[int, float] = {cid: 0.0 for cid in seeded}
+    via: dict[int, int] = {}
     heap = [(0.0, cid) for cid in seeded]
     heapq.heapify(heap)
     while heap:
@@ -1427,9 +1618,10 @@ def escape_costs(polys: list[dict], keep_ids: set[int], sources: set[int],
             worst = cost if cost > edge else edge
             if worst < best.get(a, float("inf")):
                 best[a] = worst
+                via[a] = b
                 heapq.heappush(heap, (worst, a))
 
-    return best
+    return Routes(best, via, out)
 
 
 def filter_islands(
@@ -1547,6 +1739,9 @@ def add_plane_args(ap: argparse.ArgumentParser) -> None:
                     help=f"coplanar touching flat quads that make a group large enough to drop (default {DEFAULT_PLANE_SHEET_MIN})")
     ap.add_argument("--flat-plane-unanchored", type=float, default=DEFAULT_PLANE_UNANCHORED,
                     help=f"share of a large group's quads over tiles with no navmesh that drops it (default {DEFAULT_PLANE_UNANCHORED:g})")
+    ap.add_argument("--flat-plane-shadow", type=float, default=DEFAULT_PLANE_SHADOW,
+                    help=f"share of a large group's footprint that another surface within "
+                         f"{PLANE_SHADOW_DZ:g} uu must stand over to drop it (default {DEFAULT_PLANE_SHADOW:g})")
     ap.add_argument("--flat-plane-isolation", type=float, default=DEFAULT_PLANE_ISOLATION,
                     help=f"drop a flat group with no ordinary navmesh within this Z, uu (default {DEFAULT_PLANE_ISOLATION:g})")
 
@@ -1953,6 +2148,7 @@ def render_agent(agent: str, files: list[Path], args: argparse.Namespace, out_di
         sheet_min=getattr(args, "flat_plane_sheet_min", DEFAULT_PLANE_SHEET_MIN),
         isolation=getattr(args, "flat_plane_isolation", DEFAULT_PLANE_ISOLATION),
         unanchored=getattr(args, "flat_plane_unanchored", DEFAULT_PLANE_UNANCHORED),
+        shadow=getattr(args, "flat_plane_shadow", DEFAULT_PLANE_SHADOW),
     )
     if planes["candidates"]:
         dropped = ", ".join(f"Z={s['z']:.1f} x{s['polys']} ({s['reason']})" for s in planes["dropped_sheets"][:4])

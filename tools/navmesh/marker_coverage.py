@@ -75,7 +75,9 @@ def main(argv=None) -> int:
     raw = len(polys)
     if not a.no_filter:
         render.classify_flat_planes(polys, render.DEFAULT_FLAT_PLANE_AREA,
-                                    sheet_min=a.flat_plane_sheet_min, isolation=a.flat_plane_isolation)
+                                    sheet_min=a.flat_plane_sheet_min, isolation=a.flat_plane_isolation,
+                                    unanchored=a.flat_plane_unanchored,
+                                    shadow=a.flat_plane_shadow)
         polys = [p for p in polys if not p["plane"]]
     if not a.markers:
         sys.exit("--markers is required (markers/chapterN.json; globs ok)")

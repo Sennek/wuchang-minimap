@@ -146,10 +146,16 @@ def rules_on(ch: Chapter, cid: int) -> dict:
     The numbers, not the verdict, are the reason this is on the report: a piece the user calls out
     of bounds that the rules leave standing says exactly where its threshold would have to go.
     """
-    esc = ch.escape(ch.rules.fall).get(cid, float("inf"))
+    routes = ch.escape(ch.rules.fall)
+    esc = routes.cost.get(cid, float("inf"))
     wall = ch.walld().get(cid)
+    cut = ch.catch(ch.rules)
+    doors = list(routes.adj.get(cid, ()))
     return {"escape": None if esc == float("inf") else round(esc),
             "wall": None if wall is None else round(wall),
+            "home_via": routes.via.get(cid),
+            "doors": len(doors),
+            "doors_left": sum(1 for d in doors if d not in cut),
             "cut_by": ch.rule_of(cid)}
 
 

@@ -202,7 +202,14 @@ REACH_SEED_Z_TOL_UU = 400.0
 # Unreached blobs at least this big are listed in the manifest, so "why is there a hole
 # here" starts from a table instead of from a screenshot.
 REACH_BIG_UNREACHED_M2 = 400.0
-REACH_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
+# How far a step reaches, in pixels.
+REACH_REACH_PX = 1
+REACH_OFFSETS = tuple((dv, du)
+                     for dv in range(-REACH_REACH_PX, REACH_REACH_PX + 1)
+                     for du in range(-REACH_REACH_PX, REACH_REACH_PX + 1)
+                     if (dv, du) != (0, 0))
+# Where a marker looks for the ground it stands on, nearest pixel first.
+SEED_OFFSETS = ((0, 0),) + tuple(sorted(REACH_OFFSETS, key=lambda o: (max(map(abs, o)), o)))
 
 # The tile size src/mapdata.cpp's sparse height store uses. Only reported here (the
 # PNGs stay whole images); it is what turns "26 % of the pixels are lit" into a
@@ -514,6 +521,44 @@ def wall_distance(polys: list[dict], blocks_json: str, chapter: str, far: float)
     return d
 
 
+def cut_inside_walls(polys: list[dict], blocks_json: str, chapter: str) -> list[dict]:
+    """The polygons left once the ground inside an invisible wall is taken.
+
+    A blocker is solid geometry, so navmesh whose centre is inside one is surface Recast laid
+    against something the player collides with. This runs where the region verdicts run and for the
+    same reason: before the components are found, so that what is left of a fenced piece has to earn
+    its keep like any other island rather than riding on the part that is now gone.
+
+    Only a blocker whose own shape is KNOWN asks it - `Walls.shaped`. The cube walls are thin fences
+    stood along the ground, so what they contain is the sliver of navmesh that grazes them, and
+    cutting those punches a hole per fence post: on chapter 1 the cubes take 2 744 m² spread over
+    961 cells of 640 uu, against 1 590 m² over 128 cells for the shaped ones - speckle across the
+    whole chapter against the hillsides somebody fenced. And a mesh whose bounds could not be read
+    is worse than either: `Plane` is flat, the cube fallback gives it a 972 uu volume where it is
+    scaled for a tall fence, and three of them took 482 m² of ordinary ground in one piece.
+    """
+    if not blocks_json:
+        return polys
+    try:
+        walls = blocks.load(blocks_json, chapter)
+    except (OSError, ValueError) as exc:
+        print(f"[{chapter}] no invisible walls: {exc}", file=sys.stderr)
+        return polys
+    if walls is None or not len(walls):
+        return polys
+    shaped = walls.shaped & ~walls.plate
+    if not shaped.any():
+        return polys
+    pts = np.array([[p["cx"], p["cy"], p["cz"]] for p in polys], dtype=np.float64)
+    hit = blocks.inside_walls(walls, pts, where=shaped)
+    if not hit.any():
+        return polys
+    gone = sum(p["xyarea"] for p, h in zip(polys, hit) if h) / 1e4
+    print(f"[{chapter}] inside one of {int(shaped.sum())} shaped invisible walls: {int(hit.sum())} "
+          f"of {len(polys)} polygons ({gone:.1f} m2) cut before the filter sees them")
+    return [p for p, h in zip(polys, hit) if not h]
+
+
 def flood_reachable(
     zbuf: "np.ndarray",
     bounds: render.Bounds,
@@ -527,9 +572,11 @@ def flood_reachable(
 
     `reach` is a boolean array shaped like `zbuf`; it is true only where `zbuf` holds a
     surface. The graph is the pixel stack itself: node = one surface cell `(k, v, u)`,
-    directed edge to every surface at an 8-neighbour pixel whose Z is at most
+    directed edge to every surface within `REACH_REACH_PX` pixels whose Z is at most
     `step_up` above it - so a walk and a fall are edges and a climb is not. Every marker
-    with a surface within `seed_z_tol` of its own Z is a seed, and the flood is one BFS
+    with a surface within `seed_z_tol` of its own Z is a seed - looked for at the marker's
+    own pixel first and then the eight around it, because a marker standing at the edge of
+    its ground lands outside the footprint as often as inside - and the flood is one BFS
     from a virtual super-source over all of them.
 
     The stats dict is what lands in `maps.json` under `reachability`.
@@ -586,14 +633,28 @@ def flood_reachable(
         v = int(round(fv))
         if not (0 <= u < w and 0 <= v < h):
             continue
-        col = zbuf[:, v, u]
-        if not np.isfinite(col).any():
-            continue
-        k = int(np.nanargmin(np.abs(col - sd["z"])))
-        if abs(col[k] - sd["z"]) > seed_z_tol:
+        # The marker's own pixel first, then the ring around it: the rasteriser samples pixel
+        # centres and shrinks each polygon by half a pixel, so a marker standing near the edge of
+        # the ground it stands on can land a pixel outside its footprint and seed nothing. That is
+        # not a rare accident - chapter 1's opening slab is lit by one marker on one edge pixel,
+        # and a regeneration that moved the grid by a pixel put the whole slab out.
+        pick = None
+        for dv, du in SEED_OFFSETS:
+            vv, uu = v + dv, u + du
+            if not (0 <= uu < w and 0 <= vv < h):
+                continue
+            col = zbuf[:, vv, uu]
+            if not np.isfinite(col).any():
+                continue
+            k = int(np.nanargmin(np.abs(col - sd["z"])))
+            if abs(col[k] - sd["z"]) > seed_z_tol:
+                continue
+            pick = int(cid[k, vv, uu])
+            break
+        if pick is None:
             continue
         covered += 1
-        seed_cells.append(int(cid[k, v, u]))
+        seed_cells.append(pick)
     if not seed_cells:
         raise SystemExit("no marker seeded a surface - the flood would delete the whole map")
 
@@ -1019,6 +1080,7 @@ def build_chapter(args: argparse.Namespace) -> dict:
     planes = render.classify_flat_planes(
         polys, render.DEFAULT_FLAT_PLANE_AREA,
         sheet_min=args.flat_plane_sheet_min, isolation=args.flat_plane_isolation,
+        unanchored=args.flat_plane_unanchored, shadow=args.flat_plane_shadow,
     )
     polys = [p for p in polys if not p["plane"]]
     dropped_sheets = ", ".join(f"Z={s['z']:.1f} x{s['polys']} ({s['reason']})" for s in planes["dropped_sheets"])
@@ -1043,6 +1105,8 @@ def build_chapter(args: argparse.Namespace) -> dict:
         polys = render.cut_boxes(polys, boxes)
         print(f"[{args.chapter}] {len(boxes)} region verdict(s): {before - len(polys)} of {before} "
               f"polygons cut before the filter sees them")
+
+    polys = cut_inside_walls(polys, args.blocks, args.chapter)
 
     islands = {}
     if args.drop_islands:

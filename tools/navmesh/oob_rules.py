@@ -1,7 +1,7 @@
 """
 oob_rules.py - the thresholds the cut rules stand on, as one thing the picker can turn.
 
-`render.out_of_bounds` decides the cut from two per-component measurements and three thresholds.
+`render.out_of_bounds` decides the cut from the per-component measurements and three thresholds.
 The measurements cost seconds and a threshold costs nothing, so the picker holds the measurements
 per chapter and re-decides the whole cut on every turn of a knob - that is what a `RuleSet` names.
 The build reads the same thresholds off its own command line; this file is only how the page and

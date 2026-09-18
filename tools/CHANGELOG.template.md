@@ -1,5 +1,13 @@
 # WuchangMinimap - changelog
 
+## Unreleased
+
+Fixed
+- The chapter 5 map draws the whole arena at the Gate of Truth. Most of it was a hole: that floor is flat enough that the game builds it as one big sheet, which the map took for the invisible plane the game hangs under a level and left out. It is a tenth of the walkable ground the chapter draws.
+- Ground you get to by ladder is on the map. A landing between two ladders reads as somewhere you cannot climb out of, so the map used to drop it along with the ground behind it.
+- Hillsides the game fences off with rock are off the map. Those rocks were being measured as if each were a metre across, so the map drew the slope behind them as if you could walk it.
+- Ground that was missing from the map is back, most of it in chapter 3. Small pieces of floor were being dropped as scraps, and anything that could only be reached across them went dark with them; and a marker sitting right on the edge of its own ground now still lights it.
+
 ## 1.3.0
 
 Added

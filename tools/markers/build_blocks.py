@@ -16,6 +16,14 @@ ENV_B_Cube`, both a 100 uu cube, so a blocker is an oriented box: the component'
 `RelativeLocation`, `RelativeRotation` and `RelativeScale3D` with a half-extent
 of `50 * scale`.
 
+The other 0.5 % are not cubes, and reading them as one is not a rounding error.
+32 of them are `*_Nanite_Block` Megascan rock and mountain meshes whose own
+half-extents reach 3 015 x 1 651 x 2 149 uu; at the scales they are placed with,
+the cube reading shrinks a mountain to a 30 uu pebble.  Six of chapter 1's 22 fence
+one plateau the map was drawing, and the mask never saw them.  So every mesh a
+blocker references that is not a cube is read for its own `FBoxSphereBounds` and
+carried in `mesh_bounds`: origin and half-extent in the mesh's unscaled frame.
+
 HOW THE TRANSFORM IS READ WITHOUT A `.usmap`
 --------------------------------------------
 `extract_markers.py`'s machinery, with one gap filled.  `Schema.observe` learns a
@@ -41,9 +49,12 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import math
 import os
+import struct
 import sys
 import time
+from typing import Iterable
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -60,6 +71,11 @@ MAPS_JSON = os.path.join(_ROOT, "maps", "maps.json")
 # object name, which is what a property points at.
 CUBE_MESHES = ("Cube", "ENV_B_Cube")
 CUBE_HALF_UU = 50.0
+# `FBoxSphereBounds` sits at no fixed offset in a cooked `StaticMesh`, so `bounds_at` sweeps this
+# many bytes of the export's head and validates every candidate. The floor rejects the denormal
+# triples that would otherwise satisfy the sphere test.
+MESH_BOUNDS_WINDOW = 4096
+MESH_BOUNDS_FLOOR = 1.0
 
 CHAPTERS = ("1", "2", "3", "4", "5")
 # A fitted shift must decode this share of the class' exports inside the chapter
@@ -301,6 +317,64 @@ def extract(ms, chapter: str, verbose: bool = True) -> tuple[list[dict], dict]:
     return boxes, dict(stats)
 
 
+def bounds_at(blob: bytes) -> list[float] | None:
+    """`FBoxSphereBounds` inside a cooked `StaticMesh` export: Origin, BoxExtent, SphereRadius.
+
+    Its byte offset is not fixed - the same nine doubles sit at 16 in `Cube`, 42 in one Megascan
+    rock and 78 in another - and nothing here parses a `StaticMesh`'s serialized head to find it.
+    So the window is swept and every candidate is CHECKED against the one relation the three fields
+    must satisfy: the sphere contains the box and is contained by its circumsphere,
+    `max(extent) <= radius <= |extent|`. A denormal triple passes that too, which is what
+    `MESH_BOUNDS_FLOOR` is for - a mesh somebody blocks a path with is never a centimetre across.
+
+    `Cube` and `ENV_B_Cube` both decode to a half-extent of exactly 50, which is the independent
+    check that the sweep reads the right field.
+    """
+    for o in range(0, min(MESH_BOUNDS_WINDOW, len(blob) - 56)):
+        v = struct.unpack_from("<7d", blob, o)
+        if not all(map(math.isfinite, v)):
+            continue
+        ox, oy, oz, hx, hy, hz, radius = v
+        if not all(MESH_BOUNDS_FLOOR <= h < 1e7 for h in (hx, hy, hz)):
+            continue
+        if max(abs(ox), abs(oy), abs(oz)) > 1e6:
+            continue
+        circum = math.sqrt(hx * hx + hy * hy + hz * hz)
+        if not (max(hx, hy, hz) * (1.0 - 1e-6) <= radius <= circum * (1.0 + 1e-6)):
+            continue
+        return [round(c, 2) for c in (ox, oy, oz, hx, hy, hz)]
+    return None
+
+
+def mesh_bounds(ms, names: Iterable[str]) -> dict[str, list[float]]:
+    """Origin and half-extent of each named mesh, in its own unscaled frame.
+
+    A mesh whose bounds cannot be read keeps the cube fallback - `Plane` is genuinely flat and has
+    no third extent to find, and a cube over it is the over-block the cube reading always was.
+    """
+    by_name: dict[str, list[str]] = collections.defaultdict(list)
+    for k in ms.paths():
+        if k.endswith(".uasset"):
+            by_name[os.path.basename(k)[:-7]].append(k)
+    out: dict[str, list[float]] = {}
+    for name in sorted(set(names)):
+        for key in by_name.get(name, ()):
+            try:
+                pkg = ms.package(key)
+            except Exception:                                       # noqa: BLE001
+                continue
+            for ex in pkg.exports:
+                if ex.class_name != "StaticMesh" or ex.name != name:
+                    continue
+                got = bounds_at(pkg.data(ex))
+                if got is not None:
+                    out[name] = got
+                break
+            if name in out:
+                break
+    return out
+
+
 def columns(boxes: list[tuple]) -> dict:
     """The boxes as parallel arrays: what both consumers - the map build's
     rasteriser and the picker - actually read, and a third of the bytes of a
@@ -335,17 +409,21 @@ def main(argv=None) -> int:
 
     ms = pakmaps.MapSource(a.pak)
     chapters = a.chapter or list(CHAPTERS)
-    doc = {"schema": "wuchang-blocks/1",
+    doc = {"schema": "wuchang-blocks/2",
            "note": "invisible walls, one oriented box per actor as parallel arrays: "
                    "p = world location (x,y,z), r = FRotator (pitch,yaw,roll) in "
                    "degrees, s = scale, lv/m index levels/meshes. A cube mesh is "
-                   "100 uu, so the half-extent is 50*s.",
+                   "100 uu, so the half-extent is 50*s; any other mesh has its own "
+                   "origin and half-extent in mesh_bounds, in its unscaled frame.",
            "cube_half_uu": CUBE_HALF_UU,
            "cube_meshes": list(CUBE_MESHES),
+           "mesh_bounds": {},
            "chapters": {}}
+    shaped: set[str] = set()
     for c in chapters:
         boxes, stats = extract(ms, c, verbose=not a.quiet)
         doc["chapters"][f"chapter{c}"] = dict(columns(boxes), stats=stats)
+        shaped |= {mesh for _lv, mesh, *_ in boxes if mesh not in CUBE_MESHES}
         if a.report or not a.quiet:
             got = stats.get("actors", 0)
             print(f"  chapter {c}: {len(boxes)} boxes of {got} actors "
@@ -353,6 +431,9 @@ def main(argv=None) -> int:
             if a.report:
                 for k, v in sorted(stats.items()):
                     print(f"      {k:28s} {v}")
+    doc["mesh_bounds"] = mesh_bounds(ms, shaped)
+    if not a.quiet:
+        print(f"  {len(doc['mesh_bounds'])} of {len(shaped)} non-cube meshes carry their own bounds")
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(doc, f, separators=(",", ":"))

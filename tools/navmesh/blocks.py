@@ -11,8 +11,11 @@ tilted - a wall that follows a slope carries pitch or roll - so the Z a box occu
 constant over its footprint and the mask is built by clipping a **vertical ray** through the box
 per pixel, never by its bounding Z.
 
-`Cylinder`, `Plane` and the handful of Nanite meshes the Block levels also place (under 1 % of the
-boxes) are treated as that same cube: they are read as a slight over-block, not as their own shape.
+Under 1 % of the boxes place something that is not a cube, and those carry their own bounds in
+`blocks.json`'s `mesh_bounds` - origin and half-extent in the mesh's unscaled frame. They are not a
+rounding error: the Megascan rock a level fences a hillside with is 1 316 uu across its own X, so
+reading it as a 50 uu cube turns a mountain into a pebble and the mask loses the fence entirely.
+`Cylinder` and `Plane` have no bounds to read and keep the cube, which over-blocks slightly.
 """
 
 from __future__ import annotations
@@ -33,7 +36,8 @@ STAND_HI_UU = 180.0
 class Walls:
     """One chapter's blockers, as parallel arrays."""
 
-    __slots__ = ("p", "m", "half", "cube", "plate", "levels", "meshes", "level_of", "mesh_of")
+    __slots__ = ("p", "m", "half", "cube", "shaped", "plate", "levels", "meshes", "level_of",
+                 "mesh_of")
 
     def __len__(self) -> int:
         return len(self.p)
@@ -50,7 +54,6 @@ def load(path: str | Path, chapter: str) -> Walls | None:
     w.p = np.asarray(entry["p"], dtype=np.float64).reshape(n, 3)
     rot = np.radians(np.asarray(entry["r"], dtype=np.float64).reshape(n, 3))
     scl = np.asarray(entry["s"], dtype=np.float64).reshape(n, 3)
-    w.half = np.abs(scl) * doc.get("cube_half_uu", CUBE_HALF_UU)
     w.levels = entry["levels"]
     w.meshes = entry["meshes"]
     w.level_of = np.asarray(entry["lv"], dtype=np.int32)
@@ -58,6 +61,28 @@ def load(path: str | Path, chapter: str) -> Walls | None:
     cubes = set(doc.get("cube_meshes", ()))
     w.cube = np.asarray([m in cubes for m in w.meshes], dtype=bool)[w.mesh_of]
     w.m = rotation(rot[:, 0], rot[:, 1], rot[:, 2])
+
+    # The mesh's own bounds where it has them, the cube everywhere else. `Origin` is the offset from
+    # the component to the centre of those bounds, in the mesh's own frame, so it scales and rotates
+    # with the box - a rock whose geometry sits 200 uu above its pivot is fenced 200 uu above it.
+    half_uu = doc.get("cube_half_uu", CUBE_HALF_UU)
+    shape = doc.get("mesh_bounds", {})
+    origin = np.zeros((n, 3))
+    extent = np.full((n, 3), half_uu)
+    known = np.zeros(len(w.meshes), dtype=bool)
+    for i, name in enumerate(w.meshes):
+        got = shape.get(name)
+        if got:
+            known[i] = True
+            at = w.mesh_of == i
+            origin[at] = got[:3]
+            extent[at] = got[3:]
+    w.half = np.abs(scl) * extent
+    w.p = w.p + np.einsum("nj,nji->ni", origin * scl, w.m)
+    # A blocker whose mesh is neither a cube nor one whose bounds could be read is a box of the
+    # wrong shape: `Plane` is flat and the cube fallback gives it a volume it does not have, 972 uu
+    # tall where it is scaled for a tall fence. Only a blocker whose shape is KNOWN has an inside.
+    w.shaped = known[w.mesh_of] & ~w.cube
     ext = np.ptp(corners(w), axis=1)
     # A box thin in Z against both of its horizontal sides is a floor or a ceiling, not a wall.
     # They are 4-15 % of a chapter and the biggest things in it - one plate covers 10 000 uu of
@@ -126,6 +151,34 @@ def ray_span(w: Walls, i: int, wx: np.ndarray, wy: np.ndarray):
         lo = np.maximum(lo, np.minimum(t0, t1))
         hi = np.minimum(hi, np.maximum(t0, t1))
     return lo, hi
+
+
+def inside_walls(w: Walls, pts: np.ndarray, where: np.ndarray | None = None) -> np.ndarray:
+    """Which points are INSIDE a blocker - the other question the boxes answer.
+
+    A blocker is solid: navmesh under one is surface Recast built against geometry the player
+    collides with, and nobody stands there. The cube walls almost never contain any - they are thin
+    fences placed along the ground - so this is a question only the SHAPED blockers have ever been
+    able to answer, and they could not while every one of them was read as a 50 uu cube.
+
+    Exact, and cheap for the same reason the cut is worth making: a box only has to be tested
+    against the points inside its own bounding sphere.
+    """
+    from scipy.spatial import cKDTree
+    hit = np.zeros(len(pts), dtype=bool)
+    sel = np.arange(len(w)) if where is None else np.where(where)[0]
+    if not len(sel) or not len(pts):
+        return hit
+    tree = cKDTree(pts)
+    for i in sel:
+        half = w.half[i]
+        near = tree.query_ball_point(w.p[i], r=float(np.linalg.norm(half)))
+        if not near:
+            continue
+        near = np.asarray(near, dtype=np.int64)
+        local = (pts[near] - w.p[i]) @ w.m[i].T
+        hit[near[(np.abs(local) <= half).all(axis=1)]] = True
+    return hit
 
 
 def distance_to_walls(w: Walls, pts: np.ndarray, where: np.ndarray | None = None,

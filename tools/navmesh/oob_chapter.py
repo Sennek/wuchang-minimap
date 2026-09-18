@@ -131,7 +131,7 @@ class Chapter:
         self.defaults = RuleSet(small=build_map.SMALL_UNSEEDED_UU2)
         self.rules = self.defaults      # the thresholds the page is currently judging
         self._home: set[int] | None = None            # components a marker stands on
-        self._escape: dict[float, dict[int, float]] = {}   # climb home per component, by fall cap
+        self._escape: dict[float, "render.Routes"] = {}   # how kept ground joins up, by fall cap
         self._walld: dict[int, float] | None = None   # median distance to a wall, per component
         self._catch: dict[str, dict[int, str]] = {}   # what a rule set takes, by its key
         self._rule_layer: tuple[str, dict] | None = None   # that catch as one layer, measured
@@ -169,6 +169,7 @@ class Chapter:
         render.classify_flat_planes(
             polys, render.DEFAULT_FLAT_PLANE_AREA,
             sheet_min=a.flat_plane_sheet_min, isolation=a.flat_plane_isolation,
+            unanchored=a.flat_plane_unanchored, shadow=a.flat_plane_shadow,
         )
         rest = []
         for p in polys:
@@ -176,6 +177,17 @@ class Chapter:
                 p["stage"] = "plane"
             else:
                 rest.append(p)
+
+        # stage 1b - ground inside an invisible wall, cut where the build cuts it: before the
+        # components are found, so the picker's islands are the build's islands.
+        walled = build_map.cut_inside_walls(rest, str(BLOCKS_JSON) if BLOCKS_JSON.exists() else "",
+                                            self.key)
+        if len(walled) != len(rest):
+            kept = {id(p) for p in walled}
+            for p in rest:
+                if id(p) not in kept:
+                    p["stage"] = "wall"
+            rest = walled
 
         # stage 2 - components, clusters, the island filter's verdict
         seed_files = [Path(q) for pat in (a.markers or build_map.default_marker_globs(self.key))
@@ -294,15 +306,16 @@ class Chapter:
             self._home = render.standing_components(self.rest, self.seeds)
         return self._home
 
-    def escape(self, fall: float) -> dict[int, float]:
-        """The climb home per component. 6-8 s the first time each fall cap is asked for."""
+    def escape(self, fall: float) -> "render.Routes":
+        """How kept ground joins up at this fall cap. 6-8 s the first time each is asked for."""
         got = self._escape.get(fall)
         if got is None:
             t0 = time.time()
-            got = self._escape[fall] = render.escape_costs(
-                self.rest, self.keep_ids, self.home(), grid=self.args.island_grid, max_fall=fall)
-            print(f"[{self.key}] escape costs at fall {fall:g} uu: {len(got)} components have a "
-                  f"way home ({time.time() - t0:.1f}s)", flush=True)
+            got = self._escape[fall] = render.escape_routes(
+                self.rest, self.keep_ids, self.home(), grid=self.args.island_grid, max_fall=fall,
+                links=render.ladder_links(self.rest, self.keep_ids, self.seeds))
+            print(f"[{self.key}] escape costs at fall {fall:g} uu: {len(got.cost)} components have "
+                  f"a way home ({time.time() - t0:.1f}s)", flush=True)
         return got
 
     def walld(self) -> dict[int, float]:

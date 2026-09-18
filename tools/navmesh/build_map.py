@@ -1209,6 +1209,15 @@ def build_chapter(args: argparse.Namespace) -> dict:
         print(f"[{args.chapter}] reachability pass OFF (--no-reach): every surface is flagged")
     else:
         reach_seeds = list(marker_seeds)
+        # The flood's only vertical edge is a step of `--reach-step-up`, so it can no more climb a
+        # ladder than `escape_routes` could. The cut keeping a ladder's landing does nothing on its
+        # own: the landing lands in the height planes with no reachable bit and the map is exactly
+        # as dark as it was. The landing gets a seed of its own, on the same component the cut
+        # joined, so neither pass can disagree with the other about what a ladder serves.
+        tops = render.ladder_seeds(polys, {p["comp"] for p in polys if "comp" in p}, marker_seeds)
+        if tops:
+            reach_seeds += tops
+            print(f"[{args.chapter}] {len(tops)} ladder landing(s) seeded - the flood cannot climb")
         for extra in args.reach_seeds_extra or []:
             more = load_extra_seeds(Path(extra))
             reach_seeds += more

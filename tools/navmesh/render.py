@@ -1013,47 +1013,75 @@ def standing_components(polys: list[dict], seeds: Iterable[dict],
     return out
 
 
-def ladder_links(polys: list[dict], keep_ids: set[int], seeds: Iterable[dict],
-                 reach: float = DEFAULT_LADDER_REACH,
-                 rise: float = DEFAULT_LADDER_RISE) -> set[tuple[int, int]]:
-    """The components a ladder joins - its foot, and the ground it carries to.
+def ladder_reach(polys: list[dict], keep_ids: set[int], seeds: Iterable[dict],
+                 reach: float, rise: float):
+    """What each ladder joins, once: its foot and the ground above it, with a point on each.
 
     `escape_routes` walks polygon adjacency and nothing else, so the game's own way up is invisible
-    to it and the one-way rule takes ground the player climbs to. This navmesh carries no off-mesh
-    links at all (`offMeshConCount` is 0 in every tile of every agent), so the only statement that a
-    ladder exists is the marker file.
+    to it; and `build_map.flood_reachable` walks the raster with one vertical edge of a few tens of
+    uu, so it cannot climb one either. This navmesh carries no off-mesh link at all
+    (`offMeshConCount` is 0 in every tile of every agent), so the only statement that a ladder exists
+    is the marker file - and BOTH passes have to hear it, or the cut keeps ground the flood then
+    leaves dark.
 
-    A ladder marker sits at the FOOT: the ground it serves is above it. So the link is the component
-    at the marker's own height joined to every kept component within `reach` of it and up to `rise`
-    higher. Chaining the components near a marker by height, or joining every pair of them, welds a
-    whole shaft together - a ladder passes storeys it does not serve - and each costs a verdict.
+    A ladder marker sits at the FOOT: the ground it serves is above it. So the foot is the kept
+    component at the marker's own height, and the tops are the kept components within `reach` of it
+    and up to `rise` higher. Chaining the components near a marker by height, or joining every pair
+    of them, welds a whole shaft together - a ladder passes storeys it does not serve - and each
+    costs a verdict.
 
-    Returned both ways: a ladder is climbed in both directions, and it is also a DOOR, which is what
-    keeps the pocket rule off the ground below it.
+    Yields `(foot, tops)` per ladder, where each is `(component id, a polygon of it within reach)`.
     """
     at: dict[tuple[int, int], list[dict]] = {}
     for p in polys:
         if p["comp"] in keep_ids:
             at.setdefault((int(p["cx"] // reach), int(p["cy"] // reach)), []).append(p)
-    out: set[tuple[int, int]] = set()
     for s in seeds:
         if s.get("cat") not in LADDER_CATEGORIES:
             continue
         gx, gy = int(s["x"] // reach), int(s["y"] // reach)
-        near: dict[int, list[float]] = {}
+        near: dict[int, list[dict]] = {}
         for cx in (gx - 1, gx, gx + 1):
             for cy in (gy - 1, gy, gy + 1):
                 for p in at.get((cx, cy), ()):
                     if (p["cx"] - s["x"]) ** 2 + (p["cy"] - s["y"]) ** 2 <= reach * reach:
-                        near.setdefault(p["comp"], []).append(p["cz"] - s["z"])
+                        near.setdefault(p["comp"], []).append(p)
         if len(near) < 2:
             continue
-        level = {cid: statistics.median(v) for cid, v in near.items()}
+        level = {cid: statistics.median([p["cz"] - s["z"] for p in v]) for cid, v in near.items()}
         foot = min(level, key=lambda cid: abs(level[cid]))
-        for cid, dz in level.items():
-            if cid != foot and 0.0 < dz - level[foot] <= rise:
-                out.add((foot, cid))
-                out.add((cid, foot))
+        tops = [(cid, near[cid][0]) for cid, dz in level.items()
+                if cid != foot and 0.0 < dz - level[foot] <= rise]
+        if tops:
+            yield (foot, near[foot][0]), tops
+
+
+def ladder_links(polys: list[dict], keep_ids: set[int], seeds: Iterable[dict],
+                 reach: float = DEFAULT_LADDER_REACH,
+                 rise: float = DEFAULT_LADDER_RISE) -> set[tuple[int, int]]:
+    """The component pairs a ladder joins, both ways - a ladder is climbed in both directions, and
+    it is also a DOOR, which is what keeps the pocket rule off the ground below it."""
+    out: set[tuple[int, int]] = set()
+    for (foot, _fp), tops in ladder_reach(polys, keep_ids, seeds, reach, rise):
+        for cid, _p in tops:
+            out.add((foot, cid))
+            out.add((cid, foot))
+    return out
+
+
+def ladder_seeds(polys: list[dict], keep_ids: set[int], seeds: Iterable[dict],
+                 reach: float = DEFAULT_LADDER_REACH,
+                 rise: float = DEFAULT_LADDER_RISE) -> list[dict]:
+    """A point on the ground at the top of every ladder, in the shape the flood takes a marker.
+
+    The flood lights what it can walk to from a marker; a ladder's landing it can never walk to, so
+    the landing gets a seed of its own. The point is a polygon of the same component the cut joined,
+    so the two passes cannot disagree about which ground the ladder serves.
+    """
+    out = []
+    for _foot, tops in ladder_reach(polys, keep_ids, seeds, reach, rise):
+        for _cid, p in tops:
+            out.append({"x": p["cx"], "y": p["cy"], "z": p["cz"], "cat": "ladder_top"})
     return out
 
 

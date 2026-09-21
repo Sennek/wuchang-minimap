@@ -244,8 +244,7 @@ $GameProcesses    = @('Project_Plague-Win64-Shipping', 'CrashReportClient')
 $LogGlob          = 'wuchang_minimap.log'
 
 $RunSchema        = 'wuchang-repro-run/1'
-$ExpectFields     = @('verdict', 'modules', 'modules_absent', 'log_lines', 'log_lines_absent', 'note',
-                      'present_mode', 'present_mode_min_pct')
+$ExpectFields     = @('verdict', 'modules', 'modules_absent', 'log_lines', 'log_lines_absent', 'note')
 $ProfileFields    = @('name', 'description', 'note', 'report', 'payloads', 'mod', 'recon', 'state',
                       'game_settings', 'game_config_sav', 'processes', 'expect', 'manual')
 $ModFields        = @('build', 'state', 'config', 'config_dev')
@@ -933,15 +932,10 @@ function Read-Profile([string]$name) {
     if ($p.expect.verdict -and ([string]$p.expect.verdict) -notin @('HEALTHY', 'CRASH')) {
         throw "profile '$name': field 'expect.verdict' is '$($p.expect.verdict)'; expected HEALTHY or CRASH."
     }
-    if ($p.expect.present_mode_min_pct -and -not $p.expect.present_mode) {
-        throw ("profile '$name': 'expect.present_mode_min_pct' without 'expect.present_mode' is a " +
-               "threshold on a check that is never made.")
-    }
     $assertions = 0
     foreach ($field in @('modules', 'modules_absent', 'log_lines', 'log_lines_absent')) {
         $assertions += (Get-StringList $p.expect $field).Count
     }
-    if ($p.expect.present_mode) { $assertions++ }
     if ($assertions -eq 0) {
         throw "profile '$name': 'expect' asserts nothing, so no launch could ever fail it."
     }
@@ -1358,10 +1352,12 @@ function Invoke-Apply([string]$name, $instrument = $null) {
 function Invoke-Restore {
     param([switch]$Quiet)
 
+    # The refusal is the function's own, not its caller's: printing and permission are two
+    # questions, and `-Quiet` answers only the first.
+    Assert-GameClosed 'restore'
     if (-not $Quiet) {
         Write-Host ""
         Write-Host "restore" -ForegroundColor Cyan
-        Assert-GameClosed 'restore'
         $null = Invoke-Vault
     }
 
@@ -2670,41 +2666,11 @@ function Test-Expect($expect, $cell) {
         Add-ExpectCheck $checks 'log line absent' "'$pat' does not appear ($($hit.Count)x)" ($hit.Count -eq 0)
     }
 
-    # The one thing a cell can be wrong about that no log line shows. Once the overlay's
-    # composition target has existed in a process, DWM never gives that window
-    # `Hardware: Independent Flip` back - so the present mode is the state of the cell,
-    # and a profile that names the mode it expects turns the demotion into something a
-    # launch can contradict. A cell with no capture FAILS this; it does not skip it.
-    #
-    # It is scoped to the probe that can answer it: a cell carries a `present` field only
-    # when a probe was asked to capture one, and a crash cell asserting a present mode
-    # would fail for the one reason that is not a finding. Measured and empty is a
-    # failure; never measured is not this cell's question.
-    $wantMode = $(if ($expect.present_mode) { [string]$expect.present_mode } else { $null })
-    if ($wantMode -and ($cell.PSObject.Properties.Name -contains 'present')) {
-        $minPct = $(if ($expect.present_mode_min_pct) { [double]$expect.present_mode_min_pct } else { 90.0 })
-        $stream = $null
-        if ($cell.present -and $cell.present.game_stream -and $cell.present.game_stream.address) {
-            $want = Get-AddressKey $cell.present.game_stream.address
-            foreach ($s in @($cell.present.streams)) {
-                if ((Get-AddressKey $s.address) -eq $want) { $stream = $s; break }
-            }
-        }
-        if (-not $stream) {
-            Add-ExpectCheck $checks 'present mode' `
-                "$wantMode - this cell carries no capture of the game's own swapchain" $false
-        } else {
-            $n = 0
-            if ($stream.present_modes -and
-                (Get-PropertyNames $stream.present_modes) -contains $wantMode) {
-                $n = [int]$stream.present_modes.$wantMode
-            }
-            $pct = 100.0 * $n / $stream.presents
-            Add-ExpectCheck $checks 'present mode' `
-                ("{0} on {1:N1} % of {2} present(s), wanted at least {3:N0} %" -f
-                 $wantMode, $pct, $stream.presents, $minPct) ($pct -ge $minPct)
-        }
-    }
+    # The present mode is NOT among them. It is recorded per stream, with its counts, and
+    # it is not a profile's promise: a played cell showed the game's window going
+    # `Composed: Flip` in the menu and `Hardware: Independent Flip` on 100 % of its presents
+    # once gameplay began, with the overlay's own surface presenting throughout. The mode is
+    # a property of what the player is doing, and a profile describes an install.
 
     # A profile that reproduces a bug expects a CRASH, and a cell of it that comes back
     # HEALTHY is the repro failing - or the bug being fixed - not a pass. HEALTHY is only

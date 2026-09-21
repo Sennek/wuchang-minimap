@@ -66,8 +66,7 @@ not an archive.
   "modules_absent":   ["Binaries\\Win64\\d3d12.dll", "RTSSHooks64.dll"],
   "log_lines":        ["composition: the overlay draws into"],
   "log_lines_absent": ["WATCHDOG"],
-  "verdict":          "HEALTHY",
-  "present_mode":     "Composed: Flip"
+  "verdict":          "HEALTHY"
 }
 ```
 
@@ -76,12 +75,16 @@ loads its own `dxgi.dll` and `dwmapi.dll` from System32 into every process, so a
 either passes in a configuration carrying no injector at all. A misspelt field and an `expect` that
 asserts nothing are both refused.
 
-`present_mode` (with an optional `present_mode_min_pct`, 90 by default) is scoped to the probe that
-can answer it: a cell measured by `-Probe present` and carrying no capture of the game's own
-swapchain **fails** it, and a cell run by the crash probe does not assert it at all. The label is
-exact — `Hardware: Independent Flip`, `Hardware Composed: Independent Flip` and `Composed: Flip` are
-three different states, and reading only the first of the two hardware labels scores a win as a
-loss.
+**The present mode is not among them.** It is recorded — per stream, with its counts — and never
+asserted. A played cell showed the game's window in `Composed: Flip` for three minutes of menu and
+then `Hardware: Independent Flip` on **100 % of 6049 presents** once gameplay began, with the
+overlay's own composition surface presenting throughout. The mode is a property of what the player
+is doing; a profile describes an install. A per-profile mode would have asserted whichever condition
+a cell happened to sit in, and every held cell sits in the menu.
+
+Reading the recorded mode, the label is exact — `Hardware: Independent Flip`,
+`Hardware Composed: Independent Flip` and `Composed: Flip` are three different states, and reading
+only the first of the two hardware labels scores a win as a loss.
 
 ## The probes
 

@@ -1,0 +1,81 @@
+{
+  "name": "dlssg-plain",
+  "description": "reporter 1's box: UE4SS 1.79 and the mod, nothing else in the DXGI or D3D12 slot, with the game's own Streamline / DLSS-G loaded and frame generation off in the menu",
+
+  "report": {
+    "who": "reporter 1 (Nexus, 2026-09-07, four sessions of logs), and probably lxk4991588 + wuhuqifei66, who sent a sentence each",
+    "when": "2026-09-07",
+    "thread": "Nexus, mod 1.0.0",
+    "verdict": "HIS: Present returns DEVICE_REMOVED, then Unreal's 120 s RenderThread timeout. NOT REPRODUCED HERE — fourteen instrumented runs, two machines, three game installs. See notes.md; this profile asserts the install and promises HEALTHY, never his crash"
+  },
+
+  "payloads": [
+    { "dest": "dxgi.dll", "source": null,
+      "note": "he had no ReShade; this box's proxy comes off. Windows' own dxgi.dll still loads from System32, which is why expect matches on the END of a module's path" },
+    { "dest": "renodx-dlss.addon64", "source": null },
+    { "dest": "renodx-dlss5.addon64x", "source": null },
+    { "dest": "nvngx_dlssnr.dll", "source": null,
+      "note": "this box's DLSSNR runtime, installed beside RenoDX. NOT the game's own DLSS-G, which lives under Engine\\Plugins\\Runtime\\Nvidia\\ and is exactly what this profile keeps" },
+    { "dest": "ReShade.ini", "source": null },
+    { "dest": "ReShade2.ini", "source": null },
+    { "dest": "d3d12.dll", "source": null },
+    { "dest": "OptiScaler", "tree": true, "source": null }
+  ],
+
+  "mod": {
+    "build": "keep",
+    "state": "on",
+    "config": {},
+    "config_dev": {}
+  },
+  "recon": "absent",
+  "state": "keep",
+
+  "game_settings": {
+    "bUseVSync": "True",
+    "FullscreenMode": "1",
+    "ResolutionSizeX": "1920",
+    "ResolutionSizeY": "1080",
+    "FrameRateLimit": "0.000000"
+  },
+
+  "game_config_expect": {
+    "note": "read out of GameConfig.sav, never written into it - the same blob carries the owner's playtime, equipment and achievements. His configuration was DLSS on with frame generation OFF in the menu, and nvngx_dlssg.dll loads either way, so the menu is the only place this fact exists.",
+    "user": "36053875",
+    "gameset": {
+      "superresolution": "dlss",
+      "framegeneration": "0"
+    }
+  },
+
+  "processes": {
+    "running": [],
+    "absent": ["RTSS", "RTSSHooksLoader64", "EncoderServer"]
+  },
+
+  "expect": {
+    "note": "the configuration, not his crash. Streamline and DLSS-G ship with the game and load on every launch - that is the 'DLSS-G loaded' half of his box - while every injector this install carries must be gone from the process.",
+    "modules": [
+      "Streamline\\Binaries\\ThirdParty\\Win64\\sl.interposer.dll",
+      "Streamline\\Binaries\\ThirdParty\\Win64\\nvngx_dlssg.dll",
+      "Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "WuchangMinimap\\dlls\\main.dll"
+    ],
+    "modules_absent": [
+      "Binaries\\Win64\\dxgi.dll",
+      "Binaries\\Win64\\d3d12.dll",
+      "RTSSHooks64.dll"
+    ],
+    "log_lines": ["composition: the overlay draws into"],
+    "log_lines_absent": ["WATCHDOG", "DEVICE REMOVED:"],
+    "verdict": "HEALTHY"
+  },
+
+  "manual": {
+    "hags": "on",
+    "ue4ss": "he ran `HookInitGameState = 0`, as the mod's own install instructions say. UE4SS's settings are not managed by this script; if that line is ever changed on this box, this profile stops describing his machine.",
+    "unreachable": "four things about his box this one cannot be: the Steam overlay always injects GameOverlayRenderer64.dll here so Present is never his `no detour`; no reachable setting produces his 2-back-buffer swapchain; 2560x1440 and HDR need hardware this box has not. See notes.md.",
+    "driver_vsync": "the owner's word — not readable from a script",
+    "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary"
+  }
+}

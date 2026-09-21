@@ -54,7 +54,6 @@
     "ResolutionSizeY": "1080",
     "FrameRateLimit": "0.000000"
   },
-  "game_config_sav": null,
 
   "processes": {
     "running": ["RTSS"],

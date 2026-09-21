@@ -1,0 +1,103 @@
+{
+  "name": "dlssg-plain-1.0.0",
+  "description": "reporter 1's box on the build he actually ran, 1.0.0 - the one cell whose result is information in either direction, so it asserts no verdict at all",
+  "report": {
+    "who": "reporter 1 (Nexus, 2026-09-07, four sessions of logs), and probably lxk4991588 + wuhuqifei66, who sent a sentence each",
+    "when": "2026-09-07",
+    "thread": "Nexus, mod 1.0.0",
+    "verdict": "HIS: DEVICE_REMOVED on mod 1.0.0. This profile puts that build into his configuration on this box and RECORDS what happens. A CRASH reproduces the report for the first time; a HEALTHY confirms what fourteen runs already say. Neither is a failure of the profile, so expect.verdict is `any`."
+  },
+  "payloads": [
+    {
+      "dest": "dxgi.dll",
+      "source": null,
+      "note": "he had no ReShade; this box's proxy comes off. Windows' own dxgi.dll still loads from System32, which is why expect matches on the END of a module's path"
+    },
+    {
+      "dest": "renodx-dlss.addon64",
+      "source": null
+    },
+    {
+      "dest": "renodx-dlss5.addon64x",
+      "source": null
+    },
+    {
+      "dest": "nvngx_dlssnr.dll",
+      "source": null,
+      "note": "this box's DLSSNR runtime, installed beside RenoDX. NOT the game's own DLSS-G, which lives under Engine\\Plugins\\Runtime\\Nvidia\\ and is exactly what this profile keeps"
+    },
+    {
+      "dest": "ReShade.ini",
+      "source": null
+    },
+    {
+      "dest": "ReShade2.ini",
+      "source": null
+    },
+    {
+      "dest": "d3d12.dll",
+      "source": null
+    },
+    {
+      "dest": "OptiScaler",
+      "tree": true,
+      "source": null
+    }
+  ],
+  "mod": {
+    "build": "dist:1.0.0",
+    "state": "on",
+    "config": {},
+    "config_dev": {}
+  },
+  "recon": "absent",
+  "state": "keep",
+  "game_settings": {
+    "bUseVSync": "True",
+    "FullscreenMode": "1",
+    "ResolutionSizeX": "1920",
+    "ResolutionSizeY": "1080",
+    "FrameRateLimit": "0.000000"
+  },
+  "game_config_expect": {
+    "note": "read out of GameConfig.sav, never written into it - the same blob carries the owner's playtime, equipment and achievements. His configuration was DLSS on with frame generation OFF in the menu, and nvngx_dlssg.dll loads either way, so the menu is the only place this fact exists.",
+    "user": "36053875",
+    "gameset": {
+      "superresolution": "dlss",
+      "framegeneration": "0"
+    }
+  },
+  "processes": {
+    "running": [],
+    "absent": [
+      "RTSS",
+      "RTSSHooksLoader64",
+      "EncoderServer"
+    ]
+  },
+  "expect": {
+    "note": "the install only. `verdict: any` records the cell and asserts nothing about it - see notes.md. The mod's composition line is not asserted either: 1.0.0 predates the DirectComposition path and never printed it.",
+    "modules": [
+      "Streamline\\Binaries\\ThirdParty\\Win64\\sl.interposer.dll",
+      "Streamline\\Binaries\\ThirdParty\\Win64\\nvngx_dlssg.dll",
+      "Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "WuchangMinimap\\dlls\\main.dll"
+    ],
+    "modules_absent": [
+      "Binaries\\Win64\\dxgi.dll",
+      "Binaries\\Win64\\d3d12.dll",
+      "RTSSHooks64.dll"
+    ],
+    "log_lines": [],
+    "log_lines_absent": [],
+    "verdict": "any"
+  },
+  "manual": {
+    "hags": "on",
+    "ue4ss": "he ran `HookInitGameState = 0`, as the mod's own install instructions say. UE4SS's settings are not managed by this script; if that line is ever changed on this box, this profile stops describing his machine.",
+    "unreachable": "four things about his box this one cannot be: the Steam overlay always injects GameOverlayRenderer64.dll here so Present is never his `no detour`; no reachable setting produces his 2-back-buffer swapchain; 2560x1440 and HDR need hardware this box has not. See notes.md.",
+    "driver_vsync": "the owner's word — not readable from a script",
+    "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary",
+    "build": "dist:1.0.0 replaces the mod directory with that release and puts it back afterwards. 1.0.0 draws into the game's own back buffer - the thing 9ce35ee stopped doing - which is precisely why this cell exists."
+  }
+}

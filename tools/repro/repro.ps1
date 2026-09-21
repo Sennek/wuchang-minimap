@@ -31,7 +31,7 @@
           `Saved\<user id>\GameConfig\`. Resolve-RootPath is the guard: it normalises
           `<root>\<rel>` to a full path, refuses one that climbs out of its root, and
           refuses the `GameSlots` and `GameConfig` segments unless the caller states which
-          of the two writers it is - the `game_config_sav` block of an apply, or
+          which writer it is - only `saves-restore` writes there now, or
           `saves-restore`. A snapshot entry records that statement, so the restore that
           undoes such a write resolves it the same way and no wider.
 
@@ -254,7 +254,7 @@ $LogGlob          = 'wuchang_minimap.log'
 $RunSchema        = 'wuchang-repro-run/1'
 $ExpectFields     = @('verdict', 'modules', 'modules_absent', 'log_lines', 'log_lines_absent', 'note')
 $ProfileFields    = @('name', 'description', 'note', 'report', 'payloads', 'mod', 'recon', 'state',
-                      'game_settings', 'game_config_sav', 'processes', 'expect', 'manual')
+                      'game_settings', 'game_config_expect', 'processes', 'expect', 'manual')
 $ModFields        = @('build', 'state', 'config', 'config_dev')
 
 #====================================================================================
@@ -431,8 +431,9 @@ function Resolve-RootPath([string]$root, [string]$rel, [string]$intent = 'genera
     #                  ('C:\…') is not a relative path at all and is refused too.
     #   GameSlots    - the one thing on this box that cannot be re-downloaded. Only
     #                  `saves-restore` (intent 'save_area') may write there.
-    #   GameConfig   - the in-game graphics selector. Only the `game_config_sav` block of
-    #                  an apply (intent 'game_config') and `saves-restore` may write it.
+    #   GameConfig   - the in-game graphics selector, and the owner's progress in the same
+    #                  blob. Only `saves-restore` (intent 'save_area') may write it; a
+    #                  profile READS it through `game_config_expect` and never writes.
     #
     # The intent travels in the snapshot entry, so the restore of such a write resolves it
     # with the same permission and no wider.
@@ -440,7 +441,7 @@ function Resolve-RootPath([string]$root, [string]$rel, [string]$intent = 'genera
     # A snapshot entry hands its own intent straight back here, and JSON's null for a field
     # a record predates is the unrestricted one.
     if (-not $intent) { $intent = 'general' }
-    if ($intent -notin @('general', 'game_config', 'save_area')) {
+    if ($intent -notin @('general', 'save_area')) {
         throw "Unknown write intent '$intent' for 'root\$rel'."
     }
     if ([System.IO.Path]::IsPathRooted($rel)) {
@@ -456,8 +457,8 @@ function Resolve-RootPath([string]$root, [string]$rel, [string]$intent = 'genera
         if ($norm -match '(^|[\\/])GameSlots([\\/]|$)' -and $intent -ne 'save_area') {
             throw "Refusing to touch a save slot: 'saved\$norm'. Only saves-restore writes there."
         }
-        if ($norm -match '(^|[\\/])GameConfig([\\/]|$|\.)' -and $intent -notin @('save_area', 'game_config')) {
-            throw "Refusing to touch the game's own config save: 'saved\$norm'. Only game_config_sav and saves-restore write there."
+        if ($norm -match '(^|[\\/])GameConfig([\\/]|$|\.)' -and $intent -ne 'save_area') {
+            throw "Refusing to touch the game's own config save: 'saved\$norm'. Only saves-restore writes there - it carries the owner's progress, not just his graphics settings."
         }
     }
     return $full
@@ -832,7 +833,7 @@ function Add-SnapshotEntry([string]$root, [string]$rel, [bool]$volatile = $false
         rel      = $rel
         file     = $file
         # Which writer the apply declared itself to be. The restore resolves the path with
-        # the same intent, so undoing a `game_config_sav` write is allowed and nothing else
+        # the same intent, so undoing a `saves-restore` write is allowed and nothing else
         # inherits that permission.
         intent   = $intent
         # ReShade rewrites its own ini while the game runs, so a file marked volatile is
@@ -909,6 +910,46 @@ function Get-ModState($p) {
     return 'on'
 }
 
+function Read-GameConfigSet([string]$path) {
+    # The in-game graphics selector - upscaler, frame generation, the quality sliders -
+    # lives in `Saved\<user>\GameConfig\GameConfig.sav`, not in any ini: a 10-byte marker,
+    # a zlib block, the same marker as footer, and JSON inside. This READS it.
+    #
+    # It is never written, and the reason is in the same blob: beside `gameset` the file
+    # carries playedtime, equipment, achievements and the player's location. A profile that
+    # pinned this file would put the owner's progress back to whenever it was captured,
+    # every time it was applied. So the graphics selection is a precondition a profile
+    # asserts, like `manual.hags`, and not a payload it installs.
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    $bytes = [System.IO.File]::ReadAllBytes($path)
+    # Find the zlib header rather than trusting an offset: the marker's length is a fact
+    # about one build of the game, and 0x78 0x9C is a fact about zlib.
+    $at = -1
+    for ($i = 0; $i -lt [Math]::Min($bytes.Length - 2, 256); $i++) {
+        if ($bytes[$i] -eq 0x78 -and $bytes[$i + 1] -eq 0x9C) { $at = $i; break }
+    }
+    if ($at -lt 0) { return $null }
+    try {
+        # DeflateStream is raw deflate, so the two zlib header bytes are skipped; the
+        # trailing Adler-32 and the footer marker are simply never read.
+        $ms = New-Object System.IO.MemoryStream(,$bytes[($at + 2)..($bytes.Length - 1)])
+        $ds = New-Object System.IO.Compression.DeflateStream($ms, [System.IO.Compression.CompressionMode]::Decompress)
+        $sr = New-Object System.IO.StreamReader($ds, [System.Text.Encoding]::UTF8)
+        $txt = $sr.ReadToEnd()
+        $sr.Dispose(); $ds.Dispose(); $ms.Dispose()
+    } catch { return $null }
+    $i = $txt.IndexOf('"gameset"')
+    if ($i -lt 0) { return $null }
+    $open = $txt.IndexOf('{', $i)
+    $close = $txt.IndexOf('}', $open)
+    if ($open -lt 0 -or $close -lt 0) { return $null }
+    $set = @{}
+    foreach ($m in [regex]::Matches($txt.Substring($open, $close - $open), '"([^"]+)"\s*:\s*"([^"]*)"')) {
+        $set[$m.Groups[1].Value] = $m.Groups[2].Value
+    }
+    return $set
+}
+
 function Get-Pinned {
     # `pinned.json` is a repo file, and a profiles directory without one is a legitimate
     # state - a test drives this script against a sandbox of its own. Absence is $null
@@ -969,23 +1010,20 @@ function Read-Profile([string]$name) {
     if ($stateMode -notin @('keep', 'fresh')) {
         throw "profile '$name': field 'state' is '$stateMode'; expected 'keep' or 'fresh'."
     }
-    if ($p.game_config_sav) {
+    if ($p.game_config_expect) {
         # There are two user-id folders on this box and the file sits one level deeper than
-        # its folder's name suggests, so the profile names both halves or it names nothing:
-        # a guess here writes the wrong player's graphics settings.
-        if ($p.game_config_sav -is [string]) {
-            throw "profile '$name': field 'game_config_sav' is the bare payload name '$($p.game_config_sav)'; it must name the user id it belongs to: { ""user"": ""<user id>"", ""source"": ""<payload>"" }."
-        }
-        foreach ($field in (Get-PropertyNames $p.game_config_sav)) {
-            if ($field -notin @('user', 'source', 'note')) {
-                throw "profile '$name': unknown field 'game_config_sav.$field'."
+        # its folder's name suggests, so the profile names the user or it names nothing: a
+        # guess here reads the wrong player's graphics settings.
+        foreach ($field in (Get-PropertyNames $p.game_config_expect)) {
+            if ($field -notin @('user', 'gameset', 'note')) {
+                throw "profile '$name': unknown field 'game_config_expect.$field'."
             }
         }
-        if (([string]$p.game_config_sav.user) -notmatch '^\d+$') {
-            throw "profile '$name': field 'game_config_sav.user' is '$($p.game_config_sav.user)'; expected a user-id folder name, all digits."
+        if (([string]$p.game_config_expect.user) -notmatch '^\d+$') {
+            throw "profile '$name': field 'game_config_expect.user' is '$($p.game_config_expect.user)'; expected a user-id folder name, all digits."
         }
-        if (-not $p.game_config_sav.source) {
-            throw "profile '$name': field 'game_config_sav.source' is missing."
+        if ((Get-PropertyNames $p.game_config_expect.gameset).Count -eq 0) {
+            throw "profile '$name': 'game_config_expect' names no gameset key, so it asserts nothing."
         }
     }
     # An `expect` is what a run is judged against, so a misspelt field in it is a check
@@ -1040,6 +1078,29 @@ function Test-ProfilePreconditions($p, [string]$name) {
         $have = Get-HagsState
         if ($have -ne $want) {
             $problems.Add("manual.hags says '$want'; HKLM\...\GraphicsDrivers\HwSchMode reads '$have'.")
+        }
+    }
+    # The in-game graphics selection, read out of GameConfig.sav and never written into it -
+    # the same blob carries the owner's progress. A configuration that depends on DLSS or on
+    # frame generation says so here and the apply refuses when the game disagrees, instead of
+    # measuring whatever the menu happened to be left on.
+    if ($p.game_config_expect) {
+        $gc = Read-GameConfigSet (Join-Path $saved `
+                  (Join-Path ([string]$p.game_config_expect.user) 'GameConfig\GameConfig.sav'))
+        if ($null -eq $gc) {
+            $problems.Add(("game_config_expect names user '$($p.game_config_expect.user)' and its " +
+                           "GameConfig.sav could not be read."))
+        } else {
+            foreach ($k in (Get-PropertyNames $p.game_config_expect.gameset)) {
+                $want = [string]$p.game_config_expect.gameset.$k
+                $have = [string]$gc[$k]
+                if ($have -ne $want) {
+                    $problems.Add(("game_config_expect says gameset.$k = '$want'; the game's own " +
+                                   "settings read '$have'. Change it in the game's menu."))
+                } else {
+                    Write-Host ("  game config    {0,-16} {1}" -f $k, $have) -ForegroundColor DarkGray
+                }
+            }
         }
     }
     # `running` is no longer a refusal on its own: the apply starts what is not up and
@@ -1116,16 +1177,6 @@ function Test-ProfilePayloads($p, [string]$name) {
             if ($have -ne ([string]$entry.sha256).ToLowerInvariant()) {
                 throw "profile '$name': payload '$($entry.source)' hashes $have, 'payloads[$($entry.dest)].sha256' says $($entry.sha256)."
             }
-        }
-    }
-    if ($p.game_config_sav) {
-        $src = Join-Path $payloadRoot ([string]$p.game_config_sav.source)
-        if (-not (Test-Path -LiteralPath $src -PathType Leaf)) {
-            throw "profile '$name': field 'game_config_sav.source' = '$($p.game_config_sav.source)' is not in the store ('$src')."
-        }
-        $userDir = Join-Path $saved ([string]$p.game_config_sav.user)
-        if (-not (Test-Path -LiteralPath $userDir -PathType Container)) {
-            throw "profile '$name': field 'game_config_sav.user' names '$($p.game_config_sav.user)' and there is no such folder under '$saved'."
         }
     }
 }
@@ -1464,20 +1515,13 @@ function Invoke-Apply([string]$name, $instrument = $null) {
         Write-Host "  state          keep"
     }
 
-    # -- game_settings / game_config_sav -------------------------------------------
+    # -- game_settings -------------------------------------------------------------
     # The ini lands in Saved\Config\Windows, which no guard covers. `GameConfig.sav` is in
     # the guarded area and the only writer of it inside an apply is this block, which says
     # so to Resolve-RootPath; the save slot beside it is refused for every intent but
     # saves-restore's.
     if ((Get-PropertyNames $p.game_settings).Count -gt 0) {
         Set-ConfigKeys 'saved' 'Config\Windows\GameUserSettings.ini' $p.game_settings 'game_settings'
-    }
-    if ($p.game_config_sav) {
-        $rel = Join-Path ([string]$p.game_config_sav.user) 'GameConfig\GameConfig.sav'
-        Add-SnapshotEntry 'saved' $rel $false 'game_config'
-        Invoke-Copy (Join-Path $payloadRoot ([string]$p.game_config_sav.source)) `
-                    (Resolve-RootPath 'saved' $rel 'game_config') `
-                    ("game_config_sav: user " + $p.game_config_sav.user)
     }
 
     # 7. the apply is finished: the after-state, what a later `run` quotes, and complete.

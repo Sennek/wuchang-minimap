@@ -396,6 +396,8 @@ namespace markers
 
         // UObject* -> what it grants. Only a RESOLVED drop is ever in here.
         std::unordered_map<const void*, ItemDrop> g_drop;
+        // The actors whose unresolved contents the verbose log has already described.
+        std::unordered_set<const void*> g_drop_logged;
         // UClass* -> which of `kItemProps` the class declares, a bit per index.
         std::unordered_map<const void*, std::uint32_t> g_item_prop;
 
@@ -993,6 +995,7 @@ namespace markers
             return it != g_items.end() ? &it->second : nullptr;
         }
 
+
         // What the offline extractor writes for a pickup: the first KNOWN item's name, plus
         // ` +N` when the property grants N further distinct known items, and that same first
         // item's bucket as the marker's category. An unknown id is what rejects a misread,
@@ -1122,9 +1125,10 @@ namespace markers
             return smap::live_keys(h, words, wc, elems, bytes, out, cap);
         }
 
-        // Pulls a KNOWN item id out of the first element of `prop` read as a TArray.
-        bool item_drop_from_array(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
-                                  ItemDrop& out)
+        // The id field of the first element of `prop` read as a TArray, once per
+        // `kItemIdOffsets`: these are readings of ONE slot, not a list of items.
+        int item_ids_from_array(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
+                                std::int32_t* out, int cap)
         {
             struct TArrayRaw
             {
@@ -1135,21 +1139,36 @@ namespace markers
             TArrayRaw arr{};
             if (!uer::read_prop(layout, actor, prop, arr, static_cast<int>(sizeof(TArrayRaw))))
             {
-                return false;
+                return 0;
             }
             if (arr.num <= 0 || arr.num > 256 || arr.max < arr.num || !mem::plausible_ptr(arr.data) ||
                 !mem::readable(arr.data, 64))
             {
-                return false;
+                return 0;
             }
+            int n = 0;
             for (const int off : kItemIdOffsets)
             {
                 std::int32_t id = 0;
-                if (!mem::read_at(arr.data, static_cast<std::size_t>(off), id))
+                if (n < cap && mem::read_at(arr.data, static_cast<std::size_t>(off), id) && id > 0)
                 {
-                    continue;
+                    out[n++] = id;
                 }
-                if (id > 0 && drop_from_ids(&id, 1, out))
+            }
+            return n;
+        }
+
+        // Pulls a KNOWN item id out of the first element of `prop` read as a TArray: the
+        // first reading the item database recognises is the slot, an unknown one a misread.
+        bool item_drop_from_array(const uer::ClassLayout* layout, UObject* actor, const wchar_t* prop,
+                                  ItemDrop& out)
+        {
+            std::int32_t ids[std::size(kItemIdOffsets)]{};
+            const int n =
+                item_ids_from_array(layout, actor, prop, ids, static_cast<int>(std::size(ids)));
+            for (int i = 0; i < n; ++i)
+            {
+                if (drop_from_ids(&ids[i], 1, out))
                 {
                     return true;
                 }
@@ -1196,6 +1215,61 @@ namespace markers
                 }
             }
             return mask;
+        }
+
+        // What a pickup none of its declared properties named is actually holding: per
+        // property, the shape that read and the ids in it, `?` on an id
+        // `markers/items.json` does not know. That mark is the whole point - it separates
+        // "there was nothing to read" from "read, and the database has no name for it".
+        //
+        // ONCE PER ACTOR, never per class: a chest fills its loot actor a moment after
+        // spawning it, and a class-wide latch would spend its one line on that window
+        // instead of on the pickup that stays nameless.
+        void log_unresolved_drop(const uer::ClassLayout* layout, UObject* actor, std::uint32_t mask)
+        {
+            if (!mm::log_enabled(mm::LogLv::Verbose) || !g_drop_logged.insert(actor).second)
+            {
+                return;
+            }
+            if (g_drop_logged.size() > g_id_cache_max)
+            {
+                g_drop_logged.clear();
+            }
+            std::wstring held;
+            for (int i = 0; i < kItemPropCount; ++i)
+            {
+                if ((mask & (1u << i)) == 0)
+                {
+                    continue;
+                }
+                std::int32_t ids[smap::kMaxSlots]{};
+                const wchar_t* kind = L"map";
+                int n = item_ids_from_map(layout, actor, kItemProps[i], ids,
+                                          static_cast<int>(std::size(ids)));
+                if (n == 0)
+                {
+                    kind = L"array";
+                    n = item_ids_from_array(layout, actor, kItemProps[i], ids,
+                                            static_cast<int>(std::size(kItemIdOffsets)));
+                }
+                held += std::format(L" {}=", kItemProps[i]);
+                if (n == 0)
+                {
+                    held += L"(nothing)";
+                    continue;
+                }
+                held += kind;
+                // Every id printed here is one `markers/items.json` has no row for - a known
+                // one would have resolved the drop and this line would not exist.
+                for (int k = 0; k < n; ++k)
+                {
+                    held += std::format(L"[{}]", ids[k]);
+                }
+            }
+            MM_LOGV(L"markers: pickup '{}' ({}) has no item name -{}",
+                    actor->GetName(),
+                    safe_class_name(actor),
+                    held);
         }
 
         // What a pickup-family actor grants - the label to draw and the bucket of its first
@@ -1279,6 +1353,7 @@ namespace markers
                 return g_drop.emplace(actor, std::move(drop)).first->second;
             }
             // Nothing yet. The next round asks again.
+            log_unresolved_drop(layout, actor, mask);
             return kNone;
         }
 
@@ -3575,11 +3650,15 @@ namespace markers
             {
                 return;
             }
-            MM_LOGV(L"markers: round {} - scan {:.1f} ms over {} pump(s), publish {:.3f} ms "
-                    L"(avg {:.3f}, peak {:.3f}); {} published, {} live",
+            // The GUObjectArray size is on this line because it is what the round's cost is a
+            // function of: the chunk is fixed, so a bigger array is more slices, not a dearer
+            // one. Reading the two side by side is how a scan cost is told from a scene.
+            MM_LOGV(L"markers: round {} - scan {:.1f} ms over {} pump(s) of {} object(s), "
+                    L"publish {:.3f} ms (avg {:.3f}, peak {:.3f}); {} published, {} live",
                     g_rounds.load(std::memory_order_relaxed),
                     g_scan_round_ms.load(std::memory_order_relaxed),
                     g_scan_round_slices.load(std::memory_order_relaxed),
+                    g_scan_total.load(std::memory_order_relaxed),
                     g_publish_ms.load(std::memory_order_relaxed),
                     g_publish_ms_avg.load(std::memory_order_relaxed),
                     g_publish_ms_peak.load(std::memory_order_relaxed),
@@ -3667,6 +3746,7 @@ namespace markers
         g_hidden_route.clear();
         g_drop.clear();          // keyed on the ACTOR: a recycled allocation must not
                                  // hand a new drop the old one's item name
+        g_drop_logged.clear();
         g_item_prop.clear();     // a candidate mask keyed to a UClass* of that world
         g_id_cache.clear();
         g_live.clear();

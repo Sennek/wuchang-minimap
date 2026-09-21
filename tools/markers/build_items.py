@@ -33,6 +33,11 @@ display names, entirely from the paks:
      row id, with the prefix picked by the row's own `ItemType`
      (`TYPE_KEY_PREFIX`) because prefixes collide on 46 ids.
 
+  3. **Upgrade levels.**  A `+N` item's id is the base row's id plus N, and most of
+     them are rows in their own right.  A gem's never is, and ten weapon levels are
+     not either, so those are synthesised from the name the locres holds for them
+     (`level_items`) -- otherwise a `+1` gem picked up in game has no name at all.
+
 English only, on purpose: the mod's UI is English (task `CLAUDE.md § Goal`).
 `--lang` is there for a future translation pass, nothing more.
 
@@ -434,17 +439,69 @@ def localise(loc, rid: int, type_name: str | None, key: str | None):
     keyed by its row id under the prefix its kind implies, with `KEY_PREFIXES`
     behind that for the ids whose `ItemType` did not decode."""
     if key:
-        nm = loc.get(f"{key}_name")
+        nm = (loc.get(f"{key}_name") or "").strip()
         if nm:
             return key, nm, loc.get(f"{key}_des") or loc.get(f"{key}_sum")
     first = TYPE_KEY_PREFIX.get(type_name or "None")
     order = (first,) + tuple(p for p in KEY_PREFIXES if p != first)
     for pre in order:
-        nm = loc.get(f"{pre}_{rid}_name")
+        nm = (loc.get(f"{pre}_{rid}_name") or "").strip()
         if nm:
             return f"{pre}_{rid}", nm, (loc.get(f"{pre}_{rid}_des")
                                         or loc.get(f"{pre}_{rid}_sum"))
     return None
+
+
+# Where the locres keeps the name of upgrade level `lv` of base row `base`, and how much
+# that keying proves on its own.
+#
+# `base + lv` is the next id along, which any neighbouring item could own, so the name it
+# hands back must be the base's plus ` +<lv>` exactly -- that is what tells
+# "Cloudfrost's Edge +1" (10001, under row 10000) from the Sun Pendant sitting one past
+# the Phoenix Pendant.  The thousand-up keying gems use is nobody's neighbour, so the
+# offset itself identifies the level and the name only has to end in ` +<lv>`: it is how
+# row 23013 "Bu - Skyborn Ward" reaches its own `gem_24013_name`, "Ren - Skyborn
+# Ward +1".
+LEVEL_KEYINGS = ((lambda base, lv: base + lv, True),
+                 (lambda base, lv: base + 1000 * lv, False))
+
+# "Cloudfrost's Edge +9" is the longest ladder the locres carries.
+LEVEL_MAX = 10
+
+
+def level_items(loc, items):
+    """`{item id: (base id, level, name, description)}` for the upgrade levels that are
+    no row of their own.
+
+    The ITEM ID of a level is always the base row's id plus the level -- measured in
+    game, where a live pickup reading 23070 is "Wei - Vitality Power +1" over row 23069.
+    Most weapon levels are rows at that same id and need nothing; a gem's never is, and
+    a handful of weapons (`Steel Fang +1..+10`) are named without one either.
+
+    Every prefix is tried, rather than the one the base's kind implies: `Steel Fang` is a
+    `DT_SpecialItem` row and its levels are named under `weapon_`.  What keeps a
+    neighbour's id from being read as somebody's upgrade is the acceptance test each
+    keying carries (`LEVEL_KEYINGS`)."""
+    out: dict[int, tuple[int, int, str, str | None]] = {}
+    for base, rec in sorted(items.items()):
+        base_name = rec.get("name")
+        if not base_name:
+            continue
+        for lv in range(1, LEVEL_MAX + 1):
+            rid = base + lv
+            if rid in items or rid in out:
+                continue
+            for prefix in KEY_PREFIXES:
+                for key_id, exact in LEVEL_KEYINGS:
+                    key = f"{prefix}_{key_id(base, lv)}"
+                    nm = (loc.get(f"{key}_name") or "").strip()
+                    if nm == f"{base_name} +{lv}" or (not exact and nm.endswith(f" +{lv}")):
+                        out[rid] = (base, lv, nm,
+                                    loc.get(f"{key}_des") or loc.get(f"{key}_sum"))
+                        break
+                if rid in out:
+                    break
+    return out
 
 
 def build(ms, lang: str = "en", verbose: bool = True):
@@ -500,10 +557,23 @@ def build(ms, lang: str = "en", verbose: bool = True):
                 foreign_key += 1
         items[rid] = rec
 
+    # The upgrade levels, over the rows they hang under: same kind, same bucket, their
+    # own name, and `level` saying what they are.
+    levels = level_items(loc, items)
+    for rid, (base, lv, nm, des) in sorted(levels.items()):
+        rec = dict(items[base])
+        rec["name"] = nm
+        rec.pop("des", None)
+        if des:
+            rec["des"] = des
+        rec["level"] = lv
+        items[rid] = rec
+
     named = sum(1 for r in items.values() if r.get("name"))
     if verbose:
-        print(f"  {len(TABLES)} tables, {len(items)} distinct row ids, "
-              f"{named} named, {len(items) - named} without a name")
+        print(f"  {len(TABLES)} tables, {len(items) - len(levels)} distinct row ids "
+              f"+ {len(levels)} upgrade level(s), {named} named, "
+              f"{len(items) - named} without a name")
         typed = sum(1 for r in items.values() if r.get("type"))
         print(f"    ItemType decoded for {typed} of {len(items)} ids; rarity "
               + ", ".join(f"{itemdb.RARITY_NAMES[k]}={rarities[k]}"

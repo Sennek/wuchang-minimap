@@ -179,6 +179,86 @@
    "name": "Steel Fang",
    "des": "A new blade fashioned with a katana as inspiration.\r\n\r\nOnce quenched, a plethora of patterns appear upon the flat blade. The handle is lightweight and just as good as the original blade's.\r\n\r\nFeaturing a long slender blade, its wielder may keep their distance only to strike at the speed of light when the opportunity arises."
   },
+  "10041": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +1",
+   "level": 1
+  },
+  "10042": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +2",
+   "level": 2
+  },
+  "10043": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +3",
+   "level": 3
+  },
+  "10044": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +4",
+   "level": 4
+  },
+  "10045": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +5",
+   "level": 5
+  },
+  "10046": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +6",
+   "level": 6
+  },
+  "10047": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +7",
+   "level": 7
+  },
+  "10048": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +8",
+   "level": 8
+  },
+  "10049": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +9",
+   "level": 9
+  },
+  "10050": {
+   "table": "DT_SpecialItem",
+   "type": "SpecialItem",
+   "rarity": 2,
+   "bucket": "key",
+   "name": "Steel Fang +10",
+   "level": 10
+  },
   "10060": {
    "table": "DT_Item_EquipmentTable",
    "type": "MeleeWeapon",
@@ -9996,7 +10076,7 @@
    "type": "Hands",
    "rarity": 1,
    "bucket": "armour",
-   "name": "Godguard Vambraces ",
+   "name": "Godguard Vambraces",
    "des": "Vambraces armor worn by the Bo Godguard."
   },
   "18384": {
@@ -12513,6 +12593,15 @@
    "name": "Bu - Blocking Clash",
    "des": "Increases the potency of blocks and clashes."
   },
+  "23002": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Bu - Blocking Clash +1",
+   "des": "Increases the potency of blocks and clashes.",
+   "level": 1
+  },
   "23005": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12520,6 +12609,15 @@
    "bucket": "jade",
    "name": "Shi - Rising Defense",
    "des": "While below a certain health threshold, you gain increased defense against Slashing, Blunt and Stab attacks."
+  },
+  "23006": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Shi - Rising Defense +1",
+   "des": "While below a certain health threshold, you gain increased defense against Slashing, Blunt and Stab attacks.",
+   "level": 1
   },
   "23009": {
    "table": "DT_GemNew",
@@ -12529,6 +12627,15 @@
    "name": "Wei - Area Damage",
    "des": "Increases the damage of attacks that deal damage in a large area, such as explosions."
   },
+  "23010": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Area Damage +1",
+   "des": "Increases the damage of attacks that deal damage in a large area, such as explosions.",
+   "level": 1
+  },
   "23013": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12536,6 +12643,15 @@
    "bucket": "jade",
    "name": "Bu - Skyborn Ward",
    "des": "Skyborn Might reduces damage taken for a time."
+  },
+  "23014": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ren - Skyborn Ward +1",
+   "des": "Skyborn Might reduces damage taken for a time.",
+   "level": 1
   },
   "23017": {
    "table": "DT_GemNew",
@@ -12545,6 +12661,15 @@
    "name": "Wei - Backstab Force",
    "des": "Increases the potency of Backstab attacks."
   },
+  "23018": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Backstab Force +1",
+   "des": "Increases the potency of Backstab attacks.",
+   "level": 1
+  },
   "23021": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12552,6 +12677,15 @@
    "bucket": "jade",
    "name": "Shan - Frostbite Ward",
    "des": "If a nearby enemy suffers Frostbite, take reduced damage for a time."
+  },
+  "23022": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Shan - Frostbite Ward +1",
+   "des": "If a nearby enemy suffers Frostbite, take reduced damage for a time.",
+   "level": 1
   },
   "23025": {
    "table": "DT_GemNew",
@@ -12561,6 +12695,15 @@
    "name": "Sheng - Burning Might",
    "des": "If a nearby enemy suffers Burn, gain increased damage for a time and Skyborn Might."
   },
+  "23026": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Sheng - Burning Might +1",
+   "des": "If a nearby enemy suffers Burn, gain Skyborn Might.",
+   "level": 1
+  },
   "23029": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12568,6 +12711,15 @@
    "bucket": "jade",
    "name": "Fa - Corruptive Feathers",
    "des": "If a nearby enemy suffers Corruption, your weapon gains increased Feathering Attack Power for a time."
+  },
+  "23030": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Fa - Corruptive Feathers +1",
+   "des": "If a nearby enemy suffers Corruption, gain increased potency for Feathering attacks for a time.",
+   "level": 1
   },
   "23033": {
    "table": "DT_GemNew",
@@ -12577,6 +12729,15 @@
    "name": "Shan - Corruption Ward",
    "des": "If a nearby enemy suffers Corruption, take reduced damage for a time."
   },
+  "23034": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Shan - Corruption Ward +1",
+   "des": "If a nearby enemy suffers Corruption, take reduced damage for a time.",
+   "level": 1
+  },
   "23037": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12584,6 +12745,15 @@
    "bucket": "jade",
    "name": "Wei - Vitality Ferocity",
    "des": "Increases damage dealt while at full health, as well as damage taken."
+  },
+  "23038": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Vitality Ferocity +1",
+   "des": "Increases damage dealt while at full health, as well as damage taken.",
+   "level": 1
   },
   "23041": {
    "table": "DT_GemNew",
@@ -12593,6 +12763,15 @@
    "name": "Wei - Blood Force",
    "des": "Increases damage dealt while below a certain HP threshold."
   },
+  "23042": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Blood Force +1",
+   "des": "Increases damage dealt while below a certain HP threshold.",
+   "level": 1
+  },
   "23045": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12600,6 +12779,15 @@
    "bucket": "jade",
    "name": "Bu - Combo Ward",
    "des": "Consecutive attacks reduce damage taken for a short time."
+  },
+  "23046": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Bu - Combo Ward +1",
+   "des": "Consecutive attacks reduce damage taken for a short time.",
+   "level": 1
   },
   "23049": {
    "table": "DT_GemNew",
@@ -12609,6 +12797,15 @@
    "name": "Wei - Poise Force",
    "des": "If a nearby enemy suffers Poise Break, deal increased damage for a time."
   },
+  "23050": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Poise Force +1",
+   "des": "If a nearby enemy suffers Poise Break, deal increased damage for a time.",
+   "level": 1
+  },
   "23053": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12616,6 +12813,15 @@
    "bucket": "jade",
    "name": "Shi - Blood Ward",
    "des": "Taking damage reduces the damage you take for a time."
+  },
+  "23054": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Shi - Blood Ward +1",
+   "des": "Taking damage reduces the damage you take for a time.",
+   "level": 1
   },
   "23057": {
    "table": "DT_GemNew",
@@ -12625,6 +12831,15 @@
    "name": "Wei - Tri-Disciplinary Force",
    "des": "Increases damage dealt if 3 Discipline skills are known."
   },
+  "23058": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Tri-Disciplinary Force +1",
+   "des": "Increases damage dealt if 3 Discipline skills are known.",
+   "level": 1
+  },
   "23061": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12632,6 +12847,15 @@
    "bucket": "jade",
    "name": "Wei - Vitality Force",
    "des": "Increases damage dealt while at full health."
+  },
+  "23062": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Vitality Force +1",
+   "des": "Increases damage dealt while at full health.",
+   "level": 1
   },
   "23065": {
    "table": "DT_GemNew",
@@ -12641,6 +12865,15 @@
    "name": "Shan - Blight Defense",
    "des": "If a nearby enemy suffers Blight, take reduced damage for a time."
   },
+  "23066": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Shan - Blight Defense +1",
+   "des": "If a nearby enemy suffers Blight, take reduced damage for a time.",
+   "level": 1
+  },
   "23069": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12648,6 +12881,15 @@
    "bucket": "jade",
    "name": "Wei - Vitality Power",
    "des": "Increases damage dealt while at full health, but also increases Stamina usage."
+  },
+  "23070": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Vitality Power +1",
+   "des": "Increases damage dealt while at full health, but also increases Stamina usage.",
+   "level": 1
   },
   "23101": {
    "table": "DT_GemNew",
@@ -12657,6 +12899,15 @@
    "name": "Sheng - Skyborn Rejuvenation",
    "des": "Gaining Skyborn Might endows your attacks with life leech for a very short moment."
   },
+  "23102": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Sheng - Skyborn Rejuvenation +1",
+   "des": "Gaining Skyborn Might endows your attacks with life leech for a very short moment.",
+   "level": 1
+  },
   "23105": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12664,6 +12915,15 @@
    "bucket": "jade",
    "name": "Bu - Plunging Ward",
    "des": "Plunging attacks that hit reduce damage taken for a time."
+  },
+  "23106": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Bu - Plunging Ward +1",
+   "des": "Plunging attacks reduce damage taken for a time.",
+   "level": 1
   },
   "23109": {
    "table": "DT_GemNew",
@@ -12681,6 +12941,15 @@
    "name": "Sheng - Obliteration Might",
    "des": "Obliterate attacks increase your damage for a time and grant Skyborn Might."
   },
+  "23114": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Sheng - Obliteration Might +1",
+   "des": "Obliterate attacks grant Skyborn Might.",
+   "level": 1
+  },
   "23117": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12688,6 +12957,15 @@
    "bucket": "jade",
    "name": "Ren - Skyborn Vigor",
    "des": "Increases Stamina recovery speed during Skyborn Might."
+  },
+  "23118": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ren - Skyborn Vigor +1",
+   "des": "Increases Stamina recovery speed during Skyborn Might.",
+   "level": 1
   },
   "23121": {
    "table": "DT_GemNew",
@@ -12697,6 +12975,15 @@
    "name": "Ta - Swift Frostbite",
    "des": "Increases Frostbite buildup."
   },
+  "23122": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ta - Swift Frostbite +1",
+   "des": "Increases Frostbite buildup.",
+   "level": 1
+  },
   "23125": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12704,6 +12991,15 @@
    "bucket": "jade",
    "name": "Fa - Burning Ignition",
    "des": "If a nearby enemy suffers Burn, your weapon gains increased Fire Attack Power for a time."
+  },
+  "23126": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Fa - Burning Ignition +1",
+   "des": "If a nearby enemy suffers Burn, deal increased Fire damage for a time.",
+   "level": 1
   },
   "23129": {
    "table": "DT_GemNew",
@@ -12713,6 +13009,15 @@
    "name": "Ta - Swift Corruption",
    "des": "Increases your Weapon's Corruption buildup."
   },
+  "23130": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ta - Swift Corruption +1",
+   "des": "Increases Corruption buildup.",
+   "level": 1
+  },
   "23133": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12720,6 +13025,15 @@
    "bucket": "jade",
    "name": "Shi - Vitality Ward",
    "des": "Reduces damage taken while at full health."
+  },
+  "23134": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Shi - Vitality Ward +1",
+   "des": "Reduces damage taken while at full health.",
+   "level": 1
   },
   "23137": {
    "table": "DT_GemNew",
@@ -12729,6 +13043,15 @@
    "name": "Ta - Combustion",
    "des": "Increases your Weapon's Burn buildup."
   },
+  "23138": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ta - Combustion +1",
+   "des": "Increases your Burn buildup.",
+   "level": 1
+  },
   "23141": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12736,6 +13059,15 @@
    "bucket": "jade",
    "name": "Sheng - Lethal Rejuvenation",
    "des": "Defeating an enemy restores some health."
+  },
+  "23142": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Sheng - Lethal Rejuvenation +1",
+   "des": "Defeating an enemy restores some health.",
+   "level": 1
   },
   "23145": {
    "table": "DT_GemNew",
@@ -12745,6 +13077,15 @@
    "name": "Wei - Lightning Force",
    "des": "Lightning damage now increases the Lightning damage enemies take."
   },
+  "23146": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Lightning Force +1",
+   "des": "Lightning damage now increases the Lightning damage enemies take.",
+   "level": 1
+  },
   "23149": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12752,6 +13093,15 @@
    "bucket": "jade",
    "name": "Ren - Blood Vigor",
    "des": "Taking damage increases your Stamina recovery speed for a time."
+  },
+  "23150": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ren - Blood Vigor +1",
+   "des": "Taking damage increases your Stamina recovery speed for a time.",
+   "level": 1
   },
   "23153": {
    "table": "DT_GemNew",
@@ -12761,6 +13111,15 @@
    "name": "Wei - Six-Disciplinary Force",
    "des": "Increases damage dealt if 6 Discipline skills are known."
   },
+  "23154": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Six-Disciplinary Force +1",
+   "des": "Increases damage dealt if 6 Discipline skills are known.",
+   "level": 1
+  },
   "23157": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12768,6 +13127,15 @@
    "bucket": "jade",
    "name": "Sheng - Backstab Rejuvenation",
    "des": "Backstab attacks recover a small amount of health."
+  },
+  "23158": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Sheng - Backstab Rejuvenation +1",
+   "des": "Backstab attacks recover a small amount of health.",
+   "level": 1
   },
   "23161": {
    "table": "DT_GemNew",
@@ -12777,6 +13145,15 @@
    "name": "Ta - Swift Poise Break",
    "des": "Increases Poise Break buildup."
   },
+  "23162": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ta - Swift Poise Break +1",
+   "des": "Increases Poise Break buildup.",
+   "level": 1
+  },
   "23165": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12785,6 +13162,15 @@
    "name": "Shan - Blight Ward",
    "des": "Enemies afflicted with Blight deal less damage."
   },
+  "23166": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Shan - Blight Ward +1",
+   "des": "Enemies afflicted with Blight deal less damage.",
+   "level": 1
+  },
   "23169": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12792,6 +13178,15 @@
    "bucket": "jade",
    "name": "Sheng - Lethal Might",
    "des": "Defeating an enemy increases your damage for a time and grants Skyborn Might."
+  },
+  "23170": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Sheng - Lethal Might +1",
+   "des": "Defeating an enemy grants Skyborn Might.",
+   "level": 1
   },
   "23173": {
    "table": "DT_GemNew",
@@ -12809,6 +13204,15 @@
    "name": "Wei - Counter Force",
    "des": "Increases the potency of counter moves."
   },
+  "23202": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Counter Force +1",
+   "des": "Increases the potency of counter moves.",
+   "level": 1
+  },
   "23205": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12816,6 +13220,15 @@
    "bucket": "jade",
    "name": "Wei - Plunging Force",
    "des": "Increases the potency of plunging attacks."
+  },
+  "23206": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Plunging Force +1",
+   "des": "Increases the potency of plunging attacks.",
+   "level": 1
   },
   "23209": {
    "table": "DT_GemNew",
@@ -12825,6 +13238,15 @@
    "name": "Wei - Skyborn Discipline",
    "des": "Skyborn Might increases the potency of Discipline skills for a time."
   },
+  "23210": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Skyborn Discipline +1",
+   "des": "Skyborn Might increases the potency of Discipline skills for a time.",
+   "level": 1
+  },
   "23213": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12832,6 +13254,15 @@
    "bucket": "jade",
    "name": "Ren - Combo Vigor",
    "des": "Consecutive attacks increase your Stamina recovery speed."
+  },
+  "23214": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ren - Combo Vigor +1",
+   "des": "Consecutive attacks increase your Stamina recovery speed.",
+   "level": 1
   },
   "23217": {
    "table": "DT_GemNew",
@@ -12841,6 +13272,15 @@
    "name": "Wei - Combo Force",
    "des": "Consecutive attacks increase your damage."
   },
+  "23218": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Combo Force +1",
+   "des": "Consecutive attacks increase your damage.",
+   "level": 1
+  },
   "23221": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12848,6 +13288,15 @@
    "bucket": "jade",
    "name": "Ta - Glacial Frostbite",
    "des": "Inflicting Frostbite increases the damage of Frostbite."
+  },
+  "23222": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ta - Glacial Frostbite +1",
+   "des": "Inflicting Frostbite increases the damage of Frostbite.",
+   "level": 1
   },
   "23225": {
    "table": "DT_GemNew",
@@ -12857,6 +13306,15 @@
    "name": "Fa - Combo Ignition",
    "des": "Consecutive attacks increase your weapon's Fire Attack Power."
   },
+  "23226": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Fa - Combo Ignition +1",
+   "des": "Consecutive attacks increase the potency of Fire attacks.",
+   "level": 1
+  },
   "23229": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12864,6 +13322,15 @@
    "bucket": "jade",
    "name": "Ta - Viral Corruption",
    "des": "Inflicting Corruption increases the potency of Corruption."
+  },
+  "23230": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ta - Viral Corruption +1",
+   "des": "Inflicting Corruption increases the potency of Corruption.",
+   "level": 1
   },
   "23233": {
    "table": "DT_GemNew",
@@ -12873,6 +13340,15 @@
    "name": "Wei - Skyborn Force",
    "des": "Increases your damage during Skyborn Might."
   },
+  "23234": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Skyborn Force +1",
+   "des": "Increases your damage during Skyborn Might.",
+   "level": 1
+  },
   "23237": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12880,6 +13356,15 @@
    "bucket": "jade",
    "name": "Ta - Blazing Burn",
    "des": "Inflicting Burn increases the potency of Burn."
+  },
+  "23238": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ta - Blazing Burn +1",
+   "des": "Inflicting Burn increases the potency of Burn.",
+   "level": 1
   },
   "23241": {
    "table": "DT_GemNew",
@@ -12889,6 +13374,15 @@
    "name": "Fa - Combo Lightning",
    "des": "Consecutive attacks increase your weapon's Lightning Attack Power."
   },
+  "23242": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Fa - Combo Lightning +1",
+   "des": "Consecutive attacks increase your weapon's Lightning Attack Power.",
+   "level": 1
+  },
   "23245": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12896,6 +13390,15 @@
    "bucket": "jade",
    "name": "Wei - Skyborn Magic",
    "des": "Skyborn Might increases your Spell damage for a time."
+  },
+  "23246": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Skyborn Magic +1",
+   "des": "Skyborn Might increases your Spell damage for a time.",
+   "level": 1
   },
   "23249": {
    "table": "DT_GemNew",
@@ -12905,6 +13408,15 @@
    "name": "Fa - Blood Magic",
    "des": "Taking damage increases your Spell damage for a time."
   },
+  "23250": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Fa - Blood Magic +1",
+   "des": "Taking damage increases your Spell damage for a time.",
+   "level": 1
+  },
   "23253": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12912,6 +13424,15 @@
    "bucket": "jade",
    "name": "Wei - Nine-Disciplinary Force",
    "des": "Increases damage dealt if 9 Discipline skills are known."
+  },
+  "23254": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Nine-Disciplinary Force +1",
+   "des": "Increases damage dealt if 9 Discipline skills are known.",
+   "level": 1
   },
   "23257": {
    "table": "DT_GemNew",
@@ -12921,6 +13442,15 @@
    "name": "Wei - Revolving Force",
    "des": "Forcibly turning an enemy around increases your damage for a time."
   },
+  "23258": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Revolving Force +1",
+   "des": "Forcibly turning an enemy around increases your damage for a time.",
+   "level": 1
+  },
   "23261": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12929,6 +13459,15 @@
    "name": "Ta - Poise Force",
    "des": "Inflicting Poise Break on an enemy amplifies the damage dealt by Poise Break. However, Stamina usage is also increased."
   },
+  "23262": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Ta - Poise Force +1",
+   "des": "Inflicting Poise Break on an enemy amplifies the damage dealt by Poise Break. However, Stamina usage is also increased.",
+   "level": 1
+  },
   "23265": {
    "table": "DT_GemNew",
    "type": "Gem",
@@ -12936,6 +13475,15 @@
    "bucket": "jade",
    "name": "Wei - Blightful Wounds",
    "des": "Increases damage dealt to enemies affected by Blight. Enemies with less health remaining take increasingly more damage."
+  },
+  "23266": {
+   "table": "DT_GemNew",
+   "type": "Gem",
+   "rarity": 1,
+   "bucket": "jade",
+   "name": "Wei - Blightful Wounds +1",
+   "des": "Increases damage dealt to enemies affected by Blight. Enemies with less health remaining take increasingly more damage.",
+   "level": 1
   },
   "24001": {
    "table": "DT_Item_ToolTable",
@@ -15890,7 +16438,7 @@
    "sha256": "bfb4daecc3d7cae52114cfcf7007dc3ba5249d010228217826b84f477b9b4b72"
   }
  ],
- "extractor_commit": "5281f69+dirty",
+ "extractor_commit": "44f8273+dirty",
  "exe": {
   "name": "Project_Plague-Win64-Shipping.exe",
   "size": 141464648,

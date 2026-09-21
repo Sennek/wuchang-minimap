@@ -234,6 +234,9 @@ $snapshotRoot = Join-Path $Store 'snapshots'
 $payloadRoot  = Join-Path $Store 'payloads'
 $runRoot      = Join-Path $Store 'runs'
 $currentJson  = Join-Path $Store 'current.json'
+# Written when a run leaves a process up that it started and could not stop; printed by
+# every `status` until the process is gone, then deleted by the same reader.
+$processNotice = Join-Path $Store 'left_running.json'
 
 $Roots = @{
     'bin'   = $bin
@@ -906,11 +909,16 @@ function Get-ModState($p) {
     return 'on'
 }
 
-function Get-PinnedUe4ss {
+function Get-Pinned {
+    # `pinned.json` is a repo file, and a profiles directory without one is a legitimate
+    # state - a test drives this script against a sandbox of its own. Absence is $null
+    # here and a named readback everywhere it matters, never a throw halfway through.
     $path = Join-Path $profilesDir 'pinned.json'
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
-    return (Read-JsonFile $path).ue4ss
+    return (Read-JsonFile $path)
 }
+
+function Get-PinnedUe4ss { $p = Get-Pinned; return $(if ($p) { $p.ue4ss } else { $null }) }
 
 function Get-HwSchMode {
     try {
@@ -1034,9 +1042,18 @@ function Test-ProfilePreconditions($p, [string]$name) {
             $problems.Add("manual.hags says '$want'; HKLM\...\GraphicsDrivers\HwSchMode reads '$have'.")
         }
     }
-    foreach ($proc in (AsArray $p.processes.running)) {
-        if (@(Get-Process -Name $proc -ErrorAction SilentlyContinue).Count -eq 0) {
-            $problems.Add("processes.running names '$proc' and it is not running.")
+    # `running` is no longer a refusal on its own: the apply starts what is not up and
+    # stops it again on restore. What IS a refusal is being unable to - a profile that
+    # names a process this box cannot start would otherwise fail after the snapshot had
+    # opened, which is the one place a precondition exists to be ahead of.
+    foreach ($proc in (Get-StringList $p.processes 'running')) {
+        if (@(Get-Process -Name $proc -ErrorAction SilentlyContinue).Count -gt 0) { continue }
+        $start = Get-ProcessStart $proc
+        if (-not $start -or -not $start.path) {
+            $problems.Add(("processes.running names '$proc', it is not running, and " +
+                           "pinned.json does not say where its exe is."))
+        } elseif (-not (Test-Path -LiteralPath $start.path -PathType Leaf)) {
+            $problems.Add("processes.running names '$proc' and its exe is not at '$($start.path)'.")
         }
     }
     foreach ($proc in (AsArray $p.processes.absent)) {
@@ -1292,6 +1309,14 @@ function Invoke-Apply([string]$name, $instrument = $null) {
     # 6. act, file by file. Every entry is persisted as it is taken.
     Write-Host ""
     Write-Host "  Changes" -ForegroundColor Cyan
+
+    # -- processes -----------------------------------------------------------------
+    # Before the files, because a process this apply starts is recorded in `current.json`
+    # the same way the files are, and an apply that dies after starting one must still
+    # leave a record that says so.
+    $procRecords = Start-RequiredProcesses $p
+    Add-Member -InputObject $current -NotePropertyName 'processes' -NotePropertyValue $procRecords -Force
+    if (-not $DryRun) { Write-JsonFile $currentJson $current }
 
     # -- payloads ------------------------------------------------------------------
     foreach ($entry in (AsArray $p.payloads)) {
@@ -1550,6 +1575,10 @@ function Invoke-Restore {
         }
     }
 
+    # The processes this apply started, before the files: a restore that dies half-way has
+    # at least put the box's process list back, and nothing below depends on them being up.
+    $leftRunning = Stop-StartedProcesses $cur.processes
+
     # The directories the apply created, deepest first - the list was recorded outermost
     # first. Each one goes only if it is EMPTY: a folder holding anything at all is holding
     # something this restore did not put there, and removing it would be removing somebody
@@ -1620,6 +1649,7 @@ function Invoke-Restore {
     Write-Host ("Restored '{0}' - {1} file(s){2}." -f $cur.profile, $entries.Count,
                 $(if ($cur.complete -eq $false) { ', from an apply that did not finish' } else { '' })) `
                -ForegroundColor Green
+    Set-ProcessNotice $leftRunning
 }
 
 #====================================================================================
@@ -1989,6 +2019,8 @@ function Invoke-Status {
         $n = @(Get-Process -Name $proc -ErrorAction SilentlyContinue).Count
         Write-Host ("  {0,-28} {1}" -f $proc, $(if ($n -gt 0) { "running ($n)" } else { '-' }))
     }
+
+    Show-ProcessNotice
 
     Write-Host ""
     Write-Host "Vault" -ForegroundColor Cyan
@@ -2369,10 +2401,163 @@ function Get-EtwSessionRight {
     return $null
 }
 
-function Get-PinnedPresentMon {
-    $j = Read-JsonFile (Join-Path $profilesDir 'pinned.json')
-    return $j.presentmon
+#------------------------------------------------------------------------------------
+# The processes a configuration needs. The rule is the same one the files have: the
+# script touches only what it changed. It starts what a profile requires and is not
+# already up, records that in the snapshot, and on restore stops exactly those - a
+# process the owner already had running is neither started nor stopped.
+#
+# Stopping is the asymmetric half. RTSS's manifest is `requireAdministrator`, so an
+# unelevated shell starts it (it elevates itself) and then cannot stop it: it has no main
+# window to close and `Stop-Process` is Access denied across the integrity boundary. The
+# escape is a Scheduled Task the owner registers once; without it, a run that started such
+# a process says so, and `status` keeps saying so until the process is gone. Nobody has to
+# remember.
+#------------------------------------------------------------------------------------
+
+function Get-PinnedProcesses { $p = Get-Pinned; return $(if ($p) { $p.processes } else { $null }) }
+
+function Get-ProcessStart([string]$name) {
+    # How to start a process is a path AND its arguments; a config that carried only the
+    # path could not express a process that needs one. `processes.exe.<name>` is either the
+    # path as a bare string or `{ "path": …, "args": [ … ] }`.
+    $cfg = Get-PinnedProcesses
+    if (-not $cfg -or -not $cfg.exe) { return $null }
+    $e = $cfg.exe.$name
+    if (-not $e) { return $null }
+    if ($e -is [string]) { return [pscustomobject]@{ path = [string]$e; args = @() } }
+    return [pscustomobject]@{ path = [string]$e.path; args = @(Get-StringList $e 'args') }
 }
+
+function Get-ProcessFamily([string]$name) {
+    # A process and the helpers it brings up with it. RTSS starts RTSSHooksLoader64 and
+    # EncoderServer, and leaving those behind is the same residue as leaving RTSS itself.
+    $cfg = Get-PinnedProcesses
+    $kids = @()
+    if ($cfg -and $cfg.children) { $kids = @(Get-StringList $cfg.children $name) }
+    return @(@($name) + $kids)
+}
+
+function Start-RequiredProcesses($p) {
+    # Returns one record per name in `processes.running`, saying whether THIS apply is what
+    # put it there. Called inside the snapshot window, because starting a process is a
+    # change to the box like any other.
+    $records = New-Object System.Collections.Generic.List[object]
+    foreach ($name in (Get-StringList $p.processes 'running')) {
+        if (@(Get-Process -Name $name -ErrorAction SilentlyContinue).Count -gt 0) {
+            Write-Host ("  process        {0,-16} already running; this run did not start it and will not stop it" -f $name) `
+                       -ForegroundColor DarkGray
+            $records.Add([pscustomobject][ordered]@{ name = $name; started = $false })
+            continue
+        }
+        $start = Get-ProcessStart $name
+        if (-not $start -or -not $start.path) {
+            throw ("profile requires '$name' running and pinned.json does not say where its " +
+                   "exe is, so it cannot be started. Add it under processes.exe.")
+        }
+        if (-not (Test-Path -LiteralPath $start.path -PathType Leaf)) {
+            throw "profile requires '$name' running and its exe is not at '$($start.path)'."
+        }
+        if ($DryRun) {
+            Write-Host ("  would  start   {0,-16} {1}" -f $name, $start.path) -ForegroundColor DarkGray
+            $records.Add([pscustomobject][ordered]@{ name = $name; started = $true })
+            continue
+        }
+        Write-Host ("  process        {0,-16} starting it - this run will stop it again" -f $name) `
+                   -ForegroundColor DarkGray
+        # Hidden always: this pipeline never puts a window on the owner's desktop. RTSS goes
+        # to the tray either way, and a process that insists on a window still gets one.
+        $sp = @{ FilePath = $start.path; WorkingDirectory = (Split-Path -Parent $start.path)
+                 WindowStyle = 'Hidden' }
+        if (@($start.args).Count -gt 0) { $sp.ArgumentList = @($start.args) }
+        Start-Process @sp | Out-Null
+        $deadline = (Get-Date).AddSeconds(20)
+        while ((Get-Date) -lt $deadline -and
+               @(Get-Process -Name $name -ErrorAction SilentlyContinue).Count -eq 0) {
+            Start-Sleep -Milliseconds 400
+        }
+        if (@(Get-Process -Name $name -ErrorAction SilentlyContinue).Count -eq 0) {
+            throw "started '$exe' and '$name' did not appear within 20 s."
+        }
+        $records.Add([pscustomobject][ordered]@{ name = $name; started = $true })
+    }
+    return $records.ToArray()
+}
+
+function Stop-StartedProcesses($records) {
+    # Stops only what an apply started, plus the helpers that came up with it. Returns the
+    # names it could not stop, which the caller turns into a standing notice.
+    $left = New-Object System.Collections.Generic.List[string]
+    $cfg  = Get-PinnedProcesses
+    foreach ($r in (AsArray $records)) {
+        if (-not $r.started) { continue }
+        foreach ($n in (Get-ProcessFamily ([string]$r.name))) {
+            $procs = @(Get-Process -Name $n -ErrorAction SilentlyContinue)
+            if ($procs.Count -eq 0) { continue }
+            if ($DryRun) { Write-Host ("  would  stop    {0}" -f $n) -ForegroundColor DarkGray; continue }
+            try { $procs | Stop-Process -Force -ErrorAction Stop } catch { }
+            Start-Sleep -Milliseconds 400
+            if (@(Get-Process -Name $n -ErrorAction SilentlyContinue).Count -eq 0) {
+                Write-Host ("  process        {0,-16} stopped - this run had started it" -f $n) `
+                           -ForegroundColor DarkGray
+                continue
+            }
+            # It runs above this shell. The one non-elevating way out is a task the owner
+            # registered once; `Start-ScheduledTask` on it needs no elevation of ours.
+            $task = $(if ($cfg) { [string]$cfg.stop_task } else { $null })
+            if ($task -and (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)) {
+                Start-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 2
+                if (@(Get-Process -Name $n -ErrorAction SilentlyContinue).Count -eq 0) {
+                    Write-Host ("  process        {0,-16} stopped through '{1}'" -f $n, $task) `
+                               -ForegroundColor DarkGray
+                    continue
+                }
+            }
+            $left.Add($n)
+        }
+    }
+    # The leading comma: a returned array of none unrolls to $null on the way out, and
+    # @($null).Count is 1 - the caller would then report one nameless process left running.
+    return ,$left.ToArray()
+}
+
+function Set-ProcessNotice($names) {
+    # The standing notice. A process this pipeline started and could not stop is a change
+    # to the box that outlives the run, so it is written down rather than remembered: every
+    # `status` reprints it, and clears it by itself once the processes are gone.
+    $names = @(@($names) | Where-Object { $_ })
+    if ($names.Count -eq 0) { return }
+    $notice = [pscustomobject][ordered]@{
+        when  = [DateTime]::UtcNow.ToString('o')
+        names = $names
+        why   = ("started by a repro run and not stoppable from an unelevated shell " +
+                 "(requireAdministrator). Close it from its tray icon, or register the " +
+                 "stop task named in profiles\pinned.json.")
+    }
+    Write-JsonFile $processNotice $notice
+    Write-Host ""
+    Write-Host ("  LEFT RUNNING   {0}" -f ($names -join ', ')) -ForegroundColor Yellow
+    Write-Host ("                 this run started it and cannot stop it. `status` will keep " +
+                "saying so until it is gone.") -ForegroundColor Yellow
+}
+
+function Show-ProcessNotice {
+    if (-not (Test-Path -LiteralPath $processNotice -PathType Leaf)) { return }
+    $n = Read-JsonFile $processNotice
+    $still = @(@(Get-StringList $n 'names') | Where-Object {
+                   @(Get-Process -Name $_ -ErrorAction SilentlyContinue).Count -gt 0 })
+    if ($still.Count -eq 0) {
+        Remove-Item -LiteralPath $processNotice -Force -ErrorAction SilentlyContinue
+        return
+    }
+    Write-Host ""
+    Write-Host "Left running by a repro run" -ForegroundColor Yellow
+    Write-Host ("  {0}" -f ($still -join ', ')) -ForegroundColor Yellow
+    Write-Host ("  since {0} - {1}" -f $n.when, $n.why) -ForegroundColor DarkGray
+}
+
+function Get-PinnedPresentMon { $p = Get-Pinned; return $(if ($p) { $p.presentmon } else { $null }) }
 
 function Test-ProbeReady($spec) {
     # Everything a probe needs, read back BEFORE the profile is applied: a run that

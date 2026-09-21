@@ -129,6 +129,34 @@ fingerprint never sees, because it counts files. They are recorded in `snapshot.
 removed on restore, deepest first, and only when empty: a folder holding anything at all is holding
 something the restore did not put there.
 
+## Processes, and who put them there
+
+A configuration is not only files. `reshade-renodx` and both OptiScaler profiles need **RTSS
+running**, and the box has to go back to how it was afterwards — which is the same contract the
+files already have, so processes follow it:
+
+> The script touches only what it changed. It starts what a profile requires and is **not already
+> up**, records that in the snapshot, and on restore stops exactly those. A process the owner
+> already had running is neither started nor stopped, at either end.
+
+`processes.running` therefore no longer refuses when something is down — the apply starts it.
+What still refuses is being unable to: `profiles/pinned.json` says where each one lives, under
+`processes.exe`, as a path or `{ "path": …, "args": [ … ] }`, and `processes.children` names the
+helpers that come up with it (RTSS brings `RTSSHooksLoader64` and `EncoderServer`, and leaving those
+behind is the same residue as leaving RTSS itself). `processes.absent` is unchanged and still
+refuses: stopping something the owner is using is not this script's call.
+
+**Stopping is the asymmetric half.** `RTSS.exe` is `requireAdministrator`, so an unelevated shell
+starts it — it elevates itself — and then cannot stop it: no main window to close, and
+`Stop-Process` is *Access denied* across the integrity boundary. Two ways out, in order:
+
+1. `processes.stop_task` in `pinned.json` names a Scheduled Task the owner registers **once**, with
+   RunLevel Highest, that stops those processes by name. `Start-ScheduledTask` on it needs no
+   elevation from us, so every run after that cleans up by itself.
+2. Without the task, the restore says what it left running and writes `left_running.json` into the
+   store. **Every `status` reprints it** until those processes are actually gone, and clears it
+   itself when they are. Nobody has to remember that something was switched on an hour ago.
+
 ## The probes
 
 A probe is what a cell collects and how it is decided — one runner, and the difference is a

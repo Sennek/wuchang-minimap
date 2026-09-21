@@ -3,6 +3,16 @@
     "version": "v3.0.1-934-gcac01ee2",
     "sha256": "5f5d84009099f4598f6f8568a6e968ef7dcb7461084250aad0f3a834fe17e962"
   },
+  "processes": {
+    "note": "a profile's `processes.running` names what must be up; this says how to put it there. The script starts only what is NOT already running and stops on restore only what it started - a process the owner already had up is never touched at either end. `stop_task` is a Scheduled Task the owner registers once, with RunLevel Highest, that stops these by name: RTSS's manifest is requireAdministrator, so an unelevated shell can start it but cannot stop it. Without the task a run that started one says so and keeps saying so until it is gone.",
+    "stop_task": "WuchangRepro-StopProcesses",
+    "exe": {
+      "RTSS": "C:\\Program Files (x86)\\RivaTuner Statistics Server\\RTSS.exe"
+    },
+    "children": {
+      "RTSS": ["RTSSHooksLoader64", "EncoderServer"]
+    }
+  },
   "presentmon": {
     "version": "PresentMon 2.5.1 console build",
     "sha256": "9bec3083069f58f911e6a512f4806db51a27bd096103087bc1d05ef54c80a191",

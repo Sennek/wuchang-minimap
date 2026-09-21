@@ -66,8 +66,14 @@
         <option value=poly>polygon</option>
         <option value=shelf>shelf</option>
         <option value=cluster>cluster</option>
+        <option value=surface>surface: 1 click</option>
         <option value=box>region: 2 clicks</option>
       </select>
+      <label class=hint title="the rise a surface may have between neighbouring ground (uu)">step
+        <input type=number id=zstep value=60 min=1 step=10 style="width:4.5em"></label>
+      <label class=hint title="how far the whole surface may drift from the height you clicked on
+(uu). 0 lets it walk a slope to the bottom">band
+        <input type=number id=zband value=250 min=0 step=50 style="width:4.5em"></label>
       <input type=text id=goto placeholder="world X Y [Z]" size=12>
       <button id=gob>go</button>
     </div>
@@ -369,7 +375,9 @@ async function pick(u,v,z){
   const mine=++picking;
   busy('pick','measuring the piece…');
   const got=await fetch(`/pick?ch=${encodeURIComponent(chapter)}&u=${u}&v=${v}&mode=${m}`
-                       +`&z=${selZ}&all=${all}`+showq()).then(r=>r.json());
+                       +`&z=${selZ}&all=${all}&step=${+document.getElementById('zstep').value}`
+                       +`&band=${+document.getElementById('zband').value}`
+                       +showq()).then(r=>r.json());
   if(mine!=picking) return;
   busy('pick',null);
   last=got; report(last);
@@ -394,6 +402,15 @@ function report(r){
   const st=Object.entries(r.stages).map(([k,n])=>`${k} ${n}`).join(', ');
   const lv=r.levels.map(([k,n])=>`${esc(k)} <span class=hint>${n}</span>`).join('<br>');
   let h='<h2>piece</h2>';
+  if(r.cover){
+    h+='<table>'+tr('surface',`${r.area_m2} m&sup2; &middot; ${r.polys} polys `
+                   +`<span class=hint>step ${r.cover.step} &middot; band ${r.cover.band} uu</span>`)
+        +tr('as verdicts',`${r.cover.n} box(es) taking ${r.cover.area_m2} m&sup2;`
+            +(r.cover.over_m2>0?` <span class=hint>+${r.cover.over_m2} m&sup2; beyond it</span>`:''))
+        +'</table>'
+        +(r.cover.capped?'<p class=hint><b>capped</b> - the step walks further than this; '
+                        +'lower it, or mark this much and click again</p>':'');
+  }
   if(r.piece&&r.piece.mode&&r.piece.mode!=document.getElementById('mode').value){
     // The rule found this as a shelf; judging it as one component would answer a different question.
     document.getElementById('mode').value=r.piece.mode;
@@ -566,6 +583,16 @@ async function mark(verdict){
                            raster:last.raster, z:last.z})}).then(r=>r.json());
     document.getElementById('note').value=''; took(got);
     box_clear(); reload_base(true);
+    return;
+  }
+  if(last.cover){
+    const got=await fetch('/mark?ch='+encodeURIComponent(chapter), {method:'POST',
+      body:JSON.stringify({verdict, note:document.getElementById('note').value,
+                           boxes:last.cover.boxes, world:last.world,
+                           area_m2:last.cover.area_m2, polys:last.polys,
+                           raster:last.raster, z:last.z})}).then(r=>r.json());
+    document.getElementById('note').value=''; took(got);
+    ov.hidden=true; last=null; reload_base(true);
     return;
   }
   const b={verdict, note:document.getElementById('note').value,

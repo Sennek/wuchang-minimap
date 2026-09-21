@@ -29,19 +29,29 @@ GROUPS = {
     "done":    {"rgb": (113, 122, 132), "label": "already gone from the map"},
 }
 
-def box_of(pick: dict) -> dict | None:
-    """The region a verdict names, or None when it names a piece.
+def boxes_of(pick: dict) -> list[dict]:
+    """The region a verdict names, as boxes - empty when it names a piece instead.
 
     A piece verdict cuts the whole component under a point, which cannot reach ground the navmesh
     fused to the level - a map drawn through the wall of a tunnel is part of the tunnel. A region
-    verdict cuts by place instead: a world box and the height band it applies at.
+    verdict cuts by place instead: world boxes and the height band each applies at.
+
+    Two clicks draw one box (`box` + `z_range`). A surface click draws the cover of a whole walkable
+    surface, which winds and needs many - they arrive as `boxes`, six numbers each, and they are ONE
+    verdict: one thing the player judged, one row in the list, one mark in the score.
     """
+    many = pick.get("boxes")
+    if many:
+        return [{"x0": min(b[0], b[2]), "y0": min(b[1], b[3]),
+                 "x1": max(b[0], b[2]), "y1": max(b[1], b[3]),
+                 "z0": min(b[4], b[5]), "z1": max(b[4], b[5])}
+                for b in many if len(b) == 6]
     b, z = pick.get("box"), pick.get("z_range")
     if not b or len(b) != 4 or not z or len(z) != 2:
-        return None
-    return {"x0": min(b[0], b[2]), "y0": min(b[1], b[3]),
-            "x1": max(b[0], b[2]), "y1": max(b[1], b[3]),
-            "z0": min(z), "z1": max(z)}
+        return []
+    return [{"x0": min(b[0], b[2]), "y0": min(b[1], b[3]),
+             "x1": max(b[0], b[2]), "y1": max(b[1], b[3]),
+             "z0": min(z), "z1": max(z)}]
 
 
 # A mark the pipeline disagrees with: its component carries a marker of the game's own - a shrine, an

@@ -142,6 +142,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, NamedTuple
 
+# The verdict file's own format lives with the file, not with each reader of it. That module is
+# stdlib-only, so this is not a dependency on the picker.
+import oob_verdicts
+
 try:
     from PIL import Image, ImageDraw
 except ImportError:  # pragma: no cover
@@ -940,16 +944,13 @@ def load_oob_boxes(path: str | Path, chapter: str) -> list[dict]:
     chapter's own 16 199 m2 component, so cutting the component would cut the chapter. What the
     player can say about such ground is where it is, not which component it belongs to.
 
-    `box` is `[x0, y0, x1, y1]` in world units and `z` is `[lo, hi]`; both are inclusive.
+    `box` is `[x0, y0, x1, y1]` in world units and `z_range` is `[lo, hi]`; both are inclusive. A
+    verdict drawn on a whole walkable surface carries `boxes` instead - six numbers each, because a
+    surface winds and one rectangle cannot hold it.
     """
     out = []
     for p in _oob_verdicts(path, chapter):
-        b, z = p.get("box"), p.get("z_range")
-        if not b or len(b) != 4 or not z or len(z) != 2:
-            continue
-        out.append({"x0": min(b[0], b[2]), "y0": min(b[1], b[3]),
-                    "x1": max(b[0], b[2]), "y1": max(b[1], b[3]),
-                    "z0": min(z), "z1": max(z)})
+        out.extend(oob_verdicts.boxes_of(p))
     return out
 
 

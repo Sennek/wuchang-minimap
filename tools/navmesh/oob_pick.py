@@ -41,7 +41,10 @@ import urllib.parse
 import webbrowser
 from pathlib import Path
 
-from oob_chapter import MARKER_GROUPS, Chapter, ChapterUnavailable, Library
+import render
+
+from oob_chapter import (MARKER_GROUPS, SURFACE_CAP_M2, Chapter, ChapterUnavailable,
+                         Library)
 from oob_measure import describe, matches_z
 from oob_rules import score
 from oob_verdicts import GROUPS, load_doc, save_doc
@@ -219,6 +222,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def pick(self, ch: Chapter, q: dict) -> dict:
         u, v = float(q.get("u", [0])[0]), float(q.get("v", [0])[0])
         mode = q.get("mode", ["comp"])[0]
+        # Server state, like the standing rules: one page, one reading of "the same surface".
+        if q.get("step", [""])[0] != "":
+            ch.surface_step = max(1.0, float(q["step"][0]))
+        if q.get("band", [""])[0] != "":
+            ch.surface_band = max(0.0, float(q["band"][0]))
         show = self.shown(q)
         wx, wy = ch.to_world(u, v)
         surfaces = ch.surfaces_at(int(u), int(v))
@@ -269,6 +277,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         rep["world"] = [round(wx, 1), round(wy, 1), round(poly["cz"], 1)]
         rep["pixel"] = [int(u), int(v)]
         rep["surfaces"] = surfaces
+        if mode == "surface" and "comp" in poly:
+            # A surface is judged as region verdicts, so the boxes that would carry it - and what
+            # they would take beyond it - are part of what the click has to show.
+            _key, sel = ch.selection(poly, mode)
+            boxes = ch.box_cover(sel)
+            took = render.polys_in_boxes(ch.rest, boxes)
+            mine = sum(p["xyarea"] for p in sel)
+            rep["cover"] = {"boxes": boxes, "n": len(boxes),
+                            "area_m2": round(sum(p["xyarea"] for p in took) / 1e4, 1),
+                            "over_m2": round(max(0.0, sum(p["xyarea"] for p in took) - mine) / 1e4,
+                                             1),
+                            "step": ch.surface_step, "band": ch.surface_band,
+                            "capped": round(mine / 1e4, 1) >= SURFACE_CAP_M2}
         rep["poly"] = {"idx": poly["idx"], "tile": list(poly["tile"]),
                        "level": Path(ch.tile_source.get(poly["tile"], "?")).stem,
                        "stage": poly["stage"], "area_m2": round(poly["xyarea"] / 10000.0, 2),
@@ -311,7 +332,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # stale, not just this chapter's.
         self.library.forget_pieces()
         now = time.strftime("%Y-%m-%d %H:%M:%S")
-        if url.path == "/mark":
+        if url.path == "/mark" and body.get("boxes"):
+            # A surface is ONE verdict carrying the cover of one walkable surface - one row in the
+            # list, one mark in the score - so the boxes go in as they are. `mode: box` because
+            # that is what it is to everything downstream; `via` only records what drew it.
+            body["boxes"] = [[b["x0"], b["y0"], b["x1"], b["y1"], b["z0"], b["z1"]]
+                             for b in body["boxes"]]
+            body.update(mode="box", via="surface", chapter=ch.key, batch=doc["open_batch"], ts=now)
+            body.setdefault("from", "hand")
+            picks.append(body)
+        elif url.path == "/mark":
             # A verdict cuts the whole piece, and the piece under a click can be the level itself:
             # chapter 4's main body is one component of 16 199 m2, and marking anywhere on it -
             # including the zone nobody can reach - would take the chapter with it. The rules can

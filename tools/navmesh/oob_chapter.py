@@ -32,7 +32,7 @@ import slice_preview as sp
 from oob_measure import (PICK_GRID_UU, STACK_BUDGET_PX, drawn_surfaces, inner, mask_of, matches_z,
                          overlap, overlay_png, raster_masks)
 from oob_rules import RuleSet
-from oob_verdicts import GROUPS, box_of, group_of, load_doc
+from oob_verdicts import GROUPS, boxes_of, group_of, load_doc
 
 HERE = Path(__file__).resolve().parent
 
@@ -58,6 +58,15 @@ CUT_CACHE = 8
 
 BLOCKS_JSON = HERE.parents[1] / "markers" / "blocks.json"
 WALL_RGB = (217, 70, 239)
+
+# A SURFACE selection: the ground a click can walk onto without a step bigger than this. The
+# default is the reachability flood's own step - what the map already calls walkable in one stride.
+SURFACE_Z_STEP = 60.0
+SURFACE_BAND_UU = 250.0         # ... and how far the whole surface may drift from the click's own Z
+SURFACE_CAP_M2 = 40000.0        # a small enough step still eventually walks the level
+SURFACE_BOX_GRID_UU = 200.0     # the cells a surface is covered with when it becomes verdicts
+SURFACE_BOX_PAD_UU = 150.0      # the margin a box's height band keeps around its own ground
+SURFACE_BOX_SPAN_UU = 600.0     # ... and the tallest band one box is allowed to claim
 WALL_SHELL_LO = -300.0
 WALL_SHELL_HI = 500.0
 
@@ -127,6 +136,10 @@ class Chapter:
         self._pieces: tuple[tuple, list[dict]] | None = None  # the marks and proposals, located
         self._shelves: list[list[int]] | None = None   # components grouped into flat shelves
         self._shelf_of: dict[int, int] = {}
+        self._cells: dict[tuple[int, int], list[int]] | None = None   # grid cell -> polygons in it
+        self._rest_at: dict[int, int] = {}            # a polygon object -> where it sits in `rest`
+        self.surface_step = SURFACE_Z_STEP   # the page's current reading of "the same surface"
+        self.surface_band = SURFACE_BAND_UU
         # What a build run right now would cut this chapter with, and what the page starts from.
         self.defaults = RuleSet(small=build_map.SMALL_UNSEEDED_UU2)
         self.rules = self.defaults      # the thresholds the page is currently judging
@@ -426,14 +439,14 @@ class Chapter:
                 continue
             common = dict(i=i, verdict=p.get("verdict", "oob"), note=p.get("note", ""),
                           world=[float(w[0]), float(w[1]), float(w[2])], batch=p["batch"])
-            box = box_of(p)
-            if box is not None:
+            box = boxes_of(p)
+            if box:
                 # A region says where the ground is, not which component it belongs to, so there is
-                # nothing to re-locate: the box IS the mark.
+                # nothing to re-locate: the boxes ARE the mark.
                 key, sel = self.box_sel(box)
                 if not sel:
                     continue
-                pc = dict(self.shape_of(key, sel), mode="box", box=box, **common)
+                pc = dict(self.shape_of(key, sel), mode="box", box=box[0], boxes=box, **common)
                 comp = None
             else:
                 poly = self.locate(float(w[0]), float(w[1]), float(w[2]))
@@ -771,15 +784,114 @@ class Chapter:
             return max(hits, key=lambda p: p["cz"])
         return min(hits, key=lambda p: abs(p["cz"] - wz))
 
+    def cell_index(self) -> dict[tuple[int, int], list[int]]:
+        """Grid cell -> the polygons that touch it, over `rest`. The adjacency a surface floods on."""
+        if self._cells is None:
+            self._cells = {}
+            self._rest_at = {id(p): n for n, p in enumerate(self.rest)}
+            for n, p in enumerate(self.rest):
+                for c in render.poly_cells(p, render.DEFAULT_ISLAND_GRID):
+                    self._cells.setdefault(c, []).append(n)
+        return self._cells
+
+    def surface_at(self, poly: dict, step: float, band: float | None = None) -> list[dict]:
+        """The walkable SURFACE under a click: this floor, this terrace, at this height.
+
+        Neither a component nor a box. A component is the whole welded body - in chapter 1 that is
+        63 % of the map, which is why a click on a terrace marks half the level. A box is a
+        rectangle, and out-of-bounds ground winds.
+
+        TWO limits, because one is not enough. `step` is the rise between neighbours - what makes it
+        one walkable surface - and on a gentle slope that alone walks the hillside down into the
+        city, sixty units at a time: chapter 1's terrace came back 4 418 m2 spanning 1 322 uu of Z.
+        `band` is how far the whole surface may drift from the height clicked on, and it is what
+        holds a selection to the storey a player would name.
+
+        Capped by area as well; the caller is told when the cap was reached rather than handed a
+        silent half-answer.
+        """
+        cells = self.cell_index()
+        # `locate` hands back the object itself where the ground survived the plane filter, and
+        # something outside `rest` where it did not - a sky sheet has no surface to walk.
+        start = self._rest_at.get(id(poly))
+        if start is None:
+            return [poly]
+        band = self.surface_band if band is None else band
+        home_z = self.rest[start]["cz"]
+        seen = {start}
+        queue = [start]
+        area = self.rest[start]["xyarea"]
+        while queue:
+            n = queue.pop()
+            p = self.rest[n]
+            for c in render.poly_cells(p, render.DEFAULT_ISLAND_GRID):
+                for gx, gy in ((c[0], c[1]), (c[0] + 1, c[1]), (c[0] - 1, c[1]),
+                               (c[0], c[1] + 1), (c[0], c[1] - 1)):
+                    for m in cells.get((gx, gy), ()):
+                        if (m in seen or abs(self.rest[m]["cz"] - p["cz"]) > step
+                                or (band > 0 and abs(self.rest[m]["cz"] - home_z) > band)):
+                            continue
+                        seen.add(m)
+                        area += self.rest[m]["xyarea"]
+                        if area / 1e4 > SURFACE_CAP_M2:
+                            return [self.rest[i] for i in seen]
+                        queue.append(m)
+        return [self.rest[i] for i in seen]
+
+    def box_cover(self, sel: list[dict], grid: float = SURFACE_BOX_GRID_UU,
+                  pad: float = SURFACE_BOX_PAD_UU) -> list[dict]:
+        """A surface written as region verdicts: axis-aligned boxes with their own height bands.
+
+        The shipped cut takes boxes (`render.polys_in_boxes`), so a surface has to be expressed as
+        some. Greedy maximal rectangles over the cells the surface occupies, and a rectangle stops
+        growing when its height band would exceed `SURFACE_BOX_SPAN_UU` - a wide flat box is cheap,
+        a wide TALL one would take the storeys under it.
+        """
+        cells: dict[tuple[int, int], list[float]] = {}
+        for p in sel:
+            key = (int(math.floor(p["cx"] / grid)), int(math.floor(p["cy"] / grid)))
+            cells.setdefault(key, []).append(p["cz"])
+        free = set(cells)
+        boxes: list[dict] = []
+        while free:
+            gx, gy = min(free)
+
+            def span(rect) -> float:
+                zs = [z for c in rect for z in cells[c]]
+                return max(zs) - min(zs)
+
+            rect = [(gx, gy)]
+            w = 1
+            while (gx, gy + w) in free and span(rect + [(gx, gy + w)]) <= SURFACE_BOX_SPAN_UU:
+                rect.append((gx, gy + w))
+                w += 1
+            h = 1
+            while True:
+                row = [(gx + h, gy + k) for k in range(w)]
+                if not all(c in free for c in row) or span(rect + row) > SURFACE_BOX_SPAN_UU:
+                    break
+                rect.extend(row)
+                h += 1
+            free -= set(rect)
+            zs = [z for c in rect for z in cells[c]]
+            boxes.append({"x0": gx * grid, "y0": gy * grid,
+                          "x1": (gx + h) * grid, "y1": (gy + w) * grid,
+                          "z0": round(min(zs) - pad, 1), "z1": round(max(zs) + pad, 1)})
+        return boxes
+
     def selection(self, poly: dict, mode: str) -> tuple[str, list[dict]]:
         """The piece a pick highlights - its key and its polygons.
 
-        The piece is the polygon, its component, its shelf or its cluster, and the key names that
-        ground rather than the click that found it. That is what lets one measurement serve a rule
-        proposal, a mark re-located onto the same ground, and every click on it.
+        The piece is the polygon, its surface, its component, its shelf or its cluster, and the key
+        names that ground rather than the click that found it. That is what lets one measurement
+        serve a rule proposal, a mark re-located onto the same ground, and every click on it.
         """
         if mode == "poly" or "comp" not in poly:
             return f"poly:{poly['idx']}", [poly]
+        if mode == "surface":
+            sel = self.surface_at(poly, self.surface_step, self.surface_band)
+            return (f"surface:{min(p['idx'] for p in sel)}:{self.surface_step:g}"
+                    f":{self.surface_band:g}", sel)
         comp = self.comps[poly["comp"]]
         if mode == "shelf":
             self.shelves()
@@ -794,15 +906,17 @@ class Chapter:
             return f"cluster:{comp['cluster']}", out
         return f"comp:{poly['comp']}", self.comp_polys.get(poly["comp"], [poly])
 
-    def box_sel(self, box: dict) -> tuple[str, list[dict]]:
+    def box_sel(self, boxes: dict | list[dict]) -> tuple[str, list[dict]]:
         """The ground inside a region verdict, and the key that names that region.
 
         `render.polys_in_boxes` decides it, the same call the build cuts with, so the picture the
-        region is judged on is the ground the build will take.
+        region is judged on is the ground the build will take. One verdict can carry many boxes -
+        a surface winds, and a rectangle does not.
         """
-        key = (f"box:{box['x0']:.0f},{box['y0']:.0f},{box['x1']:.0f},{box['y1']:.0f}"
-               f",{box['z0']:.0f},{box['z1']:.0f}")
-        return key, render.polys_in_boxes(self.rest, [box])
+        many = [boxes] if isinstance(boxes, dict) else list(boxes)
+        key = "box:" + "|".join(f"{b['x0']:.0f},{b['y0']:.0f},{b['x1']:.0f},{b['y1']:.0f}"
+                                f",{b['z0']:.0f},{b['z1']:.0f}" for b in many)
+        return key, render.polys_in_boxes(self.rest, many)
 
     def shape(self, poly: dict, mode: str) -> dict:
         """The pixels of a piece and what the height planes say about them, measured once.

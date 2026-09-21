@@ -37,7 +37,12 @@ current.json  what is applied right now
 
 `tests\probe_test.ps1` defines this script's functions without running its dispatch and puts the
 present probe's readers over a real two-swapchain capture and a real log, reproducing the numbers
-the 2026-09-17 measurement was published with. Run it after any change to them.
+the 2026-09-17 measurement was published with. `tests\tree_test.ps1` proves the tree payload and
+`verdict: any` by driving a real apply / restore against a **sandbox** — a fake game root, store and
+profiles dir, built from invented files — so the round trip is proven before it is trusted with the
+install. It needs `WUCHANG_REPRO_PROFILES_DIR` beside the two state overrides, because `profiles\`
+is committed and a test must not write one into the repo. Run both after any change to the readers,
+the payload loop or the snapshot.
 
 A missing payload is reported by name and hash so it can be re-downloaded. A profile is a recipe,
 not an archive.
@@ -46,7 +51,7 @@ not an archive.
 
 | Field | Meaning |
 |---|---|
-| `payloads` | files in `Binaries\Win64`: a payload name + sha256 to place, or `null` to state it absent |
+| `payloads` | files and trees in `Binaries\Win64`: a payload name + sha256 to place, or `null` to state it absent. `"tree": true` makes `dest` a **directory** — see below |
 | `mod.build` | `keep`, or `dist:x.y.z` to **replace** the mod directory with that release — see below |
 | `mod.state` | `on`, `hooks-off`, `off` (at start-up) or `absent` (`start_mod` is never called) |
 | `mod.config` / `mod.config_dev` | keys to set in the installed configs |
@@ -70,6 +75,13 @@ not an archive.
 }
 ```
 
+`verdict` is `HEALTHY` (the default when it is absent), `CRASH` for a profile that reproduces a bug,
+or **`any`** — record the verdict and assert nothing about it. `any` is not a weaker `CRASH`: it is
+for a cell whose every answer is information, such as a build old enough to carry a bug that has
+never been reproduced on this box. Reporting FAIL for a result that is not a failure of the box is
+how a verifier stops being read. A profile using it must still assert something else; an `expect`
+that asserts nothing is refused.
+
 Modules are matched on the **end of the loaded module's full path**, never on its name: Windows
 loads its own `dxgi.dll` and `dwmapi.dll` from System32 into every process, so a name check for
 either passes in a configuration carrying no injector at all. A misspelt field and an `expect` that
@@ -85,6 +97,37 @@ a cell happened to sit in, and every held cell sits in the menu.
 Reading the recorded mode, the label is exact — `Hardware: Independent Flip`,
 `Hardware Composed: Independent Flip` and `Composed: Flip` are three different states, and reading
 only the first of the two hardware labels scores a win as a loss.
+
+## A payload that is a directory
+
+Some injectors are not one file. OptiScaler puts nine libraries under
+`Binaries\Win64\OptiScaler\` beside its proxy, and a profile that listed them one by one could
+install them but could never state the **folder** absent — every other profile would have to name
+all nine by hand, and a file nobody listed would survive into a cell claiming to carry no OptiScaler.
+So `"tree": true` makes `dest` a directory:
+
+```json
+{ "dest": "OptiScaler", "tree": true, "source": "optiscaler-0.9.4",
+  "sha256": { "libxess.dll": "…", "nested\\lib.dll": "…" } }
+{ "dest": "OptiScaler", "tree": true, "source": null }
+```
+
+A tree's `source` is a **folder in the store** and its `sha256` is a map of relative path → hash,
+one entry per file: a single hash over a directory would name a traversal order rather than the
+files, and could not say which one drifted. A file in the store the map does not name, or a name the
+store does not hold, is refused.
+
+Installing a tree **replaces** the directory, exactly as a pinned `mod.build` replaces the mod
+directory: a file standing there that the source does not carry is not part of this configuration,
+so it is snapshotted and removed rather than left to load beside ours. Stating a tree `null`
+snapshots every file under it — without the profile listing one — and takes the whole thing.
+
+The snapshot format needs nothing new for this: a tree is a set of files, and "this file was not
+here before" already means "delete it on the way back". What a tree does add is the **directories
+the apply had to create**, which the files alone would leave standing empty — a residue the
+fingerprint never sees, because it counts files. They are recorded in `snapshot.json` as `dirs` and
+removed on restore, deepest first, and only when empty: a folder holding anything at all is holding
+something the restore did not put there.
 
 ## The probes
 

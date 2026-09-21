@@ -94,6 +94,10 @@
         can be exercised against a throwaway tree. Those two directories are the only ones
         not derivable from WUCHANG_GAME_ROOT - they hang off $env:LOCALAPPDATA - and
         without an override every test would be a test against the owner's live play state.
+        WUCHANG_REPRO_PROFILES_DIR is the third: `profiles\` is committed, so a test that
+        needs a profile of its own would otherwise have to write one into the repo. With
+        -GameRoot and -Store pointed at a sandbox, all four move together and an apply /
+        restore can be proven on invented files before it is trusted with the install.
 
 .PARAMETER Verb
     status | vault | apply | restore | saves-restore | list | run | verify | runs
@@ -214,7 +218,8 @@ $ErrorActionPreference = 'Stop'
 # the two test overrides for the directories that hang off LOCALAPPDATA.
 #------------------------------------------------------------------------------------
 $repo        = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$profilesDir = Join-Path $PSScriptRoot 'profiles'
+$profilesDir = $(if ($env:WUCHANG_REPRO_PROFILES_DIR) { $env:WUCHANG_REPRO_PROFILES_DIR }
+                 else { Join-Path $PSScriptRoot 'profiles' })
 $bin         = Join-Path $GameRoot 'Project_Plague\Binaries\Win64'
 $modDir      = Join-Path $bin 'ue4ss\Mods\WuchangMinimap'
 $reconDir    = Join-Path $bin 'ue4ss\Mods\WuchangRecon'
@@ -711,7 +716,9 @@ function Invoke-Vault {
 #====================================================================================
 
 $script:SnapEntries = $null
+$script:SnapDirs    = $null
 $script:SnapSeen    = $null
+$script:SnapDirSeen = $null
 $script:SnapDir     = $null
 $script:SnapProfile = $null
 $script:SnapStamp   = $null
@@ -720,7 +727,9 @@ function Start-Snapshot([string]$dir, [string]$profileName, [string]$stamp) {
     # The directory and an empty snapshot.json exist before the apply touches its first
     # file, so an apply that dies mid-way has left a record rather than a mystery.
     $script:SnapEntries = New-Object System.Collections.Generic.List[object]
+    $script:SnapDirs    = New-Object System.Collections.Generic.List[object]
     $script:SnapSeen    = @{}
+    $script:SnapDirSeen = @{}
     $script:SnapDir     = $dir
     $script:SnapProfile = $profileName
     $script:SnapStamp   = $stamp
@@ -732,7 +741,13 @@ function Save-Snapshot {
     # few KB of JSON per file and the return is that the record never trails the damage.
     # Both arrays are hoisted: an expression inside an [ordered] literal that is then cast
     # to PSCustomObject throws "Argument types do not match" on 5.1.
+    # `$( ... @() ... )` is not a way to produce an empty array: the subexpression UNROLLS
+    # it to $null, and $null in an [ordered] literal serializes as `{}` - an empty object,
+    # which reads back as an object with no properties rather than as a list of none. The
+    # assignment below does not unroll, so an empty snapshot writes `"dirs": []`.
     $fileArray = $script:SnapEntries.ToArray()
+    $dirArray  = @()
+    if ($script:SnapDirs) { $dirArray = $script:SnapDirs.ToArray() }
     $rootsObj  = [pscustomobject]$Roots
     $manifest = [pscustomobject][ordered]@{
         stamp   = $script:SnapStamp
@@ -740,6 +755,11 @@ function Save-Snapshot {
         host    = $env:COMPUTERNAME
         roots   = $rootsObj
         files   = $fileArray
+        # Directories the apply had to CREATE. A tree is restored as its files, and the
+        # files alone would leave the folder standing empty - a residue the fingerprint
+        # never sees, because it counts files. Recorded so the restore can remove exactly
+        # what the apply made and nothing that was already there.
+        dirs    = $dirArray
     }
     if (-not $DryRun) { Write-JsonFile (Join-Path $script:SnapDir 'snapshot.json') $manifest }
     return $manifest
@@ -752,6 +772,45 @@ function Get-FlatName([int]$index, [string]$root, [string]$rel) {
     $flat = ($root + '__' + $rel) -replace '[\\/:*?"<>|]', '_'
     if ($flat.Length -gt 120) { $flat = $flat.Substring($flat.Length - 120) }
     return ('{0:d4}__{1}' -f $index, $flat)
+}
+
+function Add-SnapshotDirs([string]$root, [string]$rel, [string]$intent = 'general') {
+    # Every directory on the way to `rel` that does not exist yet, outermost first, so a
+    # restore walking the list backwards removes the deepest one first. Recorded before
+    # anything is written into them; creating them is Copy-Exact's job.
+    $abs    = Resolve-RootPath $root $rel $intent
+    $rootAbs = (Resolve-RootPath $root '.' $intent).TrimEnd('\')
+    $missing = New-Object System.Collections.Generic.List[string]
+    $dir = Split-Path -Parent $abs
+    while ($dir -and $dir.Length -gt $rootAbs.Length -and -not (Test-Path -LiteralPath $dir)) {
+        $missing.Insert(0, $dir)
+        $dir = Split-Path -Parent $dir
+    }
+    foreach ($d in $missing) {
+        $key = $d.ToLowerInvariant()
+        if ($script:SnapDirSeen.ContainsKey($key)) { continue }
+        $script:SnapDirSeen[$key] = $true
+        $script:SnapDirs.Add([pscustomobject][ordered]@{ path = $d })
+    }
+}
+
+function Get-TreeFiles([string]$dir) {
+    # Every file under `dir`, as paths relative to it. The empty list when it does not
+    # exist, because "state this tree absent" is satisfied by a tree that is not there.
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return @() }
+    # The base comes from the SAME provider call that yields the children, because two
+    # PowerShell APIs can spell one path differently: `Resolve-Path` hands back the 8.3
+    # short form when it was given one ('A1A85~1.KOZ') while `Get-ChildItem` expands it
+    # ('a.kozachenko'), and a Substring by length then slices in the wrong place. The
+    # StartsWith is not decoration - it is what turns that class of mistake into a throw
+    # instead of a path with a stray separator in front of it.
+    $base = (Get-Item -LiteralPath $dir).FullName.TrimEnd([char]92) + [string][char]92
+    return @(Get-ChildItem -LiteralPath $dir -File -Recurse -Force | ForEach-Object {
+                 if (-not $_.FullName.StartsWith($base, [System.StringComparison]::OrdinalIgnoreCase)) {
+                     throw "tree: '$($_.FullName)' is not under '$base'; refusing to guess its relative path."
+                 }
+                 $_.FullName.Substring($base.Length)
+             } | Sort-Object)
 }
 
 function Add-SnapshotEntry([string]$root, [string]$rel, [bool]$volatile = $false, [string]$intent = 'general') {
@@ -929,8 +988,9 @@ function Read-Profile([string]$name) {
             throw "profile '$name': unknown field 'expect.$field'; expected one of $($ExpectFields -join ', ')."
         }
     }
-    if ($p.expect.verdict -and ([string]$p.expect.verdict) -notin @('HEALTHY', 'CRASH')) {
-        throw "profile '$name': field 'expect.verdict' is '$($p.expect.verdict)'; expected HEALTHY or CRASH."
+    if ($p.expect.verdict -and ([string]$p.expect.verdict) -notin @('HEALTHY', 'CRASH', 'any')) {
+        throw ("profile '$name': field 'expect.verdict' is '$($p.expect.verdict)'; expected HEALTHY, " +
+               "CRASH, or 'any' to record the verdict without asserting it.")
     }
     $assertions = 0
     foreach ($field in @('modules', 'modules_absent', 'log_lines', 'log_lines_absent')) {
@@ -945,9 +1005,18 @@ function Read-Profile([string]$name) {
         foreach ($field in (Get-PropertyNames $entry)) {
             # `note` is the one free-text field: a profile is a recipe a person reads,
             # and JSON has no comments.
-            if ($field -notin @('dest', 'source', 'sha256', 'volatile', 'note')) {
+            if ($field -notin @('dest', 'source', 'sha256', 'volatile', 'note', 'tree')) {
                 throw "profile '$name': unknown field 'payloads[$($entry.dest)].$field'."
             }
+        }
+        if ($entry.tree -and $entry.source -and -not $entry.sha256) {
+            throw ("profile '$name': payload tree 'payloads[$($entry.dest)]' installs files and " +
+                   "names no 'sha256'. A tree's sha256 is an object of relative path -> hash, one " +
+                   "entry per file it carries.")
+        }
+        if ($entry.tree -and $entry.sha256 -and ($entry.sha256 -is [string])) {
+            throw ("profile '$name': payload tree 'payloads[$($entry.dest)].sha256' is a single " +
+                   "string. A tree hashes every file it carries: { ""<relative path>"": ""<sha256>"" }.")
         }
     }
     return $p
@@ -994,6 +1063,34 @@ function Test-ProfilePayloads($p, [string]$name) {
     foreach ($entry in (AsArray $p.payloads)) {
         if ($null -eq $entry.source) { continue }
         $src = Join-Path $payloadRoot ([string]$entry.source)
+        if ($entry.tree) {
+            # A tree's source is a folder in the store, and its `sha256` is a map of
+            # relative path -> hash: one hash over a directory would name an ordering and
+            # a traversal rather than the files, and could not say WHICH file drifted.
+            if (-not (Test-Path -LiteralPath $src -PathType Container)) {
+                throw "profile '$name': payload 'payloads[$($entry.dest)].source' = '$($entry.source)' is a tree and there is no such folder in the store ('$src')."
+            }
+            $have = @(Get-TreeFiles $src)
+            if ($have.Count -eq 0) {
+                throw "profile '$name': payload tree '$($entry.source)' is an empty folder; a tree that installs nothing is a profile that states nothing."
+            }
+            foreach ($rel in $have) {
+                $want = $entry.sha256.$rel
+                if (-not $want) {
+                    throw "profile '$name': payload tree '$($entry.source)' holds '$rel' and 'payloads[$($entry.dest)].sha256' does not name it. Every file a tree installs is hashed in the profile."
+                }
+                $got = Get-Sha (Join-Path $src $rel)
+                if ($got -ne ([string]$want).ToLowerInvariant()) {
+                    throw "profile '$name': payload '$($entry.source)\$rel' hashes $got, the profile says $want."
+                }
+            }
+            foreach ($rel in (Get-PropertyNames $entry.sha256)) {
+                if ($rel -notin $have) {
+                    throw "profile '$name': 'payloads[$($entry.dest)].sha256' names '$rel' and the store's tree '$($entry.source)' does not hold it."
+                }
+            }
+            continue
+        }
         if (-not (Test-Path -LiteralPath $src -PathType Leaf)) {
             throw "profile '$name': payload 'payloads[$($entry.dest)].source' = '$($entry.source)' is not in the store ('$src'). Re-download it; sha256 $($entry.sha256)."
         }
@@ -1200,6 +1297,50 @@ function Invoke-Apply([string]$name, $instrument = $null) {
     foreach ($entry in (AsArray $p.payloads)) {
         $rel = [string]$entry.dest
         $dst = Resolve-RootPath 'bin' $rel
+
+        if ($entry.tree) {
+            # A TREE. The snapshot format needs nothing new for it - a tree is a set of
+            # files, and "this file was not here before" already means "delete it on the
+            # way back". What a tree adds is the enumeration, and the directories the
+            # apply has to create, which the files alone would leave standing empty.
+            $under = @(Get-TreeFiles $dst)
+            if ($null -eq $entry.source) {
+                # Stated ABSENT. Every file that is there is snapshotted before the tree
+                # goes, so the restore puts back a folder nobody had to list by hand -
+                # which is the whole reason a directory is declarable at all.
+                foreach ($sub in $under) {
+                    Add-SnapshotEntry 'bin' (Join-Path $rel $sub) ([bool]$entry.volatile)
+                }
+                if (Test-Path -LiteralPath $dst) {
+                    Invoke-Delete $dst ("payload: this profile states the tree absent ({0} file(s))" -f
+                                        $under.Count)
+                }
+                continue
+            }
+            # INSTALLED. A tree REPLACES the directory, as a pinned build replaces the mod
+            # directory: a file standing there that the source does not carry is not part
+            # of this configuration, so it is snapshotted and removed rather than left to
+            # load beside ours.
+            $src   = Join-Path $payloadRoot ([string]$entry.source)
+            $files = @(Get-TreeFiles $src)
+            foreach ($sub in $under) {
+                if ($sub -notin $files) {
+                    Add-SnapshotEntry 'bin' (Join-Path $rel $sub) ([bool]$entry.volatile)
+                    Invoke-Delete (Join-Path $dst $sub) "payload: the tree does not carry it"
+                }
+            }
+            foreach ($sub in $files) {
+                $subRel = Join-Path $rel $sub
+                Add-SnapshotDirs 'bin' $subRel
+                Add-SnapshotEntry 'bin' $subRel ([bool]$entry.volatile)
+                Invoke-Copy (Join-Path $src $sub) (Join-Path $dst $sub) $null
+            }
+            Write-Host ("         payload tree: {0}, {1} file(s)" -f $entry.source, $files.Count) `
+                       -ForegroundColor DarkGray
+            continue
+        }
+
+        Add-SnapshotDirs 'bin' $rel
         Add-SnapshotEntry 'bin' $rel ([bool]$entry.volatile)
         if ($null -eq $entry.source) {
             if (Test-Path -LiteralPath $dst -PathType Leaf) {
@@ -1409,10 +1550,26 @@ function Invoke-Restore {
         }
     }
 
+    # The directories the apply created, deepest first - the list was recorded outermost
+    # first. Each one goes only if it is EMPTY: a folder holding anything at all is holding
+    # something this restore did not put there, and removing it would be removing somebody
+    # else's file under cover of an undo.
+    $dirs = AsArray $snap.dirs
+    for ($i = $dirs.Count - 1; $i -ge 0; $i--) {
+        $d = [string]$dirs[$i].path
+        if (-not (Test-Path -LiteralPath $d -PathType Container)) { continue }
+        if (@(Get-ChildItem -LiteralPath $d -Force).Count -gt 0) {
+            Write-Host ("  KEEP   {0}" -f $d) -ForegroundColor Yellow
+            Write-Host "         the apply created this directory and it is not empty; it stays." -ForegroundColor Yellow
+            continue
+        }
+        Invoke-Delete $d "restore: the apply created this directory"
+    }
+
     if ($DryRun) {
         Write-Host ""
-        Write-Host ("Dry run: restore would put back {0} file(s); nothing was changed." -f $entries.Count) `
-                   -ForegroundColor Green
+        Write-Host ("Dry run: restore would put back {0} file(s) and remove {1} created directory(ies); nothing was changed." -f
+                    $entries.Count, $dirs.Count) -ForegroundColor Green
         return
     }
 
@@ -1431,12 +1588,21 @@ function Invoke-Restore {
         $have = Get-Sha $abs
         if ($have -ne $e.sha256) { $bad.Add("$abs : expected $($e.sha256), got $have") }
     }
+    # A directory the apply created and the restore could not remove is a residue, and a
+    # residue that nothing states is how "byte-identical to where it started" quietly stops
+    # being true - the fingerprint counts files and would never see it.
+    foreach ($d in $dirs) {
+        if (Test-Path -LiteralPath ([string]$d.path) -PathType Container) {
+            $bad.Add("$($d.path) : the apply created this directory and it is still here")
+        }
+    }
     if ($bad.Count -gt 0) {
         foreach ($msg in $bad) { Write-Host ("  FAIL  {0}" -f $msg) -ForegroundColor Red }
-        throw "restore could not be proven exact: $($bad.Count) of $($entries.Count) file(s) disagree. current.json is left in place."
+        throw "restore could not be proven exact: $($bad.Count) of $($entries.Count) file(s) and $($dirs.Count) directory(ies) disagree. current.json is left in place."
     }
-    Write-Host ("  proven         {0} file(s) match the snapshot byte for byte" -f $entries.Count) `
-               -ForegroundColor Green
+    Write-Host ("  proven         {0} file(s) match the snapshot byte for byte{1}" -f $entries.Count,
+                $(if ($dirs.Count -gt 0) { ", and {0} created directory(ies) are gone" -f $dirs.Count }
+                  else { '' })) -ForegroundColor Green
     Remove-Item -LiteralPath $currentJson -Force
 
     # The play state, against the vault taken at the start of the matching apply.
@@ -1784,7 +1950,11 @@ function Invoke-Status {
             $pf = Join-Path $d.FullName 'profile.json'
             if (-not (Test-Path -LiteralPath $pf -PathType Leaf)) { continue }
             foreach ($e in (AsArray (Read-JsonFile $pf).payloads)) {
-                if ($e.dest -and -not $dests.Contains([string]$e.dest)) { $dests.Add([string]$e.dest) }
+                if (-not $e.dest) { continue }
+                # A tree's dest is a directory; it is listed by what it holds, not hashed
+                # as if it were one file.
+                $d0 = [string]$e.dest + $(if ($e.tree) { [string][char]92 } else { '' })
+                if (-not $dests.Contains($d0)) { $dests.Add($d0) }
             }
         }
     }
@@ -1792,7 +1962,16 @@ function Invoke-Status {
         Write-Host "  (no profile declares a payload yet)"
     }
     foreach ($dest in ($dests | Sort-Object)) {
-        $abs = Join-Path $bin $dest
+        $abs = Join-Path $bin ($dest.TrimEnd([char]92))
+        if ($dest.EndsWith([string][char]92)) {
+            if (-not (Test-Path -LiteralPath $abs -PathType Container)) {
+                Write-Host ("  {0,-28} absent" -f $dest)
+            } else {
+                $held = @(Get-TreeFiles $abs)
+                Write-Host ("  {0,-28} {1} file(s)" -f $dest, $held.Count)
+            }
+            continue
+        }
         if (-not (Test-Path -LiteralPath $abs -PathType Leaf)) {
             Write-Host ("  {0,-28} absent" -f $dest)
             continue
@@ -2675,9 +2854,21 @@ function Test-Expect($expect, $cell) {
     # A profile that reproduces a bug expects a CRASH, and a cell of it that comes back
     # HEALTHY is the repro failing - or the bug being fixed - not a pass. HEALTHY is only
     # the default because most profiles are configurations that should simply work.
+    #
+    # `any` is the third answer, and it is not a weaker CRASH. Some cells are asked a
+    # question whose every answer is information: a build old enough to carry a bug that
+    # has never been reproduced on this box tells us something whether it crashes or not.
+    # Reporting FAIL for a result that is not a failure of the box is how a verifier stops
+    # being read, so such a cell records its verdict and asserts nothing about it. The
+    # profile must still assert something else - `expect` that asserts nothing is refused.
     $want = $(if ($expect.verdict) { [string]$expect.verdict } else { 'HEALTHY' })
-    Add-ExpectCheck $checks 'verdict' ("the cell is {0}, expected {1}" -f $cell.verdict, $want) `
-                    ($cell.verdict -eq $want)
+    if ($want -eq 'any') {
+        Add-ExpectCheck $checks 'verdict' ("the cell is {0}; this profile asserts no verdict" -f
+                                           $cell.verdict) $true
+    } else {
+        Add-ExpectCheck $checks 'verdict' ("the cell is {0}, expected {1}" -f $cell.verdict, $want) `
+                        ($cell.verdict -eq $want)
+    }
 
     $fails = @($checks | Where-Object { -not $_.pass })
     return [pscustomobject]@{

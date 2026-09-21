@@ -395,9 +395,21 @@ function Copy-Exact([string]$from, [string]$to) {
 }
 
 function Invoke-Copy([string]$from, [string]$to, [string]$why) {
-    Write-Host ("  {0,-6} {1}" -f $(if ($DryRun) { 'would' } else { 'write' }), $to)
+    # Copy conditionally, record ALWAYS. The caller writes the snapshot entry before this
+    # runs and must write it whether or not a copy follows: a third party can mutate the
+    # file afterwards - ReShade rewrites its own ini - and the entry is the only thing that
+    # makes the way back possible. That is where this differs from Set-ConfigKeys, whose
+    # no-op records nothing. Equal hashes are the same proof Copy-Exact returns, taken
+    # before the write instead of after it, so nothing is skipped but the writing.
+    # The decision lives here and not in Copy-Exact, which must stay unconditional: the
+    # snapshot and the vault write through it, and a backup that declines to write itself
+    # is not a backup.
+    $same = (-not $DryRun) -and (Test-Path -LiteralPath $to -PathType Leaf) -and
+            ((Get-Sha $to) -eq (Get-Sha $from))
+    Write-Host ("  {0,-6} {1}" -f
+                $(if ($DryRun) { 'would' } elseif ($same) { 'same' } else { 'write' }), $to)
     if ($why) { Write-Host ("         {0}" -f $why) -ForegroundColor DarkGray }
-    if ($DryRun) { return }
+    if ($DryRun -or $same) { return }
     $null = Copy-Exact $from $to
 }
 

@@ -37,10 +37,11 @@ current.json  what is applied right now
 
 `tests\probe_test.ps1` defines this script's functions without running its dispatch and puts the
 present probe's readers over a real two-swapchain capture and a real log, reproducing the numbers
-the 2026-09-17 measurement was published with. `tests\tree_test.ps1` proves the tree payload and
-`verdict: any` by driving a real apply / restore against a **sandbox** — a fake game root, store and
-profiles dir, built from invented files — so the round trip is proven before it is trusted with the
-install. It needs `WUCHANG_REPRO_PROFILES_DIR` beside the two state overrides, because `profiles\`
+the 2026-09-17 measurement was published with. `tests\tree_test.ps1` proves the tree payload, the
+payload no-op and `verdict: any` by driving a real apply / restore against a **sandbox** — a fake
+game root, store and profiles dir, built from invented files — so the round trip is proven before it
+is trusted with the install. The no-op is proven by mtime: the destination is given a timestamp
+nothing else on the box has, and `Copy-Item` would carry the source's over it. It needs `WUCHANG_REPRO_PROFILES_DIR` beside the two state overrides, because `profiles\`
 is committed and a test must not write one into the repo. Run both after any change to the readers,
 the payload loop or the snapshot.
 
@@ -212,9 +213,16 @@ carries no capture.
   game's ini files and `%LOCALAPPDATA%\WuchangMinimap` first, hashes every copy against what it
   wrote, and keeps the lot. A save is written back only by `repro.ps1 saves-restore <stamp>`, typed
   deliberately. There is one slot on this box and no cloud sync.
-- **A write that changes no byte is still a change.** A config whose keys already hold the declared
-  values is not rewritten and not recorded — the mod's 1 Hz watch hashes the configs' timestamps
-  rather than reading them.
+- **A write that changes no byte is not made — but a payload is recorded anyway.** A config whose
+  keys already hold the declared values is neither rewritten nor recorded: the mod's 1 Hz watch
+  hashes the configs' timestamps rather than reading them, so touching one *is* the change. A
+  payload already holding the declared bytes is not copied either — `apply box` would otherwise
+  rewrite 166 MB into the game's own install and the restore another 166 MB back — but its
+  snapshot entry is written all the same, because a third party can mutate the file afterwards
+  (ReShade rewrites its own ini while the game runs) and that entry is the only thing that makes
+  the way back possible. Copy conditionally, record always. Equal hashes are the same proof the
+  copy would have returned, taken before the write instead of after it; the snapshot's own copies
+  and the vault's are unconditional, since a backup that declines to write itself is not a backup.
 - **A pinned build replaces the mod directory, it does not copy over it.** `mod.build: dist:x.y.z`
   installs that release's files and removes the ones it does not carry, including
   `config_wuchang_minimap_dev.txt`, which no release ships and no reporter's box has. Every removal

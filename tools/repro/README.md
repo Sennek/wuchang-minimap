@@ -53,7 +53,7 @@ not an archive.
 | Field | Meaning |
 |---|---|
 | `payloads` | files and trees in `Binaries\Win64`: a payload name + sha256 to place, or `null` to state it absent. `"tree": true` makes `dest` a **directory** — see below |
-| `mod.build` | `keep`, or `dist:x.y.z` to **replace** the mod directory with that release — see below |
+| `mod.build` | `keep`, or `dist:x.y.z` to **replace** the mod directory with that release — see below. An unreleased build is not declarable: deploy it and let `keep` take it, and the run manifest's `mod.main_dll_md5` is what names the cell afterwards |
 | `mod.state` | `on`, `hooks-off`, `off` (at start-up) or `absent` (`start_mod` is never called) |
 | `mod.config` / `mod.config_dev` | keys to set in the installed configs |
 | `recon` | `on` or `absent` — the Lua recon mod |
@@ -186,6 +186,20 @@ mod hooked, which on a box carrying `sl.interposer.dll` — every box here, it s
 is the wrapper in front of the runtime's swapchain, while ETW reports the runtime's own. The
 manifest records both addresses and which case the cell is.
 
+**A held cell never leaves the title screen.** `-Until hold` launches and waits; the game stops at
+"Press any button" and stays there — measured to 200 s, captured. So a held cell measures the title
+screen, never the main menu, and anything that only happens in the menu is invisible to it. The
+`present` probe brings the game's window to the front before capturing, which is a precondition it
+can meet on its own; the button is not.
+
+**The game's window must be in front, and the cell says whether it was.** A `PresentMode` is a fact
+about a window DWM is compositing: an occluded one gets no independent flip, so a capture taken
+behind another window measures the occlusion and nothing about the install. Every cell samples the
+foreground window once a second beside its liveness sample; a present cell prints the share and,
+below 95 %, marks the reading **VOID** — in the cell, in the manifest's `foreground` block and again
+in `verify`. It does not touch the verdict: the launch was still healthy or it was not. The one
+cell this caught read `Composed: Flip` 97.4 % with no mod in the process at all.
+
 **The census** is the mod's own instrument, and it is the reason a measurement is one launch rather
 than five: `dev_frame_cycle_ms` rotates the overlay through its five layers every couple of seconds
 while the Present hook sorts the game's own present interval into a histogram per layer, so scene
@@ -229,11 +243,14 @@ carries no capture.
   is snapshotted, so the way back leaves no trace. Runtime output is left alone: `navmesh\` in-game
   dumps, play-state `wuchang_minimap*.txt` beside the DLL, and logs. The dumps cannot be re-taken
   without another capture run, and the cheapest way not to lose irreplaceable evidence is not to
-  delete it.
-- **The cell is a launch, not an applied profile.** Once the overlay's composition target has
-  existed in a process the window never returns to Hardware: Independent Flip, so a state reached by
-  toggling is not the state reached by launching into it. `apply` and `run` refuse while the game is
-  running, and `-Force` does not cover that.
+  delete it. A build that has no release to name is measured the other way round: `deploy.ps1` puts
+  it in, `mod.build: keep` leaves it there, and the manifest records its md5 — enough to identify a
+  cell after the fact, not enough to re-create one, so a candidate worth guarding needs a release.
+- **The cell is a launch, not an applied profile.** A state reached by toggling is not the state
+  reached by launching into it: the hooks are installed at start-up, the start-up block that names
+  the device, the swapchain and the composition targets prints once per process, and a window
+  demoted to `Composed: Flip` by our target was still composed 25 s and 90 s after `mod_enabled = 0`
+  released it. `apply` and `run` refuse while the game is running, and `-Force` does not cover that.
 - **The game is not the process you start.** Steam hands the launch on: the first process of that
   name is a stub that exits within seconds. The game is resolved *once it has settled* — the newest
   process of that name still alive — and a tracked process that exits while another is alive is a

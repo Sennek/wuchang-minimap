@@ -1,9 +1,9 @@
 # `stock` — the floor a performance number is honest against
 
 `box` with every third-party payload removed and neither C++ mod loaded. It exists because
-"the mod turned off" is not a baseline: once the overlay's composition target has existed in a
-process, the window never returns to `Hardware: Independent Flip`, so the only honest control is a
-launch that never had it.
+"the mod turned off" is not a baseline: every cell ever labelled that way still had the DLL loaded
+and its hooks in the swapchain, so the floor already carried the cost being measured. The only
+honest control is a launch the mod was never in.
 
 ## What it removes
 

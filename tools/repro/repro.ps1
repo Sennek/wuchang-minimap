@@ -2166,9 +2166,10 @@ function Invoke-List {
 #====================================================================================
 #
 # A cell is a process launch. Applying a profile and then toggling into the state it
-# names is a different state - once the overlay's composition target has existed in a
-# process the window never returns to Hardware: Independent Flip - so `run` applies,
-# launches, decides, tears down, and launches again. Nothing is reused.
+# names is a different state - the hooks are installed at start-up, the mod's start-up
+# block prints once per process, and a window our target demoted to Composed: Flip stays
+# composed after mod_enabled = 0 releases it - so `run` applies, launches, decides, tears
+# down, and launches again. Nothing is reused.
 #
 # The criteria are `.claude/rules/in-game-verification.md`'s, plus liveness: CRASH on the
 # mod's WATCHDOG line, a CrashReportClient process, a window titled "...has crashed", a
@@ -2302,6 +2303,91 @@ function Get-CrashDirNames {
     $crashes = Join-Path $saved 'Crashes'
     return @(Get-ChildItem -LiteralPath $crashes -Directory -ErrorAction SilentlyContinue |
              Select-Object -ExpandProperty Name)
+}
+
+$script:FocusInterop = $null
+function Get-FocusInterop {
+    # One P/Invoke, added once per process: which process owns the window the user is
+    # looking at. Add-Type throws if the type is already in the AppDomain, so the cache is
+    # the guard and a failure is recorded rather than retried every second.
+    if ($null -ne $script:FocusInterop) { return $script:FocusInterop }
+    try {
+        if (-not ('Repro.Focus' -as [type])) {
+            Add-Type -Namespace 'Repro' -Name 'Focus' -MemberDefinition @'
+[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(System.IntPtr hWnd, out int pid);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr hWnd);
+[DllImport("user32.dll")] public static extern bool BringWindowToTop(System.IntPtr hWnd);
+[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+[DllImport("user32.dll")] public static extern bool AttachThreadInput(int idAttach, int idAttachTo, bool fAttach);
+[DllImport("kernel32.dll")] public static extern int GetCurrentThreadId();
+'@
+        }
+        $script:FocusInterop = $true
+    } catch { $script:FocusInterop = $false }
+    return $script:FocusInterop
+}
+
+function Set-GameForeground($proc) {
+    # Put the game's window in front, for a cell whose reading needs it there. Windows only
+    # lets a process steal the foreground under conditions this script does not meet, so the
+    # standard route is taken: attach to the thread that currently owns it, which makes the
+    # two share an input queue and the call legal, then detach. Best effort - what it
+    # achieved is measured by the per-second sample, never assumed from a return value.
+    if (-not $proc) { return $null }
+    if (-not (Get-FocusInterop)) { return $null }
+    try {
+        $proc.Refresh()
+        $h = $proc.MainWindowHandle
+        if ($h -eq [System.IntPtr]::Zero) { return $false }
+        $fg = [Repro.Focus]::GetForegroundWindow()
+        $mine = [Repro.Focus]::GetCurrentThreadId()
+        $other = 0
+        $theirs = [Repro.Focus]::GetWindowThreadProcessId($fg, [ref]$other)
+        if ($theirs -ne 0 -and $theirs -ne $mine) { [void][Repro.Focus]::AttachThreadInput($mine, $theirs, $true) }
+        [void][Repro.Focus]::ShowWindow($h, 9)          # SW_RESTORE
+        [void][Repro.Focus]::BringWindowToTop($h)
+        [void][Repro.Focus]::SetForegroundWindow($h)
+        if ($theirs -ne 0 -and $theirs -ne $mine) { [void][Repro.Focus]::AttachThreadInput($mine, $theirs, $false) }
+        return (Test-GameForeground $proc)
+    } catch { return $null }
+}
+
+function Test-GameForeground($proc) {
+    # $true when the game owns the foreground window, $false when something else does,
+    # $null when it cannot be read - never guessed, because an unreadable sample and a
+    # sample that says "not the game" mean opposite things for a capture.
+    if (-not $proc) { return $null }
+    if (-not (Get-FocusInterop)) { return $null }
+    try {
+        $h = [Repro.Focus]::GetForegroundWindow()
+        if ($h -eq [System.IntPtr]::Zero) { return $false }
+        $owner = 0
+        [void][Repro.Focus]::GetWindowThreadProcessId($h, [ref]$owner)
+        if ($owner -eq 0) { return $null }
+        return ($owner -eq $proc.Id)
+    } catch { return $null }
+}
+
+function New-FocusReading([int]$inFront, [int]$samples) {
+    # The one place that turns foreground samples into a judgement. A PresentMode is a
+    # fact about a window DWM is compositing: an occluded window gets no independent flip,
+    # so a capture taken behind another window measures the occlusion and nothing else.
+    # This decides it once; the cell prints it and `verify` reads it back.
+    $pct  = $(if ($samples -gt 0) { 100.0 * $inFront / $samples } else { $null })
+    $void = $(if ($null -eq $pct) { $null } else { $pct -lt 95.0 })
+    return [pscustomobject][ordered]@{
+        samples      = $samples
+        in_front     = $inFront
+        percent      = $pct
+        reading_void = $void
+        why          = $(if ($null -eq $pct) {
+                             'the foreground window could not be read in this cell'
+                         } elseif ($void) {
+                             ("the game's window was in front for {0:N1} % of the cell; a present " +
+                              'reading taken behind another window measures occlusion') -f $pct
+                         } else { $null })
+    }
 }
 
 function Test-CrashWindow {
@@ -3236,6 +3322,21 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
     }
     Write-Host ("    pid {0}" -f $proc.Id)
 
+    # A present capture is only worth taking with the game's window in front, and on a box
+    # whose owner left something else focused the game does not take it by itself: a cell on
+    # 2026-09-21 held the foreground for 0 of 80 samples. Asked for here, once, before the
+    # capture starts - and only asked. Whether it worked is the per-second sample's answer.
+    if ($tool) {
+        $front = $false
+        for ($i = 0; $i -lt 8 -and -not $front; $i++) {
+            $front = (Set-GameForeground $proc) -eq $true
+            if (-not $front) { Start-Sleep -Seconds 1 }
+        }
+        Write-Host ("    foreground   {0}" -f $(if ($front) { 'the game window is in front' }
+                                                else { 'COULD NOT put the game window in front' })) `
+                   -ForegroundColor $(if ($front) { 'DarkGray' } else { 'Yellow' })
+    }
+
     # The capture starts once the pid is known, so it is this launch's frames and not
     # whatever Steam's first process presented. Its own bound is the cell's: it outlives
     # neither the game nor the cell, and nothing here has to kill it to read the CSV.
@@ -3258,12 +3359,22 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
     # Liveness, sampled every second. `notResponding` is counted consecutively because a
     # loading screen legitimately stops pumping for a second or two; a hang does not stop.
     $notResponding = 0; $worstNotResponding = 0; $respondingSeen = $false; $respondingSamples = 0
+    # Whether the game owns the foreground window, on the same tick. Sampled in every cell
+    # because it costs nothing and a later reader cannot recover it; judged only where it
+    # decides something, which is a present capture.
+    $foregroundSamples = 0; $foregroundIn = 0
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 1
         $t++
 
         $box = Test-CrashWindow
         if ($box) { $verdict = 'CRASH'; $why = $box; break }
+
+        $front = Test-GameForeground $proc
+        if ($null -ne $front) {
+            $foregroundSamples++
+            if ($front) { $foregroundIn++ }
+        }
 
         $alive = Test-ProcessResponding $proc
         if ($null -ne $alive) {
@@ -3383,10 +3494,18 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
         $capture = [pscustomobject][ordered]@{ csv = $null; presents = 0; streams = @()
                                                why = $tool.why_not }
     }
+    $focus = New-FocusReading $foregroundIn $foregroundSamples
     if ($capture) {
         Add-Member -InputObject $capture -NotePropertyName 'game_stream' `
                    -NotePropertyValue (Resolve-GameStream $capture $slice.lines)
         Show-PresentCapture $capture
+        if ($null -ne $focus.percent) {
+            Write-Host ("    foreground   {0:N1} % of {1} sample(s){2}" -f
+                        $focus.percent, $focus.samples,
+                        $(if ($focus.reading_void) { ' - PRESENT READING VOID' } else { '' })) `
+                       -ForegroundColor $(if ($focus.reading_void) { 'Yellow' } else { 'DarkGray' })
+        }
+        if ($focus.why) { Write-Host ("                 {0}" -f $focus.why) -ForegroundColor Yellow }
     }
     $census = $null
     try { $census = Get-CensusTable $slice.lines } catch {
@@ -3426,7 +3545,10 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
         })
     # The probe's own fields hang off the crash record rather than widening it: every cell
     # is a launch judged by the same criteria first, and a probe adds what it measured.
-    if ($tool)    { Add-Member -InputObject $rec -NotePropertyName 'present' -NotePropertyValue $capture }
+    if ($tool)    {
+        Add-Member -InputObject $rec -NotePropertyName 'present' -NotePropertyValue $capture
+        Add-Member -InputObject $rec -NotePropertyName 'foreground' -NotePropertyValue $focus
+    }
     if ($census)  { Add-Member -InputObject $rec -NotePropertyName 'census'  -NotePropertyValue $census }
     return $rec
 }
@@ -3663,6 +3785,9 @@ function Show-RunVerdict($manifest) {
                 Write-Host ("      present: no capture of the game's own swapchain - {0}" -f
                             $(if ($c.present.why) { $c.present.why }
                               elseif ($gs) { $gs.rule } else { 'no streams' })) -ForegroundColor Yellow
+            }
+            if ($c.foreground -and $c.foreground.reading_void) {
+                Write-Host ("      VOID:    {0}" -f $c.foreground.why) -ForegroundColor Yellow
             }
         }
         if ($c.census -and $c.census.per_frame_median) {

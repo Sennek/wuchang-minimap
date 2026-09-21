@@ -1,0 +1,82 @@
+{
+  "name": "reshade-osd",
+  "description": "box with neither C++ mod loaded and ReShade drawing its own on-screen display: the one cell that shows whether a third party writing this back buffer keeps the game on its hardware plane",
+
+  "report": {
+    "who": null,
+    "when": null,
+    "thread": null,
+    "verdict": "not a reported configuration - the deciding experiment for candidate 3 in present-hook-cost, 'be where ReShade is'"
+  },
+
+  "payloads": [
+    { "dest": "dxgi.dll", "source": "box-dxgi.dll",
+      "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7",
+      "note": "ReShade 6.8.0.2155 64-bit proxy" },
+
+    { "dest": "renodx-dlss.addon64", "source": "renodx-dlss.addon64",
+      "sha256": "1d855cf226857dce890cffbf7206ba9b6497ce1d471b217c1c8b44b6cd5d27e9",
+      "note": "RenoDX DLSS addon; ReShade loads it from DllMain" },
+
+    { "dest": "renodx-dlss5.addon64x", "source": "renodx-dlss5.addon64x",
+      "sha256": "e1c28fde0922b12fc10734e58c3d24a36808e575247f4fd4f36226540d7ee023",
+      "note": "older RenoDX addon; the .addon64x extension is not scanned, so it is inert" },
+
+    { "dest": "nvngx_dlssnr.dll", "source": "nvngx_dlssnr.dll",
+      "sha256": "4b8d19bc3eff58a084f5eca7489c921501c203450169fb82ff4f649a4482ba05",
+      "note": "NVIDIA DLSSNR runtime 310.8.0.0, 165 MB, same install batch as the proxy" },
+
+    { "dest": "ReShade.ini", "source": "box-ReShade-osd.ini", "volatile": true,
+      "sha256": "3b6d1295ab7a474782aa36616a374a596b22429fa6bb605646d58b93667a7f60",
+      "note": "box-ReShade.ini with ShowFPS, ShowClock and ShowFrameTime on. This install has no shaders - EffectSearchPaths is empty and there is no reshade-shaders folder - so the OSD is how ReShade is made to write the back buffer without installing one, through the same runtime and the same write, minus the shader pass" },
+
+    { "dest": "ReShade2.ini", "source": "box-ReShade2.ini", "volatile": true,
+      "sha256": "5199bee6dc861476e89b0db303d59449048acf6045f248557bbd653b2beab2b3",
+      "note": "leftover second config, read by nothing; declared because it is on the box" },
+
+    { "dest": "d3d12.dll", "source": null, "note": "OptiScaler goes here; it must not be present in this configuration" },
+    { "dest": "OptiScaler", "tree": true, "source": null, "note": "and its nine libraries live in this folder" }
+  ],
+
+  "mod": {
+    "build": "keep",
+    "state": "absent",
+    "config": {},
+    "config_dev": {}
+  },
+  "recon": "absent",
+  "state": "keep",
+
+  "game_settings": {
+    "bUseVSync": "True",
+    "FullscreenMode": "1",
+    "ResolutionSizeX": "1920",
+    "ResolutionSizeY": "1080",
+    "FrameRateLimit": "0.000000"
+  },
+
+  "processes": {
+    "running": [],
+    "absent": ["RTSS", "RTSSHooksLoader64", "EncoderServer"]
+  },
+
+  "expect": {
+    "note": "neither C++ mod starts, so nothing of ours is in the composition tree and the window's PresentMode is ReShade's to keep or lose. UE4SS still maps dlls/main.dll and gates only start_mod on enabled.txt, so the DLL is present in the process and silent - asserted by its log staying empty, the way stock asserts it",
+    "modules": [
+      "Binaries\\Win64\\dxgi.dll",
+      "Binaries\\Win64\\dwmapi.dll",
+      "Binaries\\Win64\\ue4ss\\UE4SS.dll"
+    ],
+    "modules_absent": ["Binaries\\Win64\\d3d12.dll", "RTSSHooks64.dll"],
+    "log_lines": [],
+    "log_lines_absent": ["WuchangMinimap v", "composition: the overlay draws into"],
+    "verdict": "HEALTHY"
+  },
+
+  "manual": {
+    "hags": "on",
+    "driver_vsync": "the owner's word - not readable from a script",
+    "framegen": "the half this cell cannot reach on its own. NVIDIA's claim is about DLSS-G being ACTIVE, and frame generation lives in GameConfig.sav, which a profile reads and never writes. So this cell answers the plane question with frame generation as the menu leaves it; the framegen half needs the owner in the menu once",
+    "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary. The 2026-09-19 present cells were taken with only the primary connected - record which this cell had"
+  }
+}

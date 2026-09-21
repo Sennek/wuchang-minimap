@@ -1,0 +1,88 @@
+{
+  "name": "reshade-renodx",
+  "description": "firehoooo's E_ABORT box: this install as it stands, plus RTSS running, plus the mod pinned to 1.1.1",
+
+  "report": {
+    "who": "firehoooo (reporter 4)",
+    "when": "2026-09-12",
+    "thread": null,
+    "verdict": "E_ABORT from sl.interposer.dll on the game's own Present, ~19 s at the title, 3/3 crash. Fixed by 4b97357 (no second swapchain), shipped in 1.3.0."
+  },
+
+  "payloads": [
+    { "dest": "dxgi.dll", "source": "box-dxgi.dll",
+      "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7",
+      "note": "ReShade 6.8.0.2155 64-bit proxy - the thing that adopts our swapchain as a second runtime" },
+
+    { "dest": "renodx-dlss.addon64", "source": "renodx-dlss.addon64",
+      "sha256": "1d855cf226857dce890cffbf7206ba9b6497ce1d471b217c1c8b44b6cd5d27e9",
+      "note": "RenoDX DLSS addon; ReShade loads it from DllMain" },
+
+    { "dest": "renodx-dlss5.addon64x", "source": "renodx-dlss5.addon64x",
+      "sha256": "e1c28fde0922b12fc10734e58c3d24a36808e575247f4fd4f36226540d7ee023",
+      "note": "older RenoDX addon; the .addon64x extension is not scanned, so it is inert" },
+
+    { "dest": "nvngx_dlssnr.dll", "source": "nvngx_dlssnr.dll",
+      "sha256": "4b8d19bc3eff58a084f5eca7489c921501c203450169fb82ff4f649a4482ba05",
+      "note": "NVIDIA DLSSNR runtime 310.8.0.0" },
+
+    { "dest": "ReShade.ini", "source": "box-ReShade.ini", "volatile": true,
+      "sha256": "7258ca6142fcced1dc1035a5f00c713f2f6c3cb4e379e8be45fbb40f40fbbed0",
+      "note": "AddonPath=. and LoadFromDllMain=renodx-dlss.addon64 are what make the addon load" },
+
+    { "dest": "ReShade2.ini", "source": "box-ReShade2.ini", "volatile": true,
+      "sha256": "5199bee6dc861476e89b0db303d59449048acf6045f248557bbd653b2beab2b3",
+      "note": "leftover second config, read by nothing; declared because it is on the box" },
+
+    { "dest": "d3d12.dll", "source": null, "note": "OptiScaler's slot - the other firehoooo configuration, not this one" }
+  ],
+
+  "mod": {
+    "build": "dist:1.1.1",
+    "state": "on",
+    "config": {},
+    "config_dev": {}
+  },
+  "recon": "on",
+  "state": "keep",
+
+  "game_settings": {
+    "bUseVSync": "True",
+    "FullscreenMode": "1",
+    "ResolutionSizeX": "1920",
+    "ResolutionSizeY": "1080",
+    "FrameRateLimit": "0.000000"
+  },
+  "game_config_sav": null,
+
+  "processes": {
+    "running": ["RTSS"],
+    "absent": []
+  },
+
+  "expect": {
+    "note": "the crash arrives at ~19-21 s and the module list is read at ~13 s, so the modules are readable in a cell that then crashes. The crash itself leaves NO line in the mod log - the process dies under a modal box mid-sentence - so the signature is the window title, which the runner records as the cell's `why`. log_lines instead pins the build and the mechanism under test, quoted from the run of 2026-09-20: 1.1.1 writes its log beside the DLL rather than to LOCALAPPDATA, and both locations are read.",
+    "verdict": "CRASH",
+    "modules": [
+      "Binaries\\Win64\\dxgi.dll",
+      "Binaries\\Win64\\dwmapi.dll",
+      "Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "WuchangMinimap\\dlls\\main.dll",
+      "RTSSHooks64.dll"
+    ],
+    "modules_absent": ["Binaries\\Win64\\d3d12.dll"],
+    "log_lines": [
+      "WuchangMinimap v1.1.1",
+      "hooks: by dummy-swapchain discovery",
+      "streamline: NVIDIA frame generation (DLSS-G) is LOADED"
+    ],
+    "log_lines_absent": ["WATCHDOG"]
+  },
+
+  "manual": {
+    "hags": "on",
+    "rtss": "RTSS must be running BEFORE the run starts; this script checks for it and never starts or stops it. THE VERSION DIFFERS FROM THE REPORT: firehoooo had 7.3.7, this box has 7.3.5.28314 (RivaTuner Statistics Server, Program Files x86). Reproducing the crash on 7.3.5 says the bug is not specific to 7.3.7; failing to reproduce it would settle nothing until 7.3.7 has been tried.",
+    "driver_vsync": "the owner's word — not readable from a script",
+    "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary"
+  }
+}

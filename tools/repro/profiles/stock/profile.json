@@ -1,0 +1,58 @@
+{
+  "name": "stock",
+  "description": "the true floor: the game and UE4SS alone — no ReShade, no RenoDX, no DLSSNR, neither C++ mod loaded",
+
+  "report": {
+    "who": null,
+    "when": null,
+    "thread": null,
+    "verdict": "the zero-point a performance number is honest against"
+  },
+
+  "payloads": [
+    { "dest": "dxgi.dll", "source": null, "note": "removing the ReShade proxy removes ReShade and every addon with it" },
+    { "dest": "renodx-dlss.addon64", "source": null },
+    { "dest": "renodx-dlss5.addon64x", "source": null },
+    { "dest": "nvngx_dlssnr.dll", "source": null },
+    { "dest": "ReShade.ini", "source": null },
+    { "dest": "ReShade2.ini", "source": null },
+    { "dest": "d3d12.dll", "source": null }
+  ],
+
+  "mod": {
+    "build": "keep",
+    "state": "absent",
+    "config": {},
+    "config_dev": {}
+  },
+  "recon": "absent",
+  "state": "keep",
+
+  "game_settings": {
+    "bUseVSync": "True",
+    "FullscreenMode": "1",
+    "ResolutionSizeX": "1920",
+    "ResolutionSizeY": "1080",
+    "FrameRateLimit": "0.000000"
+  },
+  "game_config_sav": null,
+
+  "processes": {
+    "running": [],
+    "absent": ["RTSS", "RTSSHooksLoader64", "EncoderServer"]
+  },
+
+  "expect": {
+    "note": "UE4SS LoadLibrary's dlls/main.dll for every mod folder that has a dlls directory and gates only start_mod on enabled.txt, so the DLL IS mapped into the process here - measured, and confirmed in UE4SSProgram.cpp. What this profile asserts is that the mod never STARTS: it rotates its log on start, so a cell of its own with no log lines at all is the evidence",
+    "modules": ["Binaries\\Win64\\dwmapi.dll", "Binaries\\Win64\\ue4ss\\UE4SS.dll"],
+    "modules_absent": ["Binaries\\Win64\\dxgi.dll", "Binaries\\Win64\\d3d12.dll", "RTSSHooks64.dll"],
+    "log_lines": [],
+    "log_lines_absent": ["WuchangMinimap v", "composition: the overlay draws into"]
+  },
+
+  "manual": {
+    "hags": "on",
+    "driver_vsync": "the owner's word — not readable from a script",
+    "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary"
+  }
+}

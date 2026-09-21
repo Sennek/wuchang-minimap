@@ -1,0 +1,81 @@
+{
+  "name": "box",
+  "description": "the owner's dev box as it stands: ReShade 6.8 proxy + RenoDX DLSS addon + NVIDIA DLSSNR + the installed mod",
+
+  "report": {
+    "who": null,
+    "when": null,
+    "thread": null,
+    "verdict": "the baseline every other profile is a diff against"
+  },
+
+  "payloads": [
+    { "dest": "dxgi.dll", "source": "box-dxgi.dll",
+      "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7",
+      "note": "ReShade 6.8.0.2155 64-bit proxy" },
+
+    { "dest": "renodx-dlss.addon64", "source": "renodx-dlss.addon64",
+      "sha256": "1d855cf226857dce890cffbf7206ba9b6497ce1d471b217c1c8b44b6cd5d27e9",
+      "note": "RenoDX DLSS addon; ReShade loads it from DllMain" },
+
+    { "dest": "renodx-dlss5.addon64x", "source": "renodx-dlss5.addon64x",
+      "sha256": "e1c28fde0922b12fc10734e58c3d24a36808e575247f4fd4f36226540d7ee023",
+      "note": "older RenoDX addon; the .addon64x extension is not scanned, so it is inert" },
+
+    { "dest": "nvngx_dlssnr.dll", "source": "nvngx_dlssnr.dll",
+      "sha256": "4b8d19bc3eff58a084f5eca7489c921501c203450169fb82ff4f649a4482ba05",
+      "note": "NVIDIA DLSSNR runtime 310.8.0.0, 165 MB, same install batch as the proxy" },
+
+    { "dest": "ReShade.ini", "source": "box-ReShade.ini", "volatile": true,
+      "sha256": "7258ca6142fcced1dc1035a5f00c713f2f6c3cb4e379e8be45fbb40f40fbbed0",
+      "note": "AddonPath=. and LoadFromDllMain=renodx-dlss.addon64 are what make the addon load; ReShade rewrites this file while it runs" },
+
+    { "dest": "ReShade2.ini", "source": "box-ReShade2.ini", "volatile": true,
+      "sha256": "5199bee6dc861476e89b0db303d59449048acf6045f248557bbd653b2beab2b3",
+      "note": "leftover second config, read by nothing; declared because it is on the box" },
+
+    { "dest": "d3d12.dll", "source": null, "note": "OptiScaler goes here; it must not be present in this configuration" }
+  ],
+
+  "mod": {
+    "build": "keep",
+    "state": "on",
+    "config": {},
+    "config_dev": {}
+  },
+  "recon": "on",
+  "state": "keep",
+
+  "game_settings": {
+    "bUseVSync": "True",
+    "FullscreenMode": "1",
+    "ResolutionSizeX": "1920",
+    "ResolutionSizeY": "1080",
+    "FrameRateLimit": "0.000000"
+  },
+  "game_config_sav": null,
+
+  "processes": {
+    "running": [],
+    "absent": ["RTSS", "RTSSHooksLoader64", "EncoderServer"]
+  },
+
+  "expect": {
+    "note": "modules are matched on the END of the loaded module's full path, because Windows loads its own dxgi.dll and dwmapi.dll from System32 into every process and a name alone would match those",
+    "modules": [
+      "Binaries\\Win64\\dxgi.dll",
+      "Binaries\\Win64\\dwmapi.dll",
+      "Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "WuchangMinimap\\dlls\\main.dll"
+    ],
+    "modules_absent": ["Binaries\\Win64\\d3d12.dll", "RTSSHooks64.dll"],
+    "log_lines": ["composition: the overlay draws into"],
+    "log_lines_absent": ["WATCHDOG"]
+  },
+
+  "manual": {
+    "hags": "on",
+    "driver_vsync": "the owner's word — not readable from a script",
+    "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary"
+  }
+}

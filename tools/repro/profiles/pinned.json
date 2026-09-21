@@ -1,0 +1,11 @@
+{
+  "ue4ss": {
+    "version": "v3.0.1-934-gcac01ee2",
+    "sha256": "5f5d84009099f4598f6f8568a6e968ef7dcb7461084250aad0f3a834fe17e962"
+  },
+  "presentmon": {
+    "version": "PresentMon 2.5.1 console build",
+    "sha256": "9bec3083069f58f911e6a512f4806db51a27bd096103087bc1d05ef54c80a191",
+    "note": "the binary every present measurement in this project was taken with; a different one is named in the run manifest, not refused"
+  }
+}

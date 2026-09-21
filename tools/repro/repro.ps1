@@ -145,6 +145,14 @@
 .PARAMETER Hold
     Seconds a cell is held after the game has settled before it is called HEALTHY.
 
+.PARAMETER HangSeconds
+    Consecutive seconds the game's window may stop answering before the cell is called
+    HUNG. A loading screen legitimately stops pumping for a second or two; a hang does not
+    start again. HUNG is a third verdict, not a flavour of CRASH: the process is alive, it
+    has produced no dump, and every criterion in `rules/in-game-verification.md` is about
+    dying - which is how three cells of a build that hung on its splash screen for sixty
+    seconds were once called HEALTHY.
+
 .PARAMETER Settle
     Seconds between the launch and the moment the game is resolved by name. Steam hands the
     launch on to a second process, so the game is the newest one of that name still ALIVE
@@ -187,6 +195,8 @@ param(
 
     [ValidateRange(5, 3600)]
     [int]$Hold = 60,
+
+    [int]$HangSeconds = 20,
 
     [ValidateRange(3, 120)]
     [int]$Settle = 10,
@@ -2148,11 +2158,14 @@ function Invoke-List {
 # process the window never returns to Hardware: Independent Flip - so `run` applies,
 # launches, decides, tears down, and launches again. Nothing is reused.
 #
-# The criteria are `.claude/rules/in-game-verification.md`'s and no others: CRASH on the
+# The criteria are `.claude/rules/in-game-verification.md`'s, plus liveness: CRASH on the
 # mod's WATCHDOG line, a CrashReportClient process, a window titled "...has crashed", a
-# new Saved\Crashes entry, or the process exiting; HEALTHY only if none of those appear
-# for the whole hold. "The process is alive" is not health - a LowLevelFatalError modal
-# keeps it alive and keeps Saved\Crashes empty until someone clicks OK.
+# new Saved\Crashes entry, or the process exiting. But absence of death is NOT health, in
+# two ways, and both have been paid for here: a LowLevelFatalError modal keeps the process
+# alive and Saved\Crashes empty until someone clicks OK, and a game hung on its splash
+# screen satisfies every one of those criteria for as long as you care to hold it. HEALTHY
+# therefore also requires liveness - see Test-ProcessResponding - and a cell that neither
+# died nor lived is HUNG.
 #
 # The mod's log is the player's log. It is never cleared: a mark is taken before the
 # launch and the new lines are read back against it, rotation and all.
@@ -2246,6 +2259,31 @@ function Get-LogSince($mark) {
         $note += (' (' + ($where -join '; ') + ')')
     }
     return [pscustomobject]@{ lines = @($lines); rotated = $rotated; note = $note }
+}
+
+#------------------------------------------------------------------------------------
+# Liveness. Every crash criterion in `rules/in-game-verification.md` is about the process
+# DYING - a crash window, CrashReportClient, a new Saved\Crashes entry, the process
+# exiting, the mod's WATCHDOG. A game hung on its splash screen satisfies none of them and
+# therefore passed as HEALTHY, which is how three cells of reporter 1's own build were
+# called healthy while the report was reproducing on screen.
+#
+# So a cell must show it is ALIVE, not merely that it has not died. Two signals, because
+# neither covers every cell on its own:
+#
+#   the pump   - the mod's game-state reader logs `the ProcessEvent pump is not firing`
+#                when the game thread has not run for 10 s. It is the game thread saying so
+#                about itself, it exists as far back as 1.0.0, and it is worth more than
+#                anything measured from outside. Only available while the mod runs.
+#   responding - Windows' own answer to "is this window pumping messages". Works for every
+#                cell including `mod: absent`, and is the only signal a `stock` cell has.
+#------------------------------------------------------------------------------------
+
+function Test-ProcessResponding($proc) {
+    # $null when it cannot be read at all, so "not readable" never counts as "not alive".
+    try { $proc.Refresh(); if (-not $proc.MainWindowHandle -or $proc.MainWindowHandle -eq 0) { return $null } }
+    catch { return $null }
+    try { return [bool]$proc.Responding } catch { return $null }
 }
 
 function Get-CrashDirNames {
@@ -3112,8 +3150,11 @@ function Test-Expect($expect, $cell) {
     # profile must still assert something else - `expect` that asserts nothing is refused.
     $want = $(if ($expect.verdict) { [string]$expect.verdict } else { 'HEALTHY' })
     if ($want -eq 'any') {
+        # `any` waives the CHOICE between healthy and crash, not the question of whether the
+        # cell ran at all. A HUNG cell neither died nor lived, so there is no verdict in it
+        # to record, and calling that a pass is the same fault in a different place.
         Add-ExpectCheck $checks 'verdict' ("the cell is {0}; this profile asserts no verdict" -f
-                                           $cell.verdict) $true
+                                           $cell.verdict) ($cell.verdict -ne 'HUNG')
     } else {
         Add-ExpectCheck $checks 'verdict' ("the cell is {0}, expected {1}" -f $cell.verdict, $want) `
                         ($cell.verdict -eq $want)
@@ -3202,6 +3243,9 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
 
     $verdict = $null; $why = ''; $modules = $null; $handoffs = 0
     $t = 0
+    # Liveness, sampled every second. `notResponding` is counted consecutively because a
+    # loading screen legitimately stops pumping for a second or two; a hang does not stop.
+    $notResponding = 0; $worstNotResponding = 0; $respondingSeen = $false; $respondingSamples = 0
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 1
         $t++
@@ -3209,9 +3253,34 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
         $box = Test-CrashWindow
         if ($box) { $verdict = 'CRASH'; $why = $box; break }
 
+        $alive = Test-ProcessResponding $proc
+        if ($null -ne $alive) {
+            $respondingSamples++
+            if ($alive) { $respondingSeen = $true; $notResponding = 0 }
+            else {
+                $notResponding++
+                if ($notResponding -gt $worstNotResponding) { $worstNotResponding = $notResponding }
+                if ($notResponding -ge $HangSeconds) {
+                    $verdict = 'HUNG'
+                    $why = "its window stopped answering for $notResponding s"
+                    break
+                }
+            }
+        }
+
         $slice = Get-LogSince $mark
         if (@($slice.lines | Where-Object { $_ -match 'WATCHDOG' }).Count -gt 0) {
             $verdict = 'CRASH'; $why = "the mod's WATCHDOG line"; break
+        }
+        # The game thread's own report that it has not run. Worth more than anything
+        # measured from outside, and the line that was on screen while three cells of
+        # 1.0.0 were being called HEALTHY.
+        $stalled = @($slice.lines | Where-Object { $_ -match 'the ProcessEvent pump is not firing' })
+        if ($stalled.Count -ge 2) {
+            $verdict = 'HUNG'
+            $why = ("the mod's game-state reader says the ProcessEvent pump has not fired " +
+                    "($($stalled.Count) x 10 s)")
+            break
         }
         $new = @(Get-CrashDirNames | Where-Object { $crashBefore -notcontains $_ })
         if ($new.Count -gt 0) {
@@ -3241,12 +3310,23 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
     if (-not $modules) { $modules = Get-ProcessModules $proc }
     if (-not $verdict) {
         if ($session) { $verdict = 'NO VERDICT'; $why = "still in the game after $MaxMinutes min" }
-        else          { $verdict = 'HEALTHY';    $why = "held $hold s with none of the crash criteria" }
+        elseif (-not $respondingSeen -and $respondingSamples -gt 0) {
+            # It never answered once. Short of the consecutive threshold only because the
+            # hold was short; calling that healthy is the fault this rule exists to stop.
+            $verdict = 'HUNG'
+            $why = "its window never answered in $respondingSamples sample(s)"
+        }
+        else {
+            $verdict = 'HEALTHY'
+            $why = ("held $hold s: none of the crash criteria, and its window kept answering" +
+                    $(if ($worstNotResponding -gt 0) { " (worst pause $worstNotResponding s)" } else { '' }))
+        }
     }
     $at = $settle + $t
 
     Write-Host ("    {0,-10} at ~{1} s : {2}" -f $verdict, $at, $why) `
-               -ForegroundColor $(if ($verdict -eq 'HEALTHY') { 'Green' } else { 'Red' })
+               -ForegroundColor $(if ($verdict -eq 'HEALTHY') { 'Green' }
+                                  elseif ($verdict -eq 'HUNG') { 'Yellow' } else { 'Red' })
 
     if ($session) {
         # Nothing to tear down: either the person left the game, or it is still up and the
@@ -3265,10 +3345,13 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
             Stop-DecidedCell $proc
         }
     } else {
-        Write-Host "    teardown     decided CRASH - killing it out from under its modal box" -ForegroundColor Yellow
+        # A decided CRASH sits under a modal box and a HUNG cell does not answer WM_CLOSE -
+        # that is what HUNG means - so both come off the screen the same way.
+        Write-Host ("    teardown     decided {0} - killing it; it will not close on its own" -f $verdict) `
+                   -ForegroundColor Yellow
         Stop-DecidedCell $proc
         $teardown = [pscustomobject]@{ closed = $true; seconds = 3
-                                       how = 'killed - a decided CRASH cannot be closed any other way' }
+                                       how = ("killed - a decided $verdict cannot be closed any other way") }
     }
 
     $slice = Get-LogSince $mark
@@ -3318,6 +3401,17 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
 
     $rec = New-CellRecord $index $verdict $why $at $launchedAt $proc $modules $slice $teardown $saveDiffs
     Add-Member -InputObject $rec -NotePropertyName 'handoffs' -NotePropertyValue $handoffs
+    # Both liveness signals, recorded whichever one decided - so a later reader can see
+    # which of them can catch what. On the 1.0.0 hang the window kept answering while the
+    # game thread was dead: `responding` alone would have called it healthy.
+    Add-Member -InputObject $rec -NotePropertyName 'liveness' -NotePropertyValue (
+        [pscustomobject][ordered]@{
+            responding_samples   = $respondingSamples
+            responding_ever      = $respondingSeen
+            worst_pause_seconds  = $worstNotResponding
+            pump_stall_lines     = @($slice.lines | Where-Object {
+                                       $_ -match 'the ProcessEvent pump is not firing' }).Count
+        })
     # The probe's own fields hang off the crash record rather than widening it: every cell
     # is a launch judged by the same criteria first, and a probe adds what it measured.
     if ($tool)    { Add-Member -InputObject $rec -NotePropertyName 'present' -NotePropertyValue $capture }
@@ -3473,20 +3567,23 @@ function Invoke-Run([string]$name) {
                    -NotePropertyValue (Test-Expect $p.expect $c)
     }
     $h    = @($manifest.cells | Where-Object { $_.verdict -eq 'HEALTHY' }).Count
+    $hung = @($manifest.cells | Where-Object { $_.verdict -eq 'HUNG' }).Count
     $x    = @($manifest.cells | Where-Object { $_.verdict -eq 'CRASH' }).Count
     $pass = @($manifest.cells | Where-Object { $_.expect_result.pass }).Count
     Add-Member -InputObject $manifest -NotePropertyName 'verdict' -NotePropertyValue (
         [pscustomobject][ordered]@{
             healthy = $h
             crash   = $x
-            other   = ($manifest.cells.Count - $h - $x)
+            hung    = $hung
+            other   = ($manifest.cells.Count - $h - $x - $hung)
             pass    = $pass
             fail    = ($manifest.cells.Count - $pass)
         })
     Write-JsonFile (Join-Path $runDir 'manifest.json') $manifest
 
     Write-Host ""
-    Write-Host ("Run {0} - {1}/{2} healthy, {3} crash" -f $stamp, $h, $manifest.cells.Count, $x) `
+    Write-Host ("Run {0} - {1}/{2} healthy, {3} crash{4}" -f $stamp, $h, $manifest.cells.Count, $x,
+                $(if ($hung -gt 0) { ", $hung HUNG" } else { '' })) `
                -ForegroundColor $(if ($x -gt 0) { 'Red' } else { 'Green' })
     Write-Host ("manifest       {0}" -f (Join-Path $runDir 'manifest.json'))
     if ($x -gt 0) {

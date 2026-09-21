@@ -58,7 +58,7 @@ not an archive.
 | `recon` | `on` or `absent` — the Lua recon mod |
 | `state` | `keep` or `fresh` for `%LOCALAPPDATA%\WuchangMinimap` |
 | `game_settings` | keys in `GameUserSettings.ini` |
-| `game_config_sav` | `{ user, source }` — the in-game graphics selector, as a captured payload |
+| `game_config_expect` | `{ user, gameset }` — the in-game graphics selector, **read** out of `GameConfig.sav` and asserted. Never written: that blob carries the owner's playtime, equipment and achievements beside his graphics settings, so a profile that pinned it would roll his progress back on every apply. An apply names the key and refuses when the game's menu disagrees |
 | `processes` | what must be running and what must not, read back before anything moves |
 | `expect` | what the launch must then show — see below |
 | `manual` | what a script cannot set: driver vsync, monitor topology. `hags` is read back from the registry |

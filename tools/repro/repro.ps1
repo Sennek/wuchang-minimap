@@ -2389,12 +2389,27 @@ function Get-AddressKey([string]$address) {
 }
 
 function Measure-PresentCsv([string]$path) {
-    $rows = @(Import-Csv -LiteralPath $path)
-    if ($rows.Count -eq 0) {
-        return [pscustomobject]@{ csv = $path; presents = 0; streams = @()
+    $all = @(Import-Csv -LiteralPath $path)
+    if ($all.Count -eq 0) {
+        return [pscustomobject]@{ csv = $path; presents = 0; streams = @(); truncated = 0
                                   why = 'the CSV has a header and no frames' }
     }
-    $header = @($rows[0].PSObject.Properties.Name)
+    $header = @($all[0].PSObject.Properties.Name)
+
+    # A capture that was stopped rather than allowed to finish ends mid-record - the last
+    # line of a killed PresentMon can be a single character - and `Import-Csv` hands that
+    # back as a row whose remaining columns are $null. Such a row is not a present: it
+    # cannot be attributed to a swapchain, and its empty PresentMode is not a mode. They are
+    # dropped once, here, and counted, so no reader downstream has to know they can exist.
+    # The test is the last column, because a truncation cuts everything after a point.
+    $lastCol = $header[-1]
+    $rows = @($all | Where-Object { $null -ne $_.$lastCol })
+    $truncated = $all.Count - $rows.Count
+    if ($rows.Count -eq 0) {
+        return [pscustomobject]@{ csv = $path; presents = 0; streams = @(); truncated = $truncated
+                                  why = ("every one of the {0} row(s) is an incomplete record - the " +
+                                         "capture was stopped mid-write") -f $all.Count }
+    }
     $addrCol = Get-CsvColumn $header @('SwapChainAddress')
     if (-not $addrCol) {
         throw ("'$path' has no SwapChainAddress column, so it cannot be split by swapchain; its " +
@@ -2449,11 +2464,12 @@ function Measure-PresentCsv([string]$path) {
     }
 
     return [pscustomobject][ordered]@{
-        csv      = $path
-        presents = $rows.Count
-        columns  = [pscustomobject]$picked
-        streams  = $streams.ToArray()
-        why      = $null
+        csv       = $path
+        presents  = $rows.Count
+        truncated = $truncated
+        columns   = [pscustomobject]$picked
+        streams   = $streams.ToArray()
+        why       = $null
     }
 }
 
@@ -2501,6 +2517,11 @@ function Show-PresentCapture($capture) {
                     $(if ($capture -and $capture.why) { $capture.why } else { 'the capture is empty' })) `
                    -ForegroundColor Yellow
         return
+    }
+    if ($capture.truncated -gt 0) {
+        Write-Host ((("    capture      {0} incomplete record(s) dropped - the capture was stopped " +
+                      "mid-write, so its tail is not the game's last frames") -f $capture.truncated)) `
+                   -ForegroundColor Yellow
     }
     $game = $capture.game_stream
     foreach ($s in @($capture.streams)) {

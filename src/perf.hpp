@@ -27,9 +27,10 @@ namespace perf
     enum class Thread : int
     {
         Unknown = 0,
-        Loop = 1,   // UE4SS event loop (on_update)
-        Game = 2,   // ProcessEvent pre-callback
-        Render = 3, // the hooked Present
+        Loop = 1,    // UE4SS event loop (on_update)
+        Game = 2,    // ProcessEvent pre-callback
+        Render = 3,  // the hooked Present
+        Surface = 4, // the composition thread: fence wait, surface copy, Commit
     };
 
     inline const char* thread_name(Thread t)
@@ -42,6 +43,8 @@ namespace perf
             return "game";
         case Thread::Render:
             return "render";
+        case Thread::Surface:
+            return "surface";
         case Thread::Unknown:
         default:
             return "?";
@@ -50,7 +53,7 @@ namespace perf
 
     // Table capacity. Registration past this is dropped; a fixed array is what keeps
     // recording allocation-free.
-    constexpr int kMaxCounters = 32;
+    constexpr int kMaxCounters = 48;
 
     // The rolling window an average and a rate are taken over.
     constexpr std::uint64_t kWindowMs = 2000;

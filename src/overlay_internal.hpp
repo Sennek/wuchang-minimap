@@ -58,10 +58,12 @@
 #include "mapview.hpp"
 #include "breadcrumb.hpp"
 #include "clipimg.hpp"
+#include "framecensus.hpp"
 #include "markers.hpp"
 #include "modswitch.hpp"
 #include "navmesh_dump.hpp"
 #include "recon.hpp"
+#include "scan_sched.hpp"
 #include "shrines.hpp"
 #include "slicerule.hpp"
 #include "spinlock.hpp"
@@ -293,7 +295,6 @@ namespace overlay
         // Perf counter ids (perf.hpp). Namespace-scope, initialised on first use by
         // their single owning thread - never a guarded function static, because one of
         // these paths is entered from the game thread's callback chain.
-        extern int g_pf_frame; // the whole render prologue + build_ui
         extern int g_pf_minimap; // draw_minimap
         extern int g_pf_markpass; // build_frame_candidates
         extern int g_pf_slice; // the minimap height-slice cut (loop thread)
@@ -575,8 +576,6 @@ namespace overlay
         // std::string.
         extern wchar_t g_hide_reason[96];
         // The one-off blocking jobs, split out of the loop and render counters.
-        extern int g_pf_newframe; // ImGui_ImplWin32_NewFrame - cross-thread user32
-        extern int g_pf_buildui; // build_ui() - our own drawing
         extern int g_pf_clip; // the map -> clipboard hand-off
         extern int g_pf_save; // config / waypoint file writes
         extern int g_pf_reload; // F5: config + maps + markers
@@ -1160,6 +1159,11 @@ namespace overlay
         std::uint64_t comp_skipped_frames();
         std::uint64_t comp_dropped_frames();
         void comp_reset_counters();
+        // THE MEASUREMENT PHASE (framecensus.hpp), published by the render thread once a
+        // frame. The surface thread is the only thread that may touch DirectComposition, so
+        // it is the one that attaches and detaches the visual when the phase asks for it -
+        // and it is woken for a phase change even when no frame is being published.
+        void comp_set_phase(int phase);
         ID3D12CommandQueue* comp_queue();
         DXGI_FORMAT comp_format();
         // The sync interval and flags of the most recent Present of the adopted
@@ -1168,6 +1172,8 @@ namespace overlay
         extern std::atomic<unsigned> g_present_flags;
         std::wstring detour_report(const void* addr);
         void log_overlay_modules();
+        // LOOP THREAD. The frame census: the game's own present interval per phase.
+        void log_frame_census();
         void srv_alloc_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu);
         void srv_free_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE);
         std::int64_t qpc_freq();

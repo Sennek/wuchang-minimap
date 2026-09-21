@@ -47,7 +47,6 @@ namespace overlay
         bool g_font_checked = false; // false = the config's path has not been tried yet
         int g_circle_segments = kCircleSegments;
         SrvHeap g_srv_heap;
-        int g_pf_frame = -1;    // the whole render prologue + build_ui
         int g_pf_minimap = -1;  // draw_minimap
         int g_pf_markpass = -1; // build_frame_candidates
         int g_pf_slice = -1;    // the minimap height-slice cut (loop thread)
@@ -172,8 +171,6 @@ namespace overlay
         // like to them.
         std::atomic<std::uint64_t> g_watchdog_epoch{0};
         wchar_t g_hide_reason[96] = L"not evaluated yet";
-        int g_pf_newframe = -1; // ImGui_ImplWin32_NewFrame - cross-thread user32
-        int g_pf_buildui = -1;  // build_ui() - our own drawing
         int g_pf_clip = -1;     // the map -> clipboard hand-off
         int g_pf_save = -1;     // config / waypoint file writes
         int g_pf_reload = -1;   // F5: config + maps + markers
@@ -1637,9 +1634,32 @@ namespace overlay
         // The guard sequence is the loop-thread half of the pause handshake: check, mark
         // busy, check AGAIN. The render thread sets `pause` and then waits for `busy`, so
         // whichever order the two interleave in, one of them backs off.
+        // The perf table into the log every 30 s at verbose. Verbose rather than normal
+        // because a table of every counter is a page, and a player's log carries it only when
+        // somebody has asked for a measurement.
+        void log_perf_table_due(std::uint64_t now)
+        {
+            static std::uint64_t last = 0;
+            if (!mm::mod_active() || !mm::log_enabled(mm::LogLv::Verbose))
+            {
+                return;
+            }
+            if (last != 0 && now - last < 30000)
+            {
+                return;
+            }
+            last = now;
+            mm::perf_log_table(L"30 s");
+            // Beside the counters, and for the same reason they are read from the log: the
+            // census is about frames nobody is looking at.
+            log_frame_census();
+        }
+
         void loop_slice(std::uint64_t now)
         {
-            if (!mm::mod_active() || g_slicer_pause.load())
+            // The census's last layer stands the slicer down with the game-thread reader: the
+            // two are what the mod burns between frames (framecensus.hpp).
+            if (!mm::mod_active() || g_slicer_pause.load() || mm::frame_phase() >= fc::NoBackground)
             {
                 return;
             }
@@ -2241,6 +2261,7 @@ namespace overlay
         // The hooks, if start() armed them and the game thread has an answer.
         complete_pending_hook_install();
         loop_slice(now);
+        log_perf_table_due(now);
 
         if (!input_due(now))
         {

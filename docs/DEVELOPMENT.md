@@ -339,6 +339,141 @@ Errors are logged and survived, never thrown across a boundary: every raw engine
 it against something independently measured, and logging the decision.** Logging is `mm::log` /
 `mm::logf` (wide, always emitted) plus `MM_LOGV` / `MM_LOGT` gated on the `log_level` key. ---
 
+## Measuring what the mod costs the game
+
+`perf.hpp` is one lock-free counter per periodic activity: name, rate, average over a 2 s window,
+peak, last, and the thread that owns it. A counter has exactly one writer, recording is a handful
+of relaxed stores, and `mm::PerfScope` is the RAII form — it records on every path out, which is
+why a block with early returns still gets counted. `mm::perf_note_stall` marks a window as "the
+process is not running normally", so a loading screen lands in the stall columns instead of setting
+the peak a later regression would be judged against.
+
+**A block with no counter is a block nobody has measured.** The whole Present hook carries them
+now: `render frame (hook)` is the total the game pays, and `render NewFrame (win32)`,
+`render build_ui`, `render target wait`, `render record`, `render ImGui draw`, `render submit` and
+`render shot collect` are its parts. They are meant to add up to the total; the residual is the
+lock and the housekeeping.
+
+### Reading them
+
+Two routes, and they are not interchangeable:
+
+| route | when |
+|---|---|
+| F2 → **Debug** (needs `debug_readout = 1`, a Dev key) | looking at something live |
+| `mm::perf_log_table()` → `wuchang_minimap.log`, every 30 s at **verbose** | taking a measurement |
+
+An open settings panel is itself frame cost — it adds to `render build_ui` and `render ImGui draw`,
+the two counters most worth comparing against the rest of the frame — so a table read through the
+panel measures the reading. A measurement is taken with the panel closed and read out of the log.
+
+### The outside instrument
+
+The counters say where the mod's time goes; they cannot say what the game lost. That is PresentMon
+(`F:\Tools\PresentMon\PresentMon.exe` on this box; its ETW session needs administrator or
+Performance Log Users), and three
+of its columns matter:
+
+- **`SwapChainAddress` first.** With the overlay up, PresentMon reports two present streams: the
+  game's own swapchain, and the DirectComposition surface as address `0x0` with `SyncInterval -1`.
+  Pooling them makes the frame-time statistics meaningless. Filter to the game's chain.
+- **`MsCPUBusy`, not `MsInPresentAPI`.** `render_guarded` runs *before* `o_Present`, so DXGI never
+  sees the mod's work and PresentMon charges it to the game's own CPU frame.
+- `MsGPUBusy` / `MsGPUWait` separate work from stalling, which is how "the GPU is doing more" is
+  told from "the GPU is waiting more".
+
+### The method
+
+Drive the A/B through `mod_enabled` in the **player** config from a script: `modswitch::watch()`
+polls the mtime at 1 Hz and tears the whole overlay down and back up without a relaunch, so both
+conditions are one process, one scene, one GPU state, and no keyboard is involved.
+
+**Interleave short cells — ON/OFF/ON/OFF/ON/OFF, ~20 s — never two long arms.** A live game drifts:
+a three-minute run on this box moved frame time from 17 ms to 29 with nothing changed but the
+world, which is larger than the effect being measured. Interleaving puts the drift on both
+conditions equally. Repeating a condition at the end is not a control, it is a second sample of a
+different moment; it is worth doing anyway, because when the two repeats disagree the run is void.
+
+### The frame census
+
+The instrument that answers "what did the game lose" from inside the process. `framecensus.hpp`
+(PURE) is one histogram per layer of the overlay; the Present hook samples **the game's own present
+interval** — the gap between two entries into the hook is the game's frame time — into the bucket of
+the layer that was switched on when it was measured. `dev_frame_stop` names one layer,
+`dev_frame_cycle_ms` rotates through all five on a wall clock, so one capture holds every layer
+interleaved at seconds and scene drift lands on each of them equally. The table goes into the log
+every 30 s beside the perf table; `full` minus `no frame at all` is what the overlay's own frame
+plus its composition cost. Two rules the numbers only hold under: read `MsGPUBusy / frame time`
+first — a cell with GPU slack absorbs the mod's work and can only ever say "not here" — and measure
+during ordinary play, not standing still in a quiet spot.
+
+### Drawing fewer frames costs the game more
+
+The overlay's own frame and the composition that carries it to the screen are both paid **once per
+present of the game's**, and they are the only two things the mod measurably costs it. That reads
+like an invitation to draw less often, and the invitation is false. Measured with the mod running
+its own A/B — the overlay's frame rate switched between a ceiling and uncapped every 2 s, the
+game's own present intervals sorted into two histograms, 23 000 frames an arm over 13 minutes of
+play — a ceiling of 60 costs the game **0.500 ms on a median frame** (0.650 at p90) and 3.3 % of
+its presents. A ceiling of 30 costs 0.350 ms. Against the phase census, where the overlay drawing
+*nothing* is 0.35 ms faster than drawing every frame, the effect is non-monotonic: every frame is
+fine, no frames is better, half the frames is worse than either end.
+
+**Why the middle is worse is unexplained.** It is not a Multi-Plane Overlay plane being scheduled —
+PresentMon reads `Hardware: Independent Flip` through ordinary play with the surface presenting, so
+there is no demotion in play for an irregular update rate to cause. Until that is explained, the
+overlay draws on every present the game makes, and there is no knob: a setting whose one measured
+effect is a loss is not a choice to give a player.
+
+### What the overlay costs the game, against a floor that is actually vanilla
+
+`hardware composition (MPO): 0x3 fullscreen windowed` in the start-up log is
+`IDXGIOutput6::CheckHardwareCompositionSupport` — what the output and the driver **support**. It
+reads the same whatever DWM is doing with this window, and it cannot say that anything was demoted.
+The runtime fact is PresentMon's `PresentMode`, and measured with it on 2026-09-19, five cells at
+the main menu:
+
+| cell | PresentMode | frame p50 |
+|---|---|---|
+| the mod **not started** (`enabled.txt` renamed) | `Hardware: Independent Flip` 3069/3069 | 8.846 ms (113.0 fps) |
+| loaded, `overlay_hooks = 0` | `Hardware: Independent Flip` 3017/3017 | 8.803 ms |
+| hooks installed, `mod_enabled = 0` | `Composed: Flip` 2697/2697 | 9.288 ms |
+| as shipped | `Composed: Flip` 2437/2437 | 10.218 ms (97.9 fps) |
+
+**The overlay's DirectComposition visual takes the game's window out of hardware composition**, and
+it costs **+1.372 ms a frame** — of which **0.49 ms is the demotion alone**, with the mod switched
+off and nothing drawn. `overlay_hooks = 0` matches vanilla to 0.04 ms, so it is the surface and
+nothing else: not the game-thread pump, not the scans, not UE4SS. It is not specific to
+`IDCompositionSurface` either — the 1.1.1 build, whose visual's content is a composition swapchain,
+demotes the window identically.
+
+**`mod_enabled = 0` is not a performance baseline**, and neither is any earlier number in this repo
+measured against it: `comp_release()` does run and does release the composition target, and the
+window is still composed 90 s later in that cell.
+
+**All of the above is the main menu, and it does not generalise past it.** Measured in a played
+session on 2026-09-21, the game's window is promoted *back* to `Hardware: Independent Flip` inside
+one process — with the overlay hooked, drawing and its composition surface presenting — and holds
+it on **100 % of 6049 presents** from the moment the menu closes. The ramp brackets exactly when the
+mod's own log first reports a player pawn. So the demotion is not permanent and is not a property
+of the surface existing; **+1.372 ms is what it costs in the menu**. Where the player is, the mod's
+own frame census prices the whole of it at **+0.500 ms a frame** (p90 +0.900) over four minutes and
+~3500 frames per layer.
+
+**The other half of that comparison was taken on 2026-09-21** — `repro.ps1 run stock` against
+`run dlssg-plain`, each `-Probe present -Until exit`, byte-for-byte the same install with
+`mod.state` the only field that differs, both arms played back to back with DLSS frame generation
+x2 on and three monitors connected. The floor holds `Hardware: Independent Flip` on **100.00 %** of
+72357 presents; the mod holds it on **99.30 %** of 85544. So the demotion costs the player 0.70 pp
+of presents and the main menu, and what the mod costs in play is ordinary CPU — **+0.950 ms a
+frame** by its own census under frame generation.
+
+Read no frame-time delta across that pair: its two arms were played on different routes, and
+`msGPUBusy` at the median came out *lower* with the mod loaded. The census is the number that
+survives a different corridor; the `PresentMode` histogram is the number that does not care about
+one at all. That is also how any further frame-time cell is taken: the mode tracks what the player
+is doing, so a held cell measures the menu, and a number about the overlay has to come from play.
+
 ## Runtime map
 
 What each subsystem is, which file owns it, and the one thing about it that is not obvious from
@@ -502,8 +637,23 @@ says which **tier** each key is in:
 
 **`config_wuchang_minimap_dev.txt` is not part of a release.** It is read only if it exists, in
 the same folder, **after** the player config — so a key set in both wins there — and `package.ps1`
-throws if it finds one in the staged package. `deploy.ps1` copies it. The 1 Hz timestamp watch and
-F5 look at **both** files, so editing either reloads both.
+throws if it finds one in the staged package. `deploy.ps1` copies it.
+
+**The 1 Hz watch is not a reload.** It hashes both files' timestamps together, and on a change it
+reads exactly one key off disk: `mod_enabled`. Every other key — the whole Dev tier included — is
+re-read only by **F5** or by the full `load_config_file()` that a `mod_enabled` off/on cycle runs.
+So a dev key edited while the game is running is not live until one of those two happens, and a
+dev file that merely *reappears* is not live either: the mod holds the tier it last parsed. The log
+line is the proof, and it names both tiers or one:
+
+```
+config: loaded 107 setting(s) from ...\config_wuchang_minimap.txt + 44 dev setting(s) from ...\config_wuchang_minimap_dev.txt
+```
+
+That is the line to look for after turning on a Dev key such as `debug_readout`, which is what puts
+the **Debug** tab — and the perf counter table — in the F2 panel. Toggling `mod_enabled` 0 → 1 from
+a script is the route that needs no keyboard and leaves that line behind to check. Restoring a
+config file with a tool that preserves `LastWriteTime` moves no timestamp and so reloads nothing.
 
 Three keys take effect only on restart or on a `mod_enabled` off/on cycle, because each is read
 once during start-up: `overlay_hooks`, `srv_heap_size` and `navmesh_dump`.
@@ -513,7 +663,16 @@ over a player's folder adds keys to a config file that is already there, so a ne
 to an updating player until the F2 panel's auto-save appends it. Its default has to be the right
 behaviour on its own, or the release notes have to say so.
 
-**Two off switches, and they are the first thing to ask a bug reporter for.** `mod_enabled = 0`
+**Two off switches, and they are the first thing to ask a bug reporter for — for a CRASH.** For a
+frame-rate question `mod_enabled = 0` is **not** a baseline: the overlay's composition target has
+already taken the window off its hardware plane and releasing it does not bring it back, so a
+reporter who compares with the key off is comparing two demoted states and will report a difference
+several times too small. The only honest control there is the mod **not started** — rename
+`enabled.txt` in the mod's folder, which is one file and reversible. That does not take `main.dll`
+out of the process: UE4SS `LoadLibrary`s `dlls/main.dll` for every mod folder that has a `dlls`
+directory and gates only `start_mod()` on `enabled.txt` (`UE4SSProgram.cpp`; measured in the process's
+module list, 2026-09-20). Nothing of ours runs in that state — no hooks, no threads, not even a log
+rotation — so the control is sound; the DLL is merely mapped. `mod_enabled = 0`
 makes the whole DLL inert — the hooks are not installed (and are cleanly disabled if they already
 were, the trampolines kept so turning it back on can never double-hook), the `ProcessEvent`
 callback returns on its first statement (UE4SS exports no *Unregister*, so that early return is

@@ -38,6 +38,7 @@
 #include "exchange.hpp"
 #include "textmatch.hpp"
 #include "typing_gate.hpp"
+#include "framecensus.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
 #include "ptrwalk.hpp"
@@ -1314,6 +1315,7 @@ namespace
         CHECK_STR(perf::thread_name(perf::Thread::Loop), "loop");
         CHECK_STR(perf::thread_name(perf::Thread::Game), "game");
         CHECK_STR(perf::thread_name(perf::Thread::Render), "render");
+        CHECK_STR(perf::thread_name(perf::Thread::Surface), "surface");
         CHECK_STR(perf::thread_name(perf::Thread::Unknown), "?");
     }
 
@@ -4557,6 +4559,8 @@ namespace
 
         // PADDING bytes in mm::Config. A failure means either a field was added to the struct and
         // not to operator==, or the layout changed and the new count belongs here with a note.
+        // Interior padding, wherever a run of bools leaves a gap an int has to be aligned
+        // past, plus the tail alignment behind the last member.
         constexpr std::size_t kPaddingBytes = 71;
 
         mm::Config a{};
@@ -4596,6 +4600,69 @@ namespace
         }
         check(invisible.size() == kPaddingBytes, "every byte of mm::Config is compared by operator==",
               __FILE__, __LINE__);
+    }
+
+    // The frame census is the instrument the whole cost hunt now rests on, and its
+    // arithmetic is the part that can be wrong quietly: a percentile off by a bin reads as
+    // a layer that costs nothing.
+    void test_frame_census()
+    {
+        section("frame census - the per-phase interval histogram");
+
+        fc::Census c{};
+        CHECK(fc::percentile_ms(c.p[fc::Full], 0.5) == 0.0); // empty says zero, not a bin
+        CHECK(fc::mean_ms(c.p[fc::Full]) == 0.0);
+
+        // A phase outside the set, and a nonsense interval, are dropped rather than folded
+        // into a neighbour.
+        fc::record(c, -1, 10.0);
+        fc::record(c, fc::kPhases, 10.0);
+        fc::record(c, fc::Full, -1.0);
+        CHECK(c.p[fc::Full].samples == 0);
+
+        // 1000 frames at 10 ms, one phase.
+        for (int i = 0; i < 1000; ++i)
+        {
+            fc::record(c, fc::Full, 10.0);
+        }
+        CHECK(c.p[fc::Full].samples == 1000);
+        CHECK_NEAR(fc::mean_ms(c.p[fc::Full]), 10.0, 1e-9);
+        // The bin's midpoint, so within half a bin of the truth.
+        CHECK_NEAR(fc::percentile_ms(c.p[fc::Full], 0.5), 10.0, fc::kBinMs);
+        CHECK(c.p[fc::NoCompose].samples == 0); // the phases do not leak into each other
+
+        // A median that has to find the boundary between two populations: 600 at 10 ms and
+        // 400 at 20 ms put p50 in the 10 ms group and p90 in the 20 ms one.
+        fc::Census d{};
+        for (int i = 0; i < 600; ++i)
+        {
+            fc::record(d, fc::NoFrame, 10.0);
+        }
+        for (int i = 0; i < 400; ++i)
+        {
+            fc::record(d, fc::NoFrame, 20.0);
+        }
+        CHECK_NEAR(fc::percentile_ms(d.p[fc::NoFrame], 0.5), 10.0, fc::kBinMs);
+        CHECK_NEAR(fc::percentile_ms(d.p[fc::NoFrame], 0.9), 20.0, fc::kBinMs);
+        CHECK_NEAR(fc::mean_ms(d.p[fc::NoFrame]), 14.0, 1e-9);
+
+        // A hitch past the last bin still counts in samples and in the mean, and reads as
+        // the top of the range rather than wrapping to the bottom.
+        fc::Census e{};
+        for (int i = 0; i < 99; ++i)
+        {
+            fc::record(e, fc::NoVisual, 5.0);
+        }
+        fc::record(e, fc::NoVisual, 4000.0);
+        CHECK(e.p[fc::NoVisual].over == 1);
+        CHECK(e.p[fc::NoVisual].samples == 100);
+        CHECK_NEAR(fc::percentile_ms(e.p[fc::NoVisual], 0.5), 5.0, fc::kBinMs);
+        CHECK(fc::percentile_ms(e.p[fc::NoVisual], 0.999)
+              == static_cast<double>(fc::kBins) * fc::kBinMs);
+        CHECK(fc::mean_ms(e.p[fc::NoVisual]) > 40.0); // the hitch is in the mean, not hidden
+
+        fc::reset(e);
+        CHECK(e.p[fc::NoVisual].samples == 0);
     }
 
     void test_config_keys(const std::string& markers_dir)
@@ -7148,6 +7215,7 @@ int main(int argc, char** argv)
     test_script_map();
     test_game_binds();
     test_config_equality();
+    test_frame_census();
     test_ids();
     test_intern_levels();
     test_perf();

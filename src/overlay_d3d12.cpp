@@ -711,6 +711,104 @@ namespace overlay
             }
         }
 
+        //==============================================================================
+        // GPU TIMESTAMPS
+        //
+        // Six stamps per frame, written by the command list itself into a query heap and
+        // resolved into a readback buffer at the end of the same list. Each target owns its
+        // own slot range, and the results are read by the NEXT frame that takes that target
+        // - which `acquire_target` has already waited the fence for, so the resolve is done
+        // by definition and nothing here ever blocks.
+        //
+        // It is an instrument, not a feature: when anything in here fails the frame carries
+        // on with no stamps at all.
+        //==============================================================================
+
+        constexpr UINT kStamps = 6; // list start, map upload, slice copy, clear, ImGui, end
+
+        ID3D12QueryHeap* g_ts_heap = nullptr;
+        ID3D12Resource* g_ts_readback = nullptr;
+        const UINT64* g_ts_mapped = nullptr;
+        UINT64 g_ts_freq = 0;                  // GPU ticks per second, from the queue
+        bool g_ts_pending[kTargets] = {};      // this target's slots hold a resolved frame
+
+        void release_gpu_timestamps()
+        {
+            if (g_ts_readback != nullptr && g_ts_mapped != nullptr)
+            {
+                g_ts_readback->Unmap(0, nullptr);
+            }
+            g_ts_mapped = nullptr;
+            safe_release(g_ts_readback);
+            safe_release(g_ts_heap);
+            g_ts_freq = 0;
+            for (UINT i = 0; i < kTargets; ++i)
+            {
+                g_ts_pending[i] = false;
+            }
+        }
+
+        // Built once the queue is known; a failure is logged once and leaves the frame
+        // unstamped for the rest of the session.
+        void ensure_gpu_timestamps()
+        {
+            if (g_ts_heap != nullptr || g_device == nullptr)
+            {
+                return;
+            }
+            static bool said = false;
+            ID3D12CommandQueue* queue = g_queue.load(std::memory_order_acquire);
+            if (queue == nullptr || FAILED(queue->GetTimestampFrequency(&g_ts_freq)) || g_ts_freq == 0)
+            {
+                return; // the queue arrives with the first frame; try again next one
+            }
+            D3D12_QUERY_HEAP_DESC qd{};
+            qd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+            qd.Count = kTargets * kStamps;
+            if (FAILED(g_device->CreateQueryHeap(&qd, IID_PPV_ARGS(&g_ts_heap))))
+            {
+                g_ts_heap = nullptr;
+                if (!said)
+                {
+                    said = true;
+                    mm::log(L"gpu timestamps: the query heap could not be created - the overlay's "
+                            L"GPU counters stay empty, everything else is unaffected");
+                }
+                return;
+            }
+            D3D12_HEAP_PROPERTIES hp{};
+            hp.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC rd{};
+            rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            rd.Width = static_cast<UINT64>(kTargets) * kStamps * sizeof(UINT64);
+            rd.Height = 1;
+            rd.DepthOrArraySize = 1;
+            rd.MipLevels = 1;
+            rd.Format = DXGI_FORMAT_UNKNOWN;
+            rd.SampleDesc.Count = 1;
+            rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            void* mapped = nullptr;
+            if (FAILED(g_device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                                                         D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                         IID_PPV_ARGS(&g_ts_readback)))
+                || FAILED(g_ts_readback->Map(0, nullptr, &mapped)) || mapped == nullptr)
+            {
+                release_gpu_timestamps();
+                if (!said)
+                {
+                    said = true;
+                    mm::log(L"gpu timestamps: the readback buffer could not be created - the "
+                            L"overlay's GPU counters stay empty, everything else is unaffected");
+                }
+                return;
+            }
+            g_ts_mapped = static_cast<const UINT64*>(mapped);
+            mm::logf(L"gpu timestamps: {} stamps per frame on a {} MHz GPU clock; the overlay's own "
+                     L"command list is now timed on the GPU as well as on the CPU",
+                     kStamps,
+                     g_ts_freq / 1000000);
+        }
+
         // One allocator per render target, created for every target that has none.
         bool ensure_frame_allocators()
         {
@@ -1438,6 +1536,8 @@ namespace overlay
                 // above, because our queue is what the frames were submitted on.
                 comp_release();
                 release_render_targets();
+                // After wait_for_gpu, with the list that wrote them already idle.
+                release_gpu_timestamps();
                 for (UINT i = 0; i < kTargets; ++i)
                 {
                     safe_release(g_frames[i].allocator);
@@ -1553,6 +1653,82 @@ namespace overlay
                 }
                 g_render_stage.store("off: the adopted device was removed", std::memory_order_relaxed);
                 return true;
+            }
+
+            // THE FRAME'S PERF COUNTERS. Registered on first use, all on the render thread,
+            // and all private to this file - the frame is the only thing that records them.
+            //
+            // `g_pf_hook` is the total the game pays for the hook: everything from the render
+            // lock to the last submission, whichever way the frame returns. The rest are its
+            // parts, and they are meant to add up to it. A block with no counter is a block
+            // nobody has measured, which is how a 0.2 ms average came to stand in for 4 ms of
+            // frame time.
+            static int g_pf_hook = -1;      // render(), the whole body
+            static int g_pf_newframe = -1;  // ImGui_ImplWin32_NewFrame - cross-thread user32
+            static int g_pf_buildui = -1;   // build_ui() - our own drawing
+            static int g_pf_targetwait = -1; // the fence wait for the target this frame reuses
+            static int g_pf_record = -1;    // record_frame(), the command list
+            static int g_pf_imguidraw = -1; // ImGui_ImplDX12_RenderDrawData alone
+            static int g_pf_submit = -1;    // submit_frame(), execute + signal + publish
+            static int g_pf_shot = -1;      // the screenshot readback, outside render()
+
+            // THE SAME FRAME ON THE GPU. The counters above are CPU stopwatches and the
+            // overlay's GPU work is timed by nothing, which is where the part of the measured
+            // frame cost that `MsGPUBusy` carries has to be. These five are read out of
+            // timestamp queries the command list itself writes, one frame late, and they
+            // measure the GPU, not this thread - so they do not add up into `render frame
+            // (hook)` and must never be read as if they did.
+            static int g_pf_gpu_frame = -1;  // the whole of the overlay's command list
+            static int g_pf_gpu_upload = -1; // one map image, when a frame carries one
+            static int g_pf_gpu_slice = -1;  // the height-slice copy into the dynamic texture
+            static int g_pf_gpu_clear = -1;  // the full-target clear, every frame
+            static int g_pf_gpu_imgui = -1;  // ImGui's own draw call
+
+            void register_frame_counters()
+            {
+                if (g_pf_hook >= 0)
+                {
+                    return;
+                }
+                g_pf_hook = mm::perf_register("render frame (hook)", perf::Thread::Render);
+                g_pf_newframe = mm::perf_register("render NewFrame (win32)", perf::Thread::Render);
+                g_pf_buildui = mm::perf_register("render build_ui", perf::Thread::Render);
+                g_pf_targetwait = mm::perf_register("render target wait", perf::Thread::Render);
+                g_pf_record = mm::perf_register("render record", perf::Thread::Render);
+                g_pf_imguidraw = mm::perf_register("render ImGui draw", perf::Thread::Render);
+                g_pf_submit = mm::perf_register("render submit", perf::Thread::Render);
+                g_pf_shot = mm::perf_register("render shot collect", perf::Thread::Render);
+                g_pf_gpu_frame = mm::perf_register("gpu frame (overlay)", perf::Thread::Render);
+                g_pf_gpu_upload = mm::perf_register("gpu map upload", perf::Thread::Render);
+                g_pf_gpu_slice = mm::perf_register("gpu slice copy", perf::Thread::Render);
+                g_pf_gpu_clear = mm::perf_register("gpu target clear", perf::Thread::Render);
+                g_pf_gpu_imgui = mm::perf_register("gpu ImGui draw", perf::Thread::Render);
+            }
+
+            // The stamps this target carried last time it was drawn into. Called once the
+            // frame owns the target, which is after its fence: the values are settled and
+            // this reads plain memory. A stamp pair that did not advance is dropped rather
+            // than recorded as zero - a query the GPU disjointed is not a fast frame.
+            void collect_gpu_timestamps(UINT index)
+            {
+                if (!g_ts_pending[index] || g_ts_mapped == nullptr || g_ts_freq == 0)
+                {
+                    return;
+                }
+                g_ts_pending[index] = false;
+                const UINT64* s = g_ts_mapped + static_cast<std::size_t>(index) * kStamps;
+                const double scale = 1000.0 / static_cast<double>(g_ts_freq);
+                const auto span = [&](UINT a, UINT b, int id) {
+                    if (id >= 0 && s[b] > s[a])
+                    {
+                        mm::perf_record_ms(id, static_cast<double>(s[b] - s[a]) * scale);
+                    }
+                };
+                span(0, 5, g_pf_gpu_frame);
+                span(0, 1, g_pf_gpu_upload);
+                span(1, 2, g_pf_gpu_slice);
+                span(2, 3, g_pf_gpu_clear);
+                span(3, 4, g_pf_gpu_imgui);
             }
 
             // What the frame has to settle before it may build anything: a Present that
@@ -1681,29 +1857,18 @@ namespace overlay
                 release_finished_uploads();
             }
 
-            // The UI scale and ImGui's win32 half, the last of the housekeeping. Returns the
-            // frame's start stamp, which the perf row is recorded against.
-            std::uint64_t begin_frame_ui()
+            // The UI scale and ImGui's win32 half, the last of the housekeeping.
+            void begin_frame_ui()
             {
-                if (g_pf_frame < 0)
-                {
-                    g_pf_frame = mm::perf_register("render frame (ImGui)", perf::Thread::Render);
-                }
-                const std::uint64_t frame_t0 = mm::qpc_us();
                 // The UI scale, decided from the current target and applied before the frame's
                 // draw lists exist. ResizeBuffers changes g_height and a config change comes
                 // through cfg_cached, so both re-enter here on their own.
                 apply_ui_scale(wanted_ui_scale(mm::cfg_cached(), static_cast<float>(g_height)));
-                // Two sub-counters, because the two halves fail differently:
+                // Counted apart from build_ui because the two halves fail differently:
                 // ImGui_ImplWin32_NewFrame reads and writes the cursor and the client rect of a
                 // window owned by the GAME thread, and that cross-thread user32 call blocks
                 // until that thread pumps messages - which it does not do inside a synchronous
                 // level load. build_ui() is our own drawing and touches no OS handle.
-                if (g_pf_newframe < 0)
-                {
-                    g_pf_newframe = mm::perf_register("render NewFrame (win32)", perf::Thread::Render);
-                    g_pf_buildui = mm::perf_register("render build_ui", perf::Thread::Render);
-                }
                 const mm::PerfScope nf(g_pf_newframe);
                 // The game thread's window messages, in order, on the one thread that is
                 // allowed to touch the ImGui context.
@@ -1717,7 +1882,6 @@ namespace overlay
                 // for ever.
                 g_render_stage.store("imgui: ImplWin32_NewFrame (user32)", std::memory_order_relaxed);
                 ImGui_ImplWin32_NewFrame();
-                return frame_t0;
             }
 
             // THE TARGET, and the last thing that can drop this frame. Everything before it
@@ -1730,13 +1894,12 @@ namespace overlay
             // completed. None free means the compositor is behind: the frame is dropped
             // rather than waited for, because this thread is inside the game's Present.
             // Returns the target's index, or -1 when the frame is dropped.
-            int acquire_target(std::uint64_t frame_t0)
+            int acquire_target()
             {
                 const int picked = comp_pick_target();
                 if (picked < 0)
                 {
                     g_render_stage.store("no free overlay target", std::memory_order_relaxed);
-                    mm::perf_record(g_pf_frame, frame_t0);
                     (void)device_alive(L"a frame the overlay dropped for want of a free target");
                     return -1;
                 }
@@ -1751,6 +1914,10 @@ namespace overlay
                 g_render_stage.store("waiting for this target's fence", std::memory_order_relaxed);
                 if (frame.fence_value != 0 && g_fence->GetCompletedValue() < frame.fence_value)
                 {
+                    // Counted on its own: it is the one place in the frame where this thread
+                    // blocks on our own GPU work, and an average taken over the frame as a
+                    // whole would bury it.
+                    const mm::PerfScope tw(g_pf_targetwait);
                     if (SUCCEEDED(g_fence->SetEventOnCompletion(frame.fence_value, g_fence_event)))
                     {
                         ::WaitForSingleObject(g_fence_event, 500);
@@ -1760,7 +1927,7 @@ namespace overlay
             }
 
             // The overlay's own drawing, into ImGui's draw data. Nothing here touches D3D12.
-            void build_frame(std::uint64_t frame_t0)
+            void build_frame()
             {
                 ImGui_ImplDX12_NewFrame();
                 ImGui::NewFrame();
@@ -1776,7 +1943,6 @@ namespace overlay
                 // the caret, and the frame a click into a text box lands in is exactly the frame
                 // the loop thread is reading while the first letter of the word goes down.
                 g_imgui_want_text.store(tgate::text_active(), std::memory_order_relaxed);
-                mm::perf_record(g_pf_frame, frame_t0);
             }
 
             // The command list: the map upload, the height-slice copy, ImGui's draw call and
@@ -1784,11 +1950,24 @@ namespace overlay
             // frame is dropped.
             bool record_frame(UINT index, bool& shot_recorded)
             {
+                const mm::PerfScope rec(g_pf_record);
                 FrameCtx& frame = g_frames[index];
                 if (FAILED(frame.allocator->Reset()) || FAILED(g_cmd_list->Reset(frame.allocator, nullptr)))
                 {
                     return false;
                 }
+                // The GPU's own account of the list below, read a frame late and written by
+                // the list itself. `stamp` is a no-op until the query heap exists.
+                collect_gpu_timestamps(index);
+                ensure_gpu_timestamps();
+                const UINT ts_base = index * kStamps;
+                const auto stamp = [&](UINT slot) {
+                    if (g_ts_heap != nullptr)
+                    {
+                        g_cmd_list->EndQuery(g_ts_heap, D3D12_QUERY_TYPE_TIMESTAMP, ts_base + slot);
+                    }
+                };
+                stamp(0);
                 // One image per frame: a nine-layer chapter is resident after ~9 frames instead
                 // of stalling a single one with ~100 MB of copies.
                 std::unique_ptr<mapdata::PendingImage> pending = mapdata::take_pending();
@@ -1796,11 +1975,13 @@ namespace overlay
                 {
                     begin_map_upload(*pending, g_cmd_list);
                 }
+                stamp(1);
                 // The height-slice window the CPU filled during build_ui(), recorded BEFORE
                 // ImGui's draw call in the same command list, so the GPU sees the copy complete
                 // before it samples the texture - no extra queue, no second submission, no PSO
                 // of our own.
                 record_slice_copy(g_cmd_list);
+                stamp(2);
 
                 // No transition: the target is the mod's own and lives in RENDER_TARGET.
                 g_cmd_list->OMSetRenderTargets(1, &g_rtv[index], FALSE, nullptr);
@@ -1810,14 +1991,31 @@ namespace overlay
                 // composed as.
                 const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
                 g_cmd_list->ClearRenderTargetView(g_rtv[index], transparent, 0, nullptr);
+                stamp(3);
                 ID3D12DescriptorHeap* heaps[] = {g_srv_heap.heap()};
                 g_cmd_list->SetDescriptorHeaps(1, heaps);
-                ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_cmd_list);
+                {
+                    // Counted apart from the rest of the list: this is the one call here whose
+                    // cost follows what the overlay drew, and the rest is fixed per frame.
+                    const mm::PerfScope dd(g_pf_imguidraw);
+                    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_cmd_list);
+                }
+                stamp(4);
 
                 // The screenshot copy, if one was asked for. It borrows the target through
                 // COPY_SOURCE and hands it back in RENDER_TARGET, so the frame closes with the
                 // target in the one state it ever lives in.
                 shot_recorded = record_shot_copy(g_cmd_list, g_targets[index], index);
+                stamp(5);
+                // The resolve closes the list's own account of itself; a READBACK buffer is
+                // permanently in COPY_DEST, so no transition belongs here.
+                if (g_ts_heap != nullptr && g_ts_readback != nullptr)
+                {
+                    g_cmd_list->ResolveQueryData(g_ts_heap, D3D12_QUERY_TYPE_TIMESTAMP, ts_base,
+                                                 kStamps, g_ts_readback,
+                                                 static_cast<UINT64>(ts_base) * sizeof(UINT64));
+                    g_ts_pending[index] = true;
+                }
                 g_cmd_list->Close();
                 return true;
             }
@@ -1827,6 +2025,7 @@ namespace overlay
             // buffers the frame sampled and the map upload heap.
             void submit_frame(int picked, UINT index, bool shot_recorded)
             {
+                const mm::PerfScope sub(g_pf_submit);
                 g_render_stage.store("submitting the command list", std::memory_order_relaxed);
                 ID3D12CommandQueue* queue = g_queue.load(std::memory_order_acquire);
                 ID3D12CommandList* lists[] = {g_cmd_list};
@@ -1892,6 +2091,154 @@ namespace overlay
             }
         } // namespace
 
+        //==============================================================================
+        // THE FRAME CENSUS
+        //
+        // Which layer of the overlay is switched on, and what the game's own frame interval
+        // was while it was. `dev_frame_stop` names one layer; `dev_frame_cycle_ms` rotates
+        // through all four on a wall clock, so one capture holds every layer interleaved at
+        // seconds - the only arrangement in which scene drift and the mod's warm-up land on
+        // each of them equally.
+        //
+        // The interval is sampled here because this hook stands inside the game's Present:
+        // the gap between two entries IS the game's frame time, measured in its own process,
+        // with no ETW session and nothing to line up afterwards. A settling window after each
+        // switch throws away the frames in which DWM is still picking up the change.
+        //==============================================================================
+
+        constexpr std::uint64_t kPhaseSettleUs = 400000; // 0.4 s of each phase is discarded
+
+        fc::Census g_census{};
+        std::uint64_t g_phase_switch_us = 0;
+        std::uint64_t g_last_present_us = 0;
+
+        int frame_stop_now()
+        {
+            const mm::Config& cfg = mm::cfg_cached();
+            int stop = cfg.dev_frame_stop;
+            // A census that starts when the cycle does: without this the `full` bucket also
+            // holds every frame drawn before anyone asked for a measurement, and its median
+            // is then a different session's.
+            static bool cycling = false;
+            if ((cfg.dev_frame_cycle_ms > 0) != cycling)
+            {
+                cycling = cfg.dev_frame_cycle_ms > 0;
+                fc::reset(g_census);
+            }
+            if (cycling)
+            {
+                const std::uint64_t period = static_cast<std::uint64_t>(cfg.dev_frame_cycle_ms) * 1000;
+                stop = static_cast<int>((mm::qpc_us() / period) % fc::kPhases);
+            }
+            static int announced = -1;
+            if (stop != announced)
+            {
+                announced = stop;
+                g_phase_switch_us = mm::qpc_us();
+                MM_LOGV(L"frame census: phase {} ({}) from qpc {} us",
+                        stop,
+                        stop == fc::Full          ? L"full"
+                        : stop == fc::NoCompose   ? L"nothing composed"
+                        : stop == fc::NoFrame     ? L"no frame at all"
+                        : stop == fc::NoVisual    ? L"no visual either"
+                                                  : L"no background either",
+                        g_phase_switch_us);
+            }
+            comp_set_phase(stop);
+            mm::set_frame_phase(stop);
+            return stop;
+        }
+
+        // THE GAME'S OWN FRAME TIME, once per present of the adopted swapchain. This is the
+        // single owner of `g_last_present_us`, and every instrument that sorts frame times
+        // into buckets is handed the answer rather than reading the clock again. 0 means the
+        // interval is not usable yet (the first present of the session).
+        double frame_interval_ms(std::uint64_t now)
+        {
+            const std::uint64_t last = g_last_present_us;
+            g_last_present_us = now;
+            return (last == 0 || now <= last) ? 0.0 : static_cast<double>(now - last) / 1000.0;
+        }
+
+        // One interval, into the bucket of the phase it was measured in. A settling window
+        // after each switch throws away the frames in which DWM is still picking it up.
+        void sample_frame_interval(int phase, std::uint64_t now, double interval_ms)
+        {
+            if (interval_ms <= 0.0 || now - g_phase_switch_us < kPhaseSettleUs)
+            {
+                return;
+            }
+            fc::record(g_census, phase, interval_ms);
+        }
+
+        // LOOP THREAD. The four buckets side by side, and the three differences that are
+        // the whole point of them. Reading a bucket the render thread is writing costs at
+        // most one sample of a thousand, and nothing here feeds a decision.
+        void log_frame_census()
+        {
+            std::uint64_t total = 0;
+            for (int i = 0; i < fc::kPhases; ++i)
+            {
+                total += g_census.p[i].samples;
+            }
+            if (total == 0)
+            {
+                return;
+            }
+            static const wchar_t* const kName[fc::kPhases] = {
+                L"full", L"nothing composed", L"no frame at all", L"no visual either",
+                L"no background either"};
+            mm::log(L"frame census: the game's own present interval, by what the overlay was doing");
+            for (int i = 0; i < fc::kPhases; ++i)
+            {
+                const fc::Bucket& b = g_census.p[i];
+                if (b.samples == 0)
+                {
+                    continue;
+                }
+                mm::logf(L"  {:<18} {:>6} frame(s)  median {:>7.3f} ms  mean {:>7.3f}  p90 {:>7.3f}"
+                         L"  p99 {:>7.3f}  over 40 ms: {}",
+                         std::wstring{kName[i]},
+                         b.samples,
+                         fc::percentile_ms(b, 0.5),
+                         fc::mean_ms(b),
+                         fc::percentile_ms(b, 0.9),
+                         fc::percentile_ms(b, 0.99),
+                         b.over);
+            }
+            // The differences ARE the measurement; the medians above are only what they are
+            // taken from. Each is one layer of the frame, priced against the phase below it.
+            if (g_census.p[fc::Full].samples > 0 && g_census.p[fc::NoBackground].samples > 0)
+            {
+                const double full = fc::percentile_ms(g_census.p[fc::Full], 0.5);
+                const double nocomp = fc::percentile_ms(g_census.p[fc::NoCompose], 0.5);
+                const double noframe = fc::percentile_ms(g_census.p[fc::NoFrame], 0.5);
+                const double novis = fc::percentile_ms(g_census.p[fc::NoVisual], 0.5);
+                const double noback = fc::percentile_ms(g_census.p[fc::NoBackground], 0.5);
+                mm::logf(L"  per frame, median: the composition {:+.3f} ms, the overlay's own "
+                         L"frame {:+.3f}, the compositor carrying our layer {:+.3f}, our "
+                         L"background threads {:+.3f}; all of it {:+.3f}",
+                         full - nocomp,
+                         nocomp - noframe,
+                         noframe - novis,
+                         novis - noback,
+                         full - noback);
+                mm::logf(L"  per frame, p90:    the composition {:+.3f} ms, the overlay's own "
+                         L"frame {:+.3f}, the compositor carrying our layer {:+.3f}, our "
+                         L"background threads {:+.3f}; all of it {:+.3f}",
+                         fc::percentile_ms(g_census.p[fc::Full], 0.9)
+                             - fc::percentile_ms(g_census.p[fc::NoCompose], 0.9),
+                         fc::percentile_ms(g_census.p[fc::NoCompose], 0.9)
+                             - fc::percentile_ms(g_census.p[fc::NoFrame], 0.9),
+                         fc::percentile_ms(g_census.p[fc::NoFrame], 0.9)
+                             - fc::percentile_ms(g_census.p[fc::NoVisual], 0.9),
+                         fc::percentile_ms(g_census.p[fc::NoVisual], 0.9)
+                             - fc::percentile_ms(g_census.p[fc::NoBackground], 0.9),
+                         fc::percentile_ms(g_census.p[fc::Full], 0.9)
+                             - fc::percentile_ms(g_census.p[fc::NoBackground], 0.9));
+            }
+        }
+
         void render(IDXGISwapChain* swapchain)
         {
             if (!mm::mod_active())
@@ -1905,6 +2252,12 @@ namespace overlay
                 return;
             }
 
+            // From here to the last submission is what the game pays for the hook, however
+            // the frame returns - the lock wait included, because a frame spent waiting on
+            // ResizeBuffers is a frame the game did not get either.
+            register_frame_counters();
+            const mm::PerfScope hook(g_pf_hook);
+
             g_render_stage.store("waiting for the render lock", std::memory_order_relaxed);
             spin::SpinGuard guard(g_render_lock);
             g_render_stage.store("holding the render lock", std::memory_order_relaxed);
@@ -1915,14 +2268,27 @@ namespace overlay
             }
             frame_housekeeping();
 
-            const std::uint64_t frame_t0 = begin_frame_ui();
-            const int picked = acquire_target(frame_t0);
+            // The frame's one clock read, and the only present the overlay does not draw
+            // into. `phase >= NoFrame` is the census holding the frame shut by hand: the
+            // hook is installed, entered and accounted for, and not one frame of ours is
+            // drawn, recorded, submitted or composed, so what the game still loses at that
+            // setting is what the hook costs by existing.
+            const std::uint64_t now_us = mm::qpc_us();
+            const int phase = frame_stop_now();
+            sample_frame_interval(phase, now_us, frame_interval_ms(now_us));
+            if (phase >= fc::NoFrame)
+            {
+                return;
+            }
+
+            begin_frame_ui();
+            const int picked = acquire_target();
             if (picked < 0)
             {
                 return;
             }
             const UINT index = static_cast<UINT>(picked);
-            build_frame(frame_t0);
+            build_frame();
             bool shot_recorded = false;
             if (!record_frame(index, shot_recorded))
             {
@@ -1984,6 +2350,7 @@ namespace overlay
         {
             try
             {
+                const mm::PerfScope sc(g_pf_shot);
                 shot_collect();
             }
             catch (...)

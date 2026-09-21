@@ -27,6 +27,8 @@
 
 #include <Windows.h>
 
+#include <intrin.h> // __rdtsc, for the pump census
+
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -38,6 +40,7 @@
 #include <vector>
 
 #include "chapterid.hpp"
+#include "framecensus.hpp"
 #include "hookfind.hpp"
 #include "mapdata.hpp"
 #include "markers.hpp"
@@ -2443,11 +2446,34 @@ namespace gamestate
             return true;
         }
 
-        void pump(UObject* ctx, RC::Unreal::UFunction* fn)
+        // THE PUMP CENSUS. Everything else in this file is counted per 10 Hz pump, and the
+        // callback fires orders of magnitude more often than that: being in the ProcessEvent
+        // path at all costs UE4SS's dispatch plus this file's prologue, on every call the
+        // process makes. Two totals, converted to a rate on the loop thread.
+        //
+        // rdtsc rather than QPC because the instrument has to be smaller than what it
+        // measures: a QPC pair is ~40 ns against a prologue that may be no more than that,
+        // while a pair of rdtsc reads is ~10. No TSC frequency is assumed - the loop thread
+        // divides by a ratio it measures against QPC over the same window.
+        struct alignas(64) PumpCensus
+        {
+            std::atomic<std::uint64_t> calls{0};
+            std::atomic<std::uint64_t> cycles{0};
+        };
+        PumpCensus g_census;
+
+        void pump_body(UObject* ctx, RC::Unreal::UFunction* fn)
         {
             // THE MASTER SWITCH, first statement (modswitch.hpp). UE4SS exports no Unregister
             // for the ProcessEvent callback, so a disabled mod bails here: one relaxed load.
             if (!mm::mod_active())
+            {
+                return;
+            }
+
+            // THE MEASUREMENT PHASE's last layer stands this whole reader down, so the census
+            // can price what the mod's background threads cost the game (framecensus.hpp).
+            if (mm::frame_phase() >= fc::NoBackground)
             {
                 return;
             }
@@ -2543,6 +2569,55 @@ namespace gamestate
             // The marker sweep runs LAST, on the same validated state and inside the same
             // re-entrancy guard, after the publish so a slow slice cannot delay the position.
             markers::game_thread_pump(now, g_world);
+        }
+
+        // LOOP THREAD. The census as a rate: how often the process calls ProcessEvent, and
+        // what share of a second is spent inside our callback for it. The TSC-to-seconds
+        // ratio is measured over this very window, so a boosting or parked core cannot
+        // scale the answer.
+        void log_pump_census()
+        {
+            static std::uint64_t last_calls = 0;
+            static std::uint64_t last_cycles = 0;
+            static std::uint64_t last_tsc = 0;
+            static std::uint64_t last_us = 0;
+
+            const std::uint64_t tsc = __rdtsc();
+            const std::uint64_t us = mm::qpc_us();
+            const std::uint64_t calls = g_census.calls.load(std::memory_order_relaxed);
+            const std::uint64_t cycles = g_census.cycles.load(std::memory_order_relaxed);
+            if (last_us != 0 && us > last_us && tsc > last_tsc && calls >= last_calls)
+            {
+                const double secs = static_cast<double>(us - last_us) / 1e6;
+                const double tsc_hz = static_cast<double>(tsc - last_tsc) / secs;
+                const double d_calls = static_cast<double>(calls - last_calls);
+                const double ms = tsc_hz > 0.0
+                                      ? static_cast<double>(cycles - last_cycles) / tsc_hz * 1000.0
+                                      : 0.0;
+                MM_LOGV(L"pump census: {:.0f} ProcessEvent(s)/s through the pre-callback, "
+                        L"{:.2f} ms/s inside it ({:.0f} ns each, {:.1f} % of one thread); "
+                        L"{} call(s) since load",
+                        d_calls / secs,
+                        ms / secs,
+                        d_calls > 0.0 ? ms * 1e6 / d_calls : 0.0,
+                        ms / secs / 10.0,
+                        calls);
+            }
+            last_calls = calls;
+            last_cycles = cycles;
+            last_tsc = tsc;
+            last_us = us;
+        }
+
+        // The callback the engine actually reaches, and the only thing between it and
+        // pump_body: the census stamps every call, including the ones the master switch
+        // and the re-entrancy guard turn straight back.
+        void pump(UObject* ctx, RC::Unreal::UFunction* fn)
+        {
+            const std::uint64_t t0 = __rdtsc();
+            pump_body(ctx, fn);
+            g_census.cycles.fetch_add(__rdtsc() - t0, std::memory_order_relaxed);
+            g_census.calls.fetch_add(1, std::memory_order_relaxed);
         }
     } // namespace
 
@@ -2656,6 +2731,9 @@ namespace gamestate
         // window old and the STOPPED line above reports this number.
         const std::uint64_t stamped = g_report_ms.load(std::memory_order_relaxed);
         g_wd_last_snapshot = stamped != 0 ? stamped : now;
+        // On the watchdog's own 10 s window rather than the `state:` line's, so the rate is
+        // read over a window this thread has already proved it was running for.
+        log_pump_census();
         const std::uint64_t state_period = mm::log_enabled(mm::LogLv::Verbose) ? 10000 : 60000;
         if (last_state != 0 && now - last_state < state_period)
         {

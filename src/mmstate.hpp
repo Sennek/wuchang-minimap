@@ -97,6 +97,13 @@ namespace mm
         wchar_t menu_holder[96]{};
     };
 
+    // THE MEASUREMENT PHASE (framecensus.hpp), written by the render thread once a frame and
+    // read by every thread that can be asked to stand down for a layer of it. Plain relaxed
+    // atomic: it steers nothing but an instrument, and a reader one frame behind is a reader
+    // whose samples land in the settling window that is discarded anyway.
+    void set_frame_phase(int phase);
+    int frame_phase();
+
     // Writer (game thread) and reader (render thread). A torn read is retried, never
     // blocked - the render thread must never wait on the game thread.
     void publish(const Snapshot& snap);
@@ -492,6 +499,23 @@ namespace mm
         // pressed the same way; `none` disables it. This is the pad-only player's way into the
         // panel, so it stands on its own - no feature toggle gates it.
         std::uint16_t panel_pad_open_chord = 0x00A0; // pad::kBack | pad::kRightThumb
+
+        // A MEASUREMENT SWITCH, dev tier: how much of the overlay's frame actually happens.
+        //   0 - all of it, as shipped
+        //   1 - everything but the composition: the frame is drawn, recorded and submitted,
+        //       and the surface thread frees its target without copying or committing
+        //   2 - nothing: the hook enters, does its housekeeping and returns
+        // The three take the per-frame work apart in the only way a frame-time measurement
+        // can read, since a counter inside our own code cannot see what the game's threads
+        // lose around it.
+        int dev_frame_stop = 0;
+
+        // Cycles `dev_frame_stop` through every layer (framecensus.hpp) every N ms, logging each
+        // switch with the QPC microsecond it happened at; 0 leaves the key alone. One capture then
+        // carries all five layers twenty times over, so neither the mod's warm-up after a reload
+        // nor the scene's own drift can land on one layer rather than another - the two things
+        // that made a four-cell run unreadable.
+        int dev_frame_cycle_ms = 0;
     };
 
     // Config is a value: copied by value onto the render thread every frame, published under a
@@ -682,6 +706,7 @@ namespace mm
         detail::eq(a.ui_font, b.ui_font) &&
         a.zoom_dpi_scaled == b.zoom_dpi_scaled &&
         a.panel_pad_open_chord == b.panel_pad_open_chord &&
+        a.dev_frame_stop == b.dev_frame_stop && a.dev_frame_cycle_ms == b.dev_frame_cycle_ms &&
                true;
     }
 
@@ -719,6 +744,11 @@ namespace mm
     // The table, for the F2 panel. Read-only by convention.
     const perf::Table& perf_table();
     void perf_reset_peaks();
+
+    // The same rows, into the log. LOOP THREAD. The panel is the other way to read them and it
+    // is not interchangeable: an open panel is itself frame cost, so a table read through one
+    // measures the reading. This is what a perf bug report can carry.
+    void perf_log_table(const wchar_t* when);
 
     // The stall gate, any thread: "the process is not running normally for the next `ms` ms" -
     // a loading screen, a swapchain resize, a reload. Every perf_record inside that window

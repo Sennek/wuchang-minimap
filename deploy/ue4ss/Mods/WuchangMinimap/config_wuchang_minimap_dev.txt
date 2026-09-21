@@ -211,3 +211,23 @@ highlight_pov_bad_reads = 8
 ; by the engine's allocator afterwards, and the signature check alone cannot prove the
 ; parameter is not owned.
 saveslot_uuid_call = 0
+
+; A MEASUREMENT SWITCH. How much of the overlay's frame happens at all:
+;   0 = all of it, as shipped
+;   1 = everything but the composition - the frame is drawn, recorded and submitted, and
+;       the surface thread frees its target without copying it or committing
+;   2 = nothing - the Present hook enters, does its housekeeping and returns
+;   3 = 2, and our visual is detached from the window's composition tree
+;   4 = 3, and the ProcessEvent reader and the loop thread's slicer stand down
+; It exists because a frame-time delta is the only instrument that can see what the game's
+; own threads lose around our work; our counters only see our work.
+dev_frame_stop = 0
+
+; Rotates `dev_frame_stop` through 0 -> 1 -> 2 -> 3 -> 4 every N ms, 0 = leave it alone. The
+; five together price the composition, the overlay's own frame, the compositor carrying our
+; layer, and every thread of ours that runs between frames. The Present hook samples the
+; game's own frame interval into one histogram per layer and the loop thread logs the table
+; every 30 s, which is the whole measurement - no ETW session, no CSV, nothing to line up
+; afterwards. 2000 is a good cycle, and it is read during ORDINARY PLAY: a quiet spot has
+; GPU slack and cannot show the cost at all.
+dev_frame_cycle_ms = 0

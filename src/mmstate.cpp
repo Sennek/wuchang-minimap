@@ -26,6 +26,8 @@
 
 #include "mmstate.hpp"
 
+#include "framecensus.hpp"
+
 #include "atomicfile.hpp"
 #include "config_keys.hpp"
 #include "config_rewrite.hpp"
@@ -1069,6 +1071,14 @@ namespace mm
             {
                 cfg.zoom_dpi_scaled = parse_bool(value, cfg.zoom_dpi_scaled);
             }
+            else if (key == "dev_frame_stop")
+            {
+                cfg.dev_frame_stop = parse_int(value, cfg.dev_frame_stop);
+            }
+            else if (key == "dev_frame_cycle_ms")
+            {
+                cfg.dev_frame_cycle_ms = parse_int(value, cfg.dev_frame_cycle_ms);
+            }
             else if (key == "saveslot_uuid_call")
             {
                 cfg.saveslot_uuid_call = parse_bool(value, cfg.saveslot_uuid_call);
@@ -1506,6 +1516,20 @@ namespace mm
     std::atomic<bool> g_key_capture{false};
     std::atomic<bool> g_panel_drew_frame{false};
 
+    // The measurement phase, shared so a layer can stand a whole thread down. Relaxed both
+    // ways: nothing but the instrument reads it.
+    std::atomic<int> g_frame_phase{0};
+
+    void set_frame_phase(int phase)
+    {
+        g_frame_phase.store(phase, std::memory_order_relaxed);
+    }
+
+    int frame_phase()
+    {
+        return g_frame_phase.load(std::memory_order_relaxed);
+    }
+
     void publish(const Snapshot& snap)
     {
         const std::uint32_t start = g_seq.load(std::memory_order_relaxed);
@@ -1623,6 +1647,48 @@ namespace mm
     const perf::Table& perf_table()
     {
         return g_perf;
+    }
+
+    void perf_log_table(const wchar_t* when)
+    {
+        const perf::Table& t = g_perf;
+        const int n = t.count.load(std::memory_order_acquire);
+        logf(L"perf ({}): {} counter(s) over a {} ms window; last stall {}",
+             std::wstring{when != nullptr ? when : L"?"},
+             n,
+             perf::kWindowMs,
+             std::wstring{perf_last_stall()});
+        for (int i = 0; i < n; ++i)
+        {
+            const perf::Counter& c = t.c[i];
+            if (c.name == nullptr)
+            {
+                continue;
+            }
+            // The names and thread labels are ASCII literals with static storage; widening
+            // them a byte at a time keeps this free of locale, which the loop thread is the
+            // only thread allowed to touch anyway.
+            const auto widen = [](const char* s) {
+                std::wstring w;
+                for (const char* p = s; p != nullptr && *p != '\0'; ++p)
+                {
+                    w.push_back(static_cast<wchar_t>(static_cast<unsigned char>(*p)));
+                }
+                return w;
+            };
+            logf(L"  {:<26} {:>6.1f} Hz  avg {:>8.3f}  calm {:>8.3f}  peak {:>8.3f}  last {:>8.3f}  "
+                 L"stalls {} (worst {:.0f} ms)  calls {}  [{}]",
+                 widen(c.name),
+                 c.rate_hz,
+                 c.avg_ms,
+                 c.peak_calm_ms,
+                 c.peak_ms,
+                 c.last_ms,
+                 c.stalls,
+                 c.peak_stall_ms,
+                 c.calls,
+                 widen(perf::thread_name(c.thread)));
+        }
     }
 
     void perf_reset_peaks()
@@ -2092,6 +2158,8 @@ namespace mm
             cfg.map_asset_retire_grace_ms = (std::max)(0, (std::min)(60000, cfg.map_asset_retire_grace_ms));
             cfg.hide_reason_log_ms = (std::max)(0, (std::min)(600000, cfg.hide_reason_log_ms));
             cfg.srv_heap_size = (std::max)(16, (std::min)(1024, cfg.srv_heap_size));
+            cfg.dev_frame_stop = (std::max)(0, (std::min)(fc::kPhases - 1, cfg.dev_frame_stop));
+            cfg.dev_frame_cycle_ms = (std::max)(0, (std::min)(60000, cfg.dev_frame_cycle_ms));
             cfg.highlight_camera_resolve_ms = (std::max)(100, (std::min)(10000, cfg.highlight_camera_resolve_ms));
             cfg.highlight_compass_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_compass_period_ms));
             cfg.highlight_getter_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_getter_period_ms));
@@ -2363,6 +2431,8 @@ namespace mm
         add("highlight_pov_scan_bytes", std::to_string(cfg.highlight_pov_scan_bytes));
         add("highlight_pov_bad_reads", std::to_string(cfg.highlight_pov_bad_reads));
         add("saveslot_uuid_call", b(cfg.saveslot_uuid_call));
+        add("dev_frame_stop", std::to_string(cfg.dev_frame_stop));
+        add("dev_frame_cycle_ms", std::to_string(cfg.dev_frame_cycle_ms));
 
         return kv;
     }

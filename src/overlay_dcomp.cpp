@@ -101,6 +101,23 @@ namespace overlay
             std::atomic<std::uint64_t> g_skipped{0};
             std::atomic<std::uint64_t> g_dropped{0};
 
+            // The composition path's own counters - the one part of the mod's per-frame work
+            // that lives outside both the Present hook and the game thread. Their RATE is the
+            // measurement that matters as much as their average: the mailbox is latest-wins and
+            // a displaced frame is silent, so `g_dropped` at zero says nothing about how often
+            // the surface actually reaches the compositor. `comp copy` at the game's frame rate
+            // means the full-surface copy runs every frame; well below it means the compositor,
+            // not the copy, sets the pace.
+            int g_pf_fencewait = -1; // waiting for the overlay's own frame to finish on the GPU
+            int g_pf_copy = -1;      // BeginDraw, the copy through D3D11On12, Flush, EndDraw
+            int g_pf_commit = -1;    // Commit alone - where the compositor's back-pressure lands
+
+            // THE MEASUREMENT PHASE (framecensus.hpp). The render thread publishes it once a
+            // frame; `g_phase_applied` is this thread's own copy, because DirectComposition
+            // is touched from here and nowhere else.
+            std::atomic<int> g_phase_want{fc::Full};
+            int g_phase_applied = fc::Full;
+
             // The mailbox: latest wins, one slot, no lock. 0 is empty; otherwise the
             // render fence value shifted up with the target index in the low bits.
             constexpr int kMailboxIndexBits = 3;
@@ -158,6 +175,7 @@ namespace overlay
             {
                 if (g_fence != nullptr && g_fence->GetCompletedValue() < fence_value)
                 {
+                    const mm::PerfScope fw(g_pf_fencewait);
                     // Reset first: a wait that timed out earlier can leave this
                     // auto-reset event signalled by the fence that arrived late, and the
                     // next frame would then read it as its own completion.
@@ -180,42 +198,83 @@ namespace overlay
                         return false;
                     }
                 }
+                // The measurement switch: the frame reached this thread and its target is
+                // freed by the caller either way, so the mailbox keeps flowing and the only
+                // thing missing is the copy and the commit.
+                if (g_phase_want.load(std::memory_order_relaxed) >= fc::NoCompose)
+                {
+                    return true;
+                }
                 ID3D11Texture2D* dest = nullptr;
                 POINT off{};
-                const HRESULT hr = g_surface->BeginDraw(nullptr, IID_PPV_ARGS(&dest), &off);
-                if (FAILED(hr) || dest == nullptr)
                 {
-                    if (!g_draw_logged)
+                    const mm::PerfScope cp(g_pf_copy);
+                    const HRESULT hr = g_surface->BeginDraw(nullptr, IID_PPV_ARGS(&dest), &off);
+                    if (FAILED(hr) || dest == nullptr)
                     {
-                        g_draw_logged = true;
-                        mm::logf(L"composition: BeginDraw on the overlay's surface failed (0x{:08X}) - "
-                                 L"the overlay stops reaching the compositor, the game is unaffected",
-                                 static_cast<unsigned>(hr));
+                        if (!g_draw_logged)
+                        {
+                            g_draw_logged = true;
+                            mm::logf(L"composition: BeginDraw on the overlay's surface failed "
+                                     L"(0x{:08X}) - the overlay stops reaching the compositor, the "
+                                     L"game is unaffected",
+                                     static_cast<unsigned>(hr));
+                        }
+                        return false;
                     }
-                    return false;
+                    g_on12->AcquireWrappedResources(&g_wrapped[index], 1);
+                    const D3D11_BOX box{0, 0, 0, g_surface_w, g_surface_h, 1};
+                    g_ctx11->CopySubresourceRegion(dest, 0, static_cast<UINT>(off.x),
+                                                   static_cast<UINT>(off.y), 0,
+                                                   g_wrapped[index], 0, &box);
+                    g_on12->ReleaseWrappedResources(&g_wrapped[index], 1);
+                    g_ctx11->Flush();
+                    ++g_copy_value;
+                    g_queue11->Signal(g_copy_fence, g_copy_value);
+                    // Recorded before the target is handed back, so a render thread that sees
+                    // it free reads the value that frees it.
+                    g_target_copy[index].store(g_copy_value, std::memory_order_release);
+                    g_surface->EndDraw();
                 }
-                g_on12->AcquireWrappedResources(&g_wrapped[index], 1);
-                const D3D11_BOX box{0, 0, 0, g_surface_w, g_surface_h, 1};
-                g_ctx11->CopySubresourceRegion(dest, 0, static_cast<UINT>(off.x),
-                                               static_cast<UINT>(off.y), 0, g_wrapped[index], 0, &box);
-                g_on12->ReleaseWrappedResources(&g_wrapped[index], 1);
-                g_ctx11->Flush();
-                ++g_copy_value;
-                g_queue11->Signal(g_copy_fence, g_copy_value);
-                // Recorded before the target is handed back, so a render thread that sees
-                // it free reads the value that frees it.
-                g_target_copy[index].store(g_copy_value, std::memory_order_release);
-                g_surface->EndDraw();
-                // Commit blocks on the compositor when it is called faster than the
-                // compositor consumes. That stall lands here and never on the game's
-                // present, which is the whole reason this thread exists.
-                g_comp_device->Commit();
+                {
+                    // Commit blocks on the compositor when it is called faster than the
+                    // compositor consumes. That stall lands here and never on the game's
+                    // present, which is the whole reason this thread exists - and counted
+                    // apart for the same reason: it is the compositor's pace, not our work.
+                    const mm::PerfScope cm(g_pf_commit);
+                    g_comp_device->Commit();
+                }
                 safe_release(dest);
                 return true;
             }
 
+            // Takes our visual out of the window's composition tree, and puts it back. The
+            // last phase is what prices the compositor carrying our layer at all: everything
+            // else about the mod is identical either side of it, and DWM either has a second
+            // surface over the game's window or it does not.
+            void apply_phase()
+            {
+                const int want = g_phase_want.load(std::memory_order_acquire);
+                if (want == g_phase_applied || g_comp_visual == nullptr || g_comp_device == nullptr)
+                {
+                    return;
+                }
+                const bool hide = want >= fc::NoVisual;
+                if (hide != (g_phase_applied >= fc::NoVisual))
+                {
+                    g_comp_visual->SetContent(hide ? nullptr : static_cast<IUnknown*>(g_surface));
+                    g_comp_device->Commit();
+                }
+                g_phase_applied = want;
+            }
+
             DWORD WINAPI surface_proc(LPVOID)
             {
+                // Registered from the thread that writes them, once, before the loop: every
+                // counter has exactly one writer and this is it.
+                g_pf_fencewait = mm::perf_register("comp fence wait", perf::Thread::Surface);
+                g_pf_copy = mm::perf_register("comp surface copy", perf::Thread::Surface);
+                g_pf_commit = mm::perf_register("comp commit", perf::Thread::Surface);
                 for (;;)
                 {
                     ::WaitForSingleObject(g_surf_wake, INFINITE);
@@ -242,6 +301,7 @@ namespace overlay
                         }
                         continue;
                     }
+                    apply_phase();
                     const std::uint64_t slot = g_mailbox.exchange(0, std::memory_order_acq_rel);
                     if (slot == 0)
                     {
@@ -412,6 +472,17 @@ namespace overlay
             // thread inside the game's Present never stalls on anything of ours.
             g_skipped.fetch_add(1, std::memory_order_relaxed);
             return -1;
+        }
+
+        void comp_set_phase(int phase)
+        {
+            if (g_phase_want.exchange(phase, std::memory_order_acq_rel) != phase
+                && g_surf_wake != nullptr)
+            {
+                // A phase past NoCompose publishes no frames at all, so this wake is the only
+                // thing that ever reaches the thread to act on the change.
+                ::SetEvent(g_surf_wake);
+            }
         }
 
         void comp_publish(int index, std::uint64_t fence_value)
@@ -782,6 +853,7 @@ namespace overlay
             }
             g_surface_w = width;
             g_surface_h = height;
+            g_phase_applied = fc::Full; // the bind below re-attaches; a hidden phase re-applies
             if (FAILED(g_comp_visual->SetContent(g_surface)) || FAILED(g_comp_device->Commit()))
             {
                 mm::log(L"composition: the surface could not be attached to the visual");

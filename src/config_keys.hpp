@@ -196,6 +196,8 @@ namespace cfgkeys
         {"highlight_pov_scan_bytes", Tier::Dev},
         {"highlight_pov_bad_reads", Tier::Dev},
         {"saveslot_uuid_call", Tier::Dev},
+        {"dev_frame_stop", Tier::Dev},
+        {"dev_frame_cycle_ms", Tier::Dev},
 
         // REMOVED - hard-coded constants and dropped features; listed so the key gets a
         // named warning

@@ -78,7 +78,7 @@
 
   "manual": {
     "hags": "on",
-    "rtss": "RTSS 7.3.5 here, 7.3.7 in the report. The SCRIPT never starts or stops it - it reads it back and refuses. Starting it from its own exe needs no elevation; STOPPING it does, so an ordinary shell cannot, and it is closed from its tray icon.",
+    "rtss": "RTSS 7.3.5 here, 7.3.7 in the report. The apply starts it if it is not already up and the restore stops it again; RTSS the owner already had running is left alone at both ends.",
     "driver_vsync": "the owner's word — not readable from a script",
     "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary"
   }

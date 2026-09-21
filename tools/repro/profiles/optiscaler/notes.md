@@ -13,7 +13,7 @@ which is why he is two profiles rather than one folder with his name on it. 3 cr
 than by his word: `main.dll` size 4,882,432, stamp `0x6AA56E80` = `dist\WuchangMinimap-1.2.0`.
 
 Evidence, which must not be re-derived:
-`_done/discovery-swapchain-optiscaler/context/{truth-table,repro-recipe}.md` and
+`_done/discovery-swapchain-optiscaler/context/truth-table.md` and
 `context/reporter4-2026-09-13/`.
 
 ## Why the crash is expected here
@@ -30,11 +30,11 @@ mod as installed.
 
 | | |
 |---|---|
-| **Measured on this box** | the verdict: 3/3 crash at 11–17 s, both frame-generation states, 2026-09-13/14 |
+| **Measured on this box** | the verdict: 3/3 crash at 11–17 s by hand on 2026-09-13/14, both frame-generation states; and **3/3 at 11–12 s through this profile on 2026-09-21**, `CrashType = Assert` |
 | **Measured on this box** | the mod build, by PE stamp out of his own log |
 | **From the report** | that he ran OptiScaler 0.9.4 and no ReShade |
 | **Differs from the report** | RTSS is **7.3.5** here, 7.3.7 in his. The 1.1.1 crash reproduced across that same gap, so it is recorded rather than treated as a blocker |
-| **Cannot be set by a script** | RTSS runs elevated and is closed from its own tray icon. The profile checks that it is running and never starts it — an apply refuses until the owner has |
+| **Done by the script** | RTSS. The apply starts it if it is not already up and the restore stops it again — `taskkill.exe /F /IM RTSS.exe` elevated, because its manifest is `requireAdministrator`. RTSS the owner already had running is neither started nor stopped |
 
 ## The payload, and why it is a tree
 

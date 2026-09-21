@@ -1,0 +1,85 @@
+{
+  "name": "optiscaler",
+  "description": "firehoooo's second box: OptiScaler 0.9.4 as the D3D12 proxy, RTSS running, no ReShade, the mod pinned to 1.2.0 — the build whose discovery swapchain crashes in it",
+
+  "report": {
+    "who": "firehoooo (reporter 4), his SECOND configuration",
+    "when": "2026-09-13",
+    "thread": "Nexus, following his 1.1.1 E_ABORT report a day earlier",
+    "verdict": "3/3 crash at 11-17 s on this box, with frame generation on AND off; cause was the mod's throwaway discovery swapchain, fixed by 71963f6"
+  },
+
+  "payloads": [
+    { "dest": "d3d12.dll", "source": "optiscaler-0.9.4-d3d12.dll",
+      "sha256": "fbfb6676b829dad7e020fb830586a16aa0ec6add78016db48ef12e2ae1803231",
+      "note": "OptiScaler.dll from the official v0.9.4 release, renamed — this is how it loads, as the D3D12 proxy" },
+
+    { "dest": "OptiScaler", "tree": true, "source": "optiscaler-0.9.4-libs",
+      "sha256": {
+        "amd_fidelityfx_dx12.dll":                 "e2d85aa05a9bd9ed8b38935fdf5199372cca6f74c12015143bb6f945ee1608aa",
+        "amd_fidelityfx_framegeneration_dx12.dll": "02297beedd285e822d3a64f314cf00faf378dcec0edc47ff0c4dd71b3a8c2f18",
+        "amd_fidelityfx_upscaler_dx12.dll":        "d0dcccc74a43c44ba435b7a369b456e0970d8a4464e4bd683119b374f2c9fb46",
+        "amd_fidelityfx_vk.dll":                   "a1624cc4238fef046f30c4d80ce3f47be63fc5f5373f49e3ee9edb9960f54c78",
+        "dlssg_to_fsr3_amd_is_better.dll":         "806020c0444f7841a3a9f661295c16fc482e981e0666d0b9624bf6ccd19c4b5e",
+        "libxell.dll":                             "61aeeab7fdcfb6d1742f86c14c68c663d759607d01a6132645c857291eaebb86",
+        "libxess.dll":                             "251659dd84a3e84de67c886a4186e01f3eca49b00641906fe38bb6b807e5d5b7",
+        "libxess_dx11.dll":                        "c7cfe86f0c9d94e4fb3696d3cd5035e2bbb6a8b1b0572f8b7395a4cdfd0c625e",
+        "libxess_fg.dll":                          "ec5e0c65e075570c6ede72618bb666d0be0c2e10b2ea9762c0fe8cb8e375ab27"
+      },
+      "note": "the nine libraries the recipe names, 174 MB. The game ships its OWN amd_fidelityfx_dx12.dll in Win64 and it is not touched — the subfolder is what keeps the two apart" },
+
+    { "dest": "OptiScaler.ini", "source": "optiscaler-0.9.4.ini", "volatile": true,
+      "sha256": "9b35e391289bf4e42aa1c1b0237b45702ab341b9e2ad3c279f73df300f36abe3",
+      "note": "the vendor's own ini with seven keys set on the lines it already had for them: OptiDllPath=.\\OptiScaler\\, Dx12Upscaler=xess, [FrameGen] Enabled=true FGInput=dlssg FGOutput=fsrfg, LogToFile=true, LogLevel=2. OptiScaler rewrites it while it runs" },
+
+    { "dest": "dxgi.dll", "source": null,
+      "note": "he had no ReShade in this configuration; this box's proxy comes off" },
+    { "dest": "renodx-dlss.addon64", "source": null },
+    { "dest": "renodx-dlss5.addon64x", "source": null },
+    { "dest": "nvngx_dlssnr.dll", "source": null },
+    { "dest": "ReShade.ini", "source": null },
+    { "dest": "ReShade2.ini", "source": null }
+  ],
+
+  "mod": {
+    "build": "dist:1.2.0",
+    "state": "on",
+    "config": {},
+    "config_dev": {}
+  },
+  "recon": "absent",
+  "state": "keep",
+
+  "game_settings": {
+    "bUseVSync": "True",
+    "FullscreenMode": "1",
+    "ResolutionSizeX": "1920",
+    "ResolutionSizeY": "1080",
+    "FrameRateLimit": "0.000000"
+  },
+  "game_config_sav": null,
+
+  "processes": {
+    "running": ["RTSS"],
+    "absent": []
+  },
+
+  "expect": {
+    "note": "OptiScaler loads AS d3d12.dll, so that is the module this configuration is recognised by, and this box's own ReShade proxy must be gone from it. Modules are matched on the END of the loaded module's full path.",
+    "modules": [
+      "Binaries\\Win64\\d3d12.dll",
+      "Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "RTSSHooks64.dll",
+      "WuchangMinimap\\dlls\\main.dll"
+    ],
+    "modules_absent": ["Binaries\\Win64\\dxgi.dll"],
+    "verdict": "CRASH"
+  },
+
+  "manual": {
+    "hags": "on",
+    "rtss": "RTSS 7.3.5 here, 7.3.7 in the report. It runs elevated and is closed from its own tray icon, so this profile checks that it is running and never starts it.",
+    "driver_vsync": "the owner's word — not readable from a script",
+    "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary"
+  }
+}

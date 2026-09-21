@@ -16,7 +16,8 @@
     { "dest": "nvngx_dlssnr.dll", "source": null },
     { "dest": "ReShade.ini", "source": null },
     { "dest": "ReShade2.ini", "source": null },
-    { "dest": "d3d12.dll", "source": null }
+    { "dest": "d3d12.dll", "source": null },
+    { "dest": "OptiScaler", "tree": true, "source": null, "note": "OptiScaler's nine libraries live in this folder. Stated as a tree so the floor's guarantee is 'no OptiScaler here' rather than 'none of the nine files someone remembered to list'" }
   ],
 
   "mod": {

@@ -34,7 +34,8 @@
       "sha256": "5199bee6dc861476e89b0db303d59449048acf6045f248557bbd653b2beab2b3",
       "note": "leftover second config, read by nothing; declared because it is on the box" },
 
-    { "dest": "d3d12.dll", "source": null, "note": "OptiScaler goes here; it must not be present in this configuration" }
+    { "dest": "d3d12.dll", "source": null, "note": "OptiScaler goes here; it must not be present in this configuration" },
+    { "dest": "OptiScaler", "tree": true, "source": null, "note": "and its nine libraries live in this folder. Stated as a tree so the guarantee is 'no OptiScaler here' rather than 'none of the nine files someone remembered to list'" }
   ],
 
   "mod": {

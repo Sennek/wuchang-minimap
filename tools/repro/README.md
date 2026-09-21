@@ -147,15 +147,21 @@ behind is the same residue as leaving RTSS itself). `processes.absent` is unchan
 refuses: stopping something the owner is using is not this script's call.
 
 **Stopping is the asymmetric half.** `RTSS.exe` is `requireAdministrator`, so an unelevated shell
-starts it — it elevates itself — and then cannot stop it: no main window to close, and
-`Stop-Process` is *Access denied* across the integrity boundary. Two ways out, in order:
+starts it — it elevates itself — and then `Stop-Process` is *Access denied* across the integrity
+boundary and there is no main window to close. Three ways down, cheapest first:
 
-1. `processes.stop_task` in `pinned.json` names a Scheduled Task the owner registers **once**, with
-   RunLevel Highest, that stops those processes by name. `Start-ScheduledTask` on it needs no
-   elevation from us, so every run after that cleans up by itself.
-2. Without the task, the restore says what it left running and writes `left_running.json` into the
-   store. **Every `status` reprints it** until those processes are actually gone, and clears it
-   itself when they are. Nobody has to remember that something was switched on an hour ago.
+1. `processes.stop_task` in `pinned.json` names a Scheduled Task the owner may register **once**,
+   with RunLevel Highest, that stops those processes by name. `Start-ScheduledTask` fires it
+   without elevating *us* at all, so it can never put a prompt in the middle of a run. That is the
+   only reason it is tried first; it is optional.
+2. Otherwise, elevate exactly one fixed system binary with fixed arguments —
+   `taskkill.exe /F /IM <name>.exe`. Not a shell: an elevated shell is a general capability asked
+   for a specific job, and it reads that way to anything watching the machine. On a box whose UAC
+   is set to consent this raises a prompt, which is the box saying so rather than a fault.
+3. If both fail — a declined prompt, a locked-down policy — the restore says what it left running
+   and writes `left_running.json` into the store. **Every `status` reprints it** until those
+   processes are actually gone, and clears it itself when they are. Nobody has to remember that
+   something was switched on an hour ago.
 
 ## The probes
 

@@ -2502,8 +2502,12 @@ function Stop-StartedProcesses($records) {
                            -ForegroundColor DarkGray
                 continue
             }
-            # It runs above this shell. The one non-elevating way out is a task the owner
-            # registered once; `Start-ScheduledTask` on it needs no elevation of ours.
+            # It runs above this shell - `requireAdministrator` processes do. Two ways down,
+            # cheapest first.
+            #
+            # A registered task, if there is one: `Start-ScheduledTask` fires it without
+            # elevating US at all, so it cannot put a prompt in the middle of a run. That is
+            # the only reason it is tried before the direct route.
             $task = $(if ($cfg) { [string]$cfg.stop_task } else { $null })
             if ($task -and (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)) {
                 Start-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
@@ -2513,6 +2517,22 @@ function Stop-StartedProcesses($records) {
                                -ForegroundColor DarkGray
                     continue
                 }
+            }
+            # Otherwise elevate exactly one fixed system binary with fixed arguments:
+            # `taskkill.exe /F /IM <name>.exe`. Not a shell - an elevated shell is a general
+            # capability asked for a specific job, and it reads that way to anything watching.
+            # On a box whose UAC is set to consent this raises a prompt; that is the box
+            # saying so, not a fault, and the notice below catches a declined one.
+            try {
+                Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\taskkill.exe') `
+                              -Verb RunAs -Wait -ArgumentList '/F', '/IM', ($n + '.exe') `
+                              -ErrorAction Stop
+                Start-Sleep -Milliseconds 800
+            } catch { }
+            if (@(Get-Process -Name $n -ErrorAction SilentlyContinue).Count -eq 0) {
+                Write-Host ("  process        {0,-16} stopped - elevated taskkill; this run had started it" -f $n) `
+                           -ForegroundColor DarkGray
+                continue
             }
             $left.Add($n)
         }

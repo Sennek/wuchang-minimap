@@ -808,9 +808,8 @@ namespace
         }
 
         // WHOSE DEATH IS A FIND: the four finite collections of characters, and nothing
-        // else. A kill marks them permanently (markers.cpp's note_slain) and finding one
-        // uses it up, so the x-ray drops it with the loot; an ordinary enemy is a mob whose
-        // spawn point keeps working, so its death marks nothing.
+        // else. A kill marks them permanently (markers.cpp's note_slain); an ordinary enemy
+        // is a mob whose spawn point keeps working, so its death marks nothing.
         {
             for (int i = 0; i < mdb::kCatCount; ++i)
             {
@@ -820,14 +819,37 @@ namespace
                 CHECK_EQ(mdb::slain_is_found(cat), slain);
                 if (slain)
                 {
-                    CHECK(mdb::consumed_when_found(cat));
                     CHECK(!mdb::is_loot_family(cat));
                     // A kill is written to the found file, so the category must have a
                     // collected state to write it into.
                     CHECK(mdb::has_found_state(cat));
+                    // Killing it uses it up - unless it comes back, which is the Cuckoo and
+                    // only the Cuckoo.
+                    CHECK_EQ(mdb::consumed_when_found(cat), cat != mdb::Cat::Cuckoo);
                 }
             }
             CHECK(!mdb::consumed_when_found(mdb::Cat::Enemy));
+        }
+
+        // A CUCKOO COMES BACK when you rest, so its mark counts towards the 105 and takes
+        // the bird off no surface: not the map under `markers_hide_found`, not the x-ray.
+        // It is the only category that respawns, and the only non-landmark that survives
+        // being found - a Bamboozling that got away was never marked in the first place.
+        {
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                CHECK_EQ(mdb::respawns_after_rest(cat), cat == mdb::Cat::Cuckoo);
+                CHECK_EQ(mdb::survives_being_found(cat),
+                         cat == mdb::Cat::Cuckoo || mdb::is_landmark_cat(cat));
+            }
+            CHECK(mdb::slain_is_found(mdb::Cat::Cuckoo));   // still a collection
+            CHECK(mdb::has_found_state(mdb::Cat::Cuckoo));  // still persisted
+            CHECK(!mdb::consumed_when_found(mdb::Cat::Cuckoo));
+            CHECK(!mdb::hidden_as_found(mdb::Cat::Cuckoo, true, true));
+            CHECK(mdb::hidden_as_found(mdb::Cat::Bamboozling, true, true));
+            // The found LOOK stays: hollow is how you tell the ones you have taken.
+            CHECK(mdb::drawn_as_found(mdb::Cat::Cuckoo, true));
         }
 
         // The buckets' wire names and tiers, exactly as context/buckets.md pins them.
@@ -5921,11 +5943,12 @@ namespace
             CHECK(!mdb::hidden_as_found(mdb::Cat::Chest, true, false));
             CHECK(!mdb::hidden_as_found(mdb::Cat::Chest, false, true));
 
-            // Only the shrine is a landmark; every other category hides when found.
+            // A shrine is a landmark and a Cuckoo comes back; every other category hides
+            // when found.
             for (int c = 0; c < mdb::kCatCount; ++c)
             {
                 const auto cat = static_cast<mdb::Cat>(c);
-                CHECK_EQ(mdb::hidden_as_found(cat, true, true), cat != mdb::Cat::Shrine);
+                CHECK_EQ(mdb::hidden_as_found(cat, true, true), !mdb::survives_being_found(cat));
                 CHECK(!mdb::hidden_as_found(cat, false, true));
                 CHECK(!mdb::hidden_as_found(cat, true, false));
 

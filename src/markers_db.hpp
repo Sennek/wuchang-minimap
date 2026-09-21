@@ -401,9 +401,14 @@ namespace mdb
     //
     // The four character categories that are a finite COLLECTION rather than a mob: the 28
     // bosses, the elites - the tougher `_High` / `_Special` variant of a mob, placed one or
-    // two to a level - the 20 Bamboozlings and the 105 Cuckoos. One killed is done with for
-    // that journey, so the kill is the found event and it is persisted. An ordinary enemy is
-    // not tracked at all: its marker is a spawn point and the spawn point keeps working.
+    // two to a level - the 20 Bamboozlings and the 105 Cuckoos. The kill is the found event
+    // and it is persisted. An ordinary enemy is not tracked at all: its marker is a spawn
+    // point and the spawn point keeps working.
+    //
+    // A Cuckoo is the one of the four the live sweep cannot watch die: it is a `DSCActor` with
+    // no AI controller and no pawn, so no `kClasses` row reads its health and no absence rule
+    // covers it. It is marked by hand on the full map, and that mark is what stands in for the
+    // kill - see `respawns_after_rest` for the half of its behaviour that is NOT a kill.
     constexpr bool slain_is_found(Cat cat)
     {
         return cat == Cat::Boss || cat == Cat::Elite || cat == Cat::Bamboozling ||
@@ -559,17 +564,6 @@ namespace mdb
         bool within_radius = false; // 3D distance from the player <= highlight_radius
     };
 
-    // FINDING the thing consumes it, so a found one is finished business and the x-ray
-    // drops it. The loot family, the two containers it comes in, and everything whose
-    // "found" is a kill (slain_is_found) - none of them is there any more once found. Every
-    // other category's "found" is a visit: the shrine, the note and the door are all still
-    // standing.
-    constexpr bool consumed_when_found(Cat cat)
-    {
-        return cat == Cat::Chest || cat == Cat::Hidden || is_loot_family(cat) ||
-               slain_is_found(cat);
-    }
-
     // A landmark is a place you navigate BY, so using it does not use it up and
     // `markers_hide_found` never removes it. Shrines are the checkpoints: hiding a lit one
     // erases the way back through an area you have explored.
@@ -578,11 +572,41 @@ namespace mdb
         return cat == Cat::Shrine;
     }
 
+    // A CUCKOO COMES BACK: resting respawns it. Nothing else in `slain_is_found` returns - an
+    // elite or a boss killed stays killed, and a Bamboozling reappears only when it was never
+    // caught, which is to say never marked either. So a found Cuckoo is a record of one taken
+    // and not of an empty patch of ground.
+    constexpr bool respawns_after_rest(Cat cat)
+    {
+        return cat == Cat::Cuckoo;
+    }
+
+    // STILL THERE once you have found it, so no surface may take it off the screen.
+    // `consumed_when_found` and `hidden_as_found` both ask this rather than each keeping its
+    // own list of exceptions, because a marker the map hides and the x-ray keeps is the same
+    // marker.
+    constexpr bool survives_being_found(Cat cat)
+    {
+        return is_landmark_cat(cat) || respawns_after_rest(cat);
+    }
+
+    // FINDING the thing consumes it, so a found one is finished business and the x-ray
+    // drops it. The loot family, the two containers it comes in, and everything whose
+    // "found" is a kill (slain_is_found) - none of them is there any more once found. Every
+    // other category's "found" is a visit: the shrine, the note and the door are all still
+    // standing, and so is a respawning Cuckoo.
+    constexpr bool consumed_when_found(Cat cat)
+    {
+        return !survives_being_found(cat) &&
+               (cat == Cat::Chest || cat == Cat::Hidden || is_loot_family(cat) ||
+                slain_is_found(cat));
+    }
+
     // THE ONE DECISION every map surface asks: does `markers_hide_found` drop this marker?
     // The minimap, the full map and the full map's search all call this, so they agree.
     constexpr bool hidden_as_found(Cat cat, bool found, bool hide_found)
     {
-        return found && hide_found && !is_landmark_cat(cat);
+        return found && hide_found && !survives_being_found(cat);
     }
 
     // THE question the full map asks of every marker in the published buffer: is it on the

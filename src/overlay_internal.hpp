@@ -1174,6 +1174,9 @@ namespace overlay
         void log_overlay_modules();
         // LOOP THREAD. The frame census: the game's own present interval per phase.
         void log_frame_census();
+        // LOOP THREAD. The gate census: the same interval with the update ceiling off and on,
+        // and what the ceiling skipped. Measurement only - `dev_gate_cycle_ms` arms it.
+        void log_gate_census();
         void srv_alloc_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu);
         void srv_free_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE);
         std::int64_t qpc_freq();

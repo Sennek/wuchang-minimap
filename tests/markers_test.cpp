@@ -39,6 +39,7 @@
 #include "textmatch.hpp"
 #include "typing_gate.hpp"
 #include "framecensus.hpp"
+#include "framegate.hpp"
 #include "perf.hpp"
 #include "projection.hpp"
 #include "ptrwalk.hpp"
@@ -4687,6 +4688,102 @@ namespace
         CHECK(e.p[fc::NoVisual].samples == 0);
     }
 
+    // The update ceiling. It decides, once per game present, whether the overlay's frame
+    // happens at all, so an off-by-one here is either a mod that draws nothing or a
+    // ceiling that saves nothing - and neither shows up until someone plays.
+    void test_frame_gate()
+    {
+        section("framegate - the overlay's update ceiling");
+
+        // 0 is uncapped and survives the clamp; anything else lands inside the band. The
+        // floor exists because the F2 panel is drawn through this gate.
+        CHECK(fgate::clamp_hz(0) == fgate::kUncapped);
+        CHECK(fgate::clamp_hz(-40) == fgate::kUncapped);
+        CHECK(fgate::clamp_hz(1) == fgate::kHzMin);
+        CHECK(fgate::clamp_hz(14) == fgate::kHzMin);
+        CHECK(fgate::clamp_hz(15) == 15);
+        CHECK(fgate::clamp_hz(60) == 60);
+        CHECK(fgate::clamp_hz(100000) == fgate::kHzMax);
+
+        CHECK(fgate::period_us(0) == 0);
+        CHECK(fgate::period_us(-1) == 0);
+        CHECK(fgate::period_us(30) == 33333);
+        CHECK(fgate::period_us(60) == 16666);
+
+        // Uncapped draws on every present, whatever the clock says.
+        CHECK(fgate::due(0, 0, fgate::kUncapped));
+        CHECK(fgate::due(1000, 999, fgate::kUncapped));
+
+        // The first present through a gate always draws: `last_us == 0` is "none yet", not
+        // "at time zero", so nothing waits a period before it appears.
+        CHECK(fgate::due(0, 0, 60));
+        CHECK(fgate::due(5, 0, 60));
+
+        // Inside the period nothing draws; at the period and past it, one does.
+        const std::uint64_t p60 = fgate::period_us(60);
+        CHECK(!fgate::due(1000 + p60 - 1, 1000, 60));
+        CHECK(fgate::due(1000 + p60, 1000, 60));
+        CHECK(fgate::due(1000 + p60 * 4, 1000, 60));
+
+        // A ceiling of 30 against 12.175 ms presents - the cell of 2026-09-22. The clock is
+        // not snapped to a grid, so a present lands past the period rather than on it and
+        // the rate that results sits BELOW the ceiling: this is what makes a ceiling of 30
+        // draw ~26.5 times a second, and the measurement was taken from that behaviour.
+        {
+            const std::uint64_t frame_us = 12175;
+            std::uint64_t last = 0;
+            std::uint64_t drawn = 0;
+            for (std::uint64_t i = 1; i <= 8000; ++i)
+            {
+                const std::uint64_t now = i * frame_us;
+                if (fgate::due(now, last, 30))
+                {
+                    last = now;
+                    ++drawn;
+                }
+            }
+            // One draw every 3 presents at this interval - 36.5 ms apart, i.e. 27.4 a
+            // second, not 30 - starting with the first.
+            CHECK(drawn == 2667);
+            const double skipped = 100.0 * static_cast<double>(8000 - drawn) / 8000.0;
+            CHECK(skipped > 66.0 && skipped < 67.0);
+        }
+
+        // And the same gate at 60 against the same presents draws on every other one.
+        {
+            const std::uint64_t frame_us = 12175;
+            std::uint64_t last = 0;
+            std::uint64_t drawn = 0;
+            for (std::uint64_t i = 1; i <= 1000; ++i)
+            {
+                const std::uint64_t now = i * frame_us;
+                if (fgate::due(now, last, 60))
+                {
+                    last = now;
+                    ++drawn;
+                }
+            }
+            CHECK(drawn == 500);
+        }
+
+        // A ceiling above the game's own rate never skips anything.
+        {
+            const std::uint64_t frame_us = 12175; // ~82 fps
+            std::uint64_t last = 0;
+            std::uint64_t drawn = 0;
+            for (std::uint64_t i = 1; i <= 1000; ++i)
+            {
+                const std::uint64_t now = i * frame_us;
+                if (fgate::due(now, last, 240))
+                {
+                    last = now;
+                    ++drawn;
+                }
+            }
+            CHECK(drawn == 1000);
+        }
+    }
+
     void test_config_keys(const std::string& markers_dir)
     {
         std::printf("config files - shipped keys vs. the tiers vs. the parser\n");
@@ -7239,6 +7336,7 @@ int main(int argc, char** argv)
     test_game_binds();
     test_config_equality();
     test_frame_census();
+    test_frame_gate();
     test_ids();
     test_intern_levels();
     test_perf();

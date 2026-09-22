@@ -2239,6 +2239,171 @@ namespace overlay
             }
         }
 
+        //==============================================================================
+        // THE UPDATE CEILING, and the instrument that prices it
+        //
+        // `overlay_update_hz` decides whether this present gets an overlay frame at all;
+        // `framegate.hpp` owns the arithmetic and `markers_test` covers it. The full map is
+        // exempt because its panning and zoom are integrated per frame against
+        // `io.DeltaTime`, so a ceiling reads there as a stuttering camera rather than as a
+        // cheaper one. The F2 panel is NOT exempt: the key is dragged there, and a slider
+        // whose effect you cannot see while dragging it is a slider nobody can judge.
+        //
+        // The instrument is the same gate with its input rotated. `dev_gate_cycle_ms`
+        // alternates the ceiling between 0 and its configured value every N ms and sorts the
+        // game's own present interval into one histogram per arm, so scene drift lands on
+        // both equally - the only honest way to read a saving of tenths of a millisecond on
+        // a box where two played cells drift further apart than that.
+        //==============================================================================
+
+        constexpr int kGateArms = 2;
+        constexpr int kGateUncapped = 0;
+        constexpr int kGateCapped = 1;
+
+        struct GateArm
+        {
+            fc::Bucket t;
+            std::uint64_t presents = 0; // inside the measured window, settling excluded
+            std::uint64_t drawn = 0;
+        };
+
+        GateArm g_gate[kGateArms];
+        std::uint64_t g_gate_switch_us = 0;
+        int g_gate_announced = -1;
+        std::uint64_t g_gate_last_draw_us = 0; // when the last overlay frame drew
+
+        // Which arm is in force, or -1 for "the instrument is off, use the configured
+        // ceiling". The phase census rotates the same stream of presents, so the two never
+        // run at once: with it armed this one stands down rather than pricing its layers.
+        int gate_arm_now(std::uint64_t now)
+        {
+            const mm::Config& cfg = mm::cfg_cached();
+            const bool armed =
+                cfg.dev_gate_cycle_ms > 0 && cfg.dev_frame_cycle_ms == 0 && cfg.dev_frame_stop == 0;
+            static bool running = false;
+            if (armed != running)
+            {
+                running = armed;
+                for (int i = 0; i < kGateArms; ++i)
+                {
+                    g_gate[i] = GateArm{};
+                }
+                g_gate_announced = -1;
+            }
+            if (!armed)
+            {
+                return -1;
+            }
+            const std::uint64_t period = static_cast<std::uint64_t>(cfg.dev_gate_cycle_ms) * 1000;
+            const int arm = static_cast<int>((now / period) % kGateArms);
+            if (arm != g_gate_announced)
+            {
+                g_gate_announced = arm;
+                g_gate_switch_us = now;
+                g_gate_last_draw_us = 0;
+                MM_LOGV(L"gate census: arm {} ({}) from qpc {} us",
+                        arm,
+                        arm == kGateUncapped ? L"every present" : L"the ceiling",
+                        g_gate_switch_us);
+            }
+            return arm;
+        }
+
+        // The ceiling this present is judged against - the configured one, the instrument's
+        // when it is running, none while the full map is up. One decision with one input,
+        // whoever is choosing the input.
+        int gate_hz_now(int arm)
+        {
+            if (arm == kGateUncapped || mm::g_map_open.load(std::memory_order_relaxed))
+            {
+                return fgate::kUncapped;
+            }
+            return mm::cfg_cached().overlay_update_hz;
+        }
+
+        // Does this present draw? The one owner of the decision; the counting is next door.
+        bool gate_draws(int arm, std::uint64_t now)
+        {
+            if (!fgate::due(now, g_gate_last_draw_us, gate_hz_now(arm)))
+            {
+                return false;
+            }
+            g_gate_last_draw_us = now;
+            return true;
+        }
+
+        // One present into one arm. The settling window gates the counters as well as the
+        // histogram, so the skipped fraction below describes exactly the frames the medians
+        // were taken from.
+        void note_gate_present(int arm, std::uint64_t now, double interval_ms, bool drew)
+        {
+            if (arm < 0 || now - g_gate_switch_us < kPhaseSettleUs)
+            {
+                return;
+            }
+            ++g_gate[arm].presents;
+            if (drew)
+            {
+                ++g_gate[arm].drawn;
+            }
+            fc::record_ms(g_gate[arm].t, interval_ms);
+        }
+
+        // LOOP THREAD. The two arms side by side, and the trade the capped one made: what it
+        // saved by not drawing, against what the game's frame did about it.
+        void log_gate_census()
+        {
+            std::uint64_t total = 0;
+            for (int i = 0; i < kGateArms; ++i)
+            {
+                total += g_gate[i].presents;
+            }
+            if (total == 0)
+            {
+                return;
+            }
+            const mm::Config cfg = mm::config();
+            static const wchar_t* const kName[kGateArms] = {L"every present", L"the ceiling"};
+            mm::logf(L"gate census: the game's own present interval, by how often the overlay drew"
+                     L" - the ceiling is {} fps",
+                     cfg.overlay_update_hz);
+            for (int i = 0; i < kGateArms; ++i)
+            {
+                const GateArm& a = g_gate[i];
+                if (a.presents == 0)
+                {
+                    continue;
+                }
+                const double skipped =
+                    100.0 * static_cast<double>(a.presents - a.drawn) / static_cast<double>(a.presents);
+                mm::logf(L"  {:<18} {:>6} present(s)  {:>6} drawn  {:>5.1f} % skipped  median {:>7.3f}"
+                         L" ms  mean {:>7.3f}  p90 {:>7.3f}  p99 {:>7.3f}  over 40 ms: {}",
+                         std::wstring{kName[i]},
+                         a.presents,
+                         a.drawn,
+                         skipped,
+                         fc::percentile_ms(a.t, 0.5),
+                         fc::mean_ms(a.t),
+                         fc::percentile_ms(a.t, 0.9),
+                         fc::percentile_ms(a.t, 0.99),
+                         a.t.over);
+            }
+            // The difference is the measurement. A negative one is a ceiling that pays; the
+            // skipped fraction beside it is the variable the 2026-09-18 runs never moved.
+            const GateArm& base = g_gate[kGateUncapped];
+            const GateArm& capped = g_gate[kGateCapped];
+            if (base.t.samples == 0 || capped.t.samples == 0)
+            {
+                return;
+            }
+            mm::logf(L"  against drawing every present, the ceiling: median {:+.3f} ms, p90 {:+.3f},"
+                     L" at {:.1f} % of its presents skipped",
+                     fc::percentile_ms(capped.t, 0.5) - fc::percentile_ms(base.t, 0.5),
+                     fc::percentile_ms(capped.t, 0.9) - fc::percentile_ms(base.t, 0.9),
+                     100.0 * static_cast<double>(capped.presents - capped.drawn)
+                         / static_cast<double>(capped.presents));
+        }
+
         void render(IDXGISwapChain* swapchain)
         {
             if (!mm::mod_active())
@@ -2275,8 +2440,20 @@ namespace overlay
             // setting is what the hook costs by existing.
             const std::uint64_t now_us = mm::qpc_us();
             const int phase = frame_stop_now();
-            sample_frame_interval(phase, now_us, frame_interval_ms(now_us));
+            const double interval_ms = frame_interval_ms(now_us);
+            sample_frame_interval(phase, now_us, interval_ms);
             if (phase >= fc::NoFrame)
+            {
+                return;
+            }
+
+            // The update ceiling. A present it holds shut is the `NoFrame` phase produced
+            // deliberately, once in a while instead of always, which is why the two
+            // instruments may never both run - `gate_arm_now` stands down for the phase one.
+            const int arm = gate_arm_now(now_us);
+            const bool draw = gate_draws(arm, now_us);
+            note_gate_present(arm, now_us, interval_ms, draw);
+            if (!draw)
             {
                 return;
             }

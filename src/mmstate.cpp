@@ -1079,6 +1079,10 @@ namespace mm
             {
                 cfg.dev_frame_cycle_ms = parse_int(value, cfg.dev_frame_cycle_ms);
             }
+            else if (key == "dev_gate_cycle_ms")
+            {
+                cfg.dev_gate_cycle_ms = parse_int(value, cfg.dev_gate_cycle_ms);
+            }
             else if (key == "saveslot_uuid_call")
             {
                 cfg.saveslot_uuid_call = parse_bool(value, cfg.saveslot_uuid_call);
@@ -1405,6 +1409,10 @@ namespace mm
             else if (key == "overlay_hooks")
             {
                 cfg.overlay_hooks = parse_bool(value, cfg.overlay_hooks);
+            }
+            else if (key == "overlay_update_hz")
+            {
+                cfg.overlay_update_hz = parse_int(value, cfg.overlay_update_hz);
             }
             else if (key == "srv_heap_size")
             {
@@ -2089,6 +2097,7 @@ namespace mm
                                      : (std::max)(1.0f, (std::min)(128.0f, cfg.shade_map_clip));
             cfg.shade_range_smooth_ms = (std::max)(0, (std::min)(5000, cfg.shade_range_smooth_ms));
             cfg.slice_hz = (std::max)(2, (std::min)(30, cfg.slice_hz));
+            cfg.overlay_update_hz = fgate::clamp_hz(cfg.overlay_update_hz);
             cfg.feet_z_smooth_ms = (std::max)(1, (std::min)(2000, cfg.feet_z_smooth_ms));
             cfg.player_z_offset = (std::max)(-500.0f, (std::min)(500.0f, cfg.player_z_offset));
             cfg.markers_rounds_per_sec = (std::max)(1, (std::min)(10, cfg.markers_rounds_per_sec));
@@ -2160,6 +2169,7 @@ namespace mm
             cfg.srv_heap_size = (std::max)(16, (std::min)(1024, cfg.srv_heap_size));
             cfg.dev_frame_stop = (std::max)(0, (std::min)(fc::kPhases - 1, cfg.dev_frame_stop));
             cfg.dev_frame_cycle_ms = (std::max)(0, (std::min)(60000, cfg.dev_frame_cycle_ms));
+            cfg.dev_gate_cycle_ms = (std::max)(0, (std::min)(60000, cfg.dev_gate_cycle_ms));
             cfg.highlight_camera_resolve_ms = (std::max)(100, (std::min)(10000, cfg.highlight_camera_resolve_ms));
             cfg.highlight_compass_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_compass_period_ms));
             cfg.highlight_getter_period_ms = (std::max)(10, (std::min)(1000, cfg.highlight_getter_period_ms));
@@ -2243,6 +2253,7 @@ namespace mm
 
         add("mod_enabled", b(cfg.mod_enabled));
         add("overlay_hooks", b(cfg.overlay_hooks));
+        add("overlay_update_hz", std::to_string(cfg.overlay_update_hz));
         add("show_minimap", b(cfg.show_minimap));
         add("ui_scale", cfg.ui_scale_auto ? std::string{"auto"} : f2(cfg.ui_scale));
         add("font_size", std::to_string(cfg.font_size));
@@ -2433,6 +2444,7 @@ namespace mm
         add("saveslot_uuid_call", b(cfg.saveslot_uuid_call));
         add("dev_frame_stop", std::to_string(cfg.dev_frame_stop));
         add("dev_frame_cycle_ms", std::to_string(cfg.dev_frame_cycle_ms));
+        add("dev_gate_cycle_ms", std::to_string(cfg.dev_gate_cycle_ms));
 
         return kv;
     }

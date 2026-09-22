@@ -258,6 +258,7 @@ namespace overlay
             kSecTuneGate,
             kSecTuneDiag,
             kSecTuneBackground,
+            kSecPerformance,
             kSecCount,
         };
         static_assert(kSecCount <= 32, "one bit per section in g_panel_sections");
@@ -1086,6 +1087,35 @@ namespace overlay
         // THE TABS
         //==============================================================================
 
+        // How often the overlay's frame happens at all - the one setting here that trades a
+        // little smoothness for the game's own frame rate, which is why it sits with the
+        // player's settings and not in the Tuning block. Dragging it is the only way to
+        // judge it, so the panel itself is drawn through it: what the slider does to the
+        // x-ray and the minimap, it does to this window too.
+        void overview_update_rate(mm::Config& cfg)
+        {
+            // The uncapped end is its own control rather than the slider's zero: a slider
+            // that accepts 2 and snaps to 15 reads as a broken setting, and the floor is
+            // not negotiable - this window is drawn through the same ceiling.
+            bool uncapped = cfg.overlay_update_hz <= fgate::kUncapped;
+            if (ImGui::Checkbox("Redraw on every game frame", &uncapped))
+            {
+                cfg.overlay_update_hz = uncapped ? fgate::kUncapped : 60;
+            }
+            ImGui::BeginDisabled(uncapped);
+            int hz = uncapped ? 60 : cfg.overlay_update_hz;
+            if (ImGui::SliderInt("Overlay updates per second", &hz, fgate::kHzMin, 240, "%d Hz")
+                && !uncapped)
+            {
+                cfg.overlay_update_hz = fgate::clamp_hz(hz);
+            }
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Lower gives the game back the frames it would spend drawing the "
+                                "overlay.\nYour position on the map is only read 10 times a second, so "
+                                "anything above\nthat costs the picture nothing - the x-ray is the part "
+                                "that follows the camera.\nThe full map ignores this.");
+        }
+
         void panel_overview(mm::Config& cfg)
         {
             if (panel_section("What is on", kSecWhatIsOn))
@@ -1099,6 +1129,10 @@ namespace overlay
             if (panel_section("Look", kSecLook))
             {
                 overview_look(cfg);
+            }
+            if (panel_section("Performance", kSecPerformance))
+            {
+                overview_update_rate(cfg);
             }
         }
 

@@ -1653,6 +1653,7 @@ namespace overlay
             // Beside the counters, and for the same reason they are read from the log: the
             // census is about frames nobody is looking at.
             log_frame_census();
+            log_gate_census();
         }
 
         void loop_slice(std::uint64_t now)

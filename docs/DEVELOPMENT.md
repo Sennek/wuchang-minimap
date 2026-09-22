@@ -407,23 +407,47 @@ plus its composition cost. Two rules the numbers only hold under: read `MsGPUBus
 first — a cell with GPU slack absorbs the mod's work and can only ever say "not here" — and measure
 during ordinary play, not standing still in a quiet spot.
 
-### Drawing fewer frames costs the game more
+### Drawing fewer frames pays, but only past about 40 % of them
 
 The overlay's own frame and the composition that carries it to the screen are both paid **once per
-present of the game's**, and they are the only two things the mod measurably costs it. That reads
-like an invitation to draw less often, and the invitation is false. Measured with the mod running
-its own A/B — the overlay's frame rate switched between a ceiling and uncapped every 2 s, the
-game's own present intervals sorted into two histograms, 23 000 frames an arm over 13 minutes of
-play — a ceiling of 60 costs the game **0.500 ms on a median frame** (0.650 at p90) and 3.3 % of
-its presents. A ceiling of 30 costs 0.350 ms. Against the phase census, where the overlay drawing
-*nothing* is 0.35 ms faster than drawing every frame, the effect is non-monotonic: every frame is
-fine, no frames is better, half the frames is worse than either end.
+present of the game's**, and they are the only two things the mod measurably costs it. Whether
+drawing less often pays is therefore a trade with two sides: the saving is the fraction of presents
+skipped times what a frame costs (+0.950 ms here, under frame generation), and against it stands a
+penalty that measures as a **step** — 0.400 ms at a ceiling of 62, 0.350 at 30, barely moving with
+the ceiling. Break-even is the step over the cost, near **42 % of presents skipped**.
 
-**Why the middle is worse is unexplained.** It is not a Multi-Plane Overlay plane being scheduled —
-PresentMon reads `Hardware: Independent Flip` through ordinary play with the surface presenting, so
-there is no demotion in play for an irregular update rate to cause. Until that is explained, the
-overlay draws on every present the game makes, and there is no knob: a setting whose one measured
-effect is a loss is not a choice to give a player.
+Two runs in 2026-09-18 read as a flat refutation — a ceiling of 62 costs the game 0.400 ms on a
+median frame, a ceiling of 30 costs 0.350 — and both sat at ~25 % skipped, because the game's own
+rate fell with the ceiling. They measured the losing side of the trade and nothing else.
+
+**Measured on the winning side, 2026-09-22**, one played cell against a game at ~82 presents a
+second, three arms rotating every 2 s so scene drift lands on each equally:
+
+| arm | presents | skipped | median | mean |
+|---|---|---|---|---|
+| every present | 7819 | 0.0 % | 12.175 ms | 12.216 |
+| a wall clock at 30 Hz | 8193 | **71.2 %** | **11.825** | **11.677** |
+| every 4th present | 7824 | 75.0 % | 11.975 | 12.172 |
+
+A **wall clock** pays: −0.350 ms of median, −0.539 of mean, and 4.8 % more presents delivered in
+the same seconds. A **regular cadence** does not: every 4th present skips more and returns a mean
+of −0.044 ms, a wash. So the shape matters and it is the opposite of what irregularity predicted —
+the irregular gate is the one that wins, and it wins while drawing *more* often than the regular
+one (26.5 draws a second against 22). The mechanism is still unexplained; the trade is measured.
+
+That is what ships as `overlay_update_hz` (Advanced, default 60, 0 = one overlay frame per game
+present). The arithmetic is `src/framegate.hpp`, PURE and covered by `markers_test`; the full map
+is exempt because its panning is integrated per frame against `io.DeltaTime`, and the F2 panel is
+not, because that is where the slider lives and a slider whose effect you cannot see while dragging
+it cannot be judged. Above 10 Hz the ceiling costs the picture nothing measurable: the pawn's
+location and yaw are published at 10 Hz and the HUD path integrates nothing per frame.
+
+`dev_gate_cycle_ms` is the instrument, and it is now the same gate with its input rotated —
+`overlay_update_hz` alternating between 0 and its configured value every couple of seconds, with
+the Present hook sorting the game's own interval into a histogram per arm. One capture, one
+variable, both arms drifting together, which is the only honest shape for a saving of tenths of a
+millisecond. Dev tier, measurement only; `repro.ps1 -Probe gate` arms it and parses the table into
+the run manifest.
 
 ### What the overlay costs the game, against a floor that is actually vanilla
 
@@ -663,12 +687,18 @@ over a player's folder adds keys to a config file that is already there, so a ne
 to an updating player until the F2 panel's auto-save appends it. Its default has to be the right
 behaviour on its own, or the release notes have to say so.
 
-**Two off switches, and they are the first thing to ask a bug reporter for — for a CRASH.** For a
-frame-rate question `mod_enabled = 0` is **not** a baseline: the overlay's composition target has
-already taken the window off its hardware plane and releasing it does not bring it back, so a
-reporter who compares with the key off is comparing two demoted states and will report a difference
-several times too small. The only honest control there is the mod **not started** — rename
-`enabled.txt` in the mod's folder, which is one file and reversible. That does not take `main.dll`
+**Two off switches, and for a CRASH they are the first thing to try.** For a frame-rate question
+`mod_enabled = 0` is **not** a baseline: in the main menu the overlay's composition target takes
+the window off its hardware plane, and the key releases the target without the window being
+promoted back inside that session, so the comparison is between two demoted states and reads
+several times too small. (Gameplay promotes the window back on its own, with the surface live —
+the demotion is the menu alone.) The only honest control is the mod **not started** — rename
+`enabled.txt` in the mod's folder, which is one file and reversible.
+
+A **reporter is never asked to run either of these as a measurement.** They are asked for what
+they already have: their configuration, what they saw, the log, a dump. A capture, an A/B, a
+renamed DLL or a driver setting toggled twice is work this project does on its own box, and a
+question that can only be answered on theirs is recorded as unanswered. That does not take `main.dll`
 out of the process: UE4SS `LoadLibrary`s `dlls/main.dll` for every mod folder that has a `dlls`
 directory and gates only `start_mod()` on `enabled.txt` (`UE4SSProgram.cpp`; measured in the process's
 module list, 2026-09-20). Nothing of ours runs in that state — no hooks, no threads, not even a log

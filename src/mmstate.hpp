@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "framegate.hpp"
 #include "glyphs.hpp"
 #include "slicerule.hpp"
 #include "mapview.hpp"
@@ -172,6 +173,15 @@ namespace mm
         // overlay_hooks (every DX12 hook and the overlay) > show_minimap (just the
         // minimap disc).
         bool show_minimap = true;
+
+        // Ceiling on how often the overlay's frame happens, in frames a second; 0 draws one
+        // per game present. The overlay is built, recorded, submitted and composed inside the
+        // Present hook, so uncapped it pays that once per present for content the game thread
+        // republishes at 10 Hz. Measured 2026-09-22 against a game at ~82 presents a second: a
+        // ceiling that skips 71 % of them returns 0.350 ms of median frame time and 4.8 % more
+        // presents. The clamp and the arithmetic live in `framegate.hpp`; the full map is
+        // exempt, the panel is not.
+        int overlay_update_hz = 60;
 
         //=== UI scale, HUD placement, theme and palette ============================
         // `ui_scale = auto` derives the factor from the overlay target's height
@@ -516,6 +526,14 @@ namespace mm
         // nor the scene's own drift can land on one layer rather than another - the two things
         // that made a four-cell run unreadable.
         int dev_frame_cycle_ms = 0;
+
+        // A MEASUREMENT SWITCH, dev tier: rotates `overlay_update_hz` between 0 and its
+        // configured value every N ms, 0 = the instrument is off. The two arms are the
+        // ceiling's A/B taken inside one capture, which is the only honest way to read it -
+        // the saving is a frame-time delta of tenths of a millisecond and two played cells
+        // drift further apart than that. The phase census owns the same presents, so this
+        // only runs while `dev_frame_cycle_ms` and `dev_frame_stop` are both 0.
+        int dev_gate_cycle_ms = 0;
     };
 
     // Config is a value: copied by value onto the render thread every frame, published under a
@@ -547,7 +565,7 @@ namespace mm
     {
         return
         a.mod_enabled == b.mod_enabled &&
-        a.overlay_hooks == b.overlay_hooks &&
+        a.overlay_hooks == b.overlay_hooks && a.overlay_update_hz == b.overlay_update_hz &&
         a.show_minimap == b.show_minimap &&
         a.theme == b.theme &&
         a.palette == b.palette &&
@@ -707,6 +725,7 @@ namespace mm
         a.zoom_dpi_scaled == b.zoom_dpi_scaled &&
         a.panel_pad_open_chord == b.panel_pad_open_chord &&
         a.dev_frame_stop == b.dev_frame_stop && a.dev_frame_cycle_ms == b.dev_frame_cycle_ms &&
+        a.dev_gate_cycle_ms == b.dev_gate_cycle_ms &&
                true;
     }
 

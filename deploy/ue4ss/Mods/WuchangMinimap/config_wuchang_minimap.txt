@@ -13,6 +13,15 @@ mod_enabled = 1
 ; Draw the minimap disc.
 show_minimap = 1
 
+; How often the overlay redraws, in frames per second; 0 = once per game frame. Lower
+; gives the game back the frames it would spend drawing the overlay: the overlay is built
+; and composed inside the game's own frame, so uncapped it pays for one every time the
+; game draws. Your position on the map is only read 10 times a second, so anything above
+; that costs the picture nothing - measured here against a game at ~82 fps, a ceiling that
+; skipped 71 % of its frames gave back 0.35 ms per frame and 4.8 % more frames. Lower is
+; cheaper and choppier; 15 is the lowest accepted, and the full map ignores it.
+overlay_update_hz = 60
+
 ; Chrome colours: neutral | ink.
 theme = neutral
 

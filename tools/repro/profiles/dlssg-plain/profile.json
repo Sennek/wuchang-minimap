@@ -40,11 +40,10 @@
   },
 
   "game_config_expect": {
-    "note": "read out of GameConfig.sav, never written into it - the same blob carries the owner's playtime, equipment and achievements. His configuration was DLSS on with frame generation OFF in the menu, and nvngx_dlssg.dll loads either way, so the menu is the only place this fact exists.",
+    "note": "read out of GameConfig.sav, never written into it - the same blob carries the owner's playtime, equipment and achievements. `framegeneration` USED TO BE ASSERTED HERE AND IS NOT ANY MORE: the key reads '0' on this box while DLSS-G is running, which is measured, not guessed - the played floor-pair cell has the game presenting every 6.815 ms by ETW against the mod's own 11.925 ms per real present, a ratio of 1.75. Whatever that key means, it is not whether frame generation is on, so asserting it passed for the wrong reason. The honest reading is the ratio of the two streams, and every present cell already carries both.",
     "user": "36053875",
     "gameset": {
-      "superresolution": "dlss",
-      "framegeneration": "0"
+      "superresolution": "dlss"
     }
   },
 
@@ -76,6 +75,7 @@
     "ue4ss": "he ran `HookInitGameState = 0`, as the mod's own install instructions say. UE4SS's settings are not managed by this script; if that line is ever changed on this box, this profile stops describing his machine.",
     "unreachable": "four things about his box this one cannot be: the Steam overlay always injects GameOverlayRenderer64.dll here so Present is never his `no detour`; no reachable setting produces his 2-back-buffer swapchain; 2560x1440 and HDR need hardware this box has not. See notes.md.",
     "driver_vsync": "the owner's word — not readable from a script",
+    "frame_generation": "ON, x2, and it has been for as long as anyone here has measured. It is NOT readable from GameConfig.sav (see game_config_expect.note); the signal is ETW's present rate against the mod's own, ~1.75x in play. Never ask the owner to confirm it.",
     "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary"
   }
 }

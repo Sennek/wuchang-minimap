@@ -46,6 +46,7 @@ namespace cfgkeys
         // PLAYER
         {"mod_enabled", Tier::Player},
         {"show_minimap", Tier::Player},
+        {"overlay_update_hz", Tier::Player},
         {"theme", Tier::Player},
         {"palette", Tier::Player},
         {"ui_scale", Tier::Player},
@@ -198,6 +199,7 @@ namespace cfgkeys
         {"saveslot_uuid_call", Tier::Dev},
         {"dev_frame_stop", Tier::Dev},
         {"dev_frame_cycle_ms", Tier::Dev},
+        {"dev_gate_cycle_ms", Tier::Dev},
 
         // REMOVED - hard-coded constants and dropped features; listed so the key gets a
         // named warning

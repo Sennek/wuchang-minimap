@@ -174,6 +174,7 @@ cell by `rules/in-game-verification.md` first.
 |---|---|---|
 | `crash` (default) | nothing — the criteria, the module list, the mod's own lines | nothing |
 | `present` | PresentMon on the game's own swapchain, and the mod's frame census | the right to open an ETW session, `-Hold 60`+ or `-Until exit` |
+| `gate` | the same capture, with the mod's GATE census instead: the shipped `overlay_update_hz` alternating between off and `-GateHz`, which is the ceiling's A/B inside one capture | the same |
 
 **PresentMon** is started once the game's pid is known and stops twice over — when the game exits,
 and on its own clock if the game never does — so nothing here ever kills it to get the CSV flushed.
@@ -208,6 +209,18 @@ drift and the mod's warm-up land on all of them equally. The probe writes that k
 `mod.state` is `on` — a state in which nothing of ours runs has no census to switch on. While it
 cycles, the overlay freezes and disappears every couple of seconds: that is the measurement. Pass
 `-CycleMs 0` to play with the overlay as shipped and leave the layers unpriced.
+
+**The gate census** is the other instrument on the same stream of presents, which is why the mod
+runs one or the other and never both: `dev_gate_cycle_ms` rotates three arms — draw every present,
+a wall-clock ceiling, one present in N — and the hook sorts the interval into a histogram per arm,
+counting what each one skipped. It answers whether drawing less often ever pays, which two runs in
+2026-09-18 answered *no* at a skipped fraction of about a quarter and nowhere else: the saving
+scales with that fraction while the penalty measured as a step, so break-even sits near 42 %
+skipped at the +0.950 ms a frame costs here under frame generation. The third arm is the point of
+the shape — a wall clock against a game at an unrelated rate skips IRREGULARLY, one present in N
+does not, and an irregular cadence is the only surviving explanation for a middle that costs more
+than either end. While it cycles the overlay does not vanish; it visibly draws at three different
+rates in turn.
 
 **The ETW right is stated, not fought.** PresentMon's session is opened by an administrator or by a
 member of Performance Log Users (`S-1-5-32-559`) — the group exists so a capture needs no elevation,

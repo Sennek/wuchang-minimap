@@ -231,3 +231,13 @@ dev_frame_stop = 0
 ; afterwards. 2000 is a good cycle, and it is read during ORDINARY PLAY: a quiet spot has
 ; GPU slack and cannot show the cost at all.
 dev_frame_cycle_ms = 0
+
+; A MEASUREMENT SWITCH. Alternates `overlay_update_hz` between 0 and its configured value
+; every N ms, 0 = off, and sorts the game's own present interval into one histogram per arm.
+; That is the ceiling's A/B inside one capture, which is the only honest shape for it: the
+; saving is tenths of a millisecond and two played cells drift further apart than that.
+; Measured 2026-09-22 at a ceiling of 30 against a game at ~82 fps - 71 % of presents
+; skipped, median -0.350 ms, 4.8 % more presents. The phase census owns the same frames, so
+; this stands down while `dev_frame_cycle_ms` or `dev_frame_stop` is set. Read during
+; ORDINARY PLAY; the full map is exempt from the ceiling and so from the measurement.
+dev_gate_cycle_ms = 0

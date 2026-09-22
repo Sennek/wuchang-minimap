@@ -126,6 +126,17 @@
     right to open an ETW session - administrator, or Performance Log Users - and it says so
     before it applies anything rather than degrading quietly.
 
+    `gate` is `present` with the other instrument: instead of rotating the overlay's
+    LAYERS it rotates the shipped update ceiling, `overlay_update_hz`, between off and
+    `-GateHz` - the ceiling's own A/B taken inside one capture, because the saving is
+    tenths of a millisecond and two played cells drift further apart than that. The two
+    instruments own the same stream of presents, so the mod runs whichever one is armed
+    and never both.
+
+.PARAMETER GateHz
+    -Probe gate only: the ceiling the capped arm runs at, in overlay frames a second.
+    The other arm is the ceiling off, one overlay frame per game present.
+
 .PARAMETER CycleMs
     -Probe present only: milliseconds the overlay spends in each layer of the census
     before it rotates to the next. The rotation is what puts every layer inside ONE
@@ -184,11 +195,14 @@ param(
     [switch]$DryRun,
     [switch]$Force,
 
-    [ValidateSet('crash', 'present')]
+    [ValidateSet('crash', 'present', 'gate')]
     [string]$Probe = 'crash',
 
     [ValidateRange(0, 60000)]
     [int]$CycleMs = 2000,
+
+    [ValidateRange(0, 1000)]
+    [int]$GateHz = 30,
 
     [ValidateRange(1, 20)]
     [int]$Cells = 3,
@@ -2544,8 +2558,35 @@ function Get-Probe([string]$name) {
                 what       = "PresentMon on the game's own swapchain, and the mod's own frame census"
                 config_dev = [pscustomobject]$keys
                 tool       = 'presentmon'
+                cycle_note = ("the overlay freezes and disappears every {0} ms - that is the census " +
+                              "rotating through its layers, not a fault. Stand still and leave the " +
+                              "panel closed.")
                 # Below this the mod never reaches its 30 s census table and the capture is
                 # mostly the loading screen.
+                min_hold   = 60
+            }
+        }
+        'gate' {
+            # The same single-capture argument as `present`, aimed at the other question:
+            # not what a frame costs but whether skipping one pays. The shipped ceiling
+            # alternates between off and `-GateHz` and the hook sorts the game's own
+            # interval into a histogram per arm. The saving scales with the fraction
+            # skipped and the penalty measured as a step, so the answer is which of the two
+            # is bigger HERE, at this frame rate - and the 2026-09-18 runs that condemned
+            # the ceiling never moved the fraction off a quarter.
+            $keys = [ordered]@{ 'log_level' = 'verbose'; 'dev_frame_stop' = '0'
+                                'dev_frame_cycle_ms' = '0' }
+            $keys['overlay_update_hz'] = [string]$GateHz
+            $keys['dev_gate_cycle_ms'] = [string]$CycleMs
+            return [pscustomobject][ordered]@{
+                name       = 'gate'
+                what       = ("PresentMon on the game's own swapchain, and the mod's own gate census" +
+                              " - a ceiling of $GateHz fps against drawing every present")
+                config_dev = [pscustomobject]$keys
+                tool       = 'presentmon'
+                cycle_note = ("every {0} ms the overlay changes how often it draws - two arms, and " +
+                              "one of them is meant to look choppier. Play normally and leave the " +
+                              "panel closed.")
                 min_hold   = 60
             }
         }
@@ -3122,6 +3163,21 @@ function Show-Census($census) {
     }
 }
 
+function Show-Gate($gate) {
+    Write-Host ("    gate         {0} table(s); the last one:" -f $gate.tables) -ForegroundColor DarkGray
+    foreach ($a in @($gate.arms)) {
+        Write-Host (("                   {0,-18} {1,6} present(s)  {2,5:N1} % skipped  median " +
+                     "{3,7:N3} ms  p90 {4,7:N3}") -f
+                    $a.arm, $a.presents, $a.skipped_pct, $a.median_ms, $a.p90_ms) -ForegroundColor DarkGray
+    }
+    foreach ($d in @($gate.against_every_present)) {
+        Write-Host (("                   {0,-18} against drawing every present: median " +
+                     "{1:+0.000;-0.000} ms, p90 {2:+0.000;-0.000}, at {3:N1} % skipped") -f
+                    $d.arm, $d.median_ms, $d.p90_ms, $d.skipped_pct) `
+                   -ForegroundColor $(if ($d.median_ms -lt 0) { 'Green' } else { 'Gray' })
+    }
+}
+
 #------------------------------------------------------------------------------------
 # The census. The mod's own table, parsed out of the cell's log slice so a comparison
 # across runs reads numbers rather than prose. The last table of the cell is the one
@@ -3184,6 +3240,62 @@ function Get-CensusTable($lines) {
         phases           = $phases.ToArray()
         per_frame_median = $median
         per_frame_p90    = $p90
+    }
+}
+
+$GateArms = @('every present', 'the ceiling')
+
+function Get-GateTable($lines) {
+    # The gate census, same shape as the frame census above and the same rule: the last
+    # table of the cell is the widest, because the histograms accumulate all session.
+    $all   = @($lines)
+    $heads = New-Object System.Collections.Generic.List[int]
+    for ($i = 0; $i -lt $all.Count; $i++) {
+        if ($all[$i] -match "gate census: the game's own present interval") { $heads.Add($i) }
+    }
+    if ($heads.Count -eq 0) { return $null }
+
+    $start = $heads[$heads.Count - 1]
+    $arms  = New-Object System.Collections.Generic.List[object]
+    $diffs = New-Object System.Collections.Generic.List[object]
+    for ($i = $start + 1; $i -lt $all.Count; $i++) {
+        $l = $all[$i]
+        $m = [regex]::Match($l, ('\s(' + ($GateArms -join '|') + ')\s+(\d+) present\(s\)\s+(\d+) ' +
+                                 'drawn\s+([-\d.]+) % skipped\s+median\s+([-\d.]+) ms\s+mean\s+' +
+                                 '([-\d.]+)\s+p90\s+([-\d.]+)\s+p99\s+([-\d.]+)\s+over 40 ms: (\d+)'))
+        if ($m.Success) {
+            $arms.Add([pscustomobject][ordered]@{
+                arm         = $m.Groups[1].Value
+                presents    = [int]$m.Groups[2].Value
+                drawn       = [int]$m.Groups[3].Value
+                skipped_pct = (ConvertTo-Double $m.Groups[4].Value)
+                median_ms   = (ConvertTo-Double $m.Groups[5].Value)
+                mean_ms     = (ConvertTo-Double $m.Groups[6].Value)
+                p90_ms      = (ConvertTo-Double $m.Groups[7].Value)
+                p99_ms      = (ConvertTo-Double $m.Groups[8].Value)
+                over_40ms   = [int]$m.Groups[9].Value
+            })
+            continue
+        }
+        $d = [regex]::Match($l, ('against drawing every present, (' + ($GateArms -join '|') +
+                                 '): median ([-+][\d.]+) ms, p90 ([-+][\d.]+), at ([\d.]+) % of its ' +
+                                 'presents skipped'))
+        if ($d.Success) {
+            $diffs.Add([pscustomobject][ordered]@{
+                arm         = $d.Groups[1].Value
+                median_ms   = (ConvertTo-Double $d.Groups[2].Value)
+                p90_ms      = (ConvertTo-Double $d.Groups[3].Value)
+                skipped_pct = (ConvertTo-Double $d.Groups[4].Value)
+            })
+            continue
+        }
+        break
+    }
+    if ($arms.Count -eq 0) { return $null }
+    return [pscustomobject][ordered]@{
+        tables                = $heads.Count
+        arms                  = $arms.ToArray()
+        against_every_present = $diffs.ToArray()
     }
 }
 
@@ -3507,6 +3619,11 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
         }
         if ($focus.why) { Write-Host ("                 {0}" -f $focus.why) -ForegroundColor Yellow }
     }
+    $gate = $null
+    try { $gate = Get-GateTable $slice.lines } catch {
+        Write-Host ("    gate         could not be read: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+    }
+    if ($gate) { Show-Gate $gate }
     $census = $null
     try { $census = Get-CensusTable $slice.lines } catch {
         Write-Host ("    census       could not be read: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
@@ -3550,6 +3667,7 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
         Add-Member -InputObject $rec -NotePropertyName 'foreground' -NotePropertyValue $focus
     }
     if ($census)  { Add-Member -InputObject $rec -NotePropertyName 'census'  -NotePropertyValue $census }
+    if ($gate)    { Add-Member -InputObject $rec -NotePropertyName 'gate'    -NotePropertyValue $gate }
     return $rec
 }
 
@@ -3588,15 +3706,13 @@ function Invoke-Run([string]$name) {
                     $(if ($tool.capturing) { '' } else { ' - NOT capturing: ' + $tool.why_not })) `
                    -ForegroundColor $(if ($tool.capturing) { 'Gray' } else { 'Yellow' })
     }
-    if ($spec.name -eq 'present' -and $Until -eq 'hold') {
+    if ($spec.tool -eq 'presentmon' -and $Until -eq 'hold') {
         Write-Host (("  note           a held cell sits where the game puts it after a launch, so its " +
                      "PresentMode is the window's and its frame times are not a scene anyone plays. " +
                      "-Until exit is the measurement.")) -ForegroundColor Yellow
     }
-    if ($inst -and $CycleMs -gt 0) {
-        Write-Host (("  note           the overlay freezes and disappears every {0} ms - that is the " +
-                     "census rotating through its layers, not a fault. Stand still and leave the " +
-                     "panel closed.") -f $CycleMs) -ForegroundColor Yellow
+    if ($inst -and $CycleMs -gt 0 -and $spec.cycle_note) {
+        Write-Host ("  note           " + ($spec.cycle_note -f $CycleMs)) -ForegroundColor Yellow
     }
 
     if ($DryRun) {

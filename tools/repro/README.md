@@ -267,7 +267,9 @@ carries no capture.
 - **The game is not the process you start.** Steam hands the launch on: the first process of that
   name is a stub that exits within seconds. The game is resolved *once it has settled* — the newest
   process of that name still alive — and a tracked process that exits while another is alive is a
-  hand-off, not a crash.
+  hand-off, not a crash. A cell ends only once every game process is gone, up to 60 s after the
+  tracked one exited, and one still listed is named in the output: the next launch and the restore
+  both refuse on it.
 - **`WM_CLOSE`, never `Stop-Process`.** Killing the game skips the OFF / ON / exit paths, which is
   where the bugs are. The one kill runs after a cell has already been decided CRASH, because a
   `LowLevelFatalError` modal cannot be closed any other way — and a killed game does not give back

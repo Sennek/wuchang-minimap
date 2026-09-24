@@ -507,6 +507,23 @@ function Test-GameRunning {
     return $null
 }
 
+function Wait-GameClosed([int]$timeoutSec) {
+    # The tracked process can report HasExited while a process of the same name is still
+    # listed, and the next launch and the restore both refuse on one. Returns what was still
+    # up when the wait began and how long it took to go, so the lingering is on record
+    # rather than absorbed.
+    $first = Test-GameRunning
+    if (-not $first) { return $null }
+    $pids = @($GameProcesses | ForEach-Object { Get-Process -Name $_ -ErrorAction SilentlyContinue } |
+              ForEach-Object { $_.Id })
+    $t0 = Get-Date
+    while ((Test-GameRunning) -and ((Get-Date) - $t0).TotalSeconds -lt $timeoutSec) {
+        Start-Sleep -Milliseconds 500
+    }
+    return [pscustomobject]@{ name = $first; pids = $pids; gone = -not (Test-GameRunning)
+                              seconds = [Math]::Round(((Get-Date) - $t0).TotalSeconds, 1) }
+}
+
 function Assert-GameClosed([string]$verb) {
     $running = Test-GameRunning
     if ($running) {
@@ -3467,6 +3484,9 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
     }
 
     $verdict = $null; $why = ''; $modules = $null; $handoffs = 0
+    # Wall-clock seconds since the watch began: one pass of the loop below reads the log
+    # and the process list as well as sleeping, so counting passes runs slow.
+    $watchStart = Get-Date
     $t = 0
     # Liveness, sampled every second. `notResponding` is counted consecutively because a
     # loading screen legitimately stops pumping for a second or two; a hang does not stop.
@@ -3477,7 +3497,7 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
     $foregroundSamples = 0; $foregroundIn = 0
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 1
-        $t++
+        $t = [int]((Get-Date) - $watchStart).TotalSeconds
 
         $box = Test-CrashWindow
         if ($box) { $verdict = 'CRASH'; $why = $box; break }
@@ -3587,6 +3607,18 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
         Stop-DecidedCell $proc
         $teardown = [pscustomobject]@{ closed = $true; seconds = 3
                                        how = ("killed - a decided $verdict cannot be closed any other way") }
+    }
+    # The next cell's launch and the restore both need the game GONE, not the tracked
+    # process exited.
+    if ($teardown.closed) {
+        $linger = Wait-GameClosed 60
+        if ($linger) {
+            Write-Host ("    exit         '{0}' (pid {1}) still listed after the cell; {2} after {3} s" -f
+                        $linger.name, ($linger.pids -join ', '),
+                        $(if ($linger.gone) { 'gone' } else { 'STILL UP' }), $linger.seconds) `
+                       -ForegroundColor $(if ($linger.gone) { 'DarkGray' } else { 'Yellow' })
+        }
+        Add-Member -InputObject $teardown -NotePropertyName 'lingered' -NotePropertyValue $linger
     }
 
     $slice = Get-LogSince $mark

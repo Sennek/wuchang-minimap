@@ -193,18 +193,20 @@ def categorise(class_name: str, level_short: str) -> str | None:
     return categorise_ex(class_name, level_short)[0]
 
 
-# Human-facing label per category, used to build the `name` field. The eleven
-# pickup labels come from the bucket registry rather than being repeated here.
-LABEL = {
-    "shrine": "Shrine", "chest": "Chest",
-    "boss": "Boss", "elite": "Elite", "enemy": "Enemy", "npc": "NPC",
-    # The game's own word for it, `help_noun12_name` in MMGame.locres.
-    "bamboozling": "Bamboozling",
-    # Likewise `help_noun11_name`, the key beside it: the bird that drops an
-    # Aurum Feather when a throwing dagger hits it.
-    "cuckoo": "Cuckoo",
-    "note": "Note", "mystery_gate": "Mystery gate",
-    "benediction_door": "Benediction door", "door": "Door", "ladder": "Ladder",
-    "lift": "Lift", "fog_gate": "Fog gate", "hidden": "Trap", "other": "Object",
-    **pickup_buckets.LABELS,
+# Every category a marker can carry: the class-graph ones plus the eleven pickup
+# buckets. The WORD for each lives in the runtime (`mdb::cat_word`), drawn in the
+# player's language, so a marker the game gives no name of its own carries none.
+CATEGORIES = (
+    "shrine", "chest", "boss", "elite", "enemy", "bamboozling", "cuckoo", "npc",
+    "note", "mystery_gate", "benediction_door", "door", "ladder", "lift", "fog_gate",
+    "hidden", "other", *pickup_buckets.BUCKETS,
+)
+
+# The categories the GAME has a word for, and the MMGame.locres key it is under:
+# every marker of the category is named by it, in every culture. The Bamboozling
+# is `help_noun12_name`; the Cuckoo, the bird that drops an Aurum Feather when a
+# throwing dagger hits it, `help_noun11_name`, the key beside it.
+NAME_KEYS = {
+    "bamboozling": "help_noun12_name",
+    "cuckoo": "help_noun11_name",
 }

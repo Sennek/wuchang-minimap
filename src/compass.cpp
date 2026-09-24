@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "lang_strings.hpp"
+
 namespace cmp
 {
     double wrap180(double deg)
@@ -71,8 +73,9 @@ namespace cmp
         {
             return "";
         }
-        static const char* const kNames[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
-        return kNames[idx];
+        constexpr lang::S kNames[8] = {lang::S::CmpN, lang::S::CmpNE, lang::S::CmpE, lang::S::CmpSE,
+                                       lang::S::CmpS, lang::S::CmpSW, lang::S::CmpW, lang::S::CmpNW};
+        return lang::tr(kNames[idx]);
     }
 
     int ticks(const Strip& s, Tick* out, int cap, double step_deg)

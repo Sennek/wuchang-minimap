@@ -602,7 +602,7 @@ namespace overlay
 
         void toast_for(const char* text, unsigned ms)
         {
-            ::strncpy_s(g_toast, sizeof(g_toast), text, _TRUNCATE);
+            utf8::copy(g_toast, sizeof(g_toast), text != nullptr ? text : "");
             g_toast_until = ::GetTickCount64() + ms;
         }
 
@@ -647,15 +647,15 @@ namespace overlay
         {
             {
                 spin::SpinGuard guard(g_toast_lock);
-                ::strncpy_s(g_toast_pending, sizeof(g_toast_pending), text, _TRUNCATE);
+                utf8::copy(g_toast_pending, sizeof(g_toast_pending), text != nullptr ? text : "");
                 g_toast_pending_ms = ms;
             }
             g_toast_pending_ready.store(true, std::memory_order_release);
         }
 
-        void shot_fail(const char* why)
+        void shot_fail(S why)
         {
-            post_toast(why, 2500);
+            post_toast(tr(why), 2500);
         }
 
         void shot_reset()
@@ -681,14 +681,14 @@ namespace overlay
             ID3D12Device* dev = g_device;
             if (dev == nullptr || target == nullptr)
             {
-                shot_fail("screenshot: no device");
+                shot_fail(S::TsShotNoDevice);
                 return false;
             }
             const DXGI_FORMAT fmt = comp_format();
             // The map canvas as laid out this frame, clamped to the target.
             if (!g_shot_canvas_valid)
             {
-                shot_fail("screenshot: the map is not open");
+                shot_fail(S::TsShotMapClosed);
                 return false;
             }
             long x0 = static_cast<long>(g_shot_canvas.x0);
@@ -701,7 +701,7 @@ namespace overlay
             y1 = y1 > static_cast<long>(g_height) ? static_cast<long>(g_height) : y1;
             if (x1 - x0 < 16 || y1 - y0 < 16)
             {
-                shot_fail("screenshot: the map canvas is too small");
+                shot_fail(S::TsShotTooSmall);
                 return false;
             }
             g_shot_w = static_cast<UINT>(x1 - x0);
@@ -724,7 +724,7 @@ namespace overlay
                                                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                     IID_PPV_ARGS(&g_shot_readback))))
             {
-                shot_fail("screenshot: readback buffer allocation failed");
+                shot_fail(S::TsShotReadbackAlloc);
                 shot_reset();
                 return false;
             }
@@ -789,7 +789,7 @@ namespace overlay
             range.End = static_cast<SIZE_T>(g_shot_pitch) * g_shot_h;
             if (FAILED(g_shot_readback->Map(0, &range, &mapped)) || mapped == nullptr)
             {
-                shot_fail("screenshot: readback map failed");
+                shot_fail(S::TsShotReadbackMap);
                 shot_reset();
                 return;
             }
@@ -809,7 +809,7 @@ namespace overlay
             g_shot_readback->Unmap(0, &none);
             if (!ok)
             {
-                shot_fail("screenshot: the pixel copy failed");
+                shot_fail(S::TsShotCopyFailed);
                 shot_reset();
                 return;
             }
@@ -817,7 +817,7 @@ namespace overlay
             if (!clipimg::build_dib(static_cast<int>(g_shot_w), static_cast<int>(g_shot_h), bgra.data(),
                                     static_cast<std::size_t>(g_shot_w) * 4u, dib))
             {
-                shot_fail("screenshot: bitmap build failed");
+                shot_fail(S::TsShotBitmap);
                 shot_reset();
                 return;
             }
@@ -1107,7 +1107,8 @@ namespace overlay
             // draw it from. False, with the reason recorded, means nothing is drawn.
             bool minimap_ready(MiniFrame& f, bool have_state)
             {
-                if (const wchar_t* blocked = hud_gate(f.cfg, f.snap, have_state, f.now); blocked != nullptr)
+                if (const HideReason blocked = hud_gate(f.cfg, f.snap, have_state, f.now);
+                    blocked != HideReason::Visible)
                 {
                     set_hide_reason(blocked);
                     return false;
@@ -1115,13 +1116,13 @@ namespace overlay
                 f.chapter = mapdata::chapter_ptr_for(f.snap.x, f.snap.y);
                 if (f.chapter == nullptr)
                 {
-                    set_hide_reason(L"player is outside every mapped chapter");
+                    set_hide_reason(HideReason::OutsideChapters);
                     return false;
                 }
                 f.composite_ready = g_map.ready && f.chapter->key == g_map.chapter;
                 if (!f.chapter->has_heights() && !f.composite_ready)
                 {
-                    set_hide_reason(L"no height maps and no composite texture loaded");
+                    set_hide_reason(HideReason::NoMapData);
                     return false;
                 }
                 return true;
@@ -1218,7 +1219,7 @@ namespace overlay
                 }
                 else
                 {
-                    set_hide_reason(L"the height slicer has no window yet");
+                    set_hide_reason(HideReason::SlicerNoWindow);
                     return false;
                 }
 
@@ -1285,12 +1286,14 @@ namespace overlay
                 }
                 const float na = -f.eff_yaw * kPi / 180.0f;
                 const ImVec2 np = rim(na, 19.0f);
-                const ImVec2 ts = ImGui::CalcTextSize("N");
+                // The compass's own north letter, measured in the language it is drawn in.
+                const char* north = cmp::cardinal_label(0.0);
+                const ImVec2 ts = ImGui::CalcTextSize(north);
                 const ImVec2 tp{np.x - ts.x * 0.5f, np.y - ts.y * 0.5f};
                 // A shadow rather than a plate, which at the rim would cover the map.
                 f.dl->AddText(ImVec2{tp.x + 1.0f, tp.y + 1.0f}, IM_COL32(0, 0, 0, mini_alpha(op, 0.8f)),
-                              "N");
-                f.dl->AddText(tp, north_col, "N");
+                              north);
+                f.dl->AddText(tp, north_col, north);
             }
 
             // Every waypoint, edge-clamped and never culled; only the nearest one carries the
@@ -1317,16 +1320,8 @@ namespace overlay
                     }
                     const double wdx = wp.x - f.g.px;
                     const double wdy = wp.y - f.g.py;
-                    const double dist_m = std::sqrt(wdx * wdx + wdy * wdy) / 100.0;
-                    char label[32]{};
-                    if (dist_m >= 1000.0)
-                    {
-                        (void)std::snprintf(label, sizeof(label), "%.1f km", dist_m / 1000.0);
-                    }
-                    else
-                    {
-                        (void)std::snprintf(label, sizeof(label), "%.0f m", dist_m);
-                    }
+                    const lang::Text<32> dist = distance_text(std::sqrt(wdx * wdx + wdy * wdy) / 100.0);
+                    const char* label = dist.c_str();
                     const ImVec2 ts = ImGui::CalcTextSize(label);
                     const ImVec2 tp{wp_pos.x - ts.x * 0.5f, wp_pos.y + wr * 1.6f};
                     f.dl->AddRectFilled(ImVec2{tp.x - 3.0f, tp.y - 1.0f},
@@ -1367,7 +1362,7 @@ namespace overlay
             // What the F2 panel reads back about the frame just drawn.
             void minimap_publish_debug(MiniFrame& f)
             {
-                set_hide_reason(L"visible");
+                set_hide_reason(HideReason::Visible);
                 f.g.uv = uv_of(*f.chapter);
                 const ImVec2 uv = uv_at(f.g, 0.0f, 0.0f);
                 g_last_mini.visible = true;
@@ -1763,9 +1758,9 @@ namespace overlay
                     const char* name = mdb::display_label(cat, sh.m->label);
                     // A stack buffer, not std::format: this runs up to twelve times per frame
                     // inside Present for a string nobody keeps.
-                    char text[128]{};
-                    (void)std::snprintf(text, sizeof(text), "%s  %.0f m%s", name, sh.dist / 100.0,
-                                        sh.found ? "  (found)" : "");
+                    const lang::Text<128> line = lang::fmt<S::HudXrayLabel, 128>(
+                        name, sh.dist / 100.0, sh.found ? tr(S::HudFoundTag) : "");
+                    const char* text = line.c_str();
                     const ImVec2 ts = ImGui::CalcTextSize(text);
                     const float want_y = sh.sy + f.r + 3.0f;
                     float at_y = want_y;
@@ -2164,9 +2159,9 @@ namespace overlay
                 taken.clear();
                 for (const CompassPip& p : pips)
                 {
-                    char text[16]{};
-                    ::_snprintf_s(text, sizeof(text), _TRUNCATE, "%.0fm",
-                                  static_cast<double>(std::sqrt(p.d2)) / 100.0);
+                    const lang::Text<16> pip =
+                        lang::fmt<S::UnitMTight, 16>(static_cast<double>(std::sqrt(p.d2)) / 100.0);
+                    const char* text = pip.c_str();
                     const float tw = ImGui::CalcTextSize(text).x;
                     const float lx = static_cast<float>(p.x) - tw * 0.5f;
                     const float rx = lx + tw;
@@ -2246,17 +2241,8 @@ namespace overlay
                     }
                     const double dxw = wp.x - f.snap.x;
                     const double dyw = wp.y - f.snap.y;
-                    const double metres = std::sqrt(dxw * dxw + dyw * dyw) / 100.0;
-                    char text[32]{};
-                    if (metres >= 1000.0)
-                    {
-                        (void)std::snprintf(text, sizeof(text), "%.1f km", metres / 1000.0);
-                    }
-                    else
-                    {
-                        (void)std::snprintf(text, sizeof(text), "%.0f m", metres);
-                    }
-                    draw_label(f.dl, ImVec2{wx, f.y1 + 9.0f}, text,
+                    const lang::Text<32> text = distance_text(std::sqrt(dxw * dxw + dyw * dyw) / 100.0);
+                    draw_label(f.dl, ImVec2{wx, f.y1 + 9.0f}, text.c_str(),
                                IM_COL32(255, 190, 235, compass_alpha(op, 1.0f)), compass_alpha(op, 1.0f));
                 }
             }

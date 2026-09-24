@@ -6,7 +6,10 @@
 //
 //   id       the game's shrine id - also the marker DB's marker id and the string in
 //            `RebornManagerComponent_C::UnlockedFirepoints`, so it is the join key;
-//   name     localised display name from MMGame.locres ("Reverent Temple");
+//   name     display name from MMGame.locres ("Reverent Temple"), English, with `names`
+//            holding the other cultures that differ; read in the caller's culture chain
+//            (mdb::pick_name). A row the table has no name for carries the marker's `label`
+//            tag instead (mdb::tag_label, "Shrine BaiYS01");
 //   chapter  1..5, or 0 for the DLC bucket;
 //   x/y/z    the shrine ACTOR's world position, joined from the marker DB;
 //   bx/by/bz `BirthPosition`, the game's own travel destination for that id;
@@ -22,6 +25,7 @@
 #include <vector>
 
 #include "json.hpp"
+#include "markers_db.hpp"
 
 namespace shdb
 {
@@ -63,7 +67,9 @@ namespace shdb
 
     // Replaces `out`. Returns false with `rep.error` set on a wrong schema, a missing
     // `shrines` array, or a non-object root. A single bad ENTRY is skipped, not fatal.
-    inline bool parse(std::string_view text, std::vector<Shrine>& out, Report& rep)
+    // Names are read in `cultures`, the chain the marker DB is read in.
+    inline bool parse(std::string_view text, std::vector<Shrine>& out, Report& rep,
+                      const mdb::Cultures& cultures = {})
     {
         out.clear();
         rep = Report{};
@@ -103,10 +109,12 @@ namespace shdb
             }
             Shrine s{};
             s.id = id->str;
-            const mjson::JValue* name = e.find("name");
-            if (name != nullptr && name->kind == mjson::JValue::Kind::String)
+            s.name = mdb::pick_name(e, cultures);
+            const mjson::JValue* label = e.find("label");
+            if (s.name.empty() && label != nullptr && label->kind == mjson::JValue::Kind::String)
             {
-                s.name = name->str;
+                const mjson::JValue* fp = e.find("fp");
+                s.name = mdb::tag_label(label->str, fp != nullptr ? fp->string_or(s.id) : s.id);
             }
             const mjson::JValue* ch = e.find("chapter");
             if (ch != nullptr && ch->kind == mjson::JValue::Kind::Number)

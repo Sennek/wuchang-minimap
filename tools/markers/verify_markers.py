@@ -131,12 +131,12 @@ def score(path: str, live: dict, tol: float, show: int) -> tuple[int, int]:
 def check_categories(paths: list[str]) -> int:
     """Every shipped `cat` is a category the pipeline knows how to draw.
 
-    `marker_classes.LABEL` is the full set - the class-graph categories plus the
-    eleven pickup buckets - so a marker left with the retired `pickup`, or with
-    anything else nobody registered, is a hard failure here rather than a
+    `marker_classes.CATEGORIES` is the full set - the class-graph categories plus
+    the eleven pickup buckets - so a marker left with the retired `pickup`, or
+    with anything else nobody registered, is a hard failure here rather than a
     category the runtime silently drops.  Returns the number of bad markers.
     """
-    known = set(marker_classes.LABEL)
+    known = set(marker_classes.CATEGORIES)
     bad = collections.Counter()
     total = 0
     for p in paths:

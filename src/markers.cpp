@@ -43,6 +43,7 @@
 #include "atomicfile.hpp"
 #include "gamebinds.hpp"
 #include "highlight.hpp"
+#include "lang.hpp"
 #include "marker_dedupe.hpp"
 #include "mapdata.hpp"
 #include "mem.hpp"
@@ -55,6 +56,7 @@
 #include "spinlock.hpp"
 #include "ue_min.hpp"
 #include "uereflect.hpp"
+#include "utf8.hpp"
 
 using RC::Unreal::UClass;
 using RC::Unreal::UObject;
@@ -215,26 +217,25 @@ namespace markers
             return out;
         }
 
+        // Cut on a character boundary: a name that does not fit loses a whole character.
         void copy_id(char* dst, std::size_t cap, const std::string& src)
         {
-            if (cap == 0)
-            {
-                return;
-            }
-            const std::size_t n = src.size() < cap - 1 ? src.size() : cap - 1;
-            std::memcpy(dst, src.data(), n);
-            dst[n] = '\0';
+            utf8::copy(dst, cap, src);
         }
 
         // Immutable once published. A reload swaps the pointer; the replaced db is
         // RETIRED and freed only once the game thread has completed kRetireRounds more
         // rounds AND kRetireMs have passed. No mutex - publish_round() re-reads `g_db`
-        // at the top of every round.
+        // at the top of every round. Everything a reload re-reads in the culture in force is
+        // in here, so the game thread sees one culture's names or the other's, never a
+        // table half cleared under it.
 
         struct StaticDb
         {
             std::vector<mdb::StaticMarker> markers;
             std::unordered_map<std::string, int> by_id;
+            // markers/items.json, {item id -> name + loot bucket}: what a runtime drop is called.
+            std::unordered_map<int, mdb::ItemInfo> items;
 
             // Interned at load: `levels` = the unique lower-cased level short names,
             // `marker_level` = per marker, its index into `levels` (-1 = no level).
@@ -383,9 +384,6 @@ namespace markers
 
         std::unordered_map<std::string, LiveEntry> g_live;
 
-        // markers/items.json, {item id -> name + loot bucket}. Written once per DB load.
-        std::unordered_map<int, mdb::ItemInfo> g_items;
-
         // What a pickup-family actor grants, as far as reflection could read it: the label to
         // draw and the bucket of the FIRST item, which is the category the marker takes.
         struct ItemDrop
@@ -394,7 +392,8 @@ namespace markers
             mdb::Cat cat = mdb::Cat::Count; // Count = nothing resolved, keep the class rule
         };
 
-        // UObject* -> what it grants. Only a RESOLVED drop is ever in here.
+        // UObject* -> what it grants. Only a RESOLVED drop is ever in here, and only from the
+        // database in force: a new one (a reload, a language switch) empties it.
         std::unordered_map<const void*, ItemDrop> g_drop;
         // The actors whose unresolved contents the verbose log has already described.
         std::unordered_set<const void*> g_drop_logged;
@@ -988,11 +987,16 @@ namespace markers
         // serialized order; 4 covers a struct that leads with the amount.
         constexpr int kItemIdOffsets[] = {0, 4};
 
-        // The row `markers/items.json` holds for an item id, or nullptr.
+        // The row `markers/items.json` holds for an item id, or nullptr - out of the database
+        // this round reads.
         const mdb::ItemInfo* lookup_item(int id)
         {
-            const auto it = g_items.find(id);
-            return it != g_items.end() ? &it->second : nullptr;
+            if (g_idx_db == nullptr)
+            {
+                return nullptr;
+            }
+            const auto it = g_idx_db->items.find(id);
+            return it != g_idx_db->items.end() ? &it->second : nullptr;
         }
 
 
@@ -1283,7 +1287,7 @@ namespace markers
         const ItemDrop& resolve_item_drop(UObject* actor)
         {
             static const ItemDrop kNone{};
-            if (actor == nullptr || g_items.empty())
+            if (actor == nullptr || g_idx_db == nullptr || g_idx_db->items.empty())
             {
                 return kNone;
             }
@@ -1592,7 +1596,8 @@ namespace markers
             }
             // The id names the level and the actor, so it says WHICH one was killed better than
             // any class name could; the running tally is the panel's per-category found/total.
-            const std::string_view word{mdb::cat_word(cat)};
+            // The config spelling, not the display word: the log stays in one language.
+            const std::string_view word{mdb::cat_name(cat)};
             mm::logf(L"markers: {} killed - {} marked as found",
                      std::wstring(word.begin(), word.end()),
                      std::wstring(id.begin(), id.end()));
@@ -1965,10 +1970,13 @@ namespace markers
             return mapdata::detected_chapter();
         }
 
-        // Size every per-marker array to the loaded database.
+        // Size every per-marker array to the loaded database, and drop what was resolved out
+        // of the previous one: a drop's label is that database's item name, in its culture.
         void rebuild_static_index(const StaticDb* db)
         {
             g_idx_db = db;
+            g_drop.clear();
+            g_drop_logged.clear();
             const std::size_t n = db != nullptr ? db->markers.size() : 0;
             const std::size_t levels = db != nullptr ? db->levels.size() : 0;
             g_found_static.assign(n, 0);
@@ -2366,9 +2374,9 @@ namespace markers
                 d.flags |= kFlagFound;
             }
             copy_id(d.id, sizeof(d.id), sm.id);
-            // NAME FIRST: `cls` is always non-empty, while the manifest carries a name for
-            // every entry. Longest shipped name is 31 ASCII chars; `label` is 40.
-            copy_id(d.label, sizeof(d.label), sm.name.empty() ? sm.cls : sm.name);
+            // The name, or EMPTY for a marker the game does not name, which each drawing site
+            // turns into the category's plain word - the same rule a live-only marker follows.
+            copy_id(d.label, sizeof(d.label), sm.name);
             return true;
         }
 
@@ -2834,9 +2842,9 @@ namespace markers
 
         // markers/items.json -> {item id -> name + loot bucket}. A missing file is not an
         // error: those drops fall back to their class's category and its label.
-        void load_item_names(const std::wstring& dir)
+        void load_item_names(const std::wstring& dir, std::unordered_map<int, mdb::ItemInfo>& items)
         {
-            g_items.clear();
+            items.clear();
             const std::wstring path = dir + L"\\items.json";
             std::string text;
             if (!read_whole_file(path, text))
@@ -2847,19 +2855,19 @@ namespace markers
                 return;
             }
             std::string error;
-            if (!mdb::parse_items_json(text, g_items, error))
+            if (!mdb::parse_items_json(text, items, error, name_chain()))
             {
                 mm::logf(L"markers: {} rejected - {}", path, widen(error));
-                g_items.clear();
+                items.clear();
                 return;
             }
             std::size_t bucketed = 0;
-            for (const auto& kv : g_items)
+            for (const auto& kv : items)
             {
                 bucketed += kv.second.cat != mdb::Cat::Count ? 1 : 0;
             }
             mm::logf(L"markers: {} -> {} item name(s) for runtime drops, {} of them bucketed",
-                     path, g_items.size(), bucketed);
+                     path, items.size(), bucketed);
         }
 
         // Cap on *.json files read from the markers folder. Hitting it is logged.
@@ -2927,7 +2935,7 @@ namespace markers
                 }
                 mdb::ParseReport report{};
                 const std::size_t before = db->markers.size();
-                if (!mdb::parse_markers_json(text, db->markers, report))
+                if (!mdb::parse_markers_json(text, db->markers, report, name_chain()))
                 {
                     db->markers.resize(before);
                     // A sibling manifest of a DIFFERENT schema is not an error - markers/items.json
@@ -3008,6 +3016,7 @@ namespace markers
             {
                 mm::logf(L"markers: static database ready - {} marker(s) from {} file(s)", db->markers.size(), files);
             }
+            load_item_names(dir, db->items);
             const StaticDb* const previous = g_db.exchange(db.release(), std::memory_order_acq_rel);
             if (previous != nullptr)
             {
@@ -3015,7 +3024,6 @@ namespace markers
                 g_retired.push_back(
                     RetiredDb{previous, g_rounds.load(std::memory_order_relaxed), ::GetTickCount64()});
             }
-            load_item_names(dir);
         }
 
         std::string serialize_found()
@@ -3329,6 +3337,12 @@ namespace markers
     std::string found_file_name()
     {
         return slotid::found_filename(g_found_key);
+    }
+
+    mdb::Cultures name_chain()
+    {
+        const auto codes = lang::name_codes(lang::active());
+        return mdb::Cultures(codes.begin(), codes.end());
     }
 
     void reload()

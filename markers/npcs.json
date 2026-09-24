@@ -7,7 +7,7 @@
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
   "size": 141464648
  },
- "extractor_commit": "676ba00+dirty",
+ "extractor_commit": "32299cd+dirty",
  "game_build": "5.1.1.0",
  "generated_by": "tools/markers/build_npcs.py",
  "localised": 68,
@@ -16,438 +16,1048 @@
    "dir": "NPC_AWS",
    "key": "npc_Dianame_15",
    "name": "Magalhaes",
+   "names": {
+    "ja": "マガリャエス",
+    "ko": "가브리엘",
+    "pt": "Magalhães",
+    "ru": "Магальяйнш",
+    "zh": "安文思",
+    "zh-Hant": "安文思"
+   },
    "via": "own"
   },
   "BP_NPC_cunmin2_C": {
    "key": null,
-   "name": "Villager",
+   "label": "villager",
    "via": "pinyin"
   },
   "BP_NPC_cunmin_C": {
    "key": null,
-   "name": "Villager",
+   "label": "villager",
    "via": "pinyin"
   },
   "BP_NPC_xuanyangzi_1_C": {
    "key": "npc_Dianame_05",
    "name": "Xuanyangzi",
+   "names": {
+    "ja": "玄陽子",
+    "ko": "현양자",
+    "ru": "Сюань Янцзы",
+    "zh": "玄阳子",
+    "zh-Hant": "玄陽子"
+   },
    "via": "ref:NPC_XuanYangZi"
   },
   "BP_NPC_xuanyangzi_yandou_1_C": {
    "key": "npc_Dianame_05",
    "name": "Xuanyangzi",
+   "names": {
+    "ja": "玄陽子",
+    "ko": "현양자",
+    "ru": "Сюань Янцзы",
+    "zh": "玄阳子",
+    "zh-Hant": "玄陽子"
+   },
    "via": "ref:NPC_XuanYangZi"
   },
   "BP_NPC_xuanyangzi_yandou_C": {
    "key": "npc_Dianame_05",
    "name": "Xuanyangzi",
+   "names": {
+    "ja": "玄陽子",
+    "ko": "현양자",
+    "ru": "Сюань Янцзы",
+    "zh": "玄阳子",
+    "zh-Hant": "玄陽子"
+   },
    "via": "ref:NPC_XuanYangZi"
   },
   "BP_WeaponRefrom_C": {
    "key": null,
-   "name": "Workbench",
+   "label": "workbench",
    "via": "no-name"
   },
   "BRWZ_N_NPC_C": {
    "dir": "NPC_NW",
    "key": "npc_Dianame_37",
    "name": "Red-Clad Lady",
+   "names": {
+    "de": "Dame in Rot",
+    "es": "Dama de rojo",
+    "fr": "Dame en rouge",
+    "it": "Signora in rosso",
+    "ja": "赤衣の少女",
+    "ko": "홍의 소녀",
+    "pt": "Dama de Vestes Rubras",
+    "ru": "Дама в красном",
+    "zh": "红衣少女",
+    "zh-Hant": "紅衣少女"
+   },
    "via": "own"
   },
   "BRWZ_N_NPC_Fazhang_C": {
    "dir": "NPC_NW",
    "key": "npc_Dianame_37",
    "name": "Red-Clad Lady",
+   "names": {
+    "de": "Dame in Rot",
+    "es": "Dama de rojo",
+    "fr": "Dame en rouge",
+    "it": "Signora in rosso",
+    "ja": "赤衣の少女",
+    "ko": "홍의 소녀",
+    "pt": "Dama de Vestes Rubras",
+    "ru": "Дама в красном",
+    "zh": "红衣少女",
+    "zh-Hant": "紅衣少女"
+   },
    "via": "own"
   },
   "CF_NPC_C": {
    "dir": "NPC_CF",
    "key": "npc_Dianame_31",
    "name": "Boatman",
+   "names": {
+    "de": "Fährmann",
+    "es": "Barquero",
+    "fr": "Nocher",
+    "it": "Barcaiolo",
+    "ja": "船頭",
+    "ko": "뱃사공",
+    "pt": "Barqueiro",
+    "ru": "Лодочник",
+    "zh": "船夫",
+    "zh-Hant": "船夫"
+   },
    "via": "own"
   },
   "CF_NPC_TieQiao_C": {
    "dir": "NPC_CF",
    "key": "npc_Dianame_31",
    "name": "Boatman",
+   "names": {
+    "de": "Fährmann",
+    "es": "Barquero",
+    "fr": "Nocher",
+    "it": "Barcaiolo",
+    "ja": "船頭",
+    "ko": "뱃사공",
+    "pt": "Barqueiro",
+    "ru": "Лодочник",
+    "zh": "船夫",
+    "zh-Hant": "船夫"
+   },
    "via": "own"
   },
   "CF_N_NPC_C": {
    "dir": "NPC_CF",
    "key": "npc_Dianame_31",
    "name": "Boatman",
+   "names": {
+    "de": "Fährmann",
+    "es": "Barquero",
+    "fr": "Nocher",
+    "it": "Barcaiolo",
+    "ja": "船頭",
+    "ko": "뱃사공",
+    "pt": "Barqueiro",
+    "ru": "Лодочник",
+    "zh": "船夫",
+    "zh-Hant": "船夫"
+   },
    "via": "own"
   },
   "CF_N_NPC_Tieqiao_C": {
    "dir": "NPC_CF",
    "key": "npc_Dianame_31",
    "name": "Boatman",
+   "names": {
+    "de": "Fährmann",
+    "es": "Barquero",
+    "fr": "Nocher",
+    "it": "Barcaiolo",
+    "ja": "船頭",
+    "ko": "뱃사공",
+    "pt": "Barqueiro",
+    "ru": "Лодочник",
+    "zh": "船夫",
+    "zh-Hant": "船夫"
+   },
    "via": "own"
   },
   "Cunminlaofu_NPC_C": {
    "dir": "NPC_Cunminlaofu",
    "key": "npc_Dianame_22",
    "name": "Qiao Ying",
+   "names": {
+    "ja": "譙英",
+    "ko": "초영",
+    "ru": "Цяо Инь",
+    "zh": "谯英",
+    "zh-Hant": "譙英"
+   },
    "via": "own"
   },
   "DKDC_NPC_C": {
    "dir": "NPC_DKDC",
    "key": null,
-   "name": "Note",
    "via": "read-point"
   },
   "DY_NPC_C": {
    "dir": "NPC_DY",
    "key": "npc_Dianame_34",
    "name": "Storyteller",
+   "names": {
+    "de": "Geschichtenerzähler",
+    "es": "Narrador",
+    "fr": "Narrateur",
+    "it": "Narratore",
+    "ja": "講談師",
+    "ko": "이야기꾼",
+    "pt": "Contista",
+    "ru": "Рассказчик",
+    "zh": "说书人",
+    "zh-Hant": "說書人"
+   },
    "via": "own"
   },
   "DY_NPC_ErHu_C": {
    "dir": "NPC_DY",
    "key": "npc_Dianame_34",
    "name": "Storyteller",
+   "names": {
+    "de": "Geschichtenerzähler",
+    "es": "Narrador",
+    "fr": "Narrateur",
+    "it": "Narratore",
+    "ja": "講談師",
+    "ko": "이야기꾼",
+    "pt": "Contista",
+    "ru": "Рассказчик",
+    "zh": "说书人",
+    "zh-Hant": "說書人"
+   },
    "via": "folder:NPC_DY"
   },
   "DY_N_NPC_Erhu_C": {
    "dir": "NPC_DY",
    "key": "npc_Dianame_34",
    "name": "Storyteller",
+   "names": {
+    "de": "Geschichtenerzähler",
+    "es": "Narrador",
+    "fr": "Narrateur",
+    "it": "Narratore",
+    "ja": "講談師",
+    "ko": "이야기꾼",
+    "pt": "Contista",
+    "ru": "Рассказчик",
+    "zh": "说书人",
+    "zh-Hant": "說書人"
+   },
    "via": "own"
   },
   "DY_N_NPC_Erhuxian_C": {
    "dir": "NPC_DY",
    "key": "npc_Dianame_34",
    "name": "Storyteller",
+   "names": {
+    "de": "Geschichtenerzähler",
+    "es": "Narrador",
+    "fr": "Narrateur",
+    "it": "Narratore",
+    "ja": "講談師",
+    "ko": "이야기꾼",
+    "pt": "Contista",
+    "ru": "Рассказчик",
+    "zh": "说书人",
+    "zh-Hant": "說書人"
+   },
    "via": "own"
   },
   "DY_N_NPC_Quanzhang_C": {
    "dir": "NPC_DY",
    "key": "npc_Dianame_34",
    "name": "Storyteller",
+   "names": {
+    "de": "Geschichtenerzähler",
+    "es": "Narrador",
+    "fr": "Narrateur",
+    "it": "Narratore",
+    "ja": "講談師",
+    "ko": "이야기꾼",
+    "pt": "Contista",
+    "ru": "Рассказчик",
+    "zh": "说书人",
+    "zh-Hant": "說書人"
+   },
    "via": "own"
   },
   "FY_NPC_C": {
    "dir": "NPC_FY",
    "key": "npc_Dianame_11",
    "name": "Fang Yao",
+   "names": {
+    "ja": "方瑶",
+    "ko": "방요",
+    "ru": "Фан Яо",
+    "zh": "方瑶",
+    "zh-Hant": "方瑤"
+   },
    "via": "own"
   },
   "FY_NPC_Cry_C": {
    "dir": "NPC_FY",
    "key": "npc_Dianame_11",
    "name": "Fang Yao",
+   "names": {
+    "ja": "方瑶",
+    "ko": "방요",
+    "ru": "Фан Яо",
+    "zh": "方瑶",
+    "zh-Hant": "方瑤"
+   },
    "via": "own"
   },
   "FY_NPC_Toulu_C": {
    "dir": "NPC_FY",
    "key": "npc_Dianame_11",
    "name": "Fang Yao",
+   "names": {
+    "ja": "方瑶",
+    "ko": "방요",
+    "ru": "Фан Яо",
+    "zh": "方瑶",
+    "zh-Hant": "方瑤"
+   },
    "via": "own"
   },
   "FY_N_NPC_C": {
    "dir": "NPC_FY",
    "key": "npc_Dianame_11",
    "name": "Fang Yao",
+   "names": {
+    "ja": "方瑶",
+    "ko": "방요",
+    "ru": "Фан Яо",
+    "zh": "方瑶",
+    "zh-Hant": "方瑤"
+   },
    "via": "own"
   },
   "HJE_NPC_NoWeapon_C": {
    "dir": "NPC_HuangJianE",
    "key": "npc_Dianame_01",
    "name": "Huang Jian'e",
+   "names": {
+    "ja": "黄剣娥",
+    "ko": "황검아",
+    "ru": "Хуан Цзянь",
+    "zh": "黄剑娥",
+    "zh-Hant": "黃劍娥"
+   },
    "via": "own"
   },
   "HJE_N_NPC_Dazuo_C": {
    "dir": "NPC_HuangJianE",
    "key": "npc_Dianame_01",
    "name": "Huang Jian'e",
+   "names": {
+    "ja": "黄剣娥",
+    "ko": "황검아",
+    "ru": "Хуан Цзянь",
+    "zh": "黄剑娥",
+    "zh-Hant": "黃劍娥"
+   },
    "via": "own"
   },
   "HL_N_NPC_C": {
    "dir": "NPC_HL",
    "key": "npc_Dianame_10",
    "name": "Honglan",
+   "names": {
+    "ja": "紅嵐",
+    "ko": "홍람",
+    "ru": "Хунлань",
+    "zh": "红岚",
+    "zh-Hant": "紅嵐"
+   },
    "via": "own"
   },
   "HYZ_N_NPC_C": {
    "dir": "NPC_Heyouzai",
    "key": "npc_Dianame_24",
    "name": "He Youzai",
+   "names": {
+    "ja": "何有哉",
+    "ko": "하유재",
+    "ru": "Хэ Юцзай",
+    "zh": "何有哉",
+    "zh-Hant": "何有哉"
+   },
    "via": "own"
   },
   "HY_N_NPC_C": {
    "dir": "NPC_XBFR",
    "key": "npc_Dianame_09",
    "name": "Huang Yan",
+   "names": {
+    "ja": "黄嫣",
+    "ko": "황언",
+    "ru": "Хуан Янь",
+    "zh": "黄嫣",
+    "zh-Hant": "黃嫣"
+   },
    "via": "own"
   },
   "Heyouzai_NPC_C": {
    "dir": "NPC_Heyouzai",
    "key": "npc_Dianame_24",
    "name": "He Youzai",
+   "names": {
+    "ja": "何有哉",
+    "ko": "하유재",
+    "ru": "Хэ Юцзай",
+    "zh": "何有哉",
+    "zh-Hant": "何有哉"
+   },
    "via": "own"
   },
   "HuangJianE_NPC_C": {
    "dir": "NPC_HuangJianE",
    "key": "npc_Dianame_01",
    "name": "Huang Jian'e",
+   "names": {
+    "ja": "黄剣娥",
+    "ko": "황검아",
+    "ru": "Хуан Цзянь",
+    "zh": "黄剑娥",
+    "zh-Hant": "黃劍娥"
+   },
    "via": "own"
   },
   "LDG_N_NPC_C": {
    "dir": "NPC_LDG",
    "key": "npc_Dianame_13",
    "name": "Li Dingguo",
+   "names": {
+    "ja": "李定国",
+    "ko": "이정국",
+    "ru": "Ли Динго",
+    "zh": "李定国",
+    "zh-Hant": "李定國"
+   },
    "via": "own"
   },
   "LLS_N_NPC_C": {
    "dir": "NPC_LLS",
    "key": "npc_Dianame_14",
    "name": "Buglio",
+   "names": {
+    "ja": "ブーリオ",
+    "ko": "루도비코",
+    "ru": "Буглио",
+    "zh": "利类思",
+    "zh-Hant": "利類思"
+   },
    "via": "own"
   },
   "LWS_N_NPC_C": {
    "dir": "NPC_XBZF",
    "key": "npc_Dianame_32",
    "name": "Li Wansan",
+   "names": {
+    "ja": "李万三",
+    "ko": "이만삼",
+    "ru": "Ли Вансан",
+    "zh": "李万三",
+    "zh-Hant": "李萬三"
+   },
    "via": "own"
   },
   "Letter01_NPC_C": {
    "dir": "NPC_DKDC",
    "key": null,
-   "name": "Note",
    "via": "read-point"
   },
   "MG_NPC_C": {
    "dir": "NPC_CSB_MG",
    "key": "npc_Dianame_07",
    "name": "Matchstick",
+   "names": {
+    "de": "Streichholz",
+    "es": "Junco",
+    "fr": "Allumette",
+    "it": "Magan",
+    "ja": "やせっぽち",
+    "ko": "말라깽이",
+    "pt": "Busca-Pé",
+    "ru": "Тростинка",
+    "zh": "麻杆",
+    "zh-Hant": "麻桿"
+   },
    "via": "own"
   },
   "MG_N_NPC_C": {
    "dir": "NPC_CSB_MG",
    "key": "npc_Dianame_07",
    "name": "Matchstick",
+   "names": {
+    "de": "Streichholz",
+    "es": "Junco",
+    "fr": "Allumette",
+    "it": "Magan",
+    "ja": "やせっぽち",
+    "ko": "말라깽이",
+    "pt": "Busca-Pé",
+    "ru": "Тростинка",
+    "zh": "麻杆",
+    "zh-Hant": "麻桿"
+   },
    "via": "own"
   },
   "NJ_NPC_C": {
    "dir": "NPC_NJ",
    "key": "npc_Dianame_41",
    "name": "Hillswatch's Female Servant",
+   "names": {
+    "de": "Dienerin der Hügelwacht",
+    "es": "Sirvienta de Mirador de la colina",
+    "fr": "Servante de Mont-du-Guet",
+    "it": "Serva di Wangshan",
+    "ja": "望山村の女眷属",
+    "ko": "망산촌 처자",
+    "pt": "Serva da Aldeia Serril",
+    "ru": "Служанка Смотрового холма",
+    "zh": "望山村女眷",
+    "zh-Hant": "望山村女眷"
+   },
    "via": "own"
   },
   "NJ_N_NPC_C": {
    "dir": "NPC_NJ",
    "key": "npc_Dianame_41",
    "name": "Hillswatch's Female Servant",
+   "names": {
+    "de": "Dienerin der Hügelwacht",
+    "es": "Sirvienta de Mirador de la colina",
+    "fr": "Servante de Mont-du-Guet",
+    "it": "Serva di Wangshan",
+    "ja": "望山村の女眷属",
+    "ko": "망산촌 처자",
+    "pt": "Serva da Aldeia Serril",
+    "ru": "Служанка Смотрового холма",
+    "zh": "望山村女眷",
+    "zh-Hant": "望山村女眷"
+   },
    "via": "own"
   },
   "NPC_LCE_C": {
    "dir": "NPC_LCE",
    "key": "npc_Dianame_42",
    "name": "Liu Cheng'en",
+   "names": {
+    "ja": "劉承恩",
+    "ko": "유승은",
+    "ru": "Лю Чэнъэнь",
+    "zh": "刘承恩",
+    "zh-Hant": "劉承恩"
+   },
    "via": "own"
   },
   "NPC_LWX_C": {
    "dir": "NPC_LWX",
    "key": "npc_Dianame_43",
    "name": "Liu Wenxiu",
+   "names": {
+    "ja": "劉文秀",
+    "ko": "유문수",
+    "ru": "Лю Вэньсю",
+    "zh": "刘文秀",
+    "zh-Hant": "劉文秀"
+   },
    "via": "own"
   },
   "NPC_PoPoZhiZi_2_C": {
    "dir": "NPC_PoPoZhiZi",
    "key": "npc_Dianame_04",
    "name": "Qiao Lin",
+   "names": {
+    "ja": "譙麟",
+    "ko": "초린",
+    "ru": "Цяо Линь",
+    "zh": "谯麟",
+    "zh-Hant": "譙麟"
+   },
    "via": "own"
   },
   "NSC_NPC_C": {
    "dir": "NPC_NSC",
    "key": "npc_Dianame_02",
    "name": "Nian Suichang",
+   "names": {
+    "ja": "年歳長",
+    "ko": "연세장",
+    "ru": "Нянь Суйчан",
+    "zh": "年岁长",
+    "zh-Hant": "年歲長"
+   },
    "via": "own"
   },
   "NSC_N_NPC_C": {
    "dir": "NPC_NSC",
    "key": "npc_Dianame_02",
    "name": "Nian Suichang",
+   "names": {
+    "ja": "年歳長",
+    "ko": "연세장",
+    "ru": "Нянь Суйчан",
+    "zh": "年岁长",
+    "zh-Hant": "年歲長"
+   },
    "via": "own"
   },
   "NW_NPC_NoWeapon_C": {
    "dir": "NPC_NW",
    "key": "npc_Dianame_37",
    "name": "Red-Clad Lady",
+   "names": {
+    "de": "Dame in Rot",
+    "es": "Dama de rojo",
+    "fr": "Dame en rouge",
+    "it": "Signora in rosso",
+    "ja": "赤衣の少女",
+    "ko": "홍의 소녀",
+    "pt": "Dama de Vestes Rubras",
+    "ru": "Дама в красном",
+    "zh": "红衣少女",
+    "zh-Hant": "紅衣少女"
+   },
    "via": "own"
   },
   "PangZi_NPC_C": {
    "dir": "NPC_CSB_PZ",
    "key": "npc_Dianame_08",
    "name": "Glut",
+   "names": {
+    "de": "Schlund",
+    "es": "Glotón",
+    "fr": "Goinfre",
+    "it": "Pangzi",
+    "ja": "太っちょ",
+    "ko": "뚱보",
+    "pt": "Lambão",
+    "ru": "Обжора",
+    "zh": "胖子",
+    "zh-Hant": "胖子"
+   },
    "via": "own"
   },
   "QH_N_NPC_C": {
    "dir": "NPC_BH",
    "key": "npc_Dianame_19",
    "name": "Qianhu",
+   "names": {
+    "fr": "Qian Hu",
+    "ja": "千戸",
+    "ko": "천호",
+    "ru": "Цяньху",
+    "zh": "千户",
+    "zh-Hant": "千戶"
+   },
    "via": "own"
   },
   "QL_N_NPC_C": {
    "dir": "NPC_PoPoZhiZi",
    "key": "npc_Dianame_04",
    "name": "Qiao Lin",
+   "names": {
+    "ja": "譙麟",
+    "ko": "초린",
+    "ru": "Цяо Линь",
+    "zh": "谯麟",
+    "zh-Hant": "譙麟"
+   },
    "via": "own"
   },
   "QY_N_NPC_C": {
    "dir": "NPC_Cunminlaofu",
    "key": "npc_Dianame_22",
    "name": "Qiao Ying",
+   "names": {
+    "ja": "譙英",
+    "ko": "초영",
+    "ru": "Цяо Инь",
+    "zh": "谯英",
+    "zh-Hant": "譙英"
+   },
    "via": "own"
   },
   "ReadPointSP_NPC_C": {
    "dir": "NPC_ReadPoint",
    "key": null,
-   "name": "Note",
    "via": "read-point"
   },
   "SJA_NPC_C": {
    "dir": "NPC_CSB_SJA",
    "key": "npc_Dianame_25",
    "name": "Shen Jing'an",
+   "names": {
+    "ja": "沈静安",
+    "ko": "심정안",
+    "ru": "Шэнь Цзин'ань",
+    "zh": "沈静安",
+    "zh-Hant": "沈靜安"
+   },
    "via": "own"
   },
   "SJA_N_NPC_C": {
    "dir": "NPC_CSB_SJA",
    "key": "npc_Dianame_25",
    "name": "Shen Jing'an",
+   "names": {
+    "ja": "沈静安",
+    "ko": "심정안",
+    "ru": "Шэнь Цзин'ань",
+    "zh": "沈静安",
+    "zh-Hant": "沈靜安"
+   },
    "via": "own"
   },
   "SKW_NPC_C": {
    "dir": "NPC_SKW",
    "key": "npc_Dianame_12",
    "name": "Sun Kewang",
+   "names": {
+    "ja": "孫可望",
+    "ko": "손가망",
+    "ru": "Сунь Кэван",
+    "zh": "孙可望",
+    "zh-Hant": "孫可望"
+   },
    "via": "own"
   },
   "SKW_N_NPC_C": {
    "dir": "NPC_SKW",
    "key": "npc_Dianame_12",
    "name": "Sun Kewang",
+   "names": {
+    "ja": "孫可望",
+    "ko": "손가망",
+    "ru": "Сунь Кэван",
+    "zh": "孙可望",
+    "zh-Hant": "孫可望"
+   },
    "via": "own"
   },
   "SKW_N_NPC_Changdao_C": {
    "dir": "NPC_SKW",
    "key": "npc_Dianame_12",
    "name": "Sun Kewang",
+   "names": {
+    "ja": "孫可望",
+    "ko": "손가망",
+    "ru": "Сунь Кэван",
+    "zh": "孙可望",
+    "zh-Hant": "孫可望"
+   },
    "via": "own"
   },
   "WTDD_N_NPC_C": {
    "dir": "NPC_WuTouDiDi",
    "key": "npc_Dianame_39",
    "name": "Child in the Jar",
+   "names": {
+    "de": "Kind im Krug",
+    "es": "Niño del tarro",
+    "fr": "Enfant dans la jarre",
+    "it": "Bambino nella giara",
+    "ja": "陶罐童子",
+    "ko": "항아리 소동",
+    "pt": "Criança no Jarro",
+    "ru": "Дитя в горшке",
+    "zh": "陶罐小童",
+    "zh-Hant": "陶罐小童"
+   },
    "via": "own"
   },
   "XBGJ_N_NPC_C": {
    "dir": "NPC_XBGJ",
    "key": "npc_Dianame_33",
    "name": "Shen Yanping",
+   "names": {
+    "ja": "沈彦平",
+    "ko": "심언평",
+    "ru": "Шэнь Янпин",
+    "zh": "沈彦平",
+    "zh-Hant": "沈彥平"
+   },
    "via": "own"
   },
   "XBZF_NPC_C": {
    "dir": "NPC_XBZF",
    "key": "npc_Dianame_32",
    "name": "Li Wansan",
+   "names": {
+    "ja": "李万三",
+    "ko": "이만삼",
+    "ru": "Ли Вансан",
+    "zh": "李万三",
+    "zh-Hant": "李萬三"
+   },
    "via": "own"
   },
   "XM_NPC_C": {
    "dir": "NPC_XM",
    "key": "help_noun13_name",
    "name": "Panda Shop",
+   "names": {
+    "de": "Pandaladen",
+    "es": "La tienda del panda",
+    "fr": "Boutique du panda",
+    "it": "Negozio del panda",
+    "ja": "パンダの商店",
+    "ko": "식철수 상점",
+    "pt": "Loja do Panda",
+    "ru": "Лавка Панды",
+    "zh": "熊猫商店",
+    "zh-Hant": "熊貓商店"
+   },
    "via": "glossary"
   },
   "XP_N_NPC_C": {
    "dir": "NPC_CSB_PZ",
    "key": "npc_Dianame_08",
    "name": "Glut",
+   "names": {
+    "de": "Schlund",
+    "es": "Glotón",
+    "fr": "Goinfre",
+    "it": "Pangzi",
+    "ja": "太っちょ",
+    "ko": "뚱보",
+    "pt": "Lambão",
+    "ru": "Обжора",
+    "zh": "胖子",
+    "zh-Hant": "胖子"
+   },
    "via": "own"
   },
   "XYZ_N_NPC_C": {
    "dir": "NPC_XuanYangZi",
    "key": "npc_Dianame_05",
    "name": "Xuanyangzi",
+   "names": {
+    "ja": "玄陽子",
+    "ko": "현양자",
+    "ru": "Сюань Янцзы",
+    "zh": "玄阳子",
+    "zh-Hant": "玄陽子"
+   },
    "via": "own"
   },
   "XYZ_N_NPC_Yandou_C": {
    "dir": "NPC_XuanYangZi",
    "key": "npc_Dianame_05",
    "name": "Xuanyangzi",
+   "names": {
+    "ja": "玄陽子",
+    "ko": "현양자",
+    "ru": "Сюань Янцзы",
+    "zh": "玄阳子",
+    "zh-Hant": "玄陽子"
+   },
    "via": "own"
   },
   "YT_N_NPC_Fengche_C": {
    "dir": "NPC_YaoTong",
    "key": "npc_Dianame_20",
    "name": "Young Boy",
+   "names": {
+    "de": "Kleiner Junge",
+    "es": "Joven muchacho",
+    "fr": "Jeune garçon",
+    "it": "Ragazzino",
+    "ja": "下げ髪童子",
+    "ko": "다팔머리 소동",
+    "pt": "Jovem",
+    "ru": "Мальчик",
+    "zh": "垂髫小童",
+    "zh-Hant": "垂髻小童"
+   },
    "via": "own"
   },
   "YX_NPC_C": {
    "dir": "NPC_YX",
    "key": "npc_Dianame_18",
    "name": "Yu Xia",
+   "names": {
+    "ja": "瑜夏",
+    "ko": "유하",
+    "ru": "Юй Ся",
+    "zh": "瑜夏",
+    "zh-Hant": "瑜夏"
+   },
    "via": "own"
   },
   "YX_N_NPC_C": {
    "dir": "NPC_YX",
    "key": "npc_Dianame_18",
    "name": "Yu Xia",
+   "names": {
+    "ja": "瑜夏",
+    "ko": "유하",
+    "ru": "Юй Ся",
+    "zh": "瑜夏",
+    "zh-Hant": "瑜夏"
+   },
    "via": "own"
   },
   "YaoTong_NPC_C": {
    "dir": "NPC_YaoTong",
    "key": "npc_Dianame_20",
    "name": "Young Boy",
+   "names": {
+    "de": "Kleiner Junge",
+    "es": "Joven muchacho",
+    "fr": "Jeune garçon",
+    "it": "Ragazzino",
+    "ja": "下げ髪童子",
+    "ko": "다팔머리 소동",
+    "pt": "Jovem",
+    "ru": "Мальчик",
+    "zh": "垂髫小童",
+    "zh-Hant": "垂髻小童"
+   },
    "via": "own"
   },
   "ZNXM_N_NPC_C": {
    "dir": "NPC_LSXM",
    "key": "npc_Dianame_38",
    "name": "Plain Warrioress",
+   "names": {
+    "de": "Simple Kriegerin",
+    "es": "Guerrera sencilla",
+    "fr": "Guerrière simple",
+    "it": "Guerriera semplice",
+    "ja": "白衣の女侠客",
+    "ko": "소복 여협",
+    "pt": "Guerreira Comum",
+    "ru": "Воительница равнин",
+    "zh": "素衣侠女",
+    "zh-Hant": "素衣俠女"
+   },
    "via": "own"
   },
   "ZR_NPC_C": {
    "dir": "NPC_ZR",
    "key": "npc_Dianame_17",
    "name": "Wu Gang",
+   "names": {
+    "ja": "呉剛",
+    "ko": "오강",
+    "ru": "У Ган",
+    "zh": "吴刚",
+    "zh-Hant": "吳剛"
+   },
    "via": "own"
   },
   "ZY_NPC_C": {
    "dir": "NPC_ZY",
    "key": "npc_Dianame_36",
    "name": "White-Robed Elder",
+   "names": {
+    "de": "Ältester im weißen Gewand",
+    "es": "Anciano de túnica blanca",
+    "fr": "Aîné à la robe blanche",
+    "it": "Anziano in bianco",
+    "ja": "白衣の老人",
+    "ko": "백포 노인",
+    "pt": "Ancião de Vestes Brancas",
+    "ru": "Старец в белом",
+    "zh": "白袍老者",
+    "zh-Hant": "白袍老者"
+   },
    "via": "own"
   },
   "ZY_NPC_Weapon_C": {
    "dir": "NPC_ZY",
    "key": "npc_Dianame_36",
    "name": "White-Robed Elder",
+   "names": {
+    "de": "Ältester im weißen Gewand",
+    "es": "Anciano de túnica blanca",
+    "fr": "Aîné à la robe blanche",
+    "it": "Anziano in bianco",
+    "ja": "白衣の老人",
+    "ko": "백포 노인",
+    "pt": "Ancião de Vestes Brancas",
+    "ru": "Старец в белом",
+    "zh": "白袍老者",
+    "zh-Hant": "白袍老者"
+   },
    "via": "own"
   },
   "ZY_N_NPC_C": {
    "dir": "NPC_ZY",
    "key": "npc_Dianame_36",
    "name": "White-Robed Elder",
+   "names": {
+    "de": "Ältester im weißen Gewand",
+    "es": "Anciano de túnica blanca",
+    "fr": "Aîné à la robe blanche",
+    "it": "Anziano in bianco",
+    "ja": "白衣の老人",
+    "ko": "백포 노인",
+    "pt": "Ancião de Vestes Brancas",
+    "ru": "Старец в белом",
+    "zh": "白袍老者",
+    "zh-Hant": "白袍老者"
+   },
    "via": "own"
   },
   "ZY_N_NPC_ChangQiang_C": {
    "dir": "NPC_ZY",
    "key": "npc_Dianame_36",
    "name": "White-Robed Elder",
+   "names": {
+    "de": "Ältester im weißen Gewand",
+    "es": "Anciano de túnica blanca",
+    "fr": "Aîné à la robe blanche",
+    "it": "Anziano in bianco",
+    "ja": "白衣の老人",
+    "ko": "백포 노인",
+    "pt": "Ancião de Vestes Brancas",
+    "ru": "Старец в белом",
+    "zh": "白袍老者",
+    "zh-Hant": "白袍老者"
+   },
    "via": "own"
   },
   "Zhangfangxiansheng_NPC_C": {
    "dir": "NPC_GuDongShang",
    "key": "npc_Dianame_06",
    "name": "Tao Qing",
+   "names": {
+    "ja": "陶青",
+    "ko": "도청",
+    "ru": "Тау Цин",
+    "zh": "陶青",
+    "zh-Hant": "陶青"
+   },
    "via": "own"
   },
   "ZhuRu_NPC_C": {
    "dir": "NPC_ZhuRu",
    "key": "npc_Dianame_17",
    "name": "Wu Gang",
+   "names": {
+    "ja": "呉剛",
+    "ko": "오강",
+    "ru": "У Ган",
+    "zh": "吴刚",
+    "zh-Hant": "吳剛"
+   },
    "via": "own"
   }
  },

@@ -136,7 +136,7 @@ xmake run   markers_test markers      # argv[1] is the marker dir
 ```
 
 **New testable logic belongs in a PURE module** — that is what keeps it linkable here. Beyond
-covering every one of them, the suite is the **drift guard** for three things that would otherwise
+covering every one of them, the suite is the **drift guard** for four things that would otherwise
 diverge silently:
 
 * **the config tiers** — `keys(config_wuchang_minimap.txt) == Player ∪ Advanced`,
@@ -150,7 +150,10 @@ diverge silently:
   "chapter 5 has no ladder" is a recorded decision rather than a blind spot), the categories the
   game itself pins to a number match it exactly (3 mystery gates, 7 benediction doors - the Sage
   and Discerning Eye achievements), every item id a loot marker references is a row of `items.json`, every shrine marker has a row in `shrines.json`, and
-  no single name accounts for more than half of a `(chapter, category)`'s named entries;
+  no single name accounts for more than half of a `(chapter, category)`'s named entries; every
+  `names` key is one of the game's cultures and every value well-formed, non-empty UTF-8 that
+  differs from `name`, every `label` tag is one the runtime knows, and no marker bakes its
+  category's word in as a name;
   the loot family is measured as a family — a per-chapter floor on the eleven categories together,
   a per-bucket floor over all six chapters with each bucket's tier asserted against the bucket
   table, and the name-diversity cap over the family as one set per chapter, because
@@ -159,10 +162,14 @@ diverge silently:
   of its `items[0]` — the offline rule restated over the shipped data, with the 17 cannon crates
   the measured exception the class rule keeps;
 * **the shipped map assets** — `maps.json` parses at the current schema and the sparse height-plane
-  store decodes from the shipped PNGs, with `z_requantise_worst_uu` under 20 uu.
+  store decodes from the shipped PNGs, with `z_requantise_worst_uu` under 20 uu;
+* **the string tables** — every `src/lang/<code>.inc` lists each id at most once, and every
+  translation carries exactly the English text's printf specifiers in the same order. The other
+  end, each call site's arguments against the English specifiers, is `lang::fmt<Id>`'s
+  `static_assert`, so a format that would crash Present fails the build from either side.
 
-So a change to the config keys, the marker data or the asset format that skips this suite fails
-the build.
+So a change to the config keys, the marker data, the asset format or a translation that skips this
+suite fails the build.
 
 ## Install and deploy
 
@@ -231,6 +238,7 @@ own file.
 | **cross-thread state** | `mmstate.*` (the snapshot seqlock, the config file, the log queue), `spinlock.hpp`, `atomicfile.hpp`, `perf.hpp` |
 | **map data** | `mapmanifest.hpp` (PURE `maps.json` parser), `mapdata.*` (chapter residency + the sparse 128-px-block height store), `slicerule.hpp` (PURE; the rule both maps slice and shade by), `pngdecode.hpp` (WIC, shared with `markers_test`) |
 | **marker model** | `markers_db.*` (PURE: the chapter JSON, category masks, the quality tier a category sits in, the found-file round trip), `shrines_db.hpp`, `marker_dedupe.hpp`, `scriptmap.hpp` (PURE `FScriptMap` decode), `scan_sched.hpp` (PURE slice / wrap / rate arithmetic) |
+| **language** | `lang.hpp` (PURE: the eleven cultures, parsing the game's `Language=` and the override, the decision between the config, the game and Windows, the fallback chain, the fonts each culture merges, the active culture), `langsel.*` (LOOP thread: reads GameUserSettings.ini and the Windows display language, applies the decision), `lang_strings.hpp` + `lang/en.inc` (the ids and the English, which every other `lang/<code>.inc` falls back to), `fmtspec.hpp` (PURE printf-specifier reader), `utf8.hpp` (PURE character-boundary cuts) |
 | **PURE UI logic** | `mapview.*` (the full map's viewport transform and its exact inverse, the zoom ladder, the waypoint file), `compass.*`, `projection.hpp`, `glyphs.hpp`, `label_layout.hpp`, `textmatch.hpp`, `exchange.hpp`, `gamebinds_map.hpp`, `typing_gate.hpp`, `chapterid.hpp` |
 | **config** | `config_keys.hpp` (the one key → tier table), `config_rewrite.hpp` (PURE in-place rewrite: values only), `json.hpp` |
 | **engine access** | `ue_min.hpp` (hand-written `RC::Unreal` ABI declarations), `uereflect.hpp` (cached property offsets, `UFunction` calls), `mem.*` (`VirtualQuery` + SEH-guarded raw reads), `gamepad.*` (XInput, dynamically loaded, LOOP thread only) |
@@ -897,6 +905,15 @@ things about the order are the reason the driver exists:
 The run ends with a summary table and the delta against whatever was in `markers\` before. **A
 regeneration should move names, items, categories and new entries, and no coordinate of an
 existing marker.**
+
+**Names come in every culture the game ships.** `tools/markers/locres.py` is the one reader of
+`MMGame.locres` and the one `--lang` option (default: every culture folder the paks carry, `de en
+es fr it ja ko pt ru zh zh-Hant`; `zh` is Simplified Chinese). A builder chooses the KEY that names
+a thing in English and every other culture's name is that key's string - never a match on the
+English value. Records carry `name` (English) and `names` (only the cultures that differ); a marker
+the game does not name carries neither and the runtime draws its category's word
+(`mdb::cat_word`), and one whose words are ours carries a `label` tag (`mdb::tag_label`). The
+runtime loaders take an ordered culture chain (`mdb::pick_name`); empty reads `name`.
 
 **Category assignment is a class-graph question.** `markers/categories.json` is the descendants of
 one base class per category, read out of every cooked `.uasset` export map's `super` field

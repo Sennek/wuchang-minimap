@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -23,6 +24,10 @@
 #include "glyphs.hpp"
 #include "json.hpp"
 #include "label_layout.hpp"
+#include "lang.hpp"
+#include "lang_strings.hpp"
+#include "fmtspec.hpp"
+#include "utf8.hpp"
 #include "mapmanifest.hpp"
 #include "mapdata.hpp"
 #include "mapview.hpp"
@@ -49,6 +54,14 @@
 #include "shrines_db.hpp"
 #include "slicerule.hpp"
 #include "spinlock.hpp"
+
+// stb_truetype as ImGui vendors it, so the no-tofu test asks the same glyph lookup the
+// overlay's atlas does.
+#pragma warning(push, 0)
+#define STB_TRUETYPE_IMPLEMENTATION
+#define STBTT_STATIC
+#include "../third_party/imgui/imstb_truetype.h"
+#pragma warning(pop)
 
 
 namespace
@@ -261,6 +274,133 @@ namespace
             mdb::ParseReport r{};
             CHECK(mdb::parse_markers_json(bom, out, r));
             CHECK_EQ(out.size(), 5);
+        }
+    }
+
+    // Names in several cultures, a tagged label, and a marker the game does not name.
+    const char* const kNamesJson = R"JSON(
+{
+  "schema": "wuchang-minimap-markers/1",
+  "chapter": 1,
+  "markers": [
+    {"id":"temple02","cat":"shrine","name":"Reverent Temple",
+     "names":{"zh":"普元寺","zh-Hant":"","de":"Ehrfürchtiger Tempel"},"fp":"temple02",
+     "x":1,"y":2,"z":3},
+    {"id":"BaiYS01","cat":"shrine","label":"shrine","fp":"BaiYS01","x":1,"y":2,"z":3},
+    {"id":"Chapter1_X/BP_NPC_cunmin_C_0","cat":"npc","label":"villager","x":1,"y":2,"z":3},
+    {"id":"Chapter1_X/enemy","cat":"enemy","x":1,"y":2,"z":3},
+    {"id":"Chapter1_X/odd","cat":"other","label":"no_such_tag","x":1,"y":2,"z":3},
+    {"id":"Chapter1_X/both","cat":"npc","name":"Xuanyangzi","names":{"zh":"玄阳子"},
+     "label":"villager","x":1,"y":2,"z":3}
+  ]
+}
+)JSON";
+
+    void test_names()
+    {
+        section("names in the player's language (a culture chain, `names`, `label` tags)");
+
+        const auto load = [](const mdb::Cultures& chain) {
+            std::vector<mdb::StaticMarker> db;
+            mdb::ParseReport rep{};
+            CHECK(mdb::parse_markers_json(kNamesJson, db, rep, chain));
+            CHECK_EQ(db.size(), 6);
+            return db;
+        };
+
+        // The empty chain is English, exactly the `name` field.
+        {
+            const std::vector<mdb::StaticMarker> db = load({});
+            if (db.size() == 6)
+            {
+                CHECK_STR(db[0].name, "Reverent Temple");
+                // A tag is composed into the name, with the fire point where the tag takes one.
+                CHECK_STR(db[1].name, "Shrine BaiYS01");
+                CHECK_STR(db[1].label, "shrine");
+                CHECK_STR(db[2].name, "Villager");
+                // No name: the drawing site shows the category's word.
+                CHECK_STR(db[3].name, "");
+                CHECK_STR(mdb::display_label(db[3].cat, db[3].name.c_str()), "Enemy");
+                // An unknown tag leaves the category's word, never the tag itself.
+                CHECK_STR(db[4].name, "");
+                CHECK_STR(mdb::display_label(db[4].cat, db[4].name.c_str()), "Object");
+                // A game name wins over a tag.
+                CHECK_STR(db[5].name, "Xuanyangzi");
+            }
+        }
+        // The first culture present wins; an empty string is not present.
+        {
+            const std::vector<mdb::StaticMarker> db = load({"zh-Hant", "zh"});
+            if (db.size() == 6)
+            {
+                CHECK_STR(db[0].name, "普元寺");
+                CHECK_STR(db[5].name, "玄阳子");
+                // A marker whose words are ours is unaffected by the chain.
+                CHECK_STR(db[2].name, "Villager");
+            }
+        }
+        {
+            const std::vector<mdb::StaticMarker> db = load({"de"});
+            if (db.size() == 6)
+            {
+                CHECK_STR(db[0].name, "Ehrfürchtiger Tempel");
+                // A culture the record does not hold falls through to English.
+                CHECK_STR(db[5].name, "Xuanyangzi");
+            }
+        }
+        // A culture nobody holds is English everywhere.
+        {
+            const std::vector<mdb::StaticMarker> db = load({"ja"});
+            if (db.size() == 6)
+            {
+                CHECK_STR(db[0].name, "Reverent Temple");
+            }
+        }
+
+        // The tag table: the words, the fire point after the one tag that takes it.
+        CHECK_STR(mdb::tag_label("shrine", "LiuHKK01"), "Shrine LiuHKK01");
+        CHECK_STR(mdb::tag_label("shrine", ""), "Shrine");
+        CHECK_STR(mdb::tag_label("villager", "ignored"), "Villager");
+        CHECK_STR(mdb::tag_label("workbench", ""), "Workbench");
+        CHECK_STR(mdb::tag_label("Villager", ""), ""); // tags are exact, lower case
+        CHECK_STR(mdb::tag_label("", ""), "");
+
+        // The item database is read in the same chain, so a live drop and its static twin agree.
+        {
+            std::unordered_map<int, mdb::ItemInfo> items;
+            std::string err;
+            const char* json = R"({"schema":"wuchang-minimap-items/3","items":{
+                 "10360":{"name":"Cinder Dragoncoil","names":{"zh":"火蛟龙"},"bucket":"weapon"},
+                 "10361":{"name":"Cinder Dragoncoil +1","names":{"zh":"火蛟龙+1"},"bucket":"weapon"},
+                 "20002":{"names":{"zh":"无英文名"}}}})";
+            CHECK(mdb::parse_items_json(json, items, err, {"zh"}));
+            // Membership is the English name: an id with none is no item in any language.
+            CHECK_EQ(static_cast<int>(items.size()), 2);
+            CHECK_STR(items[10360].name, "火蛟龙");
+            CHECK_STR(items[10361].name, "火蛟龙+1");
+            CHECK(mdb::parse_items_json(json, items, err));
+            CHECK_STR(items[10361].name, "Cinder Dragoncoil +1");
+        }
+
+        // The shrine table: `names` in the chain, a marker-only row's tag composed with `fp`.
+        {
+            const char* json = R"({"schema":"wuchang-minimap-shrines/1","shrines":[
+                {"id":"temple02","name":"Reverent Temple","names":{"zh":"普元寺"},"shrine":true},
+                {"id":"LiuHKK01@ChapterDLC_X/BP_RebornFire_C_0","fp":"LiuHKK01","label":"shrine",
+                 "shrine":true},
+                {"id":"borencl01","label":"shrine","shrine":true}]})";
+            std::vector<shdb::Shrine> v;
+            shdb::Report rep{};
+            CHECK(shdb::parse(json, v, rep, {"zh"}));
+            CHECK_EQ(v.size(), 3);
+            if (v.size() == 3)
+            {
+                CHECK_STR(v[0].label(), "普元寺");
+                CHECK_STR(v[1].label(), "Shrine LiuHKK01");
+                CHECK_STR(v[2].label(), "Shrine borencl01");
+            }
+            CHECK(shdb::parse(json, v, rep));
+            CHECK(!v.empty() && v[0].label() == "Reverent Temple");
         }
     }
 
@@ -5348,56 +5488,129 @@ namespace
         {5, mdb::Cat::Cuckoo, 12}, {0, mdb::Cat::Cuckoo, 0},
     };
 
-    // The generic label `tools/markers/marker_classes.LABEL` writes when nothing better is
-    // known. NOT `mdb::cat_word()`, so both spellings are accepted.
-    bool is_generic_name(mdb::Cat cat, const std::string& name)
+    // The categories the game has ONE word for, which names every marker of them
+    // (`tools/markers/marker_classes.NAME_KEYS`): every Bamboozling reads "Bamboozling".
+    constexpr bool named_by_category(mdb::Cat cat)
     {
-        // A loot bucket's generic name IS its bucket label, by design: `item`, `harvest`
-        // and `ammo` are the buckets for pickups whose contents nothing resolves, so every
-        // one of their markers carries the label and the name-diversity cap below must not
-        // read that as 78 copies of one real name.
-        static const char* kGeneric[mdb::kCatCount][2] = {
-            {"Shrine", "Shrine"},   {"Chest", "Chest"},
-            {"Consumable", "Consumable"}, {"Item", "Item"},
-            {"Harvest", "Harvest"}, {"Cannon ammo", "Cannon ammo"},
-            {"Armour", "Armour"},   {"Amulet", "Amulet"},
-            {"Weapon", "Weapon"},   {"Jade", "Jade"},
-            {"Spell", "Spell"},     {"Material", "Material"},
-            {"Key item", "Key item"},
-            {"Boss", "Boss"},       {"Elite", "Elite"},   {"Enemy", "Enemy"},
-            {"Bamboozling", "Bamboozling"},
-            {"Cuckoos", "Cuckoo"},
-            {"NPC", "NPC"},         {"Note", "Note"},     {"Door", "Door"},
-            {"Mystery gate", "Mystery gate"},
-            {"Benediction door", "Benediction door"},
-            {"Ladder", "Ladder"},   {"Lift", "Lift"},     {"Fog gate", "Fog gate"},
-            {"Trap", "Hidden item"}, {"Object", "Marker"},
-        };
-        const int i = static_cast<int>(cat);
-        if (i < 0 || i >= mdb::kCatCount)
+        return cat == mdb::Cat::Bamboozling || cat == mdb::Cat::Cuckoo;
+    }
+
+    // A name that names no ONE thing, so the name-diversity cap below must not count it:
+    // none at all (the marker draws its category's word), one composed from a `label` tag
+    // ("Villager" on 23 crowd NPCs), or the game's word for a whole category.
+    bool is_generic_name(const mdb::StaticMarker& m)
+    {
+        return m.name.empty() || !m.label.empty() || named_by_category(m.cat);
+    }
+
+    // The eleven cultures the game ships, as its locres folder names.
+    constexpr const char* kCultures[] = {"de", "en", "es", "fr", "it", "ja",
+                                         "ko", "pt", "ru", "zh", "zh-Hant"};
+
+    // Every `names` object on the records of one shipped file: keys are cultures the game
+    // ships other than English (English is `name`), values well-formed UTF-8, non-empty and
+    // different from `name` - the file holds only the cultures that differ. Returns the
+    // number of `names` objects seen; each bad entry is a failure.
+    int check_names_fields(const mjson::JValue& record, const char* where)
+    {
+        const mjson::JValue* names = record.find("names");
+        if (names == nullptr)
         {
-            return true;
+            return 0;
         }
-        // A row left off the table above is a null pointer, not a short table: a new
-        // category would otherwise be read as the NEXT one's labels and the last row as
-        // nullptr. Say so here rather than fault inside the comparison.
-        if (kGeneric[i][0] == nullptr || kGeneric[i][1] == nullptr)
+        if (names->kind != mjson::JValue::Kind::Object || !names->obj)
         {
-            std::printf("  FAIL  kGeneric has no row for %s\n", mdb::cat_name(cat));
+            std::printf("  FAIL  %s: `names` is not an object\n", where);
             ++g_failures;
             ++g_checks;
-            return true;
+            return 1;
         }
-        if (name == kGeneric[i][0] || name == kGeneric[i][1])
+        const mjson::JValue* name = record.find("name");
+        const std::string english = name != nullptr ? name->string_or("") : std::string{};
+        if (english.empty())
         {
-            return true;
+            std::printf("  FAIL  %s: `names` without an English `name`\n", where);
+            ++g_failures;
         }
-        // A shrine with no `DT_FirePoint` name keeps the extractor's "Shrine <fire-point id>" form.
-        if (cat == mdb::Cat::Shrine && name.rfind("Shrine ", 0) == 0)
+        ++g_checks;
+        for (const auto& kv : *names->obj)
         {
-            return true;
+            bool known = false;
+            for (const char* c : kCultures)
+            {
+                known = known || (kv.first == c && kv.first != "en");
+            }
+            const bool ok = known && kv.second.kind == mjson::JValue::Kind::String &&
+                            !kv.second.str.empty() && utf8::valid(kv.second.str) &&
+                            kv.second.str != english;
+            if (!ok)
+            {
+                std::printf("  FAIL  %s: names[\"%s\"] is not a culture's own non-empty UTF-8 "
+                            "name\n", where, kv.first.c_str());
+                ++g_failures;
+            }
+            ++g_checks;
         }
-        return name.empty();
+        return 1;
+    }
+
+    // check_names_fields() over every record of one shipped file: the `markers` / `shrines`
+    // array, or the `items` object keyed by id. Returns the number of `names` objects.
+    int check_manifest_names(const std::string& text, const char* collection, const char* file)
+    {
+        mjson::JValue root{};
+        if (!mjson::JParser{text}.parse(root))
+        {
+            std::printf("  FAIL  %s is not JSON\n", file);
+            ++g_failures;
+            ++g_checks;
+            return 0;
+        }
+        const mjson::JValue* all = root.find(collection);
+        int seen = 0;
+        if (all != nullptr && all->kind == mjson::JValue::Kind::Array && all->arr)
+        {
+            for (const mjson::JValue& rec : *all->arr)
+            {
+                seen += check_names_fields(rec, file);
+            }
+        }
+        else if (all != nullptr && all->kind == mjson::JValue::Kind::Object && all->obj)
+        {
+            for (const auto& kv : *all->obj)
+            {
+                seen += check_names_fields(kv.second, file);
+            }
+        }
+        return seen;
+    }
+
+    // What one parsed marker may be called: a tag the runtime knows, well-formed UTF-8, and
+    // never a category's word baked in as a name - a marker the game does not name carries
+    // none, so the word has one home, `mdb::cat_word`. The two categories the game has its
+    // own word for carry it, and in English it IS the runtime's word.
+    void check_marker_name(const mdb::StaticMarker& m, const char* chapter)
+    {
+        bool ok = utf8::valid(m.name);
+        if (!m.label.empty())
+        {
+            ok = ok && !mdb::tag_label(m.label, "").empty();
+        }
+        else if (named_by_category(m.cat))
+        {
+            ok = ok && m.name == mdb::cat_word(m.cat);
+        }
+        else if (!m.name.empty())
+        {
+            ok = ok && m.name != mdb::cat_word(m.cat);
+        }
+        if (!ok)
+        {
+            std::printf("  FAIL  chapter %s %s (%s): name \"%s\", label \"%s\"\n", chapter,
+                        m.id.c_str(), mdb::cat_name(m.cat), m.name.c_str(), m.label.c_str());
+            ++g_failures;
+        }
+        ++g_checks;
     }
 
     // Every `"NNNNN": {` key in markers/items.json. A text scan: an item DESCRIPTION cannot
@@ -5651,6 +5864,7 @@ namespace
     {
         section("data invariants over every shipped markers/*.json");
 
+        int names_objects = 0;
         std::string items_text;
         const bool have_items = read_file(markers_dir + "/items.json", items_text);
         const std::vector<int> item_ids = have_items ? read_item_ids(items_text) : std::vector<int>{};
@@ -5658,6 +5872,7 @@ namespace
         {
             // A floor over the six item DataTables, because a game patch may add items.
             CHECK(item_ids.size() > 2000);
+            names_objects += check_manifest_names(items_text, "items", "items.json");
         }
 
         std::string shrines_text;
@@ -5666,6 +5881,7 @@ namespace
         {
             shdb::Report sr{};
             CHECK(shdb::parse(shrines_text, shrine_rows, sr));
+            names_objects += check_manifest_names(shrines_text, "shrines", "shrines.json");
         }
 
         std::vector<std::string> all_ids;
@@ -5697,6 +5913,7 @@ namespace
             CHECK_EQ(rep.unknown_cat, 0);
             CHECK_EQ(rep.legacy_cat, 0);
             CHECK(static_cast<int>(rep.added) >= cf.min_markers);
+            names_objects += check_manifest_names(text, "markers", cf.file);
 
             int loot_total = 0;
             std::vector<std::string> loot_named;
@@ -5740,10 +5957,11 @@ namespace
                     CHECK(!m.id.empty());
                     // The world is a few hundred thousand uu across; a drifted decode gives 1e38 or 1e-317.
                     CHECK(std::fabs(m.x) < 1.0e7 && std::fabs(m.y) < 1.0e7 && std::fabs(m.z) < 1.0e7);
-                    if (!is_generic_name(cat, m.name))
+                    if (!is_generic_name(m))
                     {
                         named.push_back(m.name);
                     }
+                    check_marker_name(m, cf.label);
                 }
                 loot_total += mdb::is_loot_family(cat) ? total : 0;
                 for (const CatFloor& f : kCatFloors)
@@ -5832,6 +6050,10 @@ namespace
         CHECK_EQ(name_cap_violations, 0);
         CHECK_EQ(unknown_items, 0);
         CHECK_EQ(missing_shrine_rows, 0);
+        // The game's names ship in its other cultures: a regen that lost them all (the
+        // pipeline run with `--lang en`) drops every language but English from the mod.
+        CHECK(names_objects > 2000);
+        std::printf("  %d record(s) carry names in other cultures\n", names_objects);
 
         // No duplicate id within a file OR across files: the loader globs every markers/*.json into
         // ONE database keyed by id, and by-id keeps only the first index.
@@ -6790,7 +7012,7 @@ namespace
         {
             with_birth += s.has_birth ? 1 : 0;
             // Every real shrine must be usable by the UI: a name, a chapter and a place on the map. A
-            // DLC shrine's name comes from the marker DB rather than DT_FirePoint, but is never EMPTY.
+            // DLC shrine's name is its marker's `shrine` tag rather than DT_FirePoint's, never EMPTY.
             if (s.shrine && (s.name.empty() || s.chapter < 0 || !s.has_pos))
             {
                 ++bad;
@@ -7143,6 +7365,649 @@ namespace
         CHECK_STR(gb::clash_text<SampleBind>(nullptr, 0, 'J'), "");
     }
 
+    //======================================================================================
+    // Languages: the culture a string names, the fallback chain, the string tables
+    //======================================================================================
+
+    // The active culture is process-wide; every test that moves it puts English back.
+    struct ActiveCulture
+    {
+        explicit ActiveCulture(lang::Culture c)
+        {
+            lang::set_active(c);
+        }
+        ~ActiveCulture()
+        {
+            lang::set_active(lang::Culture::En);
+        }
+    };
+
+    void test_lang_culture()
+    {
+        section("languages - parsing a culture and the fallback chain");
+        using lang::Culture;
+
+        const auto parsed = [](std::string_view text, Culture want) {
+            Culture got = Culture::Count;
+            return lang::parse_culture(text, got) && got == want;
+        };
+        // The locres folder names, each one round-tripping through its own code.
+        for (int i = 0; i < lang::kCultureCount; ++i)
+        {
+            const auto c = static_cast<Culture>(i);
+            CHECK(parsed(lang::code(c), c));
+        }
+        CHECK_STR(std::string(lang::code(Culture::ZhHant)), "zh-Hant");
+        CHECK_STR(std::string(lang::code(Culture::Zh)), "zh");
+        // What GameUserSettings.ini `Language=` may hold: region and script subtags, any
+        // case, `_` for `-`, surrounding blanks and quotes.
+        CHECK(parsed("EN", Culture::En));
+        CHECK(parsed("en-US", Culture::En));
+        CHECK(parsed("en_GB", Culture::En));
+        CHECK(parsed("de-DE", Culture::De));
+        CHECK(parsed("es-419", Culture::Es));
+        CHECK(parsed("pt-BR", Culture::Pt));
+        CHECK(parsed("ja-JP", Culture::Ja));
+        CHECK(parsed("ko-KR", Culture::Ko));
+        CHECK(parsed(" ru \r\n", Culture::Ru));
+        CHECK(parsed("\"fr\"", Culture::Fr));
+        CHECK(parsed("it-IT", Culture::It));
+        // Chinese: script first, then region.
+        CHECK(parsed("zh", Culture::Zh));
+        CHECK(parsed("zh-Hans", Culture::Zh));
+        CHECK(parsed("zh-CN", Culture::Zh));
+        CHECK(parsed("ZH_cn", Culture::Zh));
+        CHECK(parsed("zh-SG", Culture::Zh));
+        CHECK(parsed("zh-Hans-CN", Culture::Zh));
+        CHECK(parsed("zh-Hant", Culture::ZhHant));
+        CHECK(parsed("zh-hant", Culture::ZhHant));
+        CHECK(parsed("zh-TW", Culture::ZhHant));
+        CHECK(parsed("zh_HK", Culture::ZhHant));
+        CHECK(parsed("zh-MO", Culture::ZhHant));
+        CHECK(parsed("zh-Hant-TW", Culture::ZhHant));
+        // Not a culture this game ships, or not a tag at all.
+        Culture none = Culture::Count;
+        CHECK(!lang::parse_culture("", none));
+        CHECK(!lang::parse_culture("english", none));
+        CHECK(!lang::parse_culture("zhx", none));
+        CHECK(!lang::parse_culture("nl-NL", none));
+        CHECK(!lang::parse_culture("z", none));
+        CHECK(none == Culture::Count); // a refusal leaves the output alone
+
+        // The config override.
+        bool is_auto = false;
+        Culture c = Culture::Count;
+        CHECK(lang::parse_override("auto", is_auto, c) && is_auto);
+        CHECK(lang::parse_override(" AUTO ", is_auto, c) && is_auto);
+        CHECK(lang::parse_override("", is_auto, c) && is_auto);
+        CHECK(lang::parse_override("zh-Hant", is_auto, c) && !is_auto && c == Culture::ZhHant);
+        CHECK(!lang::parse_override("klingon", is_auto, c));
+        // What the overlay speaks: the override, else the game, else Windows, else English.
+        const auto decided = [](std::string_view ov, std::string_view game, std::string_view os, Culture c,
+                                lang::Source s) {
+            const lang::Decision d = lang::decide(ov, game, os);
+            return d.culture == c && d.source == s;
+        };
+        CHECK(decided("auto", "zh-CN", "ru-RU", Culture::Zh, lang::Source::Game));
+        CHECK(decided("de", "zh", "ru-RU", Culture::De, lang::Source::Config));
+        CHECK(decided("", "ja", "", Culture::Ja, lang::Source::Game));
+        CHECK(decided("klingon", "ko-KR", "", Culture::Ko, lang::Source::Game)); // a bad override is auto
+        // The game names a language the mod has no table for: the game's English, not Windows'.
+        CHECK(decided("auto", "nl", "ru-RU", Culture::En, lang::Source::Game));
+        // The game names none: Windows, and only then.
+        CHECK(decided("auto", "", "zh-TW", Culture::ZhHant, lang::Source::Windows));
+        CHECK(decided("auto", "  ", "ko-KR", Culture::Ko, lang::Source::Windows));
+        CHECK(decided("auto", "", "nl-NL", Culture::En, lang::Source::Default));
+        CHECK(decided("auto", "", "", Culture::En, lang::Source::Default));
+        CHECK(decided("zh-Hant", "", "", Culture::ZhHant, lang::Source::Config));
+
+        // GameUserSettings.ini as UE writes it.
+        CHECK_STR(lang::ini_language("[/Script/Engine.GameUserSettings]\r\nbUseVSync=False\r\n\r\n"
+                                     "[Internationalization]\r\nLanguage=en\r\n"),
+                  "en");
+        CHECK_STR(lang::ini_language("[internationalization]\nlanguage = zh-Hans \n"), "zh-Hans");
+        CHECK_STR(lang::ini_language("\xEF\xBB\xBF[Internationalization]\nLocale=de\nLanguage=ja\n"), "ja");
+        // The key belongs to its section: the same name elsewhere is not the game's language.
+        CHECK_STR(lang::ini_language("[Other]\nLanguage=de\n[Internationalization]\nLocale=fr\n"), "");
+        CHECK_STR(lang::ini_language("[Internationalization]\n;Language=ko\n"), "");
+        CHECK_STR(lang::ini_language(""), "");
+        CHECK_STR(lang::ini_language("[Internationalization]\nLanguage=ru"), "ru"); // no final newline
+        {
+            // UTF-16LE behind a BOM, with a non-ANSI value elsewhere in the file.
+            const std::u16string wide = u"[Paths]\r\nDir=中\r\n[Internationalization]\r\nLanguage=zh-Hant\r\n";
+            std::string bytes = "\xFF\xFE";
+            for (const char16_t ch : wide)
+            {
+                bytes.push_back(static_cast<char>(ch & 0xFF));
+                bytes.push_back(static_cast<char>(ch >> 8));
+            }
+            CHECK_STR(lang::ini_language(bytes), "zh-Hant");
+        }
+
+        // A script font for the four CJK cultures and none for the rest; an endonym for all.
+        for (int i = 0; i < lang::kCultureCount; ++i)
+        {
+            const auto cu = static_cast<Culture>(i);
+            const bool cjk = cu == Culture::Zh || cu == Culture::ZhHant || cu == Culture::Ja || cu == Culture::Ko;
+            CHECK(lang::script_fonts(cu).empty() != cjk);
+            CHECK(!lang::endonym(cu).empty() && utf8::valid(lang::endonym(cu)));
+        }
+        CHECK_STR(std::string(lang::endonym(Culture::Pt)), "Portugu\xC3\xAAs");
+
+        // The chain: most specific first, English last, always.
+        for (int i = 0; i < lang::kCultureCount; ++i)
+        {
+            const lang::Chain ch = lang::chain(static_cast<Culture>(i));
+            CHECK(ch.n >= 1 && ch.n <= 3);
+            CHECK(ch.c[0] == static_cast<Culture>(i));
+            CHECK(ch.c[ch.n - 1] == Culture::En);
+        }
+        const lang::Chain trad = lang::chain(Culture::ZhHant);
+        CHECK_EQ(trad.n, 3);
+        CHECK(trad.c[1] == Culture::Zh);
+        CHECK_EQ(lang::chain(Culture::Zh).n, 2);
+        CHECK_EQ(lang::chain(Culture::Ru).n, 2);
+        CHECK_EQ(lang::chain(Culture::En).n, 1);
+        CHECK_EQ(lang::chain(Culture::Count).n, 1);
+
+        // The same chain as the marker loader takes it: codes, without English.
+        CHECK_EQ(lang::name_codes(Culture::En).size(), 0);
+        CHECK_EQ(lang::name_codes(Culture::De).size(), 1);
+        CHECK_STR(std::string(lang::name_codes(Culture::De)[0]), "de");
+        const auto trad_codes = lang::name_codes(Culture::ZhHant);
+        CHECK_EQ(trad_codes.size(), 2);
+        if (trad_codes.size() == 2)
+        {
+            CHECK_STR(std::string(trad_codes[0]), "zh-Hant");
+            CHECK_STR(std::string(trad_codes[1]), "zh");
+        }
+        CHECK_EQ(lang::name_codes(Culture::Count).size(), 0);
+
+        // English until someone says otherwise; a bad value is English too.
+        CHECK(lang::active() == Culture::En);
+        {
+            const ActiveCulture ja(Culture::Ja);
+            CHECK(lang::active() == Culture::Ja);
+        }
+        CHECK(lang::active() == Culture::En);
+        lang::set_active(Culture::Count);
+        CHECK(lang::active() == Culture::En);
+    }
+
+    void test_fmtspec()
+    {
+        section("printf specifiers: the parser, parity and the call-site check");
+
+        fspec::Spec s{};
+        CHECK(fspec::next("x %5.2f y", 0, s) && s.begin == 2 && s.end == 7 && s.arg == fspec::Arg::Double);
+        CHECK(fspec::next("%-10s", 0, s) && s.arg == fspec::Arg::Str && s.end == 5);
+        CHECK(fspec::next("%zu", 0, s) && s.arg == fspec::Arg::Int64);
+        CHECK(fspec::next("%llu", 0, s) && s.arg == fspec::Arg::Int64);
+        CHECK(fspec::next("%I64d", 0, s) && s.arg == fspec::Arg::Int64);
+        CHECK(fspec::next("%lu", 0, s) && s.arg == fspec::Arg::Int); // long is 32 bits here
+        CHECK(fspec::next("%+.1f", 0, s) && s.arg == fspec::Arg::Double);
+        CHECK(fspec::next("%*d", 0, s) && s.stars == 1 && s.arg == fspec::Arg::Int);
+        CHECK(fspec::next("%ls", 0, s) && s.arg == fspec::Arg::WStr);
+        CHECK(fspec::next("%%", 0, s) && s.literal);
+        CHECK(fspec::next("%n", 0, s) && s.arg == fspec::Arg::Bad);
+        CHECK(fspec::next("%Lf", 0, s) && s.arg == fspec::Arg::Bad);
+        CHECK(fspec::next("100%", 0, s) && s.arg == fspec::Arg::Bad); // cut off
+        CHECK(!fspec::next("no specifiers", 0, s));
+
+        // Parity: the same specifiers in the same order, whatever the words around them.
+        CHECK(fspec::same("%d of %d", "%d von %d"));
+        CHECK(fspec::same("%.0f m away", "\xE8\xB7\x9D\xE7\xA6\xBB %.0f \xE7\xB1\xB3"));
+        CHECK(fspec::same("plain", "\xE7\xBA\xAF"));
+        CHECK(fspec::same("50%% of %s", "%s: 50%%")); // `%%` consumes nothing, so it may move
+        CHECK(fspec::same("%.1f%% done", "%.1f %%"));
+        CHECK(!fspec::same("%s %d", "%d %s")); // reordered: a crash, not a style choice
+        CHECK(!fspec::same("%d", "%d %d"));
+        CHECK(!fspec::same("%.0f", "%.1f"));
+        CHECK(!fspec::same("plain", "100%")); // a lone percent is a specifier
+        CHECK(!fspec::same("plain", "100% sure"));
+        CHECK(!fspec::same("%zu", "%d"));
+
+        // The call-site check the string table's fmt<> performs, at compile time.
+        static_assert(fspec::matches<int>("%d"));
+        static_assert(fspec::matches<unsigned>("%u"));
+        static_assert(fspec::matches<std::size_t, std::size_t>("%zu of %zu"));
+        static_assert(fspec::matches<unsigned long long>("%llu"));
+        static_assert(fspec::matches<double>("%.1f km"));
+        static_assert(fspec::matches<float>("%.2f")); // promoted to double through `...`
+        static_assert(fspec::matches<const char*, double, const char*>("%s  %.0f m%s"));
+        static_assert(fspec::matches<char*>("%s"));
+        static_assert(fspec::matches<>("50%% done"));
+        static_assert(fspec::matches<int, const char*>("%*s"));
+        static_assert(!fspec::matches<double>("%d"));
+        static_assert(!fspec::matches<int>("%s"));
+        static_assert(!fspec::matches<std::size_t>("%d")); // 64-bit into a 32-bit slot
+        static_assert(!fspec::matches<int>("%zu"));
+        static_assert(!fspec::matches<std::string>("%s")); // a class through `...`
+        static_assert(!fspec::matches<bool>("%d"));
+        static_assert(!fspec::matches<int, int>("%d"));
+        static_assert(!fspec::matches<>("%d"));
+        static_assert(!fspec::matches<int>("%n"));
+        CHECK(true); // the static_asserts above are the checks; this counts the section
+    }
+
+    void test_utf8()
+    {
+        section("UTF-8: cutting on a character boundary");
+
+        // "a" + U+4E2D (3 bytes) + U+6587 (3 bytes) = 7 bytes.
+        const std::string_view zh = "a\xE4\xB8\xAD\xE6\x96\x87";
+        CHECK_EQ(utf8::fit(zh, 100), 7);
+        CHECK_EQ(utf8::fit(zh, 7), 7);
+        CHECK_EQ(utf8::fit(zh, 6), 4);
+        CHECK_EQ(utf8::fit(zh, 4), 4);
+        CHECK_EQ(utf8::fit(zh, 3), 1);
+        CHECK_EQ(utf8::fit(zh, 1), 1);
+        CHECK_EQ(utf8::fit(zh, 0), 0);
+        CHECK_EQ(utf8::fit("hello", 3), 3);
+
+        char buf[6]{};
+        utf8::copy(buf, sizeof(buf), zh); // room for 5 bytes: "a" and one character
+        CHECK_STR(std::string(buf), std::string("a\xE4\xB8\xAD"));
+        utf8::copy(buf, sizeof(buf), "abc");
+        CHECK_STR(std::string(buf), "abc");
+        utf8::copy(buf, 1, zh);
+        CHECK_STR(std::string(buf), "");
+
+        // What snprintf leaves when it truncates, and the repair.
+        char cut[5]{};
+        CHECK_EQ(utf8::format(cut, sizeof(cut), "%s", "\xE4\xB8\xAD\xE6\x96\x87"), 3);
+        CHECK_STR(std::string(cut), std::string("\xE4\xB8\xAD"));
+        char fits[16]{};
+        CHECK_EQ(utf8::format(fits, sizeof(fits), "%d/%d", 3, 40), 4);
+        CHECK_STR(std::string(fits), "3/40");
+        // A four-byte character cut after its lead byte.
+        char four[3]{};
+        (void)utf8::format(four, sizeof(four), "a%s", "\xF0\x9F\x98\x80");
+        CHECK_STR(std::string(four), "a");
+
+        // Decoding: good characters, and every bad one as one U+FFFD per byte.
+        std::size_t i = 0;
+        CHECK(utf8::next("\xF0\x9F\x98\x80", i) == 0x1F600 && i == 4);
+        i = 0;
+        CHECK(utf8::next("\xC0\xAF", i) == 0xFFFD && i == 1); // overlong '/'
+        i = 0;
+        CHECK(utf8::next("\xED\xA0\x80", i) == 0xFFFD && i == 1); // a surrogate
+        i = 0;
+        CHECK(utf8::next("\xE4\xB8", i) == 0xFFFD && i == 1); // cut short
+        CHECK(utf8::to_wide("a\xE4\xB8\xAD") == std::wstring(L"a\x4E2D"));
+        CHECK(utf8::to_wide("\xF0\x9F\x98\x80") == std::wstring(L"\xD83D\xDE00"));
+        CHECK(utf8::to_wide("x\xFFy") == std::wstring(L"x\xFFFDy"));
+        CHECK(utf8::to_wide("") == std::wstring());
+
+        // Validity: what a shipped name must be before a fixed buffer or ImGui trusts it.
+        CHECK(utf8::valid(""));
+        CHECK(utf8::valid("plain"));
+        CHECK(utf8::valid("\xE6\x99\xAE\xE5\x85\x83\xE5\xAF\xBA")); // 普元寺
+        CHECK(utf8::valid("\xEF\xBF\xBD")); // a real U+FFFD is a character
+        CHECK(!utf8::valid("\xC0\xAF"));
+        CHECK(!utf8::valid("\xED\xA0\x80"));
+        CHECK(!utf8::valid("ok\xE4\xB8"));
+        CHECK(!utf8::valid("\x80"));
+    }
+
+    void test_string_tables()
+    {
+        section("the string tables: ids, specifiers, fallback");
+        using lang::Culture;
+        using lang::S;
+
+        // English is complete and every one of its specifiers is one printf can take.
+        for (std::size_t i = 0; i < lang::kStrCount; ++i)
+        {
+            const char* en = lang::english(static_cast<S>(i));
+            CHECK(en != nullptr && en[0] != '\0');
+            fspec::Spec sp{};
+            std::size_t at = 0;
+            while (en != nullptr && fspec::next(en, at, sp))
+            {
+                CHECK(sp.literal || sp.arg != fspec::Arg::Bad);
+                at = sp.end;
+            }
+        }
+
+        for (int ci = 1; ci < lang::kCultureCount; ++ci)
+        {
+            const auto c = static_cast<Culture>(ci);
+            const std::string code{lang::code(c)};
+            std::vector<int> seen(lang::kStrCount, 0);
+            int translated = 0;
+            for (const lang::Entry& e : lang::entries(c))
+            {
+                const std::size_t id = static_cast<std::size_t>(e.id);
+                CHECK(id < lang::kStrCount);
+                if (id >= lang::kStrCount)
+                {
+                    continue;
+                }
+                // One line per id: a second one would silently win over the first.
+                ++seen[id];
+                if (seen[id] == 2)
+                {
+                    std::printf("  FAIL  %s lists %s twice\n", code.c_str(), lang::english(e.id));
+                    CHECK(seen[id] == 1);
+                }
+                CHECK(e.text != nullptr && e.text[0] != '\0');
+                // THE CRASH GUARD: the call site's arguments were checked against the
+                // English specifiers; a translation must carry exactly the same ones.
+                if (e.text != nullptr && !fspec::same(lang::english(e.id), e.text))
+                {
+                    std::printf("  FAIL  %s: \"%s\" does not carry the specifiers of \"%s\"\n", code.c_str(),
+                                e.text, lang::english(e.id));
+                    CHECK(fspec::same(lang::english(e.id), e.text));
+                }
+                ++translated;
+            }
+            std::printf("  %-7s %d of %zu string(s) translated\n", code.c_str(), translated, lang::kStrCount);
+        }
+
+        // Every id reads as something in every culture: its own text, else the next link
+        // of its chain, else English.
+        for (int ci = 0; ci < lang::kCultureCount; ++ci)
+        {
+            const auto c = static_cast<Culture>(ci);
+            for (std::size_t i = 0; i < lang::kStrCount; ++i)
+            {
+                const auto id = static_cast<S>(i);
+                const char* got = lang::tr(id, c);
+                CHECK(got != nullptr && got[0] != '\0');
+                const lang::Chain ch = lang::chain(c);
+                const char* want = nullptr;
+                for (int k = 0; k < ch.n && want == nullptr; ++k)
+                {
+                    want = lang::own(id, ch.c[k]);
+                }
+                CHECK(got == want);
+            }
+        }
+        CHECK_STR(lang::tr(S::Count, Culture::En), "");
+
+        // A formatted line: the English, cut on a character boundary when it must be.
+        CHECK_STR(lang::fmt<S::UnitM>(12.4).c_str(), "12 m");
+        CHECK_STR(lang::fmt<S::UnitKm>(1.24).c_str(), "1.2 km");
+        CHECK_STR(lang::fmt<S::CountOf>(std::size_t{3}, std::size_t{8}).c_str(), "3 of 8");
+        CHECK_STR((lang::fmt<S::CgRowCount, 8>("Chests", 3, 40).c_str()), "Chests ");
+        CHECK_STR((lang::fmt<S::MtExportTip, 512>().c_str()),
+                  "writes wuchang_minimap_export_<date>_<time>.json into the mod's state folder,\n"
+                  "%LOCALAPPDATA%\\WuchangMinimap\n(a counter is added when that name is taken)");
+    }
+
+    // What the English tests elsewhere pin, in every other culture: each surface that
+    // moved onto the table draws that culture's text for the same id.
+    void test_localized_surfaces()
+    {
+        section("the drawn words follow the active culture");
+        using lang::Culture;
+        using lang::S;
+
+        for (int ci = 0; ci < lang::kCultureCount; ++ci)
+        {
+            const auto c = static_cast<Culture>(ci);
+            const ActiveCulture active(c);
+            // Compass letters.
+            CHECK_STR(cmp::cardinal_label(0.0), lang::tr(S::CmpN, c));
+            CHECK_STR(cmp::cardinal_label(270.0), lang::tr(S::CmpW, c));
+            CHECK_STR(cmp::cardinal_label(315.0), lang::tr(S::CmpNW, c));
+            CHECK_STR(cmp::cardinal_label(10.0), "");
+            // Category words and tiers.
+            CHECK_STR(mdb::cat_label(mdb::Cat::Chest), lang::tr(S::CatChests, c));
+            CHECK_STR(mdb::cat_word(mdb::Cat::Boss), lang::tr(S::WordBoss, c));
+            CHECK_STR(mdb::display_label(mdb::Cat::Chest, "BP_treasurebox_C"), lang::tr(S::WordChest, c));
+            CHECK_STR(mdb::display_label(mdb::Cat::Item, "Blood of Wangdi"), "Blood of Wangdi");
+            CHECK_STR(mdb::tier_name(1), lang::tr(S::TierEquipment, c));
+            CHECK_STR(mdb::tier_name(99), lang::tr(S::TierCommon, c));
+            // Key and action labels, and the clash line built from them.
+            CHECK_STR(gb::label_for_key("NumPadFour"), lang::tr(S::KeyNum4, c));
+            CHECK_STR(gb::label_for_key("F5"), "F5");
+            CHECK_STR(gb::action_label("IP_FlashAtk"), lang::tr(S::ActFlashAttack, c));
+            CHECK_STR(gb::action_label("IP_NewThing"), "IP_NewThing");
+            CHECK_STR(gb::fallback_clash(0x79), lang::tr(S::ActUe4ssConsole, c));
+            constexpr SampleBind kTwo[] = {{"LeftMouseButton", "IP_WeaponSkill"},
+                                           {"LeftMouseButton", "IP_Attack"}};
+            CHECK_STR(gb::clash_text(kTwo, 2, VK_LBUTTON), std::string(lang::tr(S::ActWeaponSkill, c)) +
+                                                               lang::tr(S::ListSep, c) +
+                                                               lang::tr(S::ActAttack, c));
+            // A label is never a class name, in any language.
+            for (int k = 0; k < mdb::kCatCount; ++k)
+            {
+                const char* w = mdb::cat_word(static_cast<mdb::Cat>(k));
+                CHECK(w != nullptr && w[0] != '\0' && !mdb::looks_like_class_name(w));
+            }
+        }
+    }
+
+    //======================================================================================
+    // No tofu: every character a culture draws has a glyph in the fonts that culture gets
+    //======================================================================================
+    //
+    // The overlay merges lang::kTextFont and lang::script_fonts(c) under the player's font,
+    // plus lang::kEndonymFonts once the language list is read (overlay.cpp, ensure_ui_font).
+    // Everything culture c draws - its whole table with the English fallbacks it lands on,
+    // every name the loaders read for it out of the shipped markers/*.json, the language
+    // list - is looked up here, codepoint by codepoint, in the Windows fonts of the machine
+    // running the test. A font file that is not there is a SKIP naming it; a font that is
+    // there and lacks a character is a FAIL naming the character and where it is used.
+
+    struct TestFont
+    {
+        std::string bytes;
+        stbtt_fontinfo info{};
+    };
+
+    // Opened once per file, kept for the run: stbtt_fontinfo points into `bytes`.
+    const TestFont* open_font(const std::string& dir, lang::FontFile f)
+    {
+        static std::unordered_map<std::string, std::unique_ptr<TestFont>> cache;
+        const std::string key = std::string{f.file} + "#" + std::to_string(f.face);
+        const auto hit = cache.find(key);
+        if (hit != cache.end())
+        {
+            return hit->second.get();
+        }
+        auto font = std::make_unique<TestFont>();
+        const unsigned char* data = nullptr;
+        int offset = -1;
+        if (read_file(dir + std::string{f.file}, font->bytes) && !font->bytes.empty())
+        {
+            data = reinterpret_cast<const unsigned char*>(font->bytes.data());
+            offset = stbtt_GetFontOffsetForIndex(data, f.face);
+        }
+        const bool ok = offset >= 0 && stbtt_InitFont(&font->info, data, offset) != 0;
+        TestFont* out = ok ? font.get() : nullptr;
+        cache.emplace(key, ok ? std::move(font) : nullptr);
+        return out;
+    }
+
+    // What ImGui draws nothing visible for, or lays out without a glyph.
+    bool blank_codepoint(char32_t cp)
+    {
+        return cp <= 0x20 || (cp >= 0x7F && cp <= 0xA0) || cp == 0xAD || (cp >= 0x2000 && cp <= 0x200F) ||
+               cp == 0x2028 || cp == 0x2029 || cp == 0x202F || cp == 0x3000 || cp == 0xFEFF;
+    }
+
+    // Every non-blank codepoint of `texts` that none of `fonts` has, with the first text
+    // using it.
+    std::vector<std::pair<char32_t, std::string>> tofu(const std::vector<std::string>& texts,
+                                                       const std::vector<const TestFont*>& fonts)
+    {
+        std::unordered_map<char32_t, const std::string*> first;
+        for (const std::string& t : texts)
+        {
+            std::size_t i = 0;
+            while (i < t.size())
+            {
+                const char32_t cp = utf8::next(t, i);
+                if (!blank_codepoint(cp))
+                {
+                    first.emplace(cp, &t);
+                }
+            }
+        }
+        std::vector<std::pair<char32_t, std::string>> missing;
+        for (const auto& [cp, text] : first)
+        {
+            bool found = false;
+            for (const TestFont* f : fonts)
+            {
+                found = found || stbtt_FindGlyphIndex(&f->info, static_cast<int>(cp)) != 0;
+            }
+            if (!found)
+            {
+                missing.emplace_back(cp, *text);
+            }
+        }
+        std::sort(missing.begin(), missing.end());
+        return missing;
+    }
+
+    void test_no_tofu(const std::string& markers_dir)
+    {
+        section("no tofu - every drawn character has a glyph in its culture's fonts");
+        using lang::Culture;
+
+        char windir[MAX_PATH]{};
+        const UINT n = ::GetSystemWindowsDirectoryA(windir, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH)
+        {
+            std::printf("  SKIP  no Windows directory to read fonts from\n");
+            return;
+        }
+        const std::string fonts_dir = std::string{windir} + "\\Fonts\\";
+
+        // Every names-bearing file the runtime loads, read once.
+        std::vector<std::string> chapters;
+        for (const ChapterFile& cf : kChapterFiles)
+        {
+            std::string text;
+            if (read_file(markers_dir + "/" + cf.file, text))
+            {
+                chapters.push_back(std::move(text));
+            }
+        }
+        std::string items_text;
+        std::string shrines_text;
+        const bool have_items = read_file(markers_dir + "/items.json", items_text);
+        const bool have_shrines = read_file(markers_dir + "/shrines.json", shrines_text);
+        CHECK(!chapters.empty() && have_items && have_shrines);
+
+        std::vector<std::string> endonyms;
+        for (int i = 0; i < lang::kCultureCount; ++i)
+        {
+            endonyms.emplace_back(lang::endonym(static_cast<Culture>(i)));
+        }
+
+        const auto report = [](const char* code, const char* what,
+                               const std::vector<std::pair<char32_t, std::string>>& missing) {
+            const std::string msg = std::string{code} + ": every character of " + what + " has a glyph";
+            check(missing.empty(), msg.c_str(), __FILE__, __LINE__);
+            for (std::size_t k = 0; k < missing.size() && k < 24; ++k)
+            {
+                std::printf("        U+%04X in \"%s\"\n", static_cast<unsigned>(missing[k].first),
+                            missing[k].second.c_str());
+            }
+        };
+
+        for (int ci = 0; ci < lang::kCultureCount; ++ci)
+        {
+            const auto c = static_cast<Culture>(ci);
+            const std::string code{lang::code(c)};
+            std::vector<lang::FontFile> want{lang::kTextFont};
+            std::string through{lang::kTextFont.file};
+            for (const lang::FontFile& f : lang::script_fonts(c))
+            {
+                want.push_back(f);
+                through += " + " + std::string{f.file};
+            }
+            std::vector<const TestFont*> fonts;
+            std::string absent;
+            for (const lang::FontFile& f : want)
+            {
+                if (const TestFont* tf = open_font(fonts_dir, f))
+                {
+                    fonts.push_back(tf);
+                }
+                else
+                {
+                    absent += (absent.empty() ? "" : ", ") + std::string{f.file};
+                }
+            }
+            if (!absent.empty())
+            {
+                std::printf("  SKIP  %s: %s not in %s\n", code.c_str(), absent.c_str(), fonts_dir.c_str());
+                continue;
+            }
+
+            // What the culture draws: its table, and every name read in it.
+            const ActiveCulture active(c); // tag_label and label() speak the culture at parse
+            const auto cultures_span = lang::name_codes(c);
+            const mdb::Cultures cultures(cultures_span.begin(), cultures_span.end());
+            std::vector<std::string> texts;
+            for (std::size_t i = 0; i < lang::kStrCount; ++i)
+            {
+                texts.emplace_back(lang::tr(static_cast<lang::S>(i), c));
+            }
+            const std::size_t table_n = texts.size();
+            for (const std::string& text : chapters)
+            {
+                std::vector<mdb::StaticMarker> markers;
+                mdb::ParseReport rep{};
+                CHECK(mdb::parse_markers_json(text, markers, rep, cultures));
+                for (const mdb::StaticMarker& m : markers)
+                {
+                    texts.push_back(m.name);
+                }
+            }
+            std::unordered_map<int, mdb::ItemInfo> items;
+            std::string error;
+            CHECK(mdb::parse_items_json(items_text, items, error, cultures));
+            for (const auto& kv : items)
+            {
+                texts.push_back(kv.second.name);
+            }
+            std::vector<shdb::Shrine> shrines;
+            shdb::Report srep{};
+            CHECK(shdb::parse(shrines_text, shrines, srep, cultures));
+            for (const shdb::Shrine& s : shrines)
+            {
+                texts.push_back(s.label());
+            }
+            // The closed language list shows this culture's own name.
+            texts.emplace_back(lang::endonym(c));
+
+            const auto missing = tofu(texts, fonts);
+            std::printf("  %-7s %zu table string(s) + %zu name(s) through %s: %zu character(s) without "
+                        "a glyph\n",
+                        code.c_str(), table_n, texts.size() - table_n, through.c_str(), missing.size());
+            report(code.c_str(), "its table and its names", missing);
+
+            // The open list: every culture's name, with the list's own fonts merged in.
+            std::vector<const TestFont*> list_fonts = fonts;
+            std::string list_absent;
+            for (const lang::FontFile& f : lang::kEndonymFonts)
+            {
+                if (const TestFont* tf = open_font(fonts_dir, f))
+                {
+                    list_fonts.push_back(tf);
+                }
+                else
+                {
+                    list_absent += (list_absent.empty() ? "" : ", ") + std::string{f.file};
+                }
+            }
+            if (!list_absent.empty())
+            {
+                std::printf("  SKIP  %s language list: %s not in %s\n", code.c_str(), list_absent.c_str(),
+                            fonts_dir.c_str());
+                continue;
+            }
+            report(code.c_str(), "the language list", tofu(endonyms, list_fonts));
+        }
+    }
+
 } // namespace
 
 
@@ -7315,6 +8180,7 @@ int main(int argc, char** argv)
     std::printf("WuchangMinimap - offline marker tests\n\n");
 
     test_loader();
+    test_names();
     test_legacy_manifest_category();
     const std::string markers_dir = argc > 1 ? argv[1] : "markers";
     test_sample_file(markers_dir);
@@ -7350,6 +8216,11 @@ int main(int argc, char** argv)
     test_projection();
     test_ptr_walk();
     test_compass();
+    test_lang_culture();
+    test_fmtspec();
+    test_utf8();
+    test_string_tables();
+    test_localized_surfaces();
     test_chapter_id();
     test_marker_chapter_filter();
     test_map_manifest(markers_dir);
@@ -7362,6 +8233,7 @@ int main(int argc, char** argv)
     test_tiers();
     test_buckets_db(markers_dir);
     test_data_invariants(markers_dir);
+    test_no_tofu(markers_dir);
 
     std::printf("\n%d check(s), %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

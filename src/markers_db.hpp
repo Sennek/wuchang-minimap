@@ -8,12 +8,19 @@
 // SCHEMA (`wuchang-minimap-markers/1`):
 //   {"schema":"wuchang-minimap-markers/1","chapter":1,
 //    "markers":[{"id":"<stable id>","cat":"shrine","cls":"BP_RebornFire_C",
-//                "name":"<display name>","x":..,"y":..,"z":..,
+//                "name":"<English>","names":{"zh":"..","de":".."},"label":"<tag>",
+//                "fp":"<fire-point id>","x":..,"y":..,"z":..,
 //                "cell":"B1EX0_L0_X1_Y0","level":"<owning level short name>"}]}
 //
 // The stable id is the join key with the live actors: shrines use the game-authored shrine
 // id (`digong01`) from BP_RebornFire_C's CJK-named "sitting-Buddha point ID" property;
 // everything else uses `<level short name>/<actor object name>`.
+//
+// NAMES. `name` is the game's own English name and `names` its other cultures, only those
+// that differ, keyed by locres folder name (`zh`, `zh-Hant`, `de`). A marker the game does
+// not name carries neither and draws its category's word (display_label); one whose words
+// are ours carries a `label` tag instead (tag_label). This module knows no language: every
+// loader takes the ordered culture chain to try, and an empty chain reads `name`.
 //
 
 #include <cstdint>
@@ -24,6 +31,11 @@
 
 #include "chapterid.hpp"
 #include "textmatch.hpp"
+
+namespace mjson
+{
+    struct JValue;
+}
 
 namespace mdb
 {
@@ -203,24 +215,41 @@ namespace mdb
         return m;
     }
 
-    // Display name of a tier ("Common"); anything out of range reads as "Common".
+    // Display name of a tier ("Common") in the active language; anything out of range reads
+    // as Common.
     const char* tier_name(int tier);
 
     // The wire names used by markers.json AND by the config file, in Cat order.
     const char* cat_name(Cat cat);
 
-    // The short label shown next to the F2 filter checkbox.
+    // The short label shown next to the F2 filter checkbox, in the active language.
     const char* cat_label(Cat cat);
 
     // A label may never be a class name: this recognises `BP_...`, `..._C`, and lowercase
     // transliterations of either.
     bool looks_like_class_name(std::string_view text);
 
-    // A plain singular word per category. Never empty.
+    // A plain singular word per category, in the active language. Never empty.
     const char* cat_word(Cat cat);
 
     // The label to draw: `raw` when it is a real name, the category's plain word otherwise.
     const char* display_label(Cat cat, const char* raw);
+
+    // ---- Names in the player's language ----
+
+    // The cultures to try for a name, in order, as locres folder names ({"zh-Hant", "zh"}).
+    // Empty reads English `name`. The caller builds it; nothing here parses a culture.
+    using Cultures = std::vector<std::string>;
+
+    // The name one manifest record draws: the first culture of `cultures` its `names` object
+    // holds as a non-empty string, else its `name`, else "".
+    std::string pick_name(const mjson::JValue& record, const Cultures& cultures);
+
+    // The words for a marker the game does not name, where its category's word is not them:
+    // the extractor's ascii `label` tag -> English. `fire_point` is what the `shrine` tag reads
+    // after its word ("Shrine BaiYS01"). "" for a tag this build does not know, which leaves
+    // the category's word.
+    std::string tag_label(std::string_view tag, std::string_view fire_point);
 
     // Exact, case-insensitive match against cat_name(). False for an unknown name.
     bool cat_from_name(std::string_view name, Cat& out);
@@ -260,7 +289,10 @@ namespace mdb
     struct StaticMarker
     {
         std::string id;    // stable id - the join key with the live actors
-        std::string name;  // display name, may be empty
+        // Display name in the loader's culture chain (pick_name), or the tag_label() of
+        // `label`; empty when the game names nothing and the category's word is drawn.
+        std::string name;
+        std::string label; // the manifest's `label` tag `name` was composed from, else empty
         std::string cls;   // "BP_RebornFire_C", for diagnostics only
         std::string level; // owning level short name, for diagnostics only
         double x = 0.0;
@@ -689,8 +721,9 @@ namespace mdb
     };
 
     // Appends to `out`, so several chapter files accumulate into one DB. False + `report.error`
-    // when the text is not a usable manifest.
-    bool parse_markers_json(std::string_view text, std::vector<StaticMarker>& out, ParseReport& report);
+    // when the text is not a usable manifest. Names are read in `cultures` (pick_name).
+    bool parse_markers_json(std::string_view text, std::vector<StaticMarker>& out, ParseReport& report,
+                            const Cultures& cultures = {});
 
     // ---- markers/items.json - the item database, at RUNTIME ----
     //
@@ -708,9 +741,10 @@ namespace mdb
     };
 
     // Only NAMED items are kept: an id that has no display name is what rejects a misread of
-    // an actor's item array, so it must not become a known id.
+    // an actor's item array, so it must not become a known id. Names are read in `cultures`
+    // (pick_name), the same chain the chapter files are read in.
     bool parse_items_json(std::string_view text, std::unordered_map<int, ItemInfo>& out,
-                          std::string& error);
+                          std::string& error, const Cultures& cultures = {});
 
     // The category a live pickup carries. `class_cat` is what the class table gave the actor
     // and `item_cat` is the bucket of the first item it grants (`Cat::Count` when nothing

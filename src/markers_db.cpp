@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #include "json.hpp"
+#include "lang_strings.hpp"
 
 namespace mdb
 {
@@ -23,26 +24,47 @@ namespace mdb
 
         // The loot family's labels are the bucket names of `context/buckets.md`: the same
         // word names the F2 filter row, the glyph's tooltip and the marker a pickup with no
-        // readable item gets from the extractor, so the three never disagree.
-        constexpr const char* kCatLabels[kCatCount] = {
-            "Shrines",    "Chests",
-            "Consumable", "Item",   "Harvest", "Cannon ammo", "Armour", "Amulet",
-            "Weapon",     "Jade",   "Spell",   "Material",    "Key item",
-            "Bosses",     "Elites", "Enemies", "Bamboozlings", "Cuckoos", "NPCs",
-            "Notes",      "Doors",  "Mystery gates", "Benediction doors",
-            "Ladders",    "Lifts",  "Fog gates",     "Traps",  "Other",
+        // readable item gets from the extractor, so the three never disagree. The words
+        // themselves are the string table's (lang/en.inc).
+        using lang::S;
+        constexpr S kCatLabels[kCatCount] = {
+            S::CatShrines,    S::CatChests,
+            S::CatConsumable, S::CatItem,   S::CatHarvest, S::CatAmmo, S::CatArmour, S::CatAmulet,
+            S::CatWeapon,     S::CatJade,   S::CatSpell,   S::CatMaterial, S::CatKey,
+            S::CatBosses,     S::CatElites, S::CatEnemies, S::CatBamboozlings, S::CatCuckoos, S::CatNpcs,
+            S::CatNotes,      S::CatDoors,  S::CatMysteryGates, S::CatBenedictionDoors,
+            S::CatLadders,    S::CatLifts,  S::CatFogGates,     S::CatTraps,  S::CatOther,
         };
 
-        // The last-resort SINGULAR word for one marker. `cat_label` is the plural filter
-        // title ("Chests") and reads wrong on a single glyph; "Marker" is vague for
-        // `other`, the bucket the classifier could not place.
-        constexpr const char* kCatWords[kCatCount] = {
-            "Shrine",     "Chest",
-            "Consumable", "Item",   "Harvest", "Cannon ammo", "Armour", "Amulet",
-            "Weapon",     "Jade",   "Spell",   "Material",    "Key item",
-            "Boss",       "Elite",  "Enemy",   "Bamboozling", "Cuckoo", "NPC",
-            "Note",       "Door",   "Mystery gate", "Benediction door",
-            "Ladder",     "Lift",   "Fog gate",     "Hidden item", "Marker",
+        // The SINGULAR word for one marker, and the label of every marker the game does not
+        // name - the data carries no generic name, so this is the one place it is chosen.
+        // `cat_label` is the plural filter title ("Chests") and reads wrong on a single glyph.
+        constexpr S kCatWords[kCatCount] = {
+            S::WordShrine,     S::WordChest,
+            S::WordConsumable, S::WordItem,  S::WordHarvest, S::WordAmmo, S::WordArmour, S::WordAmulet,
+            S::WordWeapon,     S::WordJade,  S::WordSpell,   S::WordMaterial, S::WordKey,
+            S::WordBoss,       S::WordElite, S::WordEnemy,   S::WordBamboozling, S::WordCuckoo, S::WordNpc,
+            S::WordNote,       S::WordDoor,  S::WordMysteryGate, S::WordBenedictionDoor,
+            S::WordLadder,     S::WordLift,  S::WordFogGate,     S::WordTrap, S::WordObject,
+        };
+
+        // The `label` tags the extractor writes for a marker whose words are ours rather than
+        // the game's and say more than its category's word. `arg` is true where the fire-point
+        // id follows the word.
+        struct TagLabel
+        {
+            const char* tag;
+            S word;
+            bool arg;
+        };
+
+        constexpr TagLabel kTagLabels[] = {
+            // A shrine `DT_FirePoint` has no row for (the DLC's seven): its word and its id.
+            {"shrine", S::WordShrine, true},
+            // `BP_NPC_cunmin_C`, 村民: crowd villagers the game gives no name key.
+            {"villager", S::WordVillager, false},
+            // `BP_WeaponRefrom_C`, the weapon-reforge station.
+            {"workbench", S::WordWorkbench, false},
         };
 
         // Renamed categories: what an older file says, the bit(s) it selects in a config
@@ -116,13 +138,13 @@ namespace mdb
     const char* cat_label(Cat cat)
     {
         const int i = static_cast<int>(cat);
-        return (i >= 0 && i < kCatCount) ? kCatLabels[i] : "Other";
+        return lang::tr((i >= 0 && i < kCatCount) ? kCatLabels[i] : S::CatOther);
     }
 
     const char* cat_word(Cat cat)
     {
         const int i = static_cast<int>(cat);
-        return (i >= 0 && i < kCatCount) ? kCatWords[i] : "Marker";
+        return lang::tr((i >= 0 && i < kCatCount) ? kCatWords[i] : S::WordMarker);
     }
 
     bool looks_like_class_name(std::string_view text)
@@ -165,6 +187,47 @@ namespace mdb
             return cat_word(cat);
         }
         return raw;
+    }
+
+    //======================================================================================
+    // Names in the player's language
+    //======================================================================================
+
+    std::string pick_name(const mjson::JValue& record, const Cultures& cultures)
+    {
+        const mjson::JValue* names = record.find("names");
+        if (names != nullptr && names->kind == mjson::JValue::Kind::Object)
+        {
+            for (const std::string& culture : cultures)
+            {
+                const mjson::JValue* v = names->find(culture);
+                if (v != nullptr && v->kind == mjson::JValue::Kind::String && !v->str.empty())
+                {
+                    return v->str;
+                }
+            }
+        }
+        const mjson::JValue* name = record.find("name");
+        return name != nullptr ? name->string_or("") : std::string{};
+    }
+
+    std::string tag_label(std::string_view tag, std::string_view fire_point)
+    {
+        for (const TagLabel& t : kTagLabels)
+        {
+            if (tag != t.tag)
+            {
+                continue;
+            }
+            std::string out{lang::tr(t.word)};
+            if (t.arg && !fire_point.empty())
+            {
+                out += ' ';
+                out.append(fire_point);
+            }
+            return out;
+        }
+        return {};
     }
 
     bool cat_from_name(std::string_view name, Cat& out)
@@ -301,12 +364,12 @@ namespace mdb
         switch (static_cast<Tier>(tier))
         {
         case Tier::Equipment:
-            return "Equipment";
+            return lang::tr(S::TierEquipment);
         case Tier::Key:
-            return "Key";
+            return lang::tr(S::TierKey);
         case Tier::Common:
         default:
-            return "Common";
+            return lang::tr(S::TierCommon);
         }
     }
 
@@ -314,7 +377,8 @@ namespace mdb
     // markers/<chapter>.json
     //======================================================================================
 
-    bool parse_markers_json(std::string_view text, std::vector<StaticMarker>& out, ParseReport& report)
+    bool parse_markers_json(std::string_view text, std::vector<StaticMarker>& out, ParseReport& report,
+                            const Cultures& cultures)
     {
         report = ParseReport{};
 
@@ -392,7 +456,12 @@ namespace mdb
 
             StaticMarker m{};
             m.id = str("id");
-            m.name = str("name");
+            m.name = pick_name(entry, cultures);
+            m.label = str("label");
+            if (m.name.empty() && !m.label.empty())
+            {
+                m.name = tag_label(m.label, str("fp"));
+            }
             m.cls = str("cls");
             m.level = str("level");
             bool ok = true;
@@ -512,7 +581,7 @@ namespace mdb
     }
 
     bool parse_items_json(std::string_view text, std::unordered_map<int, ItemInfo>& out,
-                          std::string& error)
+                          std::string& error, const Cultures& cultures)
     {
         error.clear();
         out.clear();
@@ -564,7 +633,7 @@ namespace mdb
                 continue;
             }
             ItemInfo info{};
-            info.name = name->str;
+            info.name = pick_name(kv.second, cultures);
             const mjson::JValue* bucket = kv.second.find("bucket");
             if (bucket != nullptr && bucket->kind == mjson::JValue::Kind::String)
             {

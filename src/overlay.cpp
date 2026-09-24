@@ -28,6 +28,7 @@
 
 #include "atomicfile.hpp"
 #include "exchange.hpp"
+#include "langsel.hpp"
 #include "saveslot.hpp"
 #include "typing_gate.hpp"
 
@@ -42,9 +43,8 @@ namespace overlay
         float g_ui_scale_applied = 0.0f;  // what the ImGui style was last built for
         float g_chrome_scale = 1.0f;         // ui_scale x font_size / 13
         float g_chrome_scale_applied = 0.0f; // what the ImGui style was last built for
-        char g_font_loaded[192]{};   // the path the atlas currently holds
-        float g_font_px_loaded = 0.0f; // the size the atlas currently holds
-        bool g_font_checked = false; // false = the config's path has not been tried yet
+        FontKey g_font_key{};
+        bool g_font_endonyms = false;
         int g_circle_segments = kCircleSegments;
         SrvHeap g_srv_heap;
         int g_pf_minimap = -1;  // draw_minimap
@@ -170,12 +170,12 @@ namespace overlay
         // Present count, so an off period is exactly what a wedged render thread looks
         // like to them.
         std::atomic<std::uint64_t> g_watchdog_epoch{0};
-        wchar_t g_hide_reason[96] = L"not evaluated yet";
+        HideReason g_hide_reason = HideReason::NotEvaluated;
         int g_pf_clip = -1;     // the map -> clipboard hand-off
         int g_pf_save = -1;     // config / waypoint file writes
         int g_pf_reload = -1;   // F5: config + maps + markers
         std::wstring g_hook_report = L"not installed";
-        wchar_t g_reason_logged[96] = L"";
+        HideReason g_reason_logged = HideReason::NotEvaluated; // nothing logged yet
         std::uint64_t g_reason_log_ms = 0;
         std::uint64_t g_reason_since_ms = 0;
         std::uint64_t g_reason_suppressed = 0;
@@ -202,7 +202,7 @@ namespace overlay
         int g_frame_bad_cat = 0;              // rows whose category byte is out of range
         float g_hud_fade = 0.0f;
         std::uint64_t g_hud_fade_ms = 0; // when the current show started
-        char g_toast[160]{};
+        char g_toast[kToastBytes]{};
         std::uint64_t g_toast_until = 0;
         ShotStage g_shot_stage = ShotStage::Idle;
         std::atomic<bool> g_shot_request{false};   // loop -> render (the hotkey)
@@ -218,7 +218,7 @@ namespace overlay
         std::atomic<bool> g_shot_dib_ready{false};
         std::atomic<bool> g_shot_stage_done{false};
         spin::Spinlock g_toast_lock;
-        char g_toast_pending[160]{};
+        char g_toast_pending[kToastBytes]{};
         unsigned g_toast_pending_ms = 2500;
         std::atomic<bool> g_toast_pending_ready{false};
         std::atomic<bool> g_nearest_request{false};
@@ -296,7 +296,16 @@ namespace overlay
         // reacts to a scale change.
         //
         // A changed `font_size` needs a new rasterisation, so the atlas is rebuilt when
-        // either the path or the size moves.
+        // the path, the size or the culture moves.
+        //
+        // The base font is the player's `ui_font`; what it cannot draw comes from Windows'
+        // own fonts MERGED under it, which ImGui asks only for a glyph the sources before
+        // them lack: Segoe UI under any other base (the built-in bitmap font has no accents
+        // and no Cyrillic), then the active culture's script fonts (lang::script_fonts), then -
+        // once the language list is about to be read - the fonts every endonym needs. A
+        // missing file is one log line and a font without those glyphs, never a failure.
+        // Glyphs rasterise on demand, so a CJK font costs its file read here and each new
+        // character's upload on the frame that first draws it.
         //
 
         bool font_path_is_none(const char* path)
@@ -315,41 +324,131 @@ namespace overlay
             return static_cast<float>(px);
         }
 
+        // The Windows Fonts folder, UTF-8 and ending in a separator, as ImGui opens a file.
+        // Empty when Windows will not say.
+        std::string windows_fonts_dir()
+        {
+            wchar_t wide[MAX_PATH]{};
+            const UINT n = ::GetSystemWindowsDirectoryW(wide, MAX_PATH);
+            char narrow[MAX_PATH * 3]{};
+            if (n == 0 || n >= MAX_PATH ||
+                ::WideCharToMultiByte(CP_UTF8, 0, wide, -1, narrow, static_cast<int>(sizeof(narrow)), nullptr,
+                                      nullptr) == 0)
+            {
+                return {};
+            }
+            return std::string{narrow} + "\\Fonts\\";
+        }
+
+        // Is `path` the file named `file`, in any folder and any case?
+        bool path_names_file(const char* path, std::string_view file)
+        {
+            const std::string_view p{path};
+            const std::size_t cut = p.find_last_of("\\/");
+            const std::string_view name = cut == std::string_view::npos ? p : p.substr(cut + 1);
+            return name.size() == file.size() &&
+                   ::_strnicmp(name.data(), file.data(), file.size()) == 0;
+        }
+
+        // Merges `f` under the font just added. Appends its name to `merged`; a file that is
+        // not there, or not a font, is a log line and leaves the atlas as it was.
+        void merge_windows_font(const std::string& dir, lang::FontFile f, std::wstring& merged)
+        {
+            const std::string path = dir + std::string{f.file};
+            const std::wstring shown = utf8::to_wide(path);
+            if (dir.empty() || ::GetFileAttributesW(shown.c_str()) == INVALID_FILE_ATTRIBUTES)
+            {
+                mm::logf(L"ui font: {} is not on this machine - the text it would draw shows as '?'",
+                         dir.empty() ? utf8::to_wide(f.file) : shown);
+                return;
+            }
+            ImFontConfig merge{};
+            merge.MergeMode = true;
+            merge.FontNo = f.face;
+            merge.Flags |= ImFontFlags_NoLoadError;
+            // Size 0: drawn at the base font's size, whatever that is.
+            if (ImGui::GetIO().Fonts->AddFontFromFileTTF(path.c_str(), 0.0f, &merge) == nullptr)
+            {
+                mm::logf(L"ui font: could not read {} as a font - the text it would draw shows as '?'", shown);
+                return;
+            }
+            merged += merged.empty() ? L"" : L", ";
+            merged += utf8::to_wide(f.file);
+        }
+
         void ensure_ui_font(const mm::Config& cfg)
         {
             const float px = font_px(cfg);
-            if (g_font_checked && px == g_font_px_loaded && ::strcmp(g_font_loaded, cfg.ui_font) == 0)
+            const lang::Culture culture = lang::active();
+            if (g_font_key.built && px == g_font_key.px && culture == g_font_key.culture &&
+                g_font_endonyms == g_font_key.endonyms && ::strcmp(g_font_key.path, cfg.ui_font) == 0)
             {
                 return; // steady state: one strcmp of a short string per frame
             }
-            g_font_checked = true;
-            g_font_px_loaded = px;
-            ::strncpy_s(g_font_loaded, sizeof(g_font_loaded), cfg.ui_font, _TRUNCATE);
+            g_font_key.built = true;
+            g_font_key.px = px;
+            g_font_key.culture = culture;
+            g_font_key.endonyms = g_font_endonyms;
+            ::strncpy_s(g_font_key.path, sizeof(g_font_key.path), cfg.ui_font, _TRUNCATE);
 
+            const std::uint64_t t0 = mm::qpc_us();
             ImGuiIO& io = ImGui::GetIO();
             io.Fonts->Clear();
+            const std::wstring shown = utf8::to_wide(cfg.ui_font);
+            bool base_is_text_font = false;
             if (font_path_is_none(cfg.ui_font))
             {
                 io.Fonts->AddFontDefault();
                 mm::log(L"ui font: the built-in bitmap font (ui_font = none)");
-                return;
             }
             // style.FontScaleMain multiplies this by ui_scale, so the resolution factor
             // lives in one place and this number is the player's own font_size.
-            const ImFont* f = io.Fonts->AddFontFromFileTTF(cfg.ui_font, px);
-            const std::wstring shown(cfg.ui_font, cfg.ui_font + ::strlen(cfg.ui_font));
-            if (f == nullptr)
+            else if (io.Fonts->AddFontFromFileTTF(cfg.ui_font, px) == nullptr)
             {
                 // A wrong path costs one log line, not a mod with no text in it.
                 io.Fonts->Clear();
                 io.Fonts->AddFontDefault();
                 mm::logf(L"ui font: could not read '{}' - using the built-in bitmap font", shown);
-                return;
             }
-            mm::logf(L"ui font: {} at {:.0f} px (x ui scale {:.2f})",
-                     shown,
-                     static_cast<double>(px),
-                     static_cast<double>(g_ui_scale));
+            else
+            {
+                base_is_text_font = path_names_file(cfg.ui_font, lang::kTextFont.file);
+                mm::logf(L"ui font: {} at {:.0f} px (x ui scale {:.2f})",
+                         shown,
+                         static_cast<double>(px),
+                         static_cast<double>(g_ui_scale));
+            }
+
+            const std::string dir = windows_fonts_dir();
+            std::wstring merged;
+            if (!base_is_text_font)
+            {
+                merge_windows_font(dir, lang::kTextFont, merged);
+            }
+            const std::span<const lang::FontFile> script = lang::script_fonts(culture);
+            for (const lang::FontFile& f : script)
+            {
+                merge_windows_font(dir, f, merged);
+            }
+            if (g_font_endonyms)
+            {
+                for (const lang::FontFile& f : lang::kEndonymFonts)
+                {
+                    const bool have = std::any_of(script.begin(), script.end(), [&f](const lang::FontFile& s) {
+                        return s.file == f.file && s.face == f.face;
+                    });
+                    if (!have)
+                    {
+                        merge_windows_font(dir, f, merged);
+                    }
+                }
+            }
+            mm::logf(L"ui font: built for {} in {:.1f} ms{}{}{}",
+                     utf8::to_wide(lang::code(culture)),
+                     static_cast<double>(mm::qpc_us() - t0) / 1000.0,
+                     merged.empty() ? L"" : L", merged under it: ",
+                     merged,
+                     g_font_endonyms ? L" (with the language list's fonts)" : L"");
         }
 
         //==============================================================================
@@ -904,24 +1003,6 @@ namespace overlay
             return out;
         }
 
-        std::wstring utf8_to_wide(const std::string& s)
-        {
-            if (s.empty())
-            {
-                return std::wstring{};
-            }
-            const int need =
-                ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), nullptr, 0);
-            if (need <= 0)
-            {
-                return std::wstring{};
-            }
-            std::wstring out(static_cast<std::size_t>(need), L'\0');
-            (void)::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), out.data(),
-                                        need);
-            return out;
-        }
-
         // The newest wuchang_minimap_export_*.json in the mod folder, so the panel's path
         // box has something to offer. The names sort by time, so `max` is the answer.
         void scan_latest_export()
@@ -985,21 +1066,17 @@ namespace overlay
 
             const std::wstring path = export_path();
             unsigned err = 0;
-            char note[160]{};
             if (!mmfile::write_whole_file_atomic(path, xch::serialize(p), false, &err))
             {
-                (void)std::snprintf(note, sizeof(note), "export FAILED (error %u) - see the log", err);
+                post_toast(lang::fmt<S::TsExportFailed, kToastBytes>(err).c_str(), 4000);
                 mm::logf(L"export: FAILED to write {} (error {})", path, err);
+                return;
             }
-            else
-            {
-                (void)std::snprintf(note, sizeof(note), "exported %zu found id(s) and %zu waypoint(s)",
-                                    p.found.size(), p.waypoints.size());
-                mm::logf(L"export: wrote {} ({} found id(s), {} waypoint(s))", path, p.found.size(),
-                         p.waypoints.size());
-                scan_latest_export();
-            }
-            post_toast(note, 4000);
+            post_toast(lang::fmt<S::TsExported, kToastBytes>(p.found.size(), p.waypoints.size()).c_str(),
+                       4000);
+            mm::logf(L"export: wrote {} ({} found id(s), {} waypoint(s))", path, p.found.size(),
+                     p.waypoints.size());
+            scan_latest_export();
         }
 
         void run_import()
@@ -1011,7 +1088,7 @@ namespace overlay
             }
             if (narrow[0] == '\0')
             {
-                post_toast("import: no file path given", 3000);
+                post_toast(tr(S::TsImportNoPath), 3000);
                 return;
             }
             // The found list belongs to a save slot. Before one is resolved the ids
@@ -1019,31 +1096,28 @@ namespace overlay
             // out to it, so the import waits instead.
             if (slotid::status().route == slotid::Route::None)
             {
-                post_toast("import: no save profile yet - load your save first", 4000);
+                post_toast(tr(S::TsImportNoProfile), 4000);
                 return;
             }
             mm::perf_note_stall(L"a found-list import", 1000);
             // Absolute as typed, anything else under the mod folder where exports land.
-            const std::wstring path = xch::resolve_import_path(mm::state_dir(), utf8_to_wide(narrow));
+            const std::wstring path = xch::resolve_import_path(mm::state_dir(), utf8::to_wide(narrow));
 
             std::string text;
             // A few MB is a huge export; the parse runs here, on the loop thread.
             const mmfile::ReadInfo info = mmfile::read_whole_file(path, text, 4ull << 20);
-            char note[160]{};
             if (info.status != mmfile::ReadStatus::Ok)
             {
-                (void)std::snprintf(note, sizeof(note), "import: could not read that file");
                 mm::logf(L"import: could not read {} (error {})", path, info.error);
-                post_toast(note, 4000);
+                post_toast(tr(S::TsImportUnreadable), 4000);
                 return;
             }
             xch::Payload p{};
             std::string error;
             if (!xch::parse(text, p, error))
             {
-                (void)std::snprintf(note, sizeof(note), "import: %s", error.c_str());
                 mm::logf(L"import: {} rejected - {}", path, widen(error));
-                post_toast(note, 5000);
+                post_toast(lang::fmt<S::TsImportRejected, kToastBytes>(error.c_str()).c_str(), 5000);
                 return;
             }
             // A file written from another save slot merges cleanly, but its ids belong
@@ -1057,19 +1131,16 @@ namespace overlay
             {
                 mm::set_waypoints(set);
             }
-            char extra[96]{};
-            if (wp.duplicates != 0 || wp.dropped != 0)
-            {
-                (void)std::snprintf(extra, sizeof(extra), "; %d already set, %d over the limit of %zu",
-                                    wp.duplicates, wp.dropped, mv::kMaxWaypoints);
-            }
-            (void)std::snprintf(note, sizeof(note), "imported %d new found id(s) and %d waypoint(s)%s%s",
-                                added, wp.added, extra, foreign ? "; from ANOTHER save profile" : "");
+            const bool refused = wp.duplicates != 0 || wp.dropped != 0;
+            const lang::Text<256> extra =
+                lang::fmt<S::TsImportedExtra>(wp.duplicates, wp.dropped, mv::kMaxWaypoints);
+            const lang::Text<kToastBytes> note = lang::fmt<S::TsImported, kToastBytes>(
+                added, wp.added, refused ? extra.c_str() : "", foreign ? tr(S::TsImportedForeign) : "");
             mm::logf(L"import: {} -> {} new found id(s), {} waypoint(s) ({} duplicate, {} over the limit); "
                      L"exported from profile {}, merged into {}",
                      path, added, wp.added, wp.duplicates, wp.dropped,
                      widen(p.profile.empty() ? std::string{"(none)"} : p.profile), widen(profile));
-            post_toast(note, foreign ? 6000 : 4000);
+            post_toast(note.c_str(), foreign ? 6000 : 4000);
         }
         // The install of last resort, once the engine's swapchain is off the table.
         // `why` is already in the log; this decides what happens instead.
@@ -1863,18 +1934,15 @@ namespace overlay
                 // On screen as well as in the log: at 13 -> 26 uu/px on a small disc the
                 // picture alone does not read as "I changed a setting".
                 const int rung = mv::zoom_preset_index(edit.minimap_zoom_presets, n, edit.zoom_uu_per_px);
-                char note[64]{};
+                const double zoom = static_cast<double>(edit.zoom_uu_per_px);
                 if (rung >= 0)
                 {
-                    (void)std::snprintf(note, sizeof(note), "minimap zoom  %.0f uu/px  (%d of %d)",
-                                        static_cast<double>(edit.zoom_uu_per_px), rung + 1, n);
+                    post_toast(lang::fmt<S::TsZoomRung>(zoom, rung + 1, n).c_str(), 1000);
                 }
                 else
                 {
-                    (void)std::snprintf(note, sizeof(note), "minimap zoom  %.0f uu/px",
-                                        static_cast<double>(edit.zoom_uu_per_px));
+                    post_toast(lang::fmt<S::TsZoom>(zoom).c_str(), 1000);
                 }
-                post_toast(note, 1000);
                 mm::logf(L"minimap zoom: {:.0f} uu/px (cycled with {} over {} preset(s))",
                          edit.zoom_uu_per_px, mm::key_name(edit.zoom_key), n);
                 // The rung the player stopped on is where the minimap opens next session.
@@ -1882,7 +1950,7 @@ namespace overlay
             }
             else if (n <= 0)
             {
-                post_toast("minimap_zoom_presets is empty - nothing to cycle", 1500);
+                post_toast(tr(S::TsZoomNoPresets), 1500);
                 mm::log(L"minimap zoom: minimap_zoom_presets is empty - nothing to cycle through");
             }
         }
@@ -1908,11 +1976,12 @@ namespace overlay
             {
                 return;
             }
-            const std::string text =
-                std::format("{} settings   {} map   {}{} to see items through walls",
-                            key_name_ascii(f.cfg.panel_key), key_name_ascii(f.cfg.map_key),
-                            f.cfg.highlight_mode == mm::HighlightMode::Hold ? "hold " : "press ",
-                            key_name_ascii(f.cfg.highlight_key));
+            const std::string xray = key_display(f.cfg.highlight_key);
+            const lang::Text<256> hold = f.cfg.highlight_mode == mm::HighlightMode::Hold
+                                             ? lang::fmt<S::KeyHold>(xray.c_str())
+                                             : lang::fmt<S::KeyPress>(xray.c_str());
+            const lang::Text<kToastBytes> text = lang::fmt<S::TsFirstRun, kToastBytes>(
+                key_display(f.cfg.panel_key).c_str(), key_display(f.cfg.map_key).c_str(), hold.c_str());
             post_toast(text.c_str(), 10000);
             const HANDLE h = ::CreateFileW(sentinel.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                            FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1924,7 +1993,7 @@ namespace overlay
                 ::WriteFile(h, note, static_cast<DWORD>(std::strlen(note)), &written, nullptr);
                 ::CloseHandle(h);
             }
-            mm::logf(L"first run: showing the key tip - {}", std::wstring(text.begin(), text.end()));
+            mm::logf(L"first run: showing the key tip - {}", utf8::to_wide(text.c_str()));
         }
 
         // MAP -> CLIPBOARD, both ends. The key only fires while the full map is open, which
@@ -1955,14 +2024,16 @@ namespace overlay
                 spin::SpinGuard guard(g_shot_lock);
                 dib.swap(g_shot_dib);
             }
-            const char* why = nullptr;
+            // The outcome is a string id: the toast speaks the player's language, the log
+            // keeps the English.
+            S outcome = S::TsMapCopied;
             if (dib.size() <= clipimg::kHeaderSize)
             {
-                why = "map copy failed: empty bitmap";
+                outcome = S::TsCopyEmpty;
             }
             else if (::OpenClipboard(nullptr) == 0)
             {
-                why = "map copy failed: clipboard is busy";
+                outcome = S::TsCopyBusy;
             }
             else
             {
@@ -1978,7 +2049,7 @@ namespace overlay
                     if (::SetClipboardData(CF_DIB, mem) == nullptr)
                     {
                         ::GlobalFree(mem);
-                        why = "map copy failed: SetClipboardData";
+                        outcome = S::TsCopySetData;
                     }
                 }
                 else
@@ -1987,16 +2058,13 @@ namespace overlay
                     {
                         ::GlobalFree(mem);
                     }
-                    why = "map copy failed: out of memory";
+                    outcome = S::TsCopyNoMemory;
                 }
                 ::CloseClipboard();
             }
-            post_toast(why != nullptr ? why : "map copied to clipboard", 2500);
+            post_toast(tr(outcome), 2500);
             g_shot_stage_done.store(true, std::memory_order_release);
-            mm::logf(L"screenshot: {} ({} bytes)",
-                     why != nullptr ? std::wstring(why, why + std::strlen(why))
-                                    : std::wstring{L"copied to the clipboard"},
-                     dib.size());
+            mm::logf(L"screenshot: {} ({} bytes)", utf8::to_wide(lang::english(outcome)), dib.size());
         }
 
         // Recentre the open map, and waypoint the nearest unfound marker. Both only ask:
@@ -2157,6 +2225,7 @@ namespace overlay
                 const mm::PerfScope reload_scope(g_pf_reload);
                 mm::log(L"reloading config + maps + markers");
                 mm::load_config_file();
+                (void)lsel::refresh(); // the names below are read in the culture the file names
                 mm::load_waypoint_file();
                 g_drop_textures.store(true, std::memory_order_release);
                 mapdata::load(mm::mod_dir());

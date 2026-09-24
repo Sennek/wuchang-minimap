@@ -28,8 +28,9 @@ namespace overlay
             if (table == nullptr || table->empty())
             {
                 const shr::TableInfo info = shr::table_info();
-                ImGui::TextDisabled("no shrine table: %s",
-                                    info.error[0] != '\0' ? info.error : "markers\\shrines.json is empty");
+                ImGui::TextDisabled("%s", lang::fmt<S::ShNoTable, 512>(info.error[0] != '\0' ? info.error
+                                                                                       : tr(S::ShTableEmpty))
+                                              .c_str());
                 return;
             }
             const shr::State st = shr::state();
@@ -67,7 +68,7 @@ namespace overlay
             }
             if (rows.empty())
             {
-                ImGui::TextDisabled("no shrines in this chapter");
+                ImGui::TextDisabled("%s", tr(S::ShNoneHere));
                 return;
             }
             std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
@@ -84,8 +85,9 @@ namespace overlay
 
             if (!st.valid)
             {
-                ImGui::TextDisabled("unlocked state: n/a (%s)",
-                                    st.route[0] != '\0' ? st.route : "not read yet");
+                ImGui::TextDisabled("%s", lang::fmt<S::ShUnlockedNa>(st.route[0] != '\0' ? st.route
+                                                                                     : tr(S::NotReadYet))
+                                              .c_str());
             }
 
             if (!ImGui::BeginTable("shrines", 4,
@@ -96,10 +98,10 @@ namespace overlay
                 return;
             }
             ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableSetupColumn("Shrine");
-            ImGui::TableSetupColumn("Ch", ImGuiTableColumnFlags_WidthFixed);
-            ImGui::TableSetupColumn("Distance", ImGuiTableColumnFlags_WidthFixed);
-            ImGui::TableSetupColumn("Lit", ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableSetupColumn(tr(S::WordShrine));
+            ImGui::TableSetupColumn(tr(S::ShColChapter), ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableSetupColumn(tr(S::ShColDistance), ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableSetupColumn(tr(S::ShColLit), ImGuiTableColumnFlags_WidthFixed);
             ImGui::TableHeadersRow();
 
             for (std::size_t i = 0; i < rows.size(); ++i)
@@ -125,7 +127,7 @@ namespace overlay
                         // invalidate it or the map draws the old storey at the new place
                         // until the next scheduled cut.
                         g_map_recut.store(true, std::memory_order_release);
-                        toast("centred on the shrine");
+                        toast(tr(S::TsCentredOnShrine));
                     }
                     else
                     {
@@ -134,14 +136,13 @@ namespace overlay
                         wp.x = r.s->x;
                         wp.y = r.s->y;
                         wp.z = r.s->z;
-                        toast(mm::add_waypoint(wp) ? "waypoint set on the shrine"
-                                                   : "no room for another waypoint");
+                        toast(tr(mm::add_waypoint(wp) ? S::TsWaypointOnShrine : S::TsWaypointFull));
                     }
                 }
                 if (ImGui::IsItemHovered())
                 {
-                    ImGui::SetTooltip("%s\nid %s\nclick: waypoint    double-click: centre the map",
-                                      r.s->label().c_str(), r.s->id.c_str());
+                    const lang::Text<512> tip = lang::fmt<S::ShRowTip, 512>(r.s->label().c_str(), r.s->id.c_str());
+                    ImGui::SetTooltip("%s", tip.c_str());
                 }
                 ImGui::TableNextColumn();
                 if (r.s->chapter < 0)
@@ -150,7 +151,7 @@ namespace overlay
                 }
                 else if (r.s->chapter == 0)
                 {
-                    ImGui::TextUnformatted("DLC");
+                    ImGui::TextUnformatted(tr(S::Dlc));
                 }
                 else
                 {
@@ -161,26 +162,22 @@ namespace overlay
                 {
                     ImGui::TextDisabled("-");
                 }
-                else if (r.dist >= 100000.0)
-                {
-                    ImGui::Text("%.1f km", r.dist / 100000.0);
-                }
                 else
                 {
-                    ImGui::Text("%.0f m", r.dist / 100.0);
+                    ImGui::TextUnformatted(distance_text(r.dist / 100.0).c_str());
                 }
                 ImGui::TableNextColumn();
                 if (!st.valid)
                 {
-                    ImGui::TextDisabled("n/a");
+                    ImGui::TextDisabled("%s", tr(S::NotAvailable));
                 }
                 else if (r.unlocked)
                 {
-                    ImGui::TextColored(ImVec4{0.55f, 0.85f, 0.55f, 1.0f}, "yes");
+                    ImGui::TextColored(ImVec4{0.55f, 0.85f, 0.55f, 1.0f}, "%s", tr(S::Yes));
                 }
                 else
                 {
-                    ImGui::TextDisabled("no");
+                    ImGui::TextDisabled("%s", tr(S::No));
                 }
                 ImGui::PopID();
             }
@@ -217,9 +214,9 @@ namespace overlay
                 const float pct = total_all > 0 ? 100.0f * static_cast<float>(found_all) /
                                                       static_cast<float>(total_all)
                                                 : 0.0f;
-                ImGui::Text("%d / %d collected", found_all, total_all);
+                ImGui::TextUnformatted(lang::fmt<S::StCollected>(found_all, total_all).c_str());
                 ImGui::SameLine();
-                ImGui::TextDisabled("(%.1f%% of every chapter)", static_cast<double>(pct));
+                ImGui::TextDisabled("%s", lang::fmt<S::StOfEveryChapter>(static_cast<double>(pct)).c_str());
                 ImGui::ProgressBar(total_all > 0 ? static_cast<float>(found_all) /
                                                        static_cast<float>(total_all)
                                                  : 0.0f,
@@ -234,8 +231,10 @@ namespace overlay
                 const int shrine_total = st.cat[static_cast<int>(mdb::Cat::Shrine)].total;
                 if (!c.shrines.valid)
                 {
-                    ImGui::TextDisabled("Shrines lit: n/a  (%s)",
-                                        c.shrines.route[0] != '\0' ? c.shrines.route : "not read yet");
+                    ImGui::TextDisabled("%s", lang::fmt<S::StShrinesLitNa>(c.shrines.route[0] != '\0'
+                                                                               ? c.shrines.route
+                                                                               : tr(S::NotReadYet))
+                                                  .c_str());
                     return;
                 }
                 int lit = 0;
@@ -255,22 +254,18 @@ namespace overlay
                         }
                     }
                 }
-                ImGui::Text("Shrines lit: %d", lit);
+                ImGui::TextUnformatted(lang::fmt<S::StShrinesLit>(lit).c_str());
                 // Both trailers keep the line only while they fit; a narrowed window drops
                 // them onto the next one rather than clipping them.
-                char note[160]{};
-                (void)std::snprintf(note, sizeof(note),
-                                    "(%d unlocked ids incl. boss doors / tasks; %d shrines in the DB%s)",
-                                    c.shrines.unlocked, shrine_total,
-                                    c.shrines.truncated ? "; list TRUNCATED" : "");
-                (void)same_line_if_fits(ImGui::CalcTextSize(note).x);
-                ImGui::TextDisabled("%s", note);
+                const lang::Text<512> note = lang::fmt<S::StShrinesNote, 512>(
+                    c.shrines.unlocked, shrine_total, c.shrines.truncated ? tr(S::StTruncated) : "");
+                (void)same_line_if_fits(ImGui::CalcTextSize(note.c_str()).x);
+                ImGui::TextDisabled("%s", note.c_str());
                 if (c.shrines.current[0] != '\0')
                 {
-                    char rested[160]{};
-                    (void)std::snprintf(rested, sizeof(rested), "| last rested at %s", c.shrines.current);
-                    (void)same_line_if_fits(ImGui::CalcTextSize(rested).x);
-                    ImGui::TextDisabled("%s", rested);
+                    const lang::Text<256> rested = lang::fmt<S::StLastRested>(c.shrines.current);
+                    (void)same_line_if_fits(ImGui::CalcTextSize(rested.c_str()).x);
+                    ImGui::TextDisabled("%s", rested.c_str());
                 }
             }
 
@@ -283,9 +278,9 @@ namespace overlay
                 {
                     return;
                 }
-                ImGui::TableSetupColumn("Category");
-                ImGui::TableSetupColumn("Found");
-                ImGui::TableSetupColumn("Total");
+                ImGui::TableSetupColumn(tr(S::CgCategory));
+                ImGui::TableSetupColumn(tr(S::StColFound));
+                ImGui::TableSetupColumn(tr(S::StColTotal));
                 ImGui::TableSetupColumn("%");
                 ImGui::TableHeadersRow();
                 for (const StatsGroup& grp : kStatsGroups)
@@ -293,7 +288,7 @@ namespace overlay
                     const markers::CatStat cs = group_stat(st.cat, grp.cats);
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
-                    ImGui::Text("%s", grp.label);
+                    ImGui::TextUnformatted(tr(grp.label));
                     ImGui::TableNextColumn();
                     if (cs.total == 0)
                     {
@@ -319,16 +314,16 @@ namespace overlay
             void stats_by_chapter(const markers::Stats& st)
             {
                 ImGui::Spacing();
-                ImGui::TextDisabled("per chapter");
+                ImGui::TextDisabled("%s", tr(S::StPerChapter));
                 if (ImGui::BeginTable("stats_matrix", kStatsGroupCount + 1,
                                       ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
                                           ImGuiTableFlags_BordersInnerV,
                                       ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 11.0f)))
                 {
-                    ImGui::TableSetupColumn("Chapter");
+                    ImGui::TableSetupColumn(tr(S::StColChapter));
                     for (const StatsGroup& grp : kStatsGroups)
                     {
-                        ImGui::TableSetupColumn(grp.label);
+                        ImGui::TableSetupColumn(tr(grp.label));
                     }
                     ImGui::TableHeadersRow();
 
@@ -367,15 +362,15 @@ namespace overlay
                         ImGui::TableNextColumn();
                         // The chapter the markers are currently filtered to (the one the player
                         // is standing in) is starred and highlighted.
-                        char label[16]{};
+                        char label[64]{};
                         const bool here = (ch == st.filter_chapter);
                         if (ch == 0)
                         {
-                            ::strncpy_s(label, sizeof(label), here ? "DLC*" : "DLC", _TRUNCATE);
+                            (void)utf8::format(label, sizeof(label), "%s%s", tr(S::Dlc), here ? "*" : "");
                         }
                         else
                         {
-                            ::_snprintf_s(label, sizeof(label), _TRUNCATE, here ? "%d*" : "%d", ch);
+                            (void)utf8::format(label, sizeof(label), here ? "%d*" : "%d", ch);
                         }
                         if (here)
                         {
@@ -392,7 +387,7 @@ namespace overlay
                     }
                     ImGui::EndTable();
                 }
-                ImGui::TextDisabled("* the chapter the markers are filtered to right now");
+                ImGui::TextDisabled("%s", tr(S::StHereNote));
             }
         } // namespace
 
@@ -404,7 +399,7 @@ namespace overlay
             const markers::Stats& st = c.st;
             if (!st.db_loaded || st.static_markers == 0)
             {
-                ImGui::TextDisabled("no markers\\<chapter>.json loaded - live markers only");
+                ImGui::TextDisabled("%s", tr(S::StNoMarkers));
                 return;
             }
             stats_headline(st);

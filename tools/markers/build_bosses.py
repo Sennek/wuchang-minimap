@@ -41,8 +41,8 @@ import re
 import struct
 import sys
 
-import build_items as BI
 import class_graph
+import locres
 import pakmaps
 import provenance                          # noqa: E402
 
@@ -147,18 +147,20 @@ def shares_prefix(a: str, b: str, least: int) -> bool:
     return n >= 2 and shared - 1 >= least
 
 
-def resolve_name(cls: str, ai_id: str | None, loc: dict[str, str],
-                 graph: dict[str, str], ids: dict[str, str],
-                 boss_classes: set[str]) -> tuple[str, str]:
-    """(display name, how it was resolved)."""
+def resolve_key(cls: str, ai_id: str | None, loc: dict[str, str],
+                graph: dict[str, str], ids: dict[str, str],
+                boss_classes: set[str]) -> tuple[str | None, str]:
+    """(the locres key that names the class, how it was resolved), decided in the
+    English `loc`; every other culture's name is that key's string there.  `None`
+    with `class-name` when the game names the class nowhere."""
     key = NAME_OVERRIDE.get(cls)
     if key and loc.get(key):
-        return loc[key], "override:" + key
+        return key, "override:" + key
     # The class' own id, then the `_1` variant the locres uses for a boss'
     # second form ("Sovereign - Zhang Xianzhong" vs "...'s Obsession").
     for cand, how in ((ai_id, "id"), (f"{ai_id}_1", "id_1")):
         if cand and loc.get(f"boss_name_{cand}"):
-            return loc[f"boss_name_{cand}"], how
+            return f"boss_name_{cand}", how
     # A variant id: the game numbers a boss' special/second placement one or a
     # few above the base entry (50301 next to 50300, 51201 next to 51200,
     # 39911 next to 39910, 31704 next to 31703). Only ids sharing the first
@@ -174,7 +176,7 @@ def resolve_name(cls: str, ai_id: str | None, loc: dict[str, str],
             if m.group(1)[:3] != ai_id[:3] or abs(other - base) > 10:
                 continue
             if best is None or abs(other - base) < abs(best[0] - base):
-                best = (other, v)
+                best = (other, k)
         if best:
             return best[1], f"neighbour:{best[0]}"
     # A SIBLING: a variant blueprint of the same boss.  This has to come before
@@ -194,18 +196,17 @@ def resolve_name(cls: str, ai_id: str | None, loc: dict[str, str],
             best = (other, oid)
             break
     if best:
-        return loc[f"boss_name_{best[1]}"], "sibling:" + best[0]
+        return f"boss_name_{best[1]}", "sibling:" + best[0]
     # The super chain: a `_S` / `_Special` subclass with no row of its own is
     # the same boss as its parent.
     for parent in class_graph.chain(graph, cls)[1:]:
         pid = ids.get(parent)
         if pid and loc.get(f"boss_name_{pid}"):
-            return loc[f"boss_name_{pid}"], "super:" + parent
-    # Last resort: the class name, tidied. Acceptable per the brief, and it is
-    # never silent - `named` in the manifest header counts the real ones.
-    pretty = re.sub(r"^(BP|AI|B|Boss)_|_(AI|BP)(_|$)|_C$", " ", cls).strip(" _")
-    pretty = re.sub(r"[_\s]+", " ", pretty).strip()
-    return pretty or cls, "class-name"
+            return f"boss_name_{pid}", "super:" + parent
+    # Nothing in the game names it. A tidied class name would be Pinyin posing as
+    # a name, in every language; the marker reads its category's word instead,
+    # and `named` in the manifest header counts the real ones.
+    return None, "class-name"
 
 
 def placements(src: pakmaps.MapSource, classes: set[str]) -> dict[str, list[str]]:
@@ -224,8 +225,8 @@ def placements(src: pakmaps.MapSource, classes: set[str]) -> dict[str, list[str]
     return out
 
 
-def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False,
-          prov: dict | None = None) -> dict:
+def build(src: pakmaps.MapSource, strings: "locres.Strings", verbose: bool = True,
+          report: bool = False, prov: dict | None = None) -> dict:
     graph = build_graph(src, verbose)
     if BOSS_BASE not in graph.values() and BOSS_BASE not in graph:
         raise SystemExit(f"{BOSS_BASE} not in the class graph - wrong prefixes?")
@@ -233,14 +234,17 @@ def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False,
     if verbose:
         print(f"  {len(classes)} descendant(s) of {BOSS_BASE}")
     ids = ai_ids(src, verbose)
-    loc = BI.read_locres(src.read(BI.LOCRES.format(lang="en")))
 
     bosses = {}
     for cls in classes:
         ai = ids.get(cls)
-        name, how = resolve_name(cls, ai, loc, graph, ids, set(classes))
-        bosses[cls] = {"name": name, "ai_id": ai, "via": how}
-    named = sum(1 for b in bosses.values() if b["via"] != "class-name")
+        key, how = resolve_key(cls, ai, strings.en, graph, ids, set(classes))
+        rec = {"ai_id": ai, "via": how}
+        if key:
+            rec["key"] = key
+            locres.with_names(rec, strings.en[key], strings.names(key, str))
+        bosses[cls] = rec
+    named = sum(1 for b in bosses.values() if b.get("name"))
 
     doc = {
         "schema": SCHEMA,
@@ -267,10 +271,11 @@ def main(argv=None):
         os.path.dirname(os.path.abspath(__file__)), "..", "..", "markers", "bosses.json"))
     ap.add_argument("--report", action="store_true",
                     help="also record where every boss class is placed")
+    locres.add_arg(ap)
     provenance.add_arg(ap)
     a = ap.parse_args(argv)
     ms = pakmaps.MapSource(a.pak)
-    doc = build(ms, report=a.report,
+    doc = build(ms, locres.Strings.load(ms, a.lang), report=a.report,
                 prov=provenance.stamp(ms, a.pak, not a.no_pak_hash))
     out = os.path.normpath(a.out)
     with open(out, "w", encoding="utf-8") as f:
@@ -278,7 +283,7 @@ def main(argv=None):
         f.write("\n")
     print(f"wrote {out}")
     for cls, b in sorted(doc["bosses"].items()):
-        print(f"  {cls:<42} {str(b['ai_id']):<8} {b['name']}  [{b['via']}]")
+        print(f"  {cls:<42} {str(b['ai_id']):<8} {b.get('name', '-')}  [{b['via']}]")
     return 0
 
 

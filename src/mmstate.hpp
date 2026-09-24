@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <string>
 #include <string_view>
@@ -534,11 +535,24 @@ namespace mm
         // drift further apart than that. The phase census owns the same presents, so this
         // only runs while `dev_frame_cycle_ms` and `dev_frame_stop` are both 0.
         int dev_gate_cycle_ms = 0;
+
+        // The language the overlay speaks: `auto` follows the game (langsel.hpp decides), a
+        // locres code (lang::code) pins one. Always one of those spellings: set_language()
+        // is the only writer, and the loader refuses anything lang::parse_override refuses.
+        char language[16] = "auto";
     };
 
     // Config is a value: copied by value onto the render thread every frame, published under a
     // spinlock, compared field by field below. A std::string member would break all three.
     static_assert(std::is_trivially_copyable_v<Config>, "Config is copied by value per frame");
+
+    // `language` written whole, zero-filled behind the text so equal settings compare equal.
+    inline void set_language(Config& cfg, std::string_view text)
+    {
+        std::memset(cfg.language, 0, sizeof(cfg.language));
+        const std::size_t n = text.size() < sizeof(cfg.language) - 1 ? text.size() : sizeof(cfg.language) - 1;
+        std::memcpy(cfg.language, text.data(), n);
+    }
 
     //=== Config equality, field by field ===========================================
     // Generated from the struct declaration, so it lists every field exactly once. The F2 panel
@@ -726,6 +740,7 @@ namespace mm
         a.panel_pad_open_chord == b.panel_pad_open_chord &&
         a.dev_frame_stop == b.dev_frame_stop && a.dev_frame_cycle_ms == b.dev_frame_cycle_ms &&
         a.dev_gate_cycle_ms == b.dev_gate_cycle_ms &&
+        detail::eq(a.language, b.language) &&
                true;
     }
 

@@ -31,6 +31,7 @@
 #include "atomicfile.hpp"
 #include "config_keys.hpp"
 #include "config_rewrite.hpp"
+#include "lang.hpp"
 #include "saveslot.hpp"
 #include "spinlock.hpp"
 
@@ -706,6 +707,22 @@ namespace mm
             else if (key == "show_minimap")
             {
                 cfg.show_minimap = parse_bool(value, cfg.show_minimap);
+            }
+            // Stored in its canonical spelling, so the panel and the save see one form.
+            else if (key == "language")
+            {
+                bool is_auto = true;
+                lang::Culture culture = lang::Culture::En;
+                if (lang::parse_override(value, is_auto, culture))
+                {
+                    set_language(cfg, is_auto ? std::string_view{"auto"} : lang::code(culture));
+                }
+                else
+                {
+                    logf(L"config: language = '{}' is not a language (expected auto, en, de, es, fr, it, "
+                         L"ja, ko, pt, ru, zh or zh-Hant) - keeping {}",
+                         widen_ascii(value), widen_ascii(cfg.language));
+                }
             }
             else if (key == "ui_scale")
             {
@@ -2252,6 +2269,7 @@ namespace mm
         const auto vk = [](int v) { return vk_name(v); };
 
         add("mod_enabled", b(cfg.mod_enabled));
+        add("language", std::string{cfg.language});
         add("overlay_hooks", b(cfg.overlay_hooks));
         add("overlay_update_hz", std::to_string(cfg.overlay_update_hz));
         add("show_minimap", b(cfg.show_minimap));

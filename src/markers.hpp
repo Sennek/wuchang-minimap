@@ -44,8 +44,9 @@ namespace markers
         std::uint8_t flags = 0;
         char id[54]{}; // truncated stable id, for the F2 "nearest marker" readout
         // Blueprint class ("BP_ItemRedBox_C"), or the manifest's display name when there
-        // is no class. Used by the full map's hover tooltip.
-        char label[40]{};
+        // is no class. Used by the full map's hover tooltip. Sized for the longest shipped
+        // name in any culture (Russian, 81 bytes).
+        char label[96]{};
     };
 
     // A borrowed view of the last published buffer, valid for the frame that took it:
@@ -152,6 +153,10 @@ namespace markers
 
     // Loop thread. F5 / "Reload settings + maps": re-read both files from disk.
     void reload();
+
+    // The cultures a name is read in, for every loader of a names-bearing file: the active
+    // culture's chain (lang::name_codes) as the manifest parsers take it.
+    mdb::Cultures name_chain();
 
     //==================================================================================
     // Import / export of the found list

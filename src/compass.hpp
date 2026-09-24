@@ -43,12 +43,13 @@ namespace cmp
         double x = 0.0;       // screen px
         double rel = 0.0;     // signed degrees from the centre
         int rank = 0;         // 0 = minor, 1 = intercardinal (45), 2 = cardinal (90)
-        const char* label = ""; // "N", "NE", ... or "" for a minor tick
+        const char* label = ""; // "N", "NE", ... (cardinal_label) or "" for a minor tick
     };
 
     // Fills `out` with every tick inside the strip, left to right. Returns how many.
     int ticks(const Strip& s, Tick* out, int cap, double step_deg = 15.0);
 
-    // The cardinal label for a bearing that is a multiple of 45 ("" otherwise).
+    // The cardinal label for a bearing that is a multiple of 45 ("" otherwise), in the
+    // active language (lang_strings.hpp).
     const char* cardinal_label(double bearing);
 } // namespace cmp

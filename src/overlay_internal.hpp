@@ -54,6 +54,7 @@
 #include "glyphs.hpp"
 #include "highlight.hpp"
 #include "label_layout.hpp"
+#include "lang_strings.hpp"
 #include "mapdata.hpp"
 #include "mapview.hpp"
 #include "breadcrumb.hpp"
@@ -69,6 +70,7 @@
 #include "spinlock.hpp"
 #include "mmstate.hpp"
 #include "projection.hpp"
+#include "utf8.hpp"
 #include "version.hpp"
 
 // imgui_impl_win32.h deliberately hides this behind `#if 0` so the header does not
@@ -107,9 +109,21 @@ namespace overlay
         // Render thread only, at the top of the frame: io.Fonts is read by
         // ImGui::NewFrame and by every draw-list text call, so it may only be swapped
         // there - the same rule the F5 texture drop obeys.
-        extern char g_font_loaded[192]; // the path the atlas currently holds
-        extern float g_font_px_loaded; // the pixel size the atlas currently holds
-        extern bool g_font_checked; // false = the config's path has not been tried yet
+        //
+        // What the atlas was built from. A change to any field rebuilds it; `built` false
+        // is a context with no font of ours yet.
+        struct FontKey
+        {
+            char path[192]{};  // ui_font
+            float px = 0.0f;   // font_size, clamped
+            lang::Culture culture = lang::Culture::En;
+            bool endonyms = false; // the language list's fonts are merged too
+            bool built = false;
+        };
+        extern FontKey g_font_key;
+        // Render thread. Raised by the language list the first time it is hovered or opened,
+        // and kept for the context's life: every endonym then has its glyphs.
+        extern bool g_font_endonyms;
         // Roundness of the minimap disc and its rings. A global because the drawing
         // helpers are handed geometry rather than the config.
         constexpr int kCircleSegments = 72;
@@ -571,10 +585,75 @@ namespace overlay
         extern std::atomic<StopPhase> g_render_shutdown; // render -> loop
         extern std::atomic<bool> g_watchdog_reported;
         extern std::uint64_t g_hook_install_ms;
-        // Written by the render thread and read by the F2 panel on the same thread; also
-        // logged once from the loop thread, hence a fixed buffer rather than a
-        // std::string.
-        extern wchar_t g_hide_reason[96];
+        // Why the minimap is or is not on screen. A state, not a sentence: the show path
+        // compares it, the log and the Debug tab name it (`hide_reason_name`), and nothing
+        // is ever decided from its wording.
+        enum class HideReason : std::uint8_t
+        {
+            NotEvaluated,
+            Visible,
+            NoSnapshot,
+            StateStale,
+            NoPawn,
+            Transition,
+            NotGameplayPawn,
+            WaitingForState,
+            GracePeriod,
+            MenuOpen,
+            MenuJustClosed,
+            NotPawnView,
+            MinimapOff,
+            FullMapOpen,
+            OutsideChapters,
+            NoMapData,
+            SlicerNoWindow,
+        };
+
+        // English, like the rest of the log and the Debug tab that print it.
+        inline const char* hide_reason_name(HideReason r)
+        {
+            switch (r)
+            {
+            case HideReason::NotEvaluated:
+                return "not evaluated yet";
+            case HideReason::Visible:
+                return "visible";
+            case HideReason::NoSnapshot:
+                return "no game-state snapshot yet";
+            case HideReason::StateStale:
+                return "game state is stale (game thread not pumping)";
+            case HideReason::NoPawn:
+                return "no player pawn";
+            case HideReason::Transition:
+                return "level transition in progress (reader idling)";
+            case HideReason::NotGameplayPawn:
+                return "the pawn is not a gameplay pawn (Lobby / spectator)";
+            case HideReason::WaitingForState:
+                return "waiting for a valid gameplay state";
+            case HideReason::GracePeriod:
+                return "gameplay state is too fresh (grace period)";
+            case HideReason::MenuOpen:
+                return "a menu is open";
+            case HideReason::MenuJustClosed:
+                return "the menu just closed (short show delay)";
+            case HideReason::NotPawnView:
+                return "view target is not the pawn (menu / cutscene / Lobby)";
+            case HideReason::MinimapOff:
+                return "the minimap is switched off";
+            case HideReason::FullMapOpen:
+                return "the full map is open";
+            case HideReason::OutsideChapters:
+                return "player is outside every mapped chapter";
+            case HideReason::NoMapData:
+                return "no height maps and no composite texture loaded";
+            case HideReason::SlicerNoWindow:
+                return "the height slicer has no window yet";
+            }
+            return "?";
+        }
+
+        // Render thread only: written by the show path, read by the F2 panel.
+        extern HideReason g_hide_reason;
         // The one-off blocking jobs, split out of the loop and render counters.
         extern int g_pf_clip; // the map -> clipboard hand-off
         extern int g_pf_save; // config / waypoint file writes
@@ -584,7 +663,7 @@ namespace overlay
         // and a changing one at most once per kReasonLogMs, so a flapping condition
         // cannot flood the log.
         constexpr std::uint64_t kReasonLogMs = 2000; // the default of `hide_reason_log_ms`
-        extern wchar_t g_reason_logged[96];
+        extern HideReason g_reason_logged;
         extern std::uint64_t g_reason_log_ms;
         extern std::uint64_t g_reason_since_ms;
         extern std::uint64_t g_reason_suppressed;
@@ -727,7 +806,10 @@ namespace overlay
         extern float g_hud_fade;
         extern std::uint64_t g_hud_fade_ms; // when the current show started
         // ---- toasts ------------------------------------------------------------------
-        extern char g_toast[160];
+        // UTF-8, sized for the longest toast in the longest language: a Cyrillic or CJK
+        // sentence runs two to three bytes a character.
+        constexpr std::size_t kToastBytes = 512;
+        extern char g_toast[kToastBytes];
         extern std::uint64_t g_toast_until;
         enum class ShotStage
         {
@@ -759,7 +841,7 @@ namespace overlay
         // g_toast), so this is how the loop thread asks. Newest wins: a toast is a
         // notice, and a queue of stale notices is worse than the latest one.
         extern spin::Spinlock g_toast_lock;
-        extern char g_toast_pending[160];
+        extern char g_toast_pending[kToastBytes];
         extern unsigned g_toast_pending_ms;
         extern std::atomic<bool> g_toast_pending_ready;
         // ---- waypoints, search, import / export ---------------------------------------
@@ -810,16 +892,16 @@ namespace overlay
         // the eleven loot categories are one column of a table a 1080p panel can hold.
         struct StatsGroup
         {
-            const char* label;
+            lang::S label;
             std::uint32_t cats;
         };
         constexpr StatsGroup kStatsGroups[] = {
-            {"Shrines", mdb::cat_bit(mdb::Cat::Shrine)},
-            {"Chests", mdb::cat_bit(mdb::Cat::Chest)},
-            {"Loot", mdb::kLootCats},
-            {"Bosses", mdb::cat_bit(mdb::Cat::Boss)},
-            {"NPCs", mdb::cat_bit(mdb::Cat::Npc)},
-            {"Notes", mdb::cat_bit(mdb::Cat::Note)},
+            {lang::S::CatShrines, mdb::cat_bit(mdb::Cat::Shrine)},
+            {lang::S::CatChests, mdb::cat_bit(mdb::Cat::Chest)},
+            {lang::S::StLoot, mdb::kLootCats},
+            {lang::S::CatBosses, mdb::cat_bit(mdb::Cat::Boss)},
+            {lang::S::CatNpcs, mdb::cat_bit(mdb::Cat::Npc)},
+            {lang::S::CatNotes, mdb::cat_bit(mdb::Cat::Note)},
         };
         constexpr int kStatsGroupCount = static_cast<int>(std::size(kStatsGroups));
 
@@ -968,61 +1050,61 @@ namespace overlay
             std::vector<int> m_cat;
             std::vector<int> m_slot;
         };
-        // The single show/hide gate: returns why the HUD is hidden, or nullptr. Nothing
+        // The single show/hide gate: returns why the HUD is hidden, or Visible. Nothing
         // is remembered between frames - every condition is recomputed from the snapshot
         // the game thread published, so hiding is immediate and cannot latch.
-        inline const wchar_t* hud_gate(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
-                                       std::uint64_t now)
+        inline HideReason hud_gate(const mm::Config& cfg, const mm::Snapshot& snap, bool have_state,
+                                   std::uint64_t now)
         {
             if (!have_state)
             {
-                return L"no game-state snapshot yet";
+                return HideReason::NoSnapshot;
             }
             if (snap.stamp_ms == 0 || now - snap.stamp_ms > static_cast<std::uint64_t>(cfg.state_stale_ms))
             {
-                return L"game state is stale (game thread not pumping)";
+                return HideReason::StateStale;
             }
             if (!snap.transition && !snap.has_pawn)
             {
-                return L"no player pawn";
+                return HideReason::NoPawn;
             }
             if (snap.transition)
             {
-                return L"level transition in progress (reader idling)";
+                return HideReason::Transition;
             }
             // The class gate lives on the game thread; this is its render-side echo.
             if (!snap.pawn_is_gameplay)
             {
-                return L"the pawn is not a gameplay pawn (Lobby / spectator)";
+                return HideReason::NotGameplayPawn;
             }
             // A fresh gameplay pawn must be valid for a while before anything is drawn,
             // or the first snapshot after a load flashes the minimap.
             if (snap.state_ok_since_ms == 0)
             {
-                return L"waiting for a valid gameplay state";
+                return HideReason::WaitingForState;
             }
             if (now - snap.state_ok_since_ms < static_cast<std::uint64_t>(cfg.min_visible_after_state_ok_ms))
             {
-                return L"gameplay state is too fresh (grace period)";
+                return HideReason::GracePeriod;
             }
             // The game thread re-tests the cached in-viewport menu roots on every pump
             // (10 Hz), so this is true within ~100 ms of the inventory opening.
             if (cfg.hide_in_menus && snap.menu_open)
             {
-                return L"a menu is open";
+                return HideReason::MenuOpen;
             }
             // Showing again waits only menu_close_show_delay_ms: a menu closing is not a
             // level transition and must not pay min_visible_after_state_ok_ms.
             if (cfg.hide_in_menus && snap.menu_change_ms != 0 &&
                 now - snap.menu_change_ms < static_cast<std::uint64_t>(cfg.menu_close_show_delay_ms))
             {
-                return L"the menu just closed (short show delay)";
+                return HideReason::MenuJustClosed;
             }
             if (cfg.require_pawn_view && !snap.is_pawn_view)
             {
-                return L"view target is not the pawn (menu / cutscene / Lobby)";
+                return HideReason::NotPawnView;
             }
-            return nullptr;
+            return HideReason::Visible;
         }
         struct HighlightDebug
         {
@@ -1075,20 +1157,19 @@ namespace overlay
         }
         struct KeyBind
         {
-            const char* label;
+            lang::S label;
             const char* key;
             int mm::Config::*member;
         };
         constexpr KeyBind kKeyBinds[] = {
-            {"Settings panel", "panel_key", &mm::Config::panel_key},
-            {"Full map", "map_key", &mm::Config::map_key},
-            {"Recentre the map on the player", "map_recenter_key", &mm::Config::map_recenter_key},
-            {"Cycle the minimap zoom", "zoom_key", &mm::Config::zoom_key},
-            {"Reload settings, maps and markers", "reload_key", &mm::Config::reload_key},
-            {"Copy the full map to the clipboard", "screenshot_key", &mm::Config::screenshot_key},
-            {"Waypoint the nearest unfound marker", "waypoint_nearest_key",
-             &mm::Config::waypoint_nearest_key},
-            {"X-ray highlight", "highlight_key", &mm::Config::highlight_key},
+            {lang::S::BindPanel, "panel_key", &mm::Config::panel_key},
+            {lang::S::FullMap, "map_key", &mm::Config::map_key},
+            {lang::S::BindRecentre, "map_recenter_key", &mm::Config::map_recenter_key},
+            {lang::S::BindZoom, "zoom_key", &mm::Config::zoom_key},
+            {lang::S::BindReload, "reload_key", &mm::Config::reload_key},
+            {lang::S::BindScreenshot, "screenshot_key", &mm::Config::screenshot_key},
+            {lang::S::BindNearest, "waypoint_nearest_key", &mm::Config::waypoint_nearest_key},
+            {lang::S::BindXray, "highlight_key", &mm::Config::highlight_key},
         };
         constexpr int kKeyBindCount = static_cast<int>(std::size(kKeyBinds));
         extern int g_capture_row; // render thread only; -1 = nothing armed
@@ -1192,7 +1273,7 @@ namespace overlay
         constexpr std::uint64_t kMaxReadoptions = 5;
         void request_readoption(const wchar_t* why);
         std::wstring stage_w(const char* s);
-        void set_hide_reason(const wchar_t* text);
+        void set_hide_reason(HideReason reason);
         bool release_render_targets();
         void wait_for_gpu();
         bool ensure_frame_allocators();
@@ -1255,6 +1336,62 @@ namespace overlay
         // its buttons inside it. All four are render-thread only and read the current
         // ImGui window.
 
+        using lang::S;
+        using lang::tr;
+
+        // A widget label in the active language whose ImGui id does not move with it:
+        // the text, then `###`, the string's own id and `scope`. ImGui identifies a
+        // widget by its label, so without this a language switch would reset every open
+        // header and two strings translated to one word would be one widget. `scope`
+        // tells apart the widgets one string labels twice in one window. The text is
+        // cut on a character boundary; the id always survives whole.
+        struct Label
+        {
+            char s[256]{};
+
+            Label(S id, const char* scope)
+            {
+                char suffix[48]{};
+                const std::size_t sn = utf8::format(suffix, sizeof(suffix), "###%u:%s",
+                                                    static_cast<unsigned>(id), scope);
+                const char* text = tr(id);
+                const std::size_t tn = utf8::fit(text, sizeof(s) - 1 - sn);
+                std::memcpy(s, text, tn);
+                std::memcpy(s + tn, suffix, sn + 1);
+            }
+            // User-provided, like lang::Text's: a Label passed through `...` is C4840.
+            Label(const Label& other)
+            {
+                std::memcpy(s, other.s, sizeof(s));
+            }
+            Label& operator=(const Label&) = delete;
+
+            const char* c_str() const
+            {
+                return s;
+            }
+        };
+
+        inline Label lbl(S id, const char* scope = "")
+        {
+            return Label(id, scope);
+        }
+
+        // A distance the way every surface prints one: metres, and kilometres from 1 km.
+        inline lang::Text<32> distance_text(double metres)
+        {
+            if (metres >= 1000.0)
+            {
+                return lang::fmt<S::UnitKm, 32>(metres / 1000.0);
+            }
+            return lang::fmt<S::UnitM, 32>(metres);
+        }
+
+        // The gap at the left of a category row that its glyph is drawn into afterwards.
+        // Spaces of the UI font, outside every translated string, so no language has to
+        // carry them.
+        constexpr const char* kGlyphGutter = "      ";
+
         // The width a Button / SmallButton of that label occupies. SmallButton drops
         // only the vertical frame padding, so both take FramePadding.x twice.
         inline float button_width(const char* label)
@@ -1316,7 +1453,9 @@ namespace overlay
         }
 
         std::string wide_to_ascii(const std::wstring& wide);
-        std::string key_name_ascii(int binding);
+        // A binding as the player reads it: the config file's own spelling, and the active
+        // language's word for an unbound key.
+        std::string key_display(int binding);
         ImU32 marker_color(mdb::Cat cat, int alpha);
         ImU32 plate_color(int alpha);
         // `fill_alpha` applies to a hollow (found) glyph only: it fades the fill under
@@ -1327,7 +1466,7 @@ namespace overlay
         void toast_for(const char* text, unsigned ms);
         void toast(const char* text);
         void post_toast(const char* text, unsigned ms);
-        void shot_fail(const char* why);
+        void shot_fail(lang::S why);
         void shot_reset();
         bool record_shot_copy(ID3D12GraphicsCommandList* list, ID3D12Resource* target, UINT index);
         void shot_collect();

@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "markers.hpp"
 #include "mmstate.hpp"
 #include "shrines_db.hpp"
 #include "ue_min.hpp"
@@ -180,7 +181,7 @@ namespace shr
 
         auto list = std::make_unique<std::vector<shdb::Shrine>>();
         shdb::Report rep{};
-        if (!shdb::parse(text, *list, rep))
+        if (!shdb::parse(text, *list, rep, markers::name_chain()))
         {
             copy_into(info.error, sizeof(info.error), rep.error);
             {

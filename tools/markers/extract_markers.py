@@ -19,20 +19,28 @@ five slots into that block.
 Join key with the runtime: `obj` -- the cooked export name, which is exactly
 what `FindAllOf` reports in-game (`...PersistentLevel.BP_RebornFire_C_0`).
 
+NAMES.  A marker carries `name` (English) and `names` (every other culture whose
+string differs, `locres.py`) only where the GAME names it; one it does not reads
+its category's word at runtime, in the player's language, and carries neither.
+Where our own words say more than the category's, it carries a `label` tag
+instead (`villager`, `shrine`), which the runtime turns into words
+(`mdb::tag_label`).
+
 Shrine markers carry the game's own rest-point name ("Mercury Workshop",
 "Reverent Temple") from `DT_FirePoint`'s localised `ShowName`, resolved by
 `extract_shrines.shrine_names()` off the same paks, so a shrine marker reads
 that instead of "Shrine digong01".
 
-NPC and note markers carry the character's real English name from
-`markers/npcs.json` (`build_npcs.py`: the `npc_Dianame_<nn>` / `npc_name_<nn>`
-FText key embedded in the NPC blueprint -> `MMGame.locres`), so a marker reads
-"Huang Jian'e" instead of "NPC".
+NPC markers carry the character's real name from `markers/npcs.json`
+(`build_npcs.py`: the `npc_Dianame_<nn>` / `npc_name_<nn>` FText key embedded in
+the NPC blueprint -> `MMGame.locres`), so a marker reads "Huang Jian'e" instead
+of "NPC".  Bamboozlings and Cuckoos carry the game's own word for them
+(`marker_classes.NAME_KEYS`).
 
 Pickups additionally carry their real item names.  `item_ids()` scans the actor
 export for the inline `Items` array and `markers/items.json` (built by
 `build_items.py`) turns the first id into a display name, so a pickup marker
-reads "Purple Camellia" instead of "Pickup".  See `item_ids()` and
+reads "Purple Camellia" instead of "Item".  See `item_ids()` and
 `context/item-names-research.md`.
 
 The same first id decides the marker's CATEGORY: the pickup family is eleven
@@ -71,6 +79,7 @@ import marker_classes                                       # noqa: E402
 import itemdb                                               # noqa: E402
 import pickup_buckets                                       # noqa: E402
 import extract_shrines                                      # noqa: E402
+import locres                                               # noqa: E402
 import provenance                                         # noqa: E402
 from uprops import (Schema, compose, find_strings, finite_vec, parse_header,   # noqa: E402
                     read_vec, SC_ATTACH_PARENT, SC_ATTACH_SOCKET,
@@ -455,8 +464,8 @@ def collect_mark(pkg, actor) -> int | None:
     way `shrine_id()` finds a shrine id.  60 of the game's 68 chests have one;
     the other 8 `BP_ItemRedBox_C` write none.  What the id maps to (a row of
     `DT_CollectRestore` / `DT_GoldBox`, presumably) is still unsolved, so this
-    is emitted as `mark` for the runtime to join on and the chest keeps its
-    generic "Chest" label."""
+    is emitted as `mark` for the runtime to join on and the chest reads its
+    category's word, "Chest"."""
     for _off, s in find_strings(pkg.data(actor), 4, 12):
         if COLLECT_MARK.match(s):
             return int(s)
@@ -489,7 +498,7 @@ ITEM_ARRAY_INDEX = {"BP_AutoPickUp_C": 1}
 # default index of the blueprint's own editor tool (`BP_PickupActor_C` exposes
 # `GetItemsByEditorTool` and `ReplaceItemIDByGamePlus`), i.e. a pickup nobody
 # filled in, and taking it at face value is what labelled all 77 DLC pickups
-# "Ancient Chisel".  Suppressing it costs nothing: the marker reads "Pickup",
+# "Ancient Chisel".  Suppressing it costs nothing: the marker reads "Item",
 # which is true, instead of an item name that is false.
 #
 # This is a NAMED exception with a witness, not a filter on a suspicious-looking
@@ -579,16 +588,19 @@ def class_default_ids(ms, class_name: str, items: "itemdb.ItemDB") -> list[int]:
     return ids
 
 
-def item_name(ids: list[int], items: "itemdb.ItemDB") -> str | None:
-    """Display name for a pickup: the first item's name, plus `+N` when the
-    pickup grants more than one distinct item."""
+def item_name(ids: list[int], items: "itemdb.ItemDB") -> dict | None:
+    """`{name, names}` for a pickup: the first item's name, plus `+N` when the
+    pickup grants more than one distinct item - in every culture alike, because
+    the count is ours and a number."""
     if not ids:
         return None
     first = items.name(ids[0])
     if not first:
         return None
     extra = len(dict.fromkeys(ids)) - 1
-    return f"{first} +{extra}" if extra > 0 else first
+    tail = f" +{extra}" if extra > 0 else ""
+    return locres.with_names({}, first + tail,
+                             {c: v + tail for c, v in items.names(ids[0]).items()})
 
 
 def cell_of(x: float, y: float, chapter: str) -> str:
@@ -600,21 +612,37 @@ def cell_of(x: float, y: float, chapter: str) -> str:
 # driver
 # ---------------------------------------------------------------------------
 
-def boss_names() -> dict[str, str]:
-    """class -> display name from markers/bosses.json, or {} if it is absent.
+# What a roster entry lends the marker of its class: the game's name and its other
+# cultures, or the `label` tag of a hand-named class (`build_npcs.PINYIN`).
+NAME_FIELDS = ("name", "names", "label")
+
+
+def roster_names(file: str, table: str, builder: str, missing: str) -> dict[str, dict]:
+    """class -> `{name, names}` / `{label}` from one roster intermediate
+    (`bosses.json`, `npcs.json`, `enemies.json`), or {} if it is absent.
 
     A toolchain artifact, exactly like items.json: the names are baked into
-    chapter*.json, so the runtime never reads this file and packaging does not
-    ship it. Missing it degrades boss labels to "Boss", nothing else.
+    chapter*.json, so the runtime never reads these files and packaging does not
+    ship them. Missing one degrades those markers to their category's word,
+    nothing else.
     """
-    p = os.path.join(_HERE, "..", "..", "markers", "bosses.json")
+    p = os.path.join(_HERE, "..", "..", "markers", file)
     if not os.path.exists(p):
-        print(f"  ! {p} not found - run build_bosses.py; bosses stay unnamed",
-              file=sys.stderr)
+        print(f"  ! {p} not found - run {builder}; {missing}", file=sys.stderr)
         return {}
     with open(p, encoding="utf-8") as f:
         doc = json.load(f)
-    return {c: b["name"] for c, b in doc.get("bosses", {}).items() if b.get("name")}
+    out = {}
+    for c, e in doc.get(table, {}).items():
+        got = {k: e[k] for k in NAME_FIELDS if isinstance(e, dict) and e.get(k)}
+        if got:
+            out[c] = got
+    return out
+
+
+def boss_names() -> dict[str, dict]:
+    """class -> the boss' names from markers/bosses.json (`build_bosses.py`)."""
+    return roster_names("bosses.json", "bosses", "build_bosses.py", "bosses stay unnamed")
 
 
 def boss_doors() -> dict[str, dict]:
@@ -635,71 +663,74 @@ def boss_doors() -> dict[str, dict]:
     return doc.get("markers", {})
 
 
-def npc_names() -> dict[str, str]:
-    """class -> display name from markers/npcs.json, or {} if it is absent.
-
-    The same deal as bosses.json: a toolchain artifact (`build_npcs.py`), read
-    only here, baked into chapter*.json, never shipped.  Missing it degrades
-    npc/note labels to "NPC" / "Note", nothing else.
-    """
-    p = os.path.join(_HERE, "..", "..", "markers", "npcs.json")
-    if not os.path.exists(p):
-        print(f"  ! {p} not found - run build_npcs.py; npcs stay unnamed",
-              file=sys.stderr)
-        return {}
-    with open(p, encoding="utf-8") as f:
-        doc = json.load(f)
-    return {c: e["name"] for c, e in doc.get("npcs", {}).items() if e.get("name")}
+def npc_names() -> dict[str, dict]:
+    """class -> the character's names (or `label` tag) from markers/npcs.json
+    (`build_npcs.py`)."""
+    return roster_names("npcs.json", "npcs", "build_npcs.py", "npcs stay unnamed")
 
 
-def enemy_names() -> dict[str, str]:
-    """class -> display name from markers/enemies.json, or {} if it is absent.
+def enemy_names() -> dict[str, dict]:
+    """class -> names from markers/enemies.json (`build_enemies.py`).
 
     Only the enemy classes the GAME names: the minions, phases and re-skins
     that own a `DT_AiTable` id with a `boss_name_<id>` behind it.  Wuchang has
     no name for an ordinary enemy at all - four independent proofs in
     `build_enemies.py`'s docstring, and `python build_enemies.py --prove`
-    re-runs them - so most enemies keep the generic label.  That is the honest
-    answer; a tidied Pinyin class name would only look like a name.
+    re-runs them - so most enemies read their category's word.  That is the
+    honest answer; a tidied Pinyin class name would only look like a name.
     """
-    p = os.path.join(_HERE, "..", "..", "markers", "enemies.json")
-    if not os.path.exists(p):
-        print(f"  ! {p} not found - run build_enemies.py; enemies stay unnamed "
-              f"and nothing is typed `elite`", file=sys.stderr)
-        return {}
-    with open(p, encoding="utf-8") as f:
-        doc = json.load(f)
-    return {c: e["name"] for c, e in doc.get("enemies", {}).items() if e.get("name")}
+    return roster_names("enemies.json", "enemies", "build_enemies.py",
+                        "enemies stay unnamed and nothing is typed `elite`")
 
 
-def shrine_names(ms) -> dict[str, str]:
-    """shrine (fire-point) id -> the game's own localised rest-point name.
+def shrine_names(ms, strings: "locres.Strings") -> dict[str, tuple[str, dict]]:
+    """shrine (fire-point) id -> the game's own localised rest-point name, as
+    `(English, {culture: name that differs})`.
 
     Read from the paks rather than from `markers/shrines.json`, because that
     file is itself built from the marker DB (its `shrine` flag and its `x/y/z`
     come from `chapter*.json`) and reading it here would be a cycle.  Missing
-    names degrade a shrine label to "Shrine <id>", nothing else.
+    names degrade a shrine label to the `shrine` tag ("Shrine <id>"), nothing
+    else.
     """
     try:
-        return extract_shrines.shrine_names(ms)
+        return extract_shrines.shrine_names(ms, strings)
     except Exception as exc:                                    # noqa: BLE001
         print(f"  ! DT_FirePoint names unavailable ({exc}); shrines keep the "
               f"generic label", file=sys.stderr)
         return {}
 
 
+def category_names(strings: "locres.Strings") -> dict[str, dict]:
+    """category -> `{name, names}` for the categories the game has its own word for
+    (`marker_classes.NAME_KEYS`); a key the locres lacks names nothing."""
+    out = {}
+    for cat, key in marker_classes.NAME_KEYS.items():
+        en = strings.get(key)
+        if en:
+            out[cat] = locres.with_names({}, en.strip(), strings.names(key))
+        else:
+            print(f"  ! {key} not in MMGame.locres; {cat} markers read the "
+                  f"category's word", file=sys.stderr)
+    return out
+
+
 def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None,
             bosses: "dict[str, str] | None" = None,
             npcs: "dict[str, str] | None" = None,
             doors: "dict[str, dict] | None" = None,
-            shrines: "dict[str, str] | None" = None,
-            enemies: "dict[str, str] | None" = None):
+            shrines: "dict[str, tuple] | None" = None,
+            enemies: "dict[str, dict] | None" = None,
+            cats: "dict[str, dict] | None" = None):
     items = items if items is not None else itemdb.ItemDB.load()
     bosses = bosses if bosses is not None else boss_names()
     npcs = npcs if npcs is not None else npc_names()
     doors = doors if doors is not None else boss_doors()
-    shrines = shrines if shrines is not None else shrine_names(ms)
     enemies = enemies if enemies is not None else enemy_names()
+    if shrines is None or cats is None:
+        strings = locres.Strings.load(ms)
+        shrines = shrines if shrines is not None else shrine_names(ms, strings)
+        cats = cats if cats is not None else category_names(strings)
     keys = chapter_packages(ms, chapter)
     t0 = time.time()
     pkgs = {}
@@ -765,55 +796,64 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
             if cat == "shrine" and sid is None:
                 stats["shrine-no-id"] += 1
             mid = sid if sid else f"{lvl.short}/{actor.name}"
-            label = marker_classes.LABEL.get(cat, cat)
-            name = f"{label} {sid}" if sid else label
+            # The marker's name fields: `name` + `names` where the game names it,
+            # else a `label` tag where our own words say more than the category's,
+            # else nothing - and the runtime draws the category's word, in the
+            # player's language.
+            named: dict = {}
             # Shrines get the game's own rest-point name from `DT_FirePoint`'s
             # localised `ShowName` ("Mercury Workshop", "Reverent Temple"), keyed
             # by the shrine id the actor itself carries, so the map, the tooltip,
             # the x-ray label and the shrine list all read the name the game uses
-            # in its own fast-travel UI instead of "Shrine digong01".  A shrine
-            # with no row in the table (or no localised name) keeps that readable
-            # id form - `stats["shrine-unnamed:<id>"]` names each one.
+            # in its own fast-travel UI.  A shrine with no row in the table (or no
+            # localised name) carries the `shrine` tag, which the runtime reads
+            # with `fp` as "Shrine <id>" - `stats["shrine-unnamed:<id>"]` names
+            # each one.
             if cat == "shrine":
                 sname = shrines.get(sid) if sid else None
                 if sname:
-                    name = sname
+                    named = locres.with_names({}, *sname)
                     stats["shrine-named"] += 1
                 else:
+                    if sid:
+                        named = {"label": "shrine"}
                     stats["shrine-unnamed:" + (sid or actor.name)] += 1
+            # The two collections the game has its own word for.
+            if cat in cats:
+                named = dict(cats[cat])
             mark = collect_mark(lvl.pkg, actor) if cat == "chest" else None
             if cat == "chest":
                 stats["chest-mark" if mark else "chest-no-mark"] += 1
-            # Bosses get the game's own English name from markers/bosses.json
+            # Bosses get the game's own name from markers/bosses.json
             # (`build_bosses.py`: boss class -> DT_AiTable AI id ->
             # `boss_name_<id>` in MMGame.locres), so a boss marker reads
             # "Reborn Treant - Soulwood" rather than "Boss".
             if cat == "boss":
                 bname = bosses.get(actor.class_name)
                 if bname:
-                    name = bname
+                    named = dict(bname)
                     stats["boss-named"] += 1
                 else:
                     stats["boss-unnamed:" + actor.class_name] += 1
-            # NPCs and notes get the game's own English name from
-            # markers/npcs.json (`build_npcs.py`: the `npc_Dianame_<nn>` /
-            # `npc_name_<nn>` FText key embedded in the NPC blueprint ->
-            # MMGame.locres), so an npc marker reads "Huang Jian'e" rather
-            # than "NPC".
+            # NPCs get the game's own name from markers/npcs.json
+            # (`build_npcs.py`: the `npc_Dianame_<nn>` / `npc_name_<nn>` FText
+            # key embedded in the NPC blueprint -> MMGame.locres), so an npc
+            # marker reads "Huang Jian'e" rather than "NPC"; a note's class
+            # carries no name and the note reads "Note".
             if cat in ("npc", "note"):
                 nname = npcs.get(actor.class_name)
                 if nname:
-                    name = nname
+                    named = dict(nname)
                     stats["npc-named"] += 1
                 else:
                     stats["npc-unnamed:" + actor.class_name] += 1
             # The handful of enemy classes the game DOES name (variants and
             # phases of named characters, plus the two friendly AI). Everything
-            # else keeps "Enemy" / "Elite" - see `enemy_names()`.
+            # else reads "Enemy" / "Elite" - see `enemy_names()`.
             if cat in ("enemy", "elite"):
                 ename = enemies.get(actor.class_name)
                 if ename:
-                    name = ename
+                    named = dict(ename)
                     stats["enemy-named"] += 1
                 else:
                     stats["enemy-unnamed"] += 1
@@ -845,8 +885,7 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                 stats["pickup-items" if ids else "pickup-no-items"] += 1
                 if ids:
                     cat = items.bucket(ids[0]) or cat
-                    label = marker_classes.LABEL.get(cat, cat)
-                    name = label
+                    named = {}
                     # Quality tier of what the pickup grants, from the first
                     # item (`itemdb.rarity_of_type`).
                     rarity = items.rarity(ids[0])
@@ -862,14 +901,14 @@ def extract(ms, chapter: str, verbose=True, items: "itemdb.ItemDB | None" = None
                           else "pickup-unknown-contents"] += 1
                 iname = item_name(ids, items)
                 if iname:
-                    name = iname
+                    named = iname
                     stats["pickup-named"] += 1
                 stats[f"pickup-rarity{rarity}"] += 1
             markers.append({
                 "id": mid,
                 "cat": cat,
                 "cls": actor.class_name,
-                "name": name,
+                **{k: named[k] for k in NAME_FIELDS if named.get(k)},
                 "obj": actor.name,
                 "x": round(loc[0], 2),
                 "y": round(loc[1], 2),
@@ -986,6 +1025,7 @@ def main(argv=None):
     ap.add_argument("--items-check", action="store_true",
                     help="cross-check item_ids() against the export labels")
     ap.add_argument("--stats", action="store_true")
+    locres.add_arg(ap)
     provenance.add_arg(ap)
     a = ap.parse_args(argv)
 
@@ -1001,7 +1041,9 @@ def main(argv=None):
     bosses = boss_names()
     npcs = npc_names()
     doors = boss_doors()
-    shrines = shrine_names(ms)
+    strings = locres.Strings.load(ms, a.lang)
+    shrines = shrine_names(ms, strings)
+    cats = category_names(strings)
     enemies = enemy_names()
     prov = provenance.stamp(ms, a.pak, not a.no_pak_hash)
     if not marker_classes.GENERATED:
@@ -1017,7 +1059,7 @@ def main(argv=None):
     for ch in chapters:
         markers, stats, _schema, _pkgs = extract(ms, ch, items=items, bosses=bosses,
                                                  npcs=npcs, doors=doors, shrines=shrines,
-                                                 enemies=enemies)
+                                                 enemies=enemies, cats=cats)
         if not markers:
             print(f"  chapter {ch}: nothing extracted, skipped")
             continue

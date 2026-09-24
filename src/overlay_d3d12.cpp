@@ -629,17 +629,17 @@ namespace overlay
 
         // Every hide/show transition is logged with its reason, rate-limited by
         // hide_reason_log_ms.
-        void set_hide_reason(const wchar_t* text)
+        void set_hide_reason(HideReason reason)
         {
-            if (::wcscmp(g_hide_reason, text) == 0)
+            if (g_hide_reason == reason)
             {
                 return; // unchanged - nothing to record, nothing to log
             }
-            ::wcsncpy_s(g_hide_reason, text, std::size(g_hide_reason) - 1);
+            g_hide_reason = reason;
             const std::uint64_t now = ::GetTickCount64();
             const std::uint64_t held = g_reason_since_ms == 0 ? 0 : now - g_reason_since_ms;
             g_reason_since_ms = now;
-            if (::wcscmp(g_reason_logged, text) == 0)
+            if (g_reason_logged == reason)
             {
                 return; // flapping between two states we already reported
             }
@@ -648,15 +648,14 @@ namespace overlay
                 ++g_reason_suppressed;
                 return;
             }
-            const bool visible = ::wcscmp(text, L"visible") == 0;
             MM_LOGV(L"minimap {}: {} (previous state held {} ms{})",
-                    visible ? L"SHOWN" : L"HIDDEN",
-                    text,
+                    reason == HideReason::Visible ? L"SHOWN" : L"HIDDEN",
+                    stage_w(hide_reason_name(reason)),
                     held,
                     g_reason_suppressed != 0 ? std::format(L", {} change(s) suppressed",
                                                            g_reason_suppressed)
                                              : std::wstring{});
-            ::wcsncpy_s(g_reason_logged, text, std::size(g_reason_logged) - 1);
+            g_reason_logged = reason;
             g_reason_log_ms = now;
             g_reason_suppressed = 0;
         }
@@ -959,7 +958,7 @@ namespace overlay
             // which is also the compass's and the x-ray's.
             bool apply_hud_fade(mm::Config& cfg, const mm::Snapshot& snap, bool have, std::uint64_t now)
             {
-                const bool gate_open = have && hud_gate(cfg, snap, have, now) == nullptr;
+                const bool gate_open = have && hud_gate(cfg, snap, have, now) == HideReason::Visible;
                 if (gate_open && !g_hud_gate_ever_open.load(std::memory_order_relaxed))
                 {
                     // The first frame anything of ours could be seen; the loop thread's
@@ -1014,35 +1013,25 @@ namespace overlay
                         }
                     }
                 }
-                char note[160]{};
+                constexpr unsigned kToastMs = 3500;
                 if (best == nullptr)
                 {
-                    (void)std::snprintf(note, sizeof(note),
-                                        cfg.markers_enabled
-                                            ? "nothing unfound in the categories you have on"
-                                            : "markers are turned off");
+                    toast_for(tr(cfg.markers_enabled ? S::TsNearestNothing : S::TsNearestMarkersOff), kToastMs);
+                    return;
                 }
-                else
+                mv::Waypoint wp{};
+                wp.set = true;
+                wp.x = best->m->x;
+                wp.y = best->m->y;
+                wp.z = best->m->z;
+                if (!mm::add_waypoint(wp))
                 {
-                    mv::Waypoint wp{};
-                    wp.set = true;
-                    wp.x = best->m->x;
-                    wp.y = best->m->y;
-                    wp.z = best->m->z;
-                    const char* name =
-                        mdb::display_label(static_cast<mdb::Cat>(best->cat), best->m->label);
-                    if (mm::add_waypoint(wp))
-                    {
-                        (void)std::snprintf(note, sizeof(note), "waypoint: %s, %.0f m away", name,
-                                            std::sqrt(static_cast<double>(best->d2_3d)) / 100.0);
-                    }
-                    else
-                    {
-                        (void)std::snprintf(note, sizeof(note), "%zu waypoints already - clear one first",
-                                            mv::kMaxWaypoints);
-                    }
+                    toast_for(lang::fmt<S::TsNearestFull, kToastBytes>(mv::kMaxWaypoints).c_str(), kToastMs);
+                    return;
                 }
-                toast_for(note, 3500);
+                const char* name = mdb::display_label(static_cast<mdb::Cat>(best->cat), best->m->label);
+                const double metres = std::sqrt(static_cast<double>(best->d2_3d)) / 100.0;
+                toast_for(lang::fmt<S::TsNearestSet, kToastBytes>(name, metres).c_str(), kToastMs);
             }
 
             void draw_panel_if_open(const mm::Config& raw, const mm::Snapshot& snap, bool have)
@@ -1099,14 +1088,14 @@ namespace overlay
             {
                 if (!cfg.show_minimap)
                 {
-                    set_hide_reason(L"the minimap is switched off");
+                    set_hide_reason(HideReason::MinimapOff);
                     return;
                 }
                 if (mm::g_map_open.load(std::memory_order_relaxed))
                 {
                     // The full map replaces the minimap while it is up, so the slicer never
                     // cuts two windows a frame.
-                    set_hide_reason(L"the full map is open");
+                    set_hide_reason(HideReason::FullMapOpen);
                     return;
                 }
                 if (g_pf_minimap < 0)
@@ -1125,11 +1114,11 @@ namespace overlay
                 {
                     return;
                 }
-                char text[160]{};
+                char text[kToastBytes]{};
                 unsigned ms = 2500;
                 {
                     spin::SpinGuard guard(g_toast_lock);
-                    ::strncpy_s(text, sizeof(text), g_toast_pending, _TRUNCATE);
+                    utf8::copy(text, sizeof(text), g_toast_pending);
                     ms = g_toast_pending_ms;
                 }
                 toast_for(text, ms);
@@ -1528,8 +1517,11 @@ namespace overlay
                     ImGui_ImplWin32_Shutdown();
                     ImGui::DestroyContext();
                     g_imgui_ready = false;
-                    // The style went with the context: the next init must rebuild it.
+                    // The style and the fonts went with the context: the next init must
+                    // rebuild both.
                     g_ui_scale_applied = 0.0f;
+                    g_font_key = FontKey{};
+                    g_font_endonyms = false;
                 }
                 // Before the render targets, because the surface thread and the D3D11
                 // wrappers hold the very textures they release, and after wait_for_gpu

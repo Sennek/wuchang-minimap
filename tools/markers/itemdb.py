@@ -7,7 +7,7 @@ Shared reader for `markers/items.json` (schema `wuchang-minimap-items/1`).
   * the **membership set** -- an integer that is a real row of one of the item
     DataTables is what makes the inline `Items` array scan safe (see
     `extract_markers.item_ids`);
-  * the **display name** of an item id;
+  * the **display name** of an item id, in English and the cultures that differ;
   * the **bucket** an item puts a pickup in (`pickup_buckets`), computed once by
     `build_items.py` and read back here rather than recomputed.
 
@@ -91,7 +91,8 @@ class ItemDB:
     __slots__ = ("items",)
 
     def __init__(self, items: dict | None = None):
-        # int id -> {"name": str, "des": str, "table": str};  name/des optional
+        # int id -> {"name": str, "names": {culture: str}, "des": str, "table": str};
+        # name / names / des optional
         self.items: dict[int, dict] = items or {}
 
     def __len__(self) -> int:
@@ -104,6 +105,11 @@ class ItemDB:
         rec = self.items.get(item_id)
         n = rec.get("name") if rec else None
         return n or None
+
+    def names(self, item_id: int) -> dict[str, str]:
+        """The item's name in every culture that differs from English."""
+        rec = self.items.get(item_id)
+        return dict(rec.get("names") or {}) if rec else {}
 
     def table(self, item_id: int) -> str | None:
         rec = self.items.get(item_id)

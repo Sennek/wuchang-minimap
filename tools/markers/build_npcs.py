@@ -60,14 +60,20 @@ lesson - a super-chain rule renamed a Chongsheng variant after another boss):
                and the string is read from the same locres, so this is rule 1
                by a different route.
 5. `pinyin`  - a two-entry hand table for tokens whose Chinese is known and
-               whose class the data leaves anonymous.  Auditable by design:
-               `via` says `pinyin`, so nothing here can be mistaken for a name
-               the game supplied.
-6. `class-name` - the transliteration in the class name, tidied.
+               whose class the data leaves anonymous.  It writes a `label` TAG,
+               not a name (`villager`): the words are the mod's, so the runtime
+               draws them in the player's language (`mdb::tag_label`).  `via`
+               says `pinyin`, so nothing here can be mistaken for a name the
+               game supplied.
+6. `class-name` - nothing names the class, and the marker reads its category's
+               word.  A tidied transliteration is Pinyin in every language.
 
-`NO_NAME` classes deliberately keep the generic category label - see the
-comment on that table; a two-to-five letter initialism is not a name and
+`READ_POINT` and `NO_NAME` classes deliberately carry no game name - see the
+comments on those tables; a two-to-five letter initialism is not a name and
 "DKDC" on the map would be worse than the category's own label.
+
+A name is chosen by its key in English and every other culture's name is that
+key's string (`locres.py`), speaker colon stripped the same way.
 
     python build_npcs.py                  # -> ..\..\markers\npcs.json
     python build_npcs.py --report         # + per-class witnesses and placement
@@ -86,9 +92,9 @@ import os
 import re
 import sys
 
-import build_items as BI
 import build_bosses as BB
 import class_graph
+import locres
 import pakmaps
 import provenance                          # noqa: E402
 
@@ -129,11 +135,11 @@ NOT_PEOPLE = {
 # character mesh at all, its only interaction string is `ui_263` = "Check", and
 # it spawns the `NS_Hint01` hint particle.  `ReadPointSP_NPC_C` (14 markers,
 # `NS_Hint01_Blue`) and `Letter01_NPC_C` (1) are the same thing.  So they are
-# readable inscriptions / notes, and **"Note"** is what they get: a description,
-# never a character's name, so it cannot be wrong about identity - and the same
-# word the category itself uses.  "Reading point" was our internal description of
-# the CLASS; on the map it made a note's glyph and its label disagree about what
-# the thing is, and the label is the half the player reads.
+# readable inscriptions / notes, and they carry NO name: the marker reads its
+# category's own word, "Note" - a description, never a character's name, so it
+# cannot be wrong about identity.  "Reading point" was our internal description
+# of the CLASS; on the map it made a note's glyph and its label disagree about
+# what the thing is, and the label is the half the player reads.
 # All three are typed `note` by `marker_classes.EXACT` (the user's call on
 # 2026-09-03; the `NPC` regex would otherwise have typed the last two `npc`).
 #
@@ -141,18 +147,14 @@ NOT_PEOPLE = {
 # `MMGame.locres` (the only locres in the game) and a scan of all 2 150
 # dialogue / DataTable / StringTable assets for `NPC_DG_READ08` finds nothing,
 # so the DialoguePlugin resolves them at runtime from data not in the paks.
-READ_POINT = {
-    "DKDC_NPC_C": "Note",
-    "ReadPointSP_NPC_C": "Note",
-    "Letter01_NPC_C": "Note",
-}
+READ_POINT = {"DKDC_NPC_C", "ReadPointSP_NPC_C", "Letter01_NPC_C"}
 
 # `BP_WeaponRefrom_C` is the weapon-reforge station (its only string is
 # `ui_219` = "Use" and it references `DialogGroup/WorkBench`).  It is never
 # placed in any level, so nothing reads this entry; it is here so the roster
-# accounts for all 78 classes.
+# accounts for all 78 classes.  The value is a `label` tag (`mdb::tag_label`).
 NO_NAME = {
-    "BP_WeaponRefrom_C": "Workbench",
+    "BP_WeaponRefrom_C": "workbench",
 }
 
 # A character the mechanics glossary names, keyed by the `help_noun*` entry that
@@ -175,13 +177,14 @@ GLOSSARY = {
 
 # Hand-mapped tokens: the Chinese behind the token is known, the data names the
 # class nowhere, and the class IS placed.  Reported as `via: pinyin` so a
-# reviewer can veto any of them without reading code.
+# reviewer can veto any of them without reading code.  The value is a `label`
+# tag (`mdb::tag_label`), drawn in the player's language.
 #
 # * `cunmin` = 村民, villager.  23 placed instances of generic crowd villagers
 #   in five levels; the game gives them no dialogue and no name key.
 PINYIN = {
-    "cunmin": "Villager",
-    "cunmin2": "Villager",
+    "cunmin": "villager",
+    "cunmin2": "villager",
 }
 
 
@@ -252,38 +255,22 @@ def folder_of(paths: list[str]) -> str | None:
 # resolution
 # ---------------------------------------------------------------------------
 
+def speaker(v: str) -> str:
+    """A name-key string without the speaker colon, in any culture's punctuation."""
+    return v.rstrip().rstrip(":：").strip()
+
+
 def display(loc: dict[str, str], key: str) -> str | None:
     """The localised string for a name key, without the speaker colon."""
     v = loc.get(key)
     if not v:
         return None
-    return v.rstrip().rstrip(":：").strip() or None
-
-
-def prettify(cls: str) -> str:
-    """The transliteration inside a class name, as words.
-
-    `BP_NPC_cunmin_C` -> "Cunmin", `Heyouzai_NPC_C` -> "Heyouzai",
-    `ZY_N_NPC_ChangQiang_C` -> "ZY Chang Qiang".  Purely lexical: it can look
-    clumsy but it can never name the wrong character.
-    """
-    toks = [t for t in cls.split("_") if t]
-    if toks and toks[-1] == "C":
-        toks.pop()
-    drop = {"BP", "NPC", "N", "AI"}
-    kept = [t for t in toks if t not in drop] or [t for t in toks if t != "C"]
-    words: list[str] = []
-    for t in kept:
-        if t.isupper() and len(t) <= 5:
-            words.append(t)                     # an initialism stays as it is
-            continue
-        parts = re.findall(r"[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+", t)
-        words += [p if p.isupper() else p[:1].upper() + p[1:] for p in parts]
-    return " ".join(words).strip()
+    return speaker(v) or None
 
 
 def token_of(cls: str) -> str:
-    """The class' own token: what `prettify` keeps, unspaced and unchanged."""
+    """The class' own token: the first part of its name that is not `BP` / `NPC` /
+    `N` / `AI` (`BP_NPC_cunmin_C` -> `cunmin`), unchanged."""
     toks = [t for t in cls.split("_") if t]
     if toks and toks[-1] == "C":
         toks.pop()
@@ -338,7 +325,7 @@ def resolve(classes: list[str], keys, refs, paths, loc) -> dict[str, dict]:
                     out[cls] = {"name": nm, "key": dir_key[f], "via": "ref:" + f}
                     break
 
-    # rules 4 and 5.
+    # rules 4 and 5, and the classes nothing names.
     for cls in classes:
         if cls in out:
             continue
@@ -348,14 +335,13 @@ def resolve(classes: list[str], keys, refs, paths, loc) -> dict[str, dict]:
                 out[cls] = {"name": nm, "key": GLOSSARY[cls], "via": "glossary"}
                 continue
         if cls in READ_POINT:
-            out[cls] = {"name": READ_POINT[cls], "key": None, "via": "read-point"}
+            out[cls] = {"key": None, "via": "read-point"}
         elif cls in NO_NAME:
-            out[cls] = {"name": NO_NAME[cls], "key": None, "via": "no-name"}
+            out[cls] = {"label": NO_NAME[cls], "key": None, "via": "no-name"}
         elif token_of(cls) in PINYIN:
-            out[cls] = {"name": PINYIN[token_of(cls)], "key": None, "via": "pinyin"}
+            out[cls] = {"label": PINYIN[token_of(cls)], "key": None, "via": "pinyin"}
         else:
-            out[cls] = {"name": prettify(cls) or cls, "key": None,
-                        "via": "class-name"}
+            out[cls] = {"key": None, "via": "class-name"}
     return out, dir_key, conflicts
 
 
@@ -471,8 +457,8 @@ def placements(src: pakmaps.MapSource, classes: set[str]) -> dict[str, list[str]
     return out
 
 
-def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False,
-          prov: dict | None = None) -> dict:
+def build(src: pakmaps.MapSource, strings: "locres.Strings", verbose: bool = True,
+          report: bool = False, prov: dict | None = None) -> dict:
     graph = BB.build_graph(src, verbose)
     if NPC_BASE not in graph and NPC_BASE not in graph.values():
         raise SystemExit(f"{NPC_BASE} not in the class graph - wrong prefixes?")
@@ -484,7 +470,7 @@ def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False,
 
     index = asset_index(src)
     keys, refs, paths = scan(src, classes, index, verbose)
-    loc = BI.read_locres(src.read(BI.LOCRES.format(lang="en")))
+    loc = strings.en
 
     # the AI table is the boss route; it is recorded here as a measured
     # negative so nobody re-derives it.
@@ -497,6 +483,8 @@ def build(src: pakmaps.MapSource, verbose: bool = True, report: bool = False,
     npcs = {}
     for cls in classes:
         e = dict(names[cls])
+        if e.get("name"):
+            locres.with_names(e, e["name"], strings.names(e["key"], speaker))
         f = folder_of(paths[cls])
         if f:
             e["dir"] = f
@@ -540,10 +528,11 @@ def main(argv=None):
         os.path.dirname(os.path.abspath(__file__)), "..", "..", "markers", "npcs.json"))
     ap.add_argument("--report", action="store_true",
                     help="also record where every npc class is placed")
+    locres.add_arg(ap)
     provenance.add_arg(ap)
     a = ap.parse_args(argv)
     ms = pakmaps.MapSource(a.pak)
-    doc = build(ms, report=a.report,
+    doc = build(ms, locres.Strings.load(ms, a.lang), report=a.report,
                 prov=provenance.stamp(ms, a.pak, not a.no_pak_hash))
     out = os.path.normpath(a.out)
     with open(out, "w", encoding="utf-8") as f:
@@ -551,8 +540,9 @@ def main(argv=None):
         f.write("\n")
     print(f"wrote {out}")
     for cls, e in sorted(doc["npcs"].items()):
+        shown = e.get("name") or (f"<{e['label']}>" if e.get("label") else "-")
         print(f"  {cls:<32} {str(e.get('dir') or ''):<22} "
-              f"{e['name']:<34} [{e['via']}]")
+              f"{shown:<34} [{e['via']}]")
     return 0
 
 

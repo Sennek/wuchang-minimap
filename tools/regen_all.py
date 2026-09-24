@@ -4,6 +4,7 @@ r"""Regenerate every offline data artifact, in dependency order (review C.17).
     python tools\regen_all.py                    # everything, all six chapters
     python tools\regen_all.py --verify           # + score against the recon dumps
     python tools\regen_all.py --no-pak-hash      # skip the 63 GB of sha256
+    python tools\regen_all.py --lang en,zh       # name in these cultures only
     python tools\regen_all.py --only extract     # one step (repeatable)
     python tools\regen_all.py --list             # the step graph, then exit
     python tools\regen_all.py --dry-run          # print the commands only
@@ -96,6 +97,9 @@ WANTS_PAK = {"items", "graph", "categories", "enemies", "bosses", "npcs",
              "extract", "bossdoors", "rebake", "shrines", "blocks"}
 WANTS_HASH_FLAG = {"categories", "enemies", "bosses", "npcs", "extract",
                    "rebake", "shrines"}
+# Steps that name things from MMGame.locres and take `--lang` (`locres.add_arg`).
+WANTS_LANG = {"items", "enemies", "bosses", "npcs", "extract", "rebake",
+              "shrines", "recount"}
 OPT_IN = {"verify"}
 
 
@@ -194,6 +198,9 @@ def main(argv=None) -> int:
     ap.add_argument("--verify", action="store_true",
                     help="also score the result against the committed recon dumps")
     ap.add_argument("--no-pak-hash", action="store_true")
+    ap.add_argument("--lang", default=None,
+                    help="comma-separated cultures to name markers in (locres folder "
+                         "names); default every culture the paks carry")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
@@ -228,6 +235,8 @@ def main(argv=None) -> int:
             argv2 += ["--pak", a.pak]
         if a.no_pak_hash and name in WANTS_HASH_FLAG:
             argv2 += ["--no-pak-hash"]
+        if a.lang and name in WANTS_LANG:
+            argv2 += ["--lang", a.lang]
         if name == "rebake" and doors_before == digest(
                 os.path.join(_OUT, "bossdoors.json")) and "rebake" not in a.only:
             results.append((name, "skipped", 0.0,

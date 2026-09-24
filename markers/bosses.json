@@ -3,162 +3,546 @@
  "bosses": {
   "AI_YHJS_BP_C": {
    "ai_id": "39610",
+   "key": "boss_name_39610",
    "name": "Feathered Priest - Lu Bingzhang",
+   "names": {
+    "de": "Gefiederter Priester – Lu Bingzhang",
+    "es": "Sacerdote Emplumado - Lu Bingzhang",
+    "fr": "Prêtre ornithrope - Lu Bingzhang",
+    "it": "Sacerdote Yuren - Lu Bingzhang",
+    "ja": "「羽化せし祭司」禄秉璋",
+    "ko": "우화 사제·녹병장",
+    "pt": "Sacerdote Emplumado - Lu Bingzhang",
+    "ru": "Пернатый жрец – Лу Бинчжань",
+    "zh": "羽化祭司·禄秉璋",
+    "zh-Hant": "羽化祭司‧祿秉璋"
+   },
    "via": "id"
   },
   "BP_Anim_ZXZ_StepA_C": {
    "ai_id": "50500",
+   "key": "boss_name_50600_1",
    "name": "Sovereign - Zhang Xianzhong",
+   "names": {
+    "de": "Herrscher – Zhang Xianzhong",
+    "es": "Soberano - Zhang Xianzhong",
+    "fr": "Souverain - Zhang Xianzhong",
+    "it": "Governatore - Zhang Xianzhong",
+    "ja": "「大西王」張献忠",
+    "ko": "대서왕·장헌충",
+    "pt": "Soberano - Zhang Xianzhong",
+    "ru": "Владыка – Чжан Сяньчжун",
+    "zh": "大西王·张献忠",
+    "zh-Hant": "大西王·張獻忠"
+   },
    "via": "override:boss_name_50600_1"
   },
   "BP_Anim_ZXZ_StepB_C": {
    "ai_id": "50600",
+   "key": "boss_name_50600",
    "name": "Sovereign - Zhang Xianzhong's Obsession",
+   "names": {
+    "de": "Herrscher – Zhang Xianzhongs Besessenheit",
+    "es": "Soberano - obsesión de Zhang Xianzhong",
+    "fr": "Souverain - Obsession de Zhang Xianzhong",
+    "it": "Governatore - Ossessione di Zhang Xianzhong",
+    "ja": "「大西王」張献忠の執念",
+    "ko": "대서왕·장헌충의 집념",
+    "pt": "Soberano - Obsessão de Zhang Xianzhong",
+    "ru": "Владыка – одержимость Чжана Сяньчжуна",
+    "zh": "大西王·张献忠的执念",
+    "zh-Hant": "大西王·張獻忠的執念"
+   },
    "via": "id"
   },
   "BP_BKL_AI_C": {
    "ai_id": "50300",
+   "key": "boss_name_50300",
    "name": "Monstrous Toddler - Bai Kru",
+   "names": {
+    "de": "Monströses Kleinkind – Bai Kru",
+    "es": "Niño monstruoso - Bai Kru",
+    "fr": "Bambin monstrueux - Bai Kru",
+    "it": "Bambino mostruoso - Bai Kru",
+    "ja": "「白家の怨児」白克虜",
+    "ko": "백씨네 괴물 영아·백극로",
+    "pt": "Infante Monstruoso - Bai Kru",
+    "ru": "Чудовищное дитя – Бай Келу",
+    "zh": "白家怪婴·白克虏",
+    "zh-Hant": "白家怪嬰‧白克虜"
+   },
    "via": "id"
   },
   "BP_BKL_AI_Special_C": {
    "ai_id": "50301",
+   "key": "boss_name_50300",
    "name": "Monstrous Toddler - Bai Kru",
+   "names": {
+    "de": "Monströses Kleinkind – Bai Kru",
+    "es": "Niño monstruoso - Bai Kru",
+    "fr": "Bambin monstrueux - Bai Kru",
+    "it": "Bambino mostruoso - Bai Kru",
+    "ja": "「白家の怨児」白克虜",
+    "ko": "백씨네 괴물 영아·백극로",
+    "pt": "Infante Monstruoso - Bai Kru",
+    "ru": "Чудовищное дитя – Бай Келу",
+    "zh": "白家怪婴·白克虏",
+    "zh-Hant": "白家怪嬰‧白克虜"
+   },
    "via": "neighbour:50300"
   },
   "BP_CZ_AI_2_C": {
    "ai_id": "50900",
+   "key": "boss_name_50900",
    "name": "The Reborn",
+   "names": {
+    "de": "Der Wiedergeborene",
+    "es": "El renacido",
+    "fr": "Deux fois né",
+    "it": "Rinascita",
+    "ja": "重生の器",
+    "ko": "부활자",
+    "pt": "O Renascido",
+    "ru": "Перерождение",
+    "zh": "重生之物"
+   },
    "via": "id"
   },
   "BP_CZ_AI_3_C": {
    "ai_id": null,
+   "key": "boss_name_50800",
    "name": "Dragon Emperor - Zhu Youjian's Obsession",
+   "names": {
+    "de": "Drachenkaiser – Zhu Youjians Besessenheit",
+    "es": "Emperador Dragón - obsesión de Zhu Youjian",
+    "fr": "Empereur-dragon - Obsession de Zhu Youjian",
+    "it": "Imperatore drago - Ossessione di Zhu Youjian",
+    "ja": "「真龍なる皇帝」朱由検の執念",
+    "ko": "정통 황제·주유검의 집념",
+    "pt": "Imperador Dragão - Obsessão de Zhu Youjian",
+    "ru": "Настоящий дракон – одержимость Чжу Юцзяня",
+    "zh": "真龙天子·朱由检的执念",
+    "zh-Hant": "真龍天子·朱由檢的執念"
+   },
    "via": "sibling:BP_CZ_AI_C"
   },
   "BP_CZ_AI_C": {
    "ai_id": "50800",
+   "key": "boss_name_50800",
    "name": "Dragon Emperor - Zhu Youjian's Obsession",
+   "names": {
+    "de": "Drachenkaiser – Zhu Youjians Besessenheit",
+    "es": "Emperador Dragón - obsesión de Zhu Youjian",
+    "fr": "Empereur-dragon - Obsession de Zhu Youjian",
+    "it": "Imperatore drago - Ossessione di Zhu Youjian",
+    "ja": "「真龍なる皇帝」朱由検の執念",
+    "ko": "정통 황제·주유검의 집념",
+    "pt": "Imperador Dragão - Obsessão de Zhu Youjian",
+    "ru": "Настоящий дракон – одержимость Чжу Юцзяня",
+    "zh": "真龙天子·朱由检的执念",
+    "zh-Hant": "真龍天子·朱由檢的執念"
+   },
    "via": "id"
   },
   "BP_DaYouYan_AI_C": {
    "ai_id": "39510",
+   "key": "boss_name_39510",
    "name": "Blightweaver - Great Centipede",
+   "names": {
+    "de": "Seuchenweber – Riesentausendfüßler",
+    "es": "Asolador - Gran Ciempiés",
+    "fr": "Chancrefileur - Grande scolopendre",
+    "it": "Mangiaveleno - Millepiedi gigante",
+    "ja": "「猛毒の脚」大蚰蜒",
+    "ko": "맹독 지네·유연",
+    "pt": "Tecelã dos Flagelos - Grande Centopeia",
+    "ru": "Многоногая отрава – Великая сколопендра",
+    "zh": "噬毒千足·大蚰蜒",
+    "zh-Hant": "噬毒千足‧大蚰蜒"
+   },
    "via": "id"
   },
   "BP_Dashuguai_AI_C": {
    "ai_id": "39410",
+   "key": "boss_name_39410",
    "name": "Reborn Treant - Soulwood",
+   "names": {
+    "de": "Wiedergeborener Baumgeist – Seelenbaum",
+    "es": "Árbol animado renacido - Madera del alma",
+    "fr": "Tréant ressuscité - Sylvâme",
+    "it": "Demone boschi redivivo - Albero dell'anima",
+    "ja": "「蘇る妖樹」縛魂樹",
+    "ko": "부활한 나무 요괴·박혼목",
+    "pt": "Renascido Arbóreo - Árvore das Almas",
+    "ru": "Ожившее дерево – Древо душ",
+    "zh": "重生妖树·缚魂木",
+    "zh-Hant": "重生妖樹‧縛魂木"
+   },
    "via": "id"
   },
   "BP_E_LWX_AI_C": {
    "ai_id": "37600",
+   "key": "boss_name_37600",
    "name": "South General - Liu Wenxiu",
+   "names": {
+    "de": "General des Südens – Liu Wenxiu",
+    "es": "General del Sur - Liu Wenxiu",
+    "fr": "Général du Sud - Liu Wenxiu",
+    "it": "Generale del sud - Liu Wenxiu",
+    "ja": "「撫南将軍」劉文秀",
+    "ko": "무남장군·유문수",
+    "pt": "General do Sul - Liu Wenxiu",
+    "ru": "Полководец юга – Лю Вэньсю",
+    "zh": "抚南将军·刘文秀",
+    "zh-Hant": "撫南將軍·劉文秀"
+   },
    "via": "id"
   },
   "BP_Honglan_BossAI_C": {
    "ai_id": "39810",
+   "key": "boss_name_39810",
    "name": "Commander - Honglan",
+   "names": {
+    "de": "Generalin – Honglan",
+    "es": "Comandante - Honglan",
+    "fr": "Commandante - Honglan",
+    "it": "Comandante - Honglan",
+    "ja": "「戦帥」紅嵐",
+    "ko": "지휘사·홍람",
+    "pt": "Comandante - Honglan",
+    "ru": "Командующая – Хунлань",
+    "zh": "指挥使·红岚",
+    "zh-Hant": "指揮使‧紅嵐"
+   },
    "via": "id"
   },
   "BP_MJJJ_AI_New_C": {
    "ai_id": "39010",
+   "key": "boss_name_39010",
    "name": "Ming General - Liu Cheng'en",
+   "names": {
+    "de": "Ming-General – Liu Cheng'en",
+    "es": "General Ming - Liu Cheng'en",
+    "fr": "Général Ming - Liu Cheng'en",
+    "it": "Generale Ming - Liu Cheng'en",
+    "ja": "「大明督軍」劉承恩",
+    "ko": "대명감군·유승은",
+    "pt": "General Ming - Liu Cheng'en",
+    "ru": "Полководец династии Мин – Лю Чэнъэнь",
+    "zh": "大明监军·刘承恩",
+    "zh-Hant": "大明監軍‧劉承恩"
+   },
    "via": "id"
   },
   "BP_NRSL01_AI_C": {
    "ai_id": "50400",
+   "key": "boss_name_50400",
    "name": "Bo Sorcerer",
+   "names": {
+    "de": "Hexe der Bo",
+    "es": "Hechicera Bo",
+    "fr": "Sorcière des Bo",
+    "it": "Strega di Bo",
+    "ja": "僰人の古巫",
+    "ko": "북인무당",
+    "pt": "Feiticeira Bo",
+    "ru": "Колдунья племени Бо",
+    "zh": "僰人古巫"
+   },
    "via": "id"
   },
   "BP_NRSL_AI_C": {
    "ai_id": null,
-   "name": "NRSL C",
    "via": "class-name"
   },
   "BP_XBFR_AI_C": {
    "ai_id": "39210",
+   "key": "boss_name_39210",
    "name": "Mistress of the Night - Huang Yan",
+   "names": {
+    "de": "Herrin der Nacht – Huang Yan",
+    "es": "Señora de la Noche - Huang Yan",
+    "fr": "Maîtresse de la nuit - Huang Yan",
+    "it": "Tenebrosa Signora - Huang Yan",
+    "ja": "「夜夫人」黄嫣",
+    "ko": "야부인·황언",
+    "pt": "Senhora da Noite - Huang Yan",
+    "ru": "Госпожа ночи – Хуан Янь",
+    "zh": "夜夫人·黄嫣",
+    "zh-Hant": "夜夫人‧黃嫣"
+   },
    "via": "id"
   },
   "BP_XMWC_AI_New_C": {
    "ai_id": "51200",
+   "key": "boss_name_51200",
    "name": "Demon of Obsession",
+   "names": {
+    "de": "Dämon der Besessenheit",
+    "es": "Demonio de la obsesión",
+    "fr": "Démon de l'obsession",
+    "it": "Demone dell'ossessione",
+    "ja": "執念の心魔",
+    "ko": "집념·심마",
+    "pt": "Demônio da Obsessão",
+    "ru": "Демон одержимости",
+    "zh": "执念·心魔",
+    "zh-Hant": "執念‧心魔"
+   },
    "via": "id"
   },
   "BP_XMWC_LS_AI_C": {
    "ai_id": "51201",
+   "key": "boss_name_51200",
    "name": "Demon of Obsession",
+   "names": {
+    "de": "Dämon der Besessenheit",
+    "es": "Demonio de la obsesión",
+    "fr": "Démon de l'obsession",
+    "it": "Demone dell'ossessione",
+    "ja": "執念の心魔",
+    "ko": "집념·심마",
+    "pt": "Demônio da Obsessão",
+    "ru": "Демон одержимости",
+    "zh": "执念·心魔",
+    "zh-Hant": "執念‧心魔"
+   },
    "via": "neighbour:51200"
   },
   "BP_XYZ_AI_C": {
    "ai_id": "51100",
+   "key": "boss_name_51100",
    "name": "Feathery Ambition - Xuanyangzi",
+   "names": {
+    "de": "Gefiederte Ambition – Xuanyangzi",
+    "es": "Ambición plumífera - Xuanyangzi",
+    "fr": "Ambition ornithrope - Xuanyangzi",
+    "it": "Ambizione Yuren - Xuanyangzi",
+    "ja": "「羽を乞う者」玄陽子",
+    "ko": "우화의 숙원·현양자",
+    "pt": "Ambição Emplumada - Xuanyangzi",
+    "ru": "Пернатая надежда – Сюань Янцзы",
+    "zh": "夙愿化羽·玄阳子",
+    "zh-Hant": "夙願化羽‧玄陽子"
+   },
    "via": "id"
   },
   "BP_XYZ_AI_S_C": {
    "ai_id": null,
+   "key": "boss_name_51100",
    "name": "Feathery Ambition - Xuanyangzi",
+   "names": {
+    "de": "Gefiederte Ambition – Xuanyangzi",
+    "es": "Ambición plumífera - Xuanyangzi",
+    "fr": "Ambition ornithrope - Xuanyangzi",
+    "it": "Ambizione Yuren - Xuanyangzi",
+    "ja": "「羽を乞う者」玄陽子",
+    "ko": "우화의 숙원·현양자",
+    "pt": "Ambição Emplumada - Xuanyangzi",
+    "ru": "Пернатая надежда – Сюань Янцзы",
+    "zh": "夙愿化羽·玄阳子",
+    "zh-Hant": "夙願化羽‧玄陽子"
+   },
    "via": "sibling:BP_XYZ_AI_C"
   },
   "BP_YHGN_AI_Special_C": {
    "ai_id": "31704",
+   "key": "boss_name_31703",
    "name": "Tang Palace Maid",
+   "names": {
+    "de": "Zofe aus dem Palast des Tang-Kaisers",
+    "es": "Sirvienta de palacio Tang",
+    "fr": "Domestique du palais Tang",
+    "it": "Domestica del palazzo Tang",
+    "ja": "唐王宮女",
+    "ko": "당왕의 궁녀",
+    "pt": "Serviçal do Palácio Tang",
+    "ru": "Служанка дворца Тан",
+    "zh": "唐王宫女",
+    "zh-Hant": "唐王宮女"
+   },
    "via": "neighbour:31703"
   },
   "BP_YHGN_AI_Special_CJD_C": {
    "ai_id": "41706",
-   "name": "YHGN Special CJD",
    "via": "class-name"
   },
   "BP_YHHL_BossAI_C": {
    "ai_id": "51000",
+   "key": "boss_name_51000",
    "name": "Vermilion Feathers - Honglan",
+   "names": {
+    "de": "Zinnoberfedern – Honglan",
+    "es": "Plumas Bermellón - Honglan",
+    "fr": "Plumes vermillon - Honglan",
+    "it": "Piume vermiglie - Honglan",
+    "ja": "「朱羽」紅嵐",
+    "ko": "붉은 깃 - 홍람",
+    "pt": "Plumas Rúbeas - Honglan",
+    "ru": "Багряные перья – Хунлань",
+    "zh": "赤羽·红岚",
+    "zh-Hant": "赤羽·紅嵐"
+   },
    "via": "id"
   },
   "BP_YuHuaXNAI_C": {
    "ai_id": "39110",
+   "key": "boss_name_39110",
    "name": "Perfect Bride - Fang Ling",
+   "names": {
+    "de": "Perfekte Braut – Fang Ling",
+    "es": "Novia perfecta - Fang Ling",
+    "fr": "Mariée parfaite - Fang Ling",
+    "it": "Moglie perfetta - Fang Ling",
+    "ja": "「完璧なる花嫁」方霊",
+    "ko": "완벽한 신부·방령",
+    "pt": "Noiva Perfeita - Fang Ling",
+    "ru": "Идеальная невеста – Фан Лин",
+    "zh": "完美新娘·方灵",
+    "zh-Hant": "完美新娘‧方靈"
+   },
    "via": "id"
   },
   "BP_ZY_AI_C": {
    "ai_id": "50200",
+   "key": "boss_name_50200",
    "name": "Eternal Glory - Zhao Yun's Spirit",
+   "names": {
+    "de": "Ewiger Ruhm – Zhao Yuns Geist",
+    "es": "Gloria eterna - espíritu de Zhao Yun",
+    "fr": "Gloire éternelle - Esprit de Zhao Yun",
+    "it": "Gloria eterna - Spirito di Zhao Yun",
+    "ja": "「千秋の孤勇」趙雲の英魂",
+    "ko": "천추의 용장·조운의 영령",
+    "pt": "Glória Eterna - Espírito de Zhao Yun",
+    "ru": "Вечная слава – дух Чжао Юня",
+    "zh": "永烈千秋·赵云的英魂",
+    "zh-Hant": "永烈千秋·趙雲的英魂"
+   },
    "via": "id"
   },
   "BP_toutuo_AI_C": {
    "ai_id": "39710",
+   "key": "boss_name_39710",
    "name": "Master Raider - Man-eating Dhutanga",
+   "names": {
+    "de": "Meisterräuber – Menschenfresser Dhutanga",
+    "es": "Maestro Asaltante - Dhutanga devorador de hombres",
+    "fr": "Maître pillard - Dhutanga Mangeur d'hommes",
+    "it": "Razziatore - Cannibale Dhutanga",
+    "ja": "「墓泥棒の首領」人喰い托鉢",
+    "ko": "도굴꾼 두목·식인두타",
+    "pt": "Mestre Saqueador - Dhutanga, o Canibal",
+    "ru": "Мастер-рейдер - Дутанга-людоед",
+    "zh": "盗墓贼首·吃人头陀",
+    "zh-Hant": "盜墓賊首‧吃人頭陀"
+   },
    "via": "id"
   },
   "B_ANQ_C": {
    "ai_id": "39310",
+   "key": "boss_name_39310",
    "name": "General of the North - Ai Nengqi",
+   "names": {
+    "de": "General des Nordens – Ai Nengqi",
+    "es": "General del Norte - Ai Nengqi",
+    "fr": "Général du Nord - Ai Nengqi",
+    "it": "Generale del nord - Ai Nengqi",
+    "ja": "「定北将軍」艾能奇",
+    "ko": "정북장군·애능기",
+    "pt": "General do Norte - Ai Nengqi",
+    "ru": "Покоритель Севера – Ай Нэнци",
+    "zh": "定北将军·艾能奇",
+    "zh-Hant": "定北將軍‧艾能奇"
+   },
    "via": "id"
   },
   "B_NW_C": {
    "ai_id": "50700",
+   "key": "boss_name_50700",
    "name": "Bo Magus",
+   "names": {
+    "de": "Hohemagierin der Bo",
+    "es": "Magus Bo",
+    "fr": "Prêtresse des Bo",
+    "it": "Sacerdotessa di Bo",
+    "ja": "僰人の巫祝",
+    "ko": "북인무축",
+    "pt": "Bruxa Bo",
+    "ru": "Ведьма племени Бо",
+    "zh": "僰人巫祝"
+   },
    "via": "id"
   },
   "B_XBXN02_C": {
    "ai_id": "50000",
+   "key": "boss_name_50000",
    "name": "Chimera - Fang Ling",
+   "names": {
+    "de": "Chimäre – Fang Ling",
+    "es": "Quimera - Fang Ling",
+    "fr": "Chimère - Fang Ling",
+    "ja": "「人封の妖」方霊",
+    "ko": "접합 요괴·방령",
+    "pt": "Quimera - Fang Ling",
+    "ru": "Химера – Фан Лин",
+    "zh": "拼合怪物·方灵",
+    "zh-Hant": "合成怪物‧方靈"
+   },
    "via": "id"
   },
   "Boss_Luhongliu_FirstStage_01_C": {
    "ai_id": "39910",
+   "key": "boss_name_39910",
    "name": "Gluttonous Monstrosity - Lu Hongliu",
+   "names": {
+    "de": "Gefräßige Monstrosität – Lu Hongliu",
+    "es": "Monstruosidad glotona - Lu Hongliu",
+    "fr": "Gloutonne monstrueuse - Lu Hongliu",
+    "it": "Mostruosità insaziabile - Lu Hongliu",
+    "ja": "「人喰い妖女」陸紅柳",
+    "ko": "식인 요녀·육홍류",
+    "pt": "Monstruosidade Glutona - Lu Hongliu",
+    "ru": "Демон-людоедка – Лу Хунлю",
+    "zh": "食人妖女·陆红柳",
+    "zh-Hant": "食人妖女‧陸紅柳"
+   },
    "via": "id"
   },
   "Boss_Luhongliu_FirstStage_01_special_C": {
    "ai_id": "39911",
+   "key": "boss_name_39910",
    "name": "Gluttonous Monstrosity - Lu Hongliu",
+   "names": {
+    "de": "Gefräßige Monstrosität – Lu Hongliu",
+    "es": "Monstruosidad glotona - Lu Hongliu",
+    "fr": "Gloutonne monstrueuse - Lu Hongliu",
+    "it": "Mostruosità insaziabile - Lu Hongliu",
+    "ja": "「人喰い妖女」陸紅柳",
+    "ko": "식인 요녀·육홍류",
+    "pt": "Monstruosidade Glutona - Lu Hongliu",
+    "ru": "Демон-людоедка – Лу Хунлю",
+    "zh": "食人妖女·陆红柳",
+    "zh-Hant": "食人妖女‧陸紅柳"
+   },
    "via": "neighbour:39910"
   },
   "Boss_Luhongliu_SecondStage_C": {
    "ai_id": null,
+   "key": "boss_name_39910",
    "name": "Gluttonous Monstrosity - Lu Hongliu",
+   "names": {
+    "de": "Gefräßige Monstrosität – Lu Hongliu",
+    "es": "Monstruosidad glotona - Lu Hongliu",
+    "fr": "Gloutonne monstrueuse - Lu Hongliu",
+    "it": "Mostruosità insaziabile - Lu Hongliu",
+    "ja": "「人喰い妖女」陸紅柳",
+    "ko": "식인 요녀·육홍류",
+    "pt": "Monstruosidade Glutona - Lu Hongliu",
+    "ru": "Демон-людоедка – Лу Хунлю",
+    "zh": "食人妖女·陆红柳",
+    "zh-Hant": "食人妖女‧陸紅柳"
+   },
    "via": "sibling:Boss_Luhongliu_FirstStage_01_C"
   }
  },
@@ -168,7 +552,7 @@
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
   "size": 141464648
  },
- "extractor_commit": "676ba00+dirty",
+ "extractor_commit": "32299cd+dirty",
  "game_build": "5.1.1.0",
  "generated_by": "tools/markers/build_bosses.py",
  "named": 30,

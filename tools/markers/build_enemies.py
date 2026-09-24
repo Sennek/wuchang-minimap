@@ -36,17 +36,17 @@ order they were run:
     banner for bosses and nothing for trash mobs.
 
 So this script does the two things that ARE available in the data, and leaves
-"Enemy" as the honest fallback for the rest.  It does **not** fall back to a
-tidied class name the way `build_bosses.py` does: "Mingbing Dao" is Pinyin, not
-English, and a wrong-looking name is worse for a player than a generic one.
+the category's own word ("Enemy") as the honest fallback for the rest.  A tidied
+class name is never one: "Mingbing Dao" is Pinyin, in every language, and a
+wrong-looking name is worse for a player than a generic one.
 
 WHAT IT DOES PRODUCE
 --------------------
-1.  **`name`** for every enemy class that has a real localised name - the
-    minions, phases and re-skins that DO own a `DT_AiTable` id with a
-    `boss_name_<id>` behind it.  Same resolution chain as `build_bosses.py`
-    (own id, `_1` variant, near-neighbour id, lexical sibling, super chain),
-    minus the class-name last resort.
+1.  **`name`** (and `names`, every other culture by the same key) for every
+    enemy class that has a real localised name - the minions, phases and
+    re-skins that DO own a `DT_AiTable` id with a `boss_name_<id>` behind it.
+    The resolution chain is `build_bosses.resolve_key` (own id, `_1` variant,
+    near-neighbour id, lexical sibling, super chain).
 2.  **`elite`** for C.9, by a rule the data validates rather than a hand list:
     a class is elite when stripping a `_High` / `_Special` / `_S` suffix leaves
     the name of *another class that exists* and is itself an enemy.
@@ -74,8 +74,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 import build_bosses as BB                                   # noqa: E402
-import build_items as BI                                    # noqa: E402
 import class_graph                                          # noqa: E402
+import locres                                               # noqa: E402
 import marker_classes                                       # noqa: E402
 import pakmaps                                              # noqa: E402
 import provenance                                           # noqa: E402
@@ -147,11 +147,10 @@ def elite_split(classes: set[str], known: set[str]) -> dict[str, str]:
     return out
 
 
-def build(ms, markers_dir: str, verbose: bool = True, want_hash: bool = True,
-          pak_path: str | None = None) -> dict:
+def build(ms, markers_dir: str, strings: "locres.Strings", verbose: bool = True,
+          want_hash: bool = True, pak_path: str | None = None) -> dict:
     graph = class_graph.load_or_build(ms, verbose=verbose)
     ids = BB.ai_ids(ms, verbose)
-    loc = BI.read_locres(ms.read(BI.LOCRES.format(lang="en")))
     boss_classes = set(class_graph.descendants(graph, BB.BOSS_BASE))
 
     roster = enemy_classes_in_markers(markers_dir)
@@ -175,12 +174,10 @@ def build(ms, markers_dir: str, verbose: bool = True, want_hash: bool = True,
         rec: dict = {"markers": roster.get(cls, 0)}
         if ai:
             rec["ai_id"] = ai
-        # Only the routes that can produce the GAME's own words. `resolve_name`
-        # ends in a tidied class name; that last rule is the one thing we must
-        # not take, so its `via` is treated as "no name".
-        name, how = BB.resolve_name(cls, ai, loc, graph, ids, boss_classes)
-        if how != "class-name":
-            rec["name"] = name
+        key, how = BB.resolve_key(cls, ai, strings.en, graph, ids, boss_classes)
+        if key:
+            rec["key"] = key
+            locres.with_names(rec, strings.en[key], strings.names(key, str))
             rec["via"] = how
             named += 1
         if cls in elites:
@@ -218,7 +215,7 @@ def build(ms, markers_dir: str, verbose: bool = True, want_hash: bool = True,
 
 def prove(ms) -> None:
     """Re-run the four C.8 proofs and print them, so the claim stays checkable."""
-    loc = BI.read_locres(ms.read(BI.LOCRES.format(lang="en")))
+    loc = locres.Strings.load(ms, [locres.SOURCE]).en
     hist: collections.Counter = collections.Counter()
     for k in loc:
         m = re.match(r"^([A-Za-z_]+?)_?\d+", k)
@@ -265,6 +262,7 @@ def main(argv=None):
     ap.add_argument("--report", action="store_true")
     ap.add_argument("--prove", action="store_true",
                     help="print the evidence that the game has no enemy names")
+    locres.add_arg(ap)
     provenance.add_arg(ap)
     a = ap.parse_args(argv)
 
@@ -272,8 +270,8 @@ def main(argv=None):
     if a.prove:
         prove(ms)
         return 0
-    doc = build(ms, os.path.abspath(a.markers), want_hash=not a.no_pak_hash,
-                pak_path=a.pak)
+    doc = build(ms, os.path.abspath(a.markers), locres.Strings.load(ms, a.lang),
+                want_hash=not a.no_pak_hash, pak_path=a.pak)
     out = os.path.normpath(a.out)
     with open(out, "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1, ensure_ascii=False, sort_keys=True)

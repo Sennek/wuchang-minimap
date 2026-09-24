@@ -1,5 +1,5 @@
 {
- "count": 289,
+ "count": 288,
  "elite": 32,
  "enemies": {
   "AI_BHJG_C": {
@@ -190,9 +190,6 @@
   "BP_Monster_Dog_chapter_4_C": {
    "ai_id": "30213",
    "markers": 0
-  },
-  "BP_NAA_ZGN_C": {
-   "markers": 105
   },
   "BP_NAA_shitijia_C": {
    "markers": 2
@@ -441,20 +438,59 @@
   },
   "BP_YHGN_AI_C": {
    "ai_id": "31700",
+   "key": "boss_name_31703",
    "markers": 4,
    "name": "Tang Palace Maid",
+   "names": {
+    "de": "Zofe aus dem Palast des Tang-Kaisers",
+    "es": "Sirvienta de palacio Tang",
+    "fr": "Domestique du palais Tang",
+    "it": "Domestica del palazzo Tang",
+    "ja": "唐王宮女",
+    "ko": "당왕의 궁녀",
+    "pt": "Serviçal do Palácio Tang",
+    "ru": "Служанка дворца Тан",
+    "zh": "唐王宫女",
+    "zh-Hant": "唐王宮女"
+   },
    "via": "neighbour:31703"
   },
   "BP_YHGN_AI_chapter_3_C": {
    "ai_id": "31702",
+   "key": "boss_name_31703",
    "markers": 1,
    "name": "Tang Palace Maid",
+   "names": {
+    "de": "Zofe aus dem Palast des Tang-Kaisers",
+    "es": "Sirvienta de palacio Tang",
+    "fr": "Domestique du palais Tang",
+    "it": "Domestica del palazzo Tang",
+    "ja": "唐王宮女",
+    "ko": "당왕의 궁녀",
+    "pt": "Serviçal do Palácio Tang",
+    "ru": "Служанка дворца Тан",
+    "zh": "唐王宫女",
+    "zh-Hant": "唐王宮女"
+   },
    "via": "neighbour:31703"
   },
   "BP_YHGN_AI_chapter_4_C": {
    "ai_id": "31701",
+   "key": "boss_name_31703",
    "markers": 0,
    "name": "Tang Palace Maid",
+   "names": {
+    "de": "Zofe aus dem Palast des Tang-Kaisers",
+    "es": "Sirvienta de palacio Tang",
+    "fr": "Domestique du palais Tang",
+    "it": "Domestica del palazzo Tang",
+    "ja": "唐王宮女",
+    "ko": "당왕의 궁녀",
+    "pt": "Serviçal do Palácio Tang",
+    "ru": "Служанка дворца Тан",
+    "zh": "唐王宫女",
+    "zh-Hant": "唐王宮女"
+   },
    "via": "neighbour:31703"
   },
   "BP_YHGY_AI_C": {
@@ -540,8 +576,21 @@
   },
   "BP_ZY_AI_Xinmo_C": {
    "ai_id": "38000",
+   "key": "boss_name_50200",
    "markers": 0,
    "name": "Eternal Glory - Zhao Yun's Spirit",
+   "names": {
+    "de": "Ewiger Ruhm – Zhao Yuns Geist",
+    "es": "Gloria eterna - espíritu de Zhao Yun",
+    "fr": "Gloire éternelle - Esprit de Zhao Yun",
+    "it": "Gloria eterna - Spirito di Zhao Yun",
+    "ja": "「千秋の孤勇」趙雲の英魂",
+    "ko": "천추의 용장·조운의 영령",
+    "pt": "Glória Eterna - Espírito de Zhao Yun",
+    "ru": "Вечная слава – дух Чжао Юня",
+    "zh": "永烈千秋·赵云的英魂",
+    "zh-Hant": "永烈千秋·趙雲的英魂"
+   },
    "via": "sibling:BP_ZY_AI_C"
   },
   "BP_duanjian_high_yaohuangzei_chapter_4_C": {
@@ -1084,25 +1133,75 @@
    "markers": 0
   },
   "Special_NW_2_C": {
+   "key": "boss_name_50700",
    "markers": 0,
    "name": "Bo Magus",
+   "names": {
+    "de": "Hohemagierin der Bo",
+    "es": "Magus Bo",
+    "fr": "Prêtresse des Bo",
+    "it": "Sacerdotessa di Bo",
+    "ja": "僰人の巫祝",
+    "ko": "북인무축",
+    "pt": "Bruxa Bo",
+    "ru": "Ведьма племени Бо",
+    "zh": "僰人巫祝"
+   },
    "via": "sibling:B_NW_C"
   },
   "Special_NW_C": {
    "ai_id": "50702",
+   "key": "boss_name_50700",
    "markers": 2,
    "name": "Bo Magus",
+   "names": {
+    "de": "Hohemagierin der Bo",
+    "es": "Magus Bo",
+    "fr": "Prêtresse des Bo",
+    "it": "Sacerdotessa di Bo",
+    "ja": "僰人の巫祝",
+    "ko": "북인무축",
+    "pt": "Bruxa Bo",
+    "ru": "Ведьма племени Бо",
+    "zh": "僰人巫祝"
+   },
    "via": "neighbour:50700"
   },
   "XYZ_FriendAI_Chp04_C": {
+   "key": "boss_name_51100",
    "markers": 0,
    "name": "Feathery Ambition - Xuanyangzi",
+   "names": {
+    "de": "Gefiederte Ambition – Xuanyangzi",
+    "es": "Ambición plumífera - Xuanyangzi",
+    "fr": "Ambition ornithrope - Xuanyangzi",
+    "it": "Ambizione Yuren - Xuanyangzi",
+    "ja": "「羽を乞う者」玄陽子",
+    "ko": "우화의 숙원·현양자",
+    "pt": "Ambição Emplumada - Xuanyangzi",
+    "ru": "Пернатая надежда – Сюань Янцзы",
+    "zh": "夙愿化羽·玄阳子",
+    "zh-Hant": "夙願化羽‧玄陽子"
+   },
    "via": "sibling:BP_XYZ_AI_C"
   },
   "ZY_FriendAI_Chp03_C": {
    "ai_id": "58200",
+   "key": "boss_name_50200",
    "markers": 0,
    "name": "Eternal Glory - Zhao Yun's Spirit",
+   "names": {
+    "de": "Ewiger Ruhm – Zhao Yuns Geist",
+    "es": "Gloria eterna - espíritu de Zhao Yun",
+    "fr": "Gloire éternelle - Esprit de Zhao Yun",
+    "it": "Gloria eterna - Spirito di Zhao Yun",
+    "ja": "「千秋の孤勇」趙雲の英魂",
+    "ko": "천추의 용장·조운의 영령",
+    "pt": "Glória Eterna - Espírito de Zhao Yun",
+    "ru": "Вечная слава – дух Чжао Юня",
+    "zh": "永烈千秋·赵云的英魂",
+    "zh-Hant": "永烈千秋·趙雲的英魂"
+   },
    "via": "sibling:BP_ZY_AI_C"
   },
   "guanbing_YanYueDao_C": {
@@ -1180,7 +1279,7 @@
   "sha256": "4d68270796fa930d7a122ec2301f59a48b56dfca2008bc243644692e97c40df9",
   "size": 141464648
  },
- "extractor_commit": "676ba00+dirty",
+ "extractor_commit": "32299cd+dirty",
  "game_build": "5.1.1.0",
  "generated_by": "tools/markers/build_enemies.py",
  "name_note": "Wuchang has no display name for an ordinary enemy: no enemy/monster key family in MMGame.locres, no name in a DT_AiTable row, no FText key embedded in an enemy blueprint, and no bestiary. Only the classes that own a boss_name_<id> get a name here; the rest keep the generic label. See this file's module docstring.",

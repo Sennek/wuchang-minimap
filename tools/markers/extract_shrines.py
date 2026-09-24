@@ -42,7 +42,8 @@ Exactly the three tricks `build_items.py` already uses, plus one anchor:
     the row, and `MMGame.locres` either has that key or it does not.  So the row
     payload is scanned for ASCII `FString`s and the first one that IS a locres
     key wins (`temple02` -> `ui_150` -> "Reverent Temple").  A wrong guess cannot
-    survive, because a wrong string is not a key.
+    survive, because a wrong string is not a key.  Every other culture's name is
+    that same key's string (`names`, `locres.py`).
 
     The chapter comes from the same payload for free: `LevelMap_Visible` is a
     `TArray<FString>` of level names such as `Chapter1_Temple_Props`.
@@ -71,6 +72,7 @@ sys.path.insert(0, os.path.join(_HERE, "..", "navmesh", "offline"))
 
 import pakmaps                                              # noqa: E402
 import build_items as BI                                    # noqa: E402
+import locres                                               # noqa: E402
 import provenance                                           # noqa: E402
 from uprops import parse_header                             # noqa: E402
 
@@ -223,25 +225,33 @@ def read_rows(ms, verbose: bool = True) -> list[dict]:
     return rows
 
 
-def shrine_names(ms, lang: str = "en", verbose: bool = False) -> dict[str, str]:
-    """`fire-point id -> localised English name`, straight from the paks.
-
-    The same route `build()` uses (a `DT_FirePoint` row -> the ASCII `FString`
-    in its payload that IS a locres key -> `MMGame.locres`) minus the join to
-    the marker DB.  That is what `extract_markers.py` needs to put the in-game
-    rest-point name on every shrine marker, and it deliberately does NOT read
-    `markers/shrines.json`: that file's `shrine` flag and its `x/y/z` come FROM
-    the marker DB, so reading it back while building the marker DB would be a
-    cycle.  Names have no such dependency - they are a property of the table.
-    """
-    loc = BI.read_locres(ms.read(BI.LOCRES.format(lang=lang)))
+def name_keys(ms, loc: dict[str, str], verbose: bool = False) -> dict[str, str]:
+    """`fire-point id -> the locres key of its ShowName`, straight from the paks: a
+    `DT_FirePoint` row -> the first ASCII `FString` in its payload that IS a
+    non-empty key of the English `loc`.  The strings the scan finds are the KEYS,
+    so the same key names the row in every culture."""
     out: dict[str, str] = {}
     for r in read_rows(ms, verbose=verbose):
         for t in r["strings"]:
             if t in loc and loc[t]:
-                out[r["id"]] = loc[t]
+                out[r["id"]] = t
                 break
     return out
+
+
+def shrine_names(ms, strings: "locres.Strings",
+                 verbose: bool = False) -> dict[str, tuple[str, dict[str, str]]]:
+    """`fire-point id -> (English name, {culture: name that differs})`.
+
+    The same route `build()` uses minus the join to the marker DB.  That is what
+    `extract_markers.py` needs to put the in-game rest-point name on every
+    shrine marker, and it deliberately does NOT read `markers/shrines.json`:
+    that file's `shrine` flag and its `x/y/z` come FROM the marker DB, so
+    reading it back while building the marker DB would be a cycle.  Names have
+    no such dependency - they are a property of the table.
+    """
+    return {fp: (strings.en[k], strings.names(k, str))
+            for fp, k in name_keys(ms, strings.en, verbose).items()}
 
 
 def marker_positions(markers_dir: str) -> dict[str, dict]:
@@ -272,15 +282,15 @@ def marker_positions(markers_dir: str) -> dict[str, dict]:
             out[mid] = {"chapter": m.get("chapter", ch), "x": m.get("x"),
                         "y": m.get("y"), "z": m.get("z"),
                         "fp": m.get("fp") or mid.split("@")[0],
-                        "level": m.get("level"), "name": m.get("name")}
+                        "level": m.get("level"), "label": m.get("label")}
     return out
 
 
-def build(ms, markers_dir: str, lang: str = "en", verbose: bool = True,
+def build(ms, markers_dir: str, strings: "locres.Strings", verbose: bool = True,
           prov: dict | None = None) -> dict:
     prov = prov if prov is not None else {}
-    loc = BI.read_locres(ms.read(BI.LOCRES.format(lang=lang)))
     rows = read_rows(ms)
+    keys = name_keys(ms, strings.en)
     joined = marker_positions(markers_dir)
 
     named = 0
@@ -314,11 +324,10 @@ def build(ms, markers_dir: str, lang: str = "en", verbose: bool = True,
             rec["bx"] = round(r["bx"], 2)
             rec["by"] = round(r["by"], 2)
             rec["bz"] = round(r["bz"], 2)
-        for s in r["strings"]:
-            if s in loc and loc[s]:
-                rec["name"] = loc[s]
-                named += 1
-                break
+        key = keys.get(r["id"])
+        if key:
+            locres.with_names(rec, strings.en[key], strings.names(key, str))
+            named += 1
         m = joined.get(r["id"])
         chapter = r["chapter"]
         # A row that joins to a shrine MARKER is a real, visitable shrine. The rest
@@ -344,15 +353,16 @@ def build(ms, markers_dir: str, lang: str = "en", verbose: bool = True,
         rec = {"id": mid, "shrine": True, "source": "marker"}
         if m["fp"] != mid:
             rec["fp"] = m["fp"]
-        # The marker's own label ("Shrine LiuHKK01"), not a locres name, and that
-        # is why it is not counted in `named`. `shdb::Shrine::label()` would
-        # otherwise fall back to the raw id, which for a duplicated fire point is
-        # the whole `LiuHKK01@ChapterDLC_LiuHuangKK_logic/BP_RebornFire_C_0`
-        # string - unreadable in the shrine list. The two `LiuHKK01` rows get the
-        # SAME label on purpose: they are the same authored fire point, the game
-        # keeps one unlock flag for it, and `level` is what tells them apart.
-        if m.get("name"):
-            rec["name"] = m["name"]
+        # The marker's own label tag (`shrine`: "Shrine LiuHKK01" once the runtime
+        # composes it with `fp`), not a locres name, and that is why it is not
+        # counted in `named`. `shdb::Shrine::label()` would otherwise fall back to
+        # the raw id, which for a duplicated fire point is the whole
+        # `LiuHKK01@ChapterDLC_LiuHuangKK_logic/BP_RebornFire_C_0` string -
+        # unreadable in the shrine list. The two `LiuHKK01` rows get the SAME
+        # label on purpose: they are the same authored fire point, the game keeps
+        # one unlock flag for it, and `level` is what tells them apart.
+        if m.get("label"):
+            rec["label"] = m["label"]
         if m["x"] is not None:
             rec["x"] = round(float(m["x"]), 2)
             rec["y"] = round(float(m["y"]), 2)
@@ -391,13 +401,13 @@ def main() -> int:
     ap.add_argument("--pak", default=pakmaps.DEFAULT_PAK)
     ap.add_argument("--out", default=os.path.join(_HERE, "..", "..", "markers", "shrines.json"))
     ap.add_argument("--markers", default=os.path.join(_HERE, "..", "..", "markers"))
-    ap.add_argument("--lang", default="en")
+    locres.add_arg(ap)
     ap.add_argument("--stats", action="store_true")
     provenance.add_arg(ap)
     args = ap.parse_args()
 
     ms = pakmaps.MapSource(args.pak)
-    db = build(ms, os.path.abspath(args.markers), args.lang,
+    db = build(ms, os.path.abspath(args.markers), locres.Strings.load(ms, args.lang),
                prov=provenance.stamp(ms, args.pak, not args.no_pak_hash))
     if args.stats:
         for s in db["shrines"]:

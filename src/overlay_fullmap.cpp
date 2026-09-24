@@ -606,50 +606,53 @@ namespace overlay
             // a filter toggled here is toggled everywhere.
             void map_header(MapFrame& fr)
             {
-                ImGui::Text("Wuchang map");
+                ImGui::TextUnformatted(tr(S::FmTitle));
                 ImGui::SameLine();
                 // The floor offset in metres, named as a storey delta. 1 uu = 1 cm.
-                ImGui::TextDisabled("%s   |   %.0f uu/px   |   floor %+.1f m   |   X %.0f  Y %.0f",
-                                    fr.chapter != nullptr ? fr.chapter->key.c_str() : "no chapter here",
-                                    g_mv.uu_per_px,
-                                    static_cast<double>(g_map_floor_off) / 100.0,
-                                    fr.snap.x,
-                                    fr.snap.y);
+                const char* chapter = fr.chapter != nullptr ? fr.chapter->key.c_str() : tr(S::FmNoChapterHere);
+                const lang::Text<256> info = lang::fmt<S::FmHeaderInfo>(
+                    chapter, g_mv.uu_per_px, static_cast<double>(g_map_floor_off) / 100.0, fr.snap.x, fr.snap.y);
+                ImGui::TextDisabled("%s", info.c_str());
                 // The button group is measured from its own labels, so it ends flush with
                 // the window's right edge at every width, font and UI scale, and drops to
                 // its own line when the readout leaves it no room.
+                const Label fit = lbl(S::FmFit);
+                const Label stats = lbl(S::FmStats);
+                const Label shrines = lbl(S::FmShrines);
+                const Label recentre = lbl(S::FmRecentre);
+                const Label close = lbl(S::Close);
                 {
                     float bw[5]{};
                     int bn = 0;
-                    bw[bn++] = button_width("Fit");
-                    bw[bn++] = button_width("Stats");
-                    bw[bn++] = button_width("Shrines");
-                    bw[bn++] = button_width("Recentre");
-                    bw[bn++] = button_width("Close");
+                    bw[bn++] = button_width(fit.c_str());
+                    bw[bn++] = button_width(stats.c_str());
+                    bw[bn++] = button_width(shrines.c_str());
+                    bw[bn++] = button_width(recentre.c_str());
+                    bw[bn++] = button_width(close.c_str());
                     right_align_group(row_width(bw, bn), ImGui::GetCursorScreenPos().x);
                 }
                 // Zoom to fit, from the chapter's bounds in the manifest.
-                if (ImGui::SmallButton("Fit"))
+                if (ImGui::SmallButton(fit.c_str()))
                 {
                     fr.want_fit = true;
                 }
                 ImGui::SameLine();
-                if (ImGui::SmallButton("Stats"))
+                if (ImGui::SmallButton(stats.c_str()))
                 {
                     g_stats_page = !g_stats_page;
                 }
                 ImGui::SameLine();
-                if (ImGui::SmallButton("Shrines"))
+                if (ImGui::SmallButton(shrines.c_str()))
                 {
                     g_shrine_panel = !g_shrine_panel;
                 }
                 ImGui::SameLine();
-                if (ImGui::SmallButton("Recentre"))
+                if (ImGui::SmallButton(recentre.c_str()))
                 {
                     g_map_recenter.store(true, std::memory_order_relaxed);
                 }
                 ImGui::SameLine();
-                if (ImGui::SmallButton("Close"))
+                if (ImGui::SmallButton(close.c_str()))
                 {
                     close_map(L"the Close button");
                 }
@@ -673,7 +676,7 @@ namespace overlay
                 }
                 ImGui::SetNextItemWidth((std::min)(240.0f * g_chrome_scale,
                                                    ImGui::GetContentRegionAvail().x));
-                if (ImGui::InputTextWithHint("##mapsearch", "search marker names...", g_map_search,
+                if (ImGui::InputTextWithHint("##mapsearch", tr(S::FmSearchHint), g_map_search,
                                              sizeof(g_map_search)))
                 {
                     g_search_panel = g_map_search[0] != '\0';
@@ -752,9 +755,10 @@ namespace overlay
             // rather than run under the window's right edge.
             void map_search_row(MapFrame& fr)
             {
-                (void)same_line_if_fits(button_width("clear"));
+                const Label clear = lbl(S::FmClearSearch);
+                (void)same_line_if_fits(button_width(clear.c_str()));
                 ImGui::BeginDisabled(!fr.searching);
-                if (ImGui::SmallButton("clear"))
+                if (ImGui::SmallButton(clear.c_str()))
                 {
                     g_map_search[0] = '\0';
                     g_search_panel = false;
@@ -763,21 +767,19 @@ namespace overlay
                 ImGui::EndDisabled();
                 if (fr.searching)
                 {
-                    char matches[64]{};
-                    (void)std::snprintf(matches, sizeof(matches), "%d match(es)   Esc clears",
-                                        g_map_search_hits);
-                    (void)same_line_if_fits(ImGui::CalcTextSize(matches).x);
-                    ImGui::TextDisabled("%s", matches);
+                    const lang::Text<128> matches = lang::fmt<S::FmMatches, 128>(g_map_search_hits);
+                    (void)same_line_if_fits(ImGui::CalcTextSize(matches.c_str()).x);
+                    ImGui::TextDisabled("%s", matches.c_str());
                 }
-                (void)same_line_if_fits(button_width("Waypoints"));
-                if (ImGui::SmallButton("Waypoints"))
+                const Label waypoints = lbl(S::Waypoints);
+                (void)same_line_if_fits(button_width(waypoints.c_str()));
+                if (ImGui::SmallButton(waypoints.c_str()))
                 {
                     g_wp_panel = !g_wp_panel;
                 }
-                char wp_count[32]{};
-                (void)std::snprintf(wp_count, sizeof(wp_count), "%zu set", fr.wps.count);
-                (void)same_line_if_fits(ImGui::CalcTextSize(wp_count).x);
-                ImGui::TextDisabled("%s", wp_count);
+                const lang::Text<64> wp_count = lang::fmt<S::FmWaypointsSet, 64>(fr.wps.count);
+                (void)same_line_if_fits(ImGui::CalcTextSize(wp_count.c_str()).x);
+                ImGui::TextDisabled("%s", wp_count.c_str());
             }
 
             //==================================================================
@@ -787,10 +789,19 @@ namespace overlay
             {
                 const float footer_h = ImGui::GetTextLineHeightWithSpacing() * 2.2f;
                 const ImVec2 avail = ImGui::GetContentRegionAvail();
-                // Sized from the text, so it is right at every ui_scale, and capped at a
-                // share of the row so a narrow window keeps a canvas instead of pushing
-                // the legend past the right edge.
-                const float legend_want = ImGui::CalcTextSize("      Fog gates   9999/9999").x +
+                // Sized from the widest row this language draws, so it is right at every
+                // ui_scale and in every language, and capped at a share of the row so a
+                // narrow window keeps a canvas instead of pushing the legend past the right
+                // edge.
+                float label_w = 0.0f;
+                for (int i = 0; i < mdb::kCatCount; ++i)
+                {
+                    const char* label = mdb::cat_label(static_cast<mdb::Cat>(i));
+                    label_w = (std::max)(label_w, ImGui::CalcTextSize(label).x);
+                }
+                const lang::Text<64> count = lang::fmt<S::CgRowCount, 64>("", 9999, 9999);
+                const float legend_want = ImGui::CalcTextSize(kGlyphGutter).x + label_w +
+                                          ImGui::CalcTextSize(count.c_str()).x +
                                           ImGui::GetStyle().FramePadding.x * 4.0f;
                 fr.legend_w = (std::max)(48.0f, (std::min)(legend_want, avail.x * 0.4f));
                 fr.csize = ImVec2{
@@ -831,24 +842,29 @@ namespace overlay
                 const bool on = mdb::cat_enabled(fr.cfg.markers_categories, cat);
                 const ImVec2 row = ImGui::GetCursorScreenPos();
                 ImGui::PushID(i);
-                static char row_text[mdb::kCatCount][64]{};
+                static char row_text[mdb::kCatCount][128]{};
                 static int row_found[mdb::kCatCount]{};
                 static int row_total[mdb::kCatCount]{};
+                static lang::Culture row_culture[mdb::kCatCount]{};
                 static bool row_valid[mdb::kCatCount]{};
-                if (!row_valid[i] || row_found[i] != cs.found || row_total[i] != cs.total)
+                const lang::Culture culture = lang::active();
+                if (!row_valid[i] || row_found[i] != cs.found || row_total[i] != cs.total ||
+                    row_culture[i] != culture)
                 {
                     row_valid[i] = true;
                     row_found[i] = cs.found;
                     row_total[i] = cs.total;
+                    row_culture[i] = culture;
                     if (cs.total > 0)
                     {
-                        (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s   %d/%d",
-                                            mdb::cat_label(cat), cs.found, cs.total);
+                        (void)utf8::format(row_text[i], sizeof(row_text[i]), "%s%s", kGlyphGutter,
+                                           lang::fmt<S::CgRowCount, 112>(mdb::cat_label(cat), cs.found, cs.total)
+                                               .c_str());
                     }
                     else
                     {
-                        (void)std::snprintf(row_text[i], sizeof(row_text[i]), "      %s",
-                                            mdb::cat_label(cat));
+                        (void)utf8::format(row_text[i], sizeof(row_text[i]), "%s%s", kGlyphGutter,
+                                           mdb::cat_label(cat));
                     }
                 }
                 ImGui::PushStyleColor(ImGuiCol_Text,
@@ -879,30 +895,18 @@ namespace overlay
                     // every chapter. The label is what is actually drawn, so with the
                     // filter on and no chapter detected it says so rather than claiming a
                     // chapter. `###` keeps the id stable while the text changes.
-                    char scope[64]{};
-                    if (!fr.cfg.markers_filter_chapter)
-                    {
-                        (void)std::snprintf(scope, sizeof(scope), "all chapters###scope");
-                    }
-                    else if (fch == chid::kDlc)
-                    {
-                        (void)std::snprintf(scope, sizeof(scope), "DLC only###scope");
-                    }
-                    else if (per_chapter)
-                    {
-                        (void)std::snprintf(scope, sizeof(scope), "chapter %d only###scope", fch);
-                    }
-                    else
-                    {
-                        (void)std::snprintf(scope, sizeof(scope), "chapter not detected###scope");
-                    }
-                    if (ImGui::SmallButton(scope))
+                    const lang::Text<128> scope =
+                        !fr.cfg.markers_filter_chapter ? lang::fmt<S::FmScopeAll, 128>()
+                        : fch == chid::kDlc            ? lang::fmt<S::FmScopeDlc, 128>()
+                        : per_chapter                  ? lang::fmt<S::FmScopeChapter, 128>(fch)
+                                                       : lang::fmt<S::FmScopeUndetected, 128>();
+                    if (ImGui::SmallButton(lang::Text<160>("%s###scope", scope.c_str()).c_str()))
                     {
                         fr.cfg.markers_filter_chapter = !fr.cfg.markers_filter_chapter;
                     }
                     if (ImGui::IsItemHovered())
                     {
-                        ImGui::SetTooltip("markers and counts: this chapter only, or every chapter");
+                        ImGui::SetTooltip("%s", tr(S::FmScopeTip));
                     }
                     ImDrawList* ldl = ImGui::GetWindowDrawList();
                     const float glyph_r = (std::max)(4.0f, ImGui::GetTextLineHeight() * 0.34f);
@@ -912,27 +916,28 @@ namespace overlay
                                        glyph_r);
                     }
                     ImGui::Spacing();
-                    if (ImGui::SmallButton("all"))
+                    if (ImGui::SmallButton(lbl(S::All).c_str()))
                     {
                         fr.cfg.markers_categories = mdb::kAllCats;
                     }
-                    (void)same_line_if_fits(button_width("none"));
-                    if (ImGui::SmallButton("none"))
+                    const Label none = lbl(S::None);
+                    (void)same_line_if_fits(button_width(none.c_str()));
+                    if (ImGui::SmallButton(none.c_str()))
                     {
                         fr.cfg.markers_categories = 0u;
                     }
                     // A checkbox is the square plus the inner gap plus its label.
                     (void)same_line_if_fits(ImGui::GetFrameHeight() +
                                             ImGui::GetStyle().ItemInnerSpacing.x +
-                                            ImGui::CalcTextSize("found").x);
+                                            ImGui::CalcTextSize(tr(S::FmFound)).x);
                     bool show_found = !fr.cfg.markers_hide_found;
-                    if (ImGui::Checkbox("found", &show_found))
+                    if (ImGui::Checkbox(lbl(S::FmFound).c_str(), &show_found))
                     {
                         fr.cfg.markers_hide_found = !show_found;
                     }
                     if (ImGui::IsItemHovered())
                     {
-                        ImGui::SetTooltip("show markers already found");
+                        ImGui::SetTooltip("%s", tr(S::FmFoundTip));
                     }
                 }
                 ImGui::EndChild();
@@ -1457,7 +1462,7 @@ namespace overlay
                     if (ddx * ddx + ddy * ddy <= fr.pick_r * fr.pick_r)
                     {
                         mm::remove_waypoint(wi);
-                        toast("waypoint removed");
+                        toast(tr(S::TsWaypointRemoved));
                         return;
                     }
                 }
@@ -1466,7 +1471,7 @@ namespace overlay
                 set.x = wx;
                 set.y = wy;
                 set.z = static_cast<double>(fr.feet);
-                toast(mm::add_waypoint(set) ? "waypoint set" : "no room for another waypoint");
+                toast(tr(mm::add_waypoint(set) ? S::TsWaypointSet : S::TsWaypointFull));
             }
 
             // A waypoint on a marker's own spot, or off it. The marker's z comes along, so
@@ -1479,12 +1484,12 @@ namespace overlay
                 if (t.action == mv::WaypointToggle::Remove)
                 {
                     mm::remove_waypoint(static_cast<std::size_t>(t.index));
-                    toast("waypoint removed");
+                    toast(tr(S::TsWaypointRemoved));
                     return;
                 }
                 if (t.action == mv::WaypointToggle::Full)
                 {
-                    toast("no room for another waypoint");
+                    toast(tr(S::TsWaypointFull));
                     return;
                 }
                 mv::Waypoint wp{};
@@ -1492,7 +1497,7 @@ namespace overlay
                 wp.x = m.x;
                 wp.y = m.y;
                 wp.z = m.z;
-                toast(mm::add_waypoint(wp) ? "waypoint set" : "no room for another waypoint");
+                toast(tr(mm::add_waypoint(wp) ? S::TsWaypointSet : S::TsWaypointFull));
             }
 
             // After the draw, so `hover` is known. The pad and keyboard equivalents land
@@ -1543,7 +1548,7 @@ namespace overlay
                 const mdb::Cat cat = static_cast<mdb::Cat>(m.cat);
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(marker_color(cat, 255)), "%s",
                                    mdb::display_label(cat, m.label));
-                ImGui::Text("category: %s", mdb::cat_name(cat));
+                ImGui::TextUnformatted(lang::fmt<S::FmCategory>(mdb::cat_label(cat)).c_str());
                 // The stable id is a path (`Chapter1_DGong_logic/BP_treasurebox_C_12`), the
                 // join key with the live actors and what a bug report needs - noise to
                 // everyone else, hence the debug switch.
@@ -1560,29 +1565,27 @@ namespace overlay
                 const char* state = "";
                 if (collectible)
                 {
-                    state = marker_found_now(m) ? "FOUND   " : "not found   ";
+                    state = tr(marker_found_now(m) ? S::FmStateFound : S::FmStateNotFound);
                 }
+                const double away = std::sqrt(ddx * ddx + ddy * ddy) / 100.0;
                 if (std::fabs(dz_m) < 0.5)
                 {
-                    ImGui::Text("%s%.0f m away, same level", state,
-                                std::sqrt(ddx * ddx + ddy * ddy) / 100.0);
+                    ImGui::TextUnformatted(lang::fmt<S::FmAwaySameLevel>(state, away).c_str());
+                }
+                else if (dz_m > 0.0)
+                {
+                    ImGui::TextUnformatted(lang::fmt<S::FmAwayAbove>(state, away, std::fabs(dz_m)).c_str());
                 }
                 else
                 {
-                    ImGui::Text("%s%.0f m away, %.0f m %s", state,
-                                std::sqrt(ddx * ddx + ddy * ddy) / 100.0, std::fabs(dz_m),
-                                dz_m > 0.0 ? "above" : "below");
+                    ImGui::TextUnformatted(lang::fmt<S::FmAwayBelow>(state, away, std::fabs(dz_m)).c_str());
                 }
                 const bool hover_wp =
                     mv::waypoint_toggle_at(fr.wps, m.x, m.y, m.z, mv::kWaypointSamePlace).action ==
                     mv::WaypointToggle::Remove;
-                const char* toggle_hint =
-                    collectible
-                        ? (hover_wp ? "left-click toggles found - right-click removes the waypoint"
-                                    : "left-click toggles found - right-click toggles waypoint")
-                        : (hover_wp ? "right-click removes the waypoint"
-                                    : "right-click toggles waypoint");
-                ImGui::TextDisabled("%s", toggle_hint);
+                const S toggle_hint = collectible ? (hover_wp ? S::FmHintFoundRemove : S::FmHintFoundToggle)
+                                                  : (hover_wp ? S::FmHintRemove : S::FmHintToggle);
+                ImGui::TextDisabled("%s", tr(toggle_hint));
                 ImGui::EndTooltip();
             }
 
@@ -1618,9 +1621,9 @@ namespace overlay
                         dropdown_hovered =
                             ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem |
                                                    ImGuiHoveredFlags_ChildWindows);
-                        ImGui::TextDisabled("%d marker(s) match \"%s\" - click one to waypoint it, "
-                                            "right-click to toggle",
-                                            g_map_search_hits, g_map_search);
+                        const lang::Text<512> head =
+                            lang::fmt<S::FmResultsHead, 512>(g_map_search_hits, g_map_search);
+                        ImGui::TextDisabled("%s", head.c_str());
                         constexpr std::size_t kMaxRows = 200;
                         for (std::size_t i = 0; i < hits.size() && i < kMaxRows; ++i)
                         {
@@ -1629,20 +1632,18 @@ namespace overlay
                             const double ddx = m.x - fr.snap.x;
                             const double ddy = m.y - fr.snap.y;
                             ImGui::PushID(static_cast<int>(i));
-                            char row[128]{};
-                            (void)std::snprintf(row, sizeof(row), "%s   %.0f m   (%s)",
-                                                mdb::display_label(cat, m.label),
-                                                std::sqrt(ddx * ddx + ddy * ddy) / 100.0,
-                                                mdb::cat_name(cat));
-                            if (ImGui::Selectable(row))
+                            // Under the row's PushID, so the text alone is the id and may change.
+                            const lang::Text<192> row = lang::fmt<S::FmResultRow, 192>(
+                                mdb::display_label(cat, m.label), std::sqrt(ddx * ddx + ddy * ddy) / 100.0,
+                                mdb::cat_label(cat));
+                            if (ImGui::Selectable(row.c_str()))
                             {
                                 mv::Waypoint wp{};
                                 wp.set = true;
                                 wp.x = m.x;
                                 wp.y = m.y;
                                 wp.z = m.z;
-                                toast(mm::add_waypoint(wp) ? "waypoint set"
-                                                           : "no room for another waypoint");
+                                toast(tr(mm::add_waypoint(wp) ? S::TsWaypointSet : S::TsWaypointFull));
                             }
                             if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
                             {
@@ -1652,7 +1653,7 @@ namespace overlay
                         }
                         if (hits.size() > kMaxRows)
                         {
-                            ImGui::TextDisabled("... and %zu more", hits.size() - kMaxRows);
+                            ImGui::TextDisabled("%s", lang::fmt<S::FmAndMore>(hits.size() - kMaxRows).c_str());
                         }
                     }
                     ImGui::End();
@@ -1683,18 +1684,12 @@ namespace overlay
                 ImGui::SetNextWindowPos(ImVec2(vpsz.x * 0.5f, vpsz.y * 0.5f), ImGuiCond_Appearing,
                                         ImVec2(0.5f, 0.5f));
                 ImGui::SetNextWindowSize(ImVec2(460.0f * g_chrome_scale, 0.0f), ImGuiCond_Appearing);
-                if (ImGui::Begin("Waypoints", &g_wp_panel,
+                if (ImGui::Begin(lbl(S::Waypoints).c_str(), &g_wp_panel,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
                     const mv::WaypointSet& live = fr.wps;
-                    {
-                        char head[128]{};
-                        (void)std::snprintf(head, sizeof(head),
-                                            "%zu of %zu   -   right-click a marker or the map to "
-                                            "toggle one",
-                                            live.count, mv::kMaxWaypoints);
-                        text_disabled_wrapped(head);
-                    }
+                    text_disabled_wrapped(
+                        lang::fmt<S::FmWaypointsHead, 512>(live.count, mv::kMaxWaypoints).c_str());
                     const int nearest = mv::nearest_waypoint(live, fr.snap.x, fr.snap.y);
                     for (std::size_t wi = 0; wi < live.count; ++wi)
                     {
@@ -1708,8 +1703,9 @@ namespace overlay
                             ImGui::PopID();
                             break;
                         }
-                        (void)same_line_if_fits(button_width("go to"));
-                        if (ImGui::SmallButton("go to"))
+                        const Label go_to = lbl(S::FmGoTo);
+                        (void)same_line_if_fits(button_width(go_to.c_str()));
+                        if (ImGui::SmallButton(go_to.c_str()))
                         {
                             g_mv.cx = wp.x;
                             g_mv.cy = wp.y;
@@ -1718,20 +1714,21 @@ namespace overlay
                         ImGui::SameLine();
                         // Wrapped: a coordinate line is longer than the window's default
                         // width, and the player can narrow the window further.
-                        ImGui::TextWrapped("%zu.  %.0f m   X %.0f  Y %.0f  Z %.0f%s", wi + 1,
-                                           std::sqrt(ddx * ddx + ddy * ddy) / 100.0, wp.x, wp.y, wp.z,
-                                           static_cast<int>(wi) == nearest ? "   (nearest)" : "");
+                        const char* tag = static_cast<int>(wi) == nearest ? tr(S::FmNearestTag) : "";
+                        const lang::Text<256> row = lang::fmt<S::FmWaypointRow>(
+                            wi + 1, std::sqrt(ddx * ddx + ddy * ddy) / 100.0, wp.x, wp.y, wp.z, tag);
+                        ImGui::TextWrapped("%s", row.c_str());
                         ImGui::PopID();
                     }
                     ImGui::Spacing();
                     ImGui::BeginDisabled(live.count == 0);
-                    if (ImGui::Button("Clear all"))
+                    if (ImGui::Button(lbl(S::FmClearAll).c_str()))
                     {
                         mm::clear_waypoints();
                     }
                     ImGui::EndDisabled();
                     ImGui::SameLine();
-                    if (ImGui::Button("Close"))
+                    if (ImGui::Button(lbl(S::Close).c_str()))
                     {
                         g_wp_panel = false;
                     }
@@ -1752,12 +1749,12 @@ namespace overlay
                 ImGui::SetNextWindowPos(ImVec2(vpsz.x * 0.5f, vpsz.y * 0.5f), ImGuiCond_Appearing,
                                         ImVec2(0.5f, 0.5f));
                 ImGui::SetNextWindowSize(ImVec2(620.0f * g_chrome_scale, 0.0f), ImGuiCond_Appearing);
-                if (ImGui::Begin("Shrines", &g_shrine_panel,
+                if (ImGui::Begin(lbl(S::FmShrines).c_str(), &g_shrine_panel,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
                     draw_shrine_list(fr.snap, have_state, markers::stats().filter_chapter);
                     ImGui::Spacing();
-                    if (ImGui::Button("Close"))
+                    if (ImGui::Button(lbl(S::Close).c_str()))
                     {
                         g_shrine_panel = false;
                     }
@@ -1782,12 +1779,12 @@ namespace overlay
                 ImGui::SetNextWindowPos(ImVec2(vpsz.x * 0.5f, vpsz.y * 0.5f), ImGuiCond_Appearing,
                                         ImVec2(0.5f, 0.5f));
                 ImGui::SetNextWindowSize(ImVec2(720.0f * g_chrome_scale, 0.0f), ImGuiCond_Appearing);
-                if (ImGui::Begin("Collection", &g_stats_page,
+                if (ImGui::Begin(lbl(S::FmCollection).c_str(), &g_stats_page,
                                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
                 {
                     draw_collection_stats(::GetTickCount64(), false);
                     ImGui::Spacing();
-                    if (ImGui::Button("Close"))
+                    if (ImGui::Button(lbl(S::Close).c_str()))
                     {
                         g_stats_page = false;
                     }
@@ -1835,6 +1832,7 @@ namespace overlay
                     bool hl_on = false;
                     bool hl_hold = false;
                     bool pad = false;
+                    lang::Culture culture = lang::Culture::En;
                     // Defaulted ==, not memcmp: padding bytes in an aggregate are
                     // unspecified, and a spurious "changed" puts the per-frame allocations
                     // back silently.
@@ -1850,7 +1848,8 @@ namespace overlay
                                    cfg.highlight_key,
                                    cfg.highlight_enabled,
                                    cfg.highlight_mode == mm::HighlightMode::Hold,
-                                   pad_help};
+                                   pad_help,
+                                   lang::active()};
                 static std::vector<HelpRow> left;
                 static std::vector<HelpRow> right;
                 static HelpKey have{};
@@ -1866,59 +1865,62 @@ namespace overlay
                 const auto add = [](std::vector<HelpRow>& into, std::string c, std::string a) {
                     into.push_back(HelpRow{std::move(c), std::move(a)});
                 };
-                add(left, "mouse / keyboard", "");
-                add(left, "drag, WASD, arrows", "pan");
-                add(left, "wheel, + / -", "zoom");
-                add(left, "ctrl+wheel, Q / E", "floor down / up");
-                add(left, "Home", "zoom to fit the chapter");
-                add(left, key_name_ascii(cfg.map_recenter_key), "recentre on the player");
-                add(left, "right-click a marker", "waypoint it (again on it removes it)");
-                add(left, "right-click, Space", "drop a waypoint on the spot (again removes it)");
-                add(left, "the search box", "show only markers whose name matches");
-                add(left, "Waypoints", "the waypoint list (remove one, or all)");
-                add(left, "left-click, F", "toggle found");
-                add(left, "click a legend row", "filter that category (remembered)");
-                add(left, "the legend header", "this chapter's markers only, or every chapter");
-                add(left, key_name_ascii(cfg.screenshot_key), "copy the map to the clipboard (keyboard)");
-                add(left, "Shrines", "shrine list (click = waypoint, double-click = centre)");
-                add(left, "Stats", "collection statistics");
-                add(left, "F1 or H", "this legend");
-                add(left, key_name_ascii(cfg.map_key) + ", Esc", "close the map");
+                // The pad's own button names (A, LB / RB) are what is printed on it, in every
+                // language.
+                add(left, tr(S::HpMouseKeyboard), "");
+                add(left, tr(S::HpDrag), tr(S::HpPan));
+                add(left, tr(S::HpWheel), tr(S::HpZoom));
+                add(left, tr(S::HpCtrlWheel), tr(S::HpFloor));
+                add(left, tr(S::HpHome), tr(S::HpZoomToFit));
+                add(left, key_display(cfg.map_recenter_key), tr(S::HpRecentreOnPlayer));
+                add(left, tr(S::HpRightClickMarker), tr(S::HpWaypointIt));
+                add(left, tr(S::HpRightClickSpace), tr(S::HpDropWaypoint));
+                add(left, tr(S::HpSearchBox), tr(S::HpSearchOnly));
+                add(left, tr(S::Waypoints), tr(S::HpWaypointList));
+                add(left, tr(S::HpLeftClickF), tr(S::HpToggleFound));
+                add(left, tr(S::HpLegendRow), tr(S::HpFilterCategory));
+                add(left, tr(S::HpLegendHeader), tr(S::HpScope));
+                add(left, key_display(cfg.screenshot_key), tr(S::HpCopyMap));
+                add(left, tr(S::FmShrines), tr(S::HpShrineList));
+                add(left, tr(S::FmStats), tr(S::HpStatistics));
+                add(left, tr(S::HpF1OrH), tr(S::HpThisLegend));
+                add(left, lang::fmt<S::HpKeyOrEsc>(key_display(cfg.map_key).c_str()).c_str(),
+                    tr(S::HpCloseMap));
                 if (pad_help)
                 {
-                    add(right, "gamepad", "");
-                    add(right, "left stick", "pan");
-                    add(right, "triggers, right stick", "zoom");
-                    add(right, "LB / RB", "floor down / up");
-                    add(right, "A", "drop a waypoint (again on it removes it)");
-                    add(right, "X", "toggle found");
-                    add(right, "Y", "recentre");
-                    add(right, "Back", "this legend");
-                    add(right, "B", "close the map");
+                    add(right, tr(S::HpGamepad), "");
+                    add(right, tr(S::HpLeftStick), tr(S::HpPan));
+                    add(right, tr(S::HpTriggers), tr(S::HpZoom));
+                    add(right, "LB / RB", tr(S::HpFloor));
+                    add(right, "A", tr(S::HpDropWaypointPad));
+                    add(right, "X", tr(S::HpToggleFound));
+                    add(right, "Y", tr(S::HpRecentre));
+                    add(right, tr(S::HpBack), tr(S::HpThisLegend));
+                    add(right, "B", tr(S::HpCloseMap));
                     add(right, "", "");
                 }
-                add(right, "outside the map (keyboard)", "");
-                add(right, key_name_ascii(cfg.panel_key), "settings panel");
-                add(right, key_name_ascii(cfg.zoom_key), "cycle the minimap zoom");
-                add(right, key_name_ascii(cfg.reload_key), "reload config, maps and markers");
+                add(right, tr(S::HpOutsideMap), "");
+                add(right, key_display(cfg.panel_key), tr(S::HpSettingsPanel));
+                add(right, key_display(cfg.zoom_key), tr(S::HpCycleZoom));
+                add(right, key_display(cfg.reload_key), tr(S::HpReload));
                 // Unbound by default (the game owns G), so the row is there only once the
                 // player has bound it.
                 if (mm::key_vk(cfg.waypoint_nearest_key) != 0)
                 {
-                    add(right, key_name_ascii(cfg.waypoint_nearest_key),
-                        "waypoint the nearest unfound marker");
+                    add(right, key_display(cfg.waypoint_nearest_key), tr(S::HpNearest));
                 }
                 if (cfg.highlight_enabled)
                 {
-                    add(right,
-                        (cfg.highlight_mode == mm::HighlightMode::Hold ? "hold " : "press ") +
-                            key_name_ascii(cfg.highlight_key),
-                        "x-ray nearby markers");
+                    const std::string key = key_display(cfg.highlight_key);
+                    const lang::Text<256> how = cfg.highlight_mode == mm::HighlightMode::Hold
+                                                    ? lang::fmt<S::KeyHold>(key.c_str())
+                                                    : lang::fmt<S::KeyPress>(key.c_str());
+                    add(right, how.c_str(), tr(S::HpXray));
                 }
                 if (cfg.map_gamepad && cfg.map_pad_open_chord != 0)
                 {
                     add(right, wide_to_ascii(mm::pad_chord_name(cfg.map_pad_open_chord, false, false)),
-                        "open / close the map (pad)");
+                        tr(S::HpOpenMapPad));
                 }
                 return HelpText{&left, &right};
             }
@@ -1992,20 +1994,19 @@ namespace overlay
             {
                 if (!fr.have_picture)
                 {
-                    ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f},
-                                       fr.chapter == nullptr
-                                           ? "no chapter covers this position - markers only"
-                                           : "no height maps for this chapter - markers only");
+                    ImGui::TextColored(ImVec4{1.0f, 0.62f, 0.42f, 1.0f}, "%s",
+                                       tr(fr.chapter == nullptr ? S::FmNoChapterCovers : S::FmNoHeightMaps));
                 }
                 else
                 {
-                    ImGui::TextDisabled(
-                        "F1 or H (or pad Back) shows the controls   %s or Esc closes the map",
-                        key_name_ascii(fr.cfg.map_key).c_str());
+                    const lang::Text<512> help =
+                        lang::fmt<S::FmFooterHelp, 512>(key_display(fr.cfg.map_key).c_str());
+                    ImGui::TextDisabled("%s", help.c_str());
                 }
-                ImGui::TextDisabled("%d of %d marker(s)   cut %dx%d @ %.2f ms%s", g_map_markers_drawn,
-                                    g_map_markers_total, g_mslice[0].w, g_mslice[0].h, g_mslice_ms,
-                                    fr.cfg.map_gamepad && fr.gp.connected ? "   gamepad connected" : "");
+                const char* pad = fr.cfg.map_gamepad && fr.gp.connected ? tr(S::FmPadConnected) : "";
+                const lang::Text<512> stats = lang::fmt<S::FmFooterStats, 512>(
+                    g_map_markers_drawn, g_map_markers_total, g_mslice[0].w, g_mslice[0].h, g_mslice_ms, pad);
+                ImGui::TextDisabled("%s", stats.c_str());
             }
         } // namespace
 

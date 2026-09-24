@@ -45,6 +45,7 @@ namespace cfgkeys
     inline constexpr KeyInfo kKeys[] = {
         // PLAYER
         {"mod_enabled", Tier::Player},
+        {"language", Tier::Player},
         {"show_minimap", Tier::Player},
         {"overlay_update_hz", Tier::Player},
         {"theme", Tier::Player},

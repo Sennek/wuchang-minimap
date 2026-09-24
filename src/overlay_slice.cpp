@@ -1232,9 +1232,14 @@ namespace overlay
             return out;
         }
 
-        // A binding's display name, modifier prefix included ("F2", "CTRL+M").
-        std::string key_name_ascii(int binding)
+        // The config file's spelling, modifier prefix included ("F2", "ctrl+M"), which is
+        // ASCII by construction; only "unbound" is a word, and it is the active language's.
+        std::string key_display(int binding)
         {
+            if (mm::key_vk(binding) == 0)
+            {
+                return tr(S::KeyUnbound);
+            }
             return wide_to_ascii(mm::key_name(binding));
         }
 

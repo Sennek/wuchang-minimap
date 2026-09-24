@@ -10,6 +10,11 @@
 ; 1 = run; 0 = inert (no hook, no scans, no map). The F2 panel can switch it off, never on.
 mod_enabled = 1
 
+; The overlay's language: auto = the game's own, else one of en de es fr it ja ko pt ru
+; zh (Simplified Chinese) zh-Hant (Traditional Chinese). Names of places and items come
+; from the game in the same language.
+language = auto
+
 ; Draw the minimap disc.
 show_minimap = 1
 

@@ -3,8 +3,8 @@ r"""
 Offline item database for the Wuchang minimap mod -> `markers/items.json`.
 
 Every pickup in the game carries a numeric item ID inline in its cooked `.umap`
-export (see `extract_markers.item_ids`).  This tool turns those IDs into English
-display names, entirely from the paks:
+export (see `extract_markers.item_ids`).  This tool turns those IDs into display
+names in every culture the game ships, entirely from the paks:
 
     row of an item DataTable  ->  its `Name` FText key  ->  MMGame.locres
 
@@ -16,10 +16,8 @@ display names, entirely from the paks:
      242 / 1656 / 26 / 210 / 54 / 421, exactly the row counts recorded in
      `context/item-names-research.md`.
 
-  2. **Names.**  `Content/Localization/MMGame/en/MMGame.locres` is a locres v3
-     file (`Optimized_CRC32`): a header, a namespace/key table whose values are
-     indices, and a string table at `StringTableOffset`.  Wuchang puts every
-     game string in the **empty namespace**, keyed `<prefix>_<ID>_name` with a
+  2. **Names.**  `MMGame.locres` (`locres.py`) puts every game string in the
+     **empty namespace**, keyed `<prefix>_<ID>_name` with a
      matching `_des` (long description) and `_sum` (short one).  The prefix is
      the item's *kind*, not its table: `item`, `weapon`, `armor`, `ring`, `gem`,
      `spell`, `styleskill`, `weaponskill`, `CuiYu`.
@@ -38,8 +36,9 @@ display names, entirely from the paks:
      not either, so those are synthesised from the name the locres holds for them
      (`level_items`) -- otherwise a `+1` gem picked up in game has no name at all.
 
-English only, on purpose: the mod's UI is English (task `CLAUDE.md § Goal`).
-`--lang` is there for a future translation pass, nothing more.
+  4. **Cultures.**  The key is chosen in English and every other culture's name is
+     that key's string (`locres.py`): `name` is English, `names` the cultures that
+     differ.  Descriptions stay English - the mod draws none.
 
     python build_items.py                    # -> ..\..\markers\items.json
     python build_items.py --stats            # per-table coverage
@@ -63,6 +62,7 @@ import pakmaps                                              # noqa: E402
 import provenance                          # noqa: E402
 import uasset                                               # noqa: E402
 import itemdb                                               # noqa: E402
+import locres                                               # noqa: E402
 import pickup_buckets                                       # noqa: E402
 from itemdb import SCHEMA                                   # noqa: E402
 from uprops import parse_header                             # noqa: E402
@@ -125,71 +125,6 @@ TYPE_KEY_PREFIX = {
     "Spell": "spell",
     "StyleSkill": "styleskill",
 }
-
-LOCRES = "Content/Localization/MMGame/{lang}/MMGame.locres"
-LOCRES_MAGIC = bytes.fromhex("0e147475674a03fc4a15909dc3377f1b")
-
-
-# ---------------------------------------------------------------------------
-# locres
-# ---------------------------------------------------------------------------
-
-def _fstring(b: bytes, o: int) -> tuple[str, int]:
-    (n,) = struct.unpack_from("<i", b, o)
-    o += 4
-    if n == 0:
-        return "", o
-    if n < 0:                                   # UTF-16, length in characters
-        return b[o:o - 2 * n].decode("utf-16-le").rstrip("\0"), o - 2 * n
-    return b[o:o + n].decode("utf-8", "replace").rstrip("\0"), o + n
-
-
-def read_locres(blob: bytes) -> dict[str, str]:
-    """`key -> localised string` for the empty namespace (which is where every
-    Wuchang game string lives).  Namespaced keys are prefixed `<ns>/`."""
-    if blob[:16] != LOCRES_MAGIC:
-        raise SystemExit("not a locres file (bad magic)")
-    o = 16
-    version = blob[o]
-    o += 1
-    if version != 3:
-        raise SystemExit(f"locres version {version} not supported (expected 3)")
-    (string_table_offset,) = struct.unpack_from("<q", blob, o)
-    o += 8
-    (entry_count,) = struct.unpack_from("<I", blob, o)
-    o += 4
-    (ns_count,) = struct.unpack_from("<I", blob, o)
-    o += 4
-
-    index: dict[str, int] = {}
-    for _ in range(ns_count):
-        o += 4                                  # namespace hash
-        ns, o = _fstring(blob, o)
-        (key_count,) = struct.unpack_from("<I", blob, o)
-        o += 4
-        for _ in range(key_count):
-            o += 4                              # key hash
-            key, o = _fstring(blob, o)
-            o += 4                              # source-string hash
-            (idx,) = struct.unpack_from("<i", blob, o)
-            o += 4
-            index[key if not ns else f"{ns}/{key}"] = idx
-    if len(index) != entry_count:
-        print(f"  ! locres: {len(index)} keys parsed, header says {entry_count}",
-              file=sys.stderr)
-
-    p = string_table_offset
-    (count,) = struct.unpack_from("<i", blob, p)
-    p += 4
-    strings: list[str] = []
-    for _ in range(count):
-        s, p = _fstring(blob, p)
-        p += 4                                  # reference count (v3)
-        strings.append(s)
-    if p != len(blob):
-        print(f"  ! locres: string table ended at {p} of {len(blob)}", file=sys.stderr)
-    return {k: strings[i] for k, i in index.items() if 0 <= i < len(strings)}
-
 
 # ---------------------------------------------------------------------------
 # data tables
@@ -456,22 +391,60 @@ def localise(loc, rid: int, type_name: str | None, key: str | None):
 # that keying proves on its own.
 #
 # `base + lv` is the next id along, which any neighbouring item could own, so the name it
-# hands back must be the base's plus ` +<lv>` exactly -- that is what tells
-# "Cloudfrost's Edge +1" (10001, under row 10000) from the Sun Pendant sitting one past
-# the Phoenix Pendant.  The thousand-up keying gems use is nobody's neighbour, so the
-# offset itself identifies the level and the name only has to end in ` +<lv>`: it is how
-# row 23013 "Bu - Skyborn Ward" reaches its own `gem_24013_name`, "Ren - Skyborn
-# Ward +1".
+# hands back must be the base's plus the level written the way the culture writes one
+# (`level_forms`) exactly -- that is what tells "Cloudfrost's Edge +1" (10001, under row
+# 10000) from the Sun Pendant sitting one past the Phoenix Pendant.  The thousand-up
+# keying gems use is nobody's neighbour, so the offset itself identifies the level and
+# the name only has to END in a level: it is how row 23013 "Bu - Skyborn Ward" reaches
+# its own `gem_24013_name`, "Ren - Skyborn Ward +1".
 LEVEL_KEYINGS = ((lambda base, lv: base + lv, True),
                  (lambda base, lv: base + 1000 * lv, False))
 
 # "Cloudfrost's Edge +9" is the longest ladder the locres carries.
 LEVEL_MAX = 10
 
+# The widest tail between a base's name and its level number: `" +"`, `"+"` and the
+# German `"\xa0+"` all fit, a word does not.
+LEVEL_TAIL_MAX = 3
 
-def level_items(loc, items):
-    """`{item id: (base id, level, name, description)}` for the upgrade levels that are
-    no row of their own.
+
+def level_forms(loc: dict[str, str], name_key: dict[int, str]) -> collections.Counter:
+    """How ONE culture writes an upgrade level after the base's name, measured on the
+    ladders that are rows of their own, as `"<tail>{lv}"` -> count.
+
+    Measured, never listed, because the cultures disagree: English writes `" +1"` on all
+    339 row-backed levels, Chinese and Japanese `"+1"`, German mostly `"\xa0+1"`, and
+    Korean and French mix two forms.  A pair counts when the level row's name is the base
+    row's name, a short tail holding a `+`, and the level number."""
+    forms: collections.Counter = collections.Counter()
+    for base, kb in name_key.items():
+        nb = (loc.get(f"{kb}_name") or "").strip()
+        if not nb:
+            continue
+        for lv in range(1, LEVEL_MAX + 1):
+            k = name_key.get(base + lv)
+            n = (loc.get(f"{k}_name") or "").strip() if k else ""
+            num = str(lv)
+            if not n.startswith(nb) or not n.endswith(num):
+                continue
+            tail = n[len(nb):len(n) - len(num)]
+            if "+" in tail and len(tail) <= LEVEL_TAIL_MAX:
+                forms[tail + "{lv}"] += 1
+    return forms
+
+
+def is_level_name(nm: str, base_name: str, lv: int, forms, exact: bool) -> bool:
+    """Is `nm` level `lv` of `base_name`, in one of the culture's own `forms`?"""
+    for f in forms:
+        suffix = f.replace("{lv}", str(lv))
+        if nm == base_name + suffix or (not exact and nm.endswith(suffix)):
+            return True
+    return False
+
+
+def level_items(loc, items, forms):
+    """`{item id: (base id, level, key)}` for the upgrade levels that are no row of
+    their own, decided in `loc` against that culture's own `forms`.
 
     The ITEM ID of a level is always the base row's id plus the level -- measured in
     game, where a live pickup reading 23070 is "Wei - Vitality Power +1" over row 23069.
@@ -482,7 +455,7 @@ def level_items(loc, items):
     `DT_SpecialItem` row and its levels are named under `weapon_`.  What keeps a
     neighbour's id from being read as somebody's upgrade is the acceptance test each
     keying carries (`LEVEL_KEYINGS`)."""
-    out: dict[int, tuple[int, int, str, str | None]] = {}
+    out: dict[int, tuple[int, int, str]] = {}
     for base, rec in sorted(items.items()):
         base_name = rec.get("name")
         if not base_name:
@@ -495,17 +468,40 @@ def level_items(loc, items):
                 for key_id, exact in LEVEL_KEYINGS:
                     key = f"{prefix}_{key_id(base, lv)}"
                     nm = (loc.get(f"{key}_name") or "").strip()
-                    if nm == f"{base_name} +{lv}" or (not exact and nm.endswith(f" +{lv}")):
-                        out[rid] = (base, lv, nm,
-                                    loc.get(f"{key}_des") or loc.get(f"{key}_sum"))
+                    if is_level_name(nm, base_name, lv, forms, exact):
+                        out[rid] = (base, lv, key)
                         break
                 if rid in out:
                     break
     return out
 
 
-def build(ms, lang: str = "en", verbose: bool = True):
-    loc = read_locres(ms.read(LOCRES.format(lang=lang)))
+def level_agreement(strings: "locres.Strings", levels, name_key) -> dict[str, tuple]:
+    """Per culture: how many of the synthesised levels read, in that culture, as the
+    base's name plus a level in the culture's OWN measured form - `(agree, of, missing)`.
+
+    The levels are decided once, in English, because a level is a fact about ids and
+    keys; each culture's name is then that key's string.  This is the check that the
+    join landed on a level in every language, with each language's rule measured from
+    its own locres rather than borrowed from English."""
+    out = {}
+    for c, loc in strings.locs.items():
+        forms = level_forms(loc, name_key)
+        agree = missing = 0
+        for _rid, (base, lv, key) in levels.items():
+            nm = (loc.get(f"{key}_name") or "").strip()
+            nb = (loc.get(f"{name_key[base]}_name") or "").strip()
+            if not nm:
+                missing += 1
+                continue
+            exact = key.rsplit("_", 1)[-1] == str(base + lv)
+            agree += is_level_name(nm, nb, lv, forms, exact)
+        out[c] = (agree, len(levels), missing, dict(forms.most_common()))
+    return out
+
+
+def build(ms, strings: "locres.Strings", verbose: bool = True):
+    loc = strings.en
     enum = enum_values(ms)
     unmapped = sorted(set(enum.values()) - set(TYPE_KEY_PREFIX))
     if unmapped:
@@ -529,6 +525,7 @@ def build(ms, lang: str = "en", verbose: bool = True):
                 keys[rid] = row_keys[rid]
 
     items: dict[int, dict] = {}
+    name_key: dict[int, str] = {}               # row id -> the key that named it
     named_by_prefix = collections.Counter()
     rarities = collections.Counter()
     synthesised = foreign_key = 0
@@ -547,9 +544,10 @@ def build(ms, lang: str = "en", verbose: bool = True):
         found = localise(loc, rid, type_name, keys.get(rid))
         if found:
             key, nm, des = found
-            rec["name"] = nm
+            locres.with_names(rec, nm, strings.names(f"{key}_name"))
             if des:
                 rec["des"] = des
+            name_key[rid] = key
             named_by_prefix[key.split("_", 1)[0]] += 1
             if key != keys.get(rid):
                 synthesised += 1
@@ -559,11 +557,14 @@ def build(ms, lang: str = "en", verbose: bool = True):
 
     # The upgrade levels, over the rows they hang under: same kind, same bucket, their
     # own name, and `level` saying what they are.
-    levels = level_items(loc, items)
-    for rid, (base, lv, nm, des) in sorted(levels.items()):
+    levels = level_items(loc, items, level_forms(loc, name_key))
+    for rid, (base, lv, key) in sorted(levels.items()):
         rec = dict(items[base])
-        rec["name"] = nm
+        rec.pop("names", None)
         rec.pop("des", None)
+        locres.with_names(rec, (loc.get(f"{key}_name") or "").strip(),
+                          strings.names(f"{key}_name"))
+        des = loc.get(f"{key}_des") or loc.get(f"{key}_sum")
         if des:
             rec["des"] = des
         rec["level"] = lv
@@ -587,13 +588,22 @@ def build(ms, lang: str = "en", verbose: bool = True):
               f"the row id {synthesised}")
         print("    key prefixes used: "
               + ", ".join(f"{p}={c}" for p, c in named_by_prefix.most_common()))
+        with_names = collections.Counter(c for r in items.values()
+                                         for c in r.get("names", {}))
+        print("    names that differ from English: "
+              + ", ".join(f"{c}={with_names[c]}" for c in strings.cultures
+                          if c != locres.SOURCE))
+        for c, (agree, of, missing, forms) in sorted(
+                level_agreement(strings, levels, name_key).items()):
+            print(f"    levels in {c:<8} {agree}/{of} read as a level in the "
+                  f"culture's own form, {missing} missing; forms {forms}")
     return items, per_table
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--pak", default=pakmaps.DEFAULT_PAK)
-    ap.add_argument("--lang", default="en")
+    locres.add_arg(ap)
     ap.add_argument("--out", default=os.path.join(_HERE, "..", "..", "markers",
                                                   "items.json"))
     ap.add_argument("--stats", action="store_true")
@@ -601,11 +611,12 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     ms = pakmaps.MapSource(a.pak)
-    items, per_table = build(ms, a.lang)
+    strings = locres.Strings.load(ms, a.lang)
+    items, per_table = build(ms, strings)
 
     doc = {
         "schema": SCHEMA,
-        "lang": a.lang,
+        "cultures": strings.cultures,
         "source": "cooked item DataTables + MMGame.locres, offline pak extraction",
         "generated_by": "tools/markers/build_items.py",
         "rarity_names": {str(k): v for k, v in sorted(itemdb.RARITY_NAMES.items())},

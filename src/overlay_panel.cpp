@@ -288,69 +288,75 @@ namespace overlay
         // Everything else about them is on Categories, or on the Debug tab.
         void overview_what_is_on(mm::Config& cfg)
         {
-            ImGui::Checkbox("Minimap", &cfg.show_minimap);
+            ImGui::Checkbox(lbl(S::Minimap).c_str(), &cfg.show_minimap);
             ImGui::Indent();
             // Every range here is the loader's clamp, so the panel never shows a value
             // the file will not keep.
-            ImGui::SliderFloat("Size", &cfg.size_frac, 0.05f, 0.9f, "%.2f");
-            ImGui::SliderFloat("Zoom", &cfg.zoom_uu_per_px, 2.0f, 400.0f, "%.0f");
-            ImGui::SliderFloat("Opacity", &cfg.opacity, 0.1f, 1.0f, "%.2f");
+            ImGui::SliderFloat(lbl(S::OvSize).c_str(), &cfg.size_frac, 0.05f, 0.9f, "%.2f");
+            ImGui::SliderFloat(lbl(S::OvZoom).c_str(), &cfg.zoom_uu_per_px, 2.0f, 400.0f, "%.0f");
+            ImGui::SliderFloat(lbl(S::OvOpacity).c_str(), &cfg.opacity, 0.1f, 1.0f, "%.2f");
             bool round_shape = cfg.round;
-            if (ImGui::Checkbox("Round", &round_shape))
+            if (ImGui::Checkbox(lbl(S::OvRound).c_str(), &round_shape))
             {
                 cfg.round = round_shape;
             }
             ImGui::SameLine();
-            ImGui::Checkbox("Rotate with player", &cfg.rotate_with_player);
-            ImGui::Checkbox("Show the floors above and below, dimmed", &cfg.show_adjacent_floors);
+            ImGui::Checkbox(lbl(S::OvRotate).c_str(), &cfg.rotate_with_player);
+            ImGui::Checkbox(lbl(S::OvAdjacentFloors).c_str(), &cfg.show_adjacent_floors);
             ImGui::Unindent();
 
             ImGui::Spacing();
-            ImGui::Checkbox("Compass", &cfg.compass_enabled);
+            ImGui::Checkbox(lbl(S::Compass).c_str(), &cfg.compass_enabled);
             ImGui::Indent();
-            ImGui::SliderFloat("Width", &cfg.compass_width, 0.1f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Opacity##compass", &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Field of view", &cfg.compass_span_deg, 30.0f, 360.0f, "%.0f deg");
-            ImGui::SliderFloat("Height", &cfg.compass_height, 10.0f, 120.0f, "%.0f px");
-            ImGui::Checkbox("Distance under each mark", &cfg.compass_pip_labels);
+            ImGui::SliderFloat(lbl(S::OvWidth).c_str(), &cfg.compass_width, 0.1f, 1.0f, "%.2f");
+            ImGui::SliderFloat(lbl(S::OvOpacity, "compass").c_str(), &cfg.compass_opacity, 0.1f, 1.0f, "%.2f");
+            ImGui::SliderFloat(lbl(S::OvFieldOfView).c_str(), &cfg.compass_span_deg, 30.0f, 360.0f,
+                               tr(S::FmtDeg));
+            ImGui::SliderFloat(lbl(S::OvHeight).c_str(), &cfg.compass_height, 10.0f, 120.0f, tr(S::FmtPx));
+            ImGui::Checkbox(lbl(S::OvPipLabels).c_str(), &cfg.compass_pip_labels);
             ImGui::Unindent();
 
             ImGui::Spacing();
-            ImGui::Checkbox("X-ray", &cfg.highlight_enabled);
+            ImGui::Checkbox(lbl(S::Xray).c_str(), &cfg.highlight_enabled);
             ImGui::Indent();
             // The combo carries the key beside it, which is what the two "hold means..."
             // paragraphs used to say.
-            std::string hold = key_name_ascii(cfg.highlight_key);
+            std::string hold = key_display(cfg.highlight_key);
             if (cfg.highlight_gamepad)
             {
-                hold += " or pad " + wide_to_ascii(mm::pad_chord_name(cfg.highlight_pad_mask,
-                                                                     cfg.highlight_pad_lt,
-                                                                     cfg.highlight_pad_rt));
+                const std::string chord = wide_to_ascii(mm::pad_chord_name(
+                    cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt));
+                hold = lang::fmt<S::OvKeyOrPad>(hold.c_str(), chord.c_str()).c_str();
             }
             int hl_mode = cfg.highlight_mode == mm::HighlightMode::Hold ? 1 : 0;
-            ImGui::SetNextItemWidth(110.0f * g_chrome_scale);
-            if (ImGui::Combo("##hl_mode", &hl_mode, "Toggle\0Hold\0"))
+            const char* const hl_modes[] = {tr(S::OvModeToggle), tr(S::OvModeHold)};
+            // Wide enough for the longer word in this language, plus the arrow button.
+            const float mode_w =
+                (std::max)(ImGui::CalcTextSize(hl_modes[0]).x, ImGui::CalcTextSize(hl_modes[1]).x) +
+                ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.x * 2.0f;
+            ImGui::SetNextItemWidth((std::max)(110.0f * g_chrome_scale, mode_w));
+            if (ImGui::Combo("##hl_mode", &hl_mode, hl_modes, 2))
             {
                 cfg.highlight_mode = hl_mode == 1 ? mm::HighlightMode::Hold : mm::HighlightMode::Toggle;
             }
             ImGui::SameLine();
-            ImGui::Text("%s in-world", hold.c_str());
+            ImGui::TextUnformatted(lang::fmt<S::OvInWorld>(hold.c_str()).c_str());
             // Metres on the slider: the key is world units and 1 uu = 1 cm, so the panel
             // converts rather than teach the player a second unit.
             float radius_m = cfg.highlight_radius / 100.0f;
-            if (ImGui::SliderFloat("Radius", &radius_m, 2.0f, 500.0f, "%.0f m"))
+            if (ImGui::SliderFloat(lbl(S::OvRadius).c_str(), &radius_m, 2.0f, 500.0f, tr(S::UnitM)))
             {
                 cfg.highlight_radius = radius_m * 100.0f;
             }
-            ImGui::Checkbox("Names + distance", &cfg.highlight_labels);
+            ImGui::Checkbox(lbl(S::OvNamesDistance).c_str(), &cfg.highlight_labels);
             ImGui::SameLine();
-            ImGui::Checkbox("Arrows to what is off screen", &cfg.highlight_edge_arrows);
+            ImGui::Checkbox(lbl(S::OvEdgeArrows).c_str(), &cfg.highlight_edge_arrows);
             ImGui::Unindent();
 
             ImGui::Spacing();
-            ImGui::Checkbox("Show markers", &cfg.markers_enabled);
+            ImGui::Checkbox(lbl(S::OvShowMarkers).c_str(), &cfg.markers_enabled);
             ImGui::SameLine();
-            ImGui::Checkbox("Hide while a menu is open", &cfg.hide_in_menus);
+            ImGui::Checkbox(lbl(S::OvHideInMenus).c_str(), &cfg.hide_in_menus);
         }
 
         //--------------------------------------------------------------------------
@@ -362,8 +368,11 @@ namespace overlay
             // so they are REVEALED under `custom` rather than greyed out; the offsets
             // stay, because a preset moves the corner and not the gap from it.
             int preset = static_cast<int>(cfg.hud_preset);
-            const char* presets[] = {"custom", "top-left", "top-right", "bottom-left", "bottom-right"};
-            if (ImGui::Combo("HUD placement", &preset, presets, 5))
+            const char* const corners[] = {tr(S::OvTopLeft), tr(S::OvTopRight), tr(S::OvBottomLeft),
+                                           tr(S::OvBottomRight)};
+            const char* const presets[] = {tr(S::OvPresetCustom), corners[0], corners[1], corners[2],
+                                           corners[3]};
+            if (ImGui::Combo(lbl(S::OvHudPlacement).c_str(), &preset, presets, 5))
             {
                 cfg.hud_preset = static_cast<mm::HudPreset>(preset);
             }
@@ -371,14 +380,13 @@ namespace overlay
             {
                 ImGui::Indent();
                 int anchor = static_cast<int>(cfg.anchor);
-                const char* anchors[] = {"top-left", "top-right", "bottom-left", "bottom-right"};
-                if (ImGui::Combo("Minimap corner", &anchor, anchors, 4))
+                if (ImGui::Combo(lbl(S::OvMinimapCorner).c_str(), &anchor, corners, 4))
                 {
                     cfg.anchor = static_cast<mm::Anchor>(anchor);
                 }
                 int canchor = cfg.compass_anchor == mm::VAnchor::Bottom ? 1 : 0;
-                const char* canchors[] = {"top", "bottom"};
-                if (ImGui::Combo("Compass edge", &canchor, canchors, 2))
+                const char* const canchors[] = {tr(S::OvEdgeTop), tr(S::OvEdgeBottom)};
+                if (ImGui::Combo(lbl(S::OvCompassEdge).c_str(), &canchor, canchors, 2))
                 {
                     cfg.compass_anchor = canchor == 1 ? mm::VAnchor::Bottom : mm::VAnchor::Top;
                 }
@@ -386,17 +394,18 @@ namespace overlay
             }
             // One control, because the two numbers are one gap from one corner.
             float offset[2] = {cfg.offset_x, cfg.offset_y};
-            if (ImGui::DragFloat2("Minimap offset", offset, 1.0f, 0.0f, 4000.0f, "%.0f px"))
+            if (ImGui::DragFloat2(lbl(S::OvMinimapOffset).c_str(), offset, 1.0f, 0.0f, 4000.0f, tr(S::FmtPx)))
             {
                 cfg.offset_x = offset[0];
                 cfg.offset_y = offset[1];
             }
-            ImGui::SliderFloat("Compass offset", &cfg.compass_offset_y, 0.0f, 2000.0f, "%.0f px");
+            ImGui::SliderFloat(lbl(S::OvCompassOffset).c_str(), &cfg.compass_offset_y, 0.0f, 2000.0f,
+                               tr(S::FmtPx));
 
             // `auto` is a checkbox over the slider rather than a magic value inside the
             // number, so the slider always says what is in force.
             bool auto_scale = cfg.ui_scale_auto;
-            if (ImGui::Checkbox("Scale the UI automatically", &auto_scale))
+            if (ImGui::Checkbox(lbl(S::OvAutoScale).c_str(), &auto_scale))
             {
                 cfg.ui_scale_auto = auto_scale;
                 if (!auto_scale)
@@ -405,13 +414,13 @@ namespace overlay
                 }
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("(in force: %.2f)", static_cast<double>(g_ui_scale));
+            ImGui::TextDisabled("%s", lang::fmt<S::OvScaleInForce>(static_cast<double>(g_ui_scale)).c_str());
             ImGui::BeginDisabled(cfg.ui_scale_auto);
-            ImGui::SliderFloat("UI scale", &cfg.ui_scale, kUiScaleMin, kUiScaleMax, "%.2f");
+            ImGui::SliderFloat(lbl(S::OvUiScale).c_str(), &cfg.ui_scale, kUiScaleMin, kUiScaleMax, "%.2f");
             ImGui::EndDisabled();
             // The text size the UI scale multiplies. The whole overlay re-rasterises on
             // the next frame, so the slider shows its own result while it is dragged.
-            ImGui::SliderInt("Text size", &cfg.font_size, kFontPxMin, kFontPxMax, "%d px");
+            ImGui::SliderInt(lbl(S::OvTextSize).c_str(), &cfg.font_size, kFontPxMin, kFontPxMax, tr(S::FmtIntPx));
         }
 
         //--------------------------------------------------------------------------
@@ -425,8 +434,8 @@ namespace overlay
         void overview_look(mm::Config& cfg)
         {
             int theme_i = static_cast<int>(cfg.theme);
-            const char* themes[] = {"neutral", "ink"};
-            if (ImGui::Combo("Theme (frame / backdrop / plates)", &theme_i, themes, 2))
+            const char* const themes[] = {tr(S::OvThemeNeutral), tr(S::OvThemeInk)};
+            if (ImGui::Combo(lbl(S::OvTheme).c_str(), &theme_i, themes, 2))
             {
                 cfg.theme = static_cast<gly::Theme>(theme_i);
                 const gly::ThemeColors tc = gly::theme_colors(cfg.theme);
@@ -440,16 +449,15 @@ namespace overlay
                 cfg.minimap_backdrop = tc.backdrop_alpha;
             }
             int pal_i = static_cast<int>(cfg.palette);
-            const char* pals[] = {"default", "colorblind"};
-            if (ImGui::Combo("Marker palette", &pal_i, pals, 2))
+            const char* const pals[] = {tr(S::OvPaletteDefault), tr(S::OvPaletteColorblind)};
+            if (ImGui::Combo(lbl(S::OvPalette).c_str(), &pal_i, pals, 2))
             {
                 cfg.palette = static_cast<gly::Palette>(pal_i);
             }
             // The whole overlay's typeface. Empty or unreadable falls back to the
             // built-in font, which the log says.
             ImGui::SetNextItemWidth(-1.0f);
-            ImGui::InputTextWithHint("Font", "path to a .ttf, or `none` for the built-in font",
-                                     cfg.ui_font, sizeof(cfg.ui_font));
+            ImGui::InputTextWithHint(lbl(S::OvFont).c_str(), tr(S::OvFontHint), cfg.ui_font, sizeof(cfg.ui_font));
         }
 
         //==============================================================================
@@ -463,17 +471,18 @@ namespace overlay
         // on all three surfaces at once. A row label is the legend only: the category's
         // own glyph and colour, and its live found / known count.
 
-        // A column header: the surface's name over `all` / `none` for its mask.
+        // A column header: the surface's name over `all` / `none` for its mask. The mask
+        // it edits is the id, so the buttons keep their identity in every language.
         void mask_column_header(const char* name, std::uint32_t& mask)
         {
-            ImGui::PushID(name);
+            ImGui::PushID(&mask);
             ImGui::TextUnformatted(name);
-            if (ImGui::SmallButton("all"))
+            if (ImGui::SmallButton(lbl(S::All).c_str()))
             {
                 mask = mdb::kAllCats;
             }
             ImGui::SameLine();
-            if (ImGui::SmallButton("none"))
+            if (ImGui::SmallButton(lbl(S::None).c_str()))
             {
                 mask = 0u;
             }
@@ -534,21 +543,21 @@ namespace overlay
             }
             // The leading column is the row's own box and takes a heading from no one.
             ImGui::TableSetupColumn("##all", ImGuiTableColumnFlags_WidthFixed);
-            ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthStretch, 2.2f);
-            ImGui::TableSetupColumn("Minimap & map");
-            ImGui::TableSetupColumn("X-ray");
-            ImGui::TableSetupColumn("Compass");
+            ImGui::TableSetupColumn(tr(S::CgCategory), ImGuiTableColumnFlags_WidthStretch, 2.2f);
+            ImGui::TableSetupColumn(tr(S::CgMinimapAndMap));
+            ImGui::TableSetupColumn(tr(S::Xray));
+            ImGui::TableSetupColumn(tr(S::Compass));
             ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
             ImGui::TableNextColumn();
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted("Category");
-            ImGui::TextDisabled(per_chapter ? "found / known, this chapter" : "found / known");
+            ImGui::TextUnformatted(tr(S::CgCategory));
+            ImGui::TextDisabled("%s", tr(per_chapter ? S::CgFoundKnownChapter : S::CgFoundKnown));
             ImGui::TableNextColumn();
-            mask_column_header("Minimap & map", cfg.markers_categories);
+            mask_column_header(tr(S::CgMinimapAndMap), cfg.markers_categories);
             ImGui::TableNextColumn();
-            mask_column_header("X-ray", cfg.highlight_categories);
+            mask_column_header(tr(S::Xray), cfg.highlight_categories);
             ImGui::TableNextColumn();
-            mask_column_header("Compass", cfg.compass_categories);
+            mask_column_header(tr(S::Compass), cfg.compass_categories);
 
             ImDrawList* const dl = ImGui::GetWindowDrawList();
             const float glyph_r = (std::max)(4.0f, ImGui::GetTextLineHeight() * 0.34f);
@@ -576,7 +585,8 @@ namespace overlay
                     ImGui::TableNextColumn();
                     group_checkbox_all_surfaces("##tier", masks, tm);
                     ImGui::TableNextColumn();
-                    ImGui::TextDisabled("Loot - %s", mdb::tier_name(static_cast<int>(tier)));
+                    const lang::Text<128> heading = lang::fmt<S::CgLootTier, 128>(mdb::tier_name(static_cast<int>(tier)));
+                    ImGui::TextDisabled("%s", heading.c_str());
                     for (int c = 0; c < 3; ++c)
                     {
                         ImGui::TableNextColumn();
@@ -610,15 +620,15 @@ namespace overlay
                 ImGui::TableNextColumn();
                 // The leading spaces are the glyph's gutter: the glyph is drawn over the
                 // row afterwards.
-                char label[64]{};
+                char label[128]{};
                 if (cs.total > 0)
                 {
-                    (void)std::snprintf(label, sizeof(label), "      %s   %d/%d", mdb::cat_label(cat),
-                                        cs.found, cs.total);
+                    const lang::Text<112> count = lang::fmt<S::CgRowCount, 112>(mdb::cat_label(cat), cs.found, cs.total);
+                    (void)utf8::format(label, sizeof(label), "%s%s", kGlyphGutter, count.c_str());
                 }
                 else
                 {
-                    (void)std::snprintf(label, sizeof(label), "      %s", mdb::cat_label(cat));
+                    (void)utf8::format(label, sizeof(label), "%s%s", kGlyphGutter, mdb::cat_label(cat));
                 }
                 ImGui::Indent(indent);
                 const ImVec2 row = ImGui::GetCursorScreenPos();
@@ -661,33 +671,33 @@ namespace overlay
             const float dial_w = 72.0f * g_chrome_scale;
             // One question, every surface that draws a marker. The key is phrased as
             // "hide", the question a player asks is "show".
-            ImGui::TextUnformatted("Show found");
+            ImGui::TextUnformatted(tr(S::CgShowFound));
             ImGui::SameLine();
             bool show_found = !cfg.markers_hide_found;
-            if (ImGui::Checkbox("map / minimap / compass", &show_found))
+            if (ImGui::Checkbox(lbl(S::CgShowFoundSurfaces).c_str(), &show_found))
             {
                 cfg.markers_hide_found = !show_found;
             }
             ImGui::SameLine();
-            ImGui::Checkbox("x-ray", &cfg.highlight_show_found);
+            ImGui::Checkbox(lbl(S::CgXrayLower, "found").c_str(), &cfg.highlight_show_found);
             ImGui::SameLine();
             ImGui::SetNextItemWidth(dial_w);
-            ImGui::SliderFloat("how faint", &cfg.markers_found_alpha, 0.0f, 1.0f, "%.2f");
-            text_disabled_wrapped("a found one is drawn hollow and its FILL fades by this much - the "
-                                  "outline keeps its colour; shrines always stay, lit ones solid");
+            ImGui::SliderFloat(lbl(S::CgHowFaint).c_str(), &cfg.markers_found_alpha, 0.0f, 1.0f, "%.2f");
+            text_disabled_wrapped(tr(S::CgFoundHelp));
 
-            ImGui::TextUnformatted("Glyph size");
+            ImGui::TextUnformatted(tr(S::CgGlyphSize));
             ImGui::SameLine();
             ImGui::SetNextItemWidth(dial_w);
-            ImGui::SliderFloat("minimap##glyph", &cfg.markers_size, 2.0f, 24.0f, "%.1f px");
+            ImGui::SliderFloat(lbl(S::CgGlyphMinimap).c_str(), &cfg.markers_size, 2.0f, 24.0f, tr(S::FmtPx1));
             ImGui::SameLine();
             ImGui::SetNextItemWidth(dial_w);
-            ImGui::SliderFloat("map##glyph", &cfg.map_marker_size, 2.0f, 32.0f, "%.1f px");
+            ImGui::SliderFloat(lbl(S::CgGlyphMap).c_str(), &cfg.map_marker_size, 2.0f, 32.0f, tr(S::FmtPx1));
             ImGui::SameLine();
             ImGui::SetNextItemWidth(dial_w);
-            ImGui::SliderFloat("x-ray##glyph", &cfg.highlight_size, 2.0f, 32.0f, "%.1f px");
+            ImGui::SliderFloat(lbl(S::CgXrayLower, "glyph").c_str(), &cfg.highlight_size, 2.0f, 32.0f,
+                               tr(S::FmtPx1));
 
-            ImGui::Checkbox("Keep off-map markers on the rim", &cfg.markers_clamp_to_edge);
+            ImGui::Checkbox(lbl(S::CgClampToRim).c_str(), &cfg.markers_clamp_to_edge);
         }
 
         //==============================================================================
@@ -744,9 +754,8 @@ namespace overlay
 
         void map_fullmap(mm::Config& cfg)
         {
-            ImGui::TextDisabled("Press %s in-world. It opens where you left it.",
-                                key_name_ascii(cfg.map_key).c_str());
-            ImGui::Checkbox("Gamepad", &cfg.map_gamepad);
+            ImGui::TextDisabled("%s", lang::fmt<S::MtPressToOpen>(key_display(cfg.map_key).c_str()).c_str());
+            ImGui::Checkbox(lbl(S::Gamepad).c_str(), &cfg.map_gamepad);
         }
 
         // What a waypoint is ON, in words: the published marker nearest to it, when one
@@ -756,7 +765,7 @@ namespace overlay
         const char* waypoint_place(const mv::WaypointSet& wps, std::size_t index, std::uint64_t now)
         {
             constexpr double kNearUu = 400.0;
-            static char names[mv::kMaxWaypoints][48]{};
+            static char names[mv::kMaxWaypoints][64]{};
             static std::uint64_t due = 0;
             if (now >= due)
             {
@@ -764,7 +773,7 @@ namespace overlay
                 const markers::View published = markers::view();
                 for (std::size_t w = 0; w < mv::kMaxWaypoints; ++w)
                 {
-                    const char* name = "a place on the map";
+                    const char* name = tr(S::MtAPlaceOnTheMap);
                     if (w < wps.count)
                     {
                         double best_d2 = kNearUu * kNearUu;
@@ -782,7 +791,7 @@ namespace overlay
                             }
                         }
                     }
-                    ::strncpy_s(names[w], sizeof(names[w]), name, _TRUNCATE);
+                    utf8::copy(names[w], sizeof(names[w]), name);
                 }
             }
             return names[index];
@@ -795,25 +804,20 @@ namespace overlay
             {
                 if (mm::key_vk(cfg.waypoint_nearest_key) != 0)
                 {
-                    char none[256]{};
-                    (void)std::snprintf(none, sizeof(none),
-                                        "No waypoints. Right-click a marker or the ground on the full "
-                                        "map, or press %s in-world for the nearest thing you have not "
-                                        "collected.",
-                                        key_name_ascii(cfg.waypoint_nearest_key).c_str());
-                    text_disabled_wrapped(none);
+                    text_disabled_wrapped(lang::fmt<S::MtNoWaypointsKey, 1024>(
+                                              key_display(cfg.waypoint_nearest_key).c_str())
+                                              .c_str());
                 }
                 else
                 {
-                    text_disabled_wrapped("No waypoints. Right-click a marker or the ground on the "
-                                          "full map, or bind a key on the Keys tab for the nearest "
-                                          "thing you have not collected.");
+                    text_disabled_wrapped(tr(S::MtNoWaypoints));
                 }
                 return;
             }
-            ImGui::Text("%zu of %zu", wps.count, mv::kMaxWaypoints);
-            (void)same_line_if_fits(button_width("Clear waypoints"));
-            if (ImGui::SmallButton("Clear waypoints"))
+            ImGui::TextUnformatted(lang::fmt<S::CountOf>(wps.count, mv::kMaxWaypoints).c_str());
+            const Label clear_wps = lbl(S::MtClearWaypoints);
+            (void)same_line_if_fits(button_width(clear_wps.c_str()));
+            if (ImGui::SmallButton(clear_wps.c_str()))
             {
                 mm::clear_waypoints();
             }
@@ -833,18 +837,18 @@ namespace overlay
                 {
                     const double dx = wps.items[wi].x - snap.x;
                     const double dy = wps.items[wi].y - snap.y;
-                    ImGui::Text("%zu.  %s   %.0f m away", wi + 1, place,
-                                std::sqrt(dx * dx + dy * dy) / 100.0);
+                    const double away = std::sqrt(dx * dx + dy * dy) / 100.0;
+                    ImGui::TextUnformatted(lang::fmt<S::MtWaypointRowAway>(wi + 1, place, away).c_str());
                 }
                 else
                 {
-                    ImGui::Text("%zu.  %s", wi + 1, place);
+                    ImGui::TextUnformatted(lang::fmt<S::MtWaypointRow>(wi + 1, place).c_str());
                 }
                 ImGui::PopID();
             }
         }
 
-        // The save-slot key inside a found filename, or "shared" for the file every save
+        // The save-slot key inside a found filename, or the word for the file every save
         // shares. Cheap enough to do per frame: one small string.
         std::string slot_key_of(const char* found_file)
         {
@@ -854,11 +858,11 @@ namespace overlay
             const std::string name = found_file != nullptr ? found_file : "";
             if (name.empty())
             {
-                return "unknown";
+                return tr(S::MtSlotUnknown);
             }
             if (name.size() <= kPrefixLen + kSuffixLen || name.compare(0, kPrefixLen, kPrefix) != 0)
             {
-                return "shared";
+                return tr(S::MtSlotShared);
             }
             return name.substr(kPrefixLen, name.size() - kPrefixLen - kSuffixLen);
         }
@@ -880,8 +884,10 @@ namespace overlay
             {
                 clear_armed_ms = 0;
             }
-            const bool clear_pressed =
-                ImGui::Button(armed ? "Click again to confirm" : "Clear this save's found list");
+            // One id for both faces of the button, so the arming click and the confirming one
+            // land on the same widget in every language.
+            const bool clear_pressed = ImGui::Button(
+                lang::Text<256>("%s###clear_found", tr(armed ? S::MtClickAgain : S::MtClearFound)).c_str());
             const bool clear_hovered = ImGui::IsItemHovered();
             if (clear_pressed)
             {
@@ -904,38 +910,34 @@ namespace overlay
             }
             if (clear_hovered)
             {
-                ImGui::SetTooltip("empties %s and forgets every marker you have collected in it\n"
-                                  "markers the game has already removed come back as found\n"
-                                  "within a few passes, and so do lit shrines and beaten bosses\n"
-                                  "NG+ keeps the save id, so this is how you start the list over",
-                                  st.found_file[0] != '\0' ? st.found_file : "the found file");
+                ImGui::SetTooltip("%s", lang::fmt<S::MtClearFoundTip, 1024>(
+                                            st.found_file[0] != '\0' ? st.found_file : tr(S::MtTheFoundFile))
+                                            .c_str());
             }
             ImGui::SameLine();
             // The save it would wipe, spelled out beside the button: the filename above is
             // easy to read past, and this is the one thing worth being sure of.
-            ImGui::TextDisabled("save: %s", slot_key_of(st.found_file).c_str());
+            ImGui::TextDisabled("%s", lang::fmt<S::MtSave>(slot_key_of(st.found_file).c_str()).c_str());
 
             //---- import / export ------------------------------------------------------
             //
             // The found list and the waypoints of this profile as one JSON file in the
             // mod folder. Both buttons only raise a flag: the loop thread owns every
             // read and write (overlay.cpp).
-            ImGui::SeparatorText("Backup");
+            ImGui::SeparatorText(tr(S::MtBackup));
             static char import_path[512]{};
             // The newest export the loop thread found, offered once - on the first frame
             // it exists, and again after an export writes a newer one. Never on every
             // empty frame: a box the player has cleared has to stay clear.
             static bool import_path_seeded = false;
-            if (ImGui::Button("Export"))
+            if (ImGui::Button(lbl(S::MtExport).c_str()))
             {
                 g_export_request.store(true, std::memory_order_release);
                 import_path_seeded = false; // offer the file it is about to write
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("writes wuchang_minimap_export_<date>_<time>.json into the mod's state folder,\n"
-                                  "%%LOCALAPPDATA%%\\WuchangMinimap\n"
-                                  "(a counter is added when that name is taken)");
+                ImGui::SetTooltip("%s", lang::fmt<S::MtExportTip, 1024>().c_str());
             }
             if (!import_path_seeded && import_path[0] == '\0' &&
                 g_latest_export_ready.load(std::memory_order_acquire))
@@ -945,7 +947,7 @@ namespace overlay
                 import_path_seeded = import_path[0] != '\0';
             }
             ImGui::SameLine();
-            if (ImGui::Button("Import"))
+            if (ImGui::Button(lbl(S::MtImport).c_str()))
             {
                 {
                     spin::SpinGuard guard(g_exchange_lock);
@@ -955,13 +957,11 @@ namespace overlay
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("merges the file's found ids and adds the waypoints you do not\n"
-                                  "already have; nothing is ever removed by an import");
+                ImGui::SetTooltip("%s", tr(S::MtImportTip));
             }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(-1.0f);
-            ImGui::InputTextWithHint("##import_path", "path to a .json export", import_path,
-                                     sizeof(import_path));
+            ImGui::InputTextWithHint("##import_path", tr(S::MtImportHint), import_path, sizeof(import_path));
 
             // The collection-statistics page, shared with the full map's Stats panel.
             draw_collection_stats(::GetTickCount64(), false);
@@ -1098,39 +1098,87 @@ namespace overlay
             // that accepts 2 and snaps to 15 reads as a broken setting, and the floor is
             // not negotiable - this window is drawn through the same ceiling.
             bool uncapped = cfg.overlay_update_hz <= fgate::kUncapped;
-            if (ImGui::Checkbox("Redraw on every game frame", &uncapped))
+            if (ImGui::Checkbox(lbl(S::OvRedrawEveryFrame).c_str(), &uncapped))
             {
                 cfg.overlay_update_hz = uncapped ? fgate::kUncapped : 60;
             }
             ImGui::BeginDisabled(uncapped);
             int hz = uncapped ? 60 : cfg.overlay_update_hz;
-            if (ImGui::SliderInt("Overlay updates per second", &hz, fgate::kHzMin, 240, "%d Hz")
-                && !uncapped)
+            if (ImGui::SliderInt(lbl(S::OvUpdatesPerSecond).c_str(), &hz, fgate::kHzMin, 240, tr(S::FmtHz)) &&
+                !uncapped)
             {
                 cfg.overlay_update_hz = fgate::clamp_hz(hz);
             }
             ImGui::EndDisabled();
-            ImGui::TextDisabled("Lower gives the game back the frames it would spend drawing the "
-                                "overlay.\nYour position on the map is only read 10 times a second, so "
-                                "anything above\nthat costs the picture nothing - the x-ray is the part "
-                                "that follows the camera.\nThe full map ignores this.");
+            ImGui::TextDisabled("%s", tr(S::OvUpdateRateHelp));
+        }
+
+        //--------------------------------------------------------------------------
+        // Overview: the language
+        //--------------------------------------------------------------------------
+        //
+        // Above every section and in no header, because it is the one setting a player who
+        // cannot read the rest has to find. Every language is listed by its own name, so the
+        // list is readable from any of them; drawing those names needs fonts beyond the
+        // culture's own, which are asked for once the list is hovered or opened - the closed
+        // combo only ever shows the culture in force. The choice lands in
+        // `language` like any other panel edit, and the loop thread applies it (langsel).
+        void overview_language(mm::Config& cfg)
+        {
+            bool is_auto = true;
+            lang::Culture pinned = lang::Culture::En;
+            (void)lang::parse_override(cfg.language, is_auto, pinned);
+            const std::string_view active = lang::endonym(lang::active());
+            const lang::Text<128> auto_item("%s (%.*s)###lang_auto", tr(S::LangAuto),
+                                            static_cast<int>(active.size()), active.data());
+            const std::string_view shown = is_auto ? std::string_view{auto_item.c_str()} : lang::endonym(pinned);
+            const std::string preview{shown.substr(0, shown.find("###"))};
+            if (ImGui::BeginCombo("##language", preview.c_str()))
+            {
+                g_font_endonyms = true;
+                if (ImGui::Selectable(auto_item.c_str(), is_auto))
+                {
+                    mm::set_language(cfg, "auto");
+                }
+                for (int i = 0; i < lang::kCultureCount; ++i)
+                {
+                    const auto c = static_cast<lang::Culture>(i);
+                    const std::string_view name = lang::endonym(c);
+                    const std::string_view code = lang::code(c);
+                    const lang::Text<64> item("%.*s###lang_%.*s", static_cast<int>(name.size()), name.data(),
+                                              static_cast<int>(code.size()), code.data());
+                    if (ImGui::Selectable(item.c_str(), !is_auto && c == pinned))
+                    {
+                        mm::set_language(cfg, code);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            // Hovered, not focused: gamepad navigation lands on the first widget of a panel
+            // just opened, and that alone must not cost a player 33 MB of fonts. A list
+            // opened from the pad draws its foreign names on its second frame.
+            else if (ImGui::IsItemHovered())
+            {
+                g_font_endonyms = true;
+            }
         }
 
         void panel_overview(mm::Config& cfg)
         {
-            if (panel_section("What is on", kSecWhatIsOn))
+            overview_language(cfg);
+            if (panel_section(lbl(S::SecWhatIsOn).c_str(), kSecWhatIsOn))
             {
                 overview_what_is_on(cfg);
             }
-            if (panel_section("Placement", kSecPlacement))
+            if (panel_section(lbl(S::SecPlacement).c_str(), kSecPlacement))
             {
                 overview_placement(cfg);
             }
-            if (panel_section("Look", kSecLook))
+            if (panel_section(lbl(S::SecLook).c_str(), kSecLook))
             {
                 overview_look(cfg);
             }
-            if (panel_section("Performance", kSecPerformance))
+            if (panel_section(lbl(S::SecPerformance).c_str(), kSecPerformance))
             {
                 overview_update_rate(cfg);
             }
@@ -1140,15 +1188,15 @@ namespace overlay
         {
             // The tracker leads: it is the section with the per-save buttons, and further
             // down the tab they sit below the fold.
-            if (panel_section("Collection tracker", kSecTracker))
+            if (panel_section(lbl(S::SecTracker).c_str(), kSecTracker))
             {
                 map_tracker();
             }
-            if (panel_section("Full map", kSecFullMap))
+            if (panel_section(lbl(S::FullMap).c_str(), kSecFullMap))
             {
                 map_fullmap(cfg);
             }
-            if (panel_section("Waypoints", kSecWaypoints))
+            if (panel_section(lbl(S::Waypoints).c_str(), kSecWaypoints))
             {
                 map_waypoints(cfg, snap, have_state);
             }
@@ -1173,7 +1221,7 @@ namespace overlay
                     ladder += std::format("{}{:.0f}", ladder.empty() ? "" : ", ",
                                           cfg.minimap_zoom_presets[i]);
                 }
-                ImGui::TextDisabled("zoom presets (%s cycles): %s", key_name_ascii(cfg.zoom_key).c_str(),
+                ImGui::TextDisabled("zoom presets (%s cycles): %s", key_display(cfg.zoom_key).c_str(),
                                     ladder.empty() ? "none - edit minimap_zoom_presets" : ladder.c_str());
             }
             ImGui::SliderFloat("Minimum side (px)", &cfg.minimap_min_px, 16.0f, 512.0f, "%.0f");
@@ -1687,23 +1735,18 @@ namespace overlay
 
             void keys_help(const gb::Table& game_binds)
             {
-                text_disabled_wrapped("Click a key to rebind it, then press the new key - hold Ctrl, "
-                                      "Shift or Alt with it for a modified binding. Esc cancels.");
-                text_disabled_wrapped("A key bound here is taken away from the game while the mod is "
-                                      "using it.");
+                text_disabled_wrapped(tr(S::KyHelpRebind));
+                text_disabled_wrapped(tr(S::KyHelpTaken));
                 // Only while the game's own bindings are still a guess: once they are read,
                 // the clash column below is exact and needs no caveat.
                 if (game_binds.valid)
                 {
                     return;
                 }
-                char line[256]{};
-                (void)std::snprintf(line, sizeof(line),
-                                    "The game's own bindings have not been read yet (%s), so the "
-                                    "clashes below come from a built-in list of the usual ones.",
-                                    game_binds.status[0] != '\0' ? game_binds.status
-                                                                 : "no PlayerInput yet");
-                text_disabled_wrapped(line);
+                text_disabled_wrapped(lang::fmt<S::KyNotReadYet, 1024>(game_binds.status[0] != '\0'
+                                                                           ? game_binds.status
+                                                                           : tr(S::KyNoPlayerInput))
+                                          .c_str());
             }
 
             // The note column: at most one line, in the order that matters most to the
@@ -1715,29 +1758,26 @@ namespace overlay
                 if (clash != nullptr)
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.72f, 0.35f, 1.0f});
-                    ImGui::TextWrapped("also %s", clash);
+                    ImGui::TextWrapped("%s", lang::fmt<S::KyAlso>(clash).c_str());
                     ImGui::PopStyleColor();
                 }
                 else if (game != nullptr)
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.72f, 0.35f, 1.0f});
-                    ImGui::TextWrapped(game_binds.valid ? "the game uses it for %s"
-                                                        : "the game may use it for %s",
-                                       game);
+                    ImGui::TextWrapped("%s", game_binds.valid ? lang::fmt<S::KyGameUses>(game).c_str()
+                                                              : lang::fmt<S::KyGameMayUse>(game).c_str());
                     ImGui::PopStyleColor();
                     if (ImGui::IsItemHovered())
                     {
-                        ImGui::SetTooltip("%s\nWhile the mod is using this key the game does not "
-                                          "get it.\nAdd Ctrl, Shift or Alt to give it back.",
-                                          game_binds.valid ? "Read from the game's own input mappings."
-                                                           : "A guess: the game's bindings have not "
-                                                             "been read yet.");
+                        ImGui::SetTooltip("%s", lang::fmt<S::KyGameTip, 1024>(
+                                                    tr(game_binds.valid ? S::KyReadFromGame : S::KyAGuess))
+                                                    .c_str());
                     }
                 }
                 else if (twin != nullptr)
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.80f, 0.80f, 0.55f, 1.0f});
-                    ImGui::TextWrapped("same key as %s", twin);
+                    ImGui::TextWrapped("%s", lang::fmt<S::KySameKeyAs>(twin).c_str());
                     ImGui::PopStyleColor();
                 }
                 ImGui::PopTextWrapPos();
@@ -1754,7 +1794,7 @@ namespace overlay
                 {
                     if (j != i && vk != 0 && cfg.*kKeyBinds[j].member == vk)
                     {
-                        clash = kKeyBinds[j].label;
+                        clash = tr(kKeyBinds[j].label);
                     }
                 }
                 // The unmodified twin: `ctrl+m` and `m` are different bindings but the same
@@ -1768,7 +1808,7 @@ namespace overlay
                     if (j != i && vk != 0 && mm::key_vk(other) == mm::key_vk(vk) &&
                         mm::key_mod(other) != mm::key_mod(vk))
                     {
-                        twin = kKeyBinds[j].label;
+                        twin = tr(kKeyBinds[j].label);
                     }
                 }
                 // The live table wins whole: once the game has answered, a key it does NOT
@@ -1781,20 +1821,22 @@ namespace overlay
 
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(kKeyBinds[i].label);
+                ImGui::TextUnformatted(tr(kKeyBinds[i].label));
 
                 ImGui::TableNextColumn();
                 ImGui::PushID(i + 900);
+                // The key's name is the label, and names change; `###key` is the id.
                 const std::string shown =
-                    g_capture_row == i ? std::string("press a key...") : key_name_ascii(vk);
-                if (ImGui::Button(shown.c_str(), ImVec2{130.0f * g_chrome_scale, 0.0f}))
+                    (g_capture_row == i ? std::string(tr(S::KyPressAKey)) : key_display(vk)) + "###key";
+                if (ImGui::Button(shown.c_str(),
+                                  ImVec2{(std::max)(130.0f * g_chrome_scale, button_width(shown.c_str())), 0.0f}))
                 {
                     arm_capture(g_capture_row == i ? -1 : i);
                 }
 
                 ImGui::TableNextColumn();
                 ImGui::BeginDisabled(vk == kKeyDefaults.*kKeyBinds[i].member);
-                if (ImGui::SmallButton("reset"))
+                if (ImGui::SmallButton(lbl(S::KyReset).c_str()))
                 {
                     cfg.*kKeyBinds[i].member = kKeyDefaults.*kKeyBinds[i].member;
                 }
@@ -1811,8 +1853,8 @@ namespace overlay
                                       ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg |
                                           ImGuiTableFlags_BordersInnerV))
                 {
-                    ImGui::TableSetupColumn("Action");
-                    ImGui::TableSetupColumn("Key");
+                    ImGui::TableSetupColumn(tr(S::KyAction));
+                    ImGui::TableSetupColumn(tr(S::KyKey));
                     ImGui::TableSetupColumn("");
                     // The note is the only elastic column: it takes whatever the three fixed
                     // ones leave, and its text wraps inside that instead of pushing the table
@@ -1826,7 +1868,7 @@ namespace overlay
                     ImGui::EndTable();
                 }
 
-                if (ImGui::Button("Reset every binding"))
+                if (ImGui::Button(lbl(S::KyResetAll).c_str()))
                 {
                     for (int i = 0; i < kKeyBindCount; ++i)
                     {
@@ -1870,22 +1912,15 @@ namespace overlay
 
             void keys_gamepad(mm::Config& cfg)
             {
-                ImGui::Checkbox("X-ray on a gamepad chord", &cfg.highlight_gamepad);
+                ImGui::Checkbox(lbl(S::KyXrayOnPad).c_str(), &cfg.highlight_gamepad);
                 static char chord[64]{};
                 static bool chord_primed = false;
                 const std::string live = wide_to_ascii(mm::pad_chord_name(
                     cfg.highlight_pad_mask, cfg.highlight_pad_lt, cfg.highlight_pad_rt));
-                chord_editor("X-ray chord", chord, static_cast<int>(sizeof(chord)), chord_primed, live,
-                             cfg.highlight_pad_mask, &cfg.highlight_pad_lt, &cfg.highlight_pad_rt);
-                {
-                    char hint[192]{};
-                    (void)std::snprintf(hint, sizeof(hint),
-                                        "in force: %s   (LB, RB, LT, RT, A, B, X, Y, BACK, START, LS, "
-                                        "RS, UP, DOWN, LEFT, RIGHT, joined with +; `none` disables it)",
-                                        live.c_str());
-                    text_disabled_wrapped(hint);
-                }
-                if (ImGui::SmallButton("reset the chord"))
+                chord_editor(lbl(S::KyXrayChord).c_str(), chord, static_cast<int>(sizeof(chord)), chord_primed,
+                             live, cfg.highlight_pad_mask, &cfg.highlight_pad_lt, &cfg.highlight_pad_rt);
+                text_disabled_wrapped(lang::fmt<S::KyChordInForce, 1024>(live.c_str()).c_str());
+                if (ImGui::SmallButton(lbl(S::KyResetChord).c_str()))
                 {
                     cfg.highlight_pad_mask = kKeyDefaults.highlight_pad_mask;
                     cfg.highlight_pad_lt = kKeyDefaults.highlight_pad_lt;
@@ -1897,22 +1932,21 @@ namespace overlay
                 static bool open_primed = false;
                 const std::string open_live =
                     wide_to_ascii(mm::pad_chord_name(cfg.map_pad_open_chord, false, false));
-                chord_editor("Open the map", open_chord, static_cast<int>(sizeof(open_chord)),
+                chord_editor(lbl(S::KyOpenTheMap).c_str(), open_chord, static_cast<int>(sizeof(open_chord)),
                              open_primed, open_live, cfg.map_pad_open_chord, nullptr, nullptr);
                 ImGui::SameLine();
-                ImGui::TextDisabled("opens the full map: in force %s", open_live.c_str());
+                ImGui::TextDisabled("%s", lang::fmt<S::KyOpensTheMap>(open_live.c_str()).c_str());
 
                 // The settings panel's own chord, so a pad-only player can reach this panel.
                 static char panel_chord[64]{};
                 static bool panel_primed = false;
                 const std::string panel_live =
                     wide_to_ascii(mm::pad_chord_name(cfg.panel_pad_open_chord, false, false));
-                chord_editor("Open this panel", panel_chord, static_cast<int>(sizeof(panel_chord)),
+                chord_editor(lbl(S::KyOpenThisPanel).c_str(), panel_chord, static_cast<int>(sizeof(panel_chord)),
                              panel_primed, panel_live, cfg.panel_pad_open_chord, nullptr, nullptr);
                 ImGui::SameLine();
-                ImGui::TextDisabled("opens this panel: in force %s", panel_live.c_str());
-                text_disabled_wrapped("the full map's own gamepad controls are fixed (left stick pans, "
-                                      "triggers zoom, LB / RB change floor)");
+                ImGui::TextDisabled("%s", lang::fmt<S::KyOpensThisPanel>(panel_live.c_str()).c_str());
+                text_disabled_wrapped(tr(S::KyPadMapFixed));
             }
         } // namespace
 
@@ -1922,7 +1956,7 @@ namespace overlay
             const gb::Table& game_binds = live_binds();
             keys_help(game_binds);
             keys_table(cfg, game_binds);
-            if (panel_section("Gamepad", kSecGamepad))
+            if (panel_section(lbl(S::Gamepad).c_str(), kSecGamepad))
             {
                 keys_gamepad(cfg);
             }
@@ -2281,9 +2315,7 @@ namespace overlay
             void debug_visibility()
             {
                 ImGui::Spacing();
-                char reason[192]{};
-                ::WideCharToMultiByte(CP_UTF8, 0, g_hide_reason, -1, reason, sizeof(reason) - 1, nullptr,
-                                      nullptr);
+                const char* reason = hide_reason_name(g_hide_reason);
                 if (g_last_mini.visible)
                 {
                     ImGui::TextColored(ImVec4{0.55f, 0.9f, 0.6f, 1.0f}, "minimap: %s", reason);
@@ -2359,17 +2391,21 @@ namespace overlay
             // because the footer's height is measured from the buttons it will hold.
             static bool confirm_reset = false;
 
+            const Label reload = lbl(S::PnlReloadData);
+            const Label reset = lbl(S::PnlResetDefaults);
+            const Label reset_yes = lbl(S::PnlResetConfirm);
+            const Label cancel = lbl(S::Cancel);
             float fw[3]{};
             int fn = 0;
-            fw[fn++] = button_width("Reload map data");
+            fw[fn++] = button_width(reload.c_str());
             if (confirm_reset)
             {
-                fw[fn++] = button_width("Yes, reset everything");
-                fw[fn++] = button_width("Cancel");
+                fw[fn++] = button_width(reset_yes.c_str());
+                fw[fn++] = button_width(cancel.c_str());
             }
             else
             {
-                fw[fn++] = button_width("Reset to defaults");
+                fw[fn++] = button_width(reset.c_str());
             }
 
             // The tabs get their own child so the footer row is always at the bottom of
@@ -2403,22 +2439,22 @@ namespace overlay
             {
                 if (ImGui::BeginTabBar("wuchang_tabs"))
                 {
-                    if (ImGui::BeginTabItem("Overview"))
+                    if (ImGui::BeginTabItem(lbl(S::TabOverview).c_str()))
                     {
                         panel_overview(cfg);
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Categories"))
+                    if (ImGui::BeginTabItem(lbl(S::TabCategories).c_str()))
                     {
                         panel_categories(cfg);
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Map & tracker"))
+                    if (ImGui::BeginTabItem(lbl(S::TabMapTracker).c_str()))
                     {
                         panel_map_tracker(cfg, snap, have_state);
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Keys"))
+                    if (ImGui::BeginTabItem(lbl(S::TabKeys).c_str()))
                     {
                         panel_keys(cfg);
                         ImGui::EndTabItem();
@@ -2438,32 +2474,29 @@ namespace overlay
             ImGui::Separator();
             // Each button keeps the row only while it still fits: the footer wraps
             // rather than run off a narrowed panel.
-            if (ImGui::Button("Reload map data"))
+            if (ImGui::Button(reload.c_str()))
             {
                 mm::g_reload_config = true;
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Re-read the settings, the maps and the marker database from "
-                                  "disk. Takes a moment.");
+                ImGui::SetTooltip("%s", tr(S::PnlReloadTip));
             }
-            (void)same_line_if_fits(confirm_reset ? button_width("Yes, reset everything")
-                                                  : button_width("Reset to defaults"));
+            (void)same_line_if_fits(button_width(confirm_reset ? reset_yes.c_str() : reset.c_str()));
             if (!confirm_reset)
             {
-                if (ImGui::Button("Reset to defaults"))
+                if (ImGui::Button(reset.c_str()))
                 {
                     confirm_reset = true;
                 }
                 if (ImGui::IsItemHovered())
                 {
-                    ImGui::SetTooltip("Every setting back to what the mod ships with, hotkeys "
-                                      "included. Written to the config file like any other change.");
+                    ImGui::SetTooltip("%s", tr(S::PnlResetTip));
                 }
             }
             else
             {
-                if (ImGui::Button("Yes, reset everything"))
+                if (ImGui::Button(reset_yes.c_str()))
                 {
                     confirm_reset = false;
                     const bool was_on = cfg.mod_enabled;
@@ -2473,8 +2506,8 @@ namespace overlay
                     cfg.mod_enabled = was_on;
                     mm::log(L"config: reset to the shipped defaults from the F2 panel");
                 }
-                (void)same_line_if_fits(button_width("Cancel"));
-                if (ImGui::Button("Cancel"))
+                (void)same_line_if_fits(button_width(cancel.c_str()));
+                if (ImGui::Button(cancel.c_str()))
                 {
                     confirm_reset = false;
                 }
@@ -2484,7 +2517,7 @@ namespace overlay
             // mod_enabled = 0 into the config file and the loop thread's 1 Hz watcher
             // acts on it (modswitch.hpp), so the whole shutdown runs on the one thread
             // allowed to run it and the file cannot disagree with the running state.
-            if (ImGui::Checkbox("Mod enabled (master switch - turns EVERYTHING off)", &cfg.mod_enabled))
+            if (ImGui::Checkbox(lbl(S::PnlMasterSwitch).c_str(), &cfg.mod_enabled))
             {
                 if (!cfg.mod_enabled)
                 {
@@ -2497,8 +2530,8 @@ namespace overlay
             if (!cfg.mod_enabled)
             {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.95f, 0.72f, 0.35f, 1.0f});
-                ImGui::TextWrapped("The mod is shutting down. Set mod_enabled = 1 in %s to restart it.",
-                                   "config_wuchang_minimap.txt");
+                const lang::Text<512> note = lang::fmt<S::PnlShuttingDown, 512>("config_wuchang_minimap.txt");
+                ImGui::TextWrapped("%s", note.c_str());
                 ImGui::PopStyleColor();
             }
 

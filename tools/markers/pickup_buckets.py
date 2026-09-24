@@ -36,26 +36,25 @@ placed pickup grants one today, so no shipped marker straddles.
 
 from __future__ import annotations
 
-# wire name -> (label, tier)  --  the tier is `itemdb`'s rarity tier, repeated
-# here only as documentation of which colour family the bucket draws in.
-# Order is the order the buckets read in a report and in the F2 filter: the
-# Common family, then Equipment, then Key.
-BUCKETS: dict[str, tuple[str, int]] = {
-    "consumable": ("Consumable", 0),
-    "item":       ("Item", 0),
-    "harvest":    ("Harvest", 0),
-    "ammo":       ("Cannon ammo", 0),
-    "armour":     ("Armour", 1),
-    "amulet":     ("Amulet", 1),
-    "weapon":     ("Weapon", 1),
-    "jade":       ("Jade", 1),
-    "spell":      ("Spell", 1),
-    "material":   ("Material", 2),
-    "key":        ("Key item", 2),
+# wire name -> tier  --  the tier is `itemdb`'s rarity tier, repeated here only
+# as documentation of which colour family the bucket draws in.  The bucket's
+# WORD is the runtime's (`mdb::cat_word`).  Order is the order the buckets read
+# in a report and in the F2 filter: the Common family, then Equipment, then Key.
+BUCKETS: dict[str, int] = {
+    "consumable": 0,
+    "item":       0,
+    "harvest":    0,
+    "ammo":       0,
+    "armour":     1,
+    "amulet":     1,
+    "weapon":     1,
+    "jade":       1,
+    "spell":      1,
+    "material":   2,
+    "key":        2,
 }
 
 ORDER = list(BUCKETS)
-LABELS = {k: v[0] for k, v in BUCKETS.items()}
 
 # The buckets an item-less pickup can land in, i.e. the ones `build_categories`
 # gives a class root.  Everything else is reachable only through an item type.

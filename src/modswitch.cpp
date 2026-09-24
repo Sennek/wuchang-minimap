@@ -12,6 +12,7 @@
 
 #include "breadcrumb.hpp"
 #include "gamestate.hpp"
+#include "langsel.hpp"
 #include "mapdata.hpp"
 #include "markers.hpp"
 #include "mmstate.hpp"
@@ -224,11 +225,13 @@ namespace modswitch
         void start_subsystems()
         {
             // Order matters:
+            //   langsel  - the culture, before anything that reads names in it;
             //   overlay  - config-driven assets + the DX12 hooks (no UObject work);
             //   markers  - the static DB + found tracker, read on this thread before anything
             //              can pump the live half;
             //   gamestate- registers the ProcessEvent game-thread pump (idempotent);
             //   navmesh  - opt-in, registers its own pump (idempotent).
+            (void)lsel::refresh();
             overlay::start();
             markers::on_unreal_init();
             gamestate::on_unreal_init();
@@ -257,7 +260,8 @@ namespace modswitch
             else
             {
                 // gamestate / navmesh are registered and self-guard; the overlay re-enables its
-                // hooks and re-reads the assets from disk.
+                // hooks and re-reads the assets from disk, in the culture the file now names.
+                (void)lsel::refresh();
                 overlay::start();
                 markers::reload();
             }
@@ -486,6 +490,11 @@ namespace modswitch
         // the multi-second, allocating PNG work off it.
         mapdata::on_update();
         gamestate::on_update();
+        if (lsel::on_update(now))
+        {
+            // Every name the overlay draws out of the data, re-read in the new culture.
+            markers::reload();
+        }
         markers::on_update();
         recon::on_update();
         watch(now);

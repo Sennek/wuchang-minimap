@@ -111,6 +111,14 @@ local function hardened_link()
     add_shflags(link, {force = true})
 end
 
+-- C4840 (a class object passed through `...`, level 4) as an error in src/ and tests/.
+-- ImGui's Text and SetTooltip are C varargs the compiler does not format-check, and a
+-- formatted lang::Text handed to one instead of its c_str() would print its bytes as a
+-- pointer inside Present.
+local function strict_varargs()
+    add_cxflags("/we4840", {tools = {"cl"}})
+end
+
 ----------------------------------------------------------------------------------------
 -- third_party: Dear ImGui (core + DX12 and Win32 backends)
 ----------------------------------------------------------------------------------------
@@ -162,6 +170,7 @@ target("WuchangMinimap")
     -- "error" = /WX. src/ must stay warning-free; third_party/ builds under its own
     -- targets at the default level.
     set_warnings("all", "error")
+    strict_varargs()
     common_settings()
     hardened_link()
     add_deps("imgui", "minhook")
@@ -204,6 +213,7 @@ target("markers_test")
     set_group("tests")
     set_warnings("all", "error")
     set_default(false) -- built explicitly (and by build.ps1), not by a bare `xmake`
+    strict_varargs()
     common_settings()
     hardened_link()
     add_includedirs("src")

@@ -45,6 +45,7 @@
 #include "typing_gate.hpp"
 #include "framecensus.hpp"
 #include "framegate.hpp"
+#include "keyedge.hpp"
 #include "perf.hpp"
 #include "texupload.hpp"
 #include "projection.hpp"
@@ -1910,6 +1911,85 @@ namespace
         // but a zeroed latch must still read as "not typing" at any clock value.
         tgate::Latch zero{};
         CHECK(!tgate::typing(zero, false, 0));
+    }
+
+    void test_keyedge()
+    {
+        section("hotkeys - one press from the level and the message");
+
+        const auto press = [](std::uint32_t ms, bool eligible = true) {
+            kedge::Press p{};
+            p.any = true;
+            p.eligible = eligible;
+            p.ms = ms;
+            return p;
+        };
+        const kedge::Press none{};
+
+        // The level alone: the rising edge fires once, a held key never again, a release and
+        // a fresh press past the debounce fire again, one inside it does not.
+        kedge::Edge lv{};
+        CHECK(!kedge::fired(lv, false, none, 1000));
+        CHECK(kedge::fired(lv, true, none, 1025));
+        CHECK(!kedge::fired(lv, true, none, 1050));
+        CHECK(!kedge::fired(lv, false, none, 1075));
+        CHECK(!kedge::fired(lv, true, none, 1100)); // 75 ms after the fire: a bounce
+        CHECK(!kedge::fired(lv, false, none, 1300));
+        CHECK(kedge::fired(lv, true, none, 1400));
+
+        // The case this exists for: the loop thread was busy through the whole press, so no
+        // sample saw the key down, and its message fires it once.
+        kedge::Edge busy{};
+        CHECK(!kedge::fired(busy, false, none, 5000));
+        CHECK(kedge::fired(busy, false, press(5200), 5700));
+        CHECK(!kedge::fired(busy, false, press(5200), 5725));
+        CHECK(!kedge::fired(busy, false, press(5200), 9000));
+
+        // The level saw the press first and its message is dispatched late - behind a game
+        // thread hitch - but carries the input's own time: the same press, not a second one.
+        kedge::Edge late{};
+        CHECK(kedge::fired(late, true, none, 2000));
+        CHECK(!kedge::fired(late, false, none, 2025));
+        CHECK(!kedge::fired(late, false, press(1990), 2600));
+        // Stamped in the very tick of the sample that saw it: still the same press.
+        kedge::Edge tick{};
+        CHECK(kedge::fired(tick, true, press(3000), 3000));
+        CHECK(!kedge::fired(tick, false, press(3000), 3400));
+
+        // Held keys belong to the level: a repeat that slipped through is not a press.
+        kedge::Edge held{};
+        CHECK(kedge::fired(held, true, none, 4000));
+        CHECK(!kedge::fired(held, true, press(4500), 4520));
+        CHECK(!kedge::fired(held, false, press(4500), 4545));
+
+        // A press the binding may not take (a caret up, a needed modifier missing) is spent,
+        // so it cannot fire once that changes.
+        kedge::Edge veto{};
+        CHECK(!kedge::fired(veto, false, press(6000, false), 6100));
+        CHECK(!kedge::fired(veto, false, press(6000, true), 6125));
+
+        // Too old: a press first seen past kMaxPressAgeMs does not fire - which is also what
+        // keeps a stamp left from before the mod was switched on from firing on its first pass.
+        kedge::Edge stale{};
+        CHECK(!kedge::fired(stale, false, press(7000), 7000 + kedge::kMaxPressAgeMs + 1));
+        kedge::Edge ripe{};
+        CHECK(kedge::fired(ripe, false, press(7000), 7000 + kedge::kMaxPressAgeMs));
+
+        // The message press obeys the same debounce as the level's.
+        kedge::Edge both{};
+        CHECK(kedge::fired(both, true, none, 8000));
+        CHECK(!kedge::fired(both, false, none, 8030));
+        CHECK(!kedge::fired(both, false, press(8060), 8100));
+
+        // Across the 32-bit wrap of the message clock (49.7 days of uptime).
+        CHECK(kedge::later(5u, 0xFFFFFFF0u));
+        CHECK(!kedge::later(0xFFFFFFF0u, 5u));
+        CHECK(!kedge::later(7u, 7u));
+        const std::uint64_t wrap = 0x1FFFFFF00ull; // low 32 bits 0xFFFFFF00
+        kedge::Edge w{};
+        CHECK(kedge::fired(w, true, none, wrap));
+        CHECK(!kedge::fired(w, false, none, wrap + 0x80));
+        CHECK(kedge::fired(w, false, press(0x00000010u), wrap + 0x200));
     }
 
     void test_search_match()
@@ -8263,6 +8343,7 @@ int main(int argc, char** argv)
     test_waypoint_list();
     test_search_match();
     test_typing_gate();
+    test_keyedge();
     test_exchange();
     test_scan_sched();
     test_sweep_sched();

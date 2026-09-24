@@ -681,6 +681,20 @@ namespace overlay
         // running must not still eat the player's keys. Nothing is latched.
         extern std::atomic<std::uint64_t> g_swallow_stamp;
         constexpr std::uint64_t kSwallowStaleMs = 250;
+        // The newest key-down message per virtual key, written by the window proc on the game
+        // thread and read by the loop thread's hotkeys: the message time in the high 32 bits,
+        // the modifiers held with it and "there was one" in the low.
+        extern std::atomic<std::uint64_t> g_key_down[256];
+        constexpr std::uint64_t kKeyDownAny = 1;
+        constexpr std::uint64_t kKeyDownCtrl = 2;
+        constexpr std::uint64_t kKeyDownShift = 4;
+        constexpr std::uint64_t kKeyDownAlt = 8;
+        struct KeyDown
+        {
+            bool any = false;
+            std::uint32_t mods = 0; // kKeyDownCtrl / Shift / Alt
+            std::uint32_t ms = 0;   // GetMessageTime
+        };
         // A raw keyboard packet needs a second, bigger read (RID_INPUT) to see which key
         // it was, so the header is read first and the payload only for the keyboard -
         // the mouse half runs on every mouse move and must not pay for the Esc half.
@@ -1282,6 +1296,8 @@ namespace overlay
         void swallow_set_add(int vk);
         bool is_hotkey_message(UINT msg);
         bool hotkey_swallow(WPARAM wparam);
+        void note_key_down(UINT msg, WPARAM wparam, LPARAM lparam);
+        KeyDown key_down_of(int vk);
         bool is_mouse_message(UINT msg);
         bool is_keyboard_message(UINT msg);
         bool is_escape_message(UINT msg, WPARAM wparam);

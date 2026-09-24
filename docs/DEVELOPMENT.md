@@ -239,7 +239,7 @@ own file.
 | **map data** | `mapmanifest.hpp` (PURE `maps.json` parser), `mapdata.*` (chapter residency + the sparse 128-px-block height store), `slicerule.hpp` (PURE; the rule both maps slice and shade by), `pngdecode.hpp` (WIC, shared with `markers_test`) |
 | **marker model** | `markers_db.*` (PURE: the chapter JSON, category masks, the quality tier a category sits in, the found-file round trip), `shrines_db.hpp`, `marker_dedupe.hpp`, `scriptmap.hpp` (PURE `FScriptMap` decode), `scan_sched.hpp` (PURE slice / wrap / rate arithmetic) |
 | **language** | `lang.hpp` (PURE: the eleven cultures, parsing the game's `Language=` and the override, the decision between the config, the game and Windows, the fallback chain, the fonts each culture merges, the active culture), `langsel.*` (LOOP thread: reads GameUserSettings.ini and the Windows display language, applies the decision), `lang_strings.hpp` + `lang/en.inc` (the ids and the English, which every other `lang/<code>.inc` falls back to), `fmtspec.hpp` (PURE printf-specifier reader), `utf8.hpp` (PURE character-boundary cuts) |
-| **PURE UI logic** | `mapview.*` (the full map's viewport transform and its exact inverse, the zoom ladder, the waypoint file), `compass.*`, `projection.hpp`, `glyphs.hpp`, `label_layout.hpp`, `textmatch.hpp`, `exchange.hpp`, `gamebinds_map.hpp`, `typing_gate.hpp`, `chapterid.hpp` |
+| **PURE UI logic** | `mapview.*` (the full map's viewport transform and its exact inverse, the zoom ladder, the waypoint file), `compass.*`, `projection.hpp`, `glyphs.hpp`, `label_layout.hpp`, `textmatch.hpp`, `exchange.hpp`, `gamebinds_map.hpp`, `typing_gate.hpp`, `keyedge.hpp` (one press of a hotkey from the sampled level and the window proc's stamped key-down), `chapterid.hpp` |
 | **config** | `config_keys.hpp` (the one key → tier table), `config_rewrite.hpp` (PURE in-place rewrite: values only), `json.hpp` |
 | **engine access** | `ue_min.hpp` (hand-written `RC::Unreal` ABI declarations), `uereflect.hpp` (cached property offsets, `UFunction` calls), `mem.*` (`VirtualQuery` + SEH-guarded raw reads), `gamepad.*` (XInput, dynamically loaded, LOOP thread only) |
 | **sdk** | `sdk/UE4SS.def` + `sdk/lib/UE4SS.lib` (both generated, both committed), `sdk/shim/GUI/GUI.hpp` (hand-written stand-in) |
@@ -318,7 +318,7 @@ Four, with a strict split; `src/mmstate.hpp` states the invariants.
 | thread | what runs there | what it must not touch |
 |---|---|---|
 | **UE4SS loop** (`CppUserModBase::on_update`) | hotkeys, all file and JSON I/O, PNG decode, the log drain, XInput | — |
-| **game** (a `RegisterProcessEventPreCallback` pump) | every `UObject` traversal, reflection and raw read | D3D12; C++ iostreams and the C++ locale, which fault when touched from this game's game thread — it queues log text and parks results |
+| **game** (a `RegisterProcessEventPreCallback` pump) | every `UObject` traversal, reflection and raw read; the window proc hook - it records messages for ImGui, stamps key-downs for the hotkeys and swallows input | D3D12; C++ iostreams and the C++ locale, which fault when touched from this game's game thread — it queues log text and parks results |
 | **render** (the hooked `Present`) | everything ImGui and everything D3D12; the only thread that may release a D3D12 object | any `UObject` |
 | **surface** (`overlay_dcomp.cpp`) | waits on the render fence, copies the finished target into the DirectComposition surface through D3D11On12, commits | any `UObject`, any lock, and any D3D12 call but a fence signal on a queue of its own |
 

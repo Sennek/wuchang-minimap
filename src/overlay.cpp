@@ -30,6 +30,7 @@
 #include "exchange.hpp"
 #include "langsel.hpp"
 #include "saveslot.hpp"
+#include "keyedge.hpp"
 #include "typing_gate.hpp"
 
 namespace overlay
@@ -184,6 +185,7 @@ namespace overlay
         ResizeBuffersFn o_ResizeBuffers = nullptr;
         std::atomic<std::uint32_t> g_swallow_bits[8]{};
         std::atomic<std::uint64_t> g_swallow_stamp{0};
+        std::atomic<std::uint64_t> g_key_down[256]{};
         spin::Spinlock g_msg_lock;
         PendingMsg g_msg_ring[kMsgRing];
         int g_msg_head = 0;  // oldest unreplayed slot
@@ -1590,35 +1592,6 @@ namespace overlay
     }
 
     //==================================================================================
-    // ONE DEBOUNCE PER BINDING
-    //==================================================================================
-    //
-    // The debounce swallows a contact bounce and a key repeat of the SAME key, which is
-    // a property of one binding - so `Edge` is the level plus the last accepted time of
-    // exactly one hotkey, and two unrelated actions can never debounce each other.
-    constexpr std::uint64_t kEdgeDebounceMs = 250;
-
-    struct Edge
-    {
-        bool down = false;
-        std::uint64_t last_ms = 0;
-    };
-
-    // True exactly once on the rising edge of `now_down`, and never twice inside
-    // kEdgeDebounceMs. The level is recorded whatever the answer, so a key held down
-    // through a gate closing cannot fire when the gate opens again.
-    bool edge_fired(Edge& e, bool now_down, std::uint64_t now)
-    {
-        const bool fire = now_down && !e.down && (e.last_ms == 0 || now - e.last_ms > kEdgeDebounceMs);
-        if (fire)
-        {
-            e.last_ms = now;
-        }
-        e.down = now_down;
-        return fire;
-    }
-
-    //==================================================================================
     // THE LOOP THREAD'S FRAME
     //==================================================================================
     //
@@ -1670,13 +1643,50 @@ namespace overlay
             return (::GetAsyncKeyState(vk) & 0x8000) != 0 && mod_held(mm::key_mod(binding));
         }
 
-        // THE SHAPE EVERY HOTKEY SHARES: the debounced rising edge of a binding, with our
-        // window in front and whatever else that key needs to be live. The level is
-        // recorded whatever the answer - that is `edge_fired`'s doing - so a key held down
-        // through a gate closing cannot fire when the gate opens again.
-        bool hotkey_fired(Edge& e, const LoopFrame& f, int binding, bool live = true)
+        // A key-down message's modifiers against a binding's, with mod_held's rule: a binding
+        // with no modifier takes the key whatever else was held.
+        bool mods_took(std::uint32_t mods, int mod)
         {
-            return edge_fired(e, key_down(f, binding), f.now) && f.foreground && live;
+            switch (mod)
+            {
+            case mm::kKeyModCtrl:
+                return (mods & kKeyDownCtrl) != 0;
+            case mm::kKeyModShift:
+                return (mods & kKeyDownShift) != 0;
+            case mm::kKeyModAlt:
+                return (mods & kKeyDownAlt) != 0;
+            default:
+                return true;
+            }
+        }
+
+        // The binding's newest key-down message, stamped by the window proc
+        // (overlay_input.cpp), under the same vetoes as key_down.
+        kedge::Press key_press(const LoopFrame& f, int binding)
+        {
+            const KeyDown m = key_down_of(mm::key_vk(binding));
+            kedge::Press p{};
+            p.any = m.any;
+            p.ms = m.ms;
+            p.eligible = m.any && !f.typing && mods_took(m.mods, mm::key_mod(binding));
+            return p;
+        }
+
+        // One press of a binding, from the level and the message together (keyedge.hpp). The
+        // sample time is read after the level, which is what lets kedge tell the level's own
+        // press from one it missed.
+        bool key_edge(kedge::Edge& e, const LoopFrame& f, int binding)
+        {
+            const bool level = key_down(f, binding);
+            return kedge::fired(e, level, key_press(f, binding), ::GetTickCount64());
+        }
+
+        // THE SHAPE EVERY HOTKEY SHARES: one debounced press of a binding, with our window in
+        // front and whatever else that key needs to be live. The press is consumed whatever
+        // the answer, so a key pressed through a gate closing cannot fire when it opens again.
+        bool hotkey_fired(kedge::Edge& e, const LoopFrame& f, int binding, bool live = true)
+        {
+            return key_edge(e, f, binding) && f.foreground && live;
         }
 
         // A pad chord is a press of all its buttons AT ONCE, taken from the held mask
@@ -1855,14 +1865,13 @@ namespace overlay
             }
         }
 
-        // The panel, the F5 reload and the full map. GetAsyncKeyState rather than a WndProc
-        // test on purpose: while the map is open the WndProc hook swallows every key, so
-        // the message-based route could not close it again.
+        // The panel, the F5 reload and the full map. The window proc stamps a key before it
+        // decides to swallow it, so the map key still closes a map that owns the keyboard.
         void overlay_hotkeys(const LoopFrame& f)
         {
-            static Edge panel_edge{};
-            static Edge reload_edge{};
-            static Edge map_edge{};
+            static kedge::Edge panel_edge{};
+            static kedge::Edge reload_edge{};
+            static kedge::Edge map_edge{};
             if (hotkey_fired(panel_edge, f, f.cfg.panel_key))
             {
                 const bool open = !mm::g_panel_open.load();
@@ -1910,7 +1919,7 @@ namespace overlay
         // full map is open: it swallows the keyboard and owns its own zoom.
         void zoom_ladder(const LoopFrame& f)
         {
-            static Edge zoom_edge{};
+            static kedge::Edge zoom_edge{};
             if (hotkey_fired(zoom_edge, f, f.cfg.zoom_key, !mm::g_map_open.load()))
             {
                 g_zoom_steps.fetch_add(1, std::memory_order_relaxed);
@@ -2004,7 +2013,7 @@ namespace overlay
         // near Present.
         void map_to_clipboard(const LoopFrame& f)
         {
-            static Edge shot_edge{};
+            static kedge::Edge shot_edge{};
             if (hotkey_fired(shot_edge, f, f.cfg.screenshot_key, mm::g_map_open.load()))
             {
                 g_shot_request.store(true, std::memory_order_release);
@@ -2072,8 +2081,8 @@ namespace overlay
         // is the render thread's.
         void map_request_keys(const LoopFrame& f)
         {
-            static Edge recenter_edge{};
-            static Edge nearest_edge{};
+            static kedge::Edge recenter_edge{};
+            static kedge::Edge nearest_edge{};
             if (hotkey_fired(recenter_edge, f, f.cfg.map_recenter_key, mm::g_map_open.load()))
             {
                 g_map_recenter.store(true, std::memory_order_relaxed);
@@ -2107,11 +2116,11 @@ namespace overlay
             pad::poll(want, cfg.map_gamepad_deadzone);
         }
 
-        // THE X-RAY HIGHLIGHT'S KEY. The key and the pad chord are always sampled as a
-        // LEVEL; what `highlight_mode` decides is what that level means.
+        // THE X-RAY HIGHLIGHT'S KEY. What `highlight_mode` decides is whether the key and the
+        // pad chord are read as a level or as presses.
         //
         //   hold   - on while down. No debounce, no "turn it off" path.
-        //   toggle - the default: the rising edge of the level flips hl's latch. That latch
+        //   toggle - the default: a press of either flips hl's latch. That latch
         //            is the one piece of latched input state in the mod, and it is cleared
         //            from live state by hl::drop_caches() - every level transition and every
         //            dropped pawn - and by turning the feature off.
@@ -2121,17 +2130,24 @@ namespace overlay
         void xray_key(const LoopFrame& f)
         {
             const mm::Config& cfg = f.cfg;
-            bool down = cfg.highlight_enabled && key_down(f, cfg.highlight_key);
-            if (!down && cfg.highlight_enabled && cfg.highlight_gamepad)
+            // The key's press through kedge, so a tap made while this thread was busy still
+            // flips the latch. The pad is polled here and has no message to miss.
+            static kedge::Edge key_state{};
+            const bool key_pressed = key_edge(key_state, f, cfg.highlight_key) && cfg.highlight_enabled;
+            const bool key_held = key_state.down && cfg.highlight_enabled;
+            bool pad_held = false;
+            if (cfg.highlight_enabled && cfg.highlight_gamepad)
             {
                 const pad::State gp = pad::state();
                 const bool chord =
                     (cfg.highlight_pad_mask != 0 || cfg.highlight_pad_lt || cfg.highlight_pad_rt) &&
                     (gp.held & cfg.highlight_pad_mask) == cfg.highlight_pad_mask &&
                     (!cfg.highlight_pad_lt || gp.lt > 0.5f) && (!cfg.highlight_pad_rt || gp.rt > 0.5f);
-                down = gp.connected && chord;
+                pad_held = gp.connected && chord;
             }
-            static bool was_down = false;
+            static bool pad_was_held = false;
+            const bool pad_pressed = pad_held && !pad_was_held;
+            pad_was_held = pad_held;
             bool held = false;
             if (!cfg.highlight_enabled)
             {
@@ -2142,17 +2158,16 @@ namespace overlay
                 // Leaving hold mode armed would strand the latch on; clearing it here also
                 // makes switching the mode in the panel take effect at once.
                 hl::xray_latch_clear(L"switched to hold mode");
-                held = down;
+                held = key_held || pad_held;
             }
             else
             {
-                if (down && !was_down && f.foreground)
+                if ((key_pressed || pad_pressed) && f.foreground)
                 {
                     hl::xray_latch_flip();
                 }
                 held = hl::xray_latched();
             }
-            was_down = down;
             held = held && f.foreground;
             // The only thing that makes the game thread read the camera: with neither the
             // highlight held nor the compass on, highlight.cpp costs one atomic load a pump.

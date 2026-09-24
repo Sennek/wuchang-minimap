@@ -1,5 +1,6 @@
 //
-// overlay_input - the WndProc hook, the hotkey swallow and the message replay.
+// overlay_input - the WndProc hook, the hotkey swallow, the key-down stamps and the message
+// replay.
 //
 // The game thread owns the window, so its messages are recorded under g_msg_lock and
 // replayed on the render thread just before ImGui builds a frame.
@@ -56,6 +57,48 @@ namespace overlay
                 return false;
             }
             return (g_swallow_bits[vk >> 5].load(std::memory_order_relaxed) & (1u << (vk & 31u))) != 0;
+        }
+
+        //==============================================================================
+        // KEY-DOWN STAMPS
+        //==============================================================================
+        //
+        // The loop thread's level sample misses a press made while it is busy elsewhere, so
+        // every key-down message leaves its input time and the modifiers held with it here,
+        // one word per virtual key; kedge::fired (keyedge.hpp) decides whether the level saw
+        // that press already. A repeat is not a press. Taken before any swallow, so a key the
+        // map or the panel keeps from the game still reaches the bindings.
+
+        void note_key_down(UINT msg, WPARAM wparam, LPARAM lparam)
+        {
+            const unsigned vk = static_cast<unsigned>(wparam);
+            if ((msg != WM_KEYDOWN && msg != WM_SYSKEYDOWN) || (lparam & (1 << 30)) != 0 || vk == 0 ||
+                vk >= 256)
+            {
+                return;
+            }
+            // GetKeyState, not GetAsyncKeyState: the modifiers as they were when THIS message
+            // was generated.
+            std::uint64_t mods = 0;
+            mods |= (::GetKeyState(VK_CONTROL) & 0x8000) != 0 ? kKeyDownCtrl : 0;
+            mods |= (::GetKeyState(VK_SHIFT) & 0x8000) != 0 ? kKeyDownShift : 0;
+            mods |= (::GetKeyState(VK_MENU) & 0x8000) != 0 ? kKeyDownAlt : 0;
+            const std::uint64_t ms = static_cast<std::uint32_t>(::GetMessageTime());
+            g_key_down[vk].store(ms << 32 | mods | kKeyDownAny, std::memory_order_relaxed);
+        }
+
+        KeyDown key_down_of(int vk)
+        {
+            KeyDown out{};
+            if (vk <= 0 || vk >= 256)
+            {
+                return out;
+            }
+            const std::uint64_t w = g_key_down[vk].load(std::memory_order_relaxed);
+            out.any = (w & kKeyDownAny) != 0;
+            out.mods = static_cast<std::uint32_t>(w) & ~static_cast<std::uint32_t>(kKeyDownAny);
+            out.ms = static_cast<std::uint32_t>(w >> 32);
+            return out;
         }
 
         //==============================================================================
@@ -259,6 +302,7 @@ namespace overlay
             {
                 // Record only - the ImGui context belongs to the render thread.
                 record_imgui_message(hwnd, msg, wparam, lparam);
+                note_key_down(msg, wparam, lparam);
 
                 // Input is taken only while the F2 panel or the full map is up; with both closed
                 // every message passes through. The test is a plain read of the two flags, so

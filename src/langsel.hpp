@@ -13,6 +13,8 @@
 
 #include <cstdint>
 
+#include "lang.hpp"
+
 namespace lsel
 {
     // Decides the culture now and makes it the active one, with one log line whenever the
@@ -25,4 +27,9 @@ namespace lsel
     // F2 panel), or - looked at once a second - when the game rewrote its ini. True when the
     // culture moved, and the caller reloads the names-bearing data.
     bool on_update(std::uint64_t now);
+
+    // ANY THREAD. The culture `language = auto` resolves to at the last refresh() - the
+    // game's, else Windows', else English - whatever `language` says now. It is what the
+    // panel's "Same as the game" entry names.
+    lang::Culture auto_culture();
 } // namespace lsel

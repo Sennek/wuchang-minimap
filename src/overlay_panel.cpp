@@ -9,6 +9,7 @@
 //
 
 #include "overlay_internal.hpp"
+#include "langsel.hpp"
 #include "imgui_internal.h"
 
 namespace overlay
@@ -1128,9 +1129,11 @@ namespace overlay
             bool is_auto = true;
             lang::Culture pinned = lang::Culture::En;
             (void)lang::parse_override(cfg.language, is_auto, pinned);
-            const std::string_view active = lang::endonym(lang::active());
+            // Named after what `auto` would pick, not the culture in force: with a language
+            // pinned the two differ, and this entry is the way back to the game's.
+            const std::string_view follows = lang::endonym(lsel::auto_culture());
             const lang::Text<128> auto_item("%s (%.*s)###lang_auto", tr(S::LangAuto),
-                                            static_cast<int>(active.size()), active.data());
+                                            static_cast<int>(follows.size()), follows.data());
             const std::string_view shown = is_auto ? std::string_view{auto_item.c_str()} : lang::endonym(pinned);
             const std::string preview{shown.substr(0, shown.find("###"))};
             if (ImGui::BeginCombo("##language", preview.c_str()))

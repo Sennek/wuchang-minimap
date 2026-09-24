@@ -6,6 +6,7 @@
 
 #include <Windows.h>
 
+#include <atomic>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -27,6 +28,7 @@ namespace lsel
         std::uint64_t g_last_poll = 0;
         bool g_decided = false;
         lang::Decision g_last{};
+        std::atomic<lang::Culture> g_auto{lang::Culture::En};
 
         std::wstring widen(std::string_view s)
         {
@@ -151,8 +153,14 @@ namespace lsel
         }
         g_decided = true;
         g_last = d;
+        g_auto.store(lang::decide("auto", game, os).culture, std::memory_order_relaxed);
         lang::set_active(d.culture);
         return moved;
+    }
+
+    lang::Culture auto_culture()
+    {
+        return g_auto.load(std::memory_order_relaxed);
     }
 
     bool on_update(std::uint64_t now)

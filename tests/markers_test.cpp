@@ -1372,6 +1372,17 @@ namespace
     {
         section("per-activity performance counters");
 
+        // The clock: exact, and still exact past the 10.7-day uptime where
+        // ticks * 1000000 leaves an int64.
+        CHECK(perf::ticks_to_us(0, 10000000) == 0);
+        CHECK(perf::ticks_to_us(12345678, 10000000) == 1234567);
+        CHECK(perf::ticks_to_us(9522734765590, 10000000) == 952273476559ull);
+        CHECK(perf::ticks_to_us(9522734765590 + 10, 10000000) -
+                  perf::ticks_to_us(9522734765590, 10000000) ==
+              1);
+        CHECK(perf::ticks_to_us(3000000, 3000000) == 1000000);
+        CHECK(perf::ticks_to_us(1000, 0) == 0);
+
         perf::Table t{};
         CHECK(t.count == 0);
 

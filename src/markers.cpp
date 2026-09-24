@@ -516,23 +516,6 @@ namespace markers
         int g_next_class = 0;
         std::uint64_t g_last_class_ms = 0;
 
-        std::uint64_t qpc_us()
-        {
-            static LARGE_INTEGER freq = [] {
-                LARGE_INTEGER f{};
-                ::QueryPerformanceFrequency(&f);
-                return f;
-            }();
-            LARGE_INTEGER t{};
-            ::QueryPerformanceCounter(&t);
-            if (freq.QuadPart <= 0)
-            {
-                return 0;
-            }
-            return static_cast<std::uint64_t>(t.QuadPart) * 1000000ull /
-                   static_cast<std::uint64_t>(freq.QuadPart);
-        }
-
         // A reflected bool, bitfield-aware: a native bitfield (`uint8 bHidden : 1` on
         // AActor) shares its byte, so FBoolProperty's bit is asked before the byte test.
         bool read_bool_prop(UObject* obj, const wchar_t* name, bool& out)
@@ -2457,7 +2440,7 @@ namespace markers
         // What the publish cost; the F2 round line and the periodic log print all three.
         void note_publish_cost(std::uint64_t t0)
         {
-            const double ms = static_cast<double>(qpc_us() - t0) / 1000.0;
+            const double ms = static_cast<double>(mm::qpc_us() - t0) / 1000.0;
             g_publish_ms.store(ms, std::memory_order_relaxed);
             g_publish_ms_sum += ms;
             ++g_publish_count;
@@ -2474,7 +2457,7 @@ namespace markers
         // runs, so every rule below may read absence as evidence.
         void publish_round()
         {
-            const std::uint64_t t0 = qpc_us();
+            const std::uint64_t t0 = mm::qpc_us();
             if (g_pf_publish < 0)
             {
                 g_pf_publish = mm::perf_register("publish_round", perf::Thread::Game);
@@ -2533,9 +2516,9 @@ namespace markers
             }
             g_last_class_ms = now;
 
-            const std::uint64_t t0 = qpc_us();
+            const std::uint64_t t0 = mm::qpc_us();
             sweep_class(g_next_class);
-            const double ms = static_cast<double>(qpc_us() - t0) / 1000.0;
+            const double ms = static_cast<double>(mm::qpc_us() - t0) / 1000.0;
 
             scan::note_slice(g_round_stats, ms, 0);
             g_scan_slice_ms.store(ms, std::memory_order_relaxed);
@@ -3789,7 +3772,7 @@ namespace markers
 
     void game_thread_pump(std::uint64_t now, const void* world)
     {
-        const std::uint64_t now_us = qpc_us();
+        const std::uint64_t now_us = mm::qpc_us();
 
         // 1. Hard ceiling on how often anything at all happens here: mm::config() copies
         //    the config under a spinlock, at ProcessEvent rate thousands of times a second.
@@ -3872,9 +3855,9 @@ namespace markers
         // 5.
         const int chunk = scan::clamp_chunk(cfg.markers_scan_chunk);
         const scan::Slice slice = scan::next_slice(g_cursor, total, chunk);
-        const std::uint64_t t0 = qpc_us();
+        const std::uint64_t t0 = mm::qpc_us();
         const int visited = slice.empty() ? 0 : scan_slice(slice);
-        const double slice_ms = static_cast<double>(qpc_us() - t0) / 1000.0;
+        const double slice_ms = static_cast<double>(mm::qpc_us() - t0) / 1000.0;
 
         if (g_pf_scan < 0)
         {

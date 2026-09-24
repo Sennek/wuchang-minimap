@@ -1613,7 +1613,7 @@ namespace mm
         }();
         LARGE_INTEGER now{};
         ::QueryPerformanceCounter(&now);
-        return freq > 0 ? static_cast<std::uint64_t>(now.QuadPart * 1000000 / freq) : 0;
+        return perf::ticks_to_us(now.QuadPart, freq);
     }
 
     namespace

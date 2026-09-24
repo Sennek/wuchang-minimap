@@ -51,6 +51,20 @@ namespace perf
         }
     }
 
+    // A QueryPerformanceCounter reading in microseconds. `ticks * 1000000` overflows an
+    // int64 after 10.7 days of uptime at the usual 10 MHz, so whole seconds and the
+    // remainder are scaled apart. 0 when the frequency is not positive.
+    inline std::uint64_t ticks_to_us(std::int64_t ticks, std::int64_t freq)
+    {
+        if (freq <= 0 || ticks < 0)
+        {
+            return 0;
+        }
+        const std::uint64_t t = static_cast<std::uint64_t>(ticks);
+        const std::uint64_t f = static_cast<std::uint64_t>(freq);
+        return t / f * 1000000ull + t % f * 1000000ull / f;
+    }
+
     // Table capacity. Registration past this is dropped; a fixed array is what keeps
     // recording allocation-free.
     constexpr int kMaxCounters = 48;

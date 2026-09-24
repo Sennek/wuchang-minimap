@@ -46,6 +46,7 @@
 #include "framecensus.hpp"
 #include "framegate.hpp"
 #include "perf.hpp"
+#include "texupload.hpp"
 #include "projection.hpp"
 #include "ptrwalk.hpp"
 #include "saveslot.hpp"
@@ -1364,6 +1365,46 @@ namespace
         mdb::intern_levels(none, levels, marker_level);
         CHECK(levels.empty());
         CHECK(marker_level.empty());
+    }
+
+    // Staging layout for ImGui's texture uploads (src/texupload.hpp)
+
+    void test_texupload()
+    {
+        section("texture upload staging layout");
+
+        struct R
+        {
+            int w, h;
+        };
+        CHECK(texup::row_pitch(1, 4) == 256);
+        CHECK(texup::row_pitch(64, 4) == 256);
+        CHECK(texup::row_pitch(65, 4) == 512);
+        CHECK(texup::row_pitch(2048, 4) == 8192);
+
+        // A whole 2048x1024 atlas is one rectangle at offset 0.
+        const R whole[] = {{2048, 1024}};
+        texup::Placed one[1];
+        CHECK(texup::lay_out(whole, 1, 4, one) == 8192ull * 1024);
+        CHECK(one[0].offset == 0 && one[0].pitch == 8192);
+
+        // Glyph-sized updates: every rectangle starts on a placement boundary, pitches are
+        // aligned and never narrower than the row, and nothing overlaps.
+        const R glyphs[] = {{13, 17}, {9, 3}, {70, 1}, {1, 1}};
+        texup::Placed p[4];
+        const std::uint64_t total = texup::lay_out(glyphs, 4, 4, p);
+        std::uint64_t end = 0;
+        for (int i = 0; i < 4; ++i)
+        {
+            CHECK(p[i].offset % texup::kPlaceAlign == 0);
+            CHECK(p[i].pitch % texup::kPitchAlign == 0);
+            CHECK(p[i].pitch >= static_cast<std::uint32_t>(glyphs[i].w * 4));
+            CHECK(p[i].offset >= end);
+            end = p[i].offset + static_cast<std::uint64_t>(p[i].pitch) * glyphs[i].h;
+        }
+        CHECK(total == end);
+        CHECK(p[1].offset == 256ull * 17 + (512 - 256ull * 17 % 512) % 512);
+        CHECK(texup::lay_out(glyphs, 0, 4, p) == 0);
     }
 
     // The per-activity performance counters (src/perf.hpp)
@@ -8217,6 +8258,7 @@ int main(int argc, char** argv)
     test_ids();
     test_intern_levels();
     test_perf();
+    test_texupload();
     test_mapview();
     test_waypoint_list();
     test_search_match();

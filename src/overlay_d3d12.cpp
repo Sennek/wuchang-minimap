@@ -1513,6 +1513,8 @@ namespace overlay
                 if (g_imgui_ready)
                 {
                     unhook_wndproc();
+                    // Ours, not the backend's: its shutdown would read them as its own.
+                    destroy_imgui_textures();
                     ImGui_ImplDX12_Shutdown();
                     ImGui_ImplWin32_Shutdown();
                     ImGui::DestroyContext();
@@ -1661,6 +1663,7 @@ namespace overlay
             static int g_pf_targetwait = -1; // the fence wait for the target this frame reuses
             static int g_pf_record = -1;    // record_frame(), the command list
             static int g_pf_imguidraw = -1; // ImGui_ImplDX12_RenderDrawData alone
+            static int g_pf_texupload = -1; // ImGui's texture updates, on the frames that have one
             static int g_pf_submit = -1;    // submit_frame(), execute + signal + publish
             static int g_pf_shot = -1;      // the screenshot readback, outside render()
 
@@ -1688,6 +1691,7 @@ namespace overlay
                 g_pf_targetwait = mm::perf_register("render target wait", perf::Thread::Render);
                 g_pf_record = mm::perf_register("render record", perf::Thread::Render);
                 g_pf_imguidraw = mm::perf_register("render ImGui draw", perf::Thread::Render);
+                g_pf_texupload = mm::perf_register("render texture upload", perf::Thread::Render);
                 g_pf_submit = mm::perf_register("render submit", perf::Thread::Render);
                 g_pf_shot = mm::perf_register("render shot collect", perf::Thread::Render);
                 g_pf_gpu_frame = mm::perf_register("gpu frame (overlay)", perf::Thread::Render);
@@ -1937,8 +1941,8 @@ namespace overlay
                 g_imgui_want_text.store(tgate::text_active(), std::memory_order_relaxed);
             }
 
-            // The command list: the map upload, the height-slice copy, ImGui's draw call and
-            // the screenshot, in that order. False means the list could not be reset and the
+            // The command list: the map upload, the height-slice copy, ImGui's texture uploads
+            // and draw call, and the screenshot, in that order. False means the list could not be reset and the
             // frame is dropped.
             bool record_frame(UINT index, bool& shot_recorded)
             {
@@ -1986,6 +1990,15 @@ namespace overlay
                 stamp(3);
                 ID3D12DescriptorHeap* heaps[] = {g_srv_heap.heap()};
                 g_cmd_list->SetDescriptorHeaps(1, heaps);
+                // ImGui's texture requests go into this same list, ahead of the draw call
+                // that samples them (overlay_imtex.cpp).
+                const std::uint64_t tu0 = mm::qpc_us();
+                const ImTexFrame textures = record_imgui_textures(ImGui::GetDrawData(), g_cmd_list);
+                if (textures.any)
+                {
+                    mm::perf_record(g_pf_texupload, tu0);
+                }
+                if (textures.drawable)
                 {
                     // Counted apart from the rest of the list: this is the one call here whose
                     // cost follows what the overlay drew, and the rest is fixed per frame.

@@ -1301,6 +1301,20 @@ namespace overlay
         void destroy_all_map_textures();
         void release_finished_uploads();
         bool begin_map_upload(const mapdata::PendingImage& img, ID3D12GraphicsCommandList* list);
+
+        // overlay_imtex.cpp. `any`: ImGui asked for texture work this frame. `drawable`: every
+        // texture ImGui's draw may sample has had its first upload recorded.
+        struct ImTexFrame
+        {
+            bool any = false;
+            bool drawable = false;
+        };
+        // Takes the draw data's texture requests: records them into `list` and clears
+        // `dd->Textures`, so RenderDrawData leaves them alone.
+        ImTexFrame record_imgui_textures(ImDrawData* dd, ID3D12GraphicsCommandList* list);
+        // With the GPU idle, before ImGui_ImplDX12_Shutdown.
+        void destroy_imgui_textures();
+
         UvMap uv_of(const mapdata::Chapter& c);
         MiniOffset mini_offset(const MiniGeom& g, double wx, double wy, bool round, float limit,
                                bool clamp_to_edge);

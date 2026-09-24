@@ -3722,6 +3722,7 @@ namespace markers
         clear_found_list(now);
         apply_toggles(now);
         retire_databases(now);
+        shr::retire_tables(now);
         found_file_upkeep(mm::cfg_cached(), now);
         log_round_census(now);
         publish_light_stats(now);

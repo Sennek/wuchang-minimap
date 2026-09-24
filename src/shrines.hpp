@@ -64,11 +64,16 @@ namespace shr
     // The offline shrine table (markers/shrines.json)
     //==================================================================================
 
-    // Loop thread, once. Reads markers/shrines.json and publishes it.
+    // Loop thread: at start and on every reload. Reads markers/shrines.json and publishes it;
+    // the table it replaces is retired, not freed.
     void load_table();
 
+    // Loop thread, every tick. Frees the tables a reload replaced once kRetireMs has passed:
+    // a reader holds the pointer for one frame or one call, never longer.
+    void retire_tables(std::uint64_t now);
+
     // ANY THREAD. The published table, or nullptr before load_table has run. Immutable
-    // once published and leaked on reload - a render thread may be walking it.
+    // once published.
     const std::vector<shdb::Shrine>* table();
 
     // ANY THREAD. What load_table() found, for the F2 readout.

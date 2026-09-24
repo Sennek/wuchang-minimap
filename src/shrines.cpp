@@ -107,6 +107,15 @@ namespace shr
 
         std::atomic<const std::vector<shdb::Shrine>*> g_table{nullptr};
         TableInfo g_table_info; // guarded by g_lock
+
+        // Tables a reload replaced, waiting to be freed. Loop thread only.
+        struct RetiredTable
+        {
+            const std::vector<shdb::Shrine>* table = nullptr;
+            std::uint64_t ms = 0; // when it was replaced
+        };
+        std::vector<RetiredTable> g_retired;
+        constexpr std::uint64_t kRetireMs = 3000;
     } // namespace
 
     State state()
@@ -198,10 +207,29 @@ namespace shr
             spin::SpinGuard guard(g_lock);
             g_table_info = info;
         }
-        // Leaked on reload: the render thread may be walking the old vector.
-        g_table.store(list.release(), std::memory_order_release);
+        const std::vector<shdb::Shrine>* const previous = g_table.exchange(list.release(), std::memory_order_acq_rel);
+        if (previous != nullptr)
+        {
+            // Freed by retire_tables() later: the render or game thread may hold this pointer.
+            g_retired.push_back(RetiredTable{previous, ::GetTickCount64()});
+        }
         mm::logf(L"shrines: table loaded - {} row(s), {} shrine(s), {} named", rep.rows, rep.shrines,
                  rep.named);
+    }
+
+    void retire_tables(std::uint64_t now)
+    {
+        std::size_t out = 0;
+        for (const RetiredTable& r : g_retired)
+        {
+            if (now - r.ms >= kRetireMs)
+            {
+                delete r.table;
+                continue;
+            }
+            g_retired[out++] = r;
+        }
+        g_retired.resize(out);
     }
 
     void drop_caches()

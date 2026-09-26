@@ -8,12 +8,16 @@ game's own navmesh.
 - **Minimap** and **compass strip** in-world, **full chapter map** on `M`
 - **Markers** for chests, loot, shrines, bosses, NPCs and notes, with the game's own names,
   all five chapters and the DLC
-- **Loot in eleven kinds** — consumables, materials, key items, weapons, armour, amulets, jades,
-  spells, harvest nodes, cannon ammo and plain items — each with its own filter checkbox
+- **Loot in eleven kinds** — consumables, materials, key items, weapons, armour, jade pendants,
+  benedictions, spells, harvest nodes, cannon ammo and plain items — each with its own filter
+  checkbox
 - **Collection tracker** per save slot, up to 16 waypoints, name search on the full map
 - **X-ray** on `TAB`: loot through walls, in the game's own three pickup-beam colours
 - Everything configured from the **F2** panel, saved by itself
-- Keyboard, mouse and gamepad; English UI
+- Keyboard, mouse and gamepad
+- **Every language the game ships**, following the game's own; another one is picked at the top
+  of `F2` → **Overview**. The mod's own text is machine-translated, so a word that reads wrong is
+  worth a bug report
 
 ## Requirements
 
@@ -83,9 +87,6 @@ None of these stops the mod working.
 - **Another UE4SS C++ mod that also hooks `Present`** — the one combination that can lose an
   overlay: whichever installs second usually wins, and the loser is invisible. Test them one at a
   time before reporting a blank screen.
-- **The Steam overlay** — the first run of a new install creates and destroys a throwaway
-  swapchain, which Steam's overlay follows, so its FPS counter can end up pointing at nothing.
-  Shift+Tab still works.
 - **UE4SS's own console window** — not a mod conflict, but it looks exactly like one. Clicking or
   dragging in that black console window puts it in selection mode, which blocks whoever writes to
   it: UE4SS stops mid-startup and the game hangs before this mod has run a single line. Press

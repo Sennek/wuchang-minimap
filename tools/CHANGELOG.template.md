@@ -1,5 +1,20 @@
 # WuchangMinimap - changelog
 
+## 1.5.0
+
+Added
+- The mod speaks every language the game does: English, French, German, Spanish, Italian, Portuguese, Russian, Japanese, Korean and Simplified and Traditional Chinese. It follows the game's language by itself; the top of the F2 panel's Overview tab picks another one, and `language` in the config file is the same setting.
+- Markers, items and shrines carry the game's own names in that language.
+- The mod's own text is machine-translated. A word that reads wrong in your language is worth a bug report.
+
+Changed
+- Amulets and jades are called what the game calls them: Jade Pendants and Benedictions. The config file still says `amulet` and `jade`.
+
+Fixed
+- A quick key press could go unnoticed, most often with other UE4SS mods installed.
+- The game no longer pauses for a moment when the overlay shows text for the first time, such as opening the panel or the full map, or a new name coming into view.
+- The mod keeps its timing right on a PC that has not been restarted for more than ten days.
+
 ## 1.4.0
 
 Added

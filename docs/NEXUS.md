@@ -34,11 +34,12 @@ A minimap, a full chapter map and a compass, built from the game's own navmesh. 
 [list]
 [*][b]Minimap[/b] and [b]compass strip[/b] in-world, [b]full chapter map[/b] on M
 [*][b]Markers[/b] for chests, loot, shrines, bosses, NPCs and notes, and for the collections you can finish — the 105 Harbinger Cuckoos and the 20 Bamboozlings — with the game's own names, all five chapters and the DLC
-[*][b]Loot in eleven kinds[/b] — consumables, materials, key items, weapons, armour, amulets, jades, spells, harvest nodes, cannon ammo and plain items — each with its own filter checkbox, so "where are the amulets" is one tick away
+[*][b]Loot in eleven kinds[/b] — consumables, materials, key items, weapons, armour, jade pendants, benedictions, spells, harvest nodes, cannon ammo and plain items — each with its own filter checkbox, so "where are the jade pendants" is one tick away
 [*][b]Collection tracker[/b] per save slot, up to 16 waypoints, name search on the full map
 [*][b]X-ray[/b] on TAB: loot through walls, in the game's own three pickup-beam colours — blue, pink, gold
 [*]Everything configured from the [b]F2[/b] panel, saved by itself
-[*]Keyboard, mouse and gamepad; English UI
+[*]Keyboard, mouse and gamepad
+[*][b]Every language the game ships[/b] — English, French, German, Spanish, Italian, Portuguese, Russian, Japanese, Korean, Simplified and Traditional Chinese — following the game's own; another one is picked at the top of F2 → Overview. The mod's own text is machine-translated, so a word that reads wrong is worth a bug report
 [/list]
 
 [size=5]Requirements[/size]

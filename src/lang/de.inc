@@ -37,7 +37,6 @@ LANG_T(FmtDeg, "%.0f°")
 LANG_T(FmtPx, "%.0f px")
 LANG_T(FmtPx1, "%.1f px")
 LANG_T(FmtIntPx, "%d px")
-LANG_T(FmtHz, "%d Hz")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_T(CatShrines, "Schreine")
@@ -288,7 +287,6 @@ LANG_T(LangAuto, "Wie im Spiel")
 LANG_T(SecWhatIsOn,"Was ist aktiv")
 LANG_T(SecPlacement, "Position")
 LANG_T(SecLook, "Aussehen")
-LANG_T(SecPerformance, "Leistung")
 LANG_T(OvSize, "Größe")
 LANG_T(OvZoom, "Zoom")
 LANG_T(OvOpacity, "Deckkraft")
@@ -332,12 +330,6 @@ LANG_T(OvPaletteDefault, "Standard")
 LANG_T(OvPaletteColorblind, "farbenblind")
 LANG_T(OvFont, "Schriftart")
 LANG_T(OvFontHint, "Pfad zu einer .ttf oder `none` für die eingebaute Schrift")
-LANG_T(OvRedrawEveryFrame, "In jedem Spielframe neu zeichnen")
-LANG_T(OvUpdatesPerSecond, "Overlay-Updates pro Sekunde")
-LANG_T(OvUpdateRateHelp, "Weniger gibt dem Spiel die Frames zurück, die das Overlay zum Zeichnen braucht.\n"
-       "Deine Position auf der Karte wird nur 10-mal pro Sekunde gelesen, alles darüber\n"
-       "kostet das Bild also nichts - nur der Röntgenblick folgt der Kamera.\n"
-       "Die große Karte ignoriert diesen Wert.")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_T(CgCategory, "Kategorie")

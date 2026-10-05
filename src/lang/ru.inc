@@ -37,7 +37,6 @@ LANG_T(FmtDeg, "%.0f°")
 LANG_T(FmtPx, "%.0f пкс")
 LANG_T(FmtPx1, "%.1f пкс")
 LANG_T(FmtIntPx, "%d пкс")
-LANG_T(FmtHz, "%d Гц")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_T(CatShrines, "Святилища")
@@ -289,7 +288,6 @@ LANG_T(LangAuto, "Как в игре")
 LANG_T(SecWhatIsOn,"Что включено")
 LANG_T(SecPlacement, "Расположение")
 LANG_T(SecLook, "Внешний вид")
-LANG_T(SecPerformance, "Производительность")
 LANG_T(OvSize, "Размер")
 LANG_T(OvZoom, "Масштаб")
 LANG_T(OvOpacity, "Непрозрачность")
@@ -333,13 +331,6 @@ LANG_T(OvPaletteDefault, "по умолчанию")
 LANG_T(OvPaletteColorblind, "для дальтоников")
 LANG_T(OvFont, "Шрифт")
 LANG_T(OvFontHint, "путь к .ttf или `none` для встроенного шрифта")
-LANG_T(OvRedrawEveryFrame, "Перерисовывать каждый кадр игры")
-LANG_T(OvUpdatesPerSecond, "Обновлений оверлея в секунду")
-LANG_T(OvUpdateRateHelp,
-       "Меньше - игра получает обратно кадры, которые тратила бы на отрисовку оверлея.\n"
-       "Позиция на карте читается лишь 10 раз в секунду, поэтому всё, что выше,\n"
-       "картинке ничего не даёт - за камерой следует только рентген.\n"
-       "На полную карту это не влияет.")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_T(CgCategory, "Категория")

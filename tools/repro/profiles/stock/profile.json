@@ -47,7 +47,7 @@
     "modules": ["Binaries\\Win64\\dwmapi.dll", "Binaries\\Win64\\ue4ss\\UE4SS.dll"],
     "modules_absent": ["Binaries\\Win64\\dxgi.dll", "Binaries\\Win64\\d3d12.dll", "RTSSHooks64.dll"],
     "log_lines": [],
-    "log_lines_absent": ["WuchangMinimap v", "composition: the overlay draws into"]
+    "log_lines_absent": ["WuchangMinimap v", "present: the overlay draws into"]
   },
 
   "manual": {

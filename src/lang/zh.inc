@@ -37,7 +37,6 @@ LANG_T(FmtDeg, "%.0f°")
 LANG_T(FmtPx, "%.0f px")
 LANG_T(FmtPx1, "%.1f px")
 LANG_T(FmtIntPx, "%d px")
-LANG_T(FmtHz, "%d Hz")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_T(CatShrines, "神龛")
@@ -287,7 +286,6 @@ LANG_T(LangAuto, "跟随游戏")
 LANG_T(SecWhatIsOn,"显示内容")
 LANG_T(SecPlacement, "位置")
 LANG_T(SecLook, "外观")
-LANG_T(SecPerformance, "性能")
 LANG_T(OvSize, "大小")
 LANG_T(OvZoom, "缩放")
 LANG_T(OvOpacity, "不透明度")
@@ -331,13 +329,6 @@ LANG_T(OvPaletteDefault, "默认")
 LANG_T(OvPaletteColorblind, "色盲")
 LANG_T(OvFont, "字体")
 LANG_T(OvFontHint, ".ttf 文件路径，或填 `none` 使用内置字体")
-LANG_T(OvRedrawEveryFrame, "每个游戏帧都重绘")
-LANG_T(OvUpdatesPerSecond, "覆盖层每秒更新次数")
-LANG_T(OvUpdateRateHelp,
-       "调低可把绘制覆盖层所占的帧还给游戏。\n"
-       "地图上的位置每秒只读取 10 次，因此高于此值\n"
-       "对画面毫无帮助 - 只有透视会跟随镜头。\n"
-       "完整地图不受此设置影响。")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_T(CgCategory, "分类")

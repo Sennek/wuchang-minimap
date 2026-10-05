@@ -24,17 +24,16 @@
 namespace fc
 {
     // What was switched off while the interval was measured. The differences are the
-    // measurement: 0-1 is the composition, 1-2 is the overlay's own frame, 2-3 is the
-    // compositor carrying our layer at all, and 3-4 is every thread of ours that runs
-    // between frames. What is left under 4 is the mod merely being loaded and hooked.
+    // measurement: 0-1 is the blend into the game's back buffer, 1-2 is the overlay's own
+    // frame, and 2-3 is every thread of ours that runs between frames. What is left under 3
+    // is the mod merely being loaded and hooked.
     enum Phase : int
     {
-        Full = 0,      // as shipped
-        NoCompose = 1, // drawn, recorded, submitted; never copied into the surface
-        NoFrame = 2,   // the hook enters, does its housekeeping and returns
-        NoVisual = 3,  // NoFrame, and our visual is detached from the window's tree
-        NoBackground = 4, // NoVisual, and the game-thread pump and the loop slicer stand down
-        kPhases = 5,
+        Full = 0,         // as shipped
+        NoCompose = 1,    // drawn, recorded, submitted; never blended into the game's frame
+        NoFrame = 2,      // the hook enters, does its housekeeping and returns
+        NoBackground = 3, // NoFrame, and the game-thread pump and the loop slicer stand down
+        kPhases = 4,
     };
 
     constexpr int kBins = 800;       // 0.05 ms each: 0 .. 40 ms
@@ -53,9 +52,7 @@ namespace fc
         Bucket p[kPhases];
     };
 
-    // One sample into one histogram. A `Bucket` is usable on its own - the frame ceiling's
-    // own A/B keeps two of them and no Census - so the binning lives here and `record`
-    // below is only the phase lookup in front of it.
+    // One sample into one histogram; `record` below is the phase lookup in front of it.
     inline void record_ms(Bucket& b, double ms)
     {
         if (!(ms >= 0.0))

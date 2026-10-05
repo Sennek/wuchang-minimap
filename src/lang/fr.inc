@@ -38,7 +38,6 @@ LANG_T(FmtDeg, "%.0f°")
 LANG_T(FmtPx, "%.0f px")
 LANG_T(FmtPx1, "%.1f px")
 LANG_T(FmtIntPx, "%d px")
-LANG_T(FmtHz, "%d Hz")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_T(CatShrines, "Sanctuaires")
@@ -292,7 +291,6 @@ LANG_T(LangAuto, "Comme le jeu")
 LANG_T(SecWhatIsOn,"Éléments affichés")
 LANG_T(SecPlacement, "Position")
 LANG_T(SecLook, "Apparence")
-LANG_T(SecPerformance, "Performance")
 LANG_T(OvSize, "Taille")
 LANG_T(OvZoom, "Zoom")
 LANG_T(OvOpacity, "Opacité")
@@ -336,13 +334,6 @@ LANG_T(OvPaletteDefault, "défaut")
 LANG_T(OvPaletteColorblind, "daltonien")
 LANG_T(OvFont, "Police")
 LANG_T(OvFontHint, "chemin vers un .ttf, ou `none` pour la police intégrée")
-LANG_T(OvRedrawEveryFrame, "Redessiner à chaque image du jeu")
-LANG_T(OvUpdatesPerSecond, "Mises à jour par seconde")
-LANG_T(OvUpdateRateHelp,
-       "Plus bas, le jeu récupère les images qu'il passerait à dessiner l'overlay.\n"
-       "Votre position sur la carte n'est lue que 10 fois par seconde : au-delà,\n"
-       "l'image n'y perd rien - seuls les rayons X suivent la caméra.\n"
-       "La carte complète l'ignore.")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_T(CgCategory, "Catégorie")

@@ -20,8 +20,8 @@ and asserts nothing about it. What it *does* assert is the install — Streamlin
 every injector gone, UE4SS pinned — because a cell that ran the wrong configuration would tell us
 nothing whichever way it fell.
 
-`expect.log_lines` is empty for the same reason: 1.0.0 predates the DirectComposition path and never
-printed `composition: the overlay draws into`. Asserting the current build's line against an old
+`expect.log_lines` is empty for the same reason: 1.0.0 predates the current present path and never
+printed `present: the overlay draws into`. Asserting the current build's line against an old
 release would fail for a reason that is not a finding.
 
 ## The result, 2026-09-21 — **the report reproduces**

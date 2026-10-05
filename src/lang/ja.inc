@@ -37,7 +37,6 @@ LANG_T(FmtDeg, "%.0f°")
 LANG_T(FmtPx, "%.0f px")
 LANG_T(FmtPx1, "%.1f px")
 LANG_T(FmtIntPx, "%d px")
-LANG_T(FmtHz, "%d Hz")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_T(CatShrines, "厨子")
@@ -289,7 +288,6 @@ LANG_T(LangAuto, "ゲームと同じ")
 LANG_T(SecWhatIsOn,"表示する機能")
 LANG_T(SecPlacement, "配置")
 LANG_T(SecLook, "外観")
-LANG_T(SecPerformance, "パフォーマンス")
 LANG_T(OvSize, "サイズ")
 LANG_T(OvZoom, "ズーム")
 LANG_T(OvOpacity, "不透明度")
@@ -333,13 +331,6 @@ LANG_T(OvPaletteDefault, "標準")
 LANG_T(OvPaletteColorblind, "色覚サポート")
 LANG_T(OvFont, "フォント")
 LANG_T(OvFontHint, ".ttf のパス、内蔵フォントなら `none`")
-LANG_T(OvRedrawEveryFrame, "毎フレーム再描画")
-LANG_T(OvUpdatesPerSecond, "オーバーレイの毎秒更新回数")
-LANG_T(OvUpdateRateHelp,
-       "低くすると、オーバーレイの描画に使うフレームをゲームに返します。\n"
-       "マップ上の位置は毎秒10回しか読み取らないため、それ以上にしても\n"
-       "画質は変わりません - カメラに追従するのは透視だけです。\n"
-       "全体マップにはこの設定は適用されません。")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_T(CgCategory, "カテゴリー")

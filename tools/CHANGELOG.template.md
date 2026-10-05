@@ -1,5 +1,14 @@
 # WuchangMinimap - changelog
 
+## 1.6.0
+
+Changed
+- The overlay is drawn into the game's own frame instead of a separate layer over the window. Windows no longer has to combine the two on every frame, which cost several milliseconds per frame on PCs whose display offers no hardware overlay plane and showed up as stutter.
+- The overlay is on every frame you see, frame-generated ones included, and redraws on every frame the game renders.
+
+Removed
+- The Performance section of the F2 panel and `overlay_update_hz`: the overlay no longer needs a redraw limit. A config file that still has the line is told so once in the log and otherwise ignored.
+
 ## 1.5.0
 
 Added

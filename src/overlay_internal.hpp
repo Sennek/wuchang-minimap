@@ -12,8 +12,9 @@
 //                    D3D12 object and builds every draw list.
 //   LOOP thread    - UE4SS on_update: hotkeys, config and waypoint I/O, both height
 //                    slicers, the map asset load.
-//   SURFACE thread - overlay_dcomp.cpp. Reads the published target index and fence
-//                    value, `g_fence`, and nothing else of this file's.
+//   PRESENTING thread - overlay_present.cpp's `comp_present`, from the Present of the
+//                    swapchain that flips. Reads `g_fence`, `g_swapchain`'s identity and
+//                    the targets it was handed, and nothing else of this file's.
 //   GAME thread    - never enters this file; its state arrives through
 //                    mm::read_snapshot() and markers::publish().
 //
@@ -84,10 +85,10 @@ namespace overlay
         constexpr float kPi = 3.14159265358979323846f;
         constexpr int kSrvHeapSize = 64;
         // The mod's own render targets, and the size of every per-target array here.
-        // Two is what keeps the render thread from ever waiting: one is being copied into
-        // the composition surface while the next frame is drawn into the other. It must
-        // fit in `kMailboxIndexBits` (overlay_dcomp.cpp).
-        constexpr UINT kTargets = 2;
+        // Three is what keeps the render thread from ever waiting: one is on screen, one
+        // waits to be, and the next frame is drawn into the third. It must fit in
+        // `kMailboxIndexBits` (overlay_present.cpp).
+        constexpr UINT kTargets = 3;
         // ImGui 1.92's font atlas is dynamic (ImGuiBackendFlags_RendererHasTextures), so
         // `style.FontScaleMain` re-rasterises the glyphs: no atlas rebuild, no texture
         // of ours to release.
@@ -327,10 +328,9 @@ namespace overlay
         //   * the loop thread's slicer (overlay_slice.cpp) derefs under the
         //     `g_slicer_pause` / `g_slicer_busy` handshake, which the release performs
         //     before it lets go;
-        //   * the surface thread (overlay_dcomp.cpp) never derefs it - it holds only
-        //     objects built on it, plus `g_fence`, and it is stopped and joined before
-        //     the release touches any of them. If it will not stop it is marked wedged
-        //     and everything it reads, `g_fence` included, is leaked instead;
+        //   * the presenting thread (overlay_present.cpp) never derefs it - it holds only
+        //     objects built on it, plus `g_fence`, inside `g_present_lock`, which the
+        //     release takes before it touches any of them;
         //   * everyone else may ask ONE question, the removal reason, under the lock
         //     below.
         extern ID3D12Device* g_device;
@@ -345,9 +345,9 @@ namespace overlay
         // only because the sole thing ever held under it is one GetDeviceRemovedReason,
         // which answers out of a cached HRESULT and does not wait on the GPU.
         extern spin::Spinlock g_device_lock;
-        // The queue the overlay submits on: the DIRECT queue of its own composition
-        // surface (overlay_dcomp.cpp), stored here by `create_render_targets`. Nothing
-        // of the game's is ever submitted on, so nothing has to be elected.
+        // The queue the overlay draws on: a DIRECT queue of its own (overlay_present.cpp),
+        // stored here by `create_render_targets`. Only the blend goes onto a queue that is
+        // not ours - the one the swapchain that flips was created with.
         extern std::atomic<ID3D12CommandQueue*> g_queue;
         extern ID3D12GraphicsCommandList* g_cmd_list;
         extern ID3D12DescriptorHeap* g_rtv_heap;
@@ -1217,47 +1217,41 @@ namespace overlay
         void log_present_path(IDXGISwapChain* swapchain);
 
         //--------------------------------------------------------------------------
-        // overlay_dcomp.cpp - the overlay's own composition surface
+        // overlay_present.cpp - the overlay's frame onto the game's
         //--------------------------------------------------------------------------
-        // A DirectComposition surface of this module's own, over the game's window, and
-        // the surface thread that copies finished frames into it through D3D11On12.
-        // There is no swapchain and no Present: a process carrying Streamline supports
-        // exactly one IDXGISwapChain. Everything but `comp_stop_thread` belongs to
-        // whoever holds `g_render_lock`, and no device is created - the game's own is
-        // used.
+        // The newest finished target is blended into the back buffer of the swapchain that
+        // actually flips, from inside that swapchain's Present and on the queue it was
+        // created with. Everything but `comp_present` belongs to whoever holds
+        // `g_render_lock`, and no device is created - the game's own is used.
         bool comp_create(ID3D12Device* device, HWND hwnd);
-        // Makes the surface for the freshly created render targets and wraps them, then
-        // lets the surface thread run. `comp_unbind_targets` stands the thread down and
-        // drops both again, and is what `release_render_targets` calls.
+        // Views of the freshly created render targets, and the blend allowed to run.
+        // `comp_unbind_targets` stops it and waits for its last blend, and is what
+        // `release_render_targets` calls; false when the presenting thread would not let go.
         bool comp_bind_targets(ID3D12Resource* const* targets, UINT width, UINT height);
         bool comp_unbind_targets();
         void comp_release();
         bool comp_ready();
-        // ANY THREAD. Stops and joins the surface thread; releases nothing. Two
-        // concurrent callers are safe: one joins and the other waits for that join
-        // rather than racing past it.
-        void comp_stop_thread();
-        // True only when the surface thread is provably gone, which is the one licence
-        // to free anything it reads. False while it runs, while another thread is
-        // joining it, and for ever once it refused to exit within its join budget - in
-        // which case everything it reads, the render fence included, is leaked and the
-        // overlay does not come back this session.
-        bool comp_thread_stopped();
-        // The index of a target whose last copy has completed, or -1 when the compositor
-        // is behind - which drops the overlay's frame and bumps the skipped counter.
+        // The index of a target neither on screen nor waiting to be - the older waiting one
+        // when nothing else is free - or -1, which drops the overlay's frame and bumps the
+        // skipped counter.
         int comp_pick_target();
-        // Hands a finished frame to the surface thread: latest wins, and the render
-        // thread never waits.
-        void comp_publish(int index, std::uint64_t fence_value);
-        // Frames the render thread never drew for want of a free target, and frames the
-        // surface thread took but could not compose. Both belong to one adoption.
+        // Hands a finished frame over: it waits beside the one it displaces, and a present
+        // takes the newest of the two the GPU has finished. The render thread never waits.
+        // `dd` is the frame's draw data, read for the rect it covers.
+        void comp_publish(int index, std::uint64_t fence_value, const ImDrawData* dd);
+        // ANY THREAD that presents: the blend, when `sc` is the swapchain that flips.
+        // Returns at once otherwise, and never waits for anything.
+        void comp_present(IDXGISwapChain* sc);
+        // RENDER THREAD, every frame: once, when the overlay has drawn for a while and the
+        // swapchain that flips has never come through, says what its hooks have seen.
+        void comp_report_quiet_path();
+        // Frames the render thread never drew for want of a free target, and presents
+        // that went out without the overlay for want of a free blend slot or pipeline.
         std::uint64_t comp_skipped_frames();
         std::uint64_t comp_dropped_frames();
         void comp_reset_counters();
         // THE MEASUREMENT PHASE (framecensus.hpp), published by the render thread once a
-        // frame. The surface thread is the only thread that may touch DirectComposition, so
-        // it is the one that attaches and detaches the visual when the phase asks for it -
-        // and it is woken for a phase change even when no frame is being published.
+        // frame. From `NoCompose` up the blend stands down.
         void comp_set_phase(int phase);
         ID3D12CommandQueue* comp_queue();
         DXGI_FORMAT comp_format();
@@ -1269,9 +1263,6 @@ namespace overlay
         void log_overlay_modules();
         // LOOP THREAD. The frame census: the game's own present interval per phase.
         void log_frame_census();
-        // LOOP THREAD. The gate census: the same interval with the update ceiling off and on,
-        // and what the ceiling skipped. Measurement only - `dev_gate_cycle_ms` arms it.
-        void log_gate_census();
         void srv_alloc_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu);
         void srv_free_cb(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE);
         std::int64_t qpc_freq();

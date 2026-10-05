@@ -37,7 +37,6 @@ LANG_T(FmtDeg, "%.0f graus")
 LANG_T(FmtPx, "%.0f px")
 LANG_T(FmtPx1, "%.1f px")
 LANG_T(FmtIntPx, "%d px")
-LANG_T(FmtHz, "%d Hz")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_T(CatShrines, "Santuários")
@@ -289,7 +288,6 @@ LANG_T(LangAuto, "Igual ao jogo")
 LANG_T(SecWhatIsOn,"O que está ativo")
 LANG_T(SecPlacement, "Posição")
 LANG_T(SecLook, "Aparência")
-LANG_T(SecPerformance, "Desempenho")
 LANG_T(OvSize, "Tamanho")
 LANG_T(OvZoom, "Zoom")
 LANG_T(OvOpacity, "Opacidade")
@@ -333,13 +331,6 @@ LANG_T(OvPaletteDefault, "padrão")
 LANG_T(OvPaletteColorblind, "daltônico")
 LANG_T(OvFont, "Fonte")
 LANG_T(OvFontHint, "caminho para um .ttf, ou `none` para a fonte embutida")
-LANG_T(OvRedrawEveryFrame, "Redesenhar a cada quadro do jogo")
-LANG_T(OvUpdatesPerSecond, "Atualizações da sobreposição por segundo")
-LANG_T(OvUpdateRateHelp,
-       "Menos devolve ao jogo os quadros que ele gastaria desenhando a sobreposição.\n"
-       "Sua posição no mapa só é lida 10 vezes por segundo, então qualquer valor acima\n"
-       "disso não custa nada à imagem - o raio X é a parte que acompanha a câmera.\n"
-       "O mapa completo ignora isto.")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_T(CgCategory, "Categoria")

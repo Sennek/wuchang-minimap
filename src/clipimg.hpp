@@ -5,9 +5,8 @@
 // CF_DIB payload out.
 //
 // There is one source format and it is a constant: the overlay draws into render
-// targets of its own, created `B8G8R8A8_UNORM` by overlay_dcomp.cpp because that is
-// what a DirectComposition surface is composed in. The game's own back buffer - HDR10
-// on this title - is never read.
+// targets of its own, created `B8G8R8A8_UNORM` (overlay_present.cpp's `comp_format`). The
+// game's own back buffer - HDR10 on this title - is never read.
 //
 // No Windows, no D3D12, no allocation beyond the output vector.
 //

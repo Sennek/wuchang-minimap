@@ -126,17 +126,6 @@
     right to open an ETW session - administrator, or Performance Log Users - and it says so
     before it applies anything rather than degrading quietly.
 
-    `gate` is `present` with the other instrument: instead of rotating the overlay's
-    LAYERS it rotates the shipped update ceiling, `overlay_update_hz`, between off and
-    `-GateHz` - the ceiling's own A/B taken inside one capture, because the saving is
-    tenths of a millisecond and two played cells drift further apart than that. The two
-    instruments own the same stream of presents, so the mod runs whichever one is armed
-    and never both.
-
-.PARAMETER GateHz
-    -Probe gate only: the ceiling the capped arm runs at, in overlay frames a second.
-    The other arm is the ceiling off, one overlay frame per game present.
-
 .PARAMETER CycleMs
     -Probe present only: milliseconds the overlay spends in each layer of the census
     before it rotates to the next. The rotation is what puts every layer inside ONE
@@ -165,9 +154,10 @@
     seconds were once called HEALTHY.
 
 .PARAMETER Settle
-    Seconds between the launch and the moment the game is resolved by name. Steam hands the
-    launch on to a second process, so the game is the newest one of that name still ALIVE
-    when this elapses - never whatever existed a moment after the launch.
+    Seconds between the first sighting of the game's process name and the moment the game is
+    resolved by name. Steam hands the launch on to a second process, so the game is the newest
+    one of that name still ALIVE when this elapses - never whatever existed a moment after the
+    launch. The sighting itself is waited for up to 120 s.
 
 .PARAMETER Until
     `hold` (the default) holds a cell for -Hold seconds and closes the game with WM_CLOSE.
@@ -195,14 +185,11 @@ param(
     [switch]$DryRun,
     [switch]$Force,
 
-    [ValidateSet('crash', 'present', 'gate')]
+    [ValidateSet('crash', 'present')]
     [string]$Probe = 'crash',
 
     [ValidateRange(0, 60000)]
     [int]$CycleMs = 2000,
-
-    [ValidateRange(0, 1000)]
-    [int]$GateHz = 30,
 
     [ValidateRange(1, 20)]
     [int]$Cells = 3,
@@ -2446,18 +2433,23 @@ function Resolve-GameProcess([DateTime]$notBefore, [int]$timeoutSec) {
     # and settling afterwards is how three healthy launches were reported as three crashes,
     # with `Saved\Crashes` unmoved and the mod's log carrying a full start-up block.
     #
-    # Returns the newest process of that name that is still alive at the end of the wait.
-    $deadline = (Get-Date).AddSeconds($timeoutSec)
-    $seen = $false
-    while ((Get-Date) -lt $deadline) {
+    # The settle runs from the FIRST SIGHTING of that name, not from the launch: how long
+    # Steam takes to hand the launch on is its own business - 11 s on 2026-10-05, with Steam
+    # already running - and a settle timed from the launch gave up on a game that was
+    # still coming up and restored the install under it. The sighting itself is bounded by
+    # $kLaunchSeconds.
+    #
+    # Returns the newest process of that name still alive at the end of the settle, 'gone'
+    # if one was seen and none is left, $null if none ever appeared.
+    $kLaunchSeconds = 120
+    $launchDeadline = (Get-Date).AddSeconds($kLaunchSeconds)
+    while ((Get-LiveGameProcesses $notBefore).Count -eq 0) {
+        if ((Get-Date) -ge $launchDeadline) { return $null }
         Start-Sleep -Milliseconds 500
-        if ((Get-LiveGameProcesses $notBefore).Count -gt 0) { $seen = $true }
     }
+    Start-Sleep -Seconds $timeoutSec
     $live = Get-LiveGameProcesses $notBefore
-    if ($live.Count -eq 0) {
-        if ($seen) { return 'gone' }
-        return $null
-    }
+    if ($live.Count -eq 0) { return 'gone' }
     return (@($live | Sort-Object StartTime -Descending)[0])
 }
 
@@ -2563,7 +2555,7 @@ function Get-Probe([string]$name) {
         }
         'present' {
             # The interleaving lives INSIDE the mod. `dev_frame_cycle_ms` rotates the
-            # overlay through its five layers and the Present hook sorts the game's own
+            # overlay through its four layers and the Present hook sorts the game's own
             # present interval into a histogram per layer, so the comparison is between
             # phases of ONE capture: scene drift, the mod's warm-up and the order of the
             # layers then land on every one of them equally. That is why this is a single
@@ -2580,30 +2572,6 @@ function Get-Probe([string]$name) {
                               "panel closed.")
                 # Below this the mod never reaches its 30 s census table and the capture is
                 # mostly the loading screen.
-                min_hold   = 60
-            }
-        }
-        'gate' {
-            # The same single-capture argument as `present`, aimed at the other question:
-            # not what a frame costs but whether skipping one pays. The shipped ceiling
-            # alternates between off and `-GateHz` and the hook sorts the game's own
-            # interval into a histogram per arm. The saving scales with the fraction
-            # skipped and the penalty measured as a step, so the answer is which of the two
-            # is bigger HERE, at this frame rate - and the 2026-09-18 runs that condemned
-            # the ceiling never moved the fraction off a quarter.
-            $keys = [ordered]@{ 'log_level' = 'verbose'; 'dev_frame_stop' = '0'
-                                'dev_frame_cycle_ms' = '0' }
-            $keys['overlay_update_hz'] = [string]$GateHz
-            $keys['dev_gate_cycle_ms'] = [string]$CycleMs
-            return [pscustomobject][ordered]@{
-                name       = 'gate'
-                what       = ("PresentMon on the game's own swapchain, and the mod's own gate census" +
-                              " - a ceiling of $GateHz fps against drawing every present")
-                config_dev = [pscustomobject]$keys
-                tool       = 'presentmon'
-                cycle_note = ("every {0} ms the overlay changes how often it draws - two arms, and " +
-                              "one of them is meant to look choppier. Play normally and leave the " +
-                              "panel closed.")
                 min_hold   = 60
             }
         }
@@ -3173,25 +3141,10 @@ function Show-Census($census) {
     }
     $d = $census.per_frame_median
     if ($d) {
-        Write-Host (("                   per frame, median: composition {0:+0.000;-0.000} ms, the " +
-                     "overlay's frame {1:+0.000;-0.000}, the compositor {2:+0.000;-0.000}, our " +
-                     "threads {3:+0.000;-0.000}; all of it {4:+0.000;-0.000}") -f
-                    $d.composition, $d.overlay_frame, $d.compositor, $d.background, $d.all_of_it)
-    }
-}
-
-function Show-Gate($gate) {
-    Write-Host ("    gate         {0} table(s); the last one:" -f $gate.tables) -ForegroundColor DarkGray
-    foreach ($a in @($gate.arms)) {
-        Write-Host (("                   {0,-18} {1,6} present(s)  {2,5:N1} % skipped  median " +
-                     "{3,7:N3} ms  p90 {4,7:N3}") -f
-                    $a.arm, $a.presents, $a.skipped_pct, $a.median_ms, $a.p90_ms) -ForegroundColor DarkGray
-    }
-    foreach ($d in @($gate.against_every_present)) {
-        Write-Host (("                   {0,-18} against drawing every present: median " +
-                     "{1:+0.000;-0.000} ms, p90 {2:+0.000;-0.000}, at {3:N1} % skipped") -f
-                    $d.arm, $d.median_ms, $d.p90_ms, $d.skipped_pct) `
-                   -ForegroundColor $(if ($d.median_ms -lt 0) { 'Green' } else { 'Gray' })
+        Write-Host (("                   per frame, median: blend {0:+0.000;-0.000} ms, the " +
+                     "overlay's frame {1:+0.000;-0.000}, our threads {2:+0.000;-0.000}; all of it " +
+                     "{3:+0.000;-0.000}") -f
+                    $d.blend, $d.overlay_frame, $d.background, $d.all_of_it)
     }
 }
 
@@ -3201,18 +3154,16 @@ function Show-Gate($gate) {
 # recorded: it is the widest, because the histogram accumulates for the whole session.
 #------------------------------------------------------------------------------------
 
-$CensusPhases = @('full', 'nothing composed', 'no frame at all', 'no visual either',
-                  'no background either')
+$CensusPhases = @('full', 'nothing blended', 'no frame at all', 'no background either')
 
 function Get-CensusDifferences([string]$line) {
     $nums = @([regex]::Matches($line, '[-+]\d+\.\d+') | ForEach-Object { ConvertTo-Double $_.Value })
-    if ($nums.Count -ne 5) { return $null }
+    if ($nums.Count -ne 4) { return $null }
     return [pscustomobject][ordered]@{
-        composition    = $nums[0]
+        blend          = $nums[0]
         overlay_frame  = $nums[1]
-        compositor     = $nums[2]
-        background     = $nums[3]
-        all_of_it      = $nums[4]
+        background     = $nums[2]
+        all_of_it      = $nums[3]
     }
 }
 
@@ -3257,62 +3208,6 @@ function Get-CensusTable($lines) {
         phases           = $phases.ToArray()
         per_frame_median = $median
         per_frame_p90    = $p90
-    }
-}
-
-$GateArms = @('every present', 'the ceiling')
-
-function Get-GateTable($lines) {
-    # The gate census, same shape as the frame census above and the same rule: the last
-    # table of the cell is the widest, because the histograms accumulate all session.
-    $all   = @($lines)
-    $heads = New-Object System.Collections.Generic.List[int]
-    for ($i = 0; $i -lt $all.Count; $i++) {
-        if ($all[$i] -match "gate census: the game's own present interval") { $heads.Add($i) }
-    }
-    if ($heads.Count -eq 0) { return $null }
-
-    $start = $heads[$heads.Count - 1]
-    $arms  = New-Object System.Collections.Generic.List[object]
-    $diffs = New-Object System.Collections.Generic.List[object]
-    for ($i = $start + 1; $i -lt $all.Count; $i++) {
-        $l = $all[$i]
-        $m = [regex]::Match($l, ('\s(' + ($GateArms -join '|') + ')\s+(\d+) present\(s\)\s+(\d+) ' +
-                                 'drawn\s+([-\d.]+) % skipped\s+median\s+([-\d.]+) ms\s+mean\s+' +
-                                 '([-\d.]+)\s+p90\s+([-\d.]+)\s+p99\s+([-\d.]+)\s+over 40 ms: (\d+)'))
-        if ($m.Success) {
-            $arms.Add([pscustomobject][ordered]@{
-                arm         = $m.Groups[1].Value
-                presents    = [int]$m.Groups[2].Value
-                drawn       = [int]$m.Groups[3].Value
-                skipped_pct = (ConvertTo-Double $m.Groups[4].Value)
-                median_ms   = (ConvertTo-Double $m.Groups[5].Value)
-                mean_ms     = (ConvertTo-Double $m.Groups[6].Value)
-                p90_ms      = (ConvertTo-Double $m.Groups[7].Value)
-                p99_ms      = (ConvertTo-Double $m.Groups[8].Value)
-                over_40ms   = [int]$m.Groups[9].Value
-            })
-            continue
-        }
-        $d = [regex]::Match($l, ('against drawing every present, (' + ($GateArms -join '|') +
-                                 '): median ([-+][\d.]+) ms, p90 ([-+][\d.]+), at ([\d.]+) % of its ' +
-                                 'presents skipped'))
-        if ($d.Success) {
-            $diffs.Add([pscustomobject][ordered]@{
-                arm         = $d.Groups[1].Value
-                median_ms   = (ConvertTo-Double $d.Groups[2].Value)
-                p90_ms      = (ConvertTo-Double $d.Groups[3].Value)
-                skipped_pct = (ConvertTo-Double $d.Groups[4].Value)
-            })
-            continue
-        }
-        break
-    }
-    if ($arms.Count -eq 0) { return $null }
-    return [pscustomobject][ordered]@{
-        tables                = $heads.Count
-        arms                  = $arms.ToArray()
-        against_every_present = $diffs.ToArray()
     }
 }
 
@@ -3435,7 +3330,7 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
     $launchedAt  = Get-Date
 
     Start-Process -FilePath $exe -WorkingDirectory $bin | Out-Null
-    Write-Host ("    launched, settling {0} s before resolving the game" -f $settle)
+    Write-Host ("    launched, settling {0} s from the first sighting before resolving the game" -f $settle)
     $proc = Resolve-GameProcess $launchedAt $settle
     if ($proc -eq 'gone') {
         Write-Host "    CRASH        a game process appeared and was gone before the settle ended" -ForegroundColor Red
@@ -3444,8 +3339,7 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
                                $null $null $slice $null (Compare-AgainstVault $vaultStamp))
     }
     if (-not $proc) {
-        Write-Host ("    NO PROCESS   nothing named Project_Plague-Win64-Shipping was alive after {0} s" -f
-                    $settle) -ForegroundColor Red
+        Write-Host "    NO PROCESS   nothing named Project_Plague-Win64-Shipping ever appeared" -ForegroundColor Red
         return (New-CellRecord $index 'NO PROCESS' 'the game never started' 0 $launchedAt `
                                $null $null $null $null @())
     }
@@ -3651,11 +3545,6 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
         }
         if ($focus.why) { Write-Host ("                 {0}" -f $focus.why) -ForegroundColor Yellow }
     }
-    $gate = $null
-    try { $gate = Get-GateTable $slice.lines } catch {
-        Write-Host ("    gate         could not be read: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
-    }
-    if ($gate) { Show-Gate $gate }
     $census = $null
     try { $census = Get-CensusTable $slice.lines } catch {
         Write-Host ("    census       could not be read: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
@@ -3699,7 +3588,6 @@ function Invoke-Cell([int]$index, [int]$total, [string]$runDir, [int]$hold, [int
         Add-Member -InputObject $rec -NotePropertyName 'foreground' -NotePropertyValue $focus
     }
     if ($census)  { Add-Member -InputObject $rec -NotePropertyName 'census'  -NotePropertyValue $census }
-    if ($gate)    { Add-Member -InputObject $rec -NotePropertyName 'gate'    -NotePropertyValue $gate }
     return $rec
 }
 
@@ -3940,10 +3828,10 @@ function Show-RunVerdict($manifest) {
         }
         if ($c.census -and $c.census.per_frame_median) {
             $d = $c.census.per_frame_median
-            Write-Host (("      census:  per frame, median - composition {0:+0.000;-0.000} ms, the " +
-                         "overlay's frame {1:+0.000;-0.000}, the compositor {2:+0.000;-0.000}, our " +
-                         "threads {3:+0.000;-0.000}; all of it {4:+0.000;-0.000}") -f
-                        $d.composition, $d.overlay_frame, $d.compositor, $d.background, $d.all_of_it) `
+            Write-Host (("      census:  per frame, median - blend {0:+0.000;-0.000} ms, the " +
+                         "overlay's frame {1:+0.000;-0.000}, our threads {2:+0.000;-0.000}; all of " +
+                         "it {3:+0.000;-0.000}") -f
+                        $d.blend, $d.overlay_frame, $d.background, $d.all_of_it) `
                        -ForegroundColor DarkGray
         }
         $slot = Get-StringList $c 'save_slot_changed'

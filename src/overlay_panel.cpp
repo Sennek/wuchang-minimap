@@ -259,7 +259,6 @@ namespace overlay
             kSecTuneGate,
             kSecTuneDiag,
             kSecTuneBackground,
-            kSecPerformance,
             kSecCount,
         };
         static_assert(kSecCount <= 32, "one bit per section in g_panel_sections");
@@ -1088,32 +1087,6 @@ namespace overlay
         // THE TABS
         //==============================================================================
 
-        // How often the overlay's frame happens at all - the one setting here that trades a
-        // little smoothness for the game's own frame rate, which is why it sits with the
-        // player's settings and not in the Tuning block. Dragging it is the only way to
-        // judge it, so the panel itself is drawn through it: what the slider does to the
-        // x-ray and the minimap, it does to this window too.
-        void overview_update_rate(mm::Config& cfg)
-        {
-            // The uncapped end is its own control rather than the slider's zero: a slider
-            // that accepts 2 and snaps to 15 reads as a broken setting, and the floor is
-            // not negotiable - this window is drawn through the same ceiling.
-            bool uncapped = cfg.overlay_update_hz <= fgate::kUncapped;
-            if (ImGui::Checkbox(lbl(S::OvRedrawEveryFrame).c_str(), &uncapped))
-            {
-                cfg.overlay_update_hz = uncapped ? fgate::kUncapped : 60;
-            }
-            ImGui::BeginDisabled(uncapped);
-            int hz = uncapped ? 60 : cfg.overlay_update_hz;
-            if (ImGui::SliderInt(lbl(S::OvUpdatesPerSecond).c_str(), &hz, fgate::kHzMin, 240, tr(S::FmtHz)) &&
-                !uncapped)
-            {
-                cfg.overlay_update_hz = fgate::clamp_hz(hz);
-            }
-            ImGui::EndDisabled();
-            ImGui::TextDisabled("%s", tr(S::OvUpdateRateHelp));
-        }
-
         //--------------------------------------------------------------------------
         // Overview: the language
         //--------------------------------------------------------------------------
@@ -1180,10 +1153,6 @@ namespace overlay
             if (panel_section(lbl(S::SecLook).c_str(), kSecLook))
             {
                 overview_look(cfg);
-            }
-            if (panel_section(lbl(S::SecPerformance).c_str(), kSecPerformance))
-            {
-                overview_update_rate(cfg);
             }
         }
 

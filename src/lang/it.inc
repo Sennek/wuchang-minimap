@@ -37,7 +37,6 @@ LANG_T(FmtDeg, "%.0f°")
 LANG_T(FmtPx, "%.0f px")
 LANG_T(FmtPx1, "%.1f px")
 LANG_T(FmtIntPx, "%d px")
-LANG_T(FmtHz, "%d Hz")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_T(CatShrines, "Santuari")
@@ -291,7 +290,6 @@ LANG_T(LangAuto, "Come il gioco")
 LANG_T(SecWhatIsOn,"Cosa è attivo")
 LANG_T(SecPlacement, "Posizione")
 LANG_T(SecLook, "Aspetto")
-LANG_T(SecPerformance, "Prestazioni")
 LANG_T(OvSize, "Dimensione")
 LANG_T(OvZoom, "Ingrandimento")
 LANG_T(OvOpacity, "Opacità")
@@ -335,13 +333,6 @@ LANG_T(OvPaletteDefault, "predefiniti")
 LANG_T(OvPaletteColorblind, "daltonici")
 LANG_T(OvFont, "Carattere")
 LANG_T(OvFontHint, "percorso di un .ttf, o `none` per il carattere integrato")
-LANG_T(OvRedrawEveryFrame, "Ridisegna a ogni fotogramma del gioco")
-LANG_T(OvUpdatesPerSecond, "Aggiornamenti overlay al secondo")
-LANG_T(OvUpdateRateHelp,
-       "Più basso restituisce al gioco i fotogrammi che spenderebbe per l'overlay.\n"
-       "La tua posizione sulla mappa è letta solo 10 volte al secondo, quindi oltre\n"
-       "quel valore l'immagine non guadagna nulla - i raggi X seguono la visuale.\n"
-       "La mappa completa ignora questo valore.")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_T(CgCategory, "Categoria")

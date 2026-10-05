@@ -34,9 +34,9 @@ namespace modswitch
         constexpr std::uint64_t kStopTimeoutMs = 3000;
 
         // How long a teardown that HAS started is given. It is generous on purpose: the
-        // render side's own bounded waits - the slicer, the GPU fence, the surface
-        // thread's join, the last copy - sum to five seconds before a single
-        // DirectComposition call has been made, and those calls have no bound at all.
+        // render side's own bounded waits - the slicer, the GPU fence, the presenting
+        // thread's hold on the blend, the last blend - sum to under five seconds before a
+        // single D3D12 release has been made, and those have no bound at all.
         // Past this the stop is called wedged and nothing is taken away from the thread.
         constexpr std::uint64_t kStopWedgeMs = 10000;
 
@@ -123,10 +123,8 @@ namespace modswitch
 
         // The PE TimeDateStamp of a loaded module, read from the mapped image. Two game patches
         // can share a version resource but not a link timestamp, so this is what names a build.
-        std::uint32_t module_stamp(const wchar_t* module_name)
+        std::uint32_t module_stamp(HMODULE mod)
         {
-            const HMODULE mod = module_name == nullptr ? ::GetModuleHandleW(nullptr)
-                                                       : ::GetModuleHandleW(module_name);
             if (mod == nullptr)
             {
                 return 0;
@@ -168,9 +166,15 @@ namespace modswitch
             mm::logf(L"  game exe {} ({}, PE stamp 0x{:08X}), UE4SS.dll {}, Windows {}",
                      game.empty() ? std::wstring{L"(no version info)"} : game,
                      game_size.empty() ? std::wstring{L"size unknown"} : game_size,
-                     module_stamp(nullptr),
+                     module_stamp(::GetModuleHandleW(nullptr)),
                      ue4ss_size.empty() ? std::wstring{L"not loaded"} : ue4ss_size,
                      windows_build());
+            // Every UE4SS C++ mod is a main.dll, so the module is found by an address in it.
+            HMODULE self = nullptr;
+            ::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                 reinterpret_cast<LPCWSTR>(&log_bug_report_header),
+                                 &self);
+            mm::logf(L"  this build: main.dll PE stamp 0x{:08X}", module_stamp(self));
             const char* level = mm::log_level_name(mm::config().log_level);
             wchar_t level_w[16]{};
             ::MultiByteToWideChar(CP_UTF8, 0, level, -1, level_w, static_cast<int>(std::size(level_w)) - 1);
@@ -301,10 +305,6 @@ namespace modswitch
             g_state = State::Off;
             if (never_started)
             {
-                // No Present ever reached the teardown, so no thread is inside the detour
-                // and the surface thread is still alive. Stopping a thread of the mod's
-                // own is allowed from here; releasing a D3D12 object still is not.
-                overlay::stop_surface_thread();
                 mm::logf(L"master switch: no Present reached the overlay's teardown within {} ms, so the "
                          L"render thread never started it - the hooks came out anyway; ImGui and the "
                          L"D3D12 objects stay allocated until the mod is turned back on",
@@ -322,7 +322,7 @@ namespace modswitch
         }
 
         // A teardown that HAS started and has not finished. Nothing may be taken away from
-        // a thread that is inside the detour and inside DirectComposition, so this waits
+        // a thread that is inside the detour and inside a D3D12 release, so this waits
         // and says so - once a second, then once for the wedge, then silently for ever,
         // because a render thread that finishes late still finishes cleanly.
         void report_slow_stop(std::uint64_t now)
@@ -344,9 +344,8 @@ namespace modswitch
             g_stop_wedge_at = 0;
             mm::logf(L"master switch: WEDGED - the render thread has been inside the overlay's teardown "
                      L"for {} ms. It is a thread of the GAME's standing inside this mod's detour, so "
-                     L"the hooks are NOT disabled, no D3D12 object is released and the surface thread "
-                     L"is not touched: taking any of that away would fault that thread rather than free "
-                     L"it. The mod stays in this state and still finishes the stop properly if the "
+                     L"the hooks are NOT disabled and no D3D12 object is released: taking any of that "
+                     L"away would fault that thread rather than free it. The mod stays in this state and still finishes the stop properly if the "
                      L"thread ever comes back. Send wuchang_minimap.log and "
                      L"wuchang_minimap_last_stage.txt.",
                      now - g_stop_began);

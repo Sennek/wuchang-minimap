@@ -34,7 +34,6 @@ LANG_T(FmtDeg, "%.0f°")
 LANG_T(FmtPx, "%.0f px")
 LANG_T(FmtPx1, "%.1f px")
 LANG_T(FmtIntPx, "%d px")
-LANG_T(FmtHz, "%d Hz")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_T(CatShrines, "神龕")
@@ -285,7 +284,6 @@ LANG_T(LangAuto, "跟隨遊戲")
 LANG_T(SecWhatIsOn,"顯示項目")
 LANG_T(SecPlacement, "位置")
 LANG_T(SecLook, "外觀")
-LANG_T(SecPerformance, "效能")
 LANG_T(OvSize, "尺寸")
 LANG_T(OvZoom, "縮放")
 LANG_T(OvOpacity, "不透明度")
@@ -329,13 +327,6 @@ LANG_T(OvPaletteDefault, "預設")
 LANG_T(OvPaletteColorblind, "色盲")
 LANG_T(OvFont, "字型")
 LANG_T(OvFontHint, ".ttf 的路徑，或填 `none` 使用內建字型")
-LANG_T(OvRedrawEveryFrame, "每個遊戲畫格都重繪")
-LANG_T(OvUpdatesPerSecond, "疊加層每秒更新次數")
-LANG_T(OvUpdateRateHelp,
-       "數值越低，遊戲就能取回繪製疊加層所花費的畫格。\n"
-       "你在地圖上的位置每秒只讀取 10 次，因此高於此值\n"
-       "並不會讓畫面更好 - 只有透視會跟隨鏡頭。\n"
-       "完整地圖不受此設定影響。")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_T(CgCategory, "分類")

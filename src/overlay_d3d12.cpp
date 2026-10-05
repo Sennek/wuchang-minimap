@@ -6,24 +6,14 @@
 // leaves behind: the SRV heap, the map and height-slice textures, the ImGui backends
 // and the Present / Present1 / ResizeBuffers hooks.
 //
-// HOOK STRATEGY (the hudhook approach)
-// ------------------------------------
-// The game's IDXGISwapChain is not reachable from a UE4SS mod, so:
-//
-//   1. create a throwaway D3D12 device + DIRECT command queue + a 64x64 swapchain on a
-//      hidden window, purely to read the swapchain's vtable;
-//   2. MinHook the absolute addresses of IDXGISwapChain::Present (vtable slot 8),
-//      ResizeBuffers (13) and IDXGISwapChain1::Present1 (22);
-//   3. throw the dummy objects away and wait. The first real Present gives us the
-//      swapchain, which the overlay follows for its geometry and its frame tick. What
-//      it draws on is a queue and a surface of its own - see overlay_dcomp.cpp.
-//
-// The dummy objects go through our own import table, i.e. through whatever `dxgi.dll`
-// is loaded - on this machine ReShade's proxy, so the dummy swapchain is a ReShade
-// wrapper with the same vtable the game holds and we hook the slot the game calls. The
-// module owning every hooked address is logged. A watchdog complains when no Present
-// arrives within a few seconds: the swapchain is then wrapped by something we did not
-// go through (e.g. a DLSS-FG proxy).
+// HOOKS
+// -----
+// Present (vtable slot 8), ResizeBuffers (13) and Present1 (22) are read off the
+// swapchain the engine holds (hookfind.cpp) and MinHooked here; the dummy-swapchain
+// discovery below is the last resort where no interposer is loaded. The first Present
+// gives the overlay its swapchain, which it follows for its geometry and its frame
+// tick. What it draws into is a set of targets of its own; overlay_present.cpp puts the
+// newest one onto the game's frame. The module owning every hooked address is logged.
 //
 
 #include "overlay_internal.hpp"
@@ -92,13 +82,13 @@ namespace overlay
         // be past every start-up transient, short enough to be in a short bug report.
         constexpr std::uint64_t kCounterFrame = 600;
 
-        // The two numbers the surface path is read by: whether Present1 is ever the one
-        // this game calls, and how many frames found no free target - which in steady
-        // state is zero, and otherwise says the compositor is behind.
+        // The numbers the present path is read by: whether Present1 is ever the one this
+        // game calls, how many frames found no free target, and how many presents went out
+        // without the overlay - in steady state both of the last two are zero.
         void log_frame_counters(const wchar_t* when)
         {
             mm::logf(L"{}: Present1 has been called {} time(s); {} overlay frame(s) were skipped "
-                     L"because no target was free and {} were dropped by the surface thread",
+                     L"because no target was free and {} present(s) went out without the overlay",
                      std::wstring{when},
                      g_present1_count.load(std::memory_order_relaxed),
                      comp_skipped_frames(),
@@ -668,14 +658,12 @@ namespace overlay
         // Teardown of the swapchain-dependent objects
         //==============================================================================
 
-        // False when the surface thread would not stand down: the D3D11 wrappers still
-        // hold the targets and the thread may still be reading them, so they are the
-        // wrappers' now and nothing here may free them. The caller must not build a new
-        // set either - `create_render_targets` returns on a false.
+        // False when the presenting thread would not let go of the blend: it may still be
+        // reading the targets, so nothing here may free them. The caller must not build a
+        // new set either - `create_render_targets` returns on a false.
         bool release_render_targets()
         {
-            // The D3D11 wrappers first, and with them the surface thread's standstill:
-            // they hold the very textures released below.
+            // The blend first: it reads the very textures released below.
             if (!comp_unbind_targets())
             {
                 g_rt_ready = false;
@@ -836,9 +824,8 @@ namespace overlay
         {
             if (!release_render_targets())
             {
-                // The previous set belongs to the D3D11 wrappers of a surface thread that
-                // would not stand down. Building a second set on top of it would leak the
-                // first, so the overlay waits for the release that stops that thread.
+                // The previous set may still be read by a blend. Building a second set on
+                // top of it would leak the first, so the overlay waits for the next try.
                 return false;
             }
 
@@ -848,9 +835,9 @@ namespace overlay
                 mm::log(L"GetDesc failed - cannot create render targets");
                 return false;
             }
-            // The game's swapchain is read for its geometry and its window, and then left
-            // alone. Everything the overlay draws into is the mod's own - see
-            // overlay_dcomp.cpp for why there is no second way of doing this.
+            // The game's swapchain is read for its geometry and its window. Everything the
+            // overlay draws into is the mod's own; overlay_present.cpp is what puts it onto
+            // the game's frame.
             g_width = desc.BufferDesc.Width;
             g_height = desc.BufferDesc.Height;
             g_hwnd = desc.OutputWindow;
@@ -875,10 +862,9 @@ namespace overlay
                 return false;
             }
 
-            // Committed textures of the mod's own, born in RENDER_TARGET and left there for
-            // their whole life: the D3D11On12 wrapper declares the same state in and out, so
-            // the frame records no transition, and nothing has to assume what state a buffer
-            // somebody else owns was handed over in.
+            // Committed textures of the mod's own, born in RENDER_TARGET. The frame records
+            // no transition on them; the blend borrows one as a shader resource and hands it
+            // back in RENDER_TARGET before the render thread may pick it again.
             D3D12_HEAP_PROPERTIES hp{};
             hp.Type = D3D12_HEAP_TYPE_DEFAULT;
             D3D12_RESOURCE_DESC rd{};
@@ -929,9 +915,8 @@ namespace overlay
             }
 
             g_rt_ready = true;
-            mm::logf(L"render targets: the overlay's own {} texture(s), {}x{}, {}, composed over hwnd "
-                     L"0x{:X} whose own swapchain has flags 0x{:X} and swap effect {}. The game's back "
-                     L"buffers are not touched.",
+            mm::logf(L"render targets: the overlay's own {} texture(s), {}x{}, {}, for hwnd 0x{:X} whose "
+                     L"swapchain has flags 0x{:X} and swap effect {}.",
                      kTargets,
                      g_width,
                      g_height,
@@ -1175,7 +1160,7 @@ namespace overlay
             draw_toast();
         }
 
-        // The D3D12 half of the start-up: the device, the composition surface and its
+        // The D3D12 half of the start-up: the device, the present path and its
         // render targets, one allocator per target, the command list and the fence.
         // Nothing here draws and nothing here is ImGui.
         //
@@ -1273,7 +1258,7 @@ namespace overlay
 
 
         // The ImGui half: our SRV heap, the context, both backends and the wndproc chain.
-        // Only ever reached once the composition surface and its render targets exist.
+        // Only ever reached once the present path and its render targets exist.
         bool ensure_imgui(ID3D12CommandQueue* queue)
         {
             // RESTART-ONLY config key: the heap is created once, here.
@@ -1480,9 +1465,9 @@ namespace overlay
         // believes a disable it never asked for has completed.
         //
         // Every wait in here is bounded and logs its bound when it is what ended the
-        // wait: the slicer handshake, the GPU fence, the surface thread's join and the
-        // last copy sum to five seconds worst case. The DirectComposition and D3D11On12
-        // calls that follow them have no bound at all, which is why the loop thread
+        // wait: the slicer handshake, the GPU fence, the presenting thread's hold on the
+        // blend and its last blend sum to under five seconds worst case. The D3D12
+        // releases that follow them have no bound at all, which is why the loop thread
         // waits for this to finish rather than taking anything away from it.
         //
         // The invariant is the LOCK, not a thread id: whoever holds `g_render_lock` may
@@ -1525,9 +1510,9 @@ namespace overlay
                     g_font_key = FontKey{};
                     g_font_endonyms = false;
                 }
-                // Before the render targets, because the surface thread and the D3D11
-                // wrappers hold the very textures they release, and after wait_for_gpu
-                // above, because our queue is what the frames were submitted on.
+                // Before the render targets, because the blend reads the very textures they
+                // release, and after wait_for_gpu above, because our queue is what the
+                // frames were submitted on.
                 comp_release();
                 release_render_targets();
                 // After wait_for_gpu, with the list that wrote them already idle.
@@ -1538,19 +1523,15 @@ namespace overlay
                     g_frames[i].fence_value = 0;
                 }
                 safe_release(g_cmd_list);
-                if (comp_thread_stopped())
+                // The blend asks this fence whether a frame has finished; `comp_release`
+                // above has stopped it.
+                safe_release(g_fence);
+                if (g_fence_event != nullptr)
                 {
-                    // A surface thread still running is still asking this fence whether the
-                    // overlay's last frame has finished, so it is leaked with everything
-                    // else that thread reads.
-                    safe_release(g_fence);
-                    if (g_fence_event != nullptr)
-                    {
-                        ::CloseHandle(g_fence_event);
-                        g_fence_event = nullptr;
-                    }
-                    g_fence_value = 0;
+                    ::CloseHandle(g_fence_event);
+                    g_fence_event = nullptr;
                 }
+                g_fence_value = 0;
                 g_srv_heap.destroy();
                 {
                     // Under the lock, so a thread asking the device for its removal
@@ -1566,15 +1547,11 @@ namespace overlay
             // Present on a newly adopted swapchain.
             g_adopted_present_ms = 0;
             g_candidates_logged = 0;
-            // The queue is the composition module's, released by the `comp_release()`
-            // above; this is only the overlay's handle on it.
+            // The queue is the present module's, released by the `comp_release()` above;
+            // this is only the overlay's handle on it.
             g_queue.store(nullptr, std::memory_order_release);
             // The display lines belong to an adoption, so the next one writes its own.
             g_display_logged = false;
-            // A surface thread that would not stop ends the overlay for the session:
-            // there is nothing left to rebuild on, because everything it holds was leaked
-            // rather than released, and `g_failed` stops every later frame before it tries.
-            g_failed = !comp_thread_stopped();
             // Everything a re-adoption would have released is gone already.
             g_readopt.store(false, std::memory_order_release);
             crumb::stage(crumb::kTeardownEnd);
@@ -1886,9 +1863,9 @@ namespace overlay
             // resets - the map upload, the height-slice copy and the screenshot all record
             // into that list.
             //
-            // The target drawn into is one whose copy into the composition surface has
-            // completed. None free means the compositor is behind: the frame is dropped
-            // rather than waited for, because this thread is inside the game's Present.
+            // The target drawn into is one neither on screen nor waiting to be, whose last
+            // blend has completed. None free means the presents are behind: the frame is
+            // dropped rather than waited for, because this thread is inside the game's Present.
             // Returns the target's index, or -1 when the frame is dropped.
             int acquire_target()
             {
@@ -1981,10 +1958,9 @@ namespace overlay
 
                 // No transition: the target is the mod's own and lives in RENDER_TARGET.
                 g_cmd_list->OMSetRenderTargets(1, &g_rtv[index], FALSE, nullptr);
-                // Our surface carries the overlay and nothing else, so every frame starts fully
-                // transparent and the compositor shows the game through it. The clear is also
-                // what makes ImGui's blend state emit the premultiplied alpha the surface is
-                // composed as.
+                // The target carries the overlay and nothing else, so every frame starts fully
+                // transparent and the blend shows the game through it. The clear is also what
+                // makes ImGui's blend state emit the premultiplied alpha the blend expects.
                 const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
                 g_cmd_list->ClearRenderTargetView(g_rtv[index], transparent, 0, nullptr);
                 stamp(3);
@@ -2026,7 +2002,7 @@ namespace overlay
             }
 
             // The submission, the fence, and everything that has to know which fence value
-            // this frame carries: the surface thread, the screenshot readback, the two slice
+            // this frame carries: the blend, the screenshot readback, the two slice
             // buffers the frame sampled and the map upload heap.
             void submit_frame(int picked, UINT index, bool shot_recorded)
             {
@@ -2054,12 +2030,10 @@ namespace overlay
                     }
                 }
                 g_frames[index].fence_value = g_fence_value;
-                // The frame is handed to the surface thread, which waits for this fence and
-                // copies the target into the composition surface. Nothing of ours is ever
-                // presented: the game's Present, which this hook is inside, carries the game's
-                // frame and knows nothing about this one, and the compositor is what puts the
-                // two together.
-                comp_publish(picked, g_fence_value);
+                // The frame is handed over; the next present of the swapchain that flips
+                // blends it into its back buffer once this fence has completed.
+                comp_publish(picked, g_fence_value, ImGui::GetDrawData());
+                comp_report_quiet_path();
                 if (shot_recorded)
                 {
                     g_shot_fence = g_fence_value; // the readback may not be mapped before this
@@ -2143,9 +2117,8 @@ namespace overlay
                 MM_LOGV(L"frame census: phase {} ({}) from qpc {} us",
                         stop,
                         stop == fc::Full          ? L"full"
-                        : stop == fc::NoCompose   ? L"nothing composed"
+                        : stop == fc::NoCompose   ? L"nothing blended"
                         : stop == fc::NoFrame     ? L"no frame at all"
-                        : stop == fc::NoVisual    ? L"no visual either"
                                                   : L"no background either",
                         g_phase_switch_us);
             }
@@ -2191,8 +2164,7 @@ namespace overlay
                 return;
             }
             static const wchar_t* const kName[fc::kPhases] = {
-                L"full", L"nothing composed", L"no frame at all", L"no visual either",
-                L"no background either"};
+                L"full", L"nothing blended", L"no frame at all", L"no background either"};
             mm::log(L"frame census: the game's own present interval, by what the overlay was doing");
             for (int i = 0; i < fc::kPhases; ++i)
             {
@@ -2218,195 +2190,24 @@ namespace overlay
                 const double full = fc::percentile_ms(g_census.p[fc::Full], 0.5);
                 const double nocomp = fc::percentile_ms(g_census.p[fc::NoCompose], 0.5);
                 const double noframe = fc::percentile_ms(g_census.p[fc::NoFrame], 0.5);
-                const double novis = fc::percentile_ms(g_census.p[fc::NoVisual], 0.5);
                 const double noback = fc::percentile_ms(g_census.p[fc::NoBackground], 0.5);
-                mm::logf(L"  per frame, median: the composition {:+.3f} ms, the overlay's own "
-                         L"frame {:+.3f}, the compositor carrying our layer {:+.3f}, our "
-                         L"background threads {:+.3f}; all of it {:+.3f}",
+                mm::logf(L"  per frame, median: the blend {:+.3f} ms, the overlay's own frame "
+                         L"{:+.3f}, our background threads {:+.3f}; all of it {:+.3f}",
                          full - nocomp,
                          nocomp - noframe,
-                         noframe - novis,
-                         novis - noback,
+                         noframe - noback,
                          full - noback);
-                mm::logf(L"  per frame, p90:    the composition {:+.3f} ms, the overlay's own "
-                         L"frame {:+.3f}, the compositor carrying our layer {:+.3f}, our "
-                         L"background threads {:+.3f}; all of it {:+.3f}",
+                mm::logf(L"  per frame, p90:    the blend {:+.3f} ms, the overlay's own frame "
+                         L"{:+.3f}, our background threads {:+.3f}; all of it {:+.3f}",
                          fc::percentile_ms(g_census.p[fc::Full], 0.9)
                              - fc::percentile_ms(g_census.p[fc::NoCompose], 0.9),
                          fc::percentile_ms(g_census.p[fc::NoCompose], 0.9)
                              - fc::percentile_ms(g_census.p[fc::NoFrame], 0.9),
                          fc::percentile_ms(g_census.p[fc::NoFrame], 0.9)
-                             - fc::percentile_ms(g_census.p[fc::NoVisual], 0.9),
-                         fc::percentile_ms(g_census.p[fc::NoVisual], 0.9)
                              - fc::percentile_ms(g_census.p[fc::NoBackground], 0.9),
                          fc::percentile_ms(g_census.p[fc::Full], 0.9)
                              - fc::percentile_ms(g_census.p[fc::NoBackground], 0.9));
             }
-        }
-
-        //==============================================================================
-        // THE UPDATE CEILING, and the instrument that prices it
-        //
-        // `overlay_update_hz` decides whether this present gets an overlay frame at all;
-        // `framegate.hpp` owns the arithmetic and `markers_test` covers it. The full map is
-        // exempt because its panning and zoom are integrated per frame against
-        // `io.DeltaTime`, so a ceiling reads there as a stuttering camera rather than as a
-        // cheaper one. The F2 panel is NOT exempt: the key is dragged there, and a slider
-        // whose effect you cannot see while dragging it is a slider nobody can judge.
-        //
-        // The instrument is the same gate with its input rotated. `dev_gate_cycle_ms`
-        // alternates the ceiling between 0 and its configured value every N ms and sorts the
-        // game's own present interval into one histogram per arm, so scene drift lands on
-        // both equally - the only honest way to read a saving of tenths of a millisecond on
-        // a box where two played cells drift further apart than that.
-        //==============================================================================
-
-        constexpr int kGateArms = 2;
-        constexpr int kGateUncapped = 0;
-        constexpr int kGateCapped = 1;
-
-        struct GateArm
-        {
-            fc::Bucket t;
-            std::uint64_t presents = 0; // inside the measured window, settling excluded
-            std::uint64_t drawn = 0;
-        };
-
-        GateArm g_gate[kGateArms];
-        std::uint64_t g_gate_switch_us = 0;
-        int g_gate_announced = -1;
-        std::uint64_t g_gate_last_draw_us = 0; // when the last overlay frame drew
-
-        // Which arm is in force, or -1 for "the instrument is off, use the configured
-        // ceiling". The phase census rotates the same stream of presents, so the two never
-        // run at once: with it armed this one stands down rather than pricing its layers.
-        int gate_arm_now(std::uint64_t now)
-        {
-            const mm::Config& cfg = mm::cfg_cached();
-            const bool armed =
-                cfg.dev_gate_cycle_ms > 0 && cfg.dev_frame_cycle_ms == 0 && cfg.dev_frame_stop == 0;
-            static bool running = false;
-            if (armed != running)
-            {
-                running = armed;
-                for (int i = 0; i < kGateArms; ++i)
-                {
-                    g_gate[i] = GateArm{};
-                }
-                g_gate_announced = -1;
-            }
-            if (!armed)
-            {
-                return -1;
-            }
-            const std::uint64_t period = static_cast<std::uint64_t>(cfg.dev_gate_cycle_ms) * 1000;
-            const int arm = static_cast<int>((now / period) % kGateArms);
-            if (arm != g_gate_announced)
-            {
-                g_gate_announced = arm;
-                g_gate_switch_us = now;
-                g_gate_last_draw_us = 0;
-                MM_LOGV(L"gate census: arm {} ({}) from qpc {} us",
-                        arm,
-                        arm == kGateUncapped ? L"every present" : L"the ceiling",
-                        g_gate_switch_us);
-            }
-            return arm;
-        }
-
-        // The ceiling this present is judged against - the configured one, the instrument's
-        // when it is running, none while the full map is up. One decision with one input,
-        // whoever is choosing the input.
-        int gate_hz_now(int arm)
-        {
-            if (arm == kGateUncapped || mm::g_map_open.load(std::memory_order_relaxed))
-            {
-                return fgate::kUncapped;
-            }
-            return mm::cfg_cached().overlay_update_hz;
-        }
-
-        // Does this present draw? The one owner of the decision; the counting is next door.
-        bool gate_draws(int arm, std::uint64_t now)
-        {
-            if (!fgate::due(now, g_gate_last_draw_us, gate_hz_now(arm)))
-            {
-                return false;
-            }
-            g_gate_last_draw_us = now;
-            return true;
-        }
-
-        // One present into one arm. The settling window gates the counters as well as the
-        // histogram, so the skipped fraction below describes exactly the frames the medians
-        // were taken from.
-        void note_gate_present(int arm, std::uint64_t now, double interval_ms, bool drew)
-        {
-            if (arm < 0 || now - g_gate_switch_us < kPhaseSettleUs)
-            {
-                return;
-            }
-            ++g_gate[arm].presents;
-            if (drew)
-            {
-                ++g_gate[arm].drawn;
-            }
-            fc::record_ms(g_gate[arm].t, interval_ms);
-        }
-
-        // LOOP THREAD. The two arms side by side, and the trade the capped one made: what it
-        // saved by not drawing, against what the game's frame did about it.
-        void log_gate_census()
-        {
-            std::uint64_t total = 0;
-            for (int i = 0; i < kGateArms; ++i)
-            {
-                total += g_gate[i].presents;
-            }
-            if (total == 0)
-            {
-                return;
-            }
-            const mm::Config cfg = mm::config();
-            static const wchar_t* const kName[kGateArms] = {L"every present", L"the ceiling"};
-            mm::logf(L"gate census: the game's own present interval, by how often the overlay drew"
-                     L" - the ceiling is {} fps",
-                     cfg.overlay_update_hz);
-            for (int i = 0; i < kGateArms; ++i)
-            {
-                const GateArm& a = g_gate[i];
-                if (a.presents == 0)
-                {
-                    continue;
-                }
-                const double skipped =
-                    100.0 * static_cast<double>(a.presents - a.drawn) / static_cast<double>(a.presents);
-                mm::logf(L"  {:<18} {:>6} present(s)  {:>6} drawn  {:>5.1f} % skipped  median {:>7.3f}"
-                         L" ms  mean {:>7.3f}  p90 {:>7.3f}  p99 {:>7.3f}  over 40 ms: {}",
-                         std::wstring{kName[i]},
-                         a.presents,
-                         a.drawn,
-                         skipped,
-                         fc::percentile_ms(a.t, 0.5),
-                         fc::mean_ms(a.t),
-                         fc::percentile_ms(a.t, 0.9),
-                         fc::percentile_ms(a.t, 0.99),
-                         a.t.over);
-            }
-            // The difference is the measurement. A negative one is a ceiling that pays; the
-            // skipped fraction beside it is the variable the 2026-09-18 runs never moved.
-            const GateArm& base = g_gate[kGateUncapped];
-            const GateArm& capped = g_gate[kGateCapped];
-            if (base.t.samples == 0 || capped.t.samples == 0)
-            {
-                return;
-            }
-            mm::logf(L"  against drawing every present, the ceiling: median {:+.3f} ms, p90 {:+.3f},"
-                     L" at {:.1f} % of its presents skipped",
-                     fc::percentile_ms(capped.t, 0.5) - fc::percentile_ms(base.t, 0.5),
-                     fc::percentile_ms(capped.t, 0.9) - fc::percentile_ms(base.t, 0.9),
-                     100.0 * static_cast<double>(capped.presents - capped.drawn)
-                         / static_cast<double>(capped.presents));
         }
 
         void render(IDXGISwapChain* swapchain)
@@ -2448,17 +2249,6 @@ namespace overlay
             const double interval_ms = frame_interval_ms(now_us);
             sample_frame_interval(phase, now_us, interval_ms);
             if (phase >= fc::NoFrame)
-            {
-                return;
-            }
-
-            // The update ceiling. A present it holds shut is the `NoFrame` phase produced
-            // deliberately, once in a while instead of always, which is why the two
-            // instruments may never both run - `gate_arm_now` stands down for the phase one.
-            const int arm = gate_arm_now(now_us);
-            const bool draw = gate_draws(arm, now_us);
-            note_gate_present(arm, now_us, interval_ms, draw);
-            if (!draw)
             {
                 return;
             }
@@ -2653,6 +2443,9 @@ namespace overlay
         {
             note_present_args(sc, sync, flags);
             render_guarded(sc);
+            // With no interposer the engine's swapchain is the one that flips, and this is
+            // where its blend happens; otherwise the call returns at once.
+            comp_present(sc);
             if (sc == g_swapchain)
             {
                 collect_guarded();
@@ -2673,6 +2466,7 @@ namespace overlay
             g_present1_count.fetch_add(1, std::memory_order_relaxed);
             note_present_args(sc, sync, flags);
             render_guarded(sc);
+            comp_present(sc);
             if (sc == g_swapchain)
             {
                 collect_guarded();

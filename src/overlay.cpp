@@ -1375,11 +1375,6 @@ namespace overlay
         return g_render_shutdown.load(std::memory_order_acquire);
     }
 
-    void stop_surface_thread()
-    {
-        ovl::comp_stop_thread();
-    }
-
     bool finish_stop()
     {
         // A stop that arrives while the install is still waiting for the game thread
@@ -1734,7 +1729,6 @@ namespace overlay
             // Beside the counters, and for the same reason they are read from the log: the
             // census is about frames nobody is looking at.
             log_frame_census();
-            log_gate_census();
         }
 
         void loop_slice(std::uint64_t now)

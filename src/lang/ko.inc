@@ -38,7 +38,6 @@ LANG_T(FmtDeg, "%.0f도")
 LANG_T(FmtPx, "%.0f px")
 LANG_T(FmtPx1, "%.1f px")
 LANG_T(FmtIntPx, "%d px")
-LANG_T(FmtHz, "%d Hz")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_T(CatShrines, "신단")
@@ -290,7 +289,6 @@ LANG_T(LangAuto, "게임과 동일")
 LANG_T(SecWhatIsOn,"표시 항목")
 LANG_T(SecPlacement, "배치")
 LANG_T(SecLook, "외형")
-LANG_T(SecPerformance, "성능")
 LANG_T(OvSize, "크기")
 LANG_T(OvZoom, "확대/축소")
 LANG_T(OvOpacity, "불투명도")
@@ -334,13 +332,6 @@ LANG_T(OvPaletteDefault, "기본")
 LANG_T(OvPaletteColorblind, "색각 이상")
 LANG_T(OvFont, "글꼴")
 LANG_T(OvFontHint, ".ttf 파일 경로, 내장 글꼴은 `none`")
-LANG_T(OvRedrawEveryFrame, "게임 프레임마다 다시 그리기")
-LANG_T(OvUpdatesPerSecond, "초당 오버레이 갱신 횟수")
-LANG_T(OvUpdateRateHelp,
-       "낮출수록 오버레이를 그리는 데 쓰던 프레임을 게임에 돌려줍니다.\n"
-       "지도상의 위치는 초당 10회만 읽으므로, 그보다 높여도\n"
-       "화면에는 차이가 없습니다 - 카메라를 따라가는 것은 투시뿐입니다.\n"
-       "전체 지도는 이 설정을 무시합니다.")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_T(CgCategory, "카테고리")

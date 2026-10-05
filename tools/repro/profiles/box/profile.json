@@ -69,7 +69,7 @@
       "WuchangMinimap\\dlls\\main.dll"
     ],
     "modules_absent": ["Binaries\\Win64\\d3d12.dll", "RTSSHooks64.dll"],
-    "log_lines": ["composition: the overlay draws into"],
+    "log_lines": ["present: the overlay draws into"],
     "log_lines_absent": ["WATCHDOG"]
   },
 

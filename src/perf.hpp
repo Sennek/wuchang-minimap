@@ -30,7 +30,7 @@ namespace perf
         Loop = 1,    // UE4SS event loop (on_update)
         Game = 2,    // ProcessEvent pre-callback
         Render = 3,  // the hooked Present
-        Surface = 4, // the composition thread: fence wait, surface copy, Commit
+        Present = 4, // the presenting thread: the blend into the game's back buffer
     };
 
     inline const char* thread_name(Thread t)
@@ -43,8 +43,8 @@ namespace perf
             return "game";
         case Thread::Render:
             return "render";
-        case Thread::Surface:
-            return "surface";
+        case Thread::Present:
+            return "present";
         case Thread::Unknown:
         default:
             return "?";

@@ -1,0 +1,109 @@
+{
+  "name": "etteriely",
+  "description": "etteriely's box as far as this one reaches: the game's own Streamline / DLSS-G, no ReShade, RTSS hooked into the game, and the mod with the settings panel open from the start",
+  "report": {
+    "who": "etteriely//braindead (Discord), tester of the 74CA4BDA back-buffer build",
+    "when": "2026-10-05",
+    "thread": "Discord DM, test build WuchangMinimap-test-20261005-backbuffer",
+    "verdict": "HIS: the overlay draws (the panel renders) and nothing reaches the screen - no 'present: blending into' line in a whole session. Windows 11 26200, RTX 5070 Ti, driver 1714, 2560x1440, RTSS loaded"
+  },
+  "payloads": [
+    {
+      "dest": "dxgi.dll",
+      "source": null,
+      "note": "he had no ReShade; this box's proxy comes off. Windows' own dxgi.dll still loads from System32, which is why expect matches on the END of a module's path"
+    },
+    {
+      "dest": "renodx-dlss.addon64",
+      "source": null
+    },
+    {
+      "dest": "renodx-dlss5.addon64x",
+      "source": null
+    },
+    {
+      "dest": "nvngx_dlssnr.dll",
+      "source": null,
+      "note": "this box's DLSSNR runtime, installed beside RenoDX. NOT the game's own DLSS-G, which lives under Engine\\Plugins\\Runtime\\Nvidia\\ and is exactly what this profile keeps"
+    },
+    {
+      "dest": "ReShade.ini",
+      "source": null
+    },
+    {
+      "dest": "ReShade2.ini",
+      "source": null
+    },
+    {
+      "dest": "d3d12.dll",
+      "source": null
+    },
+    {
+      "dest": "OptiScaler",
+      "tree": true,
+      "source": null
+    }
+  ],
+  "mod": {
+    "build": "keep",
+    "state": "on",
+    "config": {},
+    "config_dev": {
+      "debug_show_panel_on_start": "1",
+      "log_level": "normal"
+    }
+  },
+  "recon": "absent",
+  "state": "keep",
+  "game_settings": {
+    "bUseVSync": "True",
+    "FullscreenMode": "1",
+    "ResolutionSizeX": "1920",
+    "ResolutionSizeY": "1080",
+    "FrameRateLimit": "0.000000"
+  },
+  "game_config_expect": {
+    "note": "read out of GameConfig.sav, never written into it - the same blob carries the owner's playtime, equipment and achievements. `framegeneration` USED TO BE ASSERTED HERE AND IS NOT ANY MORE: the key reads '0' on this box while DLSS-G is running, which is measured, not guessed - the played floor-pair cell has the game presenting every 6.815 ms by ETW against the mod's own 11.925 ms per real present, a ratio of 1.75. Whatever that key means, it is not whether frame generation is on, so asserting it passed for the wrong reason. The honest reading is the ratio of the two streams, and every present cell already carries both.",
+    "user": "36053875",
+    "gameset": {
+      "superresolution": "dlss"
+    }
+  },
+  "processes": {
+    "running": [
+      "RTSS"
+    ],
+    "absent": []
+  },
+  "expect": {
+    "note": "the overlay has to reach the screen: the panel is open from the first frame, so the first blend logs its back buffer. His session never printed that line",
+    "modules": [
+      "Streamline\\Binaries\\ThirdParty\\Win64\\sl.interposer.dll",
+      "Streamline\\Binaries\\ThirdParty\\Win64\\nvngx_dlssg.dll",
+      "Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "WuchangMinimap\\dlls\\main.dll",
+      "RTSSHooks64.dll"
+    ],
+    "modules_absent": [
+      "Binaries\\Win64\\dxgi.dll",
+      "Binaries\\Win64\\d3d12.dll"
+    ],
+    "log_lines": [
+      "present: the overlay draws into",
+      "present: blending into"
+    ],
+    "log_lines_absent": [
+      "WATCHDOG",
+      "DEVICE REMOVED:"
+    ],
+    "verdict": "HEALTHY"
+  },
+  "manual": {
+    "hags": "on",
+    "ue4ss": "he ran `HookInitGameState = 0`, as the mod's own install instructions say. UE4SS's settings are not managed by this script; if that line is ever changed on this box, this profile stops describing his machine.",
+    "unreachable": "Windows 11 26200 and its dxgi.dll, an RTX 5070 Ti on driver 1714, 2560x1440: this box is Windows 10 19045, an RTX 5060 Ti on 1062, 1920x1080",
+    "driver_vsync": "the owner's word — not readable from a script",
+    "frame_generation": "ON, x2, and it has been for as long as anyone here has measured. It is NOT readable from GameConfig.sav (see game_config_expect.note); the signal is ETW's present rate against the mod's own, ~1.75x in play. Never ask the owner to confirm it.",
+    "monitors": "three: 1920x1080 @ 75 Hz primary, 1920x1080 @ 100 Hz, 1080x1920 @ 75 Hz rotated; the game runs on the primary"
+  }
+}

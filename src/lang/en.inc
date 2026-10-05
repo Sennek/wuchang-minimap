@@ -42,7 +42,6 @@ LANG_S(FmtDeg, "%.0f deg")
 LANG_S(FmtPx, "%.0f px")
 LANG_S(FmtPx1, "%.1f px")
 LANG_S(FmtIntPx, "%d px")
-LANG_S(FmtHz, "%d Hz")
 
 //---- marker categories: the filter title (plural), in mdb::Cat order ------------------
 LANG_S(CatShrines, "Shrines")
@@ -295,7 +294,6 @@ LANG_S(LangAuto, "Same as the game")
 LANG_S(SecWhatIsOn, "What is on")
 LANG_S(SecPlacement, "Placement")
 LANG_S(SecLook, "Look")
-LANG_S(SecPerformance, "Performance")
 LANG_S(OvSize, "Size")
 LANG_S(OvZoom, "Zoom")
 LANG_S(OvOpacity, "Opacity")
@@ -339,13 +337,6 @@ LANG_S(OvPaletteDefault, "default")
 LANG_S(OvPaletteColorblind, "colorblind")
 LANG_S(OvFont, "Font")
 LANG_S(OvFontHint, "path to a .ttf, or `none` for the built-in font")
-LANG_S(OvRedrawEveryFrame, "Redraw on every game frame")
-LANG_S(OvUpdatesPerSecond, "Overlay updates per second")
-LANG_S(OvUpdateRateHelp,
-       "Lower gives the game back the frames it would spend drawing the overlay.\n"
-       "Your position on the map is only read 10 times a second, so anything above\n"
-       "that costs the picture nothing - the x-ray is the part that follows the camera.\n"
-       "The full map ignores this.")
 
 //---- F2 panel: Categories ------------------------------------------------------------
 LANG_S(CgCategory, "Category")

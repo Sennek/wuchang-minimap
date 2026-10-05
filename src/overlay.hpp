@@ -40,12 +40,6 @@ namespace overlay
     // touched - the caller must go on waiting rather than finish the stop.
     bool finish_stop();
 
-    // ANY THREAD. Stops and joins the overlay's surface thread and releases nothing, so
-    // it is legal off the render thread. For the two paths the render thread's own
-    // teardown never reaches: the master switch's timeout, and module unload - a thread
-    // whose procedure lives in main.dll must not outlive the module.
-    void stop_surface_thread();
-
     // Loop thread, every tick: hotkeys, config reload/save, log draining, and the
     // "did the Present hook ever fire?" watchdog. Never touches D3D12.
     void on_update();

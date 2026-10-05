@@ -233,7 +233,7 @@ own file.
 | | |
 |---|---|
 | **entry / lifecycle** | `dllmain.cpp` (`RC::CppUserModBase` subclass, `start_mod` / `uninstall_mod`), `modswitch.*` (the `mod_enabled` master switch; starts and stops every subsystem), `version.hpp`, `breadcrumb.*` |
-| **overlay** | one `overlay` namespace across `overlay.cpp` (shared state, UI scale, font, HUD placement, the loop-thread half), `overlay_d3d12.cpp` (device objects, the swapchain hooks, the render entry point, the visibility choke point), `overlay_dcomp.cpp` (the mod's own queues, D3D11On12 device, DirectComposition surface and the surface thread), `overlay_input.cpp`, `overlay_slice.cpp`, `overlay_imtex.cpp` (ImGui's font atlas, uploaded on the frame's own command list with no CPU wait) + `texupload.hpp` (PURE staging layout), `overlay_hud.cpp`, `overlay_extras.cpp`, `overlay_fullmap.cpp`, `overlay_panel.cpp`, all sharing `overlay_internal.hpp` (`overlay::ovl` holds the state) |
+| **overlay** | one `overlay` namespace across `overlay.cpp` (shared state, UI scale, font, HUD placement, the loop-thread half), `overlay_d3d12.cpp` (device objects, the swapchain hooks, the render entry point, the visibility choke point), `overlay_present.cpp` (the overlay's own queue, the hooks on the swapchain that flips, and the blend of the finished frame into its back buffer), `overlay_input.cpp`, `overlay_slice.cpp`, `overlay_imtex.cpp` (ImGui's font atlas, uploaded on the frame's own command list with no CPU wait) + `texupload.hpp` (PURE staging layout), `overlay_hud.cpp`, `overlay_extras.cpp`, `overlay_fullmap.cpp`, `overlay_panel.cpp`, all sharing `overlay_internal.hpp` (`overlay::ovl` holds the state) |
 | **game-thread readers** | `gamestate.*` (pawn, view target, menu detection), `markers.*` (the `GUObjectArray` sweep and the found tracker), `highlight.*` (the camera pose), `shrines.*`, `saveslot.*`, `gamebinds.*`, `recon.*`, `navmesh_dump.*` |
 | **cross-thread state** | `mmstate.*` (the snapshot seqlock, the config file, the log queue), `spinlock.hpp`, `atomicfile.hpp`, `perf.hpp` |
 | **map data** | `mapmanifest.hpp` (PURE `maps.json` parser), `mapdata.*` (chapter residency + the sparse 128-px-block height store), `slicerule.hpp` (PURE; the rule both maps slice and shade by), `pngdecode.hpp` (WIC, shared with `markers_test`) |
@@ -320,7 +320,7 @@ Four, with a strict split; `src/mmstate.hpp` states the invariants.
 | **UE4SS loop** (`CppUserModBase::on_update`) | hotkeys, all file and JSON I/O, PNG decode, the log drain, XInput | — |
 | **game** (a `RegisterProcessEventPreCallback` pump) | every `UObject` traversal, reflection and raw read; the window proc hook - it records messages for ImGui, stamps key-downs for the hotkeys and swallows input | D3D12; C++ iostreams and the C++ locale, which fault when touched from this game's game thread — it queues log text and parks results |
 | **render** (the hooked `Present`) | everything ImGui and everything D3D12; the only thread that may release a D3D12 object | any `UObject` |
-| **surface** (`overlay_dcomp.cpp`) | waits on the render fence, copies the finished target into the DirectComposition surface through D3D11On12, commits | any `UObject`, any lock, and any D3D12 call but a fence signal on a queue of its own |
+| **presenting** (`overlay_present.cpp`): whoever presents the swapchain that flips — DLSS-G's pacer when frame generation is loaded, the render thread otherwise | on every present of that swapchain: adopts the newest target whose render fence has completed and blends it into the back buffer on that swapchain's own queue | any `UObject`; any wait; any lock but `g_present_lock`, and that one by try-lock only — busy means this present goes out without the overlay; of the render path, anything but `g_fence` and the targets it was handed |
 
 The game thread publishes an `mm::Snapshot` through a seqlock and the render thread reads it.
 Because only the render thread may release a D3D12 object, `modswitch`'s stop is a three-step
@@ -329,11 +329,11 @@ down, and the loop thread then disables the hooks and unloads the chapter.
 
 The render thread reports where it is in that teardown with one word, `overlay::stop_phase()`, and
 the loop thread's timeout means two different things by it. **NotStarted** past three seconds means
-no Present is arriving, so the hooks come out and the surface thread is stopped from the loop
-thread. **InProgress** means a thread of the game's is standing inside the mod's detour: the loop
-thread then waits, a line a second, for up to ten seconds, and disables nothing - the teardown's own
-bounded waits already sum to five seconds, and the DirectComposition and D3D11On12 calls after them
-have no bound at all. Past ten seconds it says WEDGED once and keeps waiting silently, still
+no Present is arriving, so the hooks come out from the loop thread. **InProgress** means a thread
+of the game's is standing inside the mod's detour: the loop thread then waits, a line a second, for
+up to ten seconds, and disables nothing - the teardown's own bounded waits (among them taking
+`g_present_lock` from the presenting thread, 500 ms, and the last blend, 1 s) sum to under five
+seconds, and the D3D12 releases after them have no bound at all. Past ten seconds it says WEDGED once and keeps waiting silently, still
 allocated, still hooked, because pulling a hook or an object out from under that thread faults it
 rather than freeing it; a teardown that finishes late still finishes the stop properly.
 
@@ -356,11 +356,12 @@ why a block with early returns still gets counted. `mm::perf_note_stall` marks a
 process is not running normally", so a loading screen lands in the stall columns instead of setting
 the peak a later regression would be judged against.
 
-**A block with no counter is a block nobody has measured.** The whole Present hook carries them
-now: `render frame (hook)` is the total the game pays, and `render NewFrame (win32)`,
+**A block with no counter is a block nobody has measured.** The whole Present hook carries them:
+`render frame (hook)` is the total the render thread pays, and `render NewFrame (win32)`,
 `render build_ui`, `render target wait`, `render record`, `render ImGui draw`, `render submit` and
 `render shot collect` are its parts. They are meant to add up to the total; the residual is the
-lock and the housekeeping.
+lock and the housekeeping. `present blend` is the presenting thread's one counter, paid on every
+displayed frame.
 
 ### Reading them
 
@@ -382,11 +383,12 @@ The counters say where the mod's time goes; they cannot say what the game lost. 
 Performance Log Users), and three
 of its columns matter:
 
-- **`SwapChainAddress` first.** With the overlay up, PresentMon reports two present streams: the
-  game's own swapchain, and the DirectComposition surface as address `0x0` with `SyncInterval -1`.
-  Pooling them makes the frame-time statistics meaningless. Filter to the game's chain.
-- **`MsCPUBusy`, not `MsInPresentAPI`.** `render_guarded` runs *before* `o_Present`, so DXGI never
-  sees the mod's work and PresentMon charges it to the game's own CPU frame.
+- **`SwapChainAddress` first.** The overlay adds no present stream - it draws into the game's own
+  frame - but a process can carry other streams, and pooling them makes the frame-time statistics
+  meaningless. Filter to the game's chain.
+- **`MsCPUBusy`, not `MsInPresentAPI`.** `render_guarded` and the blend both run *before* the
+  original `Present`, so DXGI never sees the mod's work and PresentMon charges it to the game's own
+  CPU frame.
 - `MsGPUBusy` / `MsGPUWait` separate work from stalling, which is how "the GPU is doing more" is
   told from "the GPU is waiting more".
 
@@ -407,104 +409,42 @@ different moment; it is worth doing anyway, because when the two repeats disagre
 The instrument that answers "what did the game lose" from inside the process. `framecensus.hpp`
 (PURE) is one histogram per layer of the overlay; the Present hook samples **the game's own present
 interval** — the gap between two entries into the hook is the game's frame time — into the bucket of
-the layer that was switched on when it was measured. `dev_frame_stop` names one layer,
-`dev_frame_cycle_ms` rotates through all five on a wall clock, so one capture holds every layer
-interleaved at seconds and scene drift lands on each of them equally. The table goes into the log
-every 30 s beside the perf table; `full` minus `no frame at all` is what the overlay's own frame
-plus its composition cost. Two rules the numbers only hold under: read `MsGPUBusy / frame time`
+the layer that was switched on when it was measured. `dev_frame_stop` names one layer (0..3: `full`,
+`nothing blended`, `no frame at all`, `no background either`), `dev_frame_cycle_ms` rotates through
+all four on a wall clock, so one capture holds every layer interleaved at seconds and scene drift
+lands on each of them equally. The table goes into the log every 30 s beside the perf table, with
+the differences already taken: `per frame, median: the blend …, the overlay's own frame …, our
+background threads …; all of it …`. Two rules the numbers only hold under: read `MsGPUBusy / frame time`
 first — a cell with GPU slack absorbs the mod's work and can only ever say "not here" — and measure
 during ordinary play, not standing still in a quiet spot.
 
-### Drawing fewer frames pays, but only past about 40 % of them
+### The overlay draws on every frame
 
-The overlay's own frame and the composition that carries it to the screen are both paid **once per
-present of the game's**, and they are the only two things the mod measurably costs it. Whether
-drawing less often pays is therefore a trade with two sides: the saving is the fraction of presents
-skipped times what a frame costs (+0.950 ms here, under frame generation), and against it stands a
-penalty that measures as a **step** — 0.400 ms at a ceiling of 62, 0.350 at 30, barely moving with
-the ceiling. Break-even is the step over the cost, near **42 % of presents skipped**.
+The overlay's frame is built, recorded and submitted on every present of the engine's swapchain,
+and blended into every displayed frame. There is no ceiling: the census prices the overlay's own
+frame at +0.000 ms of median frame time against not drawing it (2026-10-05, ~70 fps under frame
+generation; build + record + submit ≈ 0.33 ms of render-thread CPU, 0.02 ms of GPU), while a
+ceiling below the game's rate repeats a stale frame every few presents, and the x-ray labels,
+anchored to the world, show it as judder. Under frame generation the overlay changes once per
+real frame and is blended unchanged into the generated ones between them.
 
-Two runs in 2026-09-18 read as a flat refutation — a ceiling of 62 costs the game 0.400 ms on a
-median frame, a ceiling of 30 costs 0.350 — and both sat at ~25 % skipped, because the game's own
-rate fell with the ceiling. They measured the losing side of the trade and nothing else.
+### The game's present mode
 
-**Measured on the winning side, 2026-09-22**, one played cell against a game at ~82 presents a
-second, three arms rotating every 2 s so scene drift lands on each equally:
+The overlay gives DWM nothing to compose: it is blended into the game's own back buffer, so the
+game's window keeps the present mode it has without the mod. The runtime fact is PresentMon's
+`PresentMode`. `hardware composition (MPO): 0x3 fullscreen windowed` in the start-up log is
+`IDXGIOutput6::CheckHardwareCompositionSupport` — what the output and the driver **support** — and
+reads the same whatever DWM is doing with this window.
 
-| arm | presents | skipped | median | mean |
-|---|---|---|---|---|
-| every present | 7819 | 0.0 % | 12.175 ms | 12.216 |
-| a wall clock at 30 Hz | 8193 | **71.2 %** | **11.825** | **11.677** |
-| every 4th present | 7824 | 75.0 % | 11.975 | 12.172 |
+That is why there is no DirectComposition visual. Measured 2026-10-04 on this box at DLSS-G x3 +
+Reflex On+Boost, a visual on the game's window held it at **100 % `Composed: Flip`** for as long as
+the visual existed, updated or not, and the census priced it at **+0.65 ms per real present** with
+MPO and **+2.15 ms** with MPO disabled (`OverlayTestMode=5`): DWM composes every game frame
+whenever the display gives the visual no overlay plane.
 
-A **wall clock** pays: −0.350 ms of median, −0.539 of mean, and 4.8 % more presents delivered in
-the same seconds. A **regular cadence** does not: every 4th present skips more and returns a mean
-of −0.044 ms, a wash. So the shape matters and it is the opposite of what irregularity predicted —
-the irregular gate is the one that wins, and it wins while drawing *more* often than the regular
-one (26.5 draws a second against 22). The mechanism is still unexplained; the trade is measured.
-
-That is what ships as `overlay_update_hz` (Advanced, default 60, 0 = one overlay frame per game
-present). The arithmetic is `src/framegate.hpp`, PURE and covered by `markers_test`; the full map
-is exempt because its panning is integrated per frame against `io.DeltaTime`, and the F2 panel is
-not, because that is where the slider lives and a slider whose effect you cannot see while dragging
-it cannot be judged. Above 10 Hz the ceiling costs the picture nothing measurable: the pawn's
-location and yaw are published at 10 Hz and the HUD path integrates nothing per frame.
-
-`dev_gate_cycle_ms` is the instrument, and it is now the same gate with its input rotated —
-`overlay_update_hz` alternating between 0 and its configured value every couple of seconds, with
-the Present hook sorting the game's own interval into a histogram per arm. One capture, one
-variable, both arms drifting together, which is the only honest shape for a saving of tenths of a
-millisecond. Dev tier, measurement only; `repro.ps1 -Probe gate` arms it and parses the table into
-the run manifest.
-
-### What the overlay costs the game, against a floor that is actually vanilla
-
-`hardware composition (MPO): 0x3 fullscreen windowed` in the start-up log is
-`IDXGIOutput6::CheckHardwareCompositionSupport` — what the output and the driver **support**. It
-reads the same whatever DWM is doing with this window, and it cannot say that anything was demoted.
-The runtime fact is PresentMon's `PresentMode`, and measured with it on 2026-09-19, five cells at
-the main menu:
-
-| cell | PresentMode | frame p50 |
-|---|---|---|
-| the mod **not started** (`enabled.txt` renamed) | `Hardware: Independent Flip` 3069/3069 | 8.846 ms (113.0 fps) |
-| loaded, `overlay_hooks = 0` | `Hardware: Independent Flip` 3017/3017 | 8.803 ms |
-| hooks installed, `mod_enabled = 0` | `Composed: Flip` 2697/2697 | 9.288 ms |
-| as shipped | `Composed: Flip` 2437/2437 | 10.218 ms (97.9 fps) |
-
-**The overlay's DirectComposition visual takes the game's window out of hardware composition**, and
-it costs **+1.372 ms a frame** — of which **0.49 ms is the demotion alone**, with the mod switched
-off and nothing drawn. `overlay_hooks = 0` matches vanilla to 0.04 ms, so it is the surface and
-nothing else: not the game-thread pump, not the scans, not UE4SS. It is not specific to
-`IDCompositionSurface` either — the 1.1.1 build, whose visual's content is a composition swapchain,
-demotes the window identically.
-
-**`mod_enabled = 0` is not a performance baseline**, and neither is any earlier number in this repo
-measured against it: `comp_release()` does run and does release the composition target, and the
-window is still composed 90 s later in that cell.
-
-**All of the above is the main menu, and it does not generalise past it.** Measured in a played
-session on 2026-09-21, the game's window is promoted *back* to `Hardware: Independent Flip` inside
-one process — with the overlay hooked, drawing and its composition surface presenting — and holds
-it on **100 % of 6049 presents** from the moment the menu closes. The ramp brackets exactly when the
-mod's own log first reports a player pawn. So the demotion is not permanent and is not a property
-of the surface existing; **+1.372 ms is what it costs in the menu**. Where the player is, the mod's
-own frame census prices the whole of it at **+0.500 ms a frame** (p90 +0.900) over four minutes and
-~3500 frames per layer.
-
-**The other half of that comparison was taken on 2026-09-21** — `repro.ps1 run stock` against
-`run dlssg-plain`, each `-Probe present -Until exit`, byte-for-byte the same install with
-`mod.state` the only field that differs, both arms played back to back with DLSS frame generation
-x2 on and three monitors connected. The floor holds `Hardware: Independent Flip` on **100.00 %** of
-72357 presents; the mod holds it on **99.30 %** of 85544. So the demotion costs the player 0.70 pp
-of presents and the main menu, and what the mod costs in play is ordinary CPU — **+0.950 ms a
-frame** by its own census under frame generation.
-
-Read no frame-time delta across that pair: its two arms were played on different routes, and
-`msGPUBusy` at the median came out *lower* with the mod loaded. The census is the number that
-survives a different corridor; the `PresentMode` histogram is the number that does not care about
-one at all. That is also how any further frame-time cell is taken: the mode tracks what the player
-is doing, so a held cell measures the menu, and a number about the overlay has to come from play.
+A frame-time number about the overlay comes from play, not a held cell, and from the census rather
+than a delta across two runs: two arms played on different routes differ by more than the overlay
+costs.
 
 ## Runtime map
 
@@ -527,19 +467,55 @@ title it is the SL proxy, under ReShade it is ReShade's wrapper — and that is 
 function the game itself calls. When the walk finds nothing for 30 s the old throwaway-swapchain
 discovery is the fallback, but only where no injector is loaded to intercept it.
 
-**The surface it draws on** — `overlay_dcomp.cpp`. The game's swapchain is *followed* for geometry
-and the frame tick; everything drawn into is the mod's own — a DIRECT queue, `kTargets` BGRA8
-textures that live in `RENDER_TARGET` for their whole life, a D3D11On12 device with a second DIRECT
-queue, and a DirectComposition surface on a visual over the game's window. *The mod creates no
-second `IDXGISwapChain` and presents nothing*: a process carrying Streamline supports exactly one,
-and presenting a second one is what killed the game for reporter 4. A **surface thread** of the
-mod's own takes the finished frame out of a latest-wins mailbox, waits on the render fence and
-copies the target into the surface through D3D11On12, so the compositor's back-pressure never lands
-on the game's present; when no target is free the overlay drops its frame rather than wait. *The
-game's back buffers are never written and nothing of the game's is submitted on*, which is what
-makes the overlay survive frame generation, capture and overlay layers, and why nothing has to be
-probed before the first frame. The three hooks still call the original unconditionally for **every**
-swapchain, so nothing else in the process loses a frame to us.
+**How the overlay reaches the screen** — `overlay_present.cpp`. The render thread draws ImGui on
+the overlay's own DIRECT queue into its own `kTargets` = 3 BGRA8 premultiplied textures, kept in
+`RENDER_TARGET` for their whole life: one on screen, one or two waiting in a two-slot mailbox (the
+newest, and the one it displaced), one being drawn. A present takes the newest of the waiting two
+whose render fence has completed: with frame generation off the swapchain that flips presents right
+after the publish, the newest is never finished by then, and a one-slot latest-wins mailbox put
+nothing on screen at all. It picks a target that is neither on screen nor waiting - taking back
+the older waiting one when all three are held - and when the last blend of it has not
+run, the overlay's queue GPU-`Wait`s the blend fence before the frame that overwrites it; the render
+thread never CPU-waits. The finished frame is then **blended into the game's own frame**: the
+`Present` / `Present1` / `SetColorSpace1` of the **lowest** swapchain — the one that flips:
+`slGetNativeInterface` of the engine's under Streamline (DXGI's own, or ReShade's wrapper), the
+engine's own with no interposer, and beneath either of those a frame generator's proxy when the
+answer is not a DXGI object: OptiScaler's FSR3 swapchain presents its generated frames to a DXGI
+swapchain it holds through OptiScaler's own wrapper, so that one is found by reading the proxy
+two objects deep (only an object whose vtable is in `dxgi.dll` is ever called) — are hooked in
+its **vtable**, not by a detour on the function:
+RTSS inline-hooks DXGI's `Present` and, on some boxes, rewrites its first bytes over a detour so
+the detour never runs again (etteriely, Windows 11, 2026-10-05: one call, then none), while
+every caller still goes through the vtable. On every present of it, generated frames
+included, the newest frame whose render fence has completed is adopted and drawn into
+`GetBuffer(GetCurrentBackBufferIndex())` as one full-screen premultiplied-alpha triangle
+(`ONE` / `INV_SRC_ALPHA`), scissored to the union of the frame's clip rects; a frame that drew
+nothing is not blended. *It never waits*: a busy `g_present_lock`, an unfinished frame or all 8
+recording slots in flight, and that present goes out without the overlay.
+
+*The blend is submitted only on the queue that swapchain was created with.* With DLSS-G loaded the
+back buffers belong to frame generation, and a write from any other queue — the game's busiest
+render queue, say — is refused with `DXGI_ERROR_ACCESS_DENIED` and the device is removed
+(2026-10-04: the control cell CRASHED in 11 s; 7/7 cells HEALTHY on the swapchain's own queue across
+`dlssg-plain` and `box`). The queue is found the way hudhook finds it: `ExecuteCommandLists`,
+hooked through the vtable of the overlay's own queue, notes every queue the process submits to, and
+the one whose pointer appears in the first 512 pointer-words of the swapchain object is its queue
+(+0x118 under plain DXGI, +0x20 in ReShade's wrapper; DIRECT, priority 100 under DLSS-G).
+
+So the overlay is on the frame the player sees after frame generation and is never interpolated,
+and it tears with the game's frame when the game presents with tearing. *The mod creates no second
+`IDXGISwapChain` and presents nothing*: presenting one kills the game under ReShade + RTSS
+(reporter 4). Every hook calls the original unconditionally for **every** swapchain, so nothing
+else in the process loses a frame to us. The hooks stay created for the process and the master
+switch's `MH_DisableHook(MH_ALL_HOOKS)` covers them; `comp_unbind_targets` / `comp_release` take
+`g_present_lock` (500 ms bound), stop the blend and wait its fence (1 s bound) before releasing
+anything.
+
+The blend's shader has three colour modes: 0 is an SDR back buffer, written as is; 1 is scRGB
+(`R16G16B16A16_FLOAT`), linearised with SDR white at the user's *SDR content brightness*; 2 is
+HDR10 (`R10G10B10A2` in ST.2084 / BT.2020, known from the `SetColorSpace1` hook or, before one is
+seen, assumed while the output is in HDR mode), linearised, BT.709 → BT.2020, PQ-encoded. Modes 1
+and 2 are not exercised on this box: its display is SDR.
 
 **Device loss** — `overlay_d3d12.cpp`. `GetDeviceRemovedReason()` is asked on whichever thread
 presented, because the removal that matters most is the one after which no Present ever arrives to
@@ -597,7 +573,7 @@ follows the save, not the mod. Waypoints live in one fixed-capacity POD behind a
 every draw site copies the whole set inside Present and a `std::vector` there would allocate.
 
 **The x-ray highlight** — `overlay_hud.cpp` + `projection.hpp` + `highlight.*`. "Through walls" is
-free: the overlay is composited on the finished frame, so there is no occlusion test, no
+free: the overlay is blended over the finished frame, so there is no occlusion test, no
 CustomDepth and no material. *The toggle is the one piece of latched input state in the mod*, so
 it is cleared from live state and never remembered — `hl::drop_caches()` turns it off on every
 level transition and every dropped pawn. The x-ray draws the same tier colours as every other
@@ -696,12 +672,8 @@ to an updating player until the F2 panel's auto-save appends it. Its default has
 behaviour on its own, or the release notes have to say so.
 
 **Two off switches, and for a CRASH they are the first thing to try.** For a frame-rate question
-`mod_enabled = 0` is **not** a baseline: in the main menu the overlay's composition target takes
-the window off its hardware plane, and the key releases the target without the window being
-promoted back inside that session, so the comparison is between two demoted states and reads
-several times too small. (Gameplay promotes the window back on its own, with the surface live —
-the demotion is the menu alone.) The only honest control is the mod **not started** — rename
-`enabled.txt` in the mod's folder, which is one file and reversible.
+the control is the mod **not started** — rename `enabled.txt` in the mod's folder, which is one
+file and reversible.
 
 A **reporter is never asked to run either of these as a measurement.** They are asked for what
 they already have: their configuration, what they saw, the log, a dump. A capture, an A/B, a

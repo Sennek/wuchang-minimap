@@ -1,23 +1,22 @@
 #pragma once
 
-// mmstate - state shared across the mod's four threads: the UE4SS event-loop thread
+// mmstate - state shared across the mod's threads: the UE4SS event-loop thread
 // (on_update: hotkeys, config file I/O, maps.json + PNG decoding, log draining), the game
 // thread (ProcessEvent pre-callback: reads the pawn, the view target and the widgets, and
 // publishes a Snapshot), the render thread (the hooked IDXGISwapChain::Present) and the
-// surface thread (overlay_dcomp.cpp: copies a finished overlay frame into the mod's
-// DirectComposition surface, off the game's present).
+// presenting thread (whoever presents the swapchain that flips - DLSS-G's pacer when frame
+// generation is loaded, the render thread otherwise: overlay_present.cpp blends the newest
+// finished overlay frame into its back buffer).
 //
 // Invariants:
 //   * no std::mutex anywhere (it faults against the process's MSVCP140 from the game
 //     thread) - a Snapshot goes through a seqlock, everything else is a plain atomic;
 //   * no iostreams / locale off the loop thread - file I/O is CreateFileW + ReadFile;
 //   * the render thread never touches a UObject, the game thread never touches D3D12;
-//   * the surface thread touches no UObject and takes no lock. Of the render path it
-//     dereferences exactly `g_fence` - GetCompletedValue and SetEventOnCompletion -
-//     plus its own objects, which it signals its own copy fence on, and it is stopped
-//     and joined before `g_fence` is released. If it will not exit it is marked wedged:
-//     everything it can reach is leaked rather than freed under it and the overlay goes
-//     terminally off for the session.
+//   * the presenting thread touches no UObject and never waits. Of the render path it
+//     reads `g_fence` (GetCompletedValue) and the targets it was handed, only inside
+//     `g_present_lock` and only while the blend is live; the render-lock side takes that
+//     lock to take any of it away, and waits for the last blend before it does.
 
 #include <atomic>
 #include <cstddef>
@@ -30,7 +29,6 @@
 #include <utility>
 #include <vector>
 
-#include "framegate.hpp"
 #include "glyphs.hpp"
 #include "slicerule.hpp"
 #include "mapview.hpp"
@@ -174,15 +172,6 @@ namespace mm
         // overlay_hooks (every DX12 hook and the overlay) > show_minimap (just the
         // minimap disc).
         bool show_minimap = true;
-
-        // Ceiling on how often the overlay's frame happens, in frames a second; 0 draws one
-        // per game present. The overlay is built, recorded, submitted and composed inside the
-        // Present hook, so uncapped it pays that once per present for content the game thread
-        // republishes at 10 Hz. Measured 2026-09-22 against a game at ~82 presents a second: a
-        // ceiling that skips 71 % of them returns 0.350 ms of median frame time and 4.8 % more
-        // presents. The clamp and the arithmetic live in `framegate.hpp`; the full map is
-        // exempt, the panel is not.
-        int overlay_update_hz = 60;
 
         //=== UI scale, HUD placement, theme and palette ============================
         // `ui_scale = auto` derives the factor from the overlay target's height
@@ -513,28 +502,21 @@ namespace mm
 
         // A MEASUREMENT SWITCH, dev tier: how much of the overlay's frame actually happens.
         //   0 - all of it, as shipped
-        //   1 - everything but the composition: the frame is drawn, recorded and submitted,
-        //       and the surface thread frees its target without copying or committing
+        //   1 - everything but the blend: the frame is drawn, recorded and submitted, and
+        //       never blended into the game's back buffer
         //   2 - nothing: the hook enters, does its housekeeping and returns
-        // The three take the per-frame work apart in the only way a frame-time measurement
+        //   3 - 2, and the game-thread pump and the loop slicer stand down
+        // The four take the per-frame work apart in the only way a frame-time measurement
         // can read, since a counter inside our own code cannot see what the game's threads
         // lose around it.
         int dev_frame_stop = 0;
 
         // Cycles `dev_frame_stop` through every layer (framecensus.hpp) every N ms, logging each
         // switch with the QPC microsecond it happened at; 0 leaves the key alone. One capture then
-        // carries all five layers twenty times over, so neither the mod's warm-up after a reload
+        // carries all four layers twenty times over, so neither the mod's warm-up after a reload
         // nor the scene's own drift can land on one layer rather than another - the two things
         // that made a four-cell run unreadable.
         int dev_frame_cycle_ms = 0;
-
-        // A MEASUREMENT SWITCH, dev tier: rotates `overlay_update_hz` between 0 and its
-        // configured value every N ms, 0 = the instrument is off. The two arms are the
-        // ceiling's A/B taken inside one capture, which is the only honest way to read it -
-        // the saving is a frame-time delta of tenths of a millisecond and two played cells
-        // drift further apart than that. The phase census owns the same presents, so this
-        // only runs while `dev_frame_cycle_ms` and `dev_frame_stop` are both 0.
-        int dev_gate_cycle_ms = 0;
 
         // The language the overlay speaks: `auto` follows the game (langsel.hpp decides), a
         // locres code (lang::code) pins one. Always one of those spellings: set_language()
@@ -579,7 +561,7 @@ namespace mm
     {
         return
         a.mod_enabled == b.mod_enabled &&
-        a.overlay_hooks == b.overlay_hooks && a.overlay_update_hz == b.overlay_update_hz &&
+        a.overlay_hooks == b.overlay_hooks &&
         a.show_minimap == b.show_minimap &&
         a.theme == b.theme &&
         a.palette == b.palette &&
@@ -739,7 +721,6 @@ namespace mm
         a.zoom_dpi_scaled == b.zoom_dpi_scaled &&
         a.panel_pad_open_chord == b.panel_pad_open_chord &&
         a.dev_frame_stop == b.dev_frame_stop && a.dev_frame_cycle_ms == b.dev_frame_cycle_ms &&
-        a.dev_gate_cycle_ms == b.dev_gate_cycle_ms &&
         detail::eq(a.language, b.language) &&
                true;
     }

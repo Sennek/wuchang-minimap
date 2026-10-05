@@ -47,7 +47,6 @@ namespace cfgkeys
         {"mod_enabled", Tier::Player},
         {"language", Tier::Player},
         {"show_minimap", Tier::Player},
-        {"overlay_update_hz", Tier::Player},
         {"theme", Tier::Player},
         {"palette", Tier::Player},
         {"ui_scale", Tier::Player},
@@ -200,7 +199,6 @@ namespace cfgkeys
         {"saveslot_uuid_call", Tier::Dev},
         {"dev_frame_stop", Tier::Dev},
         {"dev_frame_cycle_ms", Tier::Dev},
-        {"dev_gate_cycle_ms", Tier::Dev},
 
         // REMOVED - hard-coded constants and dropped features; listed so the key gets a
         // named warning
@@ -244,6 +242,10 @@ namespace cfgkeys
         // The full map always slices with an unbounded band overhead, so there is no
         // longer a floor for this to show.
         {"map_show_all_floors", Tier::Removed},
+        // The overlay draws on every frame the game renders: skipping frames priced at
+        // nothing measurable and showed as judder, so there is no ceiling to set or measure.
+        {"overlay_update_hz", Tier::Removed},
+        {"dev_gate_cycle_ms", Tier::Removed},
     };
 
     inline constexpr std::size_t kKeyCount = sizeof(kKeys) / sizeof(kKeys[0]);
@@ -264,6 +266,11 @@ namespace cfgkeys
             key == "xray_rarity_colors")
         {
             return "loot wears the colour of its tier now, and `palette` picks the colours";
+        }
+        if (key == "overlay_update_hz")
+        {
+            return "the overlay draws on every frame the game renders, which costs the game "
+                   "nothing measurable; `overlay_hooks` = 0 takes the overlay out entirely";
         }
         return nullptr;
     }

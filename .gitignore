@@ -25,7 +25,7 @@
 
 # recon dumps (generated at runtime).
 # Keep the dumps themselves: they are the recorded evidence behind
-# .workspace/wuchang-minimap/context/wuchang-classes.md and cannot be re-taken
+# .workspace/_done/wuchang-minimap/context/wuchang-classes.md and cannot be re-taken
 # without another in-game session. Everything else in out/ stays ignored.
 tools/lua-recon/WuchangRecon/out/*
 !tools/lua-recon/WuchangRecon/out/.gitkeep
@@ -90,10 +90,13 @@ wuchang_minimap.log.*
 # markers/*.json.
 tools/markers/.provenance-cache.json
 
-# Claude Code task workspace: the session's task system (skills, hooks, the
-# task-workspace MCP server) and the task notes it writes. Local working state,
-# not part of the mod.
+# Claude Code harness: its settings, rules and hooks. Local working state, not part of the mod.
 /.claude/
-/.workspace/
-/.mcp.json
 /CLAUDE.md
+
+# The retired filesystem task system. Every task record was migrated into AgentJira on
+# 2026-09-29 (issues WM-1..WM-99, long-form material as plan pages in the tracker) by
+# tools/ajira/migrate_workspace.py; what stays here is the evidence those records cite -
+# map PNGs, PresentMon CSVs, recon dumps, video frames - which is why the archive is kept
+# on disk and out of the repo.
+/.workspace/

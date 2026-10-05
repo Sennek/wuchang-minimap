@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ajira": {
+      "command": "python",
+      "args": ["<путь к папке>/ajira_mcp.py"],
+      "env": {
+        "AJIRA_URL": "http://127.0.0.1:8787",
+        "AJIRA_TOKEN_FILE": "<путь к файлу с токеном>",
+        "AJIRA_PROJECT": "<ключ проекта, например DF>"
+      }
+    }
+  }
+}

@@ -78,7 +78,8 @@ namespace markers
             ActiveBool,    // fog gates: SavedStatuKey=status_active, so `Active` is the flag
             ControllerPawn, // AI controller: the marker is its possessed Pawn
             Proximity,     // note: "met" = seen loaded within mdb::kMetRadius of the player
-            PawnHealth     // a character whose marker is FOUND once its Health.Current <= 0
+            PawnHealth,    // a character whose marker is FOUND once its Health.Current <= 0
+            DeathBool      // a character with no controller: FOUND once its own `IsDeath` is set
         };
 
         // Rounds a LIVE-ONLY entry (enemies, persist == false) may go unanswered before it
@@ -148,6 +149,11 @@ namespace markers
             // often as "it is gone"; only a slain one never returns for that journey.
             // That is why the shipped `markers_absence_categories` leaves it out.
             {L"BP_M_ZSG_C", mdb::Cat::Bamboozling, Rule::PawnHealth, true},
+            // The Harbinger Cuckoo: a `BP_NoActionAI_C` - a `DSCActor` with no controller and
+            // no health component - so FOUND = SLAIN is read off the base class's own
+            // `IsDeath`, the flag its death writes and the level saver restores. The leaf, not
+            // the base: `BP_NoActionAI_C`'s other child is a corpse rack, scenery.
+            {L"BP_NAA_ZGN_C", mdb::Cat::Cuckoo, Rule::DeathBool, true},
             // Enemies are LIVE ONLY: the marker is the pawn the controller possesses and the
             // entry carries no found flag. The one kill among them that IS written to the
             // found file is an elite's - see note_slain.
@@ -480,6 +486,7 @@ namespace markers
         const StaticDb* g_idx_db = nullptr;
         std::vector<std::uint8_t> g_found_static;   // per marker: it is in the found set
         std::vector<int> g_absent_streak_idx;       // per marker: confirming rounds in a row
+        std::vector<std::uint64_t> g_seen_round;    // per marker: last round its actor answered
         std::vector<const LiveEntry*> g_live_of_static; // per marker: this round's live twin
         std::vector<std::uint8_t> g_level_known;    // per unique level: is it loaded?
         std::vector<std::uint64_t> g_level_round;   // per unique level: round first seen loaded
@@ -1811,6 +1818,26 @@ namespace markers
                 }
                 break;
             }
+            case Rule::DeathBool:
+            {
+                bool dead = false;
+                const bool answered = read_bool_prop(actor, L"IsDeath", dead);
+                // Once: whether the flag reads at all, which is whether these kills are seen.
+                static bool said = false;
+                if (!said)
+                {
+                    said = true;
+                    mm::logf(L"markers: death flag on '{}' {}",
+                             safe_class_name(actor),
+                             answered ? (dead ? L"reads IsDeath = true" : L"reads IsDeath = false")
+                                      : L"is not readable - its kills are not seen");
+                }
+                if (answered && dead)
+                {
+                    e.found = true;
+                }
+                break;
+            }
             case Rule::ControllerPawn:
             case Rule::None:
             default:
@@ -1841,6 +1868,7 @@ namespace markers
             switch (s.rule)
             {
             case Rule::PawnHealth:
+            case Rule::DeathBool:
                 note_slain(id, s.cat);
                 break;
             case Rule::Proximity:
@@ -1964,6 +1992,7 @@ namespace markers
             const std::size_t levels = db != nullptr ? db->levels.size() : 0;
             g_found_static.assign(n, 0);
             g_absent_streak_idx.assign(n, 0);
+            g_seen_round.assign(n, 0);
             g_live_of_static.assign(n, nullptr);
             g_level_known.assign(levels, 0);
             g_level_round.assign(levels, 0);
@@ -2252,7 +2281,7 @@ namespace markers
         // has walked the whole object array and the level table is current. True when this
         // round is the one that marks it - the streak is reset either way.
         bool absence_marks_now(const mdb::StaticMarker& sm, std::size_t idx, const mdb::TwinFacts& tw,
-                               const LiveEntry* live, bool already_found)
+                               std::uint64_t level_round, const LiveEntry* live, bool already_found)
         {
             mdb::AbsenceFacts facts{};
             facts.feature_on = true; // the rule is always armed
@@ -2264,6 +2293,8 @@ namespace markers
             // AN ACTOR THAT ANSWERED IS PRESENT, wherever it stands: requiring `pos_valid`
             // would auto-mark a chest whose position read failed. (0,0,0) is `!live->found`.
             facts.twin_alive = live != nullptr && live->round == g_round && !live->found;
+            facts.slain_if_unspawned = mdb::unspawned_means_slain(sm.cat);
+            facts.seen_since_level_load = g_seen_round[idx] != 0 && g_seen_round[idx] >= level_round;
 
             int& streak = g_absent_streak_idx[idx];
             if (!mdb::absence_round_confirms(facts))
@@ -2280,8 +2311,16 @@ namespace markers
                 return false;
             }
             streak = 0;
-            g_absence_marks.fetch_add(1, std::memory_order_relaxed);
-            note_found(sm.id);
+            if (facts.cat_selected)
+            {
+                g_absence_marks.fetch_add(1, std::memory_order_relaxed);
+                note_found(sm.id);
+            }
+            else
+            {
+                // Never spawned since its level loaded: slain before this session saw it.
+                note_slain(sm.id, sm.cat);
+            }
             return true;
         }
 
@@ -2302,6 +2341,12 @@ namespace markers
             apply_static_found(sm, idx, boss_save_on, c, d);
 
             const LiveEntry* live = g_live_of_static[idx];
+            // Before anything can drop the marker: an actor that answered, hidden or not, was
+            // spawned - which is what `mdb::unspawned_means_slain` asks.
+            if (live != nullptr && live->round == g_round)
+            {
+                g_seen_round[idx] = g_round;
+            }
             // WHETHER THIS MARKER IS DRAWN AT ALL. One question, asked once: mdb::twin_drop()
             // holds the reasons and names each of them.
             const mdb::TwinFacts tw = twin_facts_of(db, idx, sm, live);
@@ -2352,7 +2397,9 @@ namespace markers
                 ++c.boss_found;
             }
 
-            if (absence_marks_now(sm, idx, tw, live, (d.flags & kFlagFound) != 0))
+            const int mli = db.marker_level[idx];
+            const std::uint64_t level_round = mli >= 0 ? g_level_round[static_cast<std::size_t>(mli)] : 0;
+            if (absence_marks_now(sm, idx, tw, level_round, live, (d.flags & kFlagFound) != 0))
             {
                 d.flags |= kFlagFound;
             }
@@ -3751,6 +3798,7 @@ namespace markers
         // A level name means nothing in the next world; absence streaks must not survive.
         g_levels.clear();
         std::fill(g_absent_streak_idx.begin(), g_absent_streak_idx.end(), 0);
+        std::fill(g_seen_round.begin(), g_seen_round.end(), 0);
         std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);
         std::fill(g_level_known.begin(), g_level_known.end(), static_cast<std::uint8_t>(0));
         g_subset_valid = false; // the chapter is re-detected in the next world

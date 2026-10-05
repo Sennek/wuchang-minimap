@@ -1,5 +1,11 @@
 # WuchangMinimap - changelog
 
+## 1.6.1
+
+Changed
+- A Harbinger Cuckoo you kill is marked found by itself, the way a Bamboozling is. One killed before the mod was running is marked as soon as you are back in its area: the game never brings a slain one back, so it is missing there while the living ones are not.
+- A found Cuckoo leaves the map under `Hide found` and the x-ray, since a slain one never comes back. It used to stay drawn hollow on the assumption that resting brought the bird back.
+
 ## 1.6.0
 
 Changed

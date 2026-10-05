@@ -965,32 +965,27 @@ namespace
                     // A kill is written to the found file, so the category must have a
                     // collected state to write it into.
                     CHECK(mdb::has_found_state(cat));
-                    // Killing it uses it up - unless it comes back, which is the Cuckoo and
-                    // only the Cuckoo.
-                    CHECK_EQ(mdb::consumed_when_found(cat), cat != mdb::Cat::Cuckoo);
+                    // Killing it uses it up: none of them comes back.
+                    CHECK(mdb::consumed_when_found(cat));
                 }
             }
             CHECK(!mdb::consumed_when_found(mdb::Cat::Enemy));
         }
 
-        // A CUCKOO COMES BACK when you rest, so its mark counts towards the 105 and takes
-        // the bird off no surface: not the map under `markers_hide_found`, not the x-ray.
-        // It is the only category that respawns, and the only non-landmark that survives
-        // being found - a Bamboozling that got away was never marked in the first place.
+        // A SLAIN CUCKOO STAYS GONE, as a slain Bamboozling does: its mark counts towards
+        // the 105, `markers_hide_found` takes it off the map and the x-ray drops it. Only a
+        // landmark survives being found.
         {
             for (int i = 0; i < mdb::kCatCount; ++i)
             {
                 const mdb::Cat cat = static_cast<mdb::Cat>(i);
-                CHECK_EQ(mdb::respawns_after_rest(cat), cat == mdb::Cat::Cuckoo);
-                CHECK_EQ(mdb::survives_being_found(cat),
-                         cat == mdb::Cat::Cuckoo || mdb::is_landmark_cat(cat));
+                CHECK_EQ(mdb::survives_being_found(cat), mdb::is_landmark_cat(cat));
             }
-            CHECK(mdb::slain_is_found(mdb::Cat::Cuckoo));   // still a collection
-            CHECK(mdb::has_found_state(mdb::Cat::Cuckoo));  // still persisted
-            CHECK(!mdb::consumed_when_found(mdb::Cat::Cuckoo));
-            CHECK(!mdb::hidden_as_found(mdb::Cat::Cuckoo, true, true));
+            CHECK(mdb::slain_is_found(mdb::Cat::Cuckoo));
+            CHECK(mdb::has_found_state(mdb::Cat::Cuckoo));
+            CHECK(mdb::consumed_when_found(mdb::Cat::Cuckoo));
+            CHECK(mdb::hidden_as_found(mdb::Cat::Cuckoo, true, true));
             CHECK(mdb::hidden_as_found(mdb::Cat::Bamboozling, true, true));
-            // The found LOOK stays: hollow is how you tell the ones you have taken.
             CHECK(mdb::drawn_as_found(mdb::Cat::Cuckoo, true));
         }
 
@@ -6166,6 +6161,45 @@ namespace
             CHECK(!mdb::absence_marks(f, 1000, 2));
         }
 
+        // NEVER SPAWNED SINCE ITS LEVEL LOADED is a Cuckoo's death, and only the Cuckoo's. It
+        // is armed without `markers_absence_categories`, and a sighting since the load - one
+        // that then flew off - disarms it for good: that absence is not a kill.
+        {
+            for (int i = 0; i < mdb::kCatCount; ++i)
+            {
+                const mdb::Cat cat = static_cast<mdb::Cat>(i);
+                CHECK_EQ(mdb::unspawned_means_slain(cat), cat == mdb::Cat::Cuckoo);
+                if (mdb::unspawned_means_slain(cat))
+                {
+                    CHECK(mdb::slain_is_found(cat));
+                }
+            }
+            mdb::AbsenceFacts f = all_true();
+            f.cat_selected = false;
+            f.slain_if_unspawned = true;
+            f.seen_since_level_load = false;
+            CHECK(mdb::absence_round_confirms(f));
+            CHECK(mdb::absence_marks(f, 2, 2));
+            f.seen_since_level_load = true;
+            CHECK(!mdb::absence_round_confirms(f));
+            f.seen_since_level_load = false;
+            f.twin_alive = true;
+            CHECK(!mdb::absence_round_confirms(f));
+            f.twin_alive = false;
+            f.level_known = false;
+            CHECK(!mdb::absence_round_confirms(f));
+            f.level_known = true;
+            f.full_round_since_level_load = false;
+            CHECK(!mdb::absence_round_confirms(f));
+            f.full_round_since_level_load = true;
+            f.already_found = true;
+            CHECK(!mdb::absence_round_confirms(f));
+            // Any other category keeps needing the config.
+            f.already_found = false;
+            f.slain_if_unspawned = false;
+            CHECK(!mdb::absence_round_confirms(f));
+        }
+
         // The debounce. `streak` counts the confirming rounds including this one.
         const mdb::AbsenceFacts ok = all_true();
         CHECK(!mdb::absence_marks(ok, 1, 2));
@@ -6297,8 +6331,7 @@ namespace
             CHECK(!mdb::hidden_as_found(mdb::Cat::Chest, true, false));
             CHECK(!mdb::hidden_as_found(mdb::Cat::Chest, false, true));
 
-            // A shrine is a landmark and a Cuckoo comes back; every other category hides
-            // when found.
+            // A shrine is a landmark; every other category hides when found.
             for (int c = 0; c < mdb::kCatCount; ++c)
             {
                 const auto cat = static_cast<mdb::Cat>(c);

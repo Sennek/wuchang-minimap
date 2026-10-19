@@ -478,6 +478,9 @@ namespace markers
         // FIRST seen loaded. A marker may only be auto-marked once a full round has
         // completed after that.
         std::unordered_map<std::string, std::uint64_t> g_levels;
+        // The round the level table last changed: an absence mark next to it was made while
+        // levels were streaming.
+        std::uint64_t g_levels_changed_round = 0;
         std::atomic<int> g_absence_marks{0};
         std::atomic<int> g_levels_loaded{0};
 
@@ -2277,6 +2280,32 @@ namespace markers
                     std::wstring(word.begin(), word.end()));
         }
 
+        // EVERY ABSENCE MARK IS LOGGED with the evidence it was made on, whatever the log
+        // level: it writes the found file, and nothing else names the id. The rounds say how
+        // long the level had been listed, whether the table had just changed, and when the
+        // actor last answered.
+        void log_absence_mark(const mdb::StaticMarker& sm, std::size_t idx, std::uint64_t level_round,
+                              bool collect)
+        {
+            const std::string_view cat{mdb::cat_name(sm.cat)};
+            const std::uint64_t seen = g_seen_round[idx];
+            mm::logf(L"markers: absent - {} ({}) marked as {}: level listed since round {}, table "
+                     L"changed round {} ({} level(s)), actor last answered round {}, now round {}; "
+                     L"player {:.0f} {:.0f} {:.0f}{}",
+                     widen(sm.id),
+                     widen(cat),
+                     collect ? L"found" : L"slain",
+                     level_round,
+                     g_levels_changed_round,
+                     g_levels.size(),
+                     seen != 0 ? std::to_wstring(seen) : std::wstring{L"never"},
+                     g_round,
+                     g_player_x,
+                     g_player_y,
+                     g_player_z,
+                     g_player_ok ? L"" : L" (not in play)");
+        }
+
         // ABSENCE AS EVIDENCE OF A COLLECT. mdb::absence_marks() holds the rule; this round
         // has walked the whole object array and the level table is current. True when this
         // round is the one that marks it - the streak is reset either way.
@@ -2311,6 +2340,7 @@ namespace markers
                 return false;
             }
             streak = 0;
+            log_absence_mark(sm, idx, level_round, facts.cat_selected);
             if (facts.cat_selected)
             {
                 g_absence_marks.fetch_add(1, std::memory_order_relaxed);
@@ -3774,6 +3804,7 @@ namespace markers
             next.emplace(std::move(key), old != g_levels.end() ? old->second : g_round);
         }
         g_levels.swap(next);
+        g_levels_changed_round = g_round;
         g_levels_loaded.store(static_cast<int>(g_levels.size()), std::memory_order_relaxed);
     }
 
@@ -3797,6 +3828,7 @@ namespace markers
         g_live.clear();
         // A level name means nothing in the next world; absence streaks must not survive.
         g_levels.clear();
+        g_levels_changed_round = 0;
         std::fill(g_absent_streak_idx.begin(), g_absent_streak_idx.end(), 0);
         std::fill(g_seen_round.begin(), g_seen_round.end(), 0);
         std::fill(g_live_of_static.begin(), g_live_of_static.end(), nullptr);

@@ -100,3 +100,6 @@ tools/markers/.provenance-cache.json
 # map PNGs, PresentMon CSVs, recon dumps, video frames - which is why the archive is kept
 # on disk and out of the repo.
 /.workspace/
+
+# Previous AgentJira bridge versions kept by its self-update.
+tools/ajira/.ajira-backup/

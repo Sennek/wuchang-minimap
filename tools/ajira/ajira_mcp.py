@@ -19,7 +19,11 @@ AgentJira по HTTP. Ни зависимостей, ни импортов пак
 * `AJIRA_TOKEN` — токен агента; если задан, уходит заголовком `Authorization: Bearer`;
 * `AJIRA_TOKEN_FILE` — файл с токеном: так секрет не попадает в `.mcp.json`, который коммитят;
 * `AJIRA_PROJECT` — ключ проекта; уходит заголовком `X-Ajira-Project`;
-* `AJIRA_TIMEOUT` — таймаут одного запроса в секундах, по умолчанию 30.
+* `AJIRA_TIMEOUT` — таймаут одного запроса в секундах, по умолчанию 30;
+* `AJIRA_AUTO_UPDATE` — `1`: при старте обновить мост с трекера (`--auto-update`).
+
+Мост обновляет себя сам: инструмент `bridge_update` скачивает с трекера актуальную папку моста
+(`GET /api/v1/mcp/bridge`), проверяет её и заменяет файлы, оставляя прежние в `.ajira-backup`.
 
 Каждый запрос уходит с заголовком `X-Ajira-Source: mcp`: так событие в истории трекера показывает,
 что действие сделано через MCP. Условная правка задачи (`issue_update` с `version`) отправляет
@@ -28,15 +32,20 @@ AgentJira по HTTP. Ни зависимостей, ни импортов пак
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import shutil
 import sys
-from pathlib import Path
+import types
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping, Sequence
 import argparse
 import mimetypes
-import os
 import socket
 import uuid
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib import error as urlerror
 from urllib import parse as urlparse
@@ -54,7 +63,8 @@ METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
-#: Размер строки stdin, который сервер согласен принять: защита от мусора в потоке.
+#: Размер строки stdin в байтах (без перевода строки), который сервер согласен принять: защита
+#: памяти от мусора в потоке. Строка длиннее — ответ -32700, хвост её пропускается.
 MAX_LINE_BYTES = 4 * 1024 * 1024
 
 
@@ -76,6 +86,20 @@ def _tool(
 
 
 _ISSUE_KEY = {"type": "string", "description": "ключ задачи, например AJ-42"}
+_VERBOSE = {
+    "type": "boolean",
+    "description": "true — полная карточка в ответе, как у issue_get. По умолчанию краткий ответ",
+}
+_VERBOSE_ITEM = {
+    "type": "boolean",
+    "description": "true — пункт чеклиста целиком: кто и когда отметил, причина снятия. "
+    "По умолчанию краткий ответ",
+}
+_ITEM_IDS = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": "несколько пунктов за один вызов; вместо item_id. Ответ — списком items",
+}
 _STATUS = {
     "type": "string",
     "description": "статус задачи",
@@ -115,6 +139,8 @@ _LINK_TYPE = {
     "enum": ["blocks", "relates_to", "duplicates", "implements", "caused_by", "spawned_from"],
 }
 _STRING_LIST = {"type": "array", "items": {"type": "string"}}
+#: Статусы вехи — те же, что `MILESTONE_STATUSES` в `ajira/enums.py` (ядро пакет не импортирует).
+_MILESTONE_STATUSES = ("planned", "active", "done")
 #: Ключ идемпотентности записи: агент, не знающий, дошёл ли вызов, повторяет его с тем же
 #: ключом и получает прежний результат вместо дубля задачи, комментария, worklog, вложения или
 #: связи.
@@ -169,13 +195,41 @@ TOOLS: tuple[dict[str, Any], ...] = (
     ),
     _tool(
         "issue_get",
-        "Карточка задачи: поля, лиза, доступные переходы, вложения и комментарии.",
-        {"issue_key": _ISSUE_KEY},
+        "Карточка задачи: поля, лиза, доступные переходы, вложения и комментарии. Описание "
+        "уже прочитано — перечитывай с compact=true или fields. Из переписки обычно нужен "
+        "последний комментарий (хендофф) — comments_last=1.",
+        {
+            "issue_key": _ISSUE_KEY,
+            "compact": {
+                "type": "boolean",
+                "description": (
+                    "карточка без описания, комментариев и вложений: статус, лиз, переходы, "
+                    "чеклист с item_id, связанные задачи как {key, title, status}. С "
+                    "comments_last комментарии остаются"
+                ),
+            },
+            "comments_last": {
+                "type": "integer",
+                "minimum": 0,
+                "description": (
+                    "только последние N комментариев; сколько более ранних не вошло — в "
+                    "comments_omitted, всего — в counts.comments. По умолчанию все"
+                ),
+            },
+            "fields": {
+                **_STRING_LIST,
+                "description": (
+                    "какие поля карточки вернуть, точно: например [\"status\",\"checklist\"]. "
+                    "Сильнее compact"
+                ),
+            },
+        },
         required=("issue_key",),
     ),
     _tool(
         "issue_create",
-        "Создать задачу или подзадачу. Метка agent-ready разрешает агентам её взять.",
+        "Создать задачу или подзадачу. Метка agent-ready разрешает агентам её взять. Отвечает "
+        "id, key, status и version; карточка — в issue_get.",
         {
             "title": {"type": "string", "description": "заголовок"},
             "type": _ISSUE_TYPE,
@@ -189,26 +243,44 @@ TOOLS: tuple[dict[str, Any], ...] = (
             "assignee": {"type": "string", "description": "имя актора"},
             "estimate_minutes": {"type": "integer", "description": "оценка в минутах"},
             "meta": {"type": "object", "description": "ветка, коммит, PR, URL"},
+            "project": {
+                "type": "string",
+                "description": "ключ проекта, если не тот, к которому подключён сервер: "
+                "например задача про сам трекер",
+            },
             "idempotency_key": _IDEMPOTENCY_KEY,
+            "verbose": _VERBOSE,
         },
         required=("title",),
     ),
     _tool(
         "issue_update",
-        "Правка полей задачи. version уходит в If-Match: при рассинхроне сервер ответит 409.",
+        "Правка полей задачи. version уходит в If-Match: при рассинхроне сервер ответит 409 "
+        "version_conflict с current_version — повтори с ней. Отвечает id, key, status и новой "
+        "version.",
         {
             "issue_key": _ISSUE_KEY,
             "patch": {
                 "type": "object",
                 "description": "изменяемые поля: title, description_md, priority, labels, meta, ...",
             },
-            "version": {"type": "integer", "description": "версия из issue_get"},
+            "version": {
+                "type": "integer",
+                "description": "версия из issue_get или из ответа последней мутации; claim и "
+                "переходы её поднимают",
+            },
+            "verbose": _VERBOSE,
         },
         required=("issue_key", "patch"),
     ),
     _tool(
         "issue_claim",
-        "Взять задачу в работу: создаёт лиз. 409 — задача занята, 429 — исчерпан лимит агента.",
+        "Взять задачу в работу: создаёт лиз и переводит её в in_progress — из ready, blocked и "
+        "failed. Вернуть задачу в работу после failed или снятого лиза можно только так: "
+        "issue_transition в in_progress без лиза получит отказ. 409 — задача занята, 429 — "
+        "исчерпан лимит агента. "
+        "claim поднимает version задачи: version, прочитанная до него, устарела — для "
+        "issue_update бери issue.version из ответа.",
         {
             "issue_key": _ISSUE_KEY,
             "ttl_seconds": {"type": "integer", "description": "срок лиза, по умолчанию серверный"},
@@ -217,7 +289,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
     ),
     _tool(
         "issue_heartbeat",
-        "Продлить лиз. Пропущенный heartbeat — лиз истекает и задача возвращается в ready.",
+        "Продлить лиз. Пропущенный heartbeat — лиз истекает, задача из in_progress "
+        "возвращается в ready.",
         {
             "issue_key": _ISSUE_KEY,
             "ttl_seconds": {"type": "integer", "description": "новый срок лиза"},
@@ -226,7 +299,9 @@ TOOLS: tuple[dict[str, Any], ...] = (
     ),
     _tool(
         "issue_release",
-        "Освободить задачу явно, не дожидаясь TTL.",
+        "Освободить задачу явно, не дожидаясь TTL. Из in_progress задача возвращается в "
+        "ready; blocked и review сохраняют статус — заблокированную задачу отпускай, чтобы "
+        "не занимать слот, блокер с причиной останется.",
         {
             "issue_key": _ISSUE_KEY,
             "reason": {"type": "string", "description": "почему отпускаю"},
@@ -262,22 +337,37 @@ TOOLS: tuple[dict[str, Any], ...] = (
     ),
     _tool(
         "issue_transition",
-        "Сменить статус. Гварды проверяют доказательства: для review нужен след работы.",
+        "Сменить статус. Гварды проверяют доказательства: для review нужен след работы. "
+        "Переход в done, cancelled, failed или ready сам снимает лиз — issue_release после "
+        "него не нужен. В in_progress пускает только действующий лиз: из ready, blocked и "
+        "failed без него — issue_claim. Вернуть сданную на доработку — в ready с note (лиз "
+        "снимется, задачу возьмут issue_claim; note из review или done в ready станет "
+        "комментарием в карточке); из review в in_progress — только держатель "
+        "лиза. Задачу в in_progress без действующего лиза (ничью) в ready возвращает любой. "
+        "Решили не делать — в cancelled из любого незакрытого статуса с причиной в note. Уже "
+        "сделано в другом месте или дубликат — из backlog, ready, blocked или failed сразу в "
+        "done без лиза, в note — где сделано («сделано в X», «дубликат Y»); эпик, все подзадачи "
+        "которого закрыты, — так же, note не нужен. Обе отмены и закрытие мимо review агенту "
+        "запрещает метка needs-human; человек увидит их в Inbox. "
+        "Отвечает key, status, version и available_transitions; карточка — в issue_get.",
         {
             "issue_key": _ISSUE_KEY,
             "to": _STATUS,
             "note": {"type": "string", "description": "объяснение перехода"},
+            "verbose": _VERBOSE,
         },
         required=("issue_key", "to"),
     ),
     _tool(
         "issue_link",
-        "Связать две задачи. Обратный тип связи сервер выводит сам.",
+        "Связать две задачи. Обратный тип связи сервер выводит сам. Отвечает созданной связью "
+        "и списком связей задачи, связанные задачи — как {key, title, status}.",
         {
             "issue_key": _ISSUE_KEY,
             "to": {"type": "string", "description": "ключ второй задачи"},
             "type": _LINK_TYPE,
             "idempotency_key": _IDEMPOTENCY_KEY,
+            "verbose": _VERBOSE,
         },
         required=("issue_key", "to", "type"),
     ),
@@ -304,27 +394,30 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool(
         "issue_checklist_add",
         "Добавить критерий приёмки в задачу. Без описания и хотя бы одного критерия задача не "
-        "пройдёт гвард backlog → ready.",
+        "пройдёт гвард backlog → ready. Отвечает issue_key и item_id нового пункта.",
         {
             "issue_key": _ISSUE_KEY,
             "text": {"type": "string", "description": "формулировка критерия"},
             "sort_order": {"type": "number", "description": "позиция в списке, иначе в конец"},
+            "verbose": _VERBOSE_ITEM,
         },
         required=("issue_key", "text"),
     ),
     _tool(
         "issue_checklist_tick",
-        "Отметить критерий приёмки выполненным или снять отметку. item_id берётся из карточки "
-        "issue_get.",
+        "Отметить критерий приёмки выполненным или снять отметку. item_id (или item_ids — сразу "
+        "несколько) берётся из карточки issue_get.",
         {
             "issue_key": _ISSUE_KEY,
             "item_id": {"type": "string", "description": "id пункта чеклиста"},
+            "item_ids": _ITEM_IDS,
             "done": {
                 "type": "boolean",
                 "description": "true отмечает выполнение, false снимает; по умолчанию true",
             },
+            "verbose": _VERBOSE_ITEM,
         },
-        required=("issue_key", "item_id"),
+        required=("issue_key",),
     ),
     _tool(
         "issue_checklist_edit",
@@ -334,6 +427,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
             "item_id": {"type": "string", "description": "id пункта чеклиста"},
             "text": {"type": "string", "description": "новая формулировка"},
             "sort_order": {"type": "number", "description": "новая позиция в списке"},
+            "verbose": _VERBOSE_ITEM,
         },
         required=("issue_key", "item_id"),
     ),
@@ -345,10 +439,12 @@ TOOLS: tuple[dict[str, Any], ...] = (
         {
             "issue_key": _ISSUE_KEY,
             "item_id": {"type": "string", "description": "id пункта чеклиста"},
+            "item_ids": _ITEM_IDS,
             "reason": {"type": "string", "description": "почему критерий не требуется"},
             "undo": {"type": "boolean", "description": "true снимает отметку «не требуется»"},
+            "verbose": _VERBOSE_ITEM,
         },
-        required=("issue_key", "item_id"),
+        required=("issue_key",),
     ),
     _tool(
         "issue_checklist_remove",
@@ -394,6 +490,30 @@ TOOLS: tuple[dict[str, Any], ...] = (
                 ),
             },
         },
+    ),
+    _tool(
+        "inbox_resolve",
+        "Снять свой запрос из Inbox, когда ответ пришёл другим каналом (чат сессии, комментарий) "
+        "или вопрос отпал; так же убирается своё упоминание. Чужие записи снимает только человек. "
+        "В note — где получен ответ. Задачу из blocked это не возвращает: переведи её сам.",
+        {
+            "item_id": {"type": "string", "description": "id записи из inbox_list"},
+            "note": {
+                "type": "string",
+                "description": (
+                    "где получен ответ и что решено, например «отвечено в чате, решение — "
+                    "design/systems/10-bestiary.md»"
+                ),
+            },
+            "status": {
+                "type": "string",
+                "enum": ["resolved", "dismissed"],
+                "description": (
+                    "resolved — ответ получен (по умолчанию), dismissed — вопрос отпал, запрос отозван"
+                ),
+            },
+        },
+        required=("item_id", "note"),
     ),
     _tool(
         "search",
@@ -452,7 +572,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
     ),
     _tool(
         "doc_update",
-        "Правка страницы плана. version уходит в If-Match: при рассинхроне сервер ответит 409. "
+        "Правка страницы плана. version уходит в If-Match: при рассинхроне сервер ответит 409 "
+        "version_conflict с current_version — повтори с ней. "
         "У страницы, которая показывает файл репозитория, текст не правится — только заголовок "
         "и путь.",
         {
@@ -470,13 +591,90 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool(
         "milestones_list",
         "Вехи роадмапа: срок, статус и прогресс по входящим задачам. Зови, чтобы понять, к какой "
-        "вехе относится задача и что ещё в ней не закрыто.",
-        {},
+        "вехе относится задача и что ещё в ней не закрыто. Описания вех длинные — для выбора "
+        "бери compact=true или fields, открытые вехи — status=[\"planned\",\"active\"].",
+        {
+            "status": {
+                "type": "array",
+                "items": {"type": "string", "enum": list(_MILESTONE_STATUSES)},
+                "description": "только вехи с этими статусами: planned, active, done",
+            },
+            "compact": {
+                "type": "boolean",
+                "description": (
+                    "без описаний: id, name, status, target_date, прогресс (total, done, closed, "
+                    "progress) и version для milestone_update"
+                ),
+            },
+            "fields": {
+                **_STRING_LIST,
+                "description": (
+                    "какие поля вехи вернуть, точно: например [\"name\",\"status\",\"progress\"]. "
+                    "Сильнее compact"
+                ),
+            },
+        },
+    ),
+    _tool(
+        "milestone_create",
+        "Создать веху роадмапа. Задачи привязываются к ней полем milestone по имени, поэтому "
+        "имя в проекте уникально: занятое даёт 409 milestone_exists, а в details.milestone — "
+        "справка о существующей вехе (id, name, status, target_date, version, без описания), "
+        "её и бери.",
+        {
+            "name": {"type": "string", "description": "имя вехи, например «Культивация»"},
+            "description_md": {"type": "string", "description": "что входит в веху, markdown"},
+            "target_date": {
+                "type": "string",
+                "description": "срок, дата ISO 8601, например 2026-12-01",
+            },
+            "status": {
+                "type": "string",
+                "enum": list(_MILESTONE_STATUSES),
+                "description": "planned (по умолчанию), active или done",
+            },
+            "sort_order": {"type": "number", "description": "позиция на роадмапе"},
+        },
+        required=("name",),
+    ),
+    _tool(
+        "milestone_update",
+        "Правка вехи: имя, описание, срок, статус, порядок. Закрыть веху — status=done. "
+        "version уходит в If-Match: при рассинхроне сервер ответит 409 version_conflict с "
+        "current_version — повтори с ней.",
+        {
+            "milestone": {"type": "string", "description": "имя вехи или её id"},
+            "patch": {
+                "type": "object",
+                "description": (
+                    "изменяемые поля: name, description_md, target_date (null — снять срок), "
+                    "status, sort_order"
+                ),
+            },
+            "version": {"type": "integer", "description": "версия из milestones_list"},
+        },
+        required=("milestone", "patch"),
     ),
     _tool(
         "me",
         "Кто я: остаток суточного бюджета и мои активные лизы.",
         {},
+    ),
+    _tool(
+        "bridge_update",
+        "Обновить этот MCP-мост с трекера: скачивает актуальную папку моста (ajira_mcp.py, "
+        "README.md, mcp.json.example, skills/agentjira/SKILL.md), сверяет sha256 и отпечаток "
+        "каталога, заменяет изменившиеся файлы и кладёт прежние в .ajira-backup рядом. Зови, "
+        "когда инструкция на initialize предупреждает, что мост разошёлся с сервером. Новые "
+        "инструменты появятся только в новой сессии агента: список инструментов клиент "
+        "запоминает при подключении. Мост из пакета ajira (ajira mcp) обновляется вместе с "
+        "трекером — ему заменять нечего.",
+        {
+            "check_only": {
+                "type": "boolean",
+                "description": "только сравнить версии и файлы, ничего не записывая",
+            },
+        },
     ),
 )
 
@@ -552,11 +750,145 @@ def _op_issue_list(client: Any, args: Mapping[str, Any]) -> Any:
         filters["limit"] = _as_int(filters["limit"], "limit")
     if "compact" in filters and not isinstance(filters["compact"], bool):
         raise ToolError("issue_list: compact должен быть true или false")
-    return client.list_issues(**filters)
+    payload = client.list_issues(**filters)
+    compact = bool(filters.get("compact"))
+    fields = filters.get("fields") or []
+    if not (compact or fields):
+        return payload
+    # Сужаем и здесь: трекер до compact/fields молча отдал бы полный список с описаниями.
+    return _narrow_list(payload, "issue_list", _ISSUE_COMPACT_FIELDS, compact=compact, fields=fields)
+
+
+#: Поля compact-списка задач — те же, что `COMPACT_FIELDS` в `ajira/service/issues.py`: ядро
+#: пакет не импортирует, совпадение сверяет тест.
+_ISSUE_COMPACT_FIELDS = (
+    "key",
+    "title",
+    "type",
+    "status",
+    "priority",
+    "assignee",
+    "parent",
+    "milestone",
+    "labels",
+    "checklist_done",
+    "checklist_total",
+    "updated_at",
+    "version",
+)
 
 
 def _op_issue_get(client: Any, args: Mapping[str, Any]) -> Any:
-    return client.get_issue(str(_require(args, "issue_key", "issue_get")))
+    key = str(_require(args, "issue_key", "issue_get"))
+    fields = _as_str_list(args.get("fields"), "fields")
+    compact = args.get("compact")
+    if compact is not None and not isinstance(compact, bool):
+        raise ToolError("issue_get: compact должен быть true или false")
+    last = args.get("comments_last")
+    if last is not None:
+        last = _as_int(last, "comments_last")
+        if last < 0:
+            raise ToolError("issue_get: comments_last не может быть отрицательным")
+        card = client.get_issue(key, comments_last=last)
+    else:
+        card = client.get_issue(key)
+    # Сужаем здесь, а не на сервере: так флаги работают и со старым трекером, а экономится
+    # именно контекст агента — карточка, перечитанная пять раз, оплачивается на каждом шаге.
+    if not isinstance(card, Mapping):
+        return card
+    if last is not None:
+        card = _last_comments(card, last)
+    if fields:
+        unknown = [name for name in fields if name not in card]
+        if unknown:
+            raise ToolError(
+                "issue_get: неизвестные поля в fields: "
+                + ", ".join(unknown)
+                + ". Есть: "
+                + ", ".join(sorted(card))
+            )
+        return {name: card[name] for name in fields}
+    if not compact:
+        return card
+    # Явно попрошенные последние комментарии compact не выбрасывает: «статус и хендофф» —
+    # ровно то, с чего агент начинает сессию.
+    dropped = _GET_COMPACT_DROP if last is None else ("description_md", "attachments")
+    brief = {name: value for name, value in card.items() if name not in dropped}
+    if isinstance(card.get("checklist"), list):
+        brief["checklist"] = [
+            {name: item.get(name) for name in ("id", "text", "done", "waived")}
+            if isinstance(item, Mapping)
+            else item
+            for item in card["checklist"]
+        ]
+    if isinstance(card.get("links"), list):
+        brief["links"] = [
+            {**item, "issue": _issue_brief(item.get("issue"))} if isinstance(item, Mapping) else item
+            for item in card["links"]
+        ]
+    return brief
+
+
+#: Что compact-карточка оставляет за бортом: длинные тексты, которые агент уже прочитал.
+#: Их число остаётся в `counts`.
+_GET_COMPACT_DROP = ("description_md", "comments", "attachments")
+
+
+def _last_comments(card: Mapping[str, Any], last: int) -> dict[str, Any]:
+    """Последние `last` комментариев карточки и `comments_omitted` — сколько не вошло.
+
+    Новый трекер режет сам, и тогда срез здесь ничего не меняет; старый параметр не знает и
+    отдаёт всю переписку — режем на месте, чтобы обещание инструмента держалось с любым.
+    """
+    result = dict(card)
+    comments = card.get("comments")
+    omitted = card.get("comments_omitted")
+    omitted = omitted if isinstance(omitted, int) and not isinstance(omitted, bool) else 0
+    if isinstance(comments, list) and len(comments) > last:
+        omitted += len(comments) - last
+        # Срез `[-0:]` вернул бы весь список, поэтому ноль — отдельный случай.
+        result["comments"] = comments[-last:] if last else []
+    result["comments_omitted"] = omitted
+    return result
+
+
+def _card_brief(card: Any) -> Any:
+    """Ответ мутации задачи: где она теперь. Карточку целиком агент перечитает, если нужно."""
+    if not isinstance(card, Mapping):
+        return card
+    return {name: card.get(name) for name in ("id", "key", "status", "version")}
+
+
+def _item_brief(key: str, item: Any, *names: str) -> Any:
+    """Ответ мутации пункта чеклиста: item_id для следующих вызовов и то, что поменялось."""
+    if not isinstance(item, Mapping):
+        return item
+    return {"issue_key": key, "item_id": item.get("id"), **{name: item.get(name) for name in names}}
+
+
+def _item_ids_of(args: Mapping[str, Any], tool: str) -> list[str]:
+    """item_ids (пакет) или прежний одиночный item_id; пакет проверяется до первого вызова API."""
+    if "item_ids" in args:
+        ids = args["item_ids"]
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+            raise ToolError(f"{tool}: item_ids должен быть непустым списком id пунктов")
+        return list(ids)
+    return [str(_require(args, "item_id", tool))]
+
+
+def _batch_items(key: str, items: list[Any], verbose: bool, *names: str, batch: bool) -> Any:
+    """Ответ одиночного вызова прежний; пакет отвечает одним списком."""
+    if not batch:
+        return items[0] if verbose else _item_brief(key, items[0], *names)
+    if verbose:
+        return {"issue_key": key, "items": items}
+    return {
+        "issue_key": key,
+        "items": [
+            {k: v for k, v in _item_brief(key, item, *names).items() if k != "issue_key"}
+            for item in items
+        ],
+    }
 
 
 def _op_issue_create(client: Any, args: Mapping[str, Any]) -> Any:
@@ -564,6 +896,8 @@ def _op_issue_create(client: Any, args: Mapping[str, Any]) -> Any:
     fields.pop("issue_key", None)
     # Ключ — не поле задачи: уходит заголовком, а пустой не уходит вовсе.
     fields.pop("idempotency_key", None)
+    verbose = _verbose_of(fields, "issue_create")
+    fields.pop("verbose", None)
     fields["title"] = _as_text(fields.get("title", ""), "issue_create: заголовок")
     if "labels" in fields:
         fields["labels"] = _as_str_list(fields["labels"], "labels")
@@ -584,11 +918,15 @@ def _op_issue_create(client: Any, args: Mapping[str, Any]) -> Any:
         "assignee",
         "estimate_minutes",
         "meta",
+        "project",
     }
+    if "project" in fields:
+        fields["project"] = _as_text(fields["project"], "issue_create: project")
     unknown = sorted(set(fields) - known)
     if unknown:
         raise ToolError("issue_create: неизвестные аргументы: " + ", ".join(unknown))
-    return client.create_issue(**fields, **_idempotency_of(args))
+    card = client.create_issue(**fields, **_idempotency_of(args))
+    return card if verbose else _card_brief(card)
 
 
 def _op_issue_update(client: Any, args: Mapping[str, Any]) -> Any:
@@ -597,7 +935,9 @@ def _op_issue_update(client: Any, args: Mapping[str, Any]) -> Any:
     if not isinstance(patch, Mapping) or not patch:
         raise ToolError("issue_update: patch должен быть непустым объектом")
     version = args.get("version")
-    return client.update_issue(key, patch, version=version)
+    verbose = _verbose_of(args, "issue_update")
+    card = client.update_issue(key, patch, version=version)
+    return card if verbose else _card_brief(card)
 
 
 def _op_issue_claim(client: Any, args: Mapping[str, Any]) -> Any:
@@ -643,18 +983,52 @@ def _op_issue_worklog(client: Any, args: Mapping[str, Any]) -> Any:
     )
 
 
+def _verbose_of(args: Mapping[str, Any], tool: str) -> bool:
+    verbose = args.get("verbose")
+    if verbose is not None and not isinstance(verbose, bool):
+        raise ToolError(f"{tool}: verbose должен быть true или false")
+    return bool(verbose)
+
+
+def _issue_brief(issue: Any) -> Any:
+    """Связанная задача в ответе мутации: без описания, иначе одна связь весит килобайты."""
+    if not isinstance(issue, Mapping):
+        return issue
+    return {name: issue.get(name) for name in ("key", "title", "status")}
+
+
 def _op_issue_transition(client: Any, args: Mapping[str, Any]) -> Any:
     key = str(_require(args, "issue_key", "issue_transition"))
     to = str(_require(args, "to", "issue_transition"))
     note = args.get("note")
-    return client.transition(key, to, note=str(note) if note is not None else None)
+    verbose = _verbose_of(args, "issue_transition")
+    card = client.transition(key, to, note=str(note) if note is not None else None)
+    # Сервер отвечает полной карточкой со связанными задачами целиком — до десятков КБ на переход.
+    # Агенту после перехода нужно только, где задача теперь и куда из неё можно.
+    if verbose or not isinstance(card, Mapping):
+        return card
+    # Отказ приходит ToolError-ом вместе с объяснением, поэтому в успешном ответе доступные
+    # переходы с длинными reason — только по verbose.
+    return {name: card.get(name) for name in ("key", "status", "version")}
 
 
 def _op_issue_link(client: Any, args: Mapping[str, Any]) -> Any:
     key = str(_require(args, "issue_key", "issue_link"))
     to = str(_require(args, "to", "issue_link"))
     link_type = str(_require(args, "type", "issue_link"))
-    return client.link(key, to, link_type, **_idempotency_of(args))
+    verbose = _verbose_of(args, "issue_link")
+    payload = client.link(key, to, link_type, **_idempotency_of(args))
+    if verbose or not isinstance(payload, Mapping):
+        return payload
+    links = payload.get("links")
+    return {
+        "key": payload.get("key", key),
+        "link": {"to": to, "type": link_type},
+        "links": [
+            {**item, "issue": _issue_brief(item.get("issue"))} if isinstance(item, Mapping) else item
+            for item in (links if isinstance(links, list) else [])
+        ],
+    }
 
 
 def _op_issue_attach(client: Any, args: Mapping[str, Any]) -> Any:
@@ -677,20 +1051,24 @@ def _op_issue_checklist_add(client: Any, args: Mapping[str, Any]) -> Any:
     if not text:
         raise ToolError("issue_checklist_add: текст критерия не может быть пустым")
     order = args.get("sort_order")
-    return client.checklist_add(
+    verbose = _verbose_of(args, "issue_checklist_add")
+    item = client.checklist_add(
         key, text, sort_order=_as_float(order, "sort_order") if order is not None else None
     )
+    return item if verbose else _item_brief(key, item)
 
 
 def _op_issue_checklist_tick(client: Any, args: Mapping[str, Any]) -> Any:
     key = str(_require(args, "issue_key", "issue_checklist_tick"))
-    item_id = str(_require(args, "item_id", "issue_checklist_tick"))
+    item_ids = _item_ids_of(args, "issue_checklist_tick")
     done = args.get("done")
     if done is None:
         done = True
     if not isinstance(done, bool):
         raise ToolError("issue_checklist_tick: done должен быть true или false")
-    return client.checklist_tick(key, item_id, done=done)
+    verbose = _verbose_of(args, "issue_checklist_tick")
+    items = [client.checklist_tick(key, item_id, done=done) for item_id in item_ids]
+    return _batch_items(key, items, verbose, "done", batch="item_ids" in args)
 
 
 def _op_issue_checklist_edit(client: Any, args: Mapping[str, Any]) -> Any:
@@ -701,28 +1079,33 @@ def _op_issue_checklist_edit(client: Any, args: Mapping[str, Any]) -> Any:
     if text is None and order is None:
         raise ToolError("issue_checklist_edit: нужен text или sort_order")
     new_text = _as_text(text, "issue_checklist_edit: text") if text is not None else None
-    return client.checklist_edit(
+    verbose = _verbose_of(args, "issue_checklist_edit")
+    item = client.checklist_edit(
         key,
         item_id,
         text=new_text,
         sort_order=_as_float(order, "sort_order") if order is not None else None,
     )
+    return item if verbose else _item_brief(key, item, "text", "sort_order")
 
 
 def _op_issue_checklist_waive(client: Any, args: Mapping[str, Any]) -> Any:
     key = str(_require(args, "issue_key", "issue_checklist_waive"))
-    item_id = str(_require(args, "item_id", "issue_checklist_waive"))
+    item_ids = _item_ids_of(args, "issue_checklist_waive")
     undo = args.get("undo")
     if undo is not None and not isinstance(undo, bool):
         raise ToolError("issue_checklist_waive: undo должен быть true или false")
+    verbose = _verbose_of(args, "issue_checklist_waive")
     if undo:
-        return client.checklist_waive(key, item_id, undo=True)
-    # Причина обязательна: снятый без объяснения критерий неотличим от забытого. Проверяем до
-    # похода в API, чтобы агент получил понятный отказ, а не 422.
-    reason = _as_text(
-        _require(args, "reason", "issue_checklist_waive"), "issue_checklist_waive: reason"
-    )
-    return client.checklist_waive(key, item_id, reason=reason)
+        items = [client.checklist_waive(key, item_id, undo=True) for item_id in item_ids]
+    else:
+        # Причина обязательна: снятый без объяснения критерий неотличим от забытого. Проверяем до
+        # похода в API, чтобы агент получил понятный отказ, а не 422.
+        reason = _as_text(
+            _require(args, "reason", "issue_checklist_waive"), "issue_checklist_waive: reason"
+        )
+        items = [client.checklist_waive(key, item_id, reason=reason) for item_id in item_ids]
+    return _batch_items(key, items, verbose, "waived", batch="item_ids" in args)
 
 
 def _op_issue_checklist_remove(client: Any, args: Mapping[str, Any]) -> Any:
@@ -757,6 +1140,17 @@ def _op_inbox_list(client: Any, args: Mapping[str, Any]) -> Any:
     return client.inbox(status=str(status) if status is not None else "open", **extra)
 
 
+def _op_inbox_resolve(client: Any, args: Mapping[str, Any]) -> Any:
+    item_id = str(_require(args, "item_id", "inbox_resolve")).strip()
+    if not item_id:
+        raise ToolError("inbox_resolve: item_id не может быть пустым")
+    note = _as_text(_require(args, "note", "inbox_resolve"), "inbox_resolve: note")
+    status = str(args.get("status") or "resolved")
+    if status not in ("resolved", "dismissed"):
+        raise ToolError("inbox_resolve: status — resolved или dismissed")
+    return client.resolve_inbox(item_id, status=status, note=note)
+
+
 def _op_search(client: Any, args: Mapping[str, Any]) -> Any:
     query = _as_text(_require(args, "q", "search"), "search: q")
     limit = args.get("limit")
@@ -780,7 +1174,13 @@ def _op_doc_get(client: Any, args: Mapping[str, Any]) -> Any:
     if not slug:
         # Пустой слаг превратил бы путь в `/docs` — это дерево документов, а не страница.
         raise ToolError("doc_get: слаг не может быть пустым")
-    return client.doc(slug)
+    doc = client.doc(slug)
+    # Сервер кладёт текст файла и в body_md, и в source.body_md: агент платил бы за страницу
+    # дважды. Оставляем верхний body_md — его же правит doc_update.
+    source = doc.get("source") if isinstance(doc, Mapping) else None
+    if isinstance(source, Mapping) and source.get("body_md") == doc.get("body_md"):
+        doc = {**doc, "source": {k: v for k, v in source.items() if k != "body_md"}}
+    return doc
 
 
 def _op_doc_create(client: Any, args: Mapping[str, Any]) -> Any:
@@ -818,11 +1218,474 @@ def _op_doc_update(client: Any, args: Mapping[str, Any]) -> Any:
 
 
 def _op_milestones_list(client: Any, args: Mapping[str, Any]) -> Any:
-    return client.milestones()
+    status = _as_str_list(args.get("status"), "status")
+    unknown = [value for value in status if value not in _MILESTONE_STATUSES]
+    if unknown:
+        raise ToolError(
+            "milestones_list: неизвестный статус вехи: "
+            + ", ".join(unknown)
+            + ". Есть: "
+            + ", ".join(_MILESTONE_STATUSES)
+        )
+    fields = _as_str_list(args.get("fields"), "fields")
+    compact = args.get("compact")
+    if compact is not None and not isinstance(compact, bool):
+        raise ToolError("milestones_list: compact должен быть true или false")
+    narrowing: dict[str, Any] = {}
+    if status:
+        narrowing["status"] = status
+    if compact:
+        narrowing["compact"] = True
+    if fields:
+        narrowing["fields"] = fields
+    payload = client.milestones(**narrowing)
+    return _narrow_list(
+        payload,
+        "milestones_list",
+        _MILESTONE_COMPACT_FIELDS,
+        compact=bool(compact),
+        fields=fields,
+        # fields без status: сервер фильтр уже применил, а у проекции статуса нет (AJ-76).
+        keep=(lambda item: "status" not in item or item["status"] in status) if status else None,
+    )
+
+
+#: Поля compact-списка вех — те же, что `COMPACT_FIELDS` в `ajira/service/milestones.py`.
+_MILESTONE_COMPACT_FIELDS = (
+    "id",
+    "name",
+    "status",
+    "target_date",
+    "total",
+    "done",
+    "closed",
+    "progress",
+    "version",
+)
+
+
+def _narrow_list(
+    payload: Any,
+    tool: str,
+    compact_fields: Sequence[str],
+    *,
+    compact: bool,
+    fields: Sequence[str],
+    keep: Callable[[Mapping[str, Any]], bool] | None = None,
+) -> Any:
+    """Фильтр и сужение списка `{"items": [...]}` на стороне моста.
+
+    Новый трекер делает это сам, и тогда здесь ничего не меняется: уже суженные элементы
+    проецируются в те же поля. Старый параметров не знает и отдаёт полные элементы с описаниями —
+    без этого шага агент молча получил бы прежние тысячи токенов. `keep` — фильтр, который
+    старый трекер тоже мог проигнорировать.
+    """
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("items"), list):
+        return payload
+    items = [item for item in payload["items"] if isinstance(item, Mapping)]
+    if keep is not None:
+        items = [item for item in items if keep(item)]
+    if fields:
+        unknown = sorted({name for item in items for name in fields if name not in item})
+        if unknown:
+            raise ToolError(
+                f"{tool}: неизвестные поля в fields: "
+                + ", ".join(unknown)
+                + ". Есть: "
+                + ", ".join(sorted({name for item in items for name in item}))
+            )
+        items = [{name: item[name] for name in fields} for item in items]
+    elif compact:
+        items = [{name: item[name] for name in compact_fields if name in item} for item in items]
+    return {**payload, "items": items, "count": len(items)}
+
+
+def _op_milestone_create(client: Any, args: Mapping[str, Any]) -> Any:
+    name = _as_text(_require(args, "name", "milestone_create"), "milestone_create: имя")
+    known = {"name", "description_md", "target_date", "status", "sort_order"}
+    unknown = sorted(set(args) - known)
+    if unknown:
+        raise ToolError("milestone_create: неизвестные аргументы: " + ", ".join(unknown))
+    order = args.get("sort_order")
+    target = args.get("target_date")
+    status = args.get("status")
+    return client.create_milestone(
+        name,
+        description_md=str(args.get("description_md") or ""),
+        target_date=str(target) if target else None,
+        status=str(status) if status else None,
+        sort_order=_as_float(order, "sort_order") if order is not None else None,
+    )
+
+
+def _op_milestone_update(client: Any, args: Mapping[str, Any]) -> Any:
+    milestone = str(_require(args, "milestone", "milestone_update")).strip()
+    if not milestone:
+        raise ToolError("milestone_update: имя или id вехи не может быть пустым")
+    patch = args.get("patch")
+    if not isinstance(patch, Mapping) or not patch:
+        raise ToolError("milestone_update: patch должен быть непустым объектом")
+    return client.update_milestone(milestone, patch, version=args.get("version"))
 
 
 def _op_me(client: Any, args: Mapping[str, Any]) -> Any:
     return client.me()
+
+
+# --- самообновление моста ----------------------------------------------------
+
+#: Папка моста, как её раздаёт сервер (`GET /api/v1/mcp/bridge`) и собирает релиз
+#: (`dist/ajira-mcp`). Первый файл — сам мост: у копии в проекте он может называться иначе.
+BRIDGE_FILES: tuple[str, ...] = (
+    "ajira_mcp.py",
+    "README.md",
+    "mcp.json.example",
+    "skills/agentjira/SKILL.md",
+)
+BRIDGE_ENTRY = BRIDGE_FILES[0]
+BRIDGE_SKILL = "skills/agentjira/SKILL.md"
+
+#: Прежние версии заменённых файлов: одна копия — то, что было до последнего обновления.
+BRIDGE_BACKUP_DIR = ".ajira-backup"
+
+#: Метка версии рядом с мостом: её кладёт релиз (`dist/ajira-mcp/RELEASE.txt`) и `bridge_update`.
+BRIDGE_RELEASE_FILE = "RELEASE.txt"
+_RELEASE_REVISION = "ревизия git:"
+
+#: Где Claude Code ищет скилл проекта. Туда его копирует человек, а мост только сверяет копию.
+PROJECT_SKILL_PARTS = (".claude", "skills", "agentjira", "SKILL.md")
+
+NEW_SESSION_NOTE = (
+    "Новые инструменты и инструкция появятся только в новой сессии агента: список инструментов "
+    "клиент запоминает при подключении, перезапуск процесса моста его не обновляет. Скажи "
+    "человеку, что сессию нужно начать заново."
+)
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _file_sha256(path: Path) -> str | None:
+    try:
+        return _sha256(path.read_bytes())
+    except OSError:
+        return None
+
+
+def bridge_path_of(client: Any) -> Path | None:
+    """Файл работающего моста. У пакетного клиента его нет: там мост — сам пакет `ajira`."""
+    value = getattr(client, "bridge_path", None)
+    return Path(value) if value else None
+
+
+def bridge_revision(bridge_path: Path | None) -> str | None:
+    """Ревизия трекера, из которой взята копия моста: строка `ревизия git:` из RELEASE.txt рядом.
+
+    Сам мост ревизии не знает: зашитая в файл, она устаревала бы с каждым коммитом. Метку кладёт
+    рядом релиз и `bridge_update`; скопированного без неё моста хватает и отпечатка.
+    """
+    if bridge_path is None:
+        return None
+    try:
+        text = (bridge_path.parent / BRIDGE_RELEASE_FILE).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    for line in text.splitlines():
+        if line.startswith(_RELEASE_REVISION):
+            words = line[len(_RELEASE_REVISION):].split()
+            return words[0] if words else None
+    return None
+
+
+def load_bridge(source: str, origin: Path, name: str = "ajira_mcp_candidate") -> Any:
+    """Исполняет текст моста как модуль, не трогая `sys.modules` и не оставляя `__pycache__`."""
+    module = types.ModuleType(name)
+    module.__file__ = str(origin)
+    exec(compile(source, str(origin), "exec"), module.__dict__)  # noqa: S102 — свой файл с трекера
+    return module
+
+
+def _candidate_digest(source: str, origin: Path) -> str:
+    """Отпечаток скачанного моста. Файл, который не загружается, сюда не дойдёт до замены."""
+    try:
+        module = load_bridge(source, origin)
+    except SyntaxError as exc:
+        raise ToolError(f"bridge_update: скачанный мост не разбирается как Python: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 — любой сбой загрузки отменяет обновление
+        raise ToolError(f"bridge_update: скачанный мост не загрузился: {exc!r}") from exc
+    digest_of = getattr(module, "catalog_digest", None)
+    if not callable(digest_of) or not callable(getattr(module, "main", None)):
+        raise ToolError("bridge_update: в скачанном файле нет моста (catalog_digest и main)")
+    return str(digest_of())
+
+
+def _is_bridge_folder(directory: Path) -> bool:
+    """Папка отдана мосту целиком — тогда README, пример конфига и скилл рядом с ним его.
+
+    Мост могли положить и прямо в корень проекта, где README.md — README проекта: затирать его
+    нельзя. Своей папку считаем по меткам, которые кладут только релиз моста и `bridge_update`.
+    """
+    try:
+        example = directory / "mcp.json.example"
+        if example.is_file() and "ajira_mcp" in example.read_text(encoding="utf-8"):
+            return True
+        release = directory / BRIDGE_RELEASE_FILE
+        return release.is_file() and release.read_text(encoding="utf-8").startswith("AgentJira")
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _safe_relative(path: Any) -> str | None:
+    """Путь из манифеста, если он остаётся внутри папки моста: без `..`, диска и корня."""
+    if not isinstance(path, str) or not path or ":" in path or "\\" in path:
+        return None
+    pure = PurePosixPath(path)
+    if pure.is_absolute() or ".." in pure.parts:
+        return None
+    return pure.as_posix()
+
+
+def _manifest_files(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    files = manifest.get("files")
+    if not isinstance(files, Sequence) or isinstance(files, str):
+        raise ToolError("bridge_update: сервер не прислал список файлов моста")
+    result: list[dict[str, Any]] = []
+    for item in files:
+        relative = _safe_relative(item.get("path")) if isinstance(item, Mapping) else None
+        sha = item.get("sha256") if isinstance(item, Mapping) else None
+        if relative is None or not isinstance(sha, str):
+            raise ToolError(f"bridge_update: в манифесте сервера негодная запись файла: {item!r}")
+        result.append({"path": relative, "sha256": sha, "content": item.get("content")})
+    return result
+
+
+def _bridge_plan(
+    bridge_path: Path, files: Sequence[Mapping[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], bool]:
+    """Что заменить или создать, что пропустить и отдана ли мосту вся папка."""
+    directory = bridge_path.parent
+    whole_folder = _is_bridge_folder(directory)
+    changes: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    for item in files:
+        is_entry = item["path"] == BRIDGE_ENTRY
+        target = bridge_path if is_entry else directory / item["path"]
+        if not is_entry and not whole_folder:
+            skipped.append(
+                {
+                    "path": item["path"],
+                    "reason": "мост лежит не в своей папке (нет mcp.json.example и RELEASE.txt "
+                    "моста рядом): соседние файлы могут быть файлами проекта, их не трогаю",
+                }
+            )
+            continue
+        current = _file_sha256(target) if target.is_file() else None
+        if current == item["sha256"]:
+            continue
+        changes.append({**item, "target": target, "exists": target.exists()})
+    return changes, skipped, whole_folder
+
+
+def _verify_download(changes: Sequence[dict[str, Any]], server_digest: Any) -> None:
+    """Всё скачанное сходится с манифестом, а новый мост — с каталогом сервера. Иначе отказ."""
+    for change in changes:
+        content = change.get("content")
+        if not isinstance(content, str):
+            raise ToolError(f"bridge_update: сервер не прислал содержимое {change['path']}")
+        data = content.encode("utf-8")
+        if _sha256(data) != change["sha256"]:
+            raise ToolError(
+                f"bridge_update: sha256 файла {change['path']} не совпал с манифестом — "
+                "файл испорчен по дороге. Файлы моста не тронуты."
+            )
+        change["data"] = data
+        if change["path"] == BRIDGE_ENTRY:
+            digest = _candidate_digest(content, change["target"])
+            if digest != server_digest:
+                raise ToolError(
+                    f"bridge_update: сервер раздаёт мост с отпечатком {digest}, а сам работает с "
+                    f"{server_digest}: его копия standalone/ajira_mcp.py устарела. Скажи человеку — "
+                    "релиз трекера нужно пересобрать (scripts/build_release.py). Файлы моста не "
+                    "тронуты."
+                )
+
+
+def _install(changes: Sequence[dict[str, Any]], directory: Path) -> Path:
+    """Заменяет файлы через временный файл и `os.replace`: файл моста не бывает недописанным.
+
+    Прежние версии ложатся в `.ajira-backup`. Сбой посередине возвращает уже заменённые файлы:
+    половина нового моста рядом с половиной старого хуже любого из них.
+    """
+    backup_root = directory / BRIDGE_BACKUP_DIR
+    if backup_root.is_dir():
+        shutil.rmtree(backup_root)
+    done: list[tuple[Path, Path | None]] = []
+    current: Path = directory
+    try:
+        for change in changes:
+            current = change["target"]
+            current.parent.mkdir(parents=True, exist_ok=True)
+            backup: Path | None = None
+            if change["exists"]:
+                backup = backup_root / current.relative_to(directory)
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(current, backup)
+            fresh = current.with_name(current.name + ".new")
+            fresh.write_bytes(change["data"])
+            os.replace(fresh, current)
+            done.append((current, backup))
+    except OSError as exc:
+        for target, backup in reversed(done):
+            try:
+                if backup is not None:
+                    shutil.copy2(backup, target)
+                else:
+                    target.unlink()
+            except OSError:
+                pass
+        leftover = current.with_name(current.name + ".new")
+        if leftover.exists():
+            try:
+                leftover.unlink()
+            except OSError:
+                pass
+        raise ToolError(
+            f"bridge_update: не удалось записать {current}: {exc}. Уже заменённые файлы "
+            "возвращены, мост остался прежним."
+        ) from exc
+    return backup_root
+
+
+def _write_release(directory: Path, manifest: Mapping[str, Any], base_url: Any) -> None:
+    """Метка версии рядом с мостом: из неё предупреждение называет ревизию моста."""
+    build = manifest.get("build") if isinstance(manifest.get("build"), Mapping) else {}
+    revision = build.get("revision") or "неизвестна"
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    lines = [
+        "AgentJira — MCP-мост, обновлён инструментом bridge_update",
+        f"{_RELEASE_REVISION} {revision}" + ("  (есть несохранённые правки)" if build.get("dirty") else ""),
+        f"собрано: {build.get('built_at') or 'неизвестно'}",
+        f"отпечаток каталога MCP: {manifest.get('catalog_digest')}",
+        f"обновлено: {now} с {base_url or 'трекера'}",
+        "",
+    ]
+    # Байтами, а не write_text(newline=...): мосту хватает Python 3.9, где такого аргумента нет.
+    (directory / BRIDGE_RELEASE_FILE).write_bytes("\n".join(lines).encode("utf-8"))
+
+
+def _skill_copies(bridge_path: Path, skill_sha: str | None) -> list[dict[str, Any]]:
+    """Копии скилла в `.claude/skills/agentjira/`: в текущем каталоге и над папкой моста.
+
+    Мост их не переписывает: `.claude/` — настройки проекта, их правит человек или агент на
+    виду у человека, а Claude Code всё равно перечитает скилл только в новой сессии.
+    """
+    roots = [Path.cwd(), bridge_path.parent, *bridge_path.parent.parents]
+    seen: set[str] = set()
+    found: list[dict[str, Any]] = []
+    for root in roots:
+        candidate = root.joinpath(*PROJECT_SKILL_PARTS)
+        key = str(candidate.resolve()) if candidate.exists() else ""
+        if not key or key in seen or not candidate.is_file():
+            continue
+        seen.add(key)
+        found.append({"path": str(candidate), "current": _file_sha256(candidate) == skill_sha})
+    return found
+
+
+def update_bridge(client: Any, bridge_path: Path | None, *, check_only: bool = False) -> dict[str, Any]:
+    """Сверяет папку моста с той, что раздаёт сервер, и, если надо, заменяет файлы.
+
+    Возвращает отчёт для агента: версии моста и сервера, что заменено, где резервная копия и что
+    делать дальше. Отказ (битый файл, мост не той версии) — `ToolError`, файлы при этом не тронуты.
+    """
+    standalone = bridge_path is not None
+    manifest = client.bridge_manifest(content=standalone and not check_only)
+    if not isinstance(manifest, Mapping):
+        raise ToolError("bridge_update: сервер не прислал манифест моста")
+    server_digest = manifest.get("catalog_digest")
+    local_digest = catalog_digest()
+    build = manifest.get("build") if isinstance(manifest.get("build"), Mapping) else {}
+    report: dict[str, Any] = {
+        "bridge": str(bridge_path) if bridge_path is not None else None,
+        "bridge_version": {"catalog_digest": local_digest, "revision": bridge_revision(bridge_path)},
+        "server_version": {
+            "catalog_digest": server_digest,
+            "revision": build.get("revision"),
+            "built_at": build.get("built_at"),
+        },
+    }
+    if bridge_path is None:
+        report["status"] = "packaged"
+        report["message"] = (
+            "MCP запущен из пакета ajira (ajira mcp), а не из автономного ajira_mcp.py: он "
+            "обновляется вместе с трекером, заменять нечего."
+        )
+        return report
+
+    files = _manifest_files(manifest)
+    changes, skipped, whole_folder = _bridge_plan(bridge_path, files)
+    skill_sha = next((item["sha256"] for item in files if item["path"] == BRIDGE_SKILL), None)
+    if skipped:
+        report["skipped"] = skipped
+    entry_changes = any(change["path"] == BRIDGE_ENTRY for change in changes)
+
+    if check_only or not changes:
+        report["status"] = "outdated" if changes else "up_to_date"
+        if changes:
+            report["changed_files"] = [change["path"] for change in changes]
+            report["next_step"] = "вызови bridge_update без check_only — он заменит эти файлы"
+        elif server_digest and local_digest != server_digest:
+            # Файл на диске уже как у сервера, а процесс работает на старом коде: обновление
+            # прошло в этой же сессии. Если и файл не той версии — сервер раздаёт чужой мост.
+            on_disk = _candidate_digest(bridge_path.read_text(encoding="utf-8"), bridge_path)
+            if on_disk == server_digest:
+                report["next_step"] = NEW_SESSION_NOTE
+            else:
+                report["warning"] = (
+                    f"сервер раздаёт мост с отпечатком {on_disk}, а сам работает с "
+                    f"{server_digest}: скажи человеку, что релиз трекера нужно пересобрать"
+                )
+        _report_skills(report, bridge_path, skill_sha, whole_folder)
+        return report
+
+    _verify_download(changes, server_digest)
+    backup = _install(changes, bridge_path.parent)
+    if whole_folder:
+        _write_release(bridge_path.parent, manifest, getattr(client, "base_url", None))
+    report["status"] = "updated"
+    report["updated"] = [change["path"] for change in changes if change["exists"]]
+    report["created"] = [change["path"] for change in changes if not change["exists"]]
+    report["entry_replaced"] = entry_changes
+    report["backup"] = str(backup)
+    report["next_step"] = NEW_SESSION_NOTE
+    _report_skills(report, bridge_path, skill_sha, whole_folder)
+    return report
+
+
+def _report_skills(
+    report: dict[str, Any], bridge_path: Path, skill_sha: str | None, whole_folder: bool
+) -> None:
+    skills = _skill_copies(bridge_path, skill_sha)
+    report["skills"] = skills
+    stale = [copy["path"] for copy in skills if not copy["current"]]
+    if not stale:
+        return
+    if whole_folder:
+        source = f"файл {bridge_path.parent / BRIDGE_SKILL} (после обновления моста)"
+    else:
+        source = f"текст из GET /api/v1/mcp/bridge/files/{BRIDGE_SKILL}"
+    report["skills_hint"] = (
+        f"копия скилла отличается от раздаваемой сервером: {', '.join(stale)}. Скопируй туда "
+        f"{source}, если человек не против: мост сам настройки проекта (.claude/) не правит"
+    )
+
+
+def _op_bridge_update(client: Any, args: Mapping[str, Any]) -> Any:
+    check_only = args.get("check_only", False)
+    if not isinstance(check_only, bool):
+        raise ToolError("bridge_update: check_only должен быть true или false")
+    return update_bridge(client, bridge_path_of(client), check_only=check_only)
 
 
 HANDLERS: dict[str, Callable[[Any, Mapping[str, Any]], Any]] = {
@@ -846,6 +1709,7 @@ HANDLERS: dict[str, Callable[[Any, Mapping[str, Any]], Any]] = {
     "issue_checklist_remove": _op_issue_checklist_remove,
     "attention_request": _op_attention_request,
     "inbox_list": _op_inbox_list,
+    "inbox_resolve": _op_inbox_resolve,
     "search": _op_search,
     "metrics": _op_metrics,
     "docs_list": _op_docs_list,
@@ -853,7 +1717,10 @@ HANDLERS: dict[str, Callable[[Any, Mapping[str, Any]], Any]] = {
     "doc_create": _op_doc_create,
     "doc_update": _op_doc_update,
     "milestones_list": _op_milestones_list,
+    "milestone_create": _op_milestone_create,
+    "milestone_update": _op_milestone_update,
     "me": _op_me,
+    "bridge_update": _op_bridge_update,
 }
 
 
@@ -880,7 +1747,7 @@ def _json_content(payload: Any) -> dict[str, Any]:
     """Успешный результат инструмента: JSON-текстом, чтобы агент читал поля, а не прозу."""
     if payload is None:
         payload = {}
-    text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+    text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
     return _text_content(text)
 
 
@@ -927,15 +1794,82 @@ BASE_INSTRUCTIONS = (
     "метки needs-human: с ней закрывает человек, и снять её агент не может. Критерии приёмки видны "
     "в issue_get — отмечай их issue_checklist_tick по мере выполнения. Вопрос, утверждение или "
     "блокер — attention_request (Inbox), ответы человека читай через inbox_list; свои упоминания "
-    "(@имя) — inbox_list с addressee=me. Блокер — ещё и "
-    "issue_transition в blocked с причиной в note. Любая проблема или затруднение при работе с "
+    "(@имя) — inbox_list с addressee=me. Ответ пришёл другим каналом (чат, комментарий) или "
+    "вопрос отпал — сними свой запрос inbox_resolve, в note — где получен ответ. Блокер — ещё и "
+    "issue_transition в blocked с причиной в note; вернуть в работу из blocked или failed без "
+    "лиза — снова issue_claim. Задача отпала — issue_transition в cancelled с причиной; уже "
+    "сделана в другом месте или эпик с закрытыми подзадачами — сразу в done (с note, где "
+    "сделано), без claim и review. Любая проблема или затруднение при работе с "
     "самим трекером (ошибка, непонятный отказ, неудобный или недостающий инструмент, неясная "
     "инструкция), нужный фикс или улучшение — задача через issue_create в проекте трекера: не "
-    "обходи молча. Для вопросов человеку задачу не заводи."
+    "обходи молча. Для вопросов человеку задачу не заводи. Если ниже сказано, что мост "
+    "разошёлся с сервером, обнови его инструментом bridge_update и скажи человеку начать новую "
+    "сессию."
 )
 
 #: Сколько страниц плана называть в инструкции: агенту нужен вход, а не оглавление.
 INSTRUCTION_DOC_LIMIT = 5
+
+
+def catalog_digest() -> str:
+    """Отпечаток того, что мост обещает агенту: каталог инструментов и порядок работы.
+
+    Копию автономного моста кладут в чужой проект и забывают, а сервер тем временем уходит
+    вперёд: агент проекта DF жаловался на отсутствие `project` у `issue_create`, который уже был
+    в трекере, но не в его копии (AJ-44). Сервер отдаёт свой отпечаток в `/meta`, мост сверяет
+    его со своим и предупреждает агента. Отпечаток считается из данных, а не из ревизии git:
+    иначе собранный `standalone/ajira_mcp.py` устаревал бы с каждым коммитом.
+    """
+    payload = json.dumps(
+        {"tools": TOOLS, "instructions": BASE_INSTRUCTIONS}, ensure_ascii=False, sort_keys=True
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def _version_label(digest: Any, revision: Any = None, built_at: Any = None) -> str:
+    """Версия для человека: отпечаток каталога и, если известны, ревизия git и дата сборки."""
+    extra = []
+    if revision:
+        extra.append(f"ревизия {revision}")
+    if built_at:
+        extra.append(f"собран {built_at}")
+    return f"{digest} ({', '.join(extra)})" if extra else str(digest)
+
+
+def _version_warning(meta: Mapping[str, Any], bridge_path: Path | None = None) -> str | None:
+    """Предупреждение о том, что мост и сервер собраны из разных версий трекера.
+
+    Старый сервер отпечатка не отдаёт — тогда молчим: сравнивать не с чем. Совет зависит от
+    того, кто запущен: автономный мост обновляется сам (`bridge_update`), если сервер его
+    раздаёт; пакетный — только вместе с пакетом, это делает человек.
+    """
+    mcp = meta.get("mcp") if isinstance(meta.get("mcp"), Mapping) else {}
+    server = mcp.get("catalog_digest")
+    local = catalog_digest()
+    if not isinstance(server, str) or not server or server == local:
+        return None
+    mine = _version_label(local, bridge_revision(bridge_path))
+    theirs = _version_label(server, mcp.get("revision"), mcp.get("built_at"))
+    text = (
+        f"ВНИМАНИЕ: этот MCP-мост собран из другой версии трекера, чем запущенный сервер: "
+        f"версия моста {mine}, версия сервера {theirs}. Инструментов, аргументов или правил "
+        f"может не хватать, или они ведут себя иначе, чем описано у сервера. "
+    )
+    if bridge_path is not None and mcp.get("bridge"):
+        return text + (
+            "Обнови мост сам: вызови инструмент bridge_update — он скачает с трекера актуальную "
+            "папку моста и заменит файлы. Новые инструменты появятся только в новой сессии "
+            "агента: после обновления скажи человеку, что её нужно начать."
+        )
+    if bridge_path is not None:
+        return text + (
+            "Сервер мост не раздаёт, обновить его сам ты не сможешь. Скажи человеку: копию моста "
+            "в проекте обновляют из папки ajira-mcp релиза трекера."
+        )
+    return text + (
+        "Скажи человеку: MCP запущен из пакета ajira другой сборки, чем трекер, — пакет обновляют "
+        "вместе с трекером, а копию моста в проекте — из папки ajira-mcp релиза."
+    )
 
 
 def _count_of(payload: Any) -> int | None:
@@ -960,6 +1894,10 @@ def _connection_context(client: Any) -> str:
         return ""
 
     lines: list[str] = []
+    # Первой строкой: всё, что ниже, сервер говорит о своей версии, а не о версии моста.
+    warning = _version_warning(meta, bridge_path_of(client))
+    if warning:
+        lines.append(warning)
     project = meta.get("project") if isinstance(meta.get("project"), Mapping) else {}
     key = project.get("key")
     name = project.get("name")
@@ -985,6 +1923,10 @@ def _connection_context(client: Any) -> str:
         where = f"проекте {tracker_key}"
     else:
         where = "проекте самого трекера"
+    # Агент чужого проекта иначе завёл бы задачу про трекер у себя: проект запроса задан
+    # подключением, а не инструментом (AJ-38).
+    if tracker_key and tracker_key != key:
+        where += f" (аргумент project={tracker_key})"
     lines.append(
         f"Если при работе с трекером возникла проблема или затруднение — ошибка, непонятный "
         f"отказ, неудобный или недостающий инструмент, неясная инструкция — или нужен фикс или "
@@ -1100,7 +2042,9 @@ def handle_request(client: Any, payload: Any) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+                # Отпечаток в версии виден в клиенте рядом с именем сервера: по нему
+                # человек сверяет копию моста с трекером, не открывая инструкцию.
+                "serverInfo": {"name": SERVER_NAME, "version": f"{SERVER_VERSION}+{catalog_digest()}"},
                 "instructions": build_instructions(client),
             },
         )
@@ -1123,31 +2067,158 @@ def handle_request(client: Any, payload: Any) -> dict[str, Any] | None:
     return jsonrpc_error(request_id, METHOD_NOT_FOUND, f"метод не поддерживается: {method}")
 
 
+def force_utf8_stdio() -> None:
+    """Переводит stdin, stdout и stderr процесса в UTF-8.
+
+    MCP по stdio объявлен в UTF-8, а Windows по умолчанию декодирует потоки кодовой страницей
+    системы: русский текст запроса и ответа ломается, а сообщения в stderr (таймауты,
+    автообновление, внутренние ошибки) в консоли и логах MCP-клиента выходят кракозябрами.
+    stderr — только диагностика, поэтому непечатаемое заменяется, а не роняет процесс.
+    """
+    for stream, errors in ((sys.stdin, "strict"), (sys.stdout, "strict"), (sys.stderr, "replace")):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue  # подменённый поток (StringIO, обёртка клиента) — кодировку выбирал не мост
+        try:
+            reconfigure(encoding="utf-8", errors=errors)
+        except (ValueError, OSError):
+            # Поток, из которого уже читали, перекодировать нельзя; работать дальше лучше,
+            # чем упасть на старте.
+            pass
+
+
+#: Кусок, которым пропускается хвост слишком длинной строки: память не растёт с длиной мусора.
+_SKIP_CHUNK = 64 * 1024
+
+
+def _input_lines(source: Any, limit: int) -> Any:
+    """Строки запросов, по возможности — сырыми байтами; вместо слишком длинной — `None`.
+
+    Текстовый stdin декодирует поток сам и на первом же не-UTF-8 байте бросает
+    `UnicodeDecodeError` прямо из итерации: цикл обрывается, мост умирает, и агент теряет трекер
+    до конца сессии. К тому же после такой ошибки обёртка теряет уже прочитанный хвост блока, так
+    что продолжить чтение с неё нельзя. Поэтому у настоящего потока берётся `buffer`, а каждая
+    строка декодируется отдельно. Поток без `buffer` (StringIO, обёртка клиента) читается как есть.
+
+    Строка читается с пределом: итерация по потоку копит строку без перевода строки целиком, и
+    мусор в stdin съел бы память процесса. Хвост длинной строки пропускается кусками до перевода
+    строки, поэтому следующая строка читается с начала. Предел — в байтах UTF-8 без перевода
+    строки; у текстового потока `readline` считает символы, и байты досчитываются после чтения.
+    """
+    buffer = getattr(source, "buffer", None)
+    stream = buffer if buffer is not None else source
+    while True:
+        line = stream.readline(limit + 1)
+        if not line:
+            return
+        newline = b"\n" if isinstance(line, (bytes, bytearray)) else "\n"
+        complete = line.endswith(newline)
+        if not complete and len(line) > limit:
+            _skip_rest(stream, newline)
+            yield None
+            continue
+        if isinstance(line, str) and _text_size(line) - int(complete) > limit:
+            yield None
+            continue
+        yield line
+
+
+def _skip_rest(stream: Any, newline: Any) -> None:
+    """Дочитывает и выбрасывает хвост строки до перевода строки или конца потока."""
+    while True:
+        chunk = stream.readline(_SKIP_CHUNK)
+        if not chunk or chunk.endswith(newline):
+            return
+
+
+def _text_size(line: str) -> int:
+    """Размер текстовой строки в байтах UTF-8; одиночный суррогат считается как в `surrogatepass`."""
+    return len(line.encode("utf-8", "surrogatepass"))
+
+
+def _too_long_message(limit: int) -> str:
+    """Текст ошибки разбора для строки длиннее предела — без её содержимого."""
+    return f"строка запроса длиннее {limit} байт: запрос отброшен"
+
+
+def _decode_line(line: Any) -> str:
+    """Строка запроса как текст. Не-UTF-8 — `UnicodeError`, его разбирает `serve`.
+
+    Текстовый источник проверяется тоже: в нём битые байты могут прийти одиночными суррогатами
+    (`surrogateescape`), и такой запрос нельзя ни передать трекеру, ни повторить в ответе.
+    """
+    if isinstance(line, (bytes, bytearray)):
+        return bytes(line).decode("utf-8")
+    line.encode("utf-8")
+    return line
+
+
+def _bad_encoding_message(exc: UnicodeError) -> str:
+    """Текст ошибки разбора для строки не в UTF-8: где сломалось, без самих байтов."""
+    if isinstance(exc, UnicodeDecodeError):
+        bad = exc.object[exc.start : exc.start + 1]
+        return f"строка запроса не в UTF-8: байт 0x{bad.hex()} в позиции {exc.start}"
+    return "строка запроса не в UTF-8"
+
+
+def _dump_response(response: Mapping[str, Any]) -> str:
+    """Ответ одной строкой JSON, которую гарантированно примет stdout в UTF-8.
+
+    Корректный JSON может нести одиночный суррогат экранированием `\\ud800` — в id запроса или в
+    тексте, который ответ повторяет. Записать его в строгий UTF-8 нельзя, и мост упал бы уже на
+    ответе. Тогда весь ответ уходит в ASCII-экранировании: тот же JSON, читаемый любым клиентом.
+    """
+    text = json.dumps(response, ensure_ascii=False, default=str)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        text = json.dumps(response, ensure_ascii=True, default=str)
+    return text
+
+
 def serve(client: Any, stdin: Any = None, stdout: Any = None) -> int:
-    """Цикл stdio: строка запроса на входе — строка ответа на выходе."""
+    """Цикл stdio: строка запроса на входе — строка ответа на выходе.
+
+    Ни одна строка входа не роняет цикл: битая кодировка, битый JSON и строка длиннее
+    `MAX_LINE_BYTES` — ответ `-32700`, исключение обработчика — `-32603`, и мост обслуживает
+    следующую строку.
+    """
     source = stdin if stdin is not None else sys.stdin
     sink = stdout if stdout is not None else sys.stdout
-    for line in source:
-        if not line.strip():
-            continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError as exc:
-            response: dict[str, Any] | None = jsonrpc_error(
-                None, PARSE_ERROR, f"не разобрал JSON: {exc.msg}"
-            )
+    # Предел берётся при вызове, а не при импорте: тест подменяет его, не гоняя мегабайты.
+    limit = MAX_LINE_BYTES
+    for raw in _input_lines(source, limit):
+        response: dict[str, Any] | None
+        if raw is None:
+            response = jsonrpc_error(None, PARSE_ERROR, _too_long_message(limit))
         else:
             try:
-                response = handle_request(client, payload)
-            except Exception as exc:  # noqa: BLE001 — процесс не должен падать от одного запроса
-                print(f"ajira-mcp: внутренняя ошибка: {exc!r}", file=sys.stderr)
-                request_id = payload.get("id") if isinstance(payload, Mapping) else None
-                response = jsonrpc_error(request_id, INTERNAL_ERROR, f"внутренняя ошибка: {exc}")
+                line = _decode_line(raw)
+            except UnicodeError as exc:
+                response = jsonrpc_error(None, PARSE_ERROR, _bad_encoding_message(exc))
+            else:
+                if not line.strip():
+                    continue
+                response = _handle_line(client, line)
         if response is None:
             continue
-        sink.write(json.dumps(response, ensure_ascii=False, default=str) + "\n")
+        sink.write(_dump_response(response) + "\n")
         sink.flush()
     return 0
+
+
+def _handle_line(client: Any, line: str) -> dict[str, Any] | None:
+    """Ответ на одну непустую строку входа: разбор JSON и вызов `handle_request`."""
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError as exc:
+        return jsonrpc_error(None, PARSE_ERROR, f"не разобрал JSON: {exc.msg}")
+    try:
+        return handle_request(client, payload)
+    except Exception as exc:  # noqa: BLE001 — процесс не должен падать от одного запроса
+        print(f"ajira-mcp: внутренняя ошибка: {exc!r}", file=sys.stderr)
+        request_id = payload.get("id") if isinstance(payload, Mapping) else None
+        return jsonrpc_error(request_id, INTERNAL_ERROR, f"внутренняя ошибка: {exc}")
 
 #: Адрес трекера по умолчанию. Переопределяется `AJIRA_URL` или аргументом `--url`.
 DEFAULT_BASE_URL = "http://127.0.0.1:8787"
@@ -1157,6 +2228,14 @@ TOKEN_FILE_ENV = "AJIRA_TOKEN_FILE"
 PROJECT_ENV = "AJIRA_PROJECT"
 TIMEOUT_ENV = "AJIRA_TIMEOUT"
 DEFAULT_TIMEOUT = 30.0
+
+#: Включает обновление моста с трекера при старте процесса, до подключения клиента.
+AUTO_UPDATE_ENV = "AJIRA_AUTO_UPDATE"
+#: Ставится перед запуском только что обновлённого моста в том же процессе: проверять второй
+#: раз нечего, а без метки сбой сервера мог бы зациклить перезапуск.
+RELOADED_ENV = "AJIRA_BRIDGE_RELOADED"
+#: Проверка при старте не должна держать клиента: недоступный трекер — работаем как есть.
+AUTO_UPDATE_TIMEOUT = 5.0
 
 API_PREFIX = "/api/v1"
 
@@ -1212,6 +2291,29 @@ class ApiError(Exception):
 def _clean(params: Mapping[str, Any]) -> dict[str, Any]:
     """Убирает пустые фильтры: `None` не должен превращаться в `param=None`."""
     return {key: value for key, value in params.items() if value is not None}
+
+
+def _query_value(value: Any) -> Any:
+    """Значение параметра запроса так, как его пишет httpx пакетного клиента.
+
+    `urlencode` превращает bool в `True`/`False`, а httpx — в `true`/`false`: без перевода одна и
+    та же команда агента уходила бы из двух сборок разными запросами, и сервер, строже
+    разбирающий bool, понял бы их по-разному.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return value
+
+
+def _encode_query(params: Mapping[str, Any]) -> str:
+    """Строка запроса: пустые фильтры выброшены, списки — повторением параметра."""
+    pairs: dict[str, Any] = {}
+    for key, value in _clean(params).items():
+        if isinstance(value, (list, tuple)):
+            pairs[key] = [_query_value(item) for item in value]
+        else:
+            pairs[key] = _query_value(value)
+    return urlparse.urlencode(pairs, doseq=True)
 
 
 def _quote(value: Any) -> str:
@@ -1367,12 +2469,16 @@ class Transport:
         *,
         token_file: str | Path | None = None,
         project: str | None = None,
+        bridge_path: str | Path | None = None,
     ) -> None:
         resolved = base_url or os.environ.get(URL_ENV) or DEFAULT_BASE_URL
         self.base_url = resolved.rstrip("/")
         self.token = token if token is not None else resolve_token(token_file)
         self.project = project if project is not None else (os.environ.get(PROJECT_ENV) or None)
         self.timeout = _resolve_timeout(timeout)
+        # Файл работающего моста: его и соседей заменяет `bridge_update`. Без него инструмент
+        # только сверяет версии.
+        self.bridge_path = Path(bridge_path) if bridge_path is not None else None
 
     def close(self) -> None:
         """Совместимость с клиентом пакета: у `urllib` закрывать нечего."""
@@ -1463,7 +2569,7 @@ class Transport:
         """Собирает запрос и отдаёт разобранный ответ. Отказ API — `ApiError`."""
         url = self.base_url + path
         if params:
-            query = urlparse.urlencode(_clean(params), doseq=True)
+            query = _encode_query(params)
             if query:
                 url = f"{url}?{query}"
         headers = self._headers(content_type=content_type, extra=extra_headers)
@@ -1481,15 +2587,25 @@ class Transport:
         return self.request("GET", f"{API_PREFIX}/issues", params=filters)
 
     def create_issue(self, **fields: Any) -> Any:
-        """Создать задачу. `idempotency_key` уходит заголовком, как у клиента пакета."""
-        headers = _idempotency(fields.pop("idempotency_key", None))
+        """Создать задачу. `idempotency_key` и `project` уходят заголовками, как у клиента пакета.
+
+        `None` не уходит: при создании null не сбрасывает, а у type и priority сервер его не
+        принимает (AJ-62) — сервер подставляет своё умолчание.
+        """
+        headers = _idempotency(fields.pop("idempotency_key", None)) or {}
+        project = fields.pop("project", None)
+        if project:
+            headers["X-Ajira-Project"] = str(project)
         return self.request(
-            "POST", f"{API_PREFIX}/issues", json_body=dict(fields), extra_headers=headers
+            "POST", f"{API_PREFIX}/issues", json_body=_clean(fields), extra_headers=headers
         )
 
-    def get_issue(self, key: str) -> Any:
-        """Карточка задачи: поля, лиз, связи, вложения, комментарии, доступные переходы."""
-        return self.request("GET", f"{API_PREFIX}/issues/{_quote(key)}")
+    def get_issue(self, key: str, *, comments_last: int | None = None) -> Any:
+        """Карточка задачи: поля, лиз, связи, вложения, комментарии, доступные переходы.
+        `comments_last` — только последние N комментариев."""
+        return self.request(
+            "GET", f"{API_PREFIX}/issues/{_quote(key)}", params={"comments_last": comments_last}
+        )
 
     def update_issue(self, key: str, patch: Mapping[str, Any], version: Any = None) -> Any:
         """Правка полей. `version` уходит в `If-Match` — оптимистическая блокировка."""
@@ -1692,6 +2808,24 @@ class Transport:
             "GET", f"{API_PREFIX}/inbox", params={"status": status, "addressee": addressee}
         )
 
+    def resolve_inbox(
+        self,
+        item_id: str,
+        *,
+        status: str = "resolved",
+        note: str | None = None,
+        answer: str | None = None,
+    ) -> Any:
+        """Закрыть запись Inbox. Агенту можно только свой запрос или своё упоминание."""
+        body = {
+            name: value
+            for name, value in (("status", status), ("note", note), ("answer", answer))
+            if value is not None
+        }
+        return self.request(
+            "POST", f"{API_PREFIX}/inbox/{_quote(item_id)}/resolve", json_body=body
+        )
+
     def search(self, q: str, limit: int | None = None) -> Any:
         """Полнотекстовый поиск по задачам."""
         return self.request("GET", f"{API_PREFIX}/search", params={"q": q, "limit": limit})
@@ -1746,28 +2880,64 @@ class Transport:
             extra_headers=headers,
         )
 
-    def milestones(self) -> Any:
-        """Вехи роадмапа с прогрессом по задачам."""
-        return self.request("GET", f"{API_PREFIX}/milestones")
+    def milestones(
+        self,
+        *,
+        status: Sequence[str] | None = None,
+        compact: bool = False,
+        fields: Sequence[str] | None = None,
+    ) -> Any:
+        """Вехи роадмапа с прогрессом по задачам. `status` — фильтр, `compact=True` — без
+        описаний, `fields` — точный список полей."""
+        params = {
+            "status": list(status) if status else None,
+            "compact": "true" if compact else None,
+            "fields": list(fields) if fields else None,
+        }
+        return self.request("GET", f"{API_PREFIX}/milestones", params=params)
+
+    def create_milestone(
+        self,
+        name: str,
+        *,
+        description_md: str = "",
+        target_date: str | None = None,
+        status: str | None = None,
+        sort_order: float | None = None,
+    ) -> Any:
+        """Создать веху роадмапа. Не заданные поля сервер заполняет своими умолчаниями."""
+        body = _clean(
+            {
+                "name": name,
+                "description_md": description_md,
+                "target_date": target_date,
+                "status": status,
+                "sort_order": sort_order,
+            }
+        )
+        return self.request("POST", f"{API_PREFIX}/milestones", json_body=body)
+
+    def update_milestone(self, milestone: str, patch: Mapping[str, Any], version: Any = None) -> Any:
+        """Правка вехи по id или имени. `version` уходит в `If-Match`."""
+        headers = {"If-Match": str(version)} if version is not None else None
+        return self.request(
+            "PATCH",
+            f"{API_PREFIX}/milestones/{_quote(milestone)}",
+            json_body=dict(patch),
+            extra_headers=headers,
+        )
 
     def me(self) -> Any:
         """Кто я: лимиты, остаток бюджета, активные лизы."""
         return self.request("GET", f"{API_PREFIX}/me")
 
+    def bridge_manifest(self, content: bool = False) -> Any:
+        """Манифест папки моста на сервере: отпечаток, ревизия, sha256 файлов, с `content` — тексты."""
+        params = {"content": "true"} if content else None
+        return self.request("GET", f"{API_PREFIX}/mcp/bridge", params=params)
+
 
 # --- точка входа -------------------------------------------------------------
-
-
-def _force_utf8_stdio() -> None:
-    """Переводит stdio в UTF-8: так требует MCP, а консоль Windows по умолчанию не в UTF-8.
-
-    Без этого русский текст ответа доезжает до агента кракозябрами: `python ajira_mcp.py`
-    в cmd или PowerShell декодирует поток кодовой страницей системы.
-    """
-    for stream in (sys.stdin, sys.stdout):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            reconfigure(encoding="utf-8")
 
 
 def run_stdio(
@@ -1779,6 +2949,7 @@ def run_stdio(
     timeout: float | None = None,
     stdin: Any = None,
     stdout: Any = None,
+    bridge_path: str | Path | None = None,
 ) -> int:
     """Запускает сервер на готовом транспорте: так его запускают и CLI, и тесты."""
     transport = Transport(
@@ -1787,8 +2958,53 @@ def run_stdio(
         timeout=timeout,
         token_file=token_file,
         project=project,
+        bridge_path=bridge_path if bridge_path is not None else Path(__file__).resolve(),
     )
     return serve(transport, stdin=stdin, stdout=stdout)
+
+
+def _env_flag(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def auto_update(
+    bridge_path: Path,
+    *,
+    url: str | None = None,
+    token: str | None = None,
+    token_file: str | Path | None = None,
+    project: str | None = None,
+    timeout: float | None = None,
+) -> bool:
+    """Обновляет мост до подключения клиента. True — файл моста заменён, его надо загрузить.
+
+    Так новая сессия агента сразу получает инструменты сервера, а не узнаёт из предупреждения,
+    что их не хватает. Любой сбой (трекер не поднят, старый сервер без раздачи моста, битый файл)
+    только пишется в stderr: работать на текущей версии лучше, чем не подняться совсем.
+    """
+    limit = AUTO_UPDATE_TIMEOUT if timeout is None else min(timeout, AUTO_UPDATE_TIMEOUT)
+    try:
+        transport = Transport(
+            base_url=url,
+            token=token,
+            timeout=limit,
+            token_file=token_file,
+            project=project,
+            bridge_path=bridge_path,
+        )
+        report = update_bridge(transport, bridge_path)
+    except Exception as exc:  # noqa: BLE001 — сбой обновления не мешает работе текущей версии
+        print(f"ajira-mcp: автообновление не удалось, работаю на текущей версии: {exc}", file=sys.stderr)
+        return False
+    if report.get("status") != "updated":
+        return False
+    changed = list(report.get("updated") or []) + list(report.get("created") or [])
+    print(
+        f"ajira-mcp: мост обновлён с трекера ({', '.join(changed)}), резервная копия в "
+        f"{report.get('backup')}",
+        file=sys.stderr,
+    )
+    return bool(report.get("entry_replaced"))
 
 
 def main(
@@ -1815,17 +3031,31 @@ def main(
     parser.add_argument(
         "--timeout", type=float, default=None, help="таймаут запроса в секундах (иначе AJIRA_TIMEOUT)"
     )
-    args = parser.parse_args(list(argv) if argv is not None else None)
-    _force_utf8_stdio()
-    return run_stdio(
-        url=args.url,
-        token=args.token,
-        token_file=args.token_file,
-        project=args.project,
-        timeout=args.timeout,
-        stdin=stdin,
-        stdout=stdout,
+    parser.add_argument(
+        "--auto-update",
+        dest="auto_update",
+        action="store_true",
+        help=f"при старте обновить мост с трекера (иначе {AUTO_UPDATE_ENV}=1)",
     )
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    # До автообновления: оно первым пишет в stderr по-русски.
+    force_utf8_stdio()
+    bridge_path = Path(__file__).resolve()
+    connection = {
+        "url": args.url,
+        "token": args.token,
+        "token_file": args.token_file,
+        "project": args.project,
+        "timeout": args.timeout,
+    }
+    if (args.auto_update or _env_flag(AUTO_UPDATE_ENV)) and not _env_flag(RELOADED_ENV):
+        if auto_update(bridge_path, **connection):
+            # Процесс уже исполняет старый код, а клиент ещё не подключился: загружаем новый мост
+            # и отдаём stdio ему — новые инструменты будут в этой же сессии.
+            os.environ[RELOADED_ENV] = "1"
+            fresh = load_bridge(bridge_path.read_text(encoding="utf-8"), bridge_path, "ajira_mcp")
+            return int(fresh.main(argv, stdin=stdin, stdout=stdout))
+    return run_stdio(stdin=stdin, stdout=stdout, bridge_path=bridge_path, **connection)
 
 if __name__ == "__main__":
     sys.exit(main())

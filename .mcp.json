@@ -6,7 +6,8 @@
       "env": {
         "AJIRA_URL": "http://127.0.0.1:8787",
         "AJIRA_TOKEN_FILE": "C:/Users/a.kozachenko/.ajira/wuchang-agent.token",
-        "AJIRA_PROJECT": "WM"
+        "AJIRA_PROJECT": "WM",
+        "AJIRA_AUTO_UPDATE": "1"
       }
     }
   }
